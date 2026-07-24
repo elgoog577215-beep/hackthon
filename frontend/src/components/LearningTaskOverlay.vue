@@ -20,6 +20,7 @@
       :practice-available="true"
       @lesson-plan="emit('lesson-plan')"
       @course="emit('course')"
+      @ppt="emit('ppt')"
     />
     <PracticeWorkspace
       class="task-workspace"
@@ -49,7 +50,7 @@ withDefaults(defineProps<{
   recordCount: 0,
 })
 const emit = defineEmits<{
-  (event: 'close' | 'graded' | 'records' | 'stats' | 'outline' | 'lesson-plan' | 'course'): void
+  (event: 'close' | 'graded' | 'records' | 'stats' | 'outline' | 'lesson-plan' | 'course' | 'ppt'): void
   (event: 'askTeacher', payload: { text: string; nodeId: string }): void
 }>()
 </script>

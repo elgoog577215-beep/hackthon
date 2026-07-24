@@ -28,6 +28,7 @@ from course_document import (
 )
 from course_revisions import revision_vector_for_document
 from learning_asset_storage import LearningAssetRepository
+from practice_contracts import enrich_question_contract
 from representation_compiler import compile_core_representations
 from storage import Storage
 from teaching_representations import TeachingRepresentationRepository
@@ -482,21 +483,49 @@ def build_video2_learning_asset_bundle() -> dict[str, Any]:
             "course_misconception_refs": [],
         }
 
-    question = {
+    question = enrich_question_contract({
         "asset_id": "v2-q-composition-order",
         "question_id": "v2-q-composition-order",
         "revision_id": "v2-q-composition-order-r1",
         "task_revision_id": "v2-q-composition-order-r1",
         "node_id": TARGET_SECTION_ID,
         "status": "active",
-        "practice_level": "concept_check",
-        "question_type": "worked_solution",
+        "practice_level": "mastery_check",
+        "question_type": "single_choice",
         "prompt": (
             "设 B 先将向量逆时针旋转 90°，A 再把横坐标放大 2 倍。"
-            "对 v=(1,0)ᵀ：先写出中间状态 Bv，再写出最终状态 A(Bv)，"
-            "最后解释矩阵表达式为什么写成 ABv。"
+            "对 v=(1,0)ᵀ，哪一个选项同时正确写出了 Bv、A(Bv)，"
+            "并解释了 ABv 为什么表示 B 先作用、A 后作用？"
         ),
         "learning_objective": "用中间状态解释复合变换的执行顺序。",
+        "options": [
+            {
+                "option_id": "A",
+                "label": "Bv=(0,1)ᵀ，A(Bv)=(0,1)ᵀ；ABv 表示最右侧的 B 先作用，再由 A 作用于中间状态。",
+            },
+            {
+                "option_id": "B",
+                "label": "Bv=(0,1)ᵀ，A(Bv)=(0,2)ᵀ；ABv 表示 A 先把纵坐标放大，再执行 B。",
+            },
+            {
+                "option_id": "C",
+                "label": "Av=(2,0)ᵀ，B(Av)=(0,2)ᵀ；因此 ABv 表示从左到右先执行 A。",
+            },
+            {
+                "option_id": "D",
+                "label": "只要 A、B 都是线性变换，ABv 与 BAv 的结果和执行顺序总是相同。",
+            },
+        ],
+        "answer_spec": {
+            "type": "choice",
+            "correct_option_id": "A",
+            "criteria": [
+                "正确写出 Bv 与 A(Bv)",
+                "用作用对象解释先右后左",
+                "不把矩阵书写顺序误当成动作顺序",
+            ],
+            "pass_score": 70,
+        },
         "rubric": [
             "写出并核对 Bv",
             "在 Bv 上继续应用 A",
@@ -505,7 +534,7 @@ def build_video2_learning_asset_bundle() -> dict[str, Any]:
         "course_knowledge_refs": [],
         "course_skill_refs": [],
         "course_misconception_refs": [],
-    }
+    }, practice_level="mastery_check")
     questions = [
         practice_question(
             "v2-q-vector-basis",

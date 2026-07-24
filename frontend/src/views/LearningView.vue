@@ -19,12 +19,12 @@
     <main class="learning-main glass-panel-elevated">
       <div
         class="learning-context-bar"
-        :class="{ 'is-generation': isGenerationPreview }"
+        :class="{ 'is-generation': isGenerationPreview, 'has-workspace-tabs': showWorkspaceTabs }"
         :inert="resourcesOpen"
         :aria-hidden="resourcesOpen ? 'true' : undefined"
       >
         <div class="context-leading">
-          <button v-if="!navigatorVisible" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
+          <button v-if="!navigatorVisible && canOpenNavigator" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
             <PanelLeftOpen :size="17" />
           </button>
           <div class="context-copy">
@@ -33,15 +33,18 @@
           </div>
         </div>
         <CourseWorkspaceTabs
+          v-if="showWorkspaceTabs"
           :active-item="activeWorkspaceItem"
           :practice-available="Boolean(currentPracticeNode)"
           :practice-repair-available="questionBankRepairAvailable"
           :practice-pending="isGenerationPreview"
           :lesson-plan-pending="isGenerationPreview && !canOpenGenerationLessonPlan"
           :lesson-plan-building="generationLessonPlanBuilding"
+          :ppt-available="!isGenerationPreview"
           @lesson-plan="selectWorkspace('lesson-plan')"
           @course="selectWorkspace('course')"
           @practice="selectWorkspace('practice')"
+          @ppt="openPptWorkspace"
         />
         <div class="context-actions">
           <div v-if="hasAppliedCourseGrowth" class="ai-course-version" role="status">
@@ -73,6 +76,7 @@
         :live="isGenerationPreview"
         :task="generationTask"
         @select="selectNode"
+        @open-knowledge="openKnowledgeFromLessonPlan"
       />
       <CourseOutlineReview
         v-else-if="showOutlineReview"
@@ -147,6 +151,7 @@
         @outline="openTeachingResourceFromTask('outline')"
         @lesson-plan="openTeachingResourceFromTask('lesson_plan')"
         @course="closeTask"
+        @ppt="openPptWorkspace"
         @ask-teacher="openAiForPractice"
         @graded="refreshAfterGrade"
         @records="openNotebook"
@@ -218,6 +223,7 @@
         @lesson-plan="openTeachingResource('lesson_plan')"
         @course="openCourseWorkspace"
         @practice="openPracticeFromTeachingResource"
+        @ppt="openPptWorkspace"
       />
     </main>
 
@@ -302,7 +308,6 @@ const contentAreaRef = ref<InstanceType<typeof ContentArea> | null>(null)
 const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
-const workflowOpenedAi = ref(false)
 const notebookOpen = ref(false)
 const mistakeBookOpen = ref(false)
 const statsOpen = ref(false)
@@ -323,7 +328,7 @@ const aiPrefill = ref('')
 const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'record'>('global')
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
-const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice'>('course')
+const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice' | 'ppt'>('course')
 const generationActionBusy = ref(false)
 const practiceApiNodeId = ref('')
 let practiceAvailabilityRequest = 0
@@ -387,7 +392,15 @@ const generationContextLabel = computed(() => (
   || t('courseGeneration.production.untitled', '新课程')
 ))
 const navigatorVisible = computed(() => (
-  !courseStore.isFocusMode && navigatorOpen.value
+  !courseStore.isFocusMode
+  && navigatorOpen.value
+  && (!isGenerationPreview.value || courseStore.courseTree.length > 0)
+))
+const canOpenNavigator = computed(() => (
+  !isGenerationPreview.value || courseStore.courseTree.length > 0
+))
+const showWorkspaceTabs = computed(() => (
+  !isGenerationPreview.value || canOpenGenerationLessonPlan.value
 ))
 const hasAppliedCourseGrowth = computed(() => (
   courseEvolutionStore.courseId === courseStore.currentCourseId
@@ -657,9 +670,9 @@ function resumeGenerationFollow() {
   if (node) selectNode(node, false, false)
 }
 
-function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
+function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice' | 'ppt') {
   if (isGenerationPreview.value) {
-    if (item === 'practice') return
+    if (item === 'practice' || item === 'ppt') return
     if (item === 'lesson-plan' && !canOpenGenerationLessonPlan.value) return
     autoFollowGeneration.value = false
     activeWorkspaceItem.value = item
@@ -682,8 +695,18 @@ function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice') {
     openCurrentPractice()
     return
   }
+  if (item === 'ppt') {
+    openPptWorkspace()
+    return
+  }
   activeWorkspaceItem.value = 'course'
   void openCourseWorkspace()
+}
+
+function openPptWorkspace() {
+  const courseId = courseStore.currentCourseId
+  if (!courseId || isGenerationPreview.value) return
+  void router.push({ name: 'ppt-workspace', params: { courseId } })
 }
 
 async function resumeGenerationTask() {
@@ -726,25 +749,6 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isNarrow.value) navigatorOpen.value = false
 }
 
-watch(
-  () => [route.query.surface, loadedLearningCourseId.value] as const,
-  ([surface, loadedCourseId]) => {
-    const growthRequested = String(surface || '') === 'growth'
-      && Boolean(loadedCourseId)
-      && loadedCourseId === courseStore.currentCourseId
-      && !isGenerationPreview.value
-    if (growthRequested) {
-      openAi()
-      workflowOpenedAi.value = true
-    } else if (workflowOpenedAi.value) {
-      aiVisible.value = false
-      activeDomain.value = 'course'
-      workflowOpenedAi.value = false
-
-    }
-  },
-  { immediate: true },
-)
 function openBlockImprovement(target: CourseBlockEditTarget) {
   activeDomain.value = 'assistant'
   aiBlockTarget.value = target
@@ -864,6 +868,19 @@ function openKnowledgeLibrary() {
   aiVisible.value = false
   courseStore.showKnowledgeLibrary = true
   if (isNarrow.value) navigatorOpen.value = false
+}
+
+function openKnowledgeFromLessonPlan(knowledgeId: string) {
+  if (!knowledgeId) return
+  if (isGenerationPreview.value) {
+    ElMessage.info(t(
+      'courseGeneration.lessonPlan.knowledgeAvailableAfterPublish',
+      '知识标签已经绑定课程知识库；课程发布后可打开完整知识详情。',
+    ))
+    return
+  }
+  courseStore.focusKnowledgeId = knowledgeId
+  openKnowledgeLibrary()
 }
 
 function openTeachingResource(type: 'outline' | 'lesson_plan') {
@@ -1054,6 +1071,8 @@ function closeMobileSurfaces() {
 .has-ai-course-growth .learning-context-bar:not(.is-generation) { position:relative; border-bottom-color:rgba(191,219,254,.9); background:linear-gradient(90deg,rgba(248,250,255,.98),rgba(240,249,255,.96) 58%,rgba(248,250,252,.98)); }
 .has-ai-course-growth .learning-context-bar:not(.is-generation)::after { content:""; position:absolute; right:0; bottom:-1px; left:0; height:2px; background:linear-gradient(90deg,#4f46e5 0 24%,#0891b2 62%,rgba(14,165,233,0)); opacity:.72; }
 .learning-context-bar.is-generation { min-height:52px; background:rgba(255,255,255,.96); }
+.learning-context-bar.is-generation.has-workspace-tabs { grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); }
+.learning-context-bar.is-generation:not(.has-workspace-tabs) { grid-template-columns:minmax(0,1fr) auto; }
 .learning-context-bar.is-generation .context-copy span { font-size:11px; line-height:1.35; }
 .learning-context-bar.is-generation .context-copy strong { margin-top:2px; font-size:14px; line-height:1.4; }
 .context-leading { min-width:0; display:flex; align-items:center; gap:9px; }
@@ -1103,6 +1122,7 @@ function closeMobileSurfaces() {
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
   .learning-context-bar { min-height:52px; grid-template-columns:auto minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
   .context-copy { display:none; }
+  .learning-context-bar.is-generation .context-copy { display:flex; }
   .ai-course-version { padding:6px; }
   .ai-course-version > span { display:none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }

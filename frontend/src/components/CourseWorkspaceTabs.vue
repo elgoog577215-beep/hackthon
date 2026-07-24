@@ -53,15 +53,30 @@
       <ClipboardCheck :size="16" />
       <span>{{ t('courseWorkspaceTabs.practice', '练习') }}</span>
     </button>
+    <button
+      type="button"
+      role="tab"
+      data-workspace-item="ppt"
+      :class="{ 'is-active': activeItem === 'ppt' }"
+      :aria-selected="activeItem === 'ppt'"
+      :disabled="!pptAvailable"
+      :title="pptAvailable
+        ? t('courseWorkspaceTabs.pptHint', '打开当前课程的 PPT 工作台')
+        : t('courseWorkspaceTabs.pptPending', '课程发布后开放 PPT 工作台')"
+      @click="emit('ppt')"
+    >
+      <Presentation :size="16" />
+      <span>{{ t('courseWorkspaceTabs.ppt', 'PPT') }}</span>
+    </button>
   </nav>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { BookOpenText, ClipboardCheck, ClipboardList, LoaderCircle } from 'lucide-vue-next'
+import { BookOpenText, ClipboardCheck, ClipboardList, LoaderCircle, Presentation } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
-export type CourseWorkspaceItem = 'lesson-plan' | 'course' | 'practice'
+export type CourseWorkspaceItem = 'lesson-plan' | 'course' | 'practice' | 'ppt'
 
 const props = withDefaults(defineProps<{
   activeItem: CourseWorkspaceItem
@@ -70,12 +85,14 @@ const props = withDefaults(defineProps<{
   practicePending?: boolean
   lessonPlanPending?: boolean
   lessonPlanBuilding?: boolean
+  pptAvailable?: boolean
 }>(), {
   practiceAvailable: false,
   practiceRepairAvailable: false,
   practicePending: false,
   lessonPlanPending: false,
   lessonPlanBuilding: false,
+  pptAvailable: true,
 })
 
 const practiceEntryAvailable = computed(() => (
@@ -83,7 +100,7 @@ const practiceEntryAvailable = computed(() => (
 ))
 
 const emit = defineEmits<{
-  (event: 'lesson-plan' | 'course' | 'practice'): void
+  (event: 'lesson-plan' | 'course' | 'practice' | 'ppt'): void
 }>()
 </script>
 

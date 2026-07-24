@@ -47,6 +47,76 @@ class CourseCommandService:
             mutation=mutation,
         )
 
+    async def patch_block_text(
+        self,
+        course_id: str,
+        *,
+        command_id: str,
+        expected_document_revision: str,
+        expected_block_revision: str,
+        block_id: str,
+        field: str,
+        start: int,
+        end: int,
+        before: str,
+        after: str,
+        prefix_context: str = "",
+        suffix_context: str = "",
+        reason: str = "",
+        actor: str = "system",
+    ) -> dict[str, Any]:
+        """精确替换课程块中的一段文本，拒绝模糊定位和过期修订。"""
+        allowed_fields = {"markdown", "text", "content", "title", "summary"}
+        if field not in allowed_fields:
+            raise CourseDocumentConflict("Course text patch field is not editable")
+        if (
+            not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+            or start < 0
+            or end < start
+        ):
+            raise CourseDocumentConflict("Course text patch range is invalid")
+
+        operation = {
+            "command_id": command_id,
+            "operation": "patch_course_span",
+            "affected_block_ids": [block_id],
+            "patch": {
+                "field": field,
+                "start": start,
+                "end": end,
+            },
+            "reason": reason,
+            "actor": actor,
+        }
+
+        def mutation(document) -> None:
+            target = next((block for block in document.blocks if block.block_id == block_id), None)
+            if not target or target.status == "retired":
+                raise CourseDocumentConflict("Course block not found")
+            if target.internal_revision != expected_block_revision:
+                raise CourseDocumentConflict("Course block revision changed")
+            current = target.payload.get(field)
+            if not isinstance(current, str):
+                raise CourseDocumentConflict("Course text patch target is not text")
+            if end > len(current) or current[start:end] != before:
+                raise CourseDocumentConflict("Course text patch anchor changed")
+            if prefix_context and not current[:start].endswith(prefix_context):
+                raise CourseDocumentConflict("Course text patch prefix changed")
+            if suffix_context and not current[end:].startswith(suffix_context):
+                raise CourseDocumentConflict("Course text patch suffix changed")
+            target.payload[field] = f"{current[:start]}{after}{current[end:]}"
+            refresh_block_revision(target)
+
+        return await self.repository.apply_command(
+            course_id,
+            expected_revision=expected_document_revision,
+            operation=operation,
+            mutation=mutation,
+        )
+
     async def insert_block(
         self,
         course_id: str,
@@ -89,6 +159,8 @@ class CourseCommandService:
         insertions: list[dict[str, Any]],
         replacements: list[dict[str, Any]] | None = None,
         retire_block_ids: list[str] | None = None,
+        restore_block_ids: list[str] | None = None,
+        reorderings: list[dict[str, str]] | None = None,
         reason: str = "",
         actor: str = "system",
     ) -> dict[str, Any]:
@@ -161,16 +233,52 @@ class CourseCommandService:
                 if target.status != "retired":
                     target.status = "retired"
 
+            restored_ids = {
+                str(restored_block_id)
+                for restored_block_id in restore_block_ids or []
+                if str(restored_block_id)
+            }
+            for restored_block_id in restored_ids:
+                target = blocks_by_id.get(restored_block_id)
+                if target is None:
+                    raise CourseDocumentConflict("Course block to restore not found")
+                if target.status == "retired":
+                    target.status = "final"
+
             additions_by_anchor: dict[str, list[CourseBlock]] = {}
             for next_block, anchor_id in normalized_insertions:
                 additions_by_anchor.setdefault(anchor_id, []).append(next_block)
 
             reordered: list[CourseBlock] = []
             for section in sorted(document.sections, key=lambda item: (item.position, item.section_id)):
-                section_blocks = sorted(
+                section_blocks = list(sorted(
                     (item for item in document.blocks if item.section_id == section.section_id),
                     key=lambda item: (item.position, item.block_id),
-                )
+                ))
+                for move in reorderings or []:
+                    block_id = str(move.get("block_id") or "")
+                    target = next(
+                        (item for item in section_blocks if item.block_id == block_id),
+                        None,
+                    )
+                    if target is None:
+                        continue
+                    after_block_id = str(move.get("after_block_id") or "")
+                    section_blocks.remove(target)
+                    if not after_block_id:
+                        section_blocks.insert(0, target)
+                        continue
+                    anchor_index = next(
+                        (
+                            index
+                            for index, item in enumerate(section_blocks)
+                            if item.block_id == after_block_id
+                        ),
+                        -1,
+                    )
+                    if anchor_index < 0:
+                        raise CourseDocumentConflict("Course reorder anchor not found")
+                    section_blocks.insert(anchor_index + 1, target)
                 next_position = 0
                 for current_block in section_blocks:
                     current_block.position = next_position
@@ -184,7 +292,18 @@ class CourseCommandService:
             if len(reordered) != len(document.blocks) + len(normalized_insertions):
                 raise CourseDocumentConflict("Grouped course change contains an unresolved insertion")
             document.blocks = reordered
-            operation["affected_block_ids"] = sorted(new_ids | retired_ids | replaced_ids)
+            reordered_ids = {
+                str(item.get("block_id") or "")
+                for item in reorderings or []
+                if str(item.get("block_id") or "")
+            }
+            operation["affected_block_ids"] = sorted(
+                new_ids
+                | retired_ids
+                | restored_ids
+                | replaced_ids
+                | reordered_ids
+            )
 
         return await self.repository.apply_command(
             course_id,

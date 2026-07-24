@@ -122,6 +122,13 @@ def normalize_outline_skeleton(
                 or f"完成{topic}的第 {index} 阶段学习任务",
                 220,
             ),
+            "learning_path_role": _learning_path_role(
+                raw.get("learning_path_role")
+            ),
+            "path_reason": _clip(
+                raw.get("path_reason") or "课程主路径",
+                240,
+            ),
             "section_count": section_count or 0,
         })
     skeleton = {
@@ -329,6 +336,13 @@ def normalize_outline_batch(
                 or "只覆盖当前小节的学习责任，不提前展开后续内容",
                 240,
             ),
+            "learning_path_role": _learning_path_role(
+                raw.get("learning_path_role")
+            ),
+            "path_reason": _clip(
+                raw.get("path_reason") or "课程主路径",
+                240,
+            ),
         })
     for section in sections:
         if not section["assessment"]:
@@ -454,6 +468,12 @@ def compile_fallback_outline_batch(
                 f"只完成“{focus}”在第 {section_index} 个任务中的责任，"
                 "不提前替代后续小节"
             ),
+            "learning_path_role": _learning_path_role(
+                chapter.get("learning_path_role")
+            ),
+            "path_reason": str(
+                chapter.get("path_reason") or "课程主路径"
+            ),
         })
     return normalize_outline_batch(
         {"sections": sections},
@@ -495,6 +515,12 @@ def assemble_course_outline(
             "title": str(chapter.get("title") or f"第 {chapter_number} 章"),
             "learning_focus": str(
                 chapter.get("learning_focus") or chapter.get("title") or ""
+            ),
+            "learning_path_role": _learning_path_role(
+                chapter.get("learning_path_role")
+            ),
+            "path_reason": str(
+                chapter.get("path_reason") or "课程主路径"
             ),
             "sections": sections,
         })
@@ -583,6 +609,19 @@ def _section_index(node_id: str) -> int:
         return int(str(node_id).rsplit("-", 1)[-1])
     except (TypeError, ValueError):
         return -1
+
+
+def _learning_path_role(value: Any) -> str:
+    role = str(value or "").strip()
+    if role in {
+        "focus",
+        "standard",
+        "compressed",
+        "verify_in_project",
+        "milestone",
+    }:
+        return role
+    return "standard"
 
 
 def _issue(code: str, message: str) -> dict[str, str]:

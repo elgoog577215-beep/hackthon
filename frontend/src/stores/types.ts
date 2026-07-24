@@ -3,6 +3,8 @@
  * 从 course.ts 提取的所有接口和类型，供各拆分后的 Store 共用。
  */
 
+import type { CourseType } from '@/shared/prompt-config'
+
 export type NodeGenerationStatus = 'pending' | 'generating' | 'completed' | 'error' | 'skipped'
 
 export interface NodeGenerationConfig {
@@ -101,6 +103,7 @@ export interface CourseTeachingPlanSection {
     description?: string
     knowledge_points?: Array<{
       knowledge_id?: string
+      knowledge_status?: 'bound' | 'awaiting_compilation' | string
       name?: string
       statement?: string
       description?: string
@@ -122,6 +125,33 @@ export interface CourseTeachingPlanSection {
   teaching_modules: CourseTeachingPlanModule[]
 }
 
+export interface CourseTeachingPlanOverall {
+  course_title: string
+  positioning: string
+  target_audience: string
+  learning_objectives: string[]
+  prerequisites: string[]
+  teaching_strategy: {
+    primary_mode: string
+    secondary_mode: string
+    rationale: string
+  }
+  assessment_methods: string[]
+  chapters: Array<{
+    chapter_id: string
+    chapter_number: string
+    title: string
+    learning_focus: string
+    section_count: number
+    section_ids: string[]
+  }>
+  knowledge_tags: Array<{
+    knowledge_id: string
+    name: string
+    section_count: number
+  }>
+}
+
 export interface CourseTeachingPlanProjection {
   schema_version: 'course_teaching_plan_projection_v1'
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | string
@@ -130,6 +160,7 @@ export interface CourseTeachingPlanProjection {
   section_count: number
   knowledge_point_count: number
   teaching_module_count: number
+  overall?: CourseTeachingPlanOverall
   sections: CourseTeachingPlanSection[]
 }
 
@@ -209,6 +240,8 @@ export interface Node {
   node_level: number
   node_content: string
   learning_objective?: string
+  learning_path_role?: 'focus' | 'standard' | 'compressed' | 'verify_in_project' | 'milestone'
+  path_reason?: string
   objective_id?: string
   objective_revision_id?: string
   content_blocks?: ContentBlock[]
@@ -427,6 +460,7 @@ export interface Task {
     shouldStop: boolean
     difficulty?: string
     compositionStyle?: string
+    courseType?: CourseType
     style?: string
     requirements?: string
     error?: string

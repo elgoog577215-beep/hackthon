@@ -139,6 +139,79 @@ describe('课程生产内联确认', () => {
     expect(wrapper.emitted('confirmed')).toEqual([['release']])
   })
 
+  it('项目目录展示暂定起点、路径角色与生成理由', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-project',
+        course_name: '环保保温玻璃杯设计',
+        course_purpose: 'systematic',
+        course_type: 'project',
+        course_intent: {
+          schema_version: 'course_intent_v1',
+          type: 'project',
+          project_goal: '设计一款环保保温玻璃杯',
+          expected_deliverable: '产品设计方案与可验证原型',
+        },
+        learner_starting_profile: {
+          status: 'tentative',
+          evidence_basis: 'self_reported',
+          self_reported_strengths: ['熟悉产品造型与结构'],
+          focus_areas: ['玻璃材料与隔热原理'],
+        },
+        nodes: [{
+          node_id: 'project-1',
+          parent_node_id: '',
+          node_level: 2,
+          node_name: '验证材料与隔热方案',
+          learning_objective: '完成材料方案比较并给出选择依据',
+          learning_path_role: 'focus',
+          path_reason: '你熟悉造型，但对玻璃材料与隔热原理不确定。',
+        }],
+      },
+    } as any)
+    const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({
+      draft: payload,
+    }) as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-project',
+        courseName: '环保保温玻璃杯设计',
+        task: {
+          id: 'job-project',
+          courseId: 'course-project',
+          courseName: '环保保温玻璃杯设计',
+          courseType: 'project',
+          status: 'waiting_for_review',
+          progress: 28,
+          currentStep: 'outline',
+          logs: [],
+          shouldStop: false,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('你的项目起点（暂定）')
+    expect(wrapper.text()).toContain('产品设计方案与可验证原型')
+    expect(wrapper.text()).toContain('熟悉产品造型与结构')
+    expect(wrapper.text()).toContain('玻璃材料与隔热原理')
+    expect(wrapper.text()).toContain('重点补充')
+    expect(wrapper.text()).toContain('你熟悉造型，但对玻璃材料与隔热原理不确定。')
+
+    await wrapper.get('.outline-review__nodes input').setValue('比较并验证材料与隔热方案')
+    await wrapper.findAll('.outline-review__actions button')[0]!.trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith('course-project', expect.objectContaining({
+      course_type: 'project',
+      course_intent: expect.objectContaining({ expected_deliverable: '产品设计方案与可验证原型' }),
+      learner_starting_profile: expect.objectContaining({ status: 'tentative' }),
+      nodes: [expect.objectContaining({ learning_path_role: 'focus' })],
+    }))
+  })
+
   it('英文模式不泄漏新增界面的中文回退文案或翻译键', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,

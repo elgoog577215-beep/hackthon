@@ -274,6 +274,18 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
         budget,
     )
     composer = CoursePromptComposer()
+    overall_guidance = {
+        "positioning": "让知识理解、方法应用与迁移任务形成连续进阶",
+        "target_audience": "具备必要前置基础的学习者",
+        "learning_objectives": [
+            "解释核心概念及成立条件",
+            "独立应用关键方法",
+            "在变式任务中完成迁移",
+        ],
+        "prerequisites": ["课程规定的前置知识"],
+        "teaching_throughline": "从概念建构进入示例分析，再用独立任务验证迁移",
+        "assessment_methods": ["解释题", "变式任务", "综合应用"],
+    }
     compact_by_id = {
         item["node_id"]: item
         for item in planning_context["sections"]
@@ -302,6 +314,7 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
             ],
             module_catalog=planning_context["module_catalog"],
             skeleton_revision_id="skeleton-21",
+            overall_guidance=overall_guidance,
         )
         user_prompt = f"生成详细小节教案批次 {spec['batch_id']}，只输出 JSON。"
         prompt_chars += len(user_prompt) + len(system_prompt)

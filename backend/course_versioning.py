@@ -23,11 +23,16 @@ SEMANTIC_FIELDS = (
     "exercise_plan",
     "examples_plan",
     "misconceptions",
+    "learning_path_role",
+    "path_reason",
 )
 DIFFICULTY_FIELDS = ("difficulty_contract",)
 GROUNDING_FIELDS = ("grounding_contract",)
 DEPENDENCY_FIELDS = ("parent_node_id", "prerequisite_node_ids", "node_level")
 GLOBAL_RECOMPILE_FIELDS = (
+    "course_type",
+    "course_intent",
+    "learner_starting_profile",
     "course_purpose",
     "difficulty_profile",
     "subject_pedagogy_profile",
@@ -47,6 +52,11 @@ def blueprint_revision_id(course_data: dict[str, Any]) -> str:
         "course_blueprint": course_data.get("course_blueprint") or {},
         "nodes": [_blueprint_node(node) for node in course_data.get("nodes") or []],
         "purpose": course_data.get("course_purpose") or "systematic",
+        "course_type": course_data.get("course_type") or "systematic",
+        "course_intent": course_data.get("course_intent") or {},
+        "learner_starting_profile": (
+            course_data.get("learner_starting_profile") or {}
+        ),
         "asset_plan": course_data.get("learning_asset_plan") or {},
     }
     return stable_hash(payload, prefix="bp_")
@@ -119,6 +129,11 @@ def build_blueprint_draft(course_data: dict[str, Any]) -> dict[str, Any]:
         "course_id": course_data.get("course_id"),
         "course_name": course_data.get("course_name"),
         "course_purpose": course_data.get("course_purpose") or "systematic",
+        "course_type": course_data.get("course_type") or "systematic",
+        "course_intent": deepcopy(course_data.get("course_intent") or {}),
+        "learner_starting_profile": deepcopy(
+            course_data.get("learner_starting_profile") or {}
+        ),
         "course_blueprint": deepcopy(course_data.get("course_blueprint") or {}),
         "nodes": [_blueprint_node(node) for node in course_data.get("nodes") or []],
         "learning_asset_plan": deepcopy(course_data.get("learning_asset_plan") or {}),
@@ -142,6 +157,9 @@ def merge_blueprint_draft(course_data: dict[str, Any], draft: dict[str, Any]) ->
     for field in (
         "course_name",
         "course_purpose",
+        "course_type",
+        "course_intent",
+        "learner_starting_profile",
         "course_blueprint",
         "learning_asset_plan",
         "blueprint_locks",
@@ -311,9 +329,15 @@ def _blueprint_node(node: dict[str, Any]) -> dict[str, Any]:
 
 
 def _field_value(data: dict[str, Any], field: str) -> Any:
-    if field == "course_purpose":
+    if field in {"course_purpose", "course_type"}:
         return data.get(field) or "systematic"
-    if field in {"difficulty_profile", "subject_pedagogy_profile", "learning_asset_plan"}:
+    if field in {
+        "course_intent",
+        "learner_starting_profile",
+        "difficulty_profile",
+        "subject_pedagogy_profile",
+        "learning_asset_plan",
+    }:
         return data.get(field) or {}
     if field == "course_module_plan":
         return data.get(field) or []

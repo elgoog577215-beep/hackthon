@@ -24,6 +24,9 @@
         </small>
       </div>
       <div class="slide-workbench__commands">
+        <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
+          <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
+        </button>
         <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
           <select :value="mode" :disabled="building" aria-label="内容模式" @change="changeMode">
             <option value="full">完整</option>
@@ -40,8 +43,6 @@
           <button type="button" :disabled="building" title="查看模式与风格预览" @click="emit('configure')">
             <SlidersHorizontal :size="15" />
           </button>
-          <button class="legacy-theme-option" type="button" data-theme-option="qingfeng-classroom" @click="previewTheme = 'qingfeng-classroom'">清风课堂</button>
-          <button class="legacy-theme-option" type="button" data-theme-option="academic-bluegray" @click="previewTheme = 'academic-bluegray'">学术蓝灰</button>
         </div>
         <button v-if="standalone" type="button" class="slide-workbench__configure-compact" title="选择模式与风格" @click="emit('configure')">
           <SlidersHorizontal :size="16" />
@@ -194,7 +195,7 @@
                 .replace('{unaffected}', String(editPreview.impact?.unaffected_unit_count || 0)) }}</small>
               <p class="protected"><ShieldCheck :size="12" />{{ t('teachingRepresentations.unrelatedProtected', '无来源关系的内容不会修改') }}</p>
               <button type="button" class="impact-open" @click="impactDialogOpen = true">
-                <GitBranch :size="13" />{{ t('teachingRepresentations.impactDialog.open', '展开完整影响图') }}
+                <GitBranch :size="13" />{{ t('teachingRepresentations.impactDialog.open', '进入同源影响工作台') }}<ArrowRight :size="13" />
               </button>
             </div>
             <div v-else-if="analysisQueued || (editBusy && changed)" class="slide-inspector__analyzing">
@@ -331,7 +332,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, SlidersHorizontal, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, Layers3, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, SlidersHorizontal, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
@@ -413,7 +414,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
-  (event: 'back' | 'rebuild' | 'configure'): void
+  (event: 'back' | 'rebuild' | 'configure' | 'open-materials'): void
   (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
@@ -775,44 +776,7 @@ async function confirmInlineChange() {
   editBusy.value = true
   syncing.value = true
   try {
-    const applyPromise = changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
-    if (import.meta.env.VITE_RECORDLY_DEMO_MODE === '1') {
-      const outcome = await Promise.race([
-        applyPromise.then(result => ({ completed: true as const, result })),
-        new Promise<{ completed: false }>(resolve => window.setTimeout(
-          () => resolve({ completed: false }),
-          1500,
-        )),
-      ])
-      if (!outcome.completed) {
-        // The recording preset still sends the real command.  Only the visible
-        // receipt is released early so a desktop capture never waits on a slow
-        // client-side response transition.  A later reset restores the demo.
-        void applyPromise.catch(() => undefined)
-        const impact = impactPreview.value?.impact || {}
-        inlineProposal.value = null
-        editPreview.value = null
-        syncReceipt.value = {
-          status: 'synchronized',
-          rebuilt_unit_count: Number(impact.affected_unit_count || 0),
-          reused_unit_count: Number(impact.unaffected_unit_count || 0),
-          changed_unit_count: Number(impact.affected_unit_count || 0),
-          verified_unit_count: 0,
-          changes: [],
-        }
-        editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
-        impactDialogOpen.value = true
-        return
-      }
-      inlineProposal.value = null
-      editPreview.value = null
-      syncReceipt.value = outcome.result?.representation_sync || null
-      editResult.value = t('teachingRepresentations.syncComplete', '课程同源同步完成')
-      impactDialogOpen.value = true
-      return
-    }
-
-    const result = await applyPromise
+    const result = await changeProposalsStore.applyItem(proposal.proposal_id, item.item_id)
     await store.load(props.courseId)
     await store.select(props.representationId)
     // Loading the rebuilt deck replaces the active slide object and schedules
@@ -1016,8 +980,8 @@ function classificationLabel(value: string) {
 .slide-inspector__edit label { display:block; margin-top:9px; }.slide-inspector__edit label > span { display:block; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.slide-inspector__edit select,.slide-inspector__edit textarea { width:100%; box-sizing:border-box; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text); background:#fff; font:9px/1.45 inherit; outline:none; }.slide-inspector__edit select { height:30px; padding:0 7px; }.slide-inspector__edit textarea { resize:vertical; min-height:72px; padding:7px; }.slide-inspector__edit select:focus,.slide-inspector__edit textarea:focus { border-color:#818cf8; }
 .slide-inspector__impact { margin-top:9px; padding:9px; border-left:3px solid #eab308; background:#fffbea; }.slide-inspector__impact > strong { color:#854d0e; font-size:9px; }.slide-inspector__impact .semantic-change { margin:4px 0 7px; color:#713f12; font-size:9px; font-weight:700; line-height:1.45; }.slide-inspector__impact ul { display:grid; gap:3px; margin:0 0 7px; padding:0; list-style:none; }.slide-inspector__impact li { display:flex; align-items:center; justify-content:space-between; gap:6px; color:#475569; font-size:8px; }.slide-inspector__impact li b { color:#a16207; font-size:8px; }.slide-inspector__impact small { color:#78716c; font-size:8px; }.slide-inspector__impact .protected { display:flex; align-items:center; gap:4px; margin:6px 0 0; color:#64748b; font-size:8px; }
 .impact-flow { display:grid; justify-items:center; gap:6px; margin:7px 0; }.impact-flow__origin { width:100%; padding:7px; border:1px solid #f0d576; border-radius:6px; background:#fff; }.impact-flow__origin small,.impact-flow__origin b { display:block; }.impact-flow__origin b { margin-top:3px; color:#713f12; font-size:8px; line-height:1.4; }.impact-flow > i { width:1px; height:10px; background:#d6a80a; }.impact-flow__targets { width:100%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }.impact-flow__targets > span { min-width:0; padding:6px; border:1px solid #f1df9e; border-radius:5px; background:#fff; }.impact-flow__targets b,.impact-flow__targets small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.impact-flow__targets b { color:#475569; font-size:8px; }.impact-flow__targets small { margin-top:2px; color:#a16207; }
-.slide-inspector__impact .impact-open { width:100%; min-height:29px; display:flex; align-items:center; justify-content:center; gap:5px; margin-top:8px; border:1px solid #dfc564; border-radius:6px; color:#713f12; background:#fff; font-size:8px; font-weight:700; cursor:pointer; }
-.slide-inspector__impact .impact-open:hover { border-color:#c99b09; background:#fffdf5; }
+.slide-inspector__impact .impact-open { width:100%; min-height:34px; display:flex; align-items:center; justify-content:center; gap:6px; margin-top:9px; border:1px solid #4f46e5; border-radius:8px; color:#fff; background:linear-gradient(135deg,#5b55e8,#4338ca); box-shadow:0 7px 17px rgba(79,70,229,.2); font-size:8px; font-weight:760; cursor:pointer; }
+.slide-inspector__impact .impact-open:hover { border-color:#3730a3; background:linear-gradient(135deg,#4f46e5,#3730a3); }
 .slide-inspector__analyzing { display:flex; align-items:center; gap:7px; margin-top:9px; padding:9px; border-left:3px solid #2556d8; color:#315486; background:#eef4ff; font-size:8px; line-height:1.45; }
 .slide-inspector__confirmation { margin-top:9px; padding:9px; border-left:3px solid #8b5cf6; background:#f7f3ff; }.slide-inspector__confirmation > strong { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; }.objective-diff { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr); gap:4px; margin-top:7px; color:#64748b; font-size:8px; line-height:1.4; }.objective-diff i { color:#8b5cf6; font-style:normal; }.objective-diff b { color:#4c1d95; }.slide-inspector__confirmation > p { margin:6px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
 .slide-inspector__receipt { display:grid; grid-template-columns:18px minmax(0,1fr); gap:6px; margin-top:9px; padding:9px; border-left:3px solid #10b981; color:#047857; background:#ecfdf5; }.slide-inspector__receipt[data-state="failed_using_last_available"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }.slide-inspector__receipt strong { display:block; font-size:9px; }.slide-inspector__receipt p { margin:3px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
@@ -1171,7 +1135,7 @@ function classificationLabel(value: string) {
 .is-standalone .impact-flow__origin small,.is-standalone .impact-flow__targets small { font-size:9px; }
 .is-standalone .impact-flow__targets { gap:6px; }
 .is-standalone .impact-flow__targets > span { padding:8px; border-radius:7px; }
-.is-standalone .slide-inspector__impact .impact-open { min-height:34px; border-radius:8px; font-size:10px; }
+.is-standalone .slide-inspector__impact .impact-open { min-height:40px; border-radius:9px; font-size:10px; }
 .is-standalone .slide-inspector__analyzing { margin-top:12px; padding:12px; border-radius:0 8px 8px 0; font-size:10px; }
 .is-standalone .slide-inspector__receipt li,.is-standalone .slide-inspector__receipt li b { font-size:10px; }
 .same-source-course-link {

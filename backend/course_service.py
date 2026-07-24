@@ -72,10 +72,12 @@ from course_generation_strategy import (
     build_course_generation_strategy_prompt,
     classify_generation_use_case,
 )
+from course_type_contracts import apply_course_type_brief, resolve_course_type
 from course_generation_workflow import (
     PIPELINE_VERSION,
     _resolve_course_shape_constraints,
     apply_course_teaching_plan,
+    apply_course_learning_path_contract,
     attach_difficulty_artifacts,
     attach_generation_artifacts_to_plan,
     attach_pedagogy_profile,
@@ -141,6 +143,7 @@ from course_teaching_plan_v3 import (
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
+from course_teaching_guidance import compile_overall_teaching_guidance
 from learner_context import DEFAULT_USER_ID
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
@@ -358,6 +361,9 @@ class CourseService(AIBase):
         material_bindings: list[Any] | None = None,
         grounding_strategy: str = "material_first",
         learner_profile_summary: str = "",
+        course_type: str | None = None,
+        course_intent: dict[str, Any] | None = None,
+        learner_starting_profile: dict[str, Any] | None = None,
         current_readiness: str | None = None,
         adaptation_preference: str = "preserve_target_extend",
         pedagogy_mode: str = "auto",
@@ -380,6 +386,11 @@ class CourseService(AIBase):
         composition_profile = compile_composition_profile(
             composition_style,
             legacy_style=style,
+        )
+        resolved_course_type, _course_type_source = resolve_course_type(
+            course_type,
+            course_purpose=course_purpose,
+            composition_style=composition_profile["style"],
         )
 
         await self._notify_phase(
@@ -419,6 +430,17 @@ class CourseService(AIBase):
                 _resolve_course_shape_constraints(requirements)
             )
             refreshed_brief["course_purpose"] = course_purpose
+            apply_course_type_brief(
+                refreshed_brief,
+                course_type=resolved_course_type,
+                course_intent=course_intent,
+                learner_starting_profile=learner_starting_profile,
+                topic=topic,
+                requirements=requirements,
+                learner_profile_summary=learner_profile_summary,
+                course_purpose=course_purpose,
+                composition_style=composition_profile["style"],
+            )
             artifacts = {
                 "pipeline_version": PIPELINE_VERSION,
                 "material_cards": existing.get("material_cards") or [],
@@ -476,10 +498,14 @@ class CourseService(AIBase):
                 topic=topic,
                 difficulty=difficulty,
                 style=style,
+                composition_style=composition_profile["style"],
                 requirements=requirements,
                 target_audience=audience,
                 materials=material_inputs,
                 learner_profile_summary=learner_profile_summary,
+                course_type=resolved_course_type,
+                course_intent=course_intent,
+                learner_starting_profile=learner_starting_profile,
                 prepared_materials=prepared_materials,
                 grounding_strategy=grounding_strategy,
                 course_purpose=course_purpose,
@@ -578,6 +604,11 @@ class CourseService(AIBase):
             if isinstance(saved_plan, dict) and saved_plan.get("chapters")
             else None
         )
+        if plan is not None:
+            plan = apply_course_learning_path_contract(
+                plan,
+                artifacts["course_generation_brief"],
+            )
         plan_constraint_report = (
             validate_course_outline_constraints(
                 plan or {},
@@ -703,6 +734,15 @@ class CourseService(AIBase):
             "generation_pipeline_version": artifacts["pipeline_version"],
             "generation_request": {
                 "subject": topic,
+                "course_type": resolved_course_type,
+                "course_intent": deepcopy(
+                    artifacts["course_generation_brief"].get("course_intent") or {}
+                ),
+                "learner_starting_profile": deepcopy(
+                    artifacts["course_generation_brief"].get(
+                        "learner_starting_profile"
+                    ) or {}
+                ),
                 "difficulty": difficulty,
                 "composition_style": composition_profile["style"],
                 "style": style,
@@ -724,6 +764,15 @@ class CourseService(AIBase):
                 "grounding_strategy": grounding_strategy,
             },
             "difficulty": difficulty,
+            "course_type": resolved_course_type,
+            "course_intent": deepcopy(
+                artifacts["course_generation_brief"].get("course_intent") or {}
+            ),
+            "learner_starting_profile": deepcopy(
+                artifacts["course_generation_brief"].get(
+                    "learner_starting_profile"
+                ) or {}
+            ),
             "composition_style": composition_profile["style"],
             "style": style,
             "requirements": requirements,
@@ -1212,6 +1261,10 @@ class CourseService(AIBase):
                 (course_data.get("course_composition_profile") or {}).get("style")
                 or ""
             ),
+        )
+        overall_teaching_guidance = compile_overall_teaching_guidance(
+            course_data,
+            plan=plan,
         )
         planning_mode = "hierarchical"
         strategy = "adaptive_skeleton_batches"
@@ -1732,6 +1785,7 @@ class CourseService(AIBase):
                         identity_by_id[item] for item in section_ids
                     ],
                     "module_catalog": module_catalog,
+                    "overall_guidance": overall_teaching_guidance,
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
             )
@@ -1760,6 +1814,7 @@ class CourseService(AIBase):
                         skeleton_revision_id=str(
                             skeleton.get("revision_id") or ""
                         ),
+                        overall_guidance=overall_teaching_guidance,
                         detail_level=detail_level,
                     )
                 )
@@ -2684,6 +2739,8 @@ class CourseService(AIBase):
                     "scope_boundary",
                     "assessment",
                     "prerequisite_node_ids",
+                    "learning_path_role",
+                    "path_reason",
                 ):
                     if field in node:
                         section[field] = deepcopy(node[field])
@@ -2917,6 +2974,9 @@ class CourseService(AIBase):
             material_bindings=kwargs.get("material_bindings") or [],
             grounding_strategy=str(kwargs.get("grounding_strategy") or "material_first"),
             learner_profile_summary=str(kwargs.get("learner_profile_summary") or ""),
+            course_type=kwargs.get("course_type"),
+            course_intent=kwargs.get("course_intent"),
+            learner_starting_profile=kwargs.get("learner_starting_profile"),
             current_readiness=kwargs.get("current_readiness"),
             adaptation_preference=str(
                 kwargs.get("adaptation_preference") or "preserve_target_extend"
@@ -2951,6 +3011,7 @@ class CourseService(AIBase):
         ):
             return None, raw_report
         plan = normalize_course_outline_contract(parsed)
+        plan = apply_course_learning_path_contract(plan, brief)
         return plan, validate_course_outline_constraints(plan, brief)
 
     async def _generate_hierarchical_course_outline(
@@ -3926,6 +3987,7 @@ class CourseService(AIBase):
             batches=results,
         )
         plan = normalize_course_outline_contract(plan)
+        plan = apply_course_learning_path_contract(plan, brief)
         plan_report = validate_course_outline_constraints(plan, brief)
         stage.update({
             "status": (
@@ -3989,6 +4051,10 @@ class CourseService(AIBase):
                 "content_blocks": [],
                 "node_type": "original",
                 "learning_focus": chapter.get("learning_focus", ""),
+                "learning_path_role": chapter.get(
+                    "learning_path_role", "standard"
+                ),
+                "path_reason": chapter.get("path_reason", "课程主路径"),
                 "generation_status": "pending",
                 "generated_chars": 0,
                 "error_summary": None,
@@ -4012,12 +4078,19 @@ class CourseService(AIBase):
                     "misconceptions": section.get("misconceptions", []),
                     "assessment": section.get("assessment", []),
                     "scope_boundary": section.get("scope_boundary", ""),
+                    "learning_path_role": section.get(
+                        "learning_path_role", "standard"
+                    ),
+                    "path_reason": section.get("path_reason", "课程主路径"),
                     "evidence_refs": section.get("evidence_refs", []),
                     "grounding_contract": section.get("grounding_contract", {}),
                     "grounding_annotations": [],
                     "examples_plan": section.get("examples_plan", []),
                     "exercise_plan": section.get("exercise_plan", []),
                     "module_plan": section.get("module_plan", []),
+                    "lesson_archetype": section.get(
+                        "lesson_archetype", {}
+                    ),
                     "difficulty_contract": section.get("difficulty_contract", {}),
                     "generation_status": "pending",
                     "generated_chars": 0,

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+import hashlib
 import json
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -9,12 +10,18 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from ai_teacher_actions import execute_proposal, propose_action
 from ai_teacher_context import build_ai_teacher_context, context_public_summary
 from ai_teacher_state import ai_teacher_repository
+from course_evolution_intake import (
+    CourseEvolutionRequest,
+    record_course_evolution_request,
+)
 from dependencies import get_course_or_404
+from learning_contracts import LearnerCourseScope
 from models import AskQuestionRequest
 from ai_service import ai_service
 from fastapi.responses import StreamingResponse
 from learner_context import require_user_id
 from learning_events import record_learning_event, summarize_text
+from product_runtime_policy import demo_overrides_enabled
 
 router = APIRouter(tags=["assistant"])
 
@@ -25,6 +32,11 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
         raise HTTPException(status_code=422, detail="course_id is required")
     course = await get_course_or_404(req.course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
+    learning_scope = LearnerCourseScope.from_course(
+        course,
+        user_id=user_id,
+        expected_course_id=req.course_id,
+    )
     conversation = None
     if req.conversation_id:
         conversation = await run_in_threadpool(
@@ -53,28 +65,33 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
         req.course_id,
         conversation_id,
         {
+            "message_id": _stable_user_message_id(
+                user_id=user_id,
+                course_id=req.course_id,
+                request_id=req.request_id or "",
+            ),
             "role": "user",
             "content": req.question,
             "context_ref": req.context_ref,
             "task_ref": req.task_ref,
         },
     )
-    record_learning_event(
-        event_type="assistant_question_submitted",
-        actor="user",
-        source="ai_teacher.ask_events",
-        user_id=user_id,
-        course_id=req.course_id,
-        course_version_id=course.get("current_course_version_id"),
-        node_id=req.node_id,
-        node_name=req.node_name,
-        evidence={
-            "question": summarize_text(req.question),
-            "selection": summarize_text(req.selection or ""),
-            "entrypoint": req.entrypoint,
-            "conversation_id": conversation_id,
-        },
-        metadata={"task_ref": req.task_ref or {}, "context_ref": req.context_ref or {}},
+    record_course_evolution_request(
+        CourseEvolutionRequest(
+            scope=learning_scope,
+            request_id=str(req.request_id or user_message.get("message_id") or ""),
+            instruction=req.question,
+            entrypoint="ai_teacher",
+            requested_scope="current_section" if req.node_id else "whole_course",
+            section_id=req.node_id,
+            section_name=req.node_name,
+            conversation_id=conversation_id,
+            selection=req.selection or "",
+            surface_entrypoint=req.entrypoint,
+            context_ref=req.context_ref,
+            task_ref=req.task_ref,
+        ),
+        recorder=record_learning_event,
     )
 
     conversation = await run_in_threadpool(
@@ -332,6 +349,21 @@ def _qa_event(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _stable_user_message_id(
+    *,
+    user_id: str,
+    course_id: str,
+    request_id: str,
+) -> str:
+    normalized_request_id = str(request_id or "").strip()
+    if not normalized_request_id:
+        return ""
+    digest = hashlib.sha256(
+        f"{user_id}\0{course_id}\0{normalized_request_id}".encode("utf-8")
+    ).hexdigest()
+    return f"aim_{digest[:32]}"
+
+
 def _extract_sse_answer(text: str) -> str:
     chunks: list[str] = []
     final_answer = ""
@@ -358,11 +390,7 @@ def _extract_sse_answer(text: str) -> str:
 
 def _assistant_demo_mode(course_id: str) -> bool:
     """录屏模式使用本地定稿回答，避免外部模型状态影响演示。"""
-    return (
-        str(course_id or "") == "demo-matrix-growth-v2"
-        and os.getenv("EVOLUTION_DEMO_MODE", "").strip().lower()
-        in {"1", "true", "yes", "on"}
-    )
+    return demo_overrides_enabled(course_id)
 
 
 def _demo_teacher_answer(question: str) -> str:

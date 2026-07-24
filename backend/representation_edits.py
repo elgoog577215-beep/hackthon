@@ -17,6 +17,7 @@ from teaching_representations import (
 )
 
 EditClassification = Literal["presentation", "equivalent_semantic", "semantic", "ambiguous"]
+COURSE_TEXT_PATCH_SCHEMA = "course_text_patch_v1"
 
 _TEACHING_DIMENSIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
@@ -90,9 +91,33 @@ def representation_edit_impact(
     spec: TeachingRepresentationSpec,
     *,
     unit_id: str,
+    field: str | None = None,
+    semantic_change: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bindings = spec.unit_bindings.get(unit_id) or []
-    source_keys = sorted({key for binding in bindings for key in binding.source_revisions})
+    all_source_keys = {key for binding in bindings for key in binding.source_revisions}
+    preferred_prefixes = {
+        "body": ("block:",),
+        "markdown": ("block:",),
+        "example": ("block:",),
+        "prompt": ("practice:",),
+        "learning_objective": ("objective:",),
+        "key_message": ("objective:",),
+    }.get(str(field or ""))
+    preferred_source_keys = (
+        {
+            key
+            for key in all_source_keys
+            if preferred_prefixes and key.startswith(preferred_prefixes)
+        }
+        if preferred_prefixes
+        else set()
+    )
+    # A paragraph edit follows the paragraph's block revision, while an
+    # objective edit follows the objective revision.  Falling back to all
+    # bindings preserves compatibility for fields without a narrower semantic
+    # owner.
+    source_keys = sorted(preferred_source_keys or all_source_keys)
     block_ids = sorted({binding.block_id for binding in bindings if binding.block_id})
     section_ids = sorted({binding.section_id for binding in bindings if binding.section_id})
     affected: list[dict[str, Any]] = []
@@ -127,6 +152,7 @@ def representation_edit_impact(
                     representation.representation_type,
                     units_by_id.get(candidate_unit_id) or {},
                     candidate_unit_id,
+                    semantic_change=semantic_change,
                     origin=(
                         representation.representation_id
                         == next((
@@ -176,6 +202,87 @@ def representation_edit_impact(
     }
 
 
+def build_course_text_patch(
+    block_payload: dict[str, Any],
+    *,
+    before: str,
+    after: str,
+) -> dict[str, Any]:
+    """把派生材料中的小改动定位为唯一、可冲突检测的课程文本补丁。"""
+    before_text = str(before or "")
+    after_text = str(after or "")
+    if not before_text:
+        raise ValueError("Semantic edit requires non-empty source text")
+
+    selected_field = ""
+    selected_content = ""
+    selected_start = -1
+    for field_group in (
+        ("markdown", "text", "content"),
+        ("title", "summary"),
+    ):
+        matches: list[tuple[str, str, int]] = []
+        for field in field_group:
+            content = block_payload.get(field)
+            if not isinstance(content, str):
+                continue
+            start = content.find(before_text)
+            if start >= 0:
+                matches.append((field, content, start))
+        if matches:
+            if len(matches) != 1:
+                raise ValueError("Semantic edit matches multiple course fields")
+            selected_field, selected_content, selected_start = matches[0]
+            break
+    if not selected_field:
+        raise ValueError("Semantic edit source text is not present in the course block")
+    if selected_content.find(before_text, selected_start + 1) >= 0:
+        raise ValueError("Semantic edit source text occurs more than once in the course block")
+
+    selected_end = selected_start + len(before_text)
+    prefix_context = selected_content[max(0, selected_start - 48):selected_start]
+    suffix_context = selected_content[selected_end:selected_end + 48]
+    return {
+        "schema_version": COURSE_TEXT_PATCH_SCHEMA,
+        "field": selected_field,
+        "start": selected_start,
+        "end": selected_end,
+        "before": before_text,
+        "after": after_text,
+        "prefix_context": prefix_context,
+        "suffix_context": suffix_context,
+        "line_start": selected_content.count("\n", 0, selected_start) + 1,
+        "line_end": selected_content.count("\n", 0, selected_end) + 1,
+    }
+
+
+def apply_course_text_patch_preview(
+    block_payload: dict[str, Any],
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    """在不写入课程的情况下生成补丁后的块 payload，供审阅差异使用。"""
+    field = str(patch.get("field") or "")
+    current = block_payload.get(field)
+    start = patch.get("start")
+    end = patch.get("end")
+    before = str(patch.get("before") or "")
+    if (
+        not isinstance(current, str)
+        or not isinstance(start, int)
+        or isinstance(start, bool)
+        or not isinstance(end, int)
+        or isinstance(end, bool)
+        or start < 0
+        or end < start
+        or end > len(current)
+        or current[start:end] != before
+    ):
+        raise ValueError("Course text patch no longer matches its preview source")
+    updated = deepcopy(block_payload)
+    updated[field] = f"{current[:start]}{str(patch.get('after') or '')}{current[end:]}"
+    return updated
+
+
 def _representation_units(spec: TeachingRepresentationSpec) -> list[dict[str, Any]]:
     content = spec.payload.get("content") or {}
     value = content.get("units") or content.get("slides") or content.get("sections") or []
@@ -187,11 +294,17 @@ def _impact_unit_summary(
     unit: dict[str, Any],
     unit_id: str,
     *,
+    semantic_change: dict[str, Any] | None,
     origin: bool,
 ) -> dict[str, Any]:
     purpose = str(unit.get("slide_purpose") or "")
     layout = str(unit.get("layout") or "")
-    role, reason = _impact_role(representation_type, purpose=purpose, layout=layout)
+    role, reason = _impact_role(
+        representation_type,
+        purpose=purpose,
+        layout=layout,
+        semantic_change=semantic_change,
+    )
     return {
         "representation_type": representation_type,
         "unit_id": unit_id,
@@ -208,7 +321,22 @@ def _impact_role(
     *,
     purpose: str,
     layout: str,
+    semantic_change: dict[str, Any] | None,
 ) -> tuple[str, str]:
+    if (semantic_change or {}).get("to_dimension") == "knowledge_refresh":
+        reasons = {
+            "outline": ("课程定位", "课程大纲需要把新版本设为当前主线，并保留旧版本的演进位置"),
+            "lesson_plan": ("讲授顺序", "教案需要先回顾旧版本，再比较新版本变化与能力边界"),
+            "handout": ("讲义更新", "讲义需要补充版本沿革、关键变化和适用场景"),
+            "practice_sheet": ("版本辨析", "练习需要检查学生能否区分新旧版本的能力与边界"),
+            "diagram": ("演进关系", "知识图解需要呈现新旧版本之间的演进关系"),
+        }
+        if representation_type in reasons:
+            return reasons[representation_type]
+        if representation_type == "slide_deck":
+            if purpose == "learning_objective" or layout == "objective":
+                return "PPT 学习目标", "当前页将新版本设为主线，同时保留旧版本的历史背景"
+            return "PPT 版本讲解", "相关页面需要同步新版本重点与新旧版本对照"
     if representation_type == "outline":
         return "目标定位", "课程大纲中的本节目标需要更新"
     if representation_type == "lesson_plan":
@@ -345,6 +473,9 @@ def _normalize(value: str) -> str:
 
 
 def _teaching_dimension_change(before: str, after: str) -> dict[str, Any] | None:
+    version_change = _version_refresh_change(before, after)
+    if version_change:
+        return version_change
     before_dimension = _teaching_dimension(before)
     after_dimension = _teaching_dimension(after)
     if before_dimension is None or after_dimension is None:
@@ -392,6 +523,54 @@ def _teaching_dimension_change(before: str, after: str) -> dict[str, Any] | None
     }
 
 
+def _version_refresh_change(before: str, after: str) -> dict[str, Any] | None:
+    version_pattern = re.compile(r"(?i)\b(?:v(?:ersion)?\s*)?(\d+(?:\.\d+)*)\b")
+    before_versions = version_pattern.findall(before)
+    after_versions = version_pattern.findall(after)
+    if not before_versions or not after_versions:
+        return None
+    previous = before_versions[-1]
+    current = next(
+        (version for version in after_versions if version not in before_versions),
+        after_versions[-1],
+    )
+    if previous == current:
+        return None
+    before_product = _version_product(before)
+    after_product = _version_product(after)
+    if before_product and after_product and before_product.lower() != after_product.lower():
+        return None
+    product = after_product or before_product or "相关技术"
+    previous_label = f"{product} V{previous}"
+    current_label = f"{product} V{current}"
+    return {
+        "from_dimension": "knowledge_refresh",
+        "from_label": previous_label,
+        "to_dimension": "knowledge_refresh",
+        "to_label": current_label,
+        "summary": f"课程主线从「{previous_label}」更新为「{current_label}」",
+        "interpretation": (
+            f"这不是简单替换版本号：课程需要以 {current_label} 为当前主线，"
+            f"同时保留 {previous_label} 作为技术演进背景。"
+        ),
+        "instructional_implications": [
+            "更新学习目标、讲义、PPT 与练习中的当前版本重点",
+            "保留旧版本的关键能力，形成清楚的演进对照",
+            "增加新版本能力边界与适用场景的辨析",
+        ],
+        "previous_version": previous_label,
+        "current_version": current_label,
+    }
+
+
+def _version_product(value: str) -> str:
+    match = re.search(
+        r"(?i)([a-z][a-z0-9_-]{2,}|[\u4e00-\u9fff]{2,12})\s*(?:v(?:ersion)?\s*)?\d+(?:\.\d+)*",
+        value,
+    )
+    return str(match.group(1) if match else "").strip()
+
+
 def _teaching_dimension(value: str) -> tuple[str, str] | None:
     normalized = value.lower()
     scored = [
@@ -411,7 +590,10 @@ def _token_overlap(before: str, after: str) -> float:
 
 
 __all__ = [
+    "COURSE_TEXT_PATCH_SCHEMA",
     "apply_representation_only_edit",
+    "apply_course_text_patch_preview",
+    "build_course_text_patch",
     "classify_representation_edit",
     "representation_edit_impact",
 ]

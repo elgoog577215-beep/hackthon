@@ -520,3 +520,141 @@ MUST 自动保存内容检查点并继续准备发布。
 - **THEN** 页面 MUST 停止按任务 phase 自动跳转
 - **AND** 后续生成更新 MUST 继续实时写入各自视图
 - **AND** 用户点击“跟随生成”后 MUST 恢复阶段与当前节点自动跟随
+
+### Requirement: 新课程必须使用正式课程类型协议
+
+新课程请求 MUST 使用版本化 `course_type`，且取值只能为 `systematic / project /
+inquiry / exam`。课程类型 MUST 决定课程的宏观学习骨架和类型化需求字段，MUST NOT
+表示正文语气、视觉样式、资料来源或学习者掌握状态。系统 MUST 将类型化输入、学科
+上下文、学习者起点、资料策略和后台编排画像共同冻结为一份 `CourseIntent`，并把其
+修订写入第 1 步需求产物。
+
+四类 `type_payload` MUST 使用判别协议：`systematic` 包含主题、目标说明和可选已有基础，
+目标难度由所有类型共享的难度合同表达；
+`project` 包含项目任务、最终交付物、已有经验、当前不确定点和项目约束；`inquiry`
+包含核心问题、已有认识、证据范围和预期结论形态；`exam` 包含考试名称、考试日期、
+考纲范围、当前准备度和备考资料。可选字段 MAY 为空，但 MUST NOT 被另一类型的字段
+静默替代。协议存在 MUST NOT 被解释为对应规划器已经开放。
+
+第一期能力表 MUST 只将 `systematic` 和 `project` 标记为可用。`inquiry` 与 `exam`
+MUST 保留稳定枚举、类型化字段和规划器接口，但在专用规划器未完成前 MUST NOT 创建
+课程外壳、生成任务或普通系统课程替代品。
+
+#### Scenario: 用户创建系统学习课程
+
+- **WHEN** 用户选择 `course_type=systematic` 并提交合法主题与目标难度
+- **THEN** 第 1 步 MUST 保存类型为系统学习的 `CourseIntent`
+- **AND** 目录 MUST 按知识结构、先修关系和基础到进阶组织
+- **AND** 系统 MUST NOT 要求项目交付物或把项目里程碑写入必填字段
+
+#### Scenario: 用户创建项目实战课程
+
+- **WHEN** 用户选择 `course_type=project` 并提交项目任务与最终交付物
+- **THEN** 第 1 步 MUST 保存项目任务、交付物、已有经验、当前不确定点和约束
+- **AND** 项目规划器 MUST 先形成里程碑与可验收成果，再映射所需知识和能力
+- **AND** 系统 MUST NOT 只把普通系统目录的标题改写为项目措辞
+
+#### Scenario: 客户端提交尚未开放的问题探究
+
+- **WHEN** 客户端提交 `course_type=inquiry` 且服务端发布矩阵仍标记为未开放
+- **THEN** 服务端 MUST 返回稳定的 `course_type_not_enabled`
+- **AND** MUST NOT 创建课程外壳、任务、目录检查点或任何模型调用
+- **AND** MUST NOT 静默改用 `systematic`
+
+### Requirement: 课程类型、学科教学与学习者起点必须独立编译
+
+系统 MUST 使用课程类型规划器决定全课推进结构，使用主辅学科教学画像与当前课型
+决定具体讲法、任务和掌握证据，使用学习者起点决定内容的展开、压缩、顺序与支架。
+系统 MUST NOT 枚举或硬编码每一种“课程类型 × 学科”组合，也 MUST NOT 为不同类型
+复制 `CourseTeachingPlanV3`、知识库或发布流水线。所有组合 MUST 继续产出同一正式
+教案、当前课程知识库、知识绑定与四步版本链。
+
+资料证据 MUST 作为四类课程共同输入；“资料整理” MUST NOT 成为 `course_type`。
+个性补弱 MUST 由学习者起点、适配策略和后续正式学习证据表达，MUST NOT 成为
+`course_type`。课程类型、学习者起点或后台编排画像均 MUST NOT 删除学科必需模块、
+掌握证据、资料边界或发布质量门。
+
+#### Scenario: 同一项目由设计背景学习者创建
+
+- **WHEN** 项目为设计环保保温玻璃杯，主学科为产品设计，辅学科为材料工程，学习者自述熟悉造型和结构但不熟悉材料与隔热
+- **THEN** 项目规划器 MUST 保持玻璃杯交付物与项目里程碑
+- **AND** 产品设计适配器 MUST 继续提供该项目必要的设计过程与评价证据
+- **AND** 学习者起点 MUST 使材料、隔热与工艺内容重点展开
+- **AND** 自述熟悉的造型内容 MAY 压缩，但 MUST NOT 被写成正式掌握事实
+
+#### Scenario: 同一项目由材料背景学习者创建
+
+- **WHEN** 项目与交付物相同，但学习者自述熟悉材料而不熟悉用户研究、造型与 CMF
+- **THEN** 系统 MUST 生成与前一学习者不同的重点章节、顺序或支架
+- **AND** 两门课程 MUST 使用独立 `course_id` 与课程内知识身份
+- **AND** 系统 MUST NOT 修改另一学习者的课程或共享运行时课程修订
+
+### Requirement: 项目实战必须在生成前形成可确认的暂定学习起点
+
+项目实战创建流程 MUST 展示结构化起点问题组：项目任务与最终交付物为必填，已有经验
+与当前不确定点可跳过，项目约束可选。第一期 MUST NOT 为这组问题新增动态追问模型
+接口；项目规划器 MUST 直接把回答编译为 `LearnerStartingProfile`，至少区分已有经验、
+建议重点、不确定项、证据来源和 `tentative / insufficient` 状态。基于自述的判断 MUST
+标记为 `self_reported`，MUST NOT 直接进入正式掌握事实或覆盖后续学习证据。
+
+用户 MUST 能修改起点判断，或跳过已有经验与当前不确定点。两项都跳过时系统 MUST
+保存 `insufficient`，并说明第一版路径为暂定方案、后续将依据真实学习行为校准。起点
+确认只冻结需求修订，MUST NOT 增加目录之后的课程确认门。基于首轮回答继续动态追问
+MAY 作为后续增强，但 MUST NOT 成为第一期课程创建依赖。
+
+#### Scenario: 用户完成项目起点问题组
+
+- **WHEN** 用户填写项目任务、交付物、已有经验和当前不确定点并确认系统整理的暂定起点
+- **THEN** 第 1 步需求修订 MUST 保存答案来源与暂定起点
+- **AND** 后续目录与教案 MUST 能追溯各个个性化决策所引用的起点项
+- **AND** LearnerModel MUST NOT 因该自述直接新增正式掌握结论
+
+#### Scenario: 用户跳过可选起点问题
+
+- **WHEN** 用户选择跳过并继续创建项目课程
+- **THEN** 系统 MUST 保存 `LearnerStartingProfile.status=insufficient`
+- **AND** MUST 仍可生成符合项目交付物的第一版路径
+- **AND** 目录 MUST 将依赖未知起点的节点标记为待项目中验证，而不是宣称用户已会或不会
+
+### Requirement: 课程目录必须展示个性化决策及其依据
+
+系统学习和项目实战的目录节点 MUST 保存并展示一种路径角色：`focus / standard /
+compressed / verify_in_project / milestone`。路径角色 MUST 引用课程类型规则、学科要求、
+暂定起点或资料证据中的至少一种依据。`compressed` 只能表示当前课程安排压缩，
+MUST NOT 等同于正式掌握；`verify_in_project` MUST 指向后续可观察项目成果或检查点；
+`milestone` MUST 只用于带明确交付物或验收条件的项目阶段。
+
+#### Scenario: 项目目录包含压缩与重点节点
+
+- **WHEN** 项目实战目录依据学习者自述压缩产品造型基础并重点补充材料与隔热
+- **THEN** 两类节点 MUST 显示不同处理标签
+- **AND** 用户 MUST 能查看“根据你的自述”及对应起点项
+- **AND** 项目里程碑和最终交付物 MUST 保持可见
+- **AND** 修改起点并重新确认需求后，旧目录及其理由 MUST 标记为需要重做
+
+### Requirement: 新入口必须退出旧目的与编排偏好的双重选择
+
+新课程创建界面 MUST 以课程类型作为一级选择，并按所选类型显示对应字段。学科识别
+MUST 以可修改的主学科和辅学科标签展示。资料上传与使用边界 MUST 作为通用区域保留，
+个性补弱 MUST 作为学习适配说明或偏好保留。新界面 MUST NOT 再要求用户同时选择
+课程目的和课程编排偏好。
+
+旧 `composition_style` 与旧课程目的字段 MAY 用于历史任务读取和恢复。新请求缺少
+`course_type` 时 MUST 只经过一个确定性兼容器；兼容器 MUST 保存映射来源和协议版本。
+新 `CourseIntent` 中的 `compiled_composition_style` MUST 由课程类型、学科和难度编译，
+MUST NOT 恢复为一级用户选项。
+
+#### Scenario: 第一期开启创建弹窗
+
+- **WHEN** 客户端读取到系统学习和项目实战已开放、问题探究和考试冲刺未开放
+- **THEN** 界面 MUST 允许选择系统学习和项目实战
+- **AND** 问题探究和考试冲刺 MUST 显示明确的不可选状态
+- **AND** 页面 MUST NOT 显示资料整理或个性补弱为课程类型
+- **AND** 页面 MUST NOT 同时出现旧课程目的与旧课程编排偏好选择器
+
+#### Scenario: 历史任务只有旧编排字段
+
+- **WHEN** 服务恢复一个没有 `course_type` 但保存了旧目的或 `composition_style` 的任务
+- **THEN** 唯一兼容器 MUST 确定性恢复原任务的生成语义
+- **AND** MUST 记录映射来源，保证刷新和重启得到同一结果
+- **AND** 历史读取兼容 MUST NOT 让新界面重新暴露旧双重选择

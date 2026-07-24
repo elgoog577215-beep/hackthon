@@ -12,8 +12,16 @@ from math import ceil
 import re
 from typing import Any, Iterable
 
+from course_pedagogy_archetypes import (
+    LESSON_ARCHETYPES,
+    SUBJECT_VARIANTS,
+    course_stage,
+    resolve_subject_variant,
+    select_lesson_archetype,
+    validate_archetype_registry,
+)
 
-PROFILE_VERSION = "subject_pedagogy_v1"
+PROFILE_VERSION = "subject_pedagogy_v2"
 
 
 class PedagogyMode(str, Enum):
@@ -87,9 +95,13 @@ class SubjectPedagogyProfile:
     primary_mode: PedagogyMode
     secondary_mode: PedagogyMode | None
     secondary_intensity: SecondaryIntensity | None
+    subject_variant_id: str
+    subject_variant_label: str
     confidence: str
     evidence: tuple[str, ...]
     rationale: str
+    quality_guardrails: tuple[str, ...]
+    final_assessment: str
     enabled_module_ids: tuple[str, ...]
     user_locked: bool
     profile_version: str = PROFILE_VERSION
@@ -102,6 +114,7 @@ class SubjectPedagogyProfile:
             self.secondary_intensity.value if self.secondary_intensity else None
         )
         data["evidence"] = list(self.evidence)
+        data["quality_guardrails"] = list(self.quality_guardrails)
         data["enabled_module_ids"] = list(self.enabled_module_ids)
         return data
 
@@ -226,6 +239,9 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "general_application": _module("general_application", "应用场景", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "说明知识在真实问题中的用法", "给出可执行的应用情境和判断步骤"),
     "general_checklist": _module("general_checklist", "清单或模板", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "产出可复用清单或模板", "仅在方法型主题中提供简洁、可直接使用的清单", "步骤", "流程", "方法", "操作"),
     "general_comparison": _module("general_comparison", "案例比较", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "比较不同选择的适用条件", "对比至少两种做法及其边界", "比较", "区别", "选择", "方案"),
+    "general_concept_model": _module("general_concept_model", "概念模型", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "建立概念、关系、条件和边界", "围绕当前问题组织概念关系，并用例子与反例划清边界"),
+    "general_procedure": _module("general_procedure", "方法演练", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "执行并检查一个完整方法", "写清输入、判断、步骤、结果和自检，不把清单当作答案"),
+    "general_transfer": _module("general_transfer", "综合迁移", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "整合前序知识解决变化后的问题", "改变情境或约束，要求说明选择、边界和验收依据"),
 
     # 数学与形式科学
     "math_prerequisite_diagnostic": _module("math_prerequisite_diagnostic", "前置诊断", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "列出并检查必要前置知识", "在进入新对象前明确依赖的定义和运算能力"),
@@ -235,7 +251,10 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "math_variation": _module("math_variation", "变式练习", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "提供需要独立迁移的相邻问题", "改变条件或表示方式，避免照抄例题"),
     "math_error_analysis": _module("math_error_analysis", "错误分析", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "解释常见错误的逻辑原因", "指出错误发生在哪个定义、条件或推理步骤"),
     "math_proof": _module("math_proof", "证明与推导", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "给出必要的证明或推导链", "只有节点目标需要时才完整证明，不能每节强制证明", "证明", "推导", "定理", "性质"),
-    "math_modeling": _module("math_modeling", "数学建模", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "把现实条件转化为形式对象", "说明变量、假设、方程和结果解释", "建模", "应用", "优化", "预测"),
+    "math_modeling": _module("math_modeling", "数学建模", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "把现实条件转化为形式对象", "说明变量、假设、方程和结果解释", "建模", "优化", "预测"),
+    "math_representation": _module("math_representation", "多重表征", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "连接文字、符号、图形和数值表征", "说明不同表征对应同一数学对象的哪些性质与不变量"),
+    "math_problem_strategy": _module("math_problem_strategy", "策略选择", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "解释如何识别问题结构并选择方法", "比较可用策略、选择依据、关键步骤和结果检查"),
+    "math_reasoning_discourse": _module("math_reasoning_discourse", "数学论证", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "表达、比较并检验数学推理", "要求学习者说明每一步依据、回应异议并识别例证与证明的差别"),
 
     # 编程与工程技术
     "engineering_artifact_path": _module("engineering_artifact_path", "工程成果路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "定义最终可运行成果和项目里程碑", "课程顺序围绕逐步构建一个可验收成果组织"),
@@ -246,6 +265,9 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "engineering_debugging": _module("engineering_debugging", "调试案例", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "展示错误、定位和修复过程", "给出真实错误现象、原因和验证修复的方法"),
     "engineering_testing": _module("engineering_testing", "测试与质量", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "提供自动或手动验证", "对关键行为设计测试和边界条件", "测试", "质量", "边界", "可靠性"),
     "engineering_architecture": _module("engineering_architecture", "架构设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "解释组件职责和取舍", "只有系统级主题才引入架构，不强制画图", "架构", "系统", "模块", "服务"),
+    "engineering_design": _module("engineering_design", "需求与设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "把需求转化为组件、接口和验收条件", "先说明约束与方案取舍，再进入实现"),
+    "engineering_refactoring": _module("engineering_refactoring", "重构实践", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "在保持外部行为不变的前提下改善实现", "先用测试保护行为，再说明代码结构和可维护性如何改善"),
+    "engineering_review": _module("engineering_review", "代码评审", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据正确性、清晰度和边界条件评审实现", "给出具体问题、影响、修改建议和验证方式"),
 
     # 自然科学
     "science_phenomenon_path": _module("science_phenomenon_path", "现象到模型路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "按现象、模型、证据和应用组织课程", "课程必须从可观察问题进入模型，再回到预测或解释"),
@@ -256,6 +278,9 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "science_prediction": _module("science_prediction", "预测与应用", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "使用模型进行解释或预测", "给出从条件到结论的完整应用"),
     "science_experiment_design": _module("science_experiment_design", "实验设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "设计变量、对照和观察指标", "说明可操作的实验步骤和安全边界", "实验", "测量", "验证", "观察"),
     "science_data_analysis": _module("science_data_analysis", "数据分析", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "分析数据与不确定性", "说明数据如何支持或限制结论", "数据", "统计", "误差", "曲线"),
+    "science_question_hypothesis": _module("science_question_hypothesis", "问题与假设", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "从现象提出可检验问题和假设", "区分观察、问题与假设，并说明什么证据可能支持或反驳"),
+    "science_argument": _module("science_argument", "证据论证", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "连接主张、证据与推理", "比较替代解释，并让结论强度与证据质量相称"),
+    "science_engineering_design": _module("science_engineering_design", "科学设计", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据科学模型和约束设计解决方案", "先定义评价标准，再比较方案、测试结果和取舍"),
 
     # 生命科学与医学基础
     "life_system_levels": _module("life_system_levels", "生命层级", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "建立结构层级与系统关系", "从分子、细胞、组织或系统中选择适当层级推进"),
@@ -266,6 +291,8 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "life_case": _module("life_case", "机制案例", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用案例检验结构功能机制", "案例用于解释知识，不给个人诊断或治疗建议"),
     "life_normal_abnormal": _module("life_normal_abnormal", "正常与异常", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "比较正常机制和异常变化", "只解释学习范围内的机制和风险边界", "疾病", "异常", "病理", "风险"),
     "life_evidence": _module("life_evidence", "实验依据", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "说明机制的实验或观察依据", "区分已知事实、常见模型和不确定性", "实验", "研究", "证据", "数据"),
+    "life_scale_connection": _module("life_scale_connection", "尺度连接", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "连接分子、细胞、组织、个体或生态尺度", "明确当前解释尺度以及跨尺度变化如何传递"),
+    "life_quantitative": _module("life_quantitative", "生物数据推理", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "用定量证据评价生命科学主张", "说明变量、比较基线、不确定性以及数据能支持的结论范围"),
 
     # 人文社科
     "humanities_question_path": _module("humanities_question_path", "问题与观点路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "围绕核心问题组织背景、理论和争议", "课程不能退化为人物或年代流水账"),
@@ -276,6 +303,10 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "humanities_response": _module("humanities_response", "讨论或写作", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "要求学习者形成可辩护回应", "提供问题、证据要求和评价标准"),
     "humanities_source_criticism": _module("humanities_source_criticism", "材料辨析", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "分析材料来源、立场和限制", "在涉及原始材料或争议证据时启用", "史料", "文本", "来源", "材料"),
     "humanities_timeline": _module("humanities_timeline", "时间线", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "梳理关键变化而非罗列年代", "只保留解释思想或制度变化所需节点", "历史", "演变", "时期", "发展"),
+    "humanities_question": _module("humanities_question", "核心问题", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "提出能够驱动材料调查和解释的问题", "问题必须允许证据改变答案，并拆出可回答的支持性问题"),
+    "humanities_interpretation": _module("humanities_interpretation", "材料解释", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "从具体材料形成有依据的解释", "明确文本依据、推理过程、替代解释和材料限制"),
+    "humanities_causation": _module("humanities_causation", "因果与变化", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "解释事件、制度或观念变化的多重原因", "区分触发因素、必要条件、长期结构和结果"),
+    "humanities_synthesis": _module("humanities_synthesis", "综合回应", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "整合多份材料与观点形成完整回应", "不能把摘要拼接成论证，必须形成主张、证据和推理链"),
 
     # 语言学习
     "language_scenario_path": _module("language_scenario_path", "交际场景路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "按可完成的沟通场景组织课程", "每章服务一个逐步升级的真实沟通目标"),
@@ -287,6 +318,10 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "language_review": _module("language_review", "间隔复习", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "安排旧语块在后续场景复现", "新课必须复用先前表达，形成间隔和交错练习"),
     "language_pronunciation": _module("language_pronunciation", "发音与文字系统", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "提供发音、重音或文字规则练习", "只在目标语言和节点需要时启用", "发音", "音标", "拼写", "字母"),
     "language_pragmatics": _module("language_pragmatics", "文化与语用", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "说明礼貌、语域和文化使用边界", "避免把文化倾向写成绝对规则", "礼貌", "文化", "正式", "语境"),
+    "language_noticing": _module("language_noticing", "语言注意", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "从输入中注意形式、意义和使用条件", "先让学习者发现目标表达，再用简洁规则澄清"),
+    "language_interaction": _module("language_interaction", "互动协商", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "在信息差中理解、回应和协商意义", "设置角色、目标和真实选择，不能只背诵固定脚本"),
+    "language_mediation": _module("language_mediation", "调解转述", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "面向特定对象重组、解释或转述信息", "保留关键信息和交际目的，不做逐字替换"),
+    "language_feedback_repair": _module("language_feedback_repair", "反馈与修正", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据交际效果与准确性反馈修正输出", "区分影响理解的错误和可暂缓问题，修正后再次完成任务"),
 
     # 商业与职业技能
     "business_deliverable_path": _module("business_deliverable_path", "工作成果路径", ModuleScope.COURSE, ModuleFrequency.COURSE_REQUIRED, "围绕真实工作成果组织课程", "最终必须产出方案、分析、文档、决策或可演示成果"),
@@ -298,6 +333,10 @@ MODULES: dict[str, TeachingModuleSpec] = {
     "business_metric": _module("business_metric", "评价指标", ModuleScope.LESSON, ModuleFrequency.LESSON_REQUIRED, "用指标或评分标准检查成果", "指标必须能区分不同质量的交付物"),
     "business_roleplay": _module("business_roleplay", "角色模拟", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "模拟沟通、谈判或决策", "给出双方目标、信息差和复盘问题", "谈判", "沟通", "汇报", "面试"),
     "business_data": _module("business_data", "数据分析", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "使用数据支持判断", "明确指标定义、计算和决策含义", "数据", "指标", "财务", "分析"),
+    "business_problem_diagnosis": _module("business_problem_diagnosis", "问题诊断", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "区分业务症状、原因、约束和信息缺口", "先形成问题定义，再选择框架或工具"),
+    "business_decision": _module("business_decision", "决策与取舍", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "比较选项并作出可解释决策", "说明依据、风险、机会成本和替代方案"),
+    "business_reflection": _module("business_reflection", "成果复盘", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "依据反馈和结果修订工作成果", "区分执行过程、成果质量和下一轮改进"),
+    "business_ethics": _module("business_ethics", "伦理与相关方", ModuleScope.LESSON, ModuleFrequency.CONDITIONAL, "分析决策对不同利益相关者的影响", "识别利益冲突、风险与责任，避免只以单一指标判断"),
 }
 
 
@@ -325,6 +364,9 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "general_application": "application",
     "general_checklist": "application",
     "general_comparison": "counterexample",
+    "general_concept_model": "concept",
+    "general_procedure": "activity",
+    "general_transfer": "transfer",
     "math_prerequisite_diagnostic": "prerequisite",
     "math_intuition": "orientation",
     "math_formalization": "concept",
@@ -333,6 +375,9 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "math_error_analysis": "misconception",
     "math_proof": "reasoning",
     "math_modeling": "application",
+    "math_representation": "concept",
+    "math_problem_strategy": "reasoning",
+    "math_reasoning_discourse": "reasoning",
     "engineering_artifact_path": "orientation",
     "engineering_minimal_run": "example",
     "engineering_output": "feedback",
@@ -341,6 +386,9 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "engineering_debugging": "misconception",
     "engineering_testing": "feedback",
     "engineering_architecture": "concept",
+    "engineering_design": "reasoning",
+    "engineering_refactoring": "activity",
+    "engineering_review": "feedback",
     "science_phenomenon_path": "orientation",
     "science_phenomenon": "orientation",
     "science_model": "concept",
@@ -349,6 +397,9 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "science_prediction": "application",
     "science_experiment_design": "activity",
     "science_data_analysis": "reasoning",
+    "science_question_hypothesis": "orientation",
+    "science_argument": "reasoning",
+    "science_engineering_design": "application",
     "life_system_levels": "concept",
     "life_location_structure": "concept",
     "life_function": "concept",
@@ -357,6 +408,8 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "life_case": "example",
     "life_normal_abnormal": "counterexample",
     "life_evidence": "reasoning",
+    "life_scale_connection": "concept",
+    "life_quantitative": "reasoning",
     "humanities_question_path": "orientation",
     "humanities_context": "orientation",
     "humanities_source": "example",
@@ -365,6 +418,10 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "humanities_response": "activity",
     "humanities_source_criticism": "activity",
     "humanities_timeline": "orientation",
+    "humanities_question": "orientation",
+    "humanities_interpretation": "reasoning",
+    "humanities_causation": "reasoning",
+    "humanities_synthesis": "transfer",
     "language_scenario_path": "orientation",
     "language_input": "example",
     "language_chunks": "concept",
@@ -374,6 +431,10 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "language_review": "remediation",
     "language_pronunciation": "concept",
     "language_pragmatics": "application",
+    "language_noticing": "concept",
+    "language_interaction": "activity",
+    "language_mediation": "transfer",
+    "language_feedback_repair": "feedback",
     "business_deliverable_path": "orientation",
     "business_scenario": "orientation",
     "business_framework": "concept",
@@ -383,6 +444,10 @@ MODULE_BLOCK_ROLES: dict[str, str] = {
     "business_metric": "feedback",
     "business_roleplay": "activity",
     "business_data": "reasoning",
+    "business_problem_diagnosis": "reasoning",
+    "business_decision": "reasoning",
+    "business_reflection": "feedback",
+    "business_ethics": "counterexample",
 }
 
 
@@ -415,7 +480,10 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("理解", "认识", "掌握", "应用"),
         ("general_concept_map",),
         ("general_explained_example", "general_application"),
-        ("general_checklist", "general_comparison"),
+        (
+            "general_checklist", "general_comparison", "general_concept_model",
+            "general_procedure", "general_transfer",
+        ),
         ("不能退化成百科介绍", "必须让学习者能够解释并实际使用"),
         "解释核心概念并完成一个真实应用任务",
     ),
@@ -426,7 +494,10 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("计算", "证明", "推导", "求解", "建模", "公式"),
         ("math_prerequisite_diagnostic",),
         ("math_intuition", "math_formalization", "math_worked_example", "math_variation", "math_error_analysis"),
-        ("math_proof", "math_modeling"),
+        (
+            "math_proof", "math_modeling", "math_representation",
+            "math_problem_strategy", "math_reasoning_discourse",
+        ),
         ("定义、推导和例题必须逻辑一致", "直觉不能替代正式定义"),
         "独立求解、证明或形式化建模",
     ),
@@ -455,7 +526,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("实现", "编写", "运行", "调试", "部署", "构建", "代码"),
         ("engineering_artifact_path",),
         ("engineering_minimal_run", "engineering_output", "engineering_mechanism", "engineering_modification", "engineering_debugging"),
-        ("engineering_testing", "engineering_architecture"),
+        (
+            "engineering_testing", "engineering_architecture",
+            "engineering_design", "engineering_refactoring",
+            "engineering_review",
+        ),
         ("代码必须形成可运行闭环", "不能只贴代码或只讲概念"),
         "交付一个可运行、可测试、可解释的工程成果",
     ),
@@ -466,7 +541,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("观察", "实验", "测量", "解释", "预测", "验证"),
         ("science_phenomenon_path",),
         ("science_phenomenon", "science_model", "science_evidence", "science_boundary", "science_prediction"),
-        ("science_experiment_design", "science_data_analysis"),
+        (
+            "science_experiment_design", "science_data_analysis",
+            "science_question_hypothesis", "science_argument",
+            "science_engineering_design",
+        ),
         ("现象、模型、证据和结论必须分开", "必须说明规律适用边界"),
         "使用模型和证据解释或预测一个自然现象",
     ),
@@ -477,7 +556,10 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("解释机制", "分析结构", "比较正常异常", "说明功能"),
         ("life_system_levels",),
         ("life_location_structure", "life_function", "life_mechanism", "life_regulation", "life_case"),
-        ("life_normal_abnormal", "life_evidence"),
+        (
+            "life_normal_abnormal", "life_evidence",
+            "life_scale_connection", "life_quantitative",
+        ),
         ("结构、功能和机制不能混写", "不得给出个人诊断或治疗建议"),
         "用结构、功能和机制解释一个生命过程或基础医学案例",
     ),
@@ -488,7 +570,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("分析", "论证", "比较", "讨论", "批判", "写作", "解释"),
         ("humanities_question_path",),
         ("humanities_context", "humanities_source", "humanities_claim", "humanities_comparison", "humanities_response"),
-        ("humanities_source_criticism", "humanities_timeline"),
+        (
+            "humanities_source_criticism", "humanities_timeline",
+            "humanities_question", "humanities_interpretation",
+            "humanities_causation", "humanities_synthesis",
+        ),
         ("事实、材料、观点和解释必须分开", "不能把争议解释写成唯一事实"),
         "基于材料形成一份有证据、能回应异议的分析或论证",
     ),
@@ -499,7 +585,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("听", "说", "读", "写", "翻译", "会话", "表达", "沟通"),
         ("language_scenario_path", "language_review"),
         ("language_input", "language_chunks", "language_form_use", "language_controlled_practice", "language_output"),
-        ("language_pronunciation", "language_pragmatics"),
+        (
+            "language_pronunciation", "language_pragmatics",
+            "language_noticing", "language_interaction",
+            "language_mediation", "language_feedback_repair",
+        ),
         ("每章必须有真实输出", "不能长期停留在单词和语法讲解"),
         "在目标场景中完成可理解、得体的真实表达",
     ),
@@ -510,7 +600,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         ("决策", "交付", "规划", "汇报", "谈判", "分析", "制定方案", "管理"),
         ("business_deliverable_path",),
         ("business_scenario", "business_framework", "business_case", "business_tool", "business_task", "business_metric"),
-        ("business_roleplay", "business_data"),
+        (
+            "business_roleplay", "business_data",
+            "business_problem_diagnosis", "business_decision",
+            "business_reflection", "business_ethics",
+        ),
         ("必须产出可使用的工作成果", "不能只讲框架和口号"),
         "交付一个可评价的业务方案、分析、沟通或决策成果",
     ),
@@ -629,10 +723,17 @@ def resolve_pedagogy_profile(
         evidence = ["未发现稳定学科行为信号，使用通用课程兜底"]
 
     primary_label = TEMPLATES[primary].label
+    subject_variant = resolve_subject_variant(primary.value, text)
     if secondary:
-        rationale = f"以{primary_label}组织课程主线，并按依赖注入{TEMPLATES[secondary].label}模块。"
+        rationale = (
+            f"以{primary_label}的“{subject_variant.label}”组织课程主线，"
+            f"并按依赖注入{TEMPLATES[secondary].label}模块。"
+        )
     else:
-        rationale = f"课程的主要学习行为最符合{primary_label}。"
+        rationale = (
+            f"课程的主要学习行为最符合{primary_label}，"
+            f"采用“{subject_variant.label}”分型。"
+        )
 
     module_ids = list(COMMON_COURSE_MODULES + COMMON_LESSON_MODULES)
     module_ids.extend(TEMPLATES[primary].course_modules)
@@ -642,14 +743,27 @@ def resolve_pedagogy_profile(
         module_ids.extend(TEMPLATES[secondary].course_modules)
         module_ids.extend(TEMPLATES[secondary].lesson_modules)
         module_ids.extend(TEMPLATES[secondary].conditional_modules)
+    quality_guardrails = list(TEMPLATES[primary].quality_guardrails)
+    if secondary:
+        quality_guardrails.extend(TEMPLATES[secondary].quality_guardrails)
+    final_assessment = TEMPLATES[primary].final_assessment
+    if secondary and intensity == SecondaryIntensity.DUAL_CORE:
+        final_assessment = (
+            f"{final_assessment}；同时完成"
+            f"{TEMPLATES[secondary].final_assessment}"
+        )
 
     return SubjectPedagogyProfile(
         primary_mode=primary,
         secondary_mode=secondary,
         secondary_intensity=intensity,
+        subject_variant_id=subject_variant.variant_id,
+        subject_variant_label=subject_variant.label,
         confidence="high" if user_locked else confidence,
         evidence=tuple(evidence),
         rationale=rationale,
+        quality_guardrails=tuple(_dedupe(quality_guardrails)),
+        final_assessment=final_assessment,
         enabled_module_ids=tuple(_dedupe(module_ids)),
         user_locked=user_locked,
     )
@@ -686,9 +800,26 @@ def coerce_persisted_profile(course_data: dict[str, Any]) -> SubjectPedagogyProf
             primary_mode=normalized.primary_mode,
             secondary_mode=normalized.secondary_mode,
             secondary_intensity=normalized.secondary_intensity,
+            subject_variant_id=str(
+                raw.get("subject_variant_id")
+                or normalized.subject_variant_id
+            ),
+            subject_variant_label=str(
+                raw.get("subject_variant_label")
+                or normalized.subject_variant_label
+            ),
             confidence=str(raw.get("confidence") or normalized.confidence),
             evidence=raw_evidence or normalized.evidence,
             rationale=str(raw.get("rationale") or normalized.rationale),
+            quality_guardrails=tuple(
+                str(item).strip()
+                for item in raw.get("quality_guardrails") or []
+                if str(item).strip()
+            ) or normalized.quality_guardrails,
+            final_assessment=str(
+                raw.get("final_assessment")
+                or normalized.final_assessment
+            ),
             enabled_module_ids=raw_modules or normalized.enabled_module_ids,
             user_locked=bool(raw.get("user_locked", normalized.user_locked)),
             profile_version=str(raw.get("profile_version") or PROFILE_VERSION),
@@ -739,36 +870,113 @@ def attach_module_plans_to_plan(
         for section in chapter.get("sections", [])
     ]
     secondary_indices = _secondary_injection_indices(sections, profile)
+    secondary_variant = None
+    if profile.secondary_mode:
+        secondary_variant = resolve_subject_variant(
+            profile.secondary_mode.value,
+            " ".join(
+                " ".join([
+                    str(section.get("title") or ""),
+                    str(section.get("learning_objective") or ""),
+                    " ".join(
+                        str(item)
+                        for item in section.get("key_points") or []
+                    ),
+                ])
+                for section in sections
+            ),
+        )
 
     for index, section in enumerate(sections):
+        archetype = select_lesson_archetype(
+            mode=profile.primary_mode.value,
+            variant_id=profile.subject_variant_id,
+            section=section,
+            index=index,
+            count=len(sections),
+        )
+        stage = course_stage(index, len(sections))
         requested = [
             module_id for module_id in section.get("suggested_module_ids", [])
             if module_id in profile.enabled_module_ids
         ]
         module_ids = list(COMMON_LESSON_MODULES)
         primary_template = TEMPLATES[profile.primary_mode]
-        module_ids.extend(primary_template.lesson_modules)
-        module_ids.extend(_matching_conditional_modules(section, primary_template))
+        module_ids.extend(archetype.module_ids)
+        module_ids.extend(
+            _matching_conditional_modules(section, primary_template)[:1]
+        )
         module_ids.extend(requested)
 
         if profile.secondary_mode and index in secondary_indices:
             secondary_template = TEMPLATES[profile.secondary_mode]
-            secondary_limit = 2 if profile.secondary_intensity == SecondaryIntensity.DUAL_CORE else 1
-            secondary_candidates = list(_matching_conditional_modules(section, secondary_template))
-            secondary_candidates.extend(secondary_template.lesson_modules)
-            module_ids.extend(_dedupe(secondary_candidates)[:secondary_limit])
+            secondary_archetype = select_lesson_archetype(
+                mode=profile.secondary_mode.value,
+                variant_id=(
+                    secondary_variant.variant_id
+                    if secondary_variant
+                    else ""
+                ),
+                section=section,
+                index=index,
+                count=len(sections),
+            )
+            secondary_limit = (
+                2
+                if profile.secondary_intensity == SecondaryIntensity.DUAL_CORE
+                else 1
+            )
+            secondary_candidates = list(
+                _matching_conditional_modules(section, secondary_template)
+            )
+            secondary_candidates.extend(secondary_archetype.module_ids)
+            module_ids.extend(
+                _dedupe(secondary_candidates)[:secondary_limit]
+            )
 
         section["module_plan"] = [
-            MODULES[module_id].to_dict(
-                source_mode=_module_source(module_id, profile),
-                required=MODULES[module_id].frequency != ModuleFrequency.CONDITIONAL,
-            )
+            {
+                **MODULES[module_id].to_dict(
+                    source_mode=_module_source(module_id, profile),
+                    required=(
+                        module_id in COMMON_LESSON_MODULES
+                        or module_id in archetype.module_ids
+                        or (
+                            profile.secondary_intensity
+                            == SecondaryIntensity.DUAL_CORE
+                            and module_id
+                            not in primary_template.conditional_modules
+                        )
+                    ),
+                ),
+                "lesson_archetype_id": archetype.archetype_id,
+                "lesson_archetype_label": archetype.label,
+            }
             for module_id in _dedupe(module_ids)
         ]
+        section["lesson_archetype"] = archetype.to_dict(stage=stage)
         section.pop("suggested_module_ids", None)
 
     plan["subject_pedagogy_profile"] = profile.to_dict()
     plan["course_module_plan"] = build_course_module_plan(profile)
+    plan["pedagogy_quality_contract"] = {
+        "subject_variant_id": profile.subject_variant_id,
+        "subject_variant_label": profile.subject_variant_label,
+        "quality_guardrails": list(profile.quality_guardrails),
+        "final_assessment": profile.final_assessment,
+        "lesson_archetype_count": len({
+            str(
+                (section.get("lesson_archetype") or {}).get(
+                    "archetype_id"
+                )
+                or ""
+            )
+            for section in sections
+            if (section.get("lesson_archetype") or {}).get(
+                "archetype_id"
+            )
+        }),
+    }
     return plan
 
 
@@ -787,6 +995,17 @@ def validate_module_registry() -> list[str]:
             issues.append(f"{mode.value} 引用了不存在的模块: {', '.join(missing)}")
         if not template.lesson_modules:
             issues.append(f"{mode.value} 缺少课时模块")
+    issues.extend(validate_archetype_registry(known_module_ids=MODULES))
+    for variant in SUBJECT_VARIANTS.values():
+        missing = [
+            archetype_id
+            for archetype_id in variant.preferred_archetype_ids
+            if archetype_id not in LESSON_ARCHETYPES
+        ]
+        if missing:
+            issues.append(
+                f"{variant.variant_id} 引用了不存在的课型: {', '.join(missing)}"
+            )
     return issues
 
 
@@ -863,6 +1082,8 @@ __all__ = [
     "MODULES",
     "MODULE_BLOCK_ROLES",
     "TEMPLATES",
+    "LESSON_ARCHETYPES",
+    "SUBJECT_VARIANTS",
     "COMMON_COURSE_MODULES",
     "COMMON_LESSON_MODULES",
     "parse_mode",

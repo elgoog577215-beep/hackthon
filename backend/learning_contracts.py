@@ -3,9 +3,51 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import asdict, dataclass
 from typing import Any
 
+from learner_context import DEFAULT_USER_ID
+
 TASK_KINDS = {"reading", "practice", "diagnostic", "remediation", "validation", "record", "review"}
+
+
+@dataclass(frozen=True, slots=True)
+class LearnerCourseScope:
+    """一次学习写入不可拆分的学习者、课程和版本作用域。"""
+
+    user_id: str
+    course_id: str
+    course_version_id: str = ""
+
+    @classmethod
+    def from_course(
+        cls,
+        course: dict[str, Any],
+        *,
+        user_id: str,
+        expected_course_id: str = "",
+    ) -> "LearnerCourseScope":
+        normalized_user_id = str(user_id or "").strip()
+        course_id = str(course.get("course_id") or "").strip()
+        expected = str(expected_course_id or "").strip()
+        if not normalized_user_id or normalized_user_id == DEFAULT_USER_ID:
+            raise ValueError("learner identity is required for a learning scope")
+        if not course_id:
+            raise ValueError("course identity is required for a learning scope")
+        if expected and expected != course_id:
+            raise ValueError("requested course does not match the loaded course")
+        return cls(
+            user_id=normalized_user_id,
+            course_id=course_id,
+            course_version_id=str(
+                course.get("current_course_version_id")
+                or course.get("course_document_revision")
+                or ""
+            ).strip(),
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
 
 
 def task_revision_id(value: dict[str, Any] | None) -> str:
@@ -166,6 +208,7 @@ def task_ref_for_action(
 
 
 __all__ = [
+    "LearnerCourseScope",
     "TASK_KINDS",
     "learning_context_ref",
     "learning_task_ref",

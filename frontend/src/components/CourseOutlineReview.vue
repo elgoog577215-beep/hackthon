@@ -30,10 +30,34 @@
       </div>
 
       <template v-else>
-        <label class="outline-review__course-name">
-          <span>{{ t('courseWorkspace.blueprint.courseName', '课程名称') }}</span>
-          <input v-model="blueprintDraft.course_name" type="text" :placeholder="courseName" />
-        </label>
+        <div class="outline-review__setup">
+          <label class="outline-review__course-name">
+            <span>{{ t('courseWorkspace.blueprint.courseName', '课程名称') }}</span>
+            <input v-model="blueprintDraft.course_name" type="text" :placeholder="courseName" />
+          </label>
+
+          <section v-if="isProjectCourse" class="outline-review__starting-point" :data-status="startingProfileStatus">
+            <header>
+              <span>{{ t('courseGeneration.outlineReview.startingPoint', '你的项目起点（暂定）') }}</span>
+              <strong>{{ startingProfileStatusLabel }}</strong>
+            </header>
+            <div>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.deliverable', '最终交付物') }}</small>
+                <span>{{ projectDeliverable || t('courseGeneration.outlineReview.deliverablePending', '按项目目标确定') }}</span>
+              </p>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.experience', '已有经验') }}</small>
+                <span>{{ startingStrengths || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
+              </p>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.focusAreas', '重点补充') }}</small>
+                <span>{{ startingFocus || t('courseGeneration.outlineReview.discoverInProject', '将在项目过程中继续识别') }}</span>
+              </p>
+            </div>
+            <footer>{{ t('courseGeneration.outlineReview.startingPointGuard', '起点来自你的自述，只用于安排第一版路径，不等同于已经掌握。') }}</footer>
+          </section>
+        </div>
 
         <ol class="outline-review__nodes">
           <li
@@ -44,6 +68,12 @@
             <span class="outline-review__index">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="outline-review__branch" aria-hidden="true"></span>
             <div>
+              <div v-if="node.learning_path_role" class="outline-review__node-meta">
+                <span :data-role="normalizedPathRole(node.learning_path_role)">
+                  {{ pathRoleLabel(node.learning_path_role) }}
+                </span>
+                <p v-if="node.path_reason">{{ node.path_reason }}</p>
+              </div>
               <input
                 v-model="node.node_name"
                 type="text"
@@ -146,6 +176,18 @@ const blueprintNodes = computed<any[]>(() => (
       ? blueprintDraft.value.course_blueprint.nodes
       : []
 ))
+const isProjectCourse = computed(() => (
+  String(blueprintDraft.value?.course_type || props.task?.courseType || '') === 'project'
+))
+const courseIntent = computed<Record<string, any>>(() => blueprintDraft.value?.course_intent || {})
+const startingProfile = computed<Record<string, any>>(() => blueprintDraft.value?.learner_starting_profile || {})
+const startingProfileStatus = computed(() => String(startingProfile.value.status || 'insufficient'))
+const projectDeliverable = computed(() => String(courseIntent.value.expected_deliverable || '').trim())
+const startingStrengths = computed(() => listText(startingProfile.value.self_reported_strengths))
+const startingFocus = computed(() => listText(startingProfile.value.focus_areas))
+const startingProfileStatusLabel = computed(() => startingProfileStatus.value === 'insufficient'
+  ? t('courseGeneration.outlineReview.startingPointInsufficient', '起点信息不足')
+  : t('courseGeneration.outlineReview.startingPointTentative', '暂定起点'))
 const draftSignature = computed(() => JSON.stringify({
   course_name: blueprintDraft.value?.course_name || '',
   nodes: blueprintNodes.value.map(node => ({
@@ -174,6 +216,29 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
 }
 
+function listText(value: unknown) {
+  if (!Array.isArray(value)) return ''
+  return value.map(item => String(item || '').trim()).filter(Boolean).join('；')
+}
+
+function normalizedPathRole(value: unknown) {
+  const role = String(value || '')
+  return ['focus', 'standard', 'compressed', 'verify_in_project', 'milestone'].includes(role)
+    ? role
+    : 'standard'
+}
+
+function pathRoleLabel(value: unknown) {
+  const labels = {
+    focus: t('courseGeneration.outlineReview.pathRoles.focus', '重点补充'),
+    standard: t('courseGeneration.outlineReview.pathRoles.standard', '正常学习'),
+    compressed: t('courseGeneration.outlineReview.pathRoles.compressed', '快速通过'),
+    verify_in_project: t('courseGeneration.outlineReview.pathRoles.verifyInProject', '项目中验证'),
+    milestone: t('courseGeneration.outlineReview.pathRoles.milestone', '项目节点'),
+  }
+  return labels[normalizedPathRole(value) as keyof typeof labels]
+}
+
 function seedNodesFromCourse() {
   if (blueprintNodes.value.length || !props.nodes.length) return
   blueprintDraft.value.nodes = props.nodes
@@ -184,6 +249,8 @@ function seedNodesFromCourse() {
       node_name: node.node_name,
       node_level: node.node_level,
       learning_objective: node.learning_objective || '',
+      learning_path_role: node.learning_path_role,
+      path_reason: node.path_reason,
     }))
 }
 
@@ -211,6 +278,9 @@ function draftPayload() {
     base_blueprint_revision_id: draft.base_blueprint_revision_id,
     course_name: draft.course_name,
     course_purpose: draft.course_purpose,
+    course_type: draft.course_type,
+    course_intent: draft.course_intent,
+    learner_starting_profile: draft.learner_starting_profile,
     course_blueprint: draft.course_blueprint,
     nodes: draft.nodes,
     learning_asset_plan: draft.learning_asset_plan,
@@ -364,6 +434,10 @@ async function confirmOutline() {
   font-weight:800;
   cursor:pointer;
 }
+.outline-review__setup {
+  min-width:0;
+  border-bottom:1px solid #eceef2;
+}
 .outline-review__course-name {
   display:grid;
   grid-template-columns:100px minmax(0,1fr);
@@ -371,7 +445,6 @@ async function confirmOutline() {
   gap:14px;
   margin:0 30px;
   padding:14px 0 12px;
-  border-bottom:1px solid #eceef2;
 }
 .outline-review__course-name span {
   color:#7b8494;
@@ -401,6 +474,62 @@ async function confirmOutline() {
   padding:0 10px;
   font-size:14px;
   font-weight:780;
+}
+.outline-review__starting-point {
+  margin:0 30px;
+  padding:13px 0 15px 114px;
+  border-top:1px solid #eceef2;
+}
+.outline-review__starting-point > header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+.outline-review__starting-point > header span {
+  color:#344054;
+  font-size:12px;
+  font-weight:800;
+}
+.outline-review__starting-point > header strong {
+  padding:4px 8px;
+  border:1px solid #c7dbd2;
+  border-radius:5px;
+  color:#087a5b;
+  background:#f2faf7;
+  font-size:10px;
+}
+.outline-review__starting-point[data-status="insufficient"] > header strong {
+  border-color:#e7c790;
+  color:#9a5b17;
+  background:#fff9ef;
+}
+.outline-review__starting-point > div {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:16px;
+}
+.outline-review__starting-point p { min-width:0; margin:0; }
+.outline-review__starting-point small {
+  display:block;
+  margin-bottom:3px;
+  color:#8a93a3;
+  font-size:10px;
+  font-weight:750;
+}
+.outline-review__starting-point p span {
+  display:block;
+  overflow-wrap:anywhere;
+  color:#455166;
+  font-size:11px;
+  line-height:1.5;
+}
+.outline-review__starting-point > footer {
+  margin-top:9px;
+  color:#7b8494;
+  font-size:10px;
+  line-height:1.5;
 }
 .outline-review__nodes {
   display:grid;
@@ -440,6 +569,53 @@ async function confirmOutline() {
   border:0;
   border-radius:3px;
   background:#4f5b70;
+}
+.outline-review__node-meta {
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:0 8px 2px;
+}
+.outline-review__node-meta > span {
+  flex:0 0 auto;
+  padding:3px 6px;
+  border:1px solid #d9dee7;
+  border-radius:4px;
+  color:#596579;
+  background:#f8f9fb;
+  font-size:9px;
+  font-weight:800;
+}
+.outline-review__node-meta > span[data-role="focus"] {
+  border-color:#e7c790;
+  color:#9a5b17;
+  background:#fff9ef;
+}
+.outline-review__node-meta > span[data-role="compressed"] {
+  border-color:#bfd7cc;
+  color:#087a5b;
+  background:#f2faf7;
+}
+.outline-review__node-meta > span[data-role="verify_in_project"] {
+  border-color:#c8c9ed;
+  color:#4f55b5;
+  background:#f4f4ff;
+}
+.outline-review__node-meta > span[data-role="milestone"] {
+  border-color:#b9c7db;
+  color:#35506f;
+  background:#f3f7fb;
+}
+.outline-review__node-meta p {
+  min-width:0;
+  overflow:hidden;
+  margin:0;
+  color:#7b8494;
+  font-size:10px;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .outline-review__nodes input {
   height:31px;
@@ -521,7 +697,10 @@ async function confirmOutline() {
   .outline-review__header { display:grid; gap:9px; padding:19px 16px 15px; }
   .outline-review__header h1 { font-size:27px; }
   .outline-review__count { justify-self:start; }
+  .outline-review__setup { min-height:0; }
   .outline-review__course-name { grid-template-columns:1fr; gap:3px; margin:0 16px; padding:10px 0 8px; }
+  .outline-review__starting-point { margin:0 16px; padding:11px 0 13px; }
+  .outline-review__starting-point > div { grid-template-columns:1fr; gap:8px; }
   .outline-review__nodes { padding:4px 16px 12px; }
   .outline-review__nodes li { grid-template-columns:26px 12px minmax(0,1fr); gap:6px; }
   .outline-review__footer { align-items:stretch; flex-direction:column; gap:9px; padding:11px 12px 13px; }

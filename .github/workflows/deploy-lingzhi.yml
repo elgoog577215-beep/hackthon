@@ -21,6 +21,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Verify repository tracking hygiene
+        run: scripts/check-tracked-ignored.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

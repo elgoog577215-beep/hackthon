@@ -736,6 +736,38 @@ describe('CourseEvolutionPanel', () => {
     wrapper.unmount()
   })
 
+  it('全课程入口遇到强学习证据时绑定真实生长方案，不让审阅弹窗停在扫描态', async () => {
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    vi.spyOn(store, 'createSectionPlan').mockImplementation(async () => {
+      const scopedStrongPlan = { ...strongPlan, target_section_id: 's1' }
+      store.applyPayload('course-1', {
+        evidence_items: strongEvidence,
+        hypotheses: [],
+        course_evolution_plans: [scopedStrongPlan],
+      })
+      return scopedStrongPlan
+    })
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+      global: { stubs: { Teleport: true } },
+    })
+
+    await wrapper.get('[data-scope="whole_course"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue(strongEvidence[0].summary)
+    await wrapper.get('.generate-plan').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.review-workbench').attributes('data-state')).toBe('ready')
+    expect(wrapper.get('.review-workbench').text()).toContain('本节及相关后续内容')
+    expect(wrapper.get('.review-workbench').text()).toContain('2/2')
+    expect(wrapper.find('.scan-empty-state').exists()).toBe(false)
+  })
+
   it('把后端逐项保存的扫描检查点动态追加到同一个弹窗', async () => {
     const store = useCourseEvolutionStore()
     const generatingPlan = {

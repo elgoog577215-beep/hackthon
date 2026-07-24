@@ -44,15 +44,13 @@ describe('resource workspace shell', () => {
     expect(teachingResources).not.toContain('aria-modal="true"')
   })
 
-  it('keeps PPT out of teaching resources and exposes it through the unified course workbench', () => {
-    const app = readSource('../../App.vue')
-    const workflowBar = readSource('../../components/CourseWorkflowBar.vue')
+  it('keeps PPT out of teaching resources and exposes it as the fourth course workspace tab', () => {
+    const courseTabs = readSource('../../components/CourseWorkspaceTabs.vue')
     const teachingResources = readSource('../../components/TeachingRepresentationsOverlay.vue')
     const pptWorkspace = readSource('../../views/PptWorkspaceView.vue')
 
-    expect(app).toContain('header-ppt-button')
-    expect(app).toContain("name: 'course-workbench'")
-    expect(workflowBar).toContain("name: 'ppt-workspace'")
+    expect(courseTabs).toContain('data-workspace-item="ppt"')
+    expect(courseTabs).toContain("emit('ppt')")
     expect(teachingResources).toContain("activeType?: 'outline' | 'lesson_plan'")
     expect(teachingResources).toContain('<CourseWorkspaceTabs')
     expect(teachingResources).not.toContain('<SlideDeckWorkbench')

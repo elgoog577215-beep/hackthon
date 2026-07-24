@@ -23,8 +23,11 @@ from course_knowledge_base import (
     course_knowledge_base_prompt_context,
 )
 from course_pedagogy import SubjectPedagogyProfile, module_block_role
+from course_teaching_guidance import (
+    format_generation_teaching_guidance,
+)
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v23"
+PROMPT_CONTRACT_VERSION = "course_prompt_v25"
 
 
 class CoursePromptComposer:
@@ -83,6 +86,7 @@ class CoursePromptComposer:
                 4200 if detail_level == "compact" else 1600,
             )
         shape = brief.get("course_shape_constraints") or {}
+        course_type_contract = brief.get("course_type_contract") or {}
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -97,6 +101,13 @@ class CoursePromptComposer:
 - 用户指定小节总数：{shape.get('section_count') or '未指定'}
 - 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
 - 完整课程最低小节总数：{shape.get('minimum_section_count') or '按用户明确数量'}
+
+## 课程类型契约
+- 课程类型：{brief.get('course_type_label') or brief.get('course_type') or '系统学习'}
+- 类型组织方式：{json.dumps(course_type_contract, ensure_ascii=False)}
+- 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
+- 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
+- 个性化依据：{json.dumps(brief.get('personalization_rationale') or [], ensure_ascii=False)}
 
 ## 难度与适配
 - 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
@@ -116,6 +127,14 @@ class CoursePromptComposer:
 4. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
 5. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
 6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
+7. 教学画像中的学科分型、质量底线和最终考核是章节推进的设计依据：课程必须为最终
+   可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
+8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
+   不得直接宣称已经掌握。
+9. 起点状态为 `insufficient` 时不得使用 `compressed`；所有未证实能力使用
+   `verify_in_project`。只有明确的重点缺口使用 `focus`，项目阶段成果使用 `milestone`。
+10. `verify_in_project` 的 `path_reason` 必须指向可观察的项目任务、阶段成果或检查点；
+    `milestone` 必须指向项目交付物的阶段验收或最终验收。
 
 ## JSON Schema
 {{
@@ -128,6 +147,8 @@ class CoursePromptComposer:
       "chapter_number": 1,
       "title": "章节名",
       "learning_focus": "本章独有的能力推进范围",
+      "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
+      "path_reason": "该章节为何以当前深度进入个人路径",
       "section_count": 3
     }}
   ]
@@ -246,7 +267,9 @@ class CoursePromptComposer:
       "learning_objective": "学完后能完成的任务",
       "prerequisite_node_ids": [],
       "assessment": ["验收标准或任务"],
-      "scope_boundary": "本节负责什么，以及明确不提前展开什么"
+      "scope_boundary": "本节负责什么，以及明确不提前展开什么",
+      "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
+      "path_reason": "该小节为何出现在当前学习路径"
     }}
   ]
 }}""".strip()
@@ -447,6 +470,7 @@ class CoursePromptComposer:
         section_identities: list[dict[str, Any]],
         module_catalog: list[dict[str, Any]],
         skeleton_revision_id: str,
+        overall_guidance: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         bounded = compact_batch_inputs(
@@ -460,6 +484,20 @@ class CoursePromptComposer:
         knowledge_registry = bounded["knowledge_registry"]
         section_identities = bounded["section_identities"]
         module_catalog = bounded["module_catalog"]
+        overall_guidance = compact_value(
+            overall_guidance or {},
+            max_string_chars=(
+                180 if detail_level == "full"
+                else 120 if detail_level == "compact"
+                else 72
+            ),
+            max_list_items=(
+                8 if detail_level == "full"
+                else 5 if detail_level == "compact"
+                else 3
+            ),
+            max_depth=3,
+        )
         if detail_level != "full":
             course_title = clip_text(
                 course_title, 180 if detail_level == "compact" else 96
@@ -496,6 +534,9 @@ class CoursePromptComposer:
 ## 共享课程块目录（只出现一次）
 {json.dumps(module_catalog, ensure_ascii=False)}
 
+## 总体教案引领（与教师视图同源，只读）
+{json.dumps(overall_guidance, ensure_ascii=False)}
+
 ## 约束
 1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
@@ -505,6 +546,10 @@ class CoursePromptComposer:
    也不得修改骨架冻结的前置关系。
 4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
+5. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
+   评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
+6. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
+   成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
 
 ## JSON Schema
 {{
@@ -592,6 +637,7 @@ class CoursePromptComposer:
         difficulty_profile = course_data.get("difficulty_profile") or {}
         difficulty_contract = node.get("difficulty_contract") or {}
         modules = node.get("module_plan") or []
+        lesson_archetype = node.get("lesson_archetype") or {}
         composition_profile = course_data.get("course_composition_profile") or {}
         if detail_level != "full":
             max_text = 180 if detail_level == "compact" else 96
@@ -618,6 +664,12 @@ class CoursePromptComposer:
                 max_string_chars=max_text,
                 max_list_items=6 if detail_level == "compact" else 3,
                 max_depth=3,
+            )
+            lesson_archetype = compact_value(
+                lesson_archetype,
+                max_string_chars=max_text,
+                max_list_items=4 if detail_level == "compact" else 2,
+                max_depth=2,
             )
             context = clip_text(
                 context,
@@ -652,6 +704,11 @@ class CoursePromptComposer:
         ))
         knowledge_context, teaching_context, course_knowledge_context = self._node_knowledge_context(
             course_data, node
+        )
+        teaching_guidance = format_generation_teaching_guidance(
+            course_data,
+            node,
+            compact=detail_level != "full",
         )
         coherence_context = course_coherence_prompt_context(
             course_data,
@@ -706,6 +763,9 @@ class CoursePromptComposer:
 - 知识：{key_points or '按当前知识库契约'}
 - 范围：{scope or '只完成当前小节责任'}
 - 验收：{assessments or '给出可检查的学习任务'}
+
+## 总体教案对本节的引领
+{teaching_guidance}
 
 ## 当前课程知识库（当前节点切片）
 {course_knowledge_context}
@@ -790,6 +850,8 @@ class CoursePromptComposer:
 12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、命令或程序片段；不得用反引号书写幂、上下标、分式、复杂度或数学关系。
+15. 下方“总体教案对本节的引领”是课程内容选择与讲法的上位约束：正文必须推进总体成果、体现教学主线并产出对应评价证据；不得把教案条目原样抄成正文。
+16. 下方“本节学科课型”规定当前小节特有的学习行为和成果证据。必须体现该课型与前后小节的差异，不能机械复用同一学科的固定段落套路。
 
 ## 课程
 - 名称：{course_name}
@@ -798,6 +860,12 @@ class CoursePromptComposer:
 
 ## 课程块编排画像
 {format_composition_profile(composition_profile)}
+
+## 总体教案对本节的引领
+{teaching_guidance}
+
+## 本节学科课型
+{json.dumps(lesson_archetype, ensure_ascii=False)}
 
 ## 全课难度能力契约
 {format_difficulty_profile(difficulty_profile)}
@@ -930,6 +998,11 @@ class CoursePromptComposer:
             course_data,
             str(node.get("node_id") or ""),
         )
+        teaching_guidance = format_generation_teaching_guidance(
+            course_data,
+            node,
+        )
+        lesson_archetype = node.get("lesson_archetype") or {}
         system_prompt = f"""你负责定向修复课程小节。只输出修复后的完整 Markdown，不输出说明。
 
 ## 课程与节点
@@ -940,6 +1013,12 @@ class CoursePromptComposer:
 
 ## 教学模块契约
 {module_text}
+
+## 总体教案对本节的引领
+{teaching_guidance}
+
+## 本节学科课型
+{json.dumps(lesson_archetype, ensure_ascii=False)}
 
 ## 难度契约
 {difficulty_text}

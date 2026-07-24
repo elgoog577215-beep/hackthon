@@ -7,6 +7,7 @@ import {
   validateDifficulty,
   validateStyle,
   validateCompositionStyle,
+  validateCourseType,
   validateNodeType,
   validateGenerateCourseParams,
   detectContentTypes,
@@ -14,11 +15,13 @@ import {
   VALID_DIFFICULTY_LEVELS,
   VALID_TEACHING_STYLES,
   VALID_COURSE_COMPOSITION_STYLES,
+  VALID_COURSE_TYPES,
   VALID_NODE_TYPES,
   PARAMETER_RULES,
   DIFFICULTY_LEVELS,
   TEACHING_STYLES,
   COURSE_COMPOSITION_STYLES,
+  COURSE_TYPES,
   NODE_LEVELS,
   NODE_TYPES,
 } from '@/shared/prompt-config'
@@ -41,6 +44,10 @@ describe('常量定义', () => {
   it('课程编排偏好常量与有效列表一致', () => {
     const values = Object.values(COURSE_COMPOSITION_STYLES)
     expect(values).toEqual(VALID_COURSE_COMPOSITION_STYLES)
+  })
+
+  it('课程类型常量与有效列表一致', () => {
+    expect(Object.values(COURSE_TYPES)).toEqual(VALID_COURSE_TYPES)
   })
 
   it('节点类型常量与有效列表一致', () => {
@@ -95,6 +102,13 @@ describe('validateCompositionStyle', () => {
     }
     expect(validateCompositionStyle('academic')).toBe(false)
     expect(validateCompositionStyle('casual')).toBe(false)
+  })
+})
+
+describe('validateCourseType', () => {
+  it('只接受四种正式课程类型', () => {
+    for (const courseType of VALID_COURSE_TYPES) expect(validateCourseType(courseType)).toBe(true)
+    expect(validateCourseType('material_organization')).toBe(false)
   })
 })
 
@@ -153,6 +167,30 @@ describe('validateGenerateCourseParams', () => {
   it('无效 composition_style 返回错误', () => {
     const result = validateGenerateCourseParams({ ...validParams, composition_style: 'casual' as any })
     expect(result.valid).toBe(false)
+  })
+
+  it('无效 course_type 返回错误', () => {
+    const result = validateGenerateCourseParams({ ...validParams, course_type: 'video' as any })
+    expect(result.valid).toBe(false)
+    expect(result.errors.join(' ')).toContain('Invalid course_type')
+  })
+
+  it('项目实战只要求项目目标与交付成果，自述起点允许留空', () => {
+    const result = validateGenerateCourseParams({
+      ...validParams,
+      course_type: 'project',
+      composition_style: 'project_driven',
+      course_intent: {
+        schema_version: 'course_intent_v1',
+        type: 'project',
+        project_goal: '制作个人网站',
+        expected_deliverable: '可部署的网站',
+        prior_experience: '会 HTML',
+        current_uncertainty: '',
+      },
+    })
+    expect(result.valid).toBe(true)
+    expect(result.errors).toHaveLength(0)
   })
 
   it('旧 style 仍可作为历史参数通过兼容校验', () => {

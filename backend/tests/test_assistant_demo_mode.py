@@ -85,6 +85,17 @@ def test_demo_mode_returns_curated_local_answer_without_external_model(
     assert "event: final_answer" in response.text
     assert "矩阵乘法计算已经掌握" in response.text
     assert "确认前不会修改正式课程" in response.text
+    submitted = next(
+        event
+        for event in recorded
+        if event.get("event_type") == "assistant_question_submitted"
+    )
+    assert submitted["idempotency_key"].startswith("ai-teacher-request:aim_")
+    assert submitted["metadata"]["course_evolution_request"]["scope"] == {
+        "user_id": "video2-demo-student",
+        "course_id": COURSE_ID,
+        "course_version_id": "course-revision-1",
+    }
     assert any(
         event.get("result", {}).get("response_mode") == "local_demo"
         for event in recorded

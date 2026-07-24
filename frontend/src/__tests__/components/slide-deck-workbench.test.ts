@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
-  it('switches preview themes without rebuilding and applies the theme to normal and full-screen canvases', async () => {
+  it('keeps the toolbar focused on teaching materials and opens the material overview', async () => {
     const store = useTeachingRepresentationsStore()
     const build = vi.spyOn(store, 'buildProgressive')
     const demoSlides = Array.from({ length: 15 }, (_, index) => ({
@@ -58,8 +58,11 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.find('.slide-workbench__count').text()).toContain('15')
     expect(wrapper.find('.slide-workbench__count').text()).not.toContain('12–18')
 
-    await wrapper.find('[data-theme-option="academic-bluegray"]').trigger('click')
-    expect(wrapper.find('.deck-canvas').attributes('data-theme')).toBe('academic-bluegray')
+    expect(wrapper.find('[data-theme-option]').exists()).toBe(false)
+    const materials = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '教学材料总览')
+    await materials!.trigger('click')
+    expect(wrapper.emitted('open-materials')).toHaveLength(1)
     expect(wrapper.emitted('rebuild')).toBeUndefined()
     expect(build).not.toHaveBeenCalled()
 
@@ -68,7 +71,7 @@ describe('SlideDeckWorkbench', () => {
     await present!.trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.deck-presentation .deck-canvas')?.getAttribute('data-theme'))
-      .toBe('academic-bluegray')
+      .toBe('qingfeng-classroom')
 
     wrapper.unmount()
   })
@@ -368,24 +371,34 @@ describe('SlideDeckWorkbench', () => {
 
     expect(wrapper.find('.slide-inspector__impact').text()).toContain('计算技能')
     expect(wrapper.find('.slide-inspector__impact').text()).toContain('保持 12 处不变')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('系统理解了这次教学修改')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('教案重点')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('矩阵导论')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('系统理解了这次教学修改')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('该动的动，不该动的不动')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('教案重点')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('矩阵导论')
+    expect(document.body.querySelector('.impact-detail-card')?.textContent).toContain('课堂重点需要对齐')
+    expect(document.body.querySelector('.impact-workspace__footer')?.textContent).toContain('确认前课程不会发生变化')
 
-    ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.impact-workspace__actions .primary') as HTMLButtonElement).click()
     await flushPromises()
     expect(wrapper.find('.slide-inspector__confirmation').text()).toContain('回写课程目标真源')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('等待教师确认')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('等待教师决定')
+    expect(document.body.querySelector('.impact-workspace__actions .primary')?.textContent).toContain('确认联动 5 处')
+    expect(document.body.querySelector('.impact-workspace__actions .primary')?.textContent).toContain('保留 12 处')
 
-    ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.impact-workspace__actions .primary') as HTMLButtonElement).click()
     await flushPromises()
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('2 项实际更新')
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('1 项仅校验')
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('12 项确认无需处理')
     expect(wrapper.find('.slide-inspector__receipt').text()).toContain('1 改 · 0 验')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('相关内容已精准同步')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('教学重点放在概念关系与为什么成立')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('来源版本已重新校验')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('一处改变，相关内容已精准联动')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('教学重点放在概念关系与为什么成立')
+    const resultItems = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.impact-list > button'))
+    const verifiedItem = resultItems.find(button => button.textContent?.includes('已校验'))
+    verifiedItem?.click()
+    await flushPromises()
+    expect(document.body.querySelector('.impact-detail-card')?.textContent).toContain('内容无需改写')
+    expect(document.body.querySelector('.impact-detail-card')?.textContent).toContain('重新校验来源')
     const openCourse = wrapper.get('.same-source-course-link')
     expect(openCourse.text()).toContain('进入课程查看同源改动')
     await openCourse.trigger('click')
@@ -403,16 +416,16 @@ describe('SlideDeckWorkbench', () => {
       sectionId: 'section-a',
     }))
 
-    ;(document.body.querySelector('.impact-dialog__actions .primary') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.impact-workspace__actions .primary') as HTMLButtonElement).click()
     await wrapper.find('.slide-inspector__edit textarea').setValue('理解向量加法为什么表示位移复合，并能解释顺序')
     await flushPromises()
     expect(wrapper.find('.slide-inspector__receipt').exists()).toBe(false)
-    expect(document.body.querySelector('.impact-dialog')).toBeNull()
+    expect(document.body.querySelector('.impact-workspace')).toBeNull()
 
     await wrapper.find('.slide-inspector__edit-actions button').trigger('click')
     await flushPromises()
-    expect(document.body.querySelector('.impact-dialog')?.textContent).toContain('系统理解了这次教学修改')
-    expect(document.body.querySelector('.impact-dialog')?.textContent).not.toContain('相关内容已精准同步')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).toContain('系统理解了这次教学修改')
+    expect(document.body.querySelector('.impact-workspace')?.textContent).not.toContain('一处改变，相关内容已精准联动')
     wrapper.unmount()
   })
 })

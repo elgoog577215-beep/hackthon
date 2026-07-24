@@ -288,6 +288,10 @@ export const useGenerationStore = defineStore('generation', {
         if (payload.guided_workflow) {
           localTask.guidedWorkflow = payload.guided_workflow as Task['guidedWorkflow']
         }
+        if (payload.course_type === 'systematic' || payload.course_type === 'project'
+          || payload.course_type === 'inquiry' || payload.course_type === 'exam') {
+          localTask.courseType = payload.course_type
+        }
       }
       this.taskProgress[course_id] = projectTaskProgress(this.taskProgress[course_id], {
         percentage: (payload.progress as number) ?? 0,
@@ -581,6 +585,7 @@ export const useGenerationStore = defineStore('generation', {
         logs: [], shouldStop: false,
         difficulty: options.difficulty,
         compositionStyle: options.composition_style,
+        courseType: options.course_type,
         style: options.style,
         requirements: options.requirements,
       }
@@ -759,7 +764,7 @@ export const useGenerationStore = defineStore('generation', {
           id: task.id, courseId: task.courseId, courseName: task.courseName, status: task.status,
           progress: task.progress, currentStep: task.currentStep,
           currentPhase: task.currentPhase, phaseProgress: task.phaseProgress, phaseDetail: task.phaseDetail,
-          difficulty: task.difficulty, compositionStyle: task.compositionStyle,
+          difficulty: task.difficulty, compositionStyle: task.compositionStyle, courseType: task.courseType,
           style: task.style, requirements: task.requirements,
           recovery: task.recovery,
           publicationAllowed: task.publicationAllowed,
@@ -816,7 +821,12 @@ export const useGenerationStore = defineStore('generation', {
           const courseId = backendTask.course_id
           let localTask = this.tasks.get(courseId)
           if (!localTask && ['pending', 'running', 'paused', 'error', 'failed', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(backendTask.status)) {
-            localTask = this.createTask(backendTask.id, courseId, backendTask.course_name || '后台生成任务')
+            localTask = this.createTask(
+              backendTask.id,
+              courseId,
+              backendTask.course_name || '后台生成任务',
+              { course_type: backendTask.course_type },
+            )
             discoveredCourseIds.add(courseId)
           }
           if (localTask) {
@@ -831,6 +841,7 @@ export const useGenerationStore = defineStore('generation', {
             else if (backendTask.status === 'conflict') localTask.status = 'conflict'
             localTask.progress = backendTask.progress
             localTask.id = backendTask.id
+            if (backendTask.course_type) localTask.courseType = backendTask.course_type
             localTask.recovery = backendTask.recovery || undefined
             localTask.error = backendTask.error ? String(backendTask.error) : undefined
             if (typeof backendTask.publication_allowed === 'boolean') {

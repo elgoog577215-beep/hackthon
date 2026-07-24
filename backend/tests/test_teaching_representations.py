@@ -21,7 +21,9 @@ from representation_compiler import (
     validate_compiled_representations,
 )
 from representation_edits import (
+    apply_course_text_patch_preview,
     apply_representation_only_edit,
+    build_course_text_patch,
     classify_representation_edit,
     representation_edit_impact,
 )
@@ -622,6 +624,15 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     assert detected_goal_shift["semantic_change"]["to_label"] == "概念理解"
     assert "不只是措辞调整" in detected_goal_shift["semantic_change"]["interpretation"]
     assert len(detected_goal_shift["semantic_change"]["instructional_implications"]) == 3
+    detected_version_refresh = classify_representation_edit(
+        field="key_message",
+        before="直接介绍 DeepSeek V3.2 的核心能力与典型应用",
+        after="以 DeepSeek V4 为当前主线，并回顾 V3.2 的关键能力与技术演进",
+    )
+    assert detected_version_refresh["classification"] == "semantic"
+    assert detected_version_refresh["semantic_change"]["from_label"] == "DeepSeek V3.2"
+    assert detected_version_refresh["semantic_change"]["to_label"] == "DeepSeek V4"
+    assert "技术演进背景" in detected_version_refresh["semantic_change"]["interpretation"]
 
     impact = representation_edit_impact(registry, spec, unit_id="slide:section-a")
     assert document.blocks[0].block_id in impact["block_ids"]
@@ -631,6 +642,16 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     assert any(item["origin"] for item in impact["change_items"])
     assert any(item["role"] == "教案重点" for item in impact["change_items"])
     assert impact["protected_items"]
+
+    patch = build_course_text_patch(
+        document.blocks[0].payload,
+        before="向量",
+        after="几何向量",
+    )
+    preview_payload = apply_course_text_patch_preview(document.blocks[0].payload, patch)
+    assert patch["schema_version"] == "course_text_patch_v1"
+    assert patch["field"] == "markdown"
+    assert preview_payload["markdown"].startswith("几何向量")
 
     updated = apply_representation_only_edit(
         repository,
@@ -677,6 +698,17 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
         item for item in representation_repository.load("course-1").representations
         if item.representation_type == "slide_deck"
     )
+    handout = next(
+        item for item in representation_repository.load("course-1").representations
+        if item.representation_type == "handout"
+    )
+    handout_spec = next(
+        item
+        for item in representation_repository.load("course-1").specs
+        if item.spec_id == handout.spec_id
+    )
+    handout_unit = handout_spec.payload["content"]["units"][0]
+    handout_before = handout_unit["blocks"][0]["markdown"]
 
     monkeypatch.setattr(
         representation_router,
@@ -721,6 +753,31 @@ def test_semantic_representation_edit_creates_authoring_change_without_writing_c
     assert change["change_kind"] == "course_authoring_change"
     assert change["write_target"] == "base_course"
     assert change["source"] == "representation_semantic"
+    assert storage.course == before_course
+
+    local_iteration = client.post(
+        f"/api/courses/course-1/teaching-representations/{handout.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": handout_unit["unit_id"],
+            "field": "body",
+            "before": handout_before,
+            "after": f"{handout_before}\n\n补充：用校园步行路线解释向量的方向与长度。",
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert local_iteration.status_code == 200
+    assert local_iteration.json()["impact"]["affected_unit_count"] < 14
+    assert local_iteration.json()["impact"]["unaffected_unit_count"] > 0
+    local_change = local_iteration.json()["authoring_change"]
+    local_item = local_change["items"][0]
+    assert local_change["scope"] == "block"
+    assert local_item["block_id"] == handout_unit["block_id"]
+    assert local_item["expected_block_revision"]
+    assert local_item["after"]["patch"]["schema_version"] == "course_text_patch_v1"
+    assert local_item["after"]["patch"]["field"] == "markdown"
+    assert "校园步行路线" in local_item["after"]["payload"]["markdown"]
     assert storage.course == before_course
 
 
@@ -910,6 +967,31 @@ def test_objective_edit_updates_course_truth_and_reuses_unaffected_representatio
     assert repeated_change["proposal_id"] != change["proposal_id"]
     assert repeated_change["status"] == "pending"
 
+    current_registry = representation_repository.load("course-1")
+    outline = next(
+        item
+        for item in current_registry.representations
+        if item.representation_type == "outline"
+    )
+    outline_forward = client.post(
+        f"/api/courses/course-1/teaching-representations/{outline.representation_id}/edits/apply",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "unit_id": "outline:section-a",
+            "field": "learning_objective",
+            "before": "掌握向量加法的计算规则",
+            "after": "能够解释向量加法的几何意义，并迁移到位移合成问题",
+            "semantic_intent": True,
+            "decision": "course_semantic",
+        },
+    )
+    assert outline_forward.status_code == 200
+    outline_change = outline_forward.json()["authoring_change"]
+    outline_item = outline_change["items"][0]
+    assert outline_change["scope"] == "section"
+    assert outline_item["target_kind"] == "course_objective"
+    assert outline_item["block_id"] == "section-a"
+
 
 def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
     document = document_from_legacy_course(legacy_course())
@@ -934,6 +1016,15 @@ def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
     assert result["status"] == "synchronized"
     assert result["quality"]["passed"] is True
     assert any(item["stale_unit_ids"] for item in result["stale_before"])
+    handout_change = next(
+        unit
+        for item in result["changes"]
+        if item["representation_type"] == "handout"
+        for unit in item["units"]
+        if unit["change_kind"] == "content_changed"
+    )
+    assert handout_change["field"] == "blocks"
+    assert "向量表达大小和方向" in handout_change["after"]
     assert all(item.status == "ready" for item in current.representations)
     assert current.registry_revision != before.registry_revision
 

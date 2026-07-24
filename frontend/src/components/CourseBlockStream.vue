@@ -21,8 +21,8 @@
         }"
       >
         <span v-if="isPptSameSourceBlock(item.block)" class="ppt-same-source-badge">
-          <GitCompareArrows :size="12" />
-          {{ t('teachingRepresentations.sameSourceUpdateBadge', 'PPT 同源更新') }}
+          <GitCompareArrows :size="15" />
+          {{ t('teachingRepresentations.sameSourceUpdateBadge', '课程正文已同步更新') }}
         </span>
         <span v-if="isAiEvolvedBlock(item.block)" class="ai-evolution-block-badge">
           <Sparkles :size="12" />
@@ -30,7 +30,8 @@
         </span>
         <header v-if="item.block.title" class="block-heading">
         <aside v-if="isPptSameSourcePrimary(item.block)" class="ppt-same-source-diff">
-          <small>{{ t('teachingRepresentations.sameSourceTrigger', '由 PPT 学习目标修改触发') }}</small>
+          <strong>{{ t('teachingRepresentations.sameSourceResultTitle', 'PPT 的修改已经联动到这里') }}</strong>
+          <small>{{ t('teachingRepresentations.sameSourceTrigger', '由 PPT 学习目标修改触发 · 以下为真实前后差异') }}</small>
           <dl>
             <div><dt>{{ t('teachingRepresentations.sameSourceBefore', '修改前') }}</dt><dd>{{ sameSourceState?.beforeText }}</dd></div>
             <div><dt>{{ t('teachingRepresentations.sameSourceAfter', '修改后') }}</dt><dd>{{ sameSourceState?.afterText }}</dd></div>
@@ -329,19 +330,21 @@ async function deleteAiRecord(note: Note) {
 .ai-evolution-block-badge > svg { color:#0891b2; }
 
 .course-content-block.is-ppt-same-source-highlight {
-  padding:18px 20px 20px; border:1px solid #f2c94c; border-left:3px solid #d6a400;
-  border-radius:16px; background:linear-gradient(135deg,#fffdf2,#fff8d8);
-  box-shadow:0 12px 30px rgba(146,101,0,.1);
+  padding:22px 24px 24px; border:2px solid #e5b800; border-left:6px solid #c99100;
+  border-radius:16px; background:linear-gradient(135deg,#fffdf0,#fff3b8);
+  box-shadow:0 0 0 4px rgba(250,204,21,.16),0 18px 40px rgba(146,101,0,.18);
 }
 .course-content-block.is-ppt-same-source-primary { border-color:#d6a400; }
 .course-content-block.is-ppt-same-source-pulse { animation:ppt-same-source-arrival 1.45s cubic-bezier(.2,.8,.2,1) 1; }
-.ppt-same-source-badge { width:max-content; display:inline-flex; align-items:center; gap:5px; margin:0 0 12px; padding:4px 7px; border:1px solid #e8bf37; border-radius:999px; color:#713f12; background:#fffdf2; font-size:9px; font-weight:800; letter-spacing:.02em; }
-.ppt-same-source-diff { display:grid; gap:8px; margin:0 0 16px; padding:11px; border:1px solid #f1d36b; border-radius:10px; background:rgba(255,255,255,.72); }
-.ppt-same-source-diff > small { color:#8a5b00; font-size:10px; font-weight:800; }
-.ppt-same-source-diff dl { display:grid; gap:7px; margin:0; }
-.ppt-same-source-diff dl > div { display:grid; grid-template-columns:48px minmax(0,1fr); gap:8px; }
-.ppt-same-source-diff dt { color:#9a6a08; font-size:10px; font-weight:750; }
-.ppt-same-source-diff dd { margin:0; color:#3f3521; font-size:11px; line-height:1.55; }
+.ppt-same-source-badge { width:max-content; display:inline-flex; align-items:center; gap:7px; margin:0 0 14px; padding:7px 11px; border:1px solid #d6a400; border-radius:999px; color:#5f3700; background:#fff7c2; font-size:12px; font-weight:850; letter-spacing:.02em; box-shadow:0 3px 10px rgba(146,101,0,.12); }
+.ppt-same-source-diff { display:grid; gap:9px; margin:0 0 18px; padding:15px 16px; border:1px solid #e3bd32; border-radius:12px; background:rgba(255,255,255,.9); box-shadow:inset 4px 0 0 #e0ad00; }
+.ppt-same-source-diff > strong { color:#5c3900; font-size:16px; font-weight:850; line-height:1.35; }
+.ppt-same-source-diff > small { color:#8a5b00; font-size:12px; font-weight:800; }
+.ppt-same-source-diff dl { display:grid; gap:9px; margin:0; }
+.ppt-same-source-diff dl > div { display:grid; grid-template-columns:58px minmax(0,1fr); gap:10px; }
+.ppt-same-source-diff dt { color:#8a5b00; font-size:12px; font-weight:800; }
+.ppt-same-source-diff dd { margin:0; color:#332b1d; font-size:14px; font-weight:650; line-height:1.55; }
+.ppt-same-source-diff dl > div:last-child dd { color:#14532d; }
 .course-content-block.is-ai-growth-highlight { border-color:rgba(129,140,248,.88); background:linear-gradient(135deg,rgba(245,247,255,1),rgba(236,254,255,.92)); box-shadow:0 0 0 3px rgba(99,102,241,.1),0 18px 38px rgba(30,64,175,.13); }
 .course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
 .block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }

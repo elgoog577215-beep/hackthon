@@ -66,8 +66,19 @@
         @rebuild="rebuild"
         @configure="openGenerator(false)"
         @variant-change="selectVariant"
+        @open-materials="openMaterials"
         @ask-ai="openAiForSlide"
         @open-course="openSameSourceCourse"
+      />
+
+      <TeachingRepresentationsOverlay
+        :visible="materialsVisible"
+        :course-id="courseId"
+        active-type="outline"
+        overview-mode
+        @close="closeMaterials"
+        @course="backToCourse"
+        @ppt="closeMaterials"
       />
 
       <Transition name="ppt-ai">
@@ -105,6 +116,7 @@ import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
+import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
@@ -119,6 +131,7 @@ const courseStore = useCourseStore()
 const store = useTeachingRepresentationsStore()
 const initializing = ref(true)
 const aiVisible = ref(false)
+const materialsVisible = ref(false)
 const aiQuote = ref('')
 const aiNodeId = ref('')
 const aiAnchor = ref<Record<string, unknown> | undefined>(undefined)
@@ -352,7 +365,18 @@ async function cancelBuild() {
 }
 
 function backToCourse() {
-  void router.push({ name: 'course-workbench', params: { courseId: courseId.value } })
+  void router.push({ name: 'learning', params: { courseId: courseId.value } })
+}
+
+function openMaterials() {
+  materialsVisible.value = true
+}
+
+async function closeMaterials() {
+  materialsVisible.value = false
+  if (slideRepresentation.value) {
+    await store.select(slideRepresentation.value.representation_id)
+  }
 }
 
 function openSameSourceCourse(state: PptSameSourceHighlightState) {
@@ -375,7 +399,7 @@ onMounted(loadWorkspace)
 </script>
 
 <style scoped>
-.ppt-workspace-view { position:fixed; inset:52px 0 0; z-index:70; display:flex; min-width:0; min-height:0; overflow:hidden; background:#e9edf3; }
+.ppt-workspace-view { position:fixed; inset:0; z-index:70; display:flex; min-width:0; min-height:0; overflow:hidden; background:#e9edf3; }
 .ppt-workspace-view__deck { min-width:0; flex:1 1 auto; }
 .ppt-workspace-view__ai { width:min(380px,34vw); flex:0 0 min(380px,34vw); border-left:1px solid #d5dce6; background:#fff; }
 .ppt-workspace-state {

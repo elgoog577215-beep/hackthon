@@ -13,6 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from models import CourseGenerationRequest, LocateNodeRequest, NodeGenerationConfig
+from course_type_contracts import ENABLED_COURSE_TYPES
 from storage import storage
 from course_service import get_course_service
 from learning_progress import project_learning_objective_bindings
@@ -144,6 +145,15 @@ async def create_course_generation_job(
     tm: TaskManager = Depends(require_task_manager),
 ):
     """Create the sole persisted generation job and return immediately."""
+    if req.course_type not in ENABLED_COURSE_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "course_type_not_enabled",
+                "course_type": req.course_type,
+                "enabled_course_types": sorted(ENABLED_COURSE_TYPES),
+            },
+        )
     request_snapshot = req.model_dump(mode="json")
     return await tm.create_generation_job(request_snapshot)
 

@@ -428,7 +428,7 @@ async def _apply_item_locked(
     expected_block_revision: str,
     actor: str,
 ) -> dict[str, Any]:
-    """Apply a single item of a change proposal via CourseCommandService.replace_block.
+    """Apply one block item through a precise patch or full block replacement.
 
     Only a `pending` item may be applied; re-applying an already-resolved item
     raises ChangeProposalConflict instead of silently overwriting it.
@@ -450,6 +450,11 @@ async def _apply_item_locked(
             proposal=proposal,
         )
     item = _find_item(proposal, item_id)
+    if (item.get("target_kind") or "course_block") != "course_block":
+        raise ChangeProposalConflict(
+            "Change item does not target a course block",
+            proposal=proposal,
+        )
     if item.get("status") != "pending":
         raise ChangeProposalConflict(
             f"Item cannot be applied from status {item.get('status')}",
@@ -462,23 +467,50 @@ async def _apply_item_locked(
             "请先点击“重新生成”，或联系管理员处理。",
             proposal=proposal,
         )
-    if not isinstance(after, dict) or "payload" not in after:
-        raise ChangeProposalConflict("Item 'after' payload is invalid", proposal=proposal)
-    payload = after["payload"]
-    if not isinstance(payload, dict):
-        raise ChangeProposalConflict("Item 'after' payload must be an object", proposal=proposal)
+    if not isinstance(after, dict):
+        raise ChangeProposalConflict("Item 'after' value is invalid", proposal=proposal)
+    stored_block_revision = str(item.get("expected_block_revision") or "")
+    if stored_block_revision and stored_block_revision != expected_block_revision:
+        raise ChangeProposalConflict("Course block revision changed", proposal=proposal)
 
     try:
-        receipt = await command_service.replace_block(
-            proposal["course_id"],
-            command_id=f"change-proposal-{proposal_id}-{item_id}",
-            expected_document_revision=expected_document_revision,
-            expected_block_revision=expected_block_revision,
-            block_id=str(item["block_id"]),
-            payload=payload,
-            reason=str(item.get("reason") or "变更集应用"),
-            actor=actor,
-        )
+        patch = after.get("patch")
+        if patch is not None:
+            if not isinstance(patch, dict):
+                raise ChangeProposalConflict("Item text patch is invalid", proposal=proposal)
+            receipt = await command_service.patch_block_text(
+                proposal["course_id"],
+                command_id=f"change-proposal-{proposal_id}-{item_id}",
+                expected_document_revision=expected_document_revision,
+                expected_block_revision=expected_block_revision,
+                block_id=str(item["block_id"]),
+                field=str(patch.get("field") or ""),
+                start=patch.get("start"),
+                end=patch.get("end"),
+                before=str(patch.get("before") or ""),
+                after=str(patch.get("after") or ""),
+                prefix_context=str(patch.get("prefix_context") or ""),
+                suffix_context=str(patch.get("suffix_context") or ""),
+                reason=str(item.get("reason") or "课程文本补丁应用"),
+                actor=actor,
+            )
+        else:
+            payload = after.get("payload")
+            if not isinstance(payload, dict):
+                raise ChangeProposalConflict(
+                    "Item 'after' payload must be an object",
+                    proposal=proposal,
+                )
+            receipt = await command_service.replace_block(
+                proposal["course_id"],
+                command_id=f"change-proposal-{proposal_id}-{item_id}",
+                expected_document_revision=expected_document_revision,
+                expected_block_revision=expected_block_revision,
+                block_id=str(item["block_id"]),
+                payload=payload,
+                reason=str(item.get("reason") or "变更集应用"),
+                actor=actor,
+            )
     except CourseDocumentConflict as exc:
         raise ChangeProposalConflict(str(exc), proposal=proposal) from exc
 

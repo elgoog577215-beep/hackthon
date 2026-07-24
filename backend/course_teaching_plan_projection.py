@@ -5,6 +5,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from course_teaching_guidance import compile_overall_teaching_guidance
+
+
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
 
 def _strings(value: Any) -> list[str]:
     if not isinstance(value, list):
@@ -16,7 +22,37 @@ def _strings(value: Any) -> list[str]:
     ]
 
 
-def _project_knowledge_structure(value: Any) -> list[dict[str, Any]]:
+def _normalized_knowledge_name(value: Any) -> str:
+    return "".join(_text(value).lower().split())
+
+
+def _knowledge_id_index(course_data: dict[str, Any]) -> dict[str, str]:
+    index: dict[str, str] = {}
+    knowledge_base = course_data.get("course_knowledge_base")
+    if not isinstance(knowledge_base, dict):
+        return index
+    for raw_point in knowledge_base.get("knowledge_points") or []:
+        if not isinstance(raw_point, dict):
+            continue
+        knowledge_id = _text(raw_point.get("knowledge_id"))
+        names = [
+            raw_point.get("name"),
+            *(raw_point.get("aliases") or []),
+        ]
+        if not knowledge_id:
+            continue
+        for name in names:
+            normalized = _normalized_knowledge_name(name)
+            if normalized:
+                index.setdefault(normalized, knowledge_id)
+    return index
+
+
+def _project_knowledge_structure(
+    value: Any,
+    *,
+    knowledge_ids: dict[str, str],
+) -> list[dict[str, Any]]:
     groups = []
     for raw_group in value if isinstance(value, list) else []:
         if not isinstance(raw_group, dict):
@@ -28,10 +64,15 @@ def _project_knowledge_structure(value: Any) -> list[dict[str, Any]]:
             name = str(raw_point.get("name") or "").strip()
             if not name:
                 continue
+            knowledge_id = (
+                str(raw_point.get("knowledge_id") or "").strip()
+                or knowledge_ids.get(_normalized_knowledge_name(name), "")
+            )
             points.append({
-                "knowledge_id": str(
-                    raw_point.get("knowledge_id") or ""
-                ).strip(),
+                "knowledge_id": knowledge_id,
+                "knowledge_status": (
+                    "bound" if knowledge_id else "awaiting_compilation"
+                ),
                 "name": name,
                 "statement": str(
                     raw_point.get("statement") or ""
@@ -125,6 +166,55 @@ def _project_teaching_modules(value: Any) -> list[dict[str, Any]]:
     return modules
 
 
+def _project_overall_plan(
+    course_data: dict[str, Any],
+    *,
+    sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    overall = compile_overall_teaching_guidance(course_data)
+    raw_course_plan = course_data.get("course_plan")
+    raw_course_plan = (
+        raw_course_plan
+        if isinstance(raw_course_plan, dict)
+        else {}
+    )
+    knowledge_usage: dict[str, dict[str, Any]] = {}
+    for section in sections:
+        seen_in_section: set[str] = set()
+        for group in section.get("knowledge_structure") or []:
+            for point in group.get("knowledge_points") or []:
+                name = _text(point.get("name"))
+                if not name:
+                    continue
+                normalized = _normalized_knowledge_name(name)
+                entry = knowledge_usage.setdefault(normalized, {
+                    "knowledge_id": _text(point.get("knowledge_id")),
+                    "name": name,
+                    "section_count": 0,
+                })
+                if not entry["knowledge_id"]:
+                    entry["knowledge_id"] = _text(point.get("knowledge_id"))
+                if normalized not in seen_in_section:
+                    entry["section_count"] += 1
+                    seen_in_section.add(normalized)
+    return {
+        **overall,
+        "pedagogy_quality_contract": deepcopy(
+            raw_course_plan.get(
+                "pedagogy_quality_contract"
+            )
+            or {}
+        ),
+        "knowledge_tags": sorted(
+            knowledge_usage.values(),
+            key=lambda item: (
+                -int(item.get("section_count") or 0),
+                _text(item.get("name")),
+            ),
+        ),
+    }
+
+
 def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     """Expose teaching intent without prompts, hidden reasoning, or diagnostics."""
     plan = course_data.get("course_teaching_plan")
@@ -133,15 +223,31 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
         .get("course_teaching_plan")
         or {}
     )
+    knowledge_ids = _knowledge_id_index(course_data)
+    course_plan = course_data.get("course_plan")
+    course_plan = course_plan if isinstance(course_plan, dict) else {}
+    outline_sections = {
+        _text(section.get("node_id")): section
+        for chapter in course_plan.get("chapters") or []
+        if isinstance(chapter, dict)
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict) and _text(section.get("node_id"))
+    }
     sections = []
     if isinstance(plan, dict):
         for raw in plan.get("sections") or []:
             if not isinstance(raw, dict):
                 continue
+            node_id = str(raw.get("node_id") or "")
+            outline_section = outline_sections.get(node_id) or {}
             sections.append({
-                "node_id": str(raw.get("node_id") or ""),
+                "node_id": node_id,
+                "lesson_archetype": deepcopy(
+                    outline_section.get("lesson_archetype") or {}
+                ),
                 "knowledge_structure": _project_knowledge_structure(
-                    raw.get("knowledge_structure")
+                    raw.get("knowledge_structure"),
+                    knowledge_ids=knowledge_ids,
                 ),
                 "key_points": _strings(raw.get("key_points")),
                 "reused_knowledge_names": _strings(
@@ -173,6 +279,10 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
         ),
         "teaching_module_count": int(
             stage.get("teaching_module_count") or 0
+        ),
+        "overall": _project_overall_plan(
+            course_data,
+            sections=sections,
         ),
         "sections": sections,
     }

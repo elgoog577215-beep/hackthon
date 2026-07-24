@@ -723,6 +723,50 @@ async def test_single_item_apply_rejects_when_proposal_base_revision_is_stale(tm
     assert proposals.load(proposal["proposal_id"])["items"][0]["status"] == "pending"
 
 
+@pytest.mark.asyncio
+async def test_single_item_apply_rejects_stale_target_block_without_global_base_lock(tmp_path):
+    _storage, course_repository, proposals, command_service, document = await canonical_setup(tmp_path)
+    target = block(document, "block-1")
+    proposal = create_proposal(
+        proposals,
+        "course-1",
+        request_id="target-revision-single-apply",
+        scope="block",
+        target_block_ids=[target.block_id],
+        items=[{
+            "block_id": target.block_id,
+            "before": target.model_dump(mode="json"),
+            "after": {"payload": {**target.payload, "content": "候选内容"}},
+            "reason": "authoring change",
+            "expected_block_revision": target.internal_revision,
+        }],
+    )
+    await command_service.replace_block(
+        "course-1",
+        command_id="same-block-change-after-proposal",
+        expected_document_revision=document.document_revision,
+        expected_block_revision=target.internal_revision,
+        block_id=target.block_id,
+        payload={**target.payload, "content": "更新后的正式内容"},
+    )
+    current, _ = course_repository.load_document("course-1")
+    current_target = block(current, target.block_id)
+
+    with pytest.raises(ChangeProposalConflict, match="block revision changed"):
+        await apply_item(
+            proposals,
+            command_service,
+            proposal["proposal_id"],
+            proposal["items"][0]["item_id"],
+            expected_document_revision=current.document_revision,
+            expected_block_revision=current_target.internal_revision,
+            actor="teacher-1",
+        )
+
+    unchanged, _ = course_repository.load_document("course-1")
+    assert block(unchanged, target.block_id).payload["content"] == "更新后的正式内容"
+
+
 def test_router_applies_kg_node_item_as_review_acknowledgement(tmp_path, monkeypatch):
     """Accepting a knowledge-node proposal records a course-local review."""
     from fastapi import FastAPI

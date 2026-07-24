@@ -14,8 +14,14 @@ BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
+from video1_demo_preset import (  # noqa: E402
+    COURSE_ID as VIDEO1_COURSE_ID,
+    FOLLOWUP_GOAL,
+    TARGET_GOAL,
+    prepare_video1_demo,
+)
 from video2_demo_preset import (  # noqa: E402
-    COURSE_ID,
+    COURSE_ID as VIDEO2_COURSE_ID,
     DEMO_USER_ID,
     FIXED_PROMPT,
     TARGET_SECTION_ID,
@@ -29,29 +35,37 @@ def main() -> int:
     parser.add_argument("--frontend-origin", default="http://127.0.0.1:5174")
     args = parser.parse_args()
 
-    result = prepare_video2_demo(args.data_dir)
+    video1 = prepare_video1_demo(args.data_dir)
+    video2 = prepare_video2_demo(args.data_dir)
     origin = args.frontend_origin.rstrip("/")
-    result["recordly_demo"] = {
-        "course_id": COURSE_ID,
-        "learner_user_id": DEMO_USER_ID,
-        "viewport": {"width": 1440, "height": 810, "aspect_ratio": "16:9"},
-        "environment": {
-            "EVOLUTION_DEMO_MODE": "1",
-            "VITE_RECORDLY_DEMO_MODE": "1",
-            "VITE_LEARNER_USER_ID": DEMO_USER_ID,
+    result = {
+        "video_1": video1,
+        "video_2": video2,
+        "recordly_demo": {
+            "video_1_course_id": VIDEO1_COURSE_ID,
+            "video_2_course_id": VIDEO2_COURSE_ID,
+            "learner_user_id": DEMO_USER_ID,
+            "viewport": {"width": 1920, "height": 1080, "aspect_ratio": "16:9"},
+            "environment": {
+                "EVOLUTION_DEMO_MODE": "1",
+                "VITE_RECORDLY_DEMO_MODE": "1",
+                "VITE_LEARNER_USER_ID": DEMO_USER_ID,
+            },
+            "preload_routes": {
+                "video_1_ppt": f"{origin}/course/{VIDEO1_COURSE_ID}/ppt",
+                "video_2_learning": f"{origin}/course/{VIDEO2_COURSE_ID}/learn/{TARGET_SECTION_ID}",
+            },
+            "fixed_prompt": FIXED_PROMPT,
+            "video_1_first_update": TARGET_GOAL,
+            "video_1_second_update": FOLLOWUP_GOAL,
+            "recording_gate": [
+                "两条页面均已完成首次加载，录制中不出现加载页",
+                "视频一 PPT 停在第17讲 DeepSeek 目标编辑位置",
+                "学习页停在 1.2，AI 老师面板关闭",
+                "浏览器缩放 100%，视口固定 1920x1080",
+                "Recordly 只捕获浏览器窗口",
+            ],
         },
-        "preload_routes": {
-            "video_1_ppt": f"{origin}/course/{COURSE_ID}/ppt",
-            "video_2_learning": f"{origin}/course/{COURSE_ID}/learn/{TARGET_SECTION_ID}",
-        },
-        "fixed_prompt": FIXED_PROMPT,
-        "recording_gate": [
-            "两条页面均已完成首次加载，录制中不出现加载页",
-            "PPT 停在矩阵乘法目标编辑位置",
-            "学习页停在 1.2，AI 老师面板关闭",
-            "浏览器缩放 100%，视口固定 1440x810",
-            "Recordly 只捕获浏览器窗口",
-        ],
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

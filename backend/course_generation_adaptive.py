@@ -228,6 +228,16 @@ def compact_planning_context(
                 item.get("scope_boundary"),
                 180 if detail_level == "compact" else 96,
             ),
+            "lesson_archetype": compact_value(
+                item.get("lesson_archetype") or {},
+                max_string_chars=(
+                    160 if detail_level == "compact" else 88
+                ),
+                max_list_items=(
+                    4 if detail_level == "compact" else 2
+                ),
+                max_depth=2,
+            ),
             "prerequisite_node_ids": list(
                 item.get("prerequisite_node_ids") or []
             )[:8],

@@ -11,7 +11,6 @@ const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: '/courses', name: 'course-library', component: CourseLibraryView },
-    { path: '/course/:courseId/workbench', name: 'course-workbench', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
 })
@@ -134,7 +133,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.findComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(false)
   })
 
-  it('opens a published course through the unified Qizhi workbench', async () => {
+  it('opens a published course directly in the learning workspace', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-ready', course_name: '矩阵与线性变换', node_count: 12 }]
@@ -160,7 +159,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await wrapper.get('.course-main').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('course-workbench')
+    expect(router.currentRoute.value.name).toBe('learning')
     expect(router.currentRoute.value.params.courseId).toBe('course-ready')
     wrapper.unmount()
   })
