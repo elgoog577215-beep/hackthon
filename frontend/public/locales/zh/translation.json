@@ -1140,6 +1140,11 @@
       "teaching": "教案确认",
       "content": "正文生成",
       "release": "确认发布",
+      "projectRequirements": "项目需求",
+      "projectOutline": "个人路径",
+      "projectTeaching": "能力与知识",
+      "projectContent": "项目课程",
+      "projectRelease": "确认课程",
       "completed": "已完成",
       "inProgress": "进行中",
       "pending": "未开始",
@@ -1181,11 +1186,16 @@
       "pausedTitle": "课程生产已暂停",
       "blockedTitle": "课程生产需要处理冲突",
       "qualityBlockedTitle": "课程练习需要定向修复",
-      "requirementsDescription": "主题、难度、编排偏好与资料边界会被写入同一份生产契约。",
+      "requirementsDescription": "主题、难度、学科结构与资料边界会被写入同一份生产契约。",
       "outlineDescription": "系统正在把学习需求转成可确认的章节顺序、学习目标与课程范围。",
       "teachingDescription": "系统先冻结全课知识职责，再按预算生成详细教案，并从同一计划编译课程知识库。",
       "contentDescription": "各小节按真实前置关系并行生成，已完成的草稿会立即保存并出现在课程目录中。",
       "releaseDescription": "系统正在核对结构、稳定引用与同源版本链；通过后由你确认发布。",
+      "projectRequirementsDescription": "项目目标、交付物、主辅学科和你的暂定起点会被写入同一份项目契约。",
+      "projectOutlineDescription": "系统先把交付物拆成项目节点，再按你的已有经验和不确定点形成个人学习路径。",
+      "projectTeachingDescription": "系统正在为每个项目节点匹配必要能力、知识、实践动作与验收证据。",
+      "projectContentDescription": "课程会沿个人路径展开，让知识学习与项目产出在同一个过程中完成。",
+      "projectReleaseDescription": "系统正在核对项目节点、学习路径与最终交付物是否完整衔接。",
       "pausedDescription": "当前模型调用已经停止。",
       "blockedDescription": "当前产物与课程真源存在冲突。",
       "qualityBlockedDescription": "课程正文已经生成，系统只会重做未通过的练习。",
@@ -1232,6 +1242,11 @@
       "teachingNext": "确认全课教案后，正文会按依赖波次并行生成，并把已完成内容立即显示出来。",
       "contentNext": "所有小节完成后进入确定性发布检查，不追加 AI 返工循环。",
       "releaseNext": "确认发布后，当前页面会原地切换为正式学习现场。",
+      "projectRequirementsNext": "项目需求确定后立即形成第一版个人路径，后续学习证据仍可继续校准它。",
+      "projectOutlineNext": "确认个人路径后，系统会为每个项目节点生成能力与知识安排。",
+      "projectTeachingNext": "确认能力与知识安排后，课程会沿项目依赖逐节生成。",
+      "projectContentNext": "所有项目课程内容完成后，系统检查它们能否共同支撑最终交付物。",
+      "projectReleaseNext": "确认后，当前页面会原地切换为你的项目学习现场。",
       "technicalReason": "查看技术原因",
       "authError": "AI 服务暂时无法完成身份校验。",
       "timeoutError": "AI 服务响应超时，本阶段尚未完成。",
@@ -1288,6 +1303,23 @@
       "loading": "正在载入可编辑目录",
       "loadErrorHelp": "已生成结果仍然保留，重新载入不会重复创建课程。",
       "retry": "重试",
+      "startingPoint": "你的项目起点（暂定）",
+      "startingPointInsufficient": "起点信息不足",
+      "startingPointTentative": "暂定起点",
+      "deliverable": "最终交付物",
+      "deliverablePending": "按项目目标确定",
+      "experience": "已有经验",
+      "focusAreas": "重点补充",
+      "notProvided": "暂未提供",
+      "discoverInProject": "将在项目过程中继续识别",
+      "startingPointGuard": "起点来自你的自述，只用于安排第一版路径，不等同于已经掌握。",
+      "pathRoles": {
+        "focus": "重点补充",
+        "standard": "正常学习",
+        "compressed": "快速通过",
+        "verifyInProject": "项目中验证",
+        "milestone": "项目节点"
+      },
       "objectivePlaceholder": "写清这一节结束后，学习者能够做到什么",
       "empty": "目录尚未形成，请重新载入后再确认。",
       "guard": "这是唯一需要编辑课程结构的步骤；下一步还会确认全课教案，再开始生成正文。",
@@ -1437,7 +1469,13 @@
       "knowledge": "知识索引",
       "teaching": "教案确认",
       "content": "正文生成",
-      "release": "确认发布"
+      "release": "确认发布",
+      "projectTitle": "提交项目后，四步形成个人课程",
+      "projectHelp": "先确认个人路径和能力安排；课程沿项目节点生成，最后确认进入学习。",
+      "projectOutline": "个人路径",
+      "projectTeaching": "能力与知识",
+      "projectContent": "项目课程",
+      "projectRelease": "确认课程"
     },
     "form": {
       "topic": "课程主题",
@@ -1447,11 +1485,48 @@
       "compositionStyle": "课程编排偏好",
       "compositionStyleHelp": "决定案例、推演、应用与项目块怎样分布",
       "strategy": "课程策略",
-      "strategyHelp": "进一步控制课程如何组织，以及资料在生成中的作用。",
+      "strategyHelp": "设置适合内容的学科讲法，以及资料在生成中的作用。",
       "coursePurpose": "课程目的",
       "generationMode": "生成方式",
       "requirements": "额外要求",
       "requirementsPlaceholder": "例如：侧重历史发展，或者多一些代码示例..."
+    },
+    "courseTypes": {
+      "label": "课程类型",
+      "help": "课程类型决定学习过程如何组织；学科决定内容如何讲解。",
+      "comingSoon": "即将开放",
+      "systematic": {
+        "label": "系统学习",
+        "detail": "按知识结构和先修关系，由基础逐步进阶"
+      },
+      "project": {
+        "label": "项目实战",
+        "detail": "围绕真实成果，结合个人起点边做边学"
+      },
+      "inquiry": {
+        "label": "问题探究",
+        "detail": "沿子问题、证据与推理形成有依据的判断"
+      },
+      "exam": {
+        "label": "考试冲刺",
+        "detail": "根据考纲、薄弱点和剩余时间安排复习"
+      }
+    },
+    "project": {
+      "title": "定义你的实战项目",
+      "help": "先明确要完成的成果，再结合你的起点生成项目里程碑和个人学习路径。",
+      "goalLabel": "想完成什么项目？",
+      "goalPlaceholder": "例如：设计一款适合大学生使用的环保保温玻璃杯",
+      "deliverableLabel": "最终需要交付什么？",
+      "deliverablePlaceholder": "例如：一份产品设计方案和可验证原型",
+      "experienceLabel": "已经有哪些相关经验？",
+      "experiencePlaceholder": "例如：学过产品设计，熟悉造型和结构",
+      "uncertaintyLabel": "当前最不确定什么？",
+      "uncertaintyPlaceholder": "例如：不了解玻璃材料、隔热原理和制造工艺",
+      "startingPointTitle": "暂定学习起点",
+      "startingPointHelp": "系统会根据你的自述形成第一版个人路径，并在后续学习中继续验证和调整。",
+      "insufficientTitle": "起点信息可暂时跳过",
+      "insufficientHelp": "不填写也可以生成；系统会标记起点信息不足，先给出暂定路径，再根据后续学习行为调整。"
     },
     "difficulty": {
       "beginner": {
@@ -1504,7 +1579,9 @@
       }
     },
     "pedagogy": {
-      "label": "教学结构",
+      "label": "主学科结构",
+      "secondaryLabel": "辅助学科",
+      "secondaryNone": "无辅助学科",
       "resolved": "已采用",
       "autoHint": "自动判断会结合课程主题、目标与资料选择合适结构。",
       "manualHint": "手动选择后，课程蓝图和正文都会遵循该教学结构。",

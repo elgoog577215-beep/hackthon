@@ -96,6 +96,29 @@ describe('CourseProductionStage', () => {
     expect(stages[3]!.attributes('data-status')).toBe('pending')
   })
 
+  it('项目实战使用个人路径与项目交付语义', () => {
+    const task: Task = {
+      ...interruptedTask,
+      courseType: 'project',
+      status: 'running',
+      error: undefined,
+      currentPhase: 'outline_generation',
+    }
+    const stage = mount(CourseProductionStage, {
+      props: { task, courseName: '环保保温玻璃杯设计' },
+    })
+    const lifecycle = mount(CourseGenerationLifecycle, { props: { task } })
+
+    expect(stage.text()).toContain('个人路径 · 进行中')
+    expect(stage.text()).toContain('系统先把交付物拆成项目节点')
+    expect(stage.text()).toContain('确认个人路径后')
+    expect(lifecycle.text()).toContain('个人路径')
+    expect(lifecycle.text()).toContain('能力与知识')
+    expect(lifecycle.text()).toContain('项目课程')
+    expect(lifecycle.text()).toContain('确认课程')
+    expect(lifecycle.text()).not.toContain('正文生成')
+  })
+
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {
     const task: Task = {
       ...interruptedTask,

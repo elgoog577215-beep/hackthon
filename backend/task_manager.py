@@ -45,6 +45,13 @@ from course_generation_budget import (
     CourseGenerationDeadlineExceeded,
 )
 from course_generation_workflow import PIPELINE_VERSION
+from course_type_contracts import (
+    compatible_course_purpose,
+    course_purpose_for_type,
+    default_composition_style,
+    ensure_course_type_enabled,
+    resolve_course_type,
+)
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
@@ -460,6 +467,9 @@ class TaskManager:
             "course_id": course_id,
             "type": task_type,
             "course_name": course_name,
+            "course_type": str(
+                (request_snapshot or {}).get("course_type") or "systematic"
+            ),
             "status": "pending",
             "phase": "queued",
             "progress": 0,
@@ -539,6 +549,7 @@ class TaskManager:
                         "task_id": str(existing["id"]),
                         "course_id": str(existing["course_id"]),
                         "course_name": str(existing.get("course_name") or ""),
+                        "course_type": str(existing.get("course_type") or "systematic"),
                         "status": str(existing.get("status") or "pending"),
                         "phase": str(existing.get("phase") or "queued"),
                         "deduplicated": True,
@@ -552,6 +563,23 @@ class TaskManager:
         if not subject:
             raise ValueError("Course subject cannot be blank")
         request_snapshot["subject"] = subject
+        course_type, course_type_source = resolve_course_type(
+            request_snapshot.get("course_type"),
+            course_purpose=request_snapshot.get("course_purpose"),
+            composition_style=request_snapshot.get("composition_style"),
+        )
+        request_snapshot["course_type"] = course_type
+        ensure_course_type_enabled(course_type)
+        request_snapshot["course_purpose"] = (
+            course_purpose_for_type(course_type)
+            if course_type_source == "course_type"
+            else compatible_course_purpose(
+                course_type,
+                request_snapshot.get("course_purpose"),
+            )
+        )
+        if not request_snapshot.get("composition_style") and not request_snapshot.get("style"):
+            request_snapshot["composition_style"] = default_composition_style(course_type)
         composition_profile = compile_composition_profile(
             request_snapshot.get("composition_style"),
             legacy_style=request_snapshot.get("style"),
@@ -577,6 +605,11 @@ class TaskManager:
             "generation_status": "queued",
             "nodes": [],
             "generation_request": request_snapshot,
+            "course_type": course_type,
+            "course_intent": deepcopy(request_snapshot.get("course_intent") or {}),
+            "learner_starting_profile": deepcopy(
+                request_snapshot.get("learner_starting_profile") or {}
+            ),
             "generation_quality_report": None,
             "course_purpose": request_snapshot.get("course_purpose") or "systematic",
             "generation_mode": "review_blueprint",
@@ -651,6 +684,9 @@ class TaskManager:
                     if chapter_name.startswith(prefix)
                     else chapter_name or chapter.get("title")
                 )
+                for field in ("learning_path_role", "path_reason"):
+                    if field in chapter_node:
+                        chapter[field] = deepcopy(chapter_node[field])
             for section in chapter.get("sections") or []:
                 section_number = str(section.get("section_number") or "")
                 node = by_id.get(f"L2-{section_number.replace('.', '-')}")
@@ -668,6 +704,8 @@ class TaskManager:
                     "scope_boundary",
                     "assessment",
                     "prerequisite_node_ids",
+                    "learning_path_role",
+                    "path_reason",
                 ):
                     if field in node:
                         section[field] = deepcopy(node[field])
@@ -1303,6 +1341,10 @@ class TaskManager:
                 "node_type": str(raw.get("node_type") or "original"),
                 "node_content": visible_content,
                 "learning_objective": str(raw.get("learning_objective") or ""),
+                "learning_path_role": str(
+                    raw.get("learning_path_role") or "standard"
+                ),
+                "path_reason": str(raw.get("path_reason") or "课程主路径"),
                 "generation_status": status,
                 "content_state": content_state,
                 "generated_chars": int(raw.get("generated_chars") or len(visible_content)),
@@ -1321,6 +1363,13 @@ class TaskManager:
             "projection": "generation_workspace",
             "course_id": str(course_data.get("course_id") or course_id),
             "course_name": str(course_data.get("course_name") or task.get("course_name") or ""),
+            "course_type": str(
+                course_data.get("course_type") or task.get("course_type") or "systematic"
+            ),
+            "course_intent": deepcopy(course_data.get("course_intent") or {}),
+            "learner_starting_profile": deepcopy(
+                course_data.get("learner_starting_profile") or {}
+            ),
             "workspace_id": workspace_id,
             "workspace_status": str(workspace.get("status") or "active"),
             "updated_at": workspace.get("updated_at") or task.get("updated_at"),
@@ -1330,6 +1379,7 @@ class TaskManager:
                     "id",
                     "course_id",
                     "course_name",
+                    "course_type",
                     "status",
                     "phase",
                     "current_phase",
@@ -1383,6 +1433,11 @@ class TaskManager:
             plan = course_data.get("course_plan") or course_data.get("course_outline") or {}
             artifact = {
                 "course_name": str(course_data.get("course_name") or ""),
+                "course_type": str(course_data.get("course_type") or "systematic"),
+                "course_intent": deepcopy(course_data.get("course_intent") or {}),
+                "learner_starting_profile": deepcopy(
+                    course_data.get("learner_starting_profile") or {}
+                ),
                 "course_positioning": str(
                     plan.get("course_positioning")
                     or plan.get("positioning")
@@ -1402,6 +1457,12 @@ class TaskManager:
                         "level": int(node.get("node_level") or 1),
                         "learning_objective": str(node.get("learning_objective") or ""),
                         "scope_boundary": str(node.get("scope_boundary") or ""),
+                        "learning_path_role": str(
+                            node.get("learning_path_role") or "standard"
+                        ),
+                        "path_reason": str(
+                            node.get("path_reason") or "课程主路径"
+                        ),
                     }
                     for node in course_data.get("nodes") or []
                 ],
@@ -3483,6 +3544,9 @@ class TaskManager:
                 material_bindings=request.get("material_bindings") or [],
                 grounding_strategy=str(request.get("grounding_strategy") or "material_first"),
                 learner_profile_summary=str(request.get("learner_profile_summary") or ""),
+                course_type=request.get("course_type"),
+                course_intent=request.get("course_intent") or {},
+                learner_starting_profile=request.get("learner_starting_profile") or {},
                 current_readiness=request.get("current_readiness"),
                 adaptation_preference=str(
                     request.get("adaptation_preference") or "preserve_target_extend"

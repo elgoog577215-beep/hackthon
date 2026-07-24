@@ -86,6 +86,7 @@ class CoursePromptComposer:
                 4200 if detail_level == "compact" else 1600,
             )
         shape = brief.get("course_shape_constraints") or {}
+        course_type_contract = brief.get("course_type_contract") or {}
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -100,6 +101,13 @@ class CoursePromptComposer:
 - 用户指定小节总数：{shape.get('section_count') or '未指定'}
 - 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
 - 完整课程最低小节总数：{shape.get('minimum_section_count') or '按用户明确数量'}
+
+## 课程类型契约
+- 课程类型：{brief.get('course_type_label') or brief.get('course_type') or '系统学习'}
+- 类型组织方式：{json.dumps(course_type_contract, ensure_ascii=False)}
+- 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
+- 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
+- 个性化依据：{json.dumps(brief.get('personalization_rationale') or [], ensure_ascii=False)}
 
 ## 难度与适配
 - 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
@@ -121,6 +129,12 @@ class CoursePromptComposer:
 6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
 7. 教学画像中的学科分型、质量底线和最终考核是章节推进的设计依据：课程必须为最终
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
+8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
+   不得直接宣称已经掌握。
+9. 起点状态为 `insufficient` 时不得使用 `compressed`；所有未证实能力使用
+   `verify_in_project`。只有明确的重点缺口使用 `focus`，项目阶段成果使用 `milestone`。
+10. `verify_in_project` 的 `path_reason` 必须指向可观察的项目任务、阶段成果或检查点；
+    `milestone` 必须指向项目交付物的阶段验收或最终验收。
 
 ## JSON Schema
 {{
@@ -133,6 +147,8 @@ class CoursePromptComposer:
       "chapter_number": 1,
       "title": "章节名",
       "learning_focus": "本章独有的能力推进范围",
+      "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
+      "path_reason": "该章节为何以当前深度进入个人路径",
       "section_count": 3
     }}
   ]
@@ -251,7 +267,9 @@ class CoursePromptComposer:
       "learning_objective": "学完后能完成的任务",
       "prerequisite_node_ids": [],
       "assessment": ["验收标准或任务"],
-      "scope_boundary": "本节负责什么，以及明确不提前展开什么"
+      "scope_boundary": "本节负责什么，以及明确不提前展开什么",
+      "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
+      "path_reason": "该小节为何出现在当前学习路径"
     }}
   ]
 }}""".strip()

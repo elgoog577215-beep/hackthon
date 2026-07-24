@@ -3,6 +3,8 @@
  * 从 course.ts 提取的所有接口和类型，供各拆分后的 Store 共用。
  */
 
+import type { CourseType } from '@/shared/prompt-config'
+
 export type NodeGenerationStatus = 'pending' | 'generating' | 'completed' | 'error' | 'skipped'
 
 export interface NodeGenerationConfig {
@@ -238,6 +240,8 @@ export interface Node {
   node_level: number
   node_content: string
   learning_objective?: string
+  learning_path_role?: 'focus' | 'standard' | 'compressed' | 'verify_in_project' | 'milestone'
+  path_reason?: string
   objective_id?: string
   objective_revision_id?: string
   content_blocks?: ContentBlock[]
@@ -456,6 +460,7 @@ export interface Task {
     shouldStop: boolean
     difficulty?: string
     compositionStyle?: string
+    courseType?: CourseType
     style?: string
     requirements?: string
     error?: string

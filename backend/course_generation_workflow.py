@@ -21,6 +21,7 @@ from course_difficulty import (
 )
 from course_knowledge_map import normalize_knowledge_structure
 from course_pedagogy import SubjectPedagogyProfile
+from course_type_contracts import apply_course_type_brief
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
@@ -58,10 +59,14 @@ def build_course_generation_artifacts(
     topic: str,
     difficulty: str,
     style: str,
+    composition_style: str | None = None,
     requirements: str = "",
     target_audience: str = "大学生",
     materials: list[Any] | None = None,
     learner_profile_summary: str = "",
+    course_type: str | None = None,
+    course_intent: Any = None,
+    learner_starting_profile: Any = None,
     prepared_materials: dict[str, Any] | None = None,
     grounding_strategy: str = "material_first",
     course_purpose: str = "systematic",
@@ -80,6 +85,10 @@ def build_course_generation_artifacts(
         material_cards=cards,
         learner_profile_summary=learner_profile_summary,
         course_purpose=course_purpose,
+        course_type=course_type,
+        course_intent=course_intent,
+        learner_starting_profile=learner_starting_profile,
+        composition_style=composition_style or style,
     )
     artifacts = {
         "pipeline_version": PIPELINE_VERSION,
@@ -136,7 +145,19 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
         chapter["chapter_number"] = chapter_index
         chapter.setdefault("title", f"第{chapter_index}章")
         chapter.setdefault("learning_focus", chapter.get("title", ""))
+        chapter["learning_path_role"] = _normalize_learning_path_role(
+            chapter.get("learning_path_role")
+        )
+        chapter.setdefault("path_reason", "课程主路径")
         for section_index, section in enumerate(chapter.get("sections") or [], start=1):
+            section["learning_path_role"] = _normalize_learning_path_role(
+                section.get("learning_path_role")
+                or chapter.get("learning_path_role")
+            )
+            section.setdefault(
+                "path_reason",
+                chapter.get("path_reason") or "课程主路径",
+            )
             raw_number = str(section.get("section_number") or "").strip()
             raw_id = str(section.get("id") or section.get("node_id") or "").strip()
             section_number = f"{chapter_index}.{section_index}"
@@ -175,11 +196,84 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
         section.setdefault("reused_knowledge_names", [])
         section.setdefault("misconceptions", [])
         section.setdefault("scope_boundary", f"只覆盖「{section.get('title')}」必需的知识与行动")
+        section["learning_path_role"] = _normalize_learning_path_role(
+            section.get("learning_path_role")
+        )
         section.setdefault("suggested_module_ids", [])
         section.pop("complexity", None)
         earlier_ids.add(canonical)
     plan.setdefault("knowledge_relations", [])
     plan["outline_schema_version"] = "course_outline_v1"
+    return plan
+
+
+def _normalize_learning_path_role(value: Any) -> str:
+    role = str(value or "").strip()
+    if role in {
+        "focus",
+        "standard",
+        "compressed",
+        "verify_in_project",
+        "milestone",
+    }:
+        return role
+    return "standard"
+
+
+def apply_course_learning_path_contract(
+    plan: dict[str, Any],
+    brief: dict[str, Any],
+) -> dict[str, Any]:
+    """Enforce truthful, visible path roles after distributed outline assembly."""
+    if str(brief.get("course_type") or "systematic") != "project":
+        return plan
+    profile = brief.get("learner_starting_profile") or {}
+    status = str(profile.get("status") or "insufficient")
+    intent = brief.get("course_intent") or {}
+    deliverable = str(
+        intent.get("expected_deliverable") or "最终项目成果"
+    ).strip()
+    chapters = [
+        chapter for chapter in plan.get("chapters") or []
+        if isinstance(chapter, dict)
+    ]
+    all_items = [
+        item
+        for chapter in chapters
+        for item in [chapter, *(chapter.get("sections") or [])]
+        if isinstance(item, dict)
+    ]
+    for item in all_items:
+        role = _normalize_learning_path_role(item.get("learning_path_role"))
+        if role == "compressed" and status != "confirmed":
+            role = "verify_in_project"
+            item["path_reason"] = (
+                "该能力目前仅来自学习者自述，需在项目阶段成果或检查点中验证。"
+            )
+        elif role == "verify_in_project":
+            reason = str(item.get("path_reason") or "").strip()
+            if "验证" not in reason and "检查" not in reason:
+                item["path_reason"] = (
+                    f"{reason}；在项目阶段成果或检查点中验证。".strip("；")
+                )
+        item["learning_path_role"] = role
+        item.setdefault("path_reason", "课程主路径")
+    if all(
+        item.get("learning_path_role") != "milestone"
+        for item in all_items
+    ) and chapters:
+        final_chapter = chapters[-1]
+        final_chapter["learning_path_role"] = "milestone"
+        final_chapter["path_reason"] = f"形成并验收最终交付物：{deliverable}"
+        final_sections = [
+            section for section in final_chapter.get("sections") or []
+            if isinstance(section, dict)
+        ]
+        if final_sections:
+            final_sections[-1]["learning_path_role"] = "milestone"
+            final_sections[-1]["path_reason"] = (
+                f"提交可观察、可检查的最终交付物：{deliverable}"
+            )
     return plan
 
 
@@ -197,6 +291,10 @@ def build_course_knowledge_scope_contract(plan: dict[str, Any]) -> dict[str, Any
             "title": str(section.get("title") or ""),
             "learning_objective": str(section.get("learning_objective") or ""),
             "scope_boundary": str(section.get("scope_boundary") or ""),
+            "learning_path_role": _normalize_learning_path_role(
+                section.get("learning_path_role")
+            ),
+            "path_reason": str(section.get("path_reason") or "课程主路径"),
             "prerequisite_node_ids": list(section.get("prerequisite_node_ids") or []),
         }
         for chapter in plan.get("chapters") or []
@@ -2260,6 +2358,8 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
                 "module_plan": section.get("module_plan", []),
                 "lesson_archetype": section.get("lesson_archetype", {}),
                 "difficulty_contract": section.get("difficulty_contract", {}),
+                "learning_path_role": section.get("learning_path_role", "standard"),
+                "path_reason": section.get("path_reason", "课程主路径"),
             })
 
     teaching_plan_revision_id = str(
@@ -2285,6 +2385,7 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         prefix="cbps_",
     )
 
+    brief = artifacts.get("course_generation_brief") or {}
     return {
         "blueprint_id": f"cbp-{uuid.uuid4()}",
         "schema_version": PIPELINE_VERSION,
@@ -2292,6 +2393,15 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         "source_teaching_plan_revision_id": teaching_plan_revision_id,
         "source_plan_fingerprint": source_plan_fingerprint,
         "course_title": plan.get("course_title") or artifacts.get("course_generation_brief", {}).get("subject", ""),
+        "course_type": brief.get("course_type") or "systematic",
+        "course_type_label": brief.get("course_type_label") or "系统学习",
+        "course_intent": deepcopy(brief.get("course_intent") or {}),
+        "learner_starting_profile": deepcopy(
+            brief.get("learner_starting_profile") or {}
+        ),
+        "personalization_rationale": deepcopy(
+            brief.get("personalization_rationale") or []
+        ),
         "positioning": plan.get("positioning") or artifacts.get("course_generation_brief", {}).get("goal", "电子课程资料"),
         "learning_objectives": plan.get("learning_objectives", []),
         "prerequisites": plan.get("prerequisites", []),
@@ -2453,6 +2563,10 @@ def _build_brief(
     material_cards: list[dict[str, Any]],
     learner_profile_summary: str,
     course_purpose: str,
+    course_type: str | None = None,
+    course_intent: Any = None,
+    learner_starting_profile: Any = None,
+    composition_style: Any = None,
 ) -> dict[str, Any]:
     lowered = requirements.lower()
     shape_constraints = _resolve_course_shape_constraints(requirements)
@@ -2489,7 +2603,7 @@ def _build_brief(
             "用户未指定课程规模时，完整课程不得少于 "
             f"{shape_constraints['minimum_section_count']} 个小节"
         )
-    return {
+    brief = {
         "brief_id": f"brief-{uuid.uuid4().hex[:10]}",
         "goal": "生成一本高质量电子课程资料",
         "subject": topic,
@@ -2516,6 +2630,17 @@ def _build_brief(
         "dominant_learning_actions": _extract_learning_actions(requirements),
         "expected_deliverables": _extract_deliverables(requirements),
     }
+    return apply_course_type_brief(
+        brief,
+        course_type=course_type,
+        course_intent=course_intent,
+        learner_starting_profile=learner_starting_profile,
+        topic=topic,
+        requirements=requirements,
+        learner_profile_summary=learner_profile_summary,
+        course_purpose=course_purpose,
+        composition_style=composition_style,
+    )
 
 
 def _extract_desired_outcomes(requirements: str, topic: str) -> list[str]:

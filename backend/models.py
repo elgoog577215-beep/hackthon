@@ -1,5 +1,5 @@
 
-from typing import Any, List, Optional, Literal, Dict
+from typing import Annotated, Any, List, Optional, Literal, Dict, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 import uuid
@@ -112,11 +112,79 @@ class WebQuestionEnrichmentInput(BaseModel):
         return normalized
 
 
+CourseType = Literal["systematic", "project", "inquiry", "exam"]
+
+
+class SystematicCourseIntent(BaseModel):
+    schema_version: Literal["course_intent_v1"] = "course_intent_v1"
+    type: Literal["systematic"] = "systematic"
+    learning_goal: str = Field(default="", max_length=2000)
+    desired_outcome: str = Field(default="", max_length=3000)
+    existing_foundation: str = Field(default="", max_length=3000)
+
+
+class ProjectCourseIntent(BaseModel):
+    schema_version: Literal["course_intent_v1"] = "course_intent_v1"
+    type: Literal["project"] = "project"
+    project_goal: str = Field(default="", max_length=3000)
+    expected_deliverable: str = Field(default="", max_length=3000)
+    prior_experience: str = Field(default="", max_length=3000)
+    current_uncertainty: str = Field(default="", max_length=3000)
+    project_constraints: str = Field(default="", max_length=3000)
+
+
+class InquiryCourseIntent(BaseModel):
+    schema_version: Literal["course_intent_v1"] = "course_intent_v1"
+    type: Literal["inquiry"] = "inquiry"
+    core_question: str = Field(default="", max_length=3000)
+    existing_understanding: str = Field(default="", max_length=3000)
+    evidence_scope: str = Field(default="", max_length=3000)
+    desired_output: str = Field(default="", max_length=3000)
+
+
+class ExamCourseIntent(BaseModel):
+    schema_version: Literal["course_intent_v1"] = "course_intent_v1"
+    type: Literal["exam"] = "exam"
+    exam_name: str = Field(default="", max_length=1000)
+    exam_date: str = Field(default="", max_length=100)
+    exam_scope: str = Field(default="", max_length=5000)
+    current_preparation: str = Field(default="", max_length=3000)
+
+
+CourseIntent = Annotated[
+    Union[
+        SystematicCourseIntent,
+        ProjectCourseIntent,
+        InquiryCourseIntent,
+        ExamCourseIntent,
+    ],
+    Field(discriminator="type"),
+]
+
+
+class LearnerStartingProfile(BaseModel):
+    summary: str = Field(default="", max_length=5000)
+    self_reported_strengths: List[str] = Field(default_factory=list, max_length=20)
+    focus_areas: List[str] = Field(default_factory=list, max_length=20)
+    needs_validation: List[str] = Field(default_factory=list, max_length=20)
+    evidence_basis: Literal["self_reported", "interview", "observed", "mixed"] = "self_reported"
+    status: Literal["insufficient", "tentative", "confirmed"] = "tentative"
+
+    @model_validator(mode="after")
+    def keep_self_report_provisional(self) -> "LearnerStartingProfile":
+        if self.evidence_basis == "self_reported" and self.status == "confirmed":
+            self.status = "tentative"
+        return self
+
+
 class CourseGenerationRequest(BaseModel):
     request_id: Optional[str] = Field(default=None, min_length=8, max_length=200)
     subject: str = Field(..., min_length=1, max_length=200)
     target_audience: Optional[str] = Field(default="大学生", max_length=500)
     difficulty: Optional[DifficultyLevel] = "intermediate"
+    course_type: CourseType = "systematic"
+    course_intent: Optional[CourseIntent] = None
+    learner_starting_profile: Optional[LearnerStartingProfile] = None
     composition_style: Optional[CourseCompositionStyle] = None
     style: Optional[TeachingStyle] = None
     requirements: Optional[str] = Field(default="", max_length=5000)
@@ -171,13 +239,61 @@ class CourseGenerationRequest(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def default_new_composition_style(cls, value: Any) -> Any:
+    def normalize_course_type_compatibility(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
+        from course_type_contracts import (
+            course_purpose_for_type,
+            default_composition_style,
+            resolve_course_type,
+        )
+
         normalized = dict(value)
+        intent_type = (
+            normalized.get("course_intent", {}).get("type")
+            if isinstance(normalized.get("course_intent"), dict)
+            else None
+        )
+        explicit_course_type = normalized.get("course_type") or intent_type
+        course_type, _resolved_from = resolve_course_type(
+            explicit_course_type,
+            course_purpose=normalized.get("course_purpose"),
+            composition_style=normalized.get("composition_style"),
+        )
+        normalized["course_type"] = course_type
+        if (
+            course_type == "project"
+            and not normalized.get("course_intent")
+            and not explicit_course_type
+        ):
+            normalized["course_intent"] = {
+                "type": "project",
+                "project_goal": str(normalized.get("subject") or "").strip(),
+                "expected_deliverable": str(normalized.get("requirements") or "").strip()
+                or "完成可展示、可检查的项目成果",
+            }
+        if isinstance(normalized.get("course_intent"), dict):
+            intent = dict(normalized["course_intent"])
+            intent.setdefault("type", course_type)
+            normalized["course_intent"] = intent
+        if explicit_course_type:
+            normalized["course_purpose"] = course_purpose_for_type(course_type)
         if "composition_style" not in normalized and not normalized.get("style"):
-            normalized["composition_style"] = CourseCompositionStyle.BALANCED.value
+            normalized["composition_style"] = default_composition_style(course_type)
         return normalized
+
+    @model_validator(mode="after")
+    def validate_course_intent_type(self) -> "CourseGenerationRequest":
+        if self.course_intent and self.course_intent.type != self.course_type:
+            raise ValueError("course_intent.type 必须与 course_type 一致")
+        if self.course_type == "project":
+            if not isinstance(self.course_intent, ProjectCourseIntent):
+                raise ValueError("项目实战课程必须提供 course_intent")
+            if not self.course_intent.project_goal.strip():
+                raise ValueError("项目实战课程必须提供 project_goal")
+            if not self.course_intent.expected_deliverable.strip():
+                raise ValueError("项目实战课程必须提供 expected_deliverable")
+        return self
 
     @field_validator("subject", mode="before")
     @classmethod

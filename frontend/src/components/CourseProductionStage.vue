@@ -244,6 +244,7 @@ type GrowthChapter = {
 }
 
 const expandedChapterIds = ref<Set<string>>(new Set())
+const isProjectCourse = computed(() => props.task?.courseType === 'project')
 const stageIndex = computed(() => courseProductionStageIndex(props.task))
 const stageKey = computed(() => courseProductionStageKey(props.task))
 const stageStatus = computed(() => courseProductionStageStatus(props.task, stageIndex.value))
@@ -391,11 +392,21 @@ function growthSectionStateLabel(state: GrowthSectionStatus) {
 }
 
 const stageLabels = computed<Record<CourseProductionStageKey, string>>(() => ({
-  requirements: t('courseGeneration.lifecycle.requirements', '需求'),
-  outline: t('courseGeneration.lifecycle.outline', '目录'),
-  teaching: t('courseGeneration.lifecycle.teaching', '教案与知识库'),
-  content: t('courseGeneration.lifecycle.content', '正文生成'),
-  release: t('courseGeneration.lifecycle.release', '确认发布'),
+  requirements: isProjectCourse.value
+    ? t('courseGeneration.lifecycle.projectRequirements', '项目需求')
+    : t('courseGeneration.lifecycle.requirements', '需求'),
+  outline: isProjectCourse.value
+    ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
+    : t('courseGeneration.lifecycle.outline', '目录'),
+  teaching: isProjectCourse.value
+    ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
+    : t('courseGeneration.lifecycle.teaching', '教案与知识库'),
+  content: isProjectCourse.value
+    ? t('courseGeneration.lifecycle.projectContent', '项目课程')
+    : t('courseGeneration.lifecycle.content', '正文生成'),
+  release: isProjectCourse.value
+    ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
+    : t('courseGeneration.lifecycle.release', '确认发布'),
 }))
 const statusLabels = computed(() => ({
   active: t('courseGeneration.lifecycle.inProgress', '进行中'),
@@ -407,13 +418,21 @@ const statusLabels = computed(() => ({
   pending: t('courseGeneration.lifecycle.pending', '未开始'),
 }))
 const stageLabel = computed(() => `${stageLabels.value[stageKey.value]} · ${statusLabels.value[stageStatus.value]}`)
-const descriptions = computed<Record<CourseProductionStageKey, string>>(() => ({
-  requirements: t('courseGeneration.production.requirementsDescription', '主题、难度、编排偏好与资料边界会被写入同一份生产契约。'),
-  outline: t('courseGeneration.production.outlineDescription', '系统正在把学习需求转成可确认的章节顺序、学习目标与课程范围。'),
-  teaching: t('courseGeneration.production.teachingDescription', '系统先冻结全课知识职责，再按预算生成详细教案，并从同一计划编译课程知识库。'),
-  content: t('courseGeneration.production.contentDescription', '各小节按真实前置关系并行生成，已完成的草稿会立即保存并出现在课程目录中。'),
-  release: t('courseGeneration.production.releaseDescription', '系统正在核对结构、稳定引用与同源版本链；通过后由你确认发布。'),
-}))
+const descriptions = computed<Record<CourseProductionStageKey, string>>(() => isProjectCourse.value
+  ? {
+      requirements: t('courseGeneration.production.projectRequirementsDescription', '项目目标、交付物、主辅学科和你的暂定起点会被写入同一份项目契约。'),
+      outline: t('courseGeneration.production.projectOutlineDescription', '系统先把交付物拆成项目节点，再按你的已有经验和不确定点形成个人学习路径。'),
+      teaching: t('courseGeneration.production.projectTeachingDescription', '系统正在为每个项目节点匹配必要能力、知识、实践动作与验收证据。'),
+      content: t('courseGeneration.production.projectContentDescription', '课程会沿个人路径展开，让知识学习与项目产出在同一个过程中完成。'),
+      release: t('courseGeneration.production.projectReleaseDescription', '系统正在核对项目节点、学习路径与最终交付物是否完整衔接。'),
+    }
+  : {
+      requirements: t('courseGeneration.production.requirementsDescription', '主题、难度、学科结构与资料边界会被写入同一份生产契约。'),
+      outline: t('courseGeneration.production.outlineDescription', '系统正在把学习需求转成可确认的章节顺序、学习目标与课程范围。'),
+      teaching: t('courseGeneration.production.teachingDescription', '系统先冻结全课知识职责，再按预算生成详细教案，并从同一计划编译课程知识库。'),
+      content: t('courseGeneration.production.contentDescription', '各小节按真实前置关系并行生成，已完成的草稿会立即保存并出现在课程目录中。'),
+      release: t('courseGeneration.production.releaseDescription', '系统正在核对结构、稳定引用与同源版本链；通过后由你确认发布。'),
+    })
 const stageDescription = computed(() => descriptions.value[stageKey.value])
 const outlineTitle = computed(() => {
   if (growthChapters.value.length) {
@@ -463,13 +482,21 @@ const savedItems = computed(() => {
 const savedSummary = computed(() => savedItems.value.length
   ? t('courseGeneration.production.savedInline', '已保存：{items}').replace('{items}', savedItems.value.join(' · '))
   : '')
-const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => ({
-  requirements: t('courseGeneration.production.requirementsNext', '需求确认后立即生成课程目录；不会再增加额外确认门。'),
-  outline: t('courseGeneration.production.outlineNext', '目录确认后，系统生成全课教案与知识库；教案等待你确认后才开始正文。'),
-  teaching: t('courseGeneration.production.teachingNext', '确认全课教案后，正文会按依赖波次并行生成，并把已完成内容立即显示出来。'),
-  content: t('courseGeneration.production.contentNext', '所有小节完成后进入确定性发布检查，不追加 AI 返工循环。'),
-  release: t('courseGeneration.production.releaseNext', '确认发布后，当前页面会原地切换为正式学习现场。'),
-}))
+const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => isProjectCourse.value
+  ? {
+      requirements: t('courseGeneration.production.projectRequirementsNext', '项目需求确定后立即形成第一版个人路径，后续学习证据仍可继续校准它。'),
+      outline: t('courseGeneration.production.projectOutlineNext', '确认个人路径后，系统会为每个项目节点生成能力与知识安排。'),
+      teaching: t('courseGeneration.production.projectTeachingNext', '确认能力与知识安排后，课程会沿项目依赖逐节生成。'),
+      content: t('courseGeneration.production.projectContentNext', '所有项目课程内容完成后，系统检查它们能否共同支撑最终交付物。'),
+      release: t('courseGeneration.production.projectReleaseNext', '确认后，当前页面会原地切换为你的项目学习现场。'),
+    }
+  : {
+      requirements: t('courseGeneration.production.requirementsNext', '需求确认后立即生成课程目录；不会再增加额外确认门。'),
+      outline: t('courseGeneration.production.outlineNext', '目录确认后，系统生成全课教案与知识库；教案等待你确认后才开始正文。'),
+      teaching: t('courseGeneration.production.teachingNext', '确认全课教案后，正文会按依赖波次并行生成，并把已完成内容立即显示出来。'),
+      content: t('courseGeneration.production.contentNext', '所有小节完成后进入确定性发布检查，不追加 AI 返工循环。'),
+      release: t('courseGeneration.production.releaseNext', '确认发布后，当前页面会原地切换为正式学习现场。'),
+    })
 const footerHint = computed(() => nextDetails.value[stageKey.value])
 const recoveryDetail = computed(() => courseProductionRecoveryDetail(props.task))
 const technicalError = computed(() => String(props.task?.error || '').trim())

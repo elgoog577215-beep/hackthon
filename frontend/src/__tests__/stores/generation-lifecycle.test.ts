@@ -14,6 +14,21 @@ describe('course generation lifecycle reconciliation', () => {
     setActivePinia(createPinia())
   })
 
+  it('创建与恢复生成任务时保留课程类型', () => {
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-project', 'course-project', '玻璃杯设计', {
+      course_type: 'project',
+    })
+
+    expect(task.courseType).toBe('project')
+    generation.persistGenerationState()
+
+    setActivePinia(createPinia())
+    const restoredGeneration = useGenerationStore()
+    restoredGeneration.restoreGenerationState()
+    expect(restoredGeneration.getTask('course-project')?.courseType).toBe('project')
+  })
+
   it('发布完成后同步正式正文、课程库摘要和当前生成状态', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
@@ -410,7 +425,7 @@ describe('course generation lifecycle reconciliation', () => {
     vi.spyOn(http, 'get').mockResolvedValue({
       data: [{
         id: 'job-remote', course_id: 'course-remote', course_name: '远端课程', status: 'running',
-        progress: 18, phase: 'blueprint_generation', completed_nodes: 0, total_nodes: 0,
+        course_type: 'project', progress: 18, phase: 'blueprint_generation', completed_nodes: 0, total_nodes: 0,
       }],
     })
     const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
@@ -418,6 +433,7 @@ describe('course generation lifecycle reconciliation', () => {
     await generation.fetchGlobalTasks()
 
     expect(generation.getTask('course-remote')?.id).toBe('job-remote')
+    expect(generation.getTask('course-remote')?.courseType).toBe('project')
     expect(refreshList).toHaveBeenCalledTimes(1)
   })
 

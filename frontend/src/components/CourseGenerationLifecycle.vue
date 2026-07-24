@@ -56,11 +56,36 @@ const props = withDefaults(defineProps<{
   task: undefined,
 })
 
+const isProjectCourse = computed(() => props.task?.courseType === 'project')
 const stages = computed(() => [
-  { key: 'outline', backendIndex: 1, label: t('courseGeneration.lifecycle.outline', '目录确认') },
-  { key: 'teaching', backendIndex: 2, label: t('courseGeneration.lifecycle.teaching', '教案确认') },
-  { key: 'content', backendIndex: 3, label: t('courseGeneration.lifecycle.content', '正文生成') },
-  { key: 'release', backendIndex: 4, label: t('courseGeneration.lifecycle.release', '确认发布') },
+  {
+    key: 'outline',
+    backendIndex: 1,
+    label: isProjectCourse.value
+      ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
+      : t('courseGeneration.lifecycle.outline', '目录确认'),
+  },
+  {
+    key: 'teaching',
+    backendIndex: 2,
+    label: isProjectCourse.value
+      ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
+      : t('courseGeneration.lifecycle.teaching', '教案确认'),
+  },
+  {
+    key: 'content',
+    backendIndex: 3,
+    label: isProjectCourse.value
+      ? t('courseGeneration.lifecycle.projectContent', '项目课程')
+      : t('courseGeneration.lifecycle.content', '正文生成'),
+  },
+  {
+    key: 'release',
+    backendIndex: 4,
+    label: isProjectCourse.value
+      ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
+      : t('courseGeneration.lifecycle.release', '确认发布'),
+  },
 ])
 const backendStageIndex = computed(() => courseProductionStageIndex(props.task))
 const activeIndex = computed(() => Math.max(0, Math.min(stages.value.length - 1, backendStageIndex.value - 1)))

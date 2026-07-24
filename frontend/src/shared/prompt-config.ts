@@ -25,6 +25,51 @@ export type CourseCompositionStyle =
   | 'project_driven'
   | 'inquiry_driven';
 
+/** 课程的学习组织协议；与具体学科教学结构相互独立。 */
+export type CourseType = 'systematic' | 'project' | 'inquiry' | 'exam';
+
+export interface SystematicCourseIntent {
+  schema_version: 'course_intent_v1';
+  type: 'systematic';
+  learning_goal: string;
+  desired_outcome?: string;
+  existing_foundation?: string;
+}
+
+export interface ProjectCourseIntent {
+  schema_version: 'course_intent_v1';
+  type: 'project';
+  project_goal: string;
+  expected_deliverable: string;
+  prior_experience?: string;
+  current_uncertainty?: string;
+  project_constraints?: string;
+}
+
+export interface InquiryCourseIntent {
+  schema_version: 'course_intent_v1';
+  type: 'inquiry';
+  core_question: string;
+  existing_understanding?: string;
+  evidence_scope?: string;
+  desired_output?: string;
+}
+
+export interface ExamCourseIntent {
+  schema_version: 'course_intent_v1';
+  type: 'exam';
+  exam_name: string;
+  exam_date?: string;
+  exam_scope?: string;
+  current_preparation?: string;
+}
+
+export type CourseIntent =
+  | SystematicCourseIntent
+  | ProjectCourseIntent
+  | InquiryCourseIntent
+  | ExamCourseIntent;
+
 /** 课程教学结构模式 */
 export type PedagogyMode =
   | 'general'
@@ -73,6 +118,13 @@ export const COURSE_COMPOSITION_STYLES = {
   EXAMPLE_DRIVEN: 'example_driven' as const,
   PROJECT_DRIVEN: 'project_driven' as const,
   INQUIRY_DRIVEN: 'inquiry_driven' as const,
+};
+
+export const COURSE_TYPES = {
+  SYSTEMATIC: 'systematic' as const,
+  PROJECT: 'project' as const,
+  INQUIRY: 'inquiry' as const,
+  EXAM: 'exam' as const,
 };
 
 export const PEDAGOGY_MODE_OPTIONS: Array<{
@@ -145,6 +197,13 @@ export const VALID_COURSE_COMPOSITION_STYLES: CourseCompositionStyle[] = [
   'example_driven',
   'project_driven',
   'inquiry_driven',
+];
+
+export const VALID_COURSE_TYPES: CourseType[] = [
+  'systematic',
+  'project',
+  'inquiry',
+  'exam',
 ];
 
 /** 有效的节点类型列表 */
@@ -225,6 +284,8 @@ export interface GenerateCourseParams {
   secondary_intensity?: SecondaryIntensity;
   generation_mode?: 'review_blueprint';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
+  course_type?: CourseType;
+  course_intent?: CourseIntent;
   asset_preferences?: Record<string, boolean>;
   web_question_enrichment?: {
     mode?: 'auto_on_gap' | 'off' | 'always';
@@ -259,6 +320,10 @@ export function validateStyle(style: string): boolean {
 
 export function validateCompositionStyle(style: string): boolean {
   return VALID_COURSE_COMPOSITION_STYLES.includes(style as CourseCompositionStyle);
+}
+
+export function validateCourseType(courseType: string): boolean {
+  return VALID_COURSE_TYPES.includes(courseType as CourseType);
 }
 
 /**
@@ -303,6 +368,29 @@ export function validateGenerateCourseParams(
     }
   } else {
     errors.push('composition_style is required');
+  }
+
+  if (params.course_type && !validateCourseType(params.course_type)) {
+    errors.push(`Invalid course_type: ${params.course_type}. Must be one of: ${VALID_COURSE_TYPES.join(', ')}`);
+  }
+
+  if (params.course_type === 'project') {
+    const project = params.course_intent?.type === 'project' ? params.course_intent : null;
+    if (!project) {
+      errors.push('a project course_intent is required when course_type is project');
+    } else {
+      const requiredProjectFields: Array<keyof ProjectCourseIntent> = [
+        'project_goal',
+        'expected_deliverable',
+      ];
+      for (const field of requiredProjectFields) {
+        if (!project[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+    }
+  }
+
+  if (params.course_type && params.course_intent && params.course_intent.type !== params.course_type) {
+    errors.push('course_intent.type must match course_type');
   }
   
   return {

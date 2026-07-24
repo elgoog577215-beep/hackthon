@@ -1140,6 +1140,11 @@
       "teaching": "Confirm lesson plan",
       "content": "Generate content",
       "release": "Confirm publication",
+      "projectRequirements": "Project brief",
+      "projectOutline": "Personal path",
+      "projectTeaching": "Skills and knowledge",
+      "projectContent": "Project course",
+      "projectRelease": "Confirm course",
       "completed": "Completed",
       "inProgress": "In progress",
       "pending": "Not started",
@@ -1181,11 +1186,16 @@
       "pausedTitle": "Course production is paused",
       "blockedTitle": "Course production needs conflict resolution",
       "qualityBlockedTitle": "Course practice needs targeted repair",
-      "requirementsDescription": "The topic, difficulty, composition preference, and source boundaries are captured in one production contract.",
+      "requirementsDescription": "The topic, difficulty, discipline structure, and source boundaries are captured in one production contract.",
       "outlineDescription": "The system is turning your learning request into a reviewable chapter sequence, objectives, and course scope.",
       "teachingDescription": "The system freezes course-wide knowledge ownership, generates detailed plans in budgeted batches, and compiles the course knowledge base from the same plan.",
       "contentDescription": "Sections run in parallel according to real prerequisites. Completed drafts are saved immediately and appear in the course navigator.",
       "releaseDescription": "The system is checking structure, stable references, and the same-source version chain before asking you to publish.",
+      "projectRequirementsDescription": "The project goal, deliverable, primary and supporting disciplines, and your tentative starting point are captured in one project contract.",
+      "projectOutlineDescription": "The system first breaks the deliverable into milestones, then maps a personal path from your experience and uncertainties.",
+      "projectTeachingDescription": "The system is matching each milestone with the required skills, knowledge, actions, and acceptance evidence.",
+      "projectContentDescription": "The course follows your personal path so that learning and project delivery happen in the same process.",
+      "projectReleaseDescription": "The system is checking that the milestones, learning path, and final deliverable form a complete chain.",
       "pausedDescription": "The current model call has stopped.",
       "blockedDescription": "The current artifact conflicts with the course source of truth.",
       "qualityBlockedDescription": "Course content is complete. Only rejected practice items will be regenerated.",
@@ -1232,6 +1242,11 @@
       "teachingNext": "After you confirm the whole-course plan, lesson content runs in dependency waves and completed sections appear immediately.",
       "contentNext": "After every section completes, deterministic publication checks run without an additional AI rewrite loop.",
       "releaseNext": "After publication confirmation, this page switches in place to the formal learning workspace.",
+      "projectRequirementsNext": "Once the project brief is fixed, the first personal path is created immediately and can keep adapting to later learning evidence.",
+      "projectOutlineNext": "After you confirm the personal path, the system creates the skills and knowledge plan for each milestone.",
+      "projectTeachingNext": "After you confirm the skills and knowledge plan, the course is generated along project dependencies.",
+      "projectContentNext": "After all project-course sections are complete, the system checks whether they jointly support the final deliverable.",
+      "projectReleaseNext": "After confirmation, this page switches in place to your project learning workspace.",
       "technicalReason": "View technical reason",
       "authError": "The AI service could not authenticate.",
       "timeoutError": "The AI service timed out before this stage completed.",
@@ -1288,6 +1303,23 @@
       "loading": "Loading the editable outline",
       "loadErrorHelp": "Generated work remains saved. Reloading will not create a duplicate course.",
       "retry": "Retry",
+      "startingPoint": "Your project starting point (tentative)",
+      "startingPointInsufficient": "Starting point incomplete",
+      "startingPointTentative": "Tentative starting point",
+      "deliverable": "Final deliverable",
+      "deliverablePending": "Defined by the project goal",
+      "experience": "Prior experience",
+      "focusAreas": "Focus areas",
+      "notProvided": "Not provided",
+      "discoverInProject": "To be identified during the project",
+      "startingPointGuard": "This starting point comes from your self-report. It shapes the first path but does not count as verified mastery.",
+      "pathRoles": {
+        "focus": "Focus area",
+        "standard": "Standard study",
+        "compressed": "Fast track",
+        "verifyInProject": "Verify in project",
+        "milestone": "Project milestone"
+      },
       "objectivePlaceholder": "Describe what the learner can do by the end of this section",
       "empty": "The outline is not ready yet. Reload it before confirming.",
       "guard": "This is the only step where course structure is edited. The next step confirms the whole-course lesson plan before content generation begins.",
@@ -1437,7 +1469,13 @@
       "knowledge": "Knowledge index",
       "teaching": "Confirm lesson plan",
       "content": "Generate content",
-      "release": "Confirm publication"
+      "release": "Confirm publication",
+      "projectTitle": "Submit the project, then shape your course in four steps",
+      "projectHelp": "Confirm your personal path and capability plan first. The course then grows along project milestones before final confirmation.",
+      "projectOutline": "Personal path",
+      "projectTeaching": "Skills and knowledge",
+      "projectContent": "Project course",
+      "projectRelease": "Confirm course"
     },
     "form": {
       "topic": "Course topic",
@@ -1447,11 +1485,48 @@
       "compositionStyle": "Course composition preference",
       "compositionStyleHelp": "Controls how examples, reasoning, applications, and project blocks are distributed",
       "strategy": "Course strategy",
-      "strategyHelp": "Fine-tune how the course is organized and how source materials guide generation.",
+      "strategyHelp": "Choose a discipline-appropriate teaching structure and how source materials guide generation.",
       "coursePurpose": "Course purpose",
       "generationMode": "Generation mode",
       "requirements": "Additional requirements",
       "requirementsPlaceholder": "For example: emphasize historical development or include more code examples..."
+    },
+    "courseTypes": {
+      "label": "Course type",
+      "help": "Course type organizes the learning process; discipline shapes how the content is taught.",
+      "comingSoon": "Coming soon",
+      "systematic": {
+        "label": "Systematic learning",
+        "detail": "Build from foundations through prerequisites and a complete knowledge structure"
+      },
+      "project": {
+        "label": "Project practice",
+        "detail": "Work toward a real deliverable along a path adapted to your starting point"
+      },
+      "inquiry": {
+        "label": "Inquiry learning",
+        "detail": "Build an evidence-based judgment through subquestions and reasoning"
+      },
+      "exam": {
+        "label": "Exam sprint",
+        "detail": "Prioritize the syllabus and weak areas within the time available"
+      }
+    },
+    "project": {
+      "title": "Define your project",
+      "help": "Clarify the deliverable first, then build project milestones and a personal learning path from your starting point.",
+      "goalLabel": "What project do you want to complete?",
+      "goalPlaceholder": "For example: design an eco-friendly insulated glass for university students",
+      "deliverableLabel": "What will you deliver?",
+      "deliverablePlaceholder": "For example: a product design proposal and a testable prototype",
+      "experienceLabel": "What relevant experience do you already have?",
+      "experiencePlaceholder": "For example: I have studied product design and understand form and structure",
+      "uncertaintyLabel": "What are you least certain about?",
+      "uncertaintyPlaceholder": "For example: glass materials, insulation principles, and manufacturing",
+      "startingPointTitle": "Provisional starting point",
+      "startingPointHelp": "The first path is based on your self-report. The system will continue to verify and adjust it as you learn.",
+      "insufficientTitle": "You can skip the starting-point details",
+      "insufficientHelp": "You can still generate the course. The system will mark the starting point as insufficient, create a provisional path, and adjust it from later learning evidence."
     },
     "difficulty": {
       "beginner": {
@@ -1504,7 +1579,9 @@
       }
     },
     "pedagogy": {
-      "label": "Teaching structure",
+      "label": "Primary discipline structure",
+      "secondaryLabel": "Supporting discipline",
+      "secondaryNone": "No supporting discipline",
       "resolved": "Selected",
       "autoHint": "Auto selection uses the topic, learning purpose, and materials to choose an appropriate structure.",
       "manualHint": "The course blueprint and content will follow the selected teaching structure.",
