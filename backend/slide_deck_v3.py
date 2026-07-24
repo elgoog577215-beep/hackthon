@@ -35,13 +35,14 @@ from slide_visuals import (
     apply_visual_plan_to_slides,
     build_signature,
     deterministic_visual_plan,
+    rebalance_visual_plan_pages,
     validate_visual_plan,
     visual_integrity_issues,
     visual_quality_report,
 )
 
 SLIDE_DECK_V3_SCHEMA = "slide_deck_v3"
-SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v2_visual_director"
+SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v4_teaching_storyboard"
 
 SlideDeckMode = Literal["full", "teaching", "concise"]
 SlideDeckTheme = Literal[
@@ -119,11 +120,11 @@ _CONCISE_ROLES = {
     "transfer",
 }
 _THEME_PAGE_CAPACITY = {
-    "qizhi-classroom": 360,
-    "academic-editorial": 420,
-    "grid-notebook": 340,
-    "modern-geometric": 300,
-    "dark-tech": 340,
+    "qizhi-classroom": 230,
+    "academic-editorial": 260,
+    "grid-notebook": 220,
+    "modern-geometric": 210,
+    "dark-tech": 225,
 }
 
 
@@ -372,7 +373,7 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
             return
         value = re.sub(r"^#{1,6}\s+", "", value)
         kind = "formula" if block.kind == "formula" or _looks_like_formula(value) else "paragraph"
-        if kind == "formula" or len(value) <= 280:
+        if kind == "formula" or len(value) <= 220:
             result.append((kind, value))
             return
         # Long prose is split only at sentence boundaries.  The sentence text
@@ -383,7 +384,7 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
         ] or [value]
         chunk = ""
         for sentence in sentences:
-            if chunk and len(chunk) + len(sentence) > 280:
+            if chunk and len(chunk) + len(sentence) > 220:
                 result.append(("paragraph", chunk))
                 chunk = ""
             chunk += sentence
@@ -577,7 +578,7 @@ def deterministic_slide_allocation(
     for (section_id, block_id), block_fragments in grouped.items():
         for run_index, run_fragments in enumerate(_semantic_fragment_runs(block_fragments), start=1):
             section = section_index.get(section_id)
-            source_runs.append({
+            source_run = {
                 "run_id": f"{block_id}:{run_index}",
                 "section_id": section_id,
                 "block_id": block_id,
@@ -591,7 +592,13 @@ def deterministic_slide_allocation(
                     fragment.kind == "heading"
                     for fragment in run_fragments
                 ),
-            })
+                "mainline_candidate": True,
+            }
+            source_runs.extend(
+                _split_run_for_teaching(source_run)
+                if mode == "teaching"
+                else [source_run]
+            )
 
     mainline_run_ids = _select_mainline_run_ids(source_runs, mode)
     appendix_pages: list[PlannedPageV2] = []
@@ -852,6 +859,8 @@ def _select_mainline_run_ids(
     selected: set[str] = set()
     detailed_by_topic: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
+        if not run.get("mainline_candidate", True):
+            continue
         if run["source_role"] in _APPENDIX_ROLES:
             continue
         if run["section_level"] <= 2:
@@ -882,6 +891,55 @@ def _select_mainline_run_ids(
                 selected.add(run["run_id"])
                 used_roles.add(role)
     return selected
+
+
+def _split_run_for_teaching(run: dict[str, Any]) -> list[dict[str, Any]]:
+    """Promote only the minimum source excerpt needed for one teaching beat."""
+    fragments: list[ContentFragmentV1] = list(run["fragments"])
+    if len(fragments) <= 3 or _has_atomic_fragment(fragments):
+        return [run]
+    heading = (
+        fragments[0]
+        if fragments and fragments[0].kind == "heading"
+        else None
+    )
+    body = fragments[1:] if heading else fragments
+    if (
+        heading is None
+        and str(run.get("source_role") or "") == "concept"
+        and int(run.get("section_level") or 1) > 2
+    ):
+        return [run]
+    role = str(run.get("narrative_role") or "concept")
+    body_limit = {
+        "orientation": 1,
+        "concept": 2,
+        "reasoning": 2,
+        "method": 3,
+        "example": 2,
+        "misconception": 2,
+        "checkpoint": 2,
+        "recap": 2,
+    }.get(role, 2)
+    promoted_body = body[:body_limit]
+    remaining = body[body_limit:]
+    if not remaining:
+        return [run]
+    promoted = {
+        **run,
+        "fragments": [
+            *([heading] if heading else []),
+            *promoted_body,
+        ],
+    }
+    detail = {
+        **run,
+        "run_id": f"{run['run_id']}:detail",
+        "fragments": remaining,
+        "has_heading": False,
+        "mainline_candidate": False,
+    }
+    return [promoted, detail]
 
 
 def _allocate_run_pages(
@@ -924,17 +982,17 @@ def _allocate_run_pages(
             *body_chunk,
         ]
         derived: list[DerivedTextV1] = []
-        if heading:
+        if heading and chunk_index == 1:
             derived.append(DerivedTextV1(
                 text=heading.text,
                 purpose="page_title",
                 derived_from=[heading.fragment_id],
             ))
-        if chunk_index > 1:
+        elif chunk_index > 1 and body_chunk:
             derived.append(DerivedTextV1(
-                text="续",
-                purpose="continuation",
-                derived_from=[item.fragment_id for item in chunk],
+                text=_continuation_title(body_chunk[0].text),
+                purpose="page_title",
+                derived_from=[body_chunk[0].fragment_id],
             ))
         narrative_role = (
             "appendix" if appendix else run["narrative_role"]
@@ -952,7 +1010,7 @@ def _allocate_run_pages(
         )
         page = PlannedPageV2(
             page_id=(
-                f"slide:{run['block_id']}:run:{run['run_id'].rsplit(':', 1)[-1]}"
+                f"slide:{run['block_id']}:run:{str(run['run_id']).replace(':', '-')}"
                 f":page:{chunk_index}"
             ),
             layout=layout,
@@ -965,6 +1023,16 @@ def _allocate_run_pages(
         )
         allocated.extend(_expand_reveal_pages(page, chunk))
     return allocated
+
+
+def _continuation_title(value: str) -> str:
+    """Use the next source claim as the page title instead of a mechanical suffix."""
+    clean = _display_text(value).strip()
+    sentence = re.split(r"(?:[。！？；;]\s*|\.(?=\s|$))", clean, maxsplit=1)[0]
+    sentence = sentence.strip(" ，,：:；;。")
+    if len(sentence) > 38:
+        sentence = sentence[:37].rstrip("，,：:；; ") + "…"
+    return sentence or "继续检验本节结论"
 
 
 def _select_fragments_for_mode(
@@ -1319,6 +1387,11 @@ def compile_slide_deck_v3(
         repository=asset_repository,
         progress_callback=progress_callback,
     )
+    rebalance_visual_plan_pages(
+        resolved_visual_plan.pages,
+        plan,
+        fragments,
+    )
     validate_visual_plan(resolved_visual_plan, plan, fragments)
     catalog = {item.fragment_id: item for item in fragments}
     sections = {item.section_id: item for item in document.sections}
@@ -1381,7 +1454,11 @@ def compile_slide_deck_v3(
             for fragment_id in referenced
         ),
     }
-    visual_quality = visual_quality_report(resolved_visual_plan, plan)
+    visual_quality = visual_quality_report(
+        resolved_visual_plan,
+        plan,
+        fragments,
+    )
     signature = build_signature(
         source_document_revision=document.document_revision,
         mode=plan.mode,

@@ -136,6 +136,15 @@ from slide_deck_v3 import (
     plan_slide_deck_v3,
     slide_deck_variant_key,
 )
+from slide_deck_v4 import (
+    allocation_from_story_plan_v2,
+    build_signature_v4,
+)
+from slide_story_plan import (
+    SlideStoryPlanV2,
+    course_supports_slide_deck_v4,
+    plan_slide_story_v2,
+)
 from slide_theme import slide_theme_version
 from slide_visuals import (
     SlideVisualPlanV1,
@@ -209,6 +218,37 @@ def _source_first_slide_ai_workers() -> tuple[
     return planner, reviewer
 
 
+def _source_first_story_ai_worker() -> (
+    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
+):
+    """Return the opt-in, source-ID-only v4 story planner."""
+    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return None
+    provider = AIBase()
+    if provider.client is None:
+        return None
+
+    async def planner(request: dict[str, Any]) -> dict[str, Any]:
+        response = await provider._call_llm(
+            json.dumps(request, ensure_ascii=False),
+            system_prompt=(
+                "Return only one valid slide_story_plan_v2 JSON object. You are a "
+                "teaching-sequence director, not a course author. Use only supplied "
+                "fragment_id values and exact official claim sources. Never write, "
+                "summarize, translate, or supplement teaching body text. Preserve "
+                "chapter, prerequisite, proof, worked-example, prompt, and answer order."
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            raise_on_failure=True,
+        )
+        return provider._extract_json(response or "") or {}
+
+    return planner
+
+
 def _source_first_slide_visual_ai_worker() -> (
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
 ):
@@ -250,6 +290,7 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "result",
     "representation_deck_plan",
     "representation_deck_plan_v3",
+    "representation_story_plan_v2",
     "request_snapshot",
     "node_drafts",
 })
@@ -3371,25 +3412,47 @@ class TaskManager:
         course_view = await asyncio.to_thread(
             self._course_document_repository.load_course_view, course_id,
         )
+        story_engine_enabled = os.getenv(
+            "SLIDE_STORY_ENGINE_V2_ENABLED",
+            "true",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        use_v4 = story_engine_enabled and course_supports_slide_deck_v4(course_view)
         source_revision = str(document.document_revision or "")
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
-        expected_signature = build_signature(
-            source_document_revision=source_revision,
-            mode=mode,
-            theme=theme,
-            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
-            theme_version=slide_theme_version(),
+        expected_signature = (
+            build_signature_v4(
+                document=document,
+                course_data=course_view,
+                mode=mode,  # type: ignore[arg-type]
+                theme=theme,  # type: ignore[arg-type]
+            )
+            if use_v4
+            else build_signature(
+                source_document_revision=source_revision,
+                mode=mode,
+                theme=theme,
+                compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+                theme_version=slide_theme_version(),
+            )
         )
         saved_signature = str(task.get("representation_build_signature") or "")
         allocation_plan: SlideAllocationPlanV2 | None = None
         visual_plan: SlideVisualPlanV1 | None = None
+        story_plan: SlideStoryPlanV2 | None = None
         resume_slides: list[dict[str, Any]] = []
         if (
-            saved_revision == source_revision
+            not bool(request.get("force_rebuild"))
+            and saved_revision == source_revision
             and saved_variant == variant_key
             and saved_signature == expected_signature["signature"]
         ):
+            try:
+                raw_story = task.get("representation_story_plan_v2")
+                if use_v4 and isinstance(raw_story, dict):
+                    story_plan = SlideStoryPlanV2.model_validate(raw_story)
+            except (TypeError, ValueError):
+                story_plan = None
             try:
                 raw_plan = task.get("representation_deck_plan_v3")
                 if isinstance(raw_plan, dict):
@@ -3428,22 +3491,71 @@ class TaskManager:
                 latest_slides.values(),
                 key=lambda item: int(item.get("position") or 0),
             )
+            if use_v4 and story_plan is None:
+                allocation_plan = None
+                visual_plan = None
+                resume_slides = []
         if allocation_plan is None:
-            planner, reviewer = _source_first_slide_ai_workers()
             await self._record_representation_event(task_id, {
                 "event": "fragmenting",
                 "progress": 3,
                 "stage": "fragmenting",
                 "variant_key": variant_key,
             })
-            allocation_plan = await plan_slide_deck_v3(
-                document,
-                course_view,
-                mode=mode,  # type: ignore[arg-type]
-                theme=theme,  # type: ignore[arg-type]
-                ai_planner=planner,
-                ai_reviewer=reviewer,
-            )
+            if use_v4:
+                story_plan = await plan_slide_story_v2(
+                    document,
+                    course_view,
+                    fragment_course_document(document),
+                    mode=mode,  # type: ignore[arg-type]
+                    theme=theme,  # type: ignore[arg-type]
+                    ai_planner=_source_first_story_ai_worker(),
+                )
+                allocation_plan, _ = allocation_from_story_plan_v2(
+                    document,
+                    fragment_course_document(document),
+                    story_plan,
+                )
+                await self._record_representation_event(task_id, {
+                    "event": "story_plan",
+                    "progress": 6,
+                    "stage": "story_plan",
+                    "story_plan": story_plan.model_dump(mode="json"),
+                    "variant_key": variant_key,
+                })
+                for chapter_index, chapter in enumerate(story_plan.chapters):
+                    await self._record_representation_event(task_id, {
+                        "event": "chapter_plan",
+                        "progress": min(14, 8 + chapter_index),
+                        "stage": "chapter_plan",
+                        "chapter_id": chapter.chapter_id,
+                        "chapter": chapter.model_dump(mode="json"),
+                    })
+                    for episode_index, episode in enumerate(chapter.episodes):
+                        await self._record_representation_event(task_id, {
+                            "event": "episode_progress",
+                            "progress": min(18, 10 + episode_index),
+                            "stage": "episode_progress",
+                            "chapter_id": chapter.chapter_id,
+                            "episode_id": episode.episode_id,
+                            "scene_kind": episode.scene_kind,
+                        })
+                await self._record_representation_event(task_id, {
+                    "event": "layout_plan",
+                    "progress": 20,
+                    "stage": "layout_plan",
+                    "allocation_plan": allocation_plan.model_dump(mode="json"),
+                })
+            else:
+                planner, reviewer = _source_first_slide_ai_workers()
+                allocation_plan = await plan_slide_deck_v3(
+                    document,
+                    course_view,
+                    mode=mode,  # type: ignore[arg-type]
+                    theme=theme,  # type: ignore[arg-type]
+                    ai_planner=planner,
+                    ai_reviewer=reviewer,
+                )
             resume_slides = []
         if visual_plan is None:
             visual_plan = await plan_slide_visuals(
@@ -3464,6 +3576,11 @@ class TaskManager:
                 current["representation_source_document_revision"] = source_revision
                 current["representation_variant_key"] = variant_key
                 current["representation_deck_plan_v3"] = allocation_plan.model_dump(mode="json")
+                current["representation_story_plan_v2"] = (
+                    story_plan.model_dump(mode="json")
+                    if story_plan is not None
+                    else None
+                )
                 current["representation_visual_plan_v1"] = visual_plan.model_dump(mode="json")
                 current["representation_build_signature"] = expected_signature["signature"]
                 current["updated_at"] = datetime.now().isoformat()
@@ -3521,6 +3638,7 @@ class TaskManager:
             theme=theme,
             allocation_plan=allocation_plan,
             visual_plan=visual_plan,
+            story_plan=story_plan,
             progress_callback=progress,
             resume_slides=resume_slides,
         )

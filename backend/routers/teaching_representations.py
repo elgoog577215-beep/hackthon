@@ -38,9 +38,19 @@ from slide_deck_v3 import (
     SlideAllocationPlanV2,
     SlideDeckMode,
     SlideDeckTheme,
+    fragment_course_document,
     normalize_slide_deck_theme,
     plan_slide_deck_v3,
     slide_deck_variant_key,
+)
+from slide_deck_v4 import (
+    allocation_from_story_plan_v2,
+    build_signature_v4,
+)
+from slide_story_plan import (
+    SlideStoryPlanV2,
+    compile_slide_story_plan_v2,
+    course_supports_slide_deck_v4,
 )
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from slide_asset_repository import slide_asset_repository
@@ -120,11 +130,16 @@ class SlideDeckVariantBuildRequest(BaseModel):
 def _reconciled_registry(course_id: str) -> dict:
     course_repository = get_course_document_repository()
     raw = course_repository.load_raw(course_id)
+    document, _canonical = course_repository.load_document(course_id)
+    course_view = course_repository.load_course_view(course_id)
     registry = get_teaching_representation_repository().reconcile_course_operation_log(
         course_id,
         list(raw.get("course_operation_log") or []),
     )
     payload = registry.model_dump(mode="json")
+    v4_eligible = course_supports_slide_deck_v4(course_view)
+    payload["slide_deck_v4_eligible"] = v4_eligible
+    payload["slide_deck_v4_upgrade_required"] = not v4_eligible
     specs = {
         item["spec_id"]: item
         for item in payload.get("specs") or []
@@ -134,22 +149,67 @@ def _reconciled_registry(course_id: str) -> dict:
             continue
         spec = specs.get(representation.get("spec_id")) or {}
         content = (spec.get("payload") or {}).get("content") or {}
-        if content.get("schema_version") != "slide_deck_v3":
+        schema_version = content.get("schema_version")
+        if schema_version not in {"slide_deck_v3", "slide_deck_v4"}:
             continue
-        expected = build_signature(
-            source_document_revision=str(content.get("source_document_revision") or ""),
+        if schema_version == "slide_deck_v3" and not v4_eligible:
+            representation["course_logic_upgrade_required"] = True
+            representation["course_logic_upgrade_reason"] = (
+                "当前课程缺少已完成的新版教学计划；请先升级课程，再生成课程逻辑版 PPT"
+            )
+        expected = _expected_slide_signature(
+            document,
+            course_view,
             mode=str(content.get("mode") or "teaching"),
             theme=normalize_slide_deck_theme(
                 str(content.get("theme") or "qizhi-classroom")
             ),
-            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
-            theme_version=slide_theme_version(),
+            force_schema=str(schema_version),
         )
         actual = str((content.get("build_signature") or {}).get("signature") or "")
         if actual != expected["signature"]:
             representation["visual_engine_update_available"] = True
             representation["visual_engine_update_reason"] = "视觉引擎已更新"
     return payload
+
+
+def _story_engine_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_STORY_ENGINE_V2_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _expected_slide_signature(
+    document: Any,
+    course_view: dict[str, Any],
+    *,
+    mode: str,
+    theme: str,
+    force_schema: str = "",
+) -> dict[str, Any]:
+    use_v4 = (
+        force_schema == "slide_deck_v4"
+        or (
+            force_schema != "slide_deck_v3"
+            and _story_engine_enabled()
+            and course_supports_slide_deck_v4(course_view)
+        )
+    )
+    if use_v4:
+        return build_signature_v4(
+            document=document,
+            course_data=course_view,
+            mode=mode,  # type: ignore[arg-type]
+            theme=theme,  # type: ignore[arg-type]
+        )
+    return build_signature(
+        source_document_revision=str(document.document_revision or ""),
+        mode=mode,
+        theme=theme,
+        compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+        theme_version=slide_theme_version(),
+    )
 
 
 def _compile_registry(
@@ -211,6 +271,7 @@ def _compile_slide_variant_registry(
     mode: SlideDeckMode,
     theme: SlideDeckTheme,
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any],
+    story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Any | None = None,
 ) -> dict[str, Any]:
     course_repository = get_course_document_repository()
@@ -230,6 +291,7 @@ def _compile_slide_variant_registry(
         mode=mode,
         theme=theme,
         allocation_plan=allocation_plan,
+        story_plan=story_plan,
         progress_callback=progress_callback,
     )
     registry = repository.reconcile_course_operation_log(
@@ -466,12 +528,11 @@ async def stream_slide_deck_variant_build(
             ((cached_spec.payload.get("content") or {}).get("build_signature") or {}).get("signature")
             or ""
         )
-        == build_signature(
-            source_document_revision=str(document.document_revision or ""),
+        == _expected_slide_signature(
+            document,
+            course_view,
             mode=body.mode,
             theme=theme,
-            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
-            theme_version=slide_theme_version(),
         )["signature"]
     )
     if cached_current and not body.force_rebuild:
@@ -570,12 +631,27 @@ async def stream_slide_deck_variant_build(
             "variant_key": variant_key,
         }
         yield f"id: {sequence}\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
-        allocation_plan = await plan_slide_deck_v3(
-            document,
-            course_view,
-            mode=body.mode,
-            theme=theme,  # type: ignore[arg-type]
-        )
+        story_plan: SlideStoryPlanV2 | None = None
+        if _story_engine_enabled() and course_supports_slide_deck_v4(course_view):
+            story_plan = compile_slide_story_plan_v2(
+                document,
+                course_view,
+                fragment_course_document(document),
+                mode=body.mode,
+                theme=theme,  # type: ignore[arg-type]
+            )
+            allocation_plan, _ = allocation_from_story_plan_v2(
+                document,
+                fragment_course_document(document),
+                story_plan,
+            )
+        else:
+            allocation_plan = await plan_slide_deck_v3(
+                document,
+                course_view,
+                mode=body.mode,
+                theme=theme,  # type: ignore[arg-type]
+            )
         events: Queue[dict[str, Any] | None] = Queue()
 
         def publish(payload: dict[str, Any]) -> None:
@@ -588,6 +664,7 @@ async def stream_slide_deck_variant_build(
                     mode=body.mode,
                     theme=theme,  # type: ignore[arg-type]
                     allocation_plan=allocation_plan,
+                    story_plan=story_plan,
                     progress_callback=publish,
                 )
                 blocked = (
@@ -958,7 +1035,7 @@ async def export_teaching_slide_deck(
     content = spec.payload.get("content") or {}
     resolved_theme = (
         str(content.get("theme") or "qizhi-classroom")
-        if content.get("schema_version") == "slide_deck_v3"
+        if content.get("schema_version") in {"slide_deck_v3", "slide_deck_v4"}
         else str(theme or content.get("theme") or "qingfeng-classroom")
     )
     try:

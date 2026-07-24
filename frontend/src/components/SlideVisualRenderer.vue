@@ -51,32 +51,33 @@
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
     >
+      <defs>
+        <marker id="coordinate-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L9,3 z" class="slide-visual__arrow" />
+        </marker>
+      </defs>
       <line x1="90" y1="280" x2="920" y2="280" />
       <line x1="500" y1="60" x2="500" y2="500" />
-      <circle
-        v-for="(point, index) in plotPoints"
-        :key="index"
-        :cx="500 + Number(point[0]) * 92"
-        :cy="280 - Number(point[1]) * 62"
-        r="11"
+      <line
+        v-if="plotConnector"
+        :x1="plotConnector.x1"
+        :y1="plotConnector.y1"
+        :x2="plotConnector.x2"
+        :y2="plotConnector.y2"
+        class="slide-visual__mapping"
+        marker-end="url(#coordinate-arrow)"
       />
       <g
-        v-for="(label, index) in plotLabels"
-        :key="`${label.text}-${index}`"
-        :transform="`translate(${label.x} ${label.y})`"
+        v-for="(point, index) in plotPoints"
+        :key="`${point.label}-${index}`"
       >
-        <rect width="330" height="104" rx="18" />
-        <foreignObject x="18" y="14" width="294" height="76">
-          <div xmlns="http://www.w3.org/1999/xhtml">{{ label.text }}</div>
-        </foreignObject>
+        <circle :cx="point.x" :cy="point.y" r="11" />
+        <text :x="point.x + 18" :y="point.y - 16" class="slide-visual__point-label">
+          {{ point.label }}
+        </text>
       </g>
-      <text
-        v-if="visual.parameters?.not_to_scale"
-        x="900"
-        y="530"
-        text-anchor="end"
-        class="slide-visual__scale-note"
-      >概念位置不表示数值比例</text>
+      <text x="928" y="267" class="slide-visual__axis-label">{{ axisLabels[0] }}</text>
+      <text x="516" y="70" class="slide-visual__axis-label">{{ axisLabels[1] }}</text>
     </svg>
 
     <div v-else-if="visual.kind === 'chart'" class="slide-visual__chart">
@@ -90,8 +91,8 @@
       </div>
     </div>
 
-    <div v-else-if="visual.kind === 'formula'" class="slide-visual__symbol">
-      <b>ƒ(x)</b><span>{{ visual.alt_text }}</span>
+    <div v-else-if="visual.kind === 'formula'" class="slide-visual__formula">
+      <MarkdownRenderer :content="formulaMarkdown" :enable-code-run="false" />
     </div>
     <div v-else-if="visual.kind === 'code'" class="slide-visual__symbol">
       <b>&lt;/&gt;</b><span>{{ visual.alt_text }}</span>
@@ -103,7 +104,7 @@
         </thead>
         <tbody>
           <tr v-for="(row, rowIndex) in tableRows" :key="rowIndex">
-            <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ cell }}</td>
+            <td v-for="(cell, cellIndex) in row" :key="cellIndex">{{ formatVisualText(cell) }}</td>
           </tr>
         </tbody>
       </table>
@@ -112,11 +113,11 @@
       </div>
     </div>
     <div v-else class="slide-visual__fallback">
-      <b>{{ visual.purpose }}</b>
+      <b>{{ purposeLabel }}</b>
       <span>{{ visual.alt_text }}</span>
     </div>
 
-    <figcaption>{{ visual.alt_text }}</figcaption>
+    <figcaption class="slide-visual__sr-only">{{ visual.alt_text }}</figcaption>
   </figure>
 </template>
 
@@ -124,6 +125,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import http from '../utils/http'
 import type { SlideVisual } from '../types/slideVisual'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const props = withDefaults(defineProps<{
   visuals: SlideVisual[]
@@ -138,6 +140,35 @@ const props = withDefaults(defineProps<{
 const visual = computed(() => props.visuals?.[0])
 const imageUrl = ref('')
 const isImage = computed(() => ['source_image', 'generated_illustration'].includes(visual.value?.kind || ''))
+const purposeLabel = computed(() => ({
+  structure: '概念结构',
+  process: '步骤关系',
+  comparison: '对比关系',
+  evidence: '关键证据',
+  application: '应用情境',
+  context: '学习情境',
+  exercise: '课堂练习',
+}[visual.value?.purpose || ''] || '解释性视觉'))
+
+function formatVisualText(value: unknown) {
+  return String(value || '')
+    .replace(/\\mathbb\{([A-Za-z])\}/g, '$1')
+    .replace(/\\(?:mathbf|mathrm|operatorname|text)\{([^{}]+)\}/g, '$1')
+    .replace(/\\subseteq/g, '⊆')
+    .replace(/\\cap/g, '∩')
+    .replace(/\\cup/g, '∪')
+    .replace(/\\in(?![A-Za-z])/g, '∈')
+    .replace(/\\mid/g, '∣')
+    .replace(/\\land/g, '∧')
+    .replace(/\\lor/g, '∨')
+    .replace(/\\cdots/g, '⋯')
+    .replace(/\\times/g, '×')
+    .replace(/\\to(?![A-Za-z])/g, '→')
+    .replace(/\\\{/g, '{')
+    .replace(/\\\}/g, '}')
+    .replace(/\$\$/g, '')
+    .trim()
+}
 
 const diagramNodes = computed(() => {
   const nodes = visual.value?.nodes || []
@@ -146,6 +177,7 @@ const diagramNodes = computed(() => {
     const height = Math.min(88, 390 / Math.max(1, nodes.length))
     return nodes.map((node, index) => ({
       ...node,
+      label: formatVisualText(node.label),
       x: 150,
       y: 55 + index * (height + 22),
       width: 700,
@@ -156,6 +188,7 @@ const diagramNodes = computed(() => {
   const width = columns === 1 ? 720 : 360
   return nodes.map((node, index) => ({
     ...node,
+    label: formatVisualText(node.label),
     x: columns === 1 ? 140 : 95 + (index % 2) * 450,
     y: columns === 1 ? 210 : 65 + Math.floor(index / 2) * 170,
     width,
@@ -179,20 +212,40 @@ const diagramEdges = computed(() => {
   })
 })
 
-const plotPoints = computed(() => visual.value?.parameters?.points || [])
-const plotLabels = computed(() => {
-  const positions = [
-    { x: 110, y: 80 },
-    { x: 560, y: 80 },
-    { x: 110, y: 360 },
-    { x: 560, y: 360 },
-  ]
-  return (visual.value?.parameters?.labels || []).slice(0, 4).map(
-    (label: string | { text?: string }, index: number) => ({
-      text: typeof label === 'string' ? label : String(label?.text || ''),
-      ...positions[index],
-    }),
+const plotPoints = computed(() => {
+  const points = (visual.value?.parameters?.points || []).slice(0, 10)
+  const labels = visual.value?.parameters?.point_labels || []
+  const maximum = Math.max(
+    1,
+    ...points.flatMap((point: unknown[]) => [
+      Math.abs(Number(point?.[0]) || 0),
+      Math.abs(Number(point?.[1]) || 0),
+    ]),
   )
+  return points.map((point: unknown[], index: number) => ({
+    x: 500 + (Number(point?.[0]) || 0) * (340 / maximum),
+    y: 280 - (Number(point?.[1]) || 0) * (190 / maximum),
+    label: String(labels[index] || `(${point?.[0]}, ${point?.[1]})`),
+  }))
+})
+const plotConnector = computed(() => {
+  if (!visual.value?.parameters?.connect_points || plotPoints.value.length < 2) return null
+  return {
+    x1: plotPoints.value[0].x,
+    y1: plotPoints.value[0].y,
+    x2: plotPoints.value[1].x,
+    y2: plotPoints.value[1].y,
+  }
+})
+const axisLabels = computed(() => visual.value?.parameters?.axis_labels || ['x', 'y'])
+const formulaMarkdown = computed(() => {
+  const source = String(
+    visual.value?.parameters?.formula
+    || visual.value?.alt_text
+    || '',
+  ).trim()
+  if (/^(?:\$\$|\\\[|\\\()/.test(source)) return source
+  return `$$${source}$$`
 })
 const tableHeaders = computed(() => visual.value?.parameters?.headers || ['顺序', '课程原文要点'])
 const tableRows = computed(() => visual.value?.parameters?.rows || [])
@@ -283,9 +336,15 @@ onBeforeUnmount(revokeImage)
   line-height: 1.25;
   text-align: center;
 }
-.slide-visual__scale-note {
+.slide-visual__point-label,
+.slide-visual__axis-label {
   fill: var(--deck-muted);
-  font-size: 20px;
+  font-size: 24px;
+  font-weight: 760;
+}
+.slide-visual svg line.slide-visual__mapping {
+  stroke: var(--deck-blue);
+  stroke-width: 6;
 }
 .slide-visual__table-wrap {
   display: grid;
@@ -359,6 +418,26 @@ onBeforeUnmount(revokeImage)
   justify-content: center;
   gap: 1.3cqw;
 }
+.slide-visual__formula {
+  display: grid;
+  height: 100%;
+  padding: 8%;
+  place-items: center;
+  color: var(--deck-ink);
+  background: var(--deck-card);
+  font-size: clamp(24px, 2.35cqw, 38px);
+  overflow: hidden;
+}
+.slide-visual__formula :deep(.markdown-body) {
+  width: 100%;
+  margin: 0;
+  color: inherit;
+  text-align: center;
+}
+.slide-visual__formula :deep(.katex-display) {
+  margin: 0;
+  overflow: visible;
+}
 .slide-visual__symbol b {
   color: var(--deck-blue);
   font: 800 6cqw/1 var(--deck-title-font);
@@ -369,14 +448,15 @@ onBeforeUnmount(revokeImage)
   font-weight: 700;
   text-align: center;
 }
-.slide-visual figcaption {
-  position: absolute;
-  right: 1.2cqw;
-  bottom: .85cqw;
-  max-width: 80%;
-  color: var(--deck-muted);
-  font-size: .72cqw;
-  line-height: 1.2;
-  text-align: right;
+.slide-visual__sr-only {
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
 }
 </style>

@@ -1,6 +1,6 @@
 {
   "schema_version": "slide_theme_pack_v1",
-  "version": "2026.07.23.1",
+  "version": "2026.07.23.2",
   "themes": {
     "qizhi-classroom": {
       "label": "启智课堂",
@@ -25,7 +25,7 @@
       "body_east_asian_font": "Microsoft YaHei",
       "math_font": "Times New Roman",
       "image_treatment": "warm-natural",
-      "prompt_style": "bright editorial classroom illustration, warm daylight, clean geometric accents",
+      "prompt_style": "bright editorial educational scene, warm daylight, clean geometric forms, subject-focused composition",
       "layout_weights": {"figure-first": 1.2, "split-visual": 1.1, "diagram-full": 1.0}
     },
     "academic-editorial": {

@@ -31,6 +31,8 @@ export interface TeachingRepresentation {
   updated_at: string
   visual_engine_update_available?: boolean
   visual_engine_update_reason?: string
+  course_logic_upgrade_required?: boolean
+  course_logic_upgrade_reason?: string
 }
 
 export interface TeachingRepresentationSpec {
@@ -228,6 +230,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.task_id) this.buildTaskId = event.task_id
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
           if (event.stage) this.buildStage = event.stage
+          if (event.event === 'story_plan') this.buildStage = 'story_plan'
+          if (event.event === 'chapter_plan') this.buildStage = 'chapter_plan'
+          if (event.event === 'episode_progress') this.buildStage = 'episode_progress'
+          if (event.event === 'layout_plan') this.buildStage = 'layout_plan'
           if (event.event === 'deck_plan') this.buildStage = 'slide_plan'
           if (event.event === 'visual_plan') this.buildStage = 'visual_plan'
           if (event.event === 'asset_progress' || event.event === 'asset_ready') {
@@ -258,6 +264,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
               visual: event.quality,
             }
           }
+          if (event.event === 'render_review') this.buildStage = 'render_review'
+          if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
           if (event.event === 'build_blocked') {
             this.settleFailedSlideDraft(event.quality)
             this.buildError = 'quality_gate_failed'
@@ -315,7 +323,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const publishedContent = this.selectedSpec?.payload?.content
       const hasPublishedDeck = (
         this.selectedRepresentation?.status === 'ready'
-        && ['slide_deck_v2', 'slide_deck_v3'].includes(publishedContent?.schema_version)
+        && ['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(publishedContent?.schema_version)
       )
       if (hasPublishedDeck) {
         this.liveSlides = []
@@ -405,7 +413,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       if (
         !this.deferMissingSlideBuild
         && slideRepresentation
-        && !['slide_deck_v2', 'slide_deck_v3'].includes(content?.schema_version)
+        && !['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(content?.schema_version)
       ) {
         await this.buildProgressive(courseId)
       }
@@ -429,7 +437,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       ) return null
       const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
       this.selectedSpec = spec
-      if (['slide_deck_v2', 'slide_deck_v3'].includes(spec?.payload?.content?.schema_version)) {
+      if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(spec?.payload?.content?.schema_version)) {
         const summary = spec?.payload.content.quality_summary
         if (summary) {
           this.publishedSlideQuality = summary

@@ -45,16 +45,16 @@
             :class="{ active: modelTheme === item.value }"
             @click="modelTheme = item.value"
           >
-            <div class="deck-theme-preview" :style="previewStyle(item.value)">
-              <div class="deck-theme-preview__cover">
-                <i></i><b>线性映射</b><span>结构与应用</span>
-              </div>
-              <div class="deck-theme-preview__split">
-                <b>保持结构</b><i></i><span></span><em></em>
-              </div>
-              <div class="deck-theme-preview__diagram">
-                <i>输入</i><b></b><i>映射</i>
-              </div>
+            <div class="deck-theme-preview-real">
+              <SlideCanvas
+                v-for="(slide, previewIndex) in previewSlides"
+                :key="slide.unit_id"
+                :slide="slide"
+                :page-number="previewIndex + 1"
+                :page-count="previewSlides.length"
+                deck-title="线性映射"
+                :theme="item.value"
+              />
             </div>
             <strong>{{ item.label }}</strong>
             <small>{{ item.description }}</small>
@@ -81,7 +81,7 @@
 import { computed, ref, watch } from 'vue'
 import { BookOpenText, Layers3, LoaderCircle, Presentation, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
 import type { SlideDeckMode, SlideDeckTheme } from '../stores/teachingRepresentations'
-import themePack from '../data/slide-themes.json'
+import SlideCanvas from './SlideCanvas.vue'
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
@@ -128,30 +128,66 @@ const themes: Array<{ value: V3Theme; label: string; description: string }> = [
   { value: 'dark-tech', label: '深色科技', description: '深色高亮 · 编程科技' },
 ]
 
+const previewSlides = [
+  {
+    unit_id: 'theme-preview-cover',
+    layout: 'cover',
+    slide_purpose: 'orientation',
+    eyebrow: '课程演示',
+    title: '线性映射',
+    subtitle: '定义、方法与应用',
+    key_message: '',
+    blocks: [],
+  },
+  {
+    unit_id: 'theme-preview-concept',
+    layout: 'concept',
+    slide_purpose: 'concept',
+    eyebrow: '核心概念',
+    title: '线性映射保持两种运算',
+    blocks: [{
+      block_id: 'theme-preview-concept-body',
+      type: 'statement',
+      content: '同时保持向量加法与数乘。',
+      items: [],
+    }],
+    quality: { requested_layout: 'hero-statement' },
+  },
+  {
+    unit_id: 'theme-preview-example',
+    layout: 'concept',
+    slide_purpose: 'example',
+    eyebrow: '完整例题',
+    title: '先判断，再验证',
+    blocks: [{
+      block_id: 'theme-preview-example-body',
+      type: 'process',
+      content: '',
+      items: ['识别目标', '验证加法', '验证数乘'],
+    }],
+    quality: { requested_layout: 'case-study' },
+  },
+  {
+    unit_id: 'theme-preview-recap',
+    layout: 'recap',
+    slide_purpose: 'chapter_recap',
+    eyebrow: '章节总结',
+    title: '回到学习目标',
+    blocks: [{
+      block_id: 'theme-preview-recap-body',
+      type: 'bullets',
+      content: '',
+      items: ['理解定义', '掌握判断', '完成检查'],
+    }],
+  },
+] as any[]
+
 const pageEstimate = computed(() => {
   const base = Math.max(6, Math.ceil(props.fragmentCount / 3) + 3)
   if (modelMode.value === 'full') return `预计 ${base}–${base + 5} 页`
   if (modelMode.value === 'teaching') return `预计 ${Math.max(6, base - 2)}–${base + 2} 页`
   return `预计 ${Math.max(5, Math.round(base * .55))}–${Math.max(7, Math.round(base * .72))} 页`
 })
-
-function previewStyle(theme: V3Theme) {
-  const themes = themePack.themes as Record<string, Record<string, any>>
-  const token = themes[theme] ?? themes['qizhi-classroom'] ?? {
-    surface: 'FFFFFF',
-    accent: '2F6FE4',
-    accent_soft: 'E8F0FF',
-    green: '2E9B72',
-    ink: '1B2A3A',
-  }
-  return {
-    '--p': `#${token.surface}`,
-    '--m': `#${token.accent}`,
-    '--s': `#${token.accent_soft}`,
-    '--a': `#${token.green}`,
-    '--i': `#${token.ink}`,
-  }
-}
 
 function confirm() {
   emit('confirm', { mode: modelMode.value, theme: modelTheme.value })
@@ -184,6 +220,8 @@ function confirm() {
 .deck-generator__themes > button { padding:8px 8px 12px; text-align:left; border:1px solid #dce3eb; border-radius:15px; color:#263448; background:#fff; transition:.18s ease; }
 .deck-generator__themes > button:hover,.deck-generator__themes > button.active { border-color:#6c91ec; box-shadow:0 9px 24px rgba(42,76,141,.1); transform:translateY(-1px); }
 .deck-generator__themes > button.active { box-shadow:inset 0 0 0 1px #4d78df,0 9px 24px rgba(42,76,141,.11); }
+.deck-theme-preview-real { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px; padding:4px; overflow:hidden; border-radius:9px; background:#dfe5ee; }
+.deck-theme-preview-real :deep(.deck-canvas) { width:100%; box-shadow:none; pointer-events:none; }
 .deck-generator__themes strong,.deck-generator__themes small { display:block; padding:0 4px; }
 .deck-generator__themes strong { margin-top:9px; font-size:13px; }
 .deck-generator__themes small { margin-top:3px; color:#7a8797; font-size:10px; }

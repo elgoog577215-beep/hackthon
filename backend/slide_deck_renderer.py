@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
-from slide_asset_repository import slide_asset_repository
+from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_theme import load_slide_theme_pack
 
 THEMES: dict[str, dict[str, str]] = {
@@ -189,6 +189,7 @@ def export_structured_slide_deck(
     *,
     require_quality: bool = True,
     theme: str = "qingfeng-classroom",
+    asset_repository: SlideAssetRepository | None = None,
 ) -> Path:
     """Render the same slide spec used by the browser preview into editable PPTX."""
     deck = SlideDeckContent.model_validate(content)
@@ -203,10 +204,18 @@ def export_structured_slide_deck(
     presentation.slide_width = Inches(13.333)
     presentation.slide_height = Inches(7.5)
     theme_config = validate_theme(theme)
+    resolved_asset_repository = asset_repository or slide_asset_repository
 
     for index, unit in enumerate(deck.slides):
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-        _render_slide(slide, unit, index + 1, len(deck.slides), theme_config)
+        _render_slide(
+            slide,
+            unit,
+            index + 1,
+            len(deck.slides),
+            theme_config,
+            resolved_asset_repository,
+        )
         if unit.speaker_notes:
             slide.notes_slide.notes_text_frame.text = unit.speaker_notes
 
@@ -214,6 +223,62 @@ def export_structured_slide_deck(
     path.parent.mkdir(parents=True, exist_ok=True)
     presentation.save(path)
     return path
+
+
+def audit_exported_pptx(
+    path: str | Path,
+    *,
+    expected_slide_count: int | None = None,
+) -> dict[str, Any]:
+    """Audit the actual PPTX object tree after export without external services."""
+    from pptx import Presentation
+
+    presentation = Presentation(path)
+    issues: list[dict[str, Any]] = []
+    if expected_slide_count is not None and len(presentation.slides) != expected_slide_count:
+        issues.append({
+            "severity": "critical",
+            "code": "exported_slide_count_mismatch",
+            "expected": expected_slide_count,
+            "actual": len(presentation.slides),
+        })
+    if round(presentation.slide_width / presentation.slide_height, 3) != round(16 / 9, 3):
+        issues.append({
+            "severity": "critical",
+            "code": "exported_aspect_ratio_invalid",
+        })
+    for slide_index, slide in enumerate(presentation.slides, start=1):
+        visible_object_count = 0
+        for shape in slide.shapes:
+            left = int(shape.left)
+            top = int(shape.top)
+            right = left + int(shape.width)
+            bottom = top + int(shape.height)
+            if left < 0 or top < 0 or right > presentation.slide_width or bottom > presentation.slide_height:
+                issues.append({
+                    "severity": "critical",
+                    "code": "exported_object_out_of_bounds",
+                    "page": slide_index,
+                    "shape_name": str(shape.name or ""),
+                })
+            if int(shape.width) > 0 and int(shape.height) > 0:
+                visible_object_count += 1
+        if visible_object_count == 0:
+            issues.append({
+                "severity": "critical",
+                "code": "exported_page_has_no_objects",
+                "page": slide_index,
+            })
+    blockers = [item for item in issues if item["severity"] == "critical"]
+    return {
+        "schema_version": "slide_render_review_v1",
+        "reviewer": "post_export_pptx_object_audit",
+        "passed": not blockers,
+        "page_count": len(presentation.slides),
+        "issues": issues,
+        "blockers": blockers,
+        "repair_attempts": 0,
+    }
 
 
 def validate_theme(theme: str) -> dict[str, str]:
@@ -230,10 +295,11 @@ def _render_slide(
     page_number: int,
     page_count: int,
     theme: dict[str, str],
+    asset_repository: SlideAssetRepository,
 ) -> None:
     _fill_background(slide, theme["surface"])
     if unit.visuals and unit.layout not in {"cover", "roadmap", "chapter", "recap", "appendix"}:
-        _render_visual_directed(slide, unit, theme)
+        _render_visual_directed(slide, unit, theme, asset_repository)
         _footer(slide, unit, page_number, page_count, theme)
         return
     requested_layout = str(unit.quality.get("requested_layout") or "")
@@ -275,13 +341,24 @@ def _render_slide(
         _footer(slide, unit, page_number, page_count, theme)
 
 
-def _render_visual_directed(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+def _render_visual_directed(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+    asset_repository: SlideAssetRepository,
+) -> None:
     """Render one dominant visual and the complete source body on a flat canvas."""
     visual = dict(unit.visuals[0])
     kind = str(visual.get("kind") or "none")
     _heading(slide, unit, theme)
     if kind in {"source_image", "generated_illustration"}:
-        if _render_image_visual(slide, unit, visual, theme):
+        if _render_image_visual(
+            slide,
+            unit,
+            visual,
+            theme,
+            asset_repository,
+        ):
             return
     if kind == "relational_diagram":
         _render_relational_visual(slide, unit, visual, theme)
@@ -300,6 +377,9 @@ def _render_visual_directed(slide: Any, unit: SlideSpec, theme: dict[str, str]) 
         return
     if kind == "code":
         _render_code_visual(slide, unit, visual, theme)
+        return
+    if not _visible_source_text(unit):
+        _render_navigation_statement(slide, unit, theme, heading_already_rendered=True)
         return
     _render_editorial_body(slide, unit, theme)
 
@@ -335,7 +415,7 @@ def _render_relational_visual(
     )
     _text(
         slide,
-        str(visual.get("alt_text") or "课程结构图解"),
+        _visual_caption(visual),
         diagram_x + 0.32,
         2.15,
         diagram_w - 0.64,
@@ -349,11 +429,16 @@ def _render_relational_visual(
     vertical = str((visual.get("parameters") or {}).get("direction") or "") == "vertical"
     positions: dict[str, tuple[float, float, float, float]] = {}
     if vertical:
-        node_h = min(0.72, 3.38 / max(1, len(nodes)))
+        gap = 0.07
+        available_height = 3.62
+        node_h = min(
+            0.72,
+            (available_height - gap * max(0, len(nodes) - 1)) / max(1, len(nodes)),
+        )
         for index, node in enumerate(nodes):
             positions[str(node.get("node_id"))] = (
                 diagram_x + 0.55,
-                2.72 + index * (node_h + 0.16),
+                2.62 + index * (node_h + gap),
                 diagram_w - 1.1,
                 node_h,
             )
@@ -403,6 +488,17 @@ def _render_relational_visual(
         node_id = str(node.get("node_id") or "")
         x, y, width, height = positions[node_id]
         primary = str(node.get("emphasis") or "") == "primary"
+        full_label = str(node.get("label") or "")
+        visible_label = _diagram_label(full_label)
+        label_size = (
+            11
+            if height < 0.82 and len(visible_label) > 18
+            else 12
+            if len(visible_label) > 26
+            else 14
+            if len(visible_label) > 17
+            else 16
+        )
         shape = _shape(
             slide,
             x,
@@ -413,17 +509,17 @@ def _render_relational_visual(
             radius=True,
             line=theme["accent"] if primary else theme["chart_bg"],
         )
-        _set_alt_text(shape, str(node.get("label") or ""))
+        _set_alt_text(shape, full_label)
         _text(
             slide,
-            str(node.get("label") or ""),
+            visible_label,
             x + 0.15,
-            y + 0.18,
+            y + 0.09,
             width - 0.3,
-            height - 0.28,
-            16,
+            height - 0.16,
+            label_size,
             theme["title"] if primary else theme["ink"],
-            bold=primary or len(str(node.get("label") or "")) < 18,
+            bold=primary or len(visible_label) < 18,
             align="center",
         )
 
@@ -434,31 +530,243 @@ def _render_formula_visual(
     visual: dict[str, Any],
     theme: dict[str, str],
 ) -> None:
-    formula = next(
-        (
-            block.content
-            for block in unit.blocks
-            if block.metadata.get("formula")
-        ),
-        _visible_source_text(unit),
+    formula = str((visual.get("parameters") or {}).get("formula") or "").strip()
+    if not formula:
+        formula = next(
+            (
+                block.content
+                for block in unit.blocks
+                if block.metadata.get("formula")
+            ),
+            "",
+        )
+    if not formula:
+        _render_editorial_body(slide, unit, theme)
+        return
+    supporting_blocks = [
+        block
+        for block in unit.blocks
+        if not block.metadata.get("formula")
+    ]
+    has_supporting_copy = bool(supporting_blocks)
+    formula_width = 7.15 if has_supporting_copy else 11.78
+    _shape(
+        slide,
+        0.78,
+        1.92,
+        formula_width,
+        4.62,
+        theme["canvas"],
+        radius=True,
+        line=theme["chart_bg"],
     )
-    _shape(slide, 0.78, 1.92, 7.15, 4.62, theme["canvas"], radius=True, line=theme["chart_bg"])
-    _text(slide, "FORMULA", 1.15, 2.22, 1.4, 0.3, 11, theme["accent"], bold=True)
+    _text(slide, "关键公式", 1.15, 2.22, 1.4, 0.3, 11, theme["accent"], bold=True)
+    display_formula = _format_formula_text(formula)
     _text(
         slide,
-        formula,
+        display_formula,
         1.14,
-        3.08,
-        6.42,
-        1.55,
-        28 if len(formula) < 72 else 20,
+        2.78 if "\n" in display_formula else 3.08,
+        formula_width - 0.72,
+        2.35 if "\n" in display_formula else 1.55,
+        28 if len(display_formula) < 72 else 22,
         theme["title"],
-        bold=True,
+        bold=False,
         align="center",
         font=theme["math_font"],
         east_asian_font=theme["body_east_asian_font"],
     )
-    _source_panel(slide, unit, 8.2, 1.92, 4.36, 4.62, theme)
+    if has_supporting_copy:
+        supporting = SlideSpec.model_validate({
+            **unit.model_dump(mode="json"),
+            "blocks": [block.model_dump(mode="json") for block in supporting_blocks],
+        })
+        _source_panel(slide, supporting, 8.2, 1.92, 4.36, 4.62, theme)
+
+
+def _plain_formula(value: str) -> str:
+    clean = str(value or "").strip()
+    clean = re.sub(r"^\s*(?:\$\$|\\\[)", "", clean)
+    clean = re.sub(r"(?:\$\$|\\\])\s*$", "", clean)
+    return clean.strip()
+
+
+_SUBSCRIPT = str.maketrans("0123456789+-=()aehijklmnoprstuvx", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ")
+_SUPERSCRIPT = str.maketrans({
+    **dict(zip("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾", strict=True)),
+    **{
+        "a": "ᵃ", "b": "ᵇ", "c": "ᶜ", "d": "ᵈ", "e": "ᵉ",
+        "f": "ᶠ", "g": "ᵍ", "h": "ʰ", "i": "ⁱ", "j": "ʲ",
+        "k": "ᵏ", "l": "ˡ", "m": "ᵐ", "n": "ⁿ", "o": "ᵒ",
+        "p": "ᵖ", "r": "ʳ", "s": "ˢ", "t": "ᵗ", "u": "ᵘ",
+        "v": "ᵛ", "w": "ʷ", "x": "ˣ", "y": "ʸ", "z": "ᶻ",
+    },
+})
+_FORMULA_SYMBOLS = {
+    r"\Longleftrightarrow": "⟺",
+    r"\Leftrightarrow": "⇔",
+    r"\longrightarrow": "⟶",
+    r"\rightarrow": "→",
+    r"\mapsto": "↦",
+    r"\subseteq": "⊆",
+    r"\supseteq": "⊇",
+    r"\mathbf": "",
+    r"\boldsymbol": "",
+    r"\operatorname": "",
+    r"\mathrm": "",
+    r"\mathbb": "",
+    r"\text": "",
+    r"\rank": "rank",
+    r"\dim": "dim",
+    r"\min": "min",
+    r"\max": "max",
+    r"\ker": "ker",
+    r"\det": "det",
+    r"\cdots": "⋯",
+    r"\vdots": "⋮",
+    r"\times": "×",
+    r"\approx": "≈",
+    r"\neq": "≠",
+    r"\leq": "≤",
+    r"\geq": "≥",
+    r"\subset": "⊂",
+    r"\supset": "⊃",
+    r"\forall": "∀",
+    r"\exists": "∃",
+    r"\lambda": "λ",
+    r"\alpha": "α",
+    r"\beta": "β",
+    r"\gamma": "γ",
+    r"\theta": "θ",
+    r"\sigma": "σ",
+    r"\sum": "∑",
+    r"\Sigma": "Σ",
+    r"\Delta": "Δ",
+    r"\Omega": "Ω",
+    r"\prod": "∏",
+    r"\cap": "∩",
+    r"\cup": "∪",
+    r"\land": "∧",
+    r"\lor": "∨",
+    r"\in": "∈",
+    r"\mid": "∣",
+    r"\quad": "  ",
+    r"\left": "",
+    r"\right": "",
+}
+
+
+def _format_formula_text(value: str) -> str:
+    """Compile common course LaTeX into portable, editable mathematical text."""
+    expression = _plain_formula(value)
+    expression = re.sub(
+        r"\\sum_\{([^{}]+)\}\^\{([^{}]+)\}",
+        lambda match: (
+            "∑"
+            + _script_text(match.group(1), _SUBSCRIPT, "_")
+            + _script_text(match.group(2), _SUPERSCRIPT, "^")
+        ),
+        expression,
+    )
+    expression = re.sub(
+        r"\\sum_\{([^{}]+)\}\^([A-Za-z0-9])",
+        lambda match: (
+            "∑"
+            + _script_text(match.group(1), _SUBSCRIPT, "_")
+            + _script_text(match.group(2), _SUPERSCRIPT, "^")
+        ),
+        expression,
+    )
+    matrix_pattern = re.compile(
+        r"\\begin\{(?P<kind>[bp]?matrix)\}(?P<body>.*?)\\end\{(?P=kind)\}",
+        re.DOTALL,
+    )
+    expression = matrix_pattern.sub(
+        lambda match: _format_formula_matrix(match.group("body"), match.group("kind")),
+        expression,
+    )
+    # Some imported course documents JSON-escape LaTeX commands twice. Matrix
+    # row separators have already been consumed above, so the remaining paired
+    # slashes can safely be normalized back to one command introducer.
+    expression = re.sub(r"\\\\(?=[A-Za-z{}])", r"\\", expression)
+    expression = re.sub(
+        r"\\frac\{([^{}]+)\}\{([^{}]+)\}",
+        lambda match: f"({match.group(1)})⁄({match.group(2)})",
+        expression,
+    )
+    for command, symbol in sorted(_FORMULA_SYMBOLS.items(), key=lambda item: -len(item[0])):
+        expression = expression.replace(command, symbol)
+    expression = expression.replace(r"\{", "⦃").replace(r"\}", "⦄")
+    expression = re.sub(
+        r"([∑Σ])_([A-Za-z0-9]+)=([A-Za-z0-9]+)\^([A-Za-z0-9]+)",
+        lambda match: (
+            "∑"
+            + _script_text(f"{match.group(2)}={match.group(3)}", _SUBSCRIPT, "_")
+            + _script_text(match.group(4), _SUPERSCRIPT, "^")
+        ),
+        expression,
+    )
+    expression = re.sub(
+        r"_\{([^{}]+)\}",
+        lambda match: _script_text(match.group(1), _SUBSCRIPT, "_"),
+        expression,
+    )
+    expression = re.sub(
+        r"\^\{([^{}]+)\}",
+        lambda match: _script_text(match.group(1), _SUPERSCRIPT, "^"),
+        expression,
+    )
+    expression = re.sub(
+        r"_([A-Za-z0-9+\-=()])",
+        lambda match: _script_text(match.group(1), _SUBSCRIPT, "_"),
+        expression,
+    )
+    expression = re.sub(
+        r"\^([A-Za-z0-9+\-=()])",
+        lambda match: _script_text(match.group(1), _SUPERSCRIPT, "^"),
+        expression,
+    )
+    expression = (
+        expression.replace("{", "")
+        .replace("}", "")
+        .replace("⦃", "{")
+        .replace("⦄", "}")
+    )
+    expression = re.sub(r"[ \t]+", " ", expression)
+    expression = re.sub(r" *\n *", "\n", expression)
+    return expression.strip(" ,")
+
+
+def _display_text(value: str) -> str:
+    """Format math markup for display while retaining the source text in the model."""
+    text = str(value or "")
+    if "\\" not in text and "$" not in text:
+        return text
+    return _format_formula_text(text)
+
+
+def _script_text(value: str, translation: dict[int, str], marker: str) -> str:
+    rendered = str(value).translate(translation)
+    return rendered if all(ord(character) in translation for character in str(value)) else f"{marker}{value}"
+
+
+def _format_formula_matrix(body: str, kind: str) -> str:
+    rows = [
+        _format_formula_text(row.replace("&", "  "))
+        for row in re.split(r"\\\\", body)
+        if row.strip()
+    ]
+    if not rows:
+        return ""
+    brackets = ("(", ")") if kind == "pmatrix" else ("⎡", "⎤")
+    if len(rows) == 1:
+        return f"{brackets[0]} {rows[0]} {brackets[1]}"
+    lines: list[str] = []
+    for index, row in enumerate(rows):
+        left = brackets[0] if index == 0 else ("⎣" if index == len(rows) - 1 else "⎢")
+        right = brackets[1] if index == 0 else ("⎦" if index == len(rows) - 1 else "⎥")
+        lines.append(f"{left} {row} {right}")
+    return "\n".join(lines)
 
 
 def _render_code_visual(
@@ -563,57 +871,51 @@ def _render_coordinate_visual(
         axis.line.color.rgb = RGBColor.from_string(theme["muted"])
     parameters = visual.get("parameters") or {}
     points = list(parameters.get("points") or [])
-    for raw_x, raw_y in points[:10]:
-        x = origin_x + float(raw_x) * 0.72
-        y = origin_y - float(raw_y) * 0.48
-        shape = _shape(slide, x - 0.07, y - 0.07, 0.14, 0.14, theme["accent"], radius=True)
-        _set_alt_text(shape, str(visual.get("alt_text") or "坐标数据点"))
-    label_positions = (
-        (6.28, 2.55, 2.35, 0.9),
-        (9.36, 2.55, 2.35, 0.9),
-        (6.28, 4.9, 2.35, 0.9),
-        (9.36, 4.9, 2.35, 0.9),
+    labels = [str(item) for item in parameters.get("point_labels") or []]
+    maximum = max(
+        1.0,
+        max(
+            (abs(float(value)) for point in points[:10] for value in point[:2]),
+            default=1.0,
+        ),
     )
-    for label, (x, y, width, height) in zip(
-        list(parameters.get("labels") or [])[:4],
-        label_positions,
-    ):
-        text = str(label.get("text") if isinstance(label, dict) else label)
-        shape = _shape(
-            slide,
-            x,
-            y,
-            width,
-            height,
-            theme["surface"],
-            radius=True,
-            line=theme["accent_soft"],
+    x_scale = 2.25 / maximum
+    y_scale = 1.52 / maximum
+    rendered_points = [
+        (
+            origin_x + float(raw_x) * x_scale,
+            origin_y - float(raw_y) * y_scale,
         )
-        _set_alt_text(shape, text)
+        for raw_x, raw_y in points[:10]
+    ]
+    if parameters.get("connect_points") and len(rendered_points) >= 2:
+        connector = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Inches(rendered_points[0][0]),
+            Inches(rendered_points[0][1]),
+            Inches(rendered_points[1][0]),
+            Inches(rendered_points[1][1]),
+        )
+        connector.line.color.rgb = RGBColor.from_string(theme["accent"])
+        connector.line.width = Inches(0.025)
+    for index, (x, y) in enumerate(rendered_points):
+        shape = _shape(slide, x - 0.07, y - 0.07, 0.14, 0.14, theme["accent"], radius=True)
+        label = labels[index] if index < len(labels) else ""
+        _set_alt_text(shape, label or str(visual.get("alt_text") or "坐标数据点"))
         _text(
             slide,
-            text,
-            x + 0.14,
-            y + 0.14,
-            width - 0.28,
-            height - 0.22,
+            label,
+            x + 0.12,
+            y - 0.34,
+            1.1,
+            0.3,
             16,
             theme["ink"],
-            bold=len(text) < 18,
-            align="center",
+            bold=True,
         )
-    if parameters.get("not_to_scale"):
-        _text(
-            slide,
-            "概念位置仅用于组织原文，不表示数值比例",
-            8.0,
-            6.12,
-            4.05,
-            0.24,
-            9,
-            theme["muted"],
-            align="right",
-        )
+    axis_labels = [str(item) for item in parameters.get("axis_labels") or ["x", "y"]]
+    _text(slide, axis_labels[0], 12.04, origin_y - 0.28, 0.22, 0.24, 12, theme["muted"], bold=True)
+    _text(slide, axis_labels[1], origin_x + 0.12, 2.2, 0.22, 0.24, 12, theme["muted"], bold=True)
 
 
 def _render_chart_visual(
@@ -659,6 +961,7 @@ def _render_image_visual(
     unit: SlideSpec,
     visual: dict[str, Any],
     theme: dict[str, str],
+    asset_repository: SlideAssetRepository,
 ) -> bool:
     from pptx.util import Inches
 
@@ -666,7 +969,7 @@ def _render_image_visual(
     if not asset_id:
         return False
     try:
-        image_path = slide_asset_repository.resolve(asset_id)
+        image_path = asset_repository.resolve(asset_id)
     except (FileNotFoundError, ValueError):
         return False
     picture = slide.shapes.add_picture(
@@ -692,7 +995,7 @@ def _source_panel(
 ) -> None:
     body = _visible_source_text(unit)
     _shape(slide, x, y, width, height, theme["surface"], radius=True, line=theme["chart_bg"])
-    _text(slide, "SOURCE", x + 0.28, y + 0.25, 1.1, 0.28, 10, theme["muted"], bold=True)
+    _text(slide, "课程正文", x + 0.28, y + 0.25, 1.1, 0.28, 10, theme["muted"], bold=True)
     _text(
         slide,
         body,
@@ -719,6 +1022,43 @@ def _visible_source_text(unit: SlideSpec) -> str:
     return "\n\n".join(value for value in values if value)
 
 
+def _diagram_label(value: str, maximum: int = 32) -> str:
+    """Keep diagram nodes glanceable while preserving the full source in alt text."""
+    clean = " ".join(str(value or "").split())
+    if len(clean) <= maximum:
+        return clean
+    boundary = max(
+        clean.rfind("。", 0, maximum),
+        clean.rfind("；", 0, maximum),
+        clean.rfind("，", 0, maximum),
+        clean.rfind("）", 0, maximum),
+        clean.rfind(")", 0, maximum),
+        clean.rfind(" ", 0, maximum),
+    )
+    if boundary < maximum // 2:
+        boundary = maximum
+    elif clean[boundary] in "）)":
+        boundary += 1
+    return clean[:boundary].rstrip("。；， ")
+
+
+def _visual_caption(visual: dict[str, Any]) -> str:
+    diagram_type = str((visual.get("parameters") or {}).get("diagram_type") or "")
+    if diagram_type:
+        return {
+            "process": "步骤关系",
+            "cause-effect": "因果关系",
+            "comparison": "对比关系",
+            "mapping": "映射关系",
+            "hierarchy": "概念层级",
+            "reasoning": "推理关系",
+        }.get(diagram_type, "概念关系")
+    alt_text = str(visual.get("alt_text") or "").strip()
+    if alt_text.startswith(("由课程原文", "按课程原文", "课程原文")):
+        return "概念关系"
+    return alt_text or "概念关系"
+
+
 def _set_alt_text(shape: Any, value: str) -> None:
     try:
         non_visual = shape._element.xpath(".//p:cNvPr")[0]
@@ -733,12 +1073,13 @@ def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _shape(slide, 11.35, 0.72, 1.04, 1.04, theme["green"], radius=True)
     _text(slide, "灵知", 11.35, 0.99, 1.04, 0.34, 15, "FFFFFF", bold=True, align="center")
     _text(slide, unit.eyebrow or "课程演示", 0.92, 0.72, 4.0, 0.38, 14, theme["accent"], bold=True)
+    cover_title_size = 42 if len(unit.title) > 32 else 46 if len(unit.title) > 22 else 50
     _text(
-        slide, unit.title, 0.92, 1.34, 9.15, 1.82, 50, theme["title"], bold=True,
+        slide, unit.title, 0.92, 1.22, 9.15, 2.6, cover_title_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
     if unit.subtitle:
-        _text(slide, unit.subtitle, 0.94, 3.24, 7.8, 0.52, 18, theme["muted"])
+        _text(slide, unit.subtitle, 0.94, 3.77, 7.8, 0.42, 16, theme["muted"])
     _shape(slide, 0.92, 4.23, 8.85, 1.14, theme["canvas"], radius=True, line=theme["accent_soft"])
     _text(slide, "学习主线", 1.18, 4.48, 1.2, 0.28, 11, theme["green"], bold=True)
     _text(slide, unit.key_message or _block_content(unit.blocks, 0), 2.42, 4.35, 7.0, 0.68, 18, theme["ink"], bold=True)
@@ -772,10 +1113,19 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     )
     _shape(slide, 4.65, 3.45, 6.95, 1.55, theme["canvas"], radius=True, line=theme["chart_bg"])
     _text(slide, "本章主线", 4.98, 3.78, 1.4, 0.3, 11, theme["accent"], bold=True)
-    _text(slide, unit.key_message or _block_content(unit.blocks, 0), 4.98, 4.12, 6.18, 0.62, 15, theme["ink"], bold=True)
+    chapter_message = (
+        unit.key_message
+        or _block_content(unit.blocks, 0)
+        or unit.teaching_job
+        or unit.takeaway
+    )
+    _text(slide, chapter_message, 4.98, 4.12, 6.18, 0.62, 15, theme["ink"], bold=True)
 
 
 def _render_objective(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    if not _visible_source_text(unit) and not unit.key_message:
+        _render_navigation_statement(slide, unit, theme)
+        return
     _heading(slide, unit, theme)
     question = _find_block(unit, "callout") or (unit.blocks[0] if unit.blocks else None)
     _shape(slide, 0.76, 1.83, 5.0, 4.67, theme["accent_soft"], radius=True)
@@ -850,6 +1200,7 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
         for value in (block.items or [block.content])
         if value
     )
+    body = body or unit.takeaway or unit.teaching_job or unit.title
     _shape(slide, 0.82, 1.82, 11.68, 4.52, theme["accent_soft"], radius=True)
     _shape(slide, 1.16, 2.2, 0.12, 3.72, theme["accent"], radius=False)
     _text(slide, "核心判断", 1.58, 2.24, 2.0, 0.34, 12, theme["accent"], bold=True)
@@ -868,7 +1219,54 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
     )
 
 
+def _render_navigation_statement(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+    *,
+    heading_already_rendered: bool = False,
+) -> None:
+    """Render source-free navigation beats without empty UI-like containers."""
+    if not heading_already_rendered:
+        _heading(slide, unit, theme)
+    topic = _heading_excerpt(unit.title, 42)
+    if unit.layout in {"recap", "summary"}:
+        prefix = "本章回顾"
+        detail = unit.takeaway or unit.key_message or f"回到“{topic}”，串联本章的概念、方法与应用。"
+    else:
+        prefix = "本节学习问题"
+        detail = unit.teaching_job or unit.takeaway or f"围绕“{topic}”，建立定义、判断方法与应用联系。"
+    _shape(slide, 0.92, 2.18, 0.12, 3.5, theme["accent"], radius=False)
+    _text(slide, prefix, 1.38, 2.22, 2.5, 0.36, 12, theme["accent"], bold=True)
+    _text(
+        slide,
+        detail,
+        1.38,
+        2.92,
+        10.3,
+        1.72,
+        27 if len(detail) <= 42 else 22,
+        theme["ink"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+    _text(
+        slide,
+        "先明确问题，再连接概念、方法与检验。",
+        1.38,
+        5.18,
+        8.8,
+        0.42,
+        14,
+        theme["muted"],
+    )
+
+
 def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    if not _visible_source_text(unit):
+        _render_navigation_statement(slide, unit, theme)
+        return
     _heading(slide, unit, theme)
     values = [
         value
@@ -1009,6 +1407,17 @@ def _render_practice(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None
 
 
 def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    visible_text = _visible_source_text(unit)
+    if (
+        (not visible_text and not unit.key_message)
+        or (
+            len(unit.blocks) <= 1
+            and len(visible_text.strip()) < 40
+            and len(unit.key_message.strip()) < 40
+        )
+    ):
+        _render_navigation_statement(slide, unit, theme)
+        return
     _heading(slide, unit, theme)
     blocks = unit.blocks[:3]
     if len(blocks) == 1 and len(blocks[0].items) > 1:
@@ -1125,13 +1534,15 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
-    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.5, 2.7, 0.3, 11, theme["accent"], bold=True)
+    heading = _display_heading(unit)
+    heading_size = 35
+    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.3, 11, theme["accent"], bold=True)
     _text(
-        slide, _display_heading(unit), 0.78, 0.82, 11.72, 0.76, 36, theme["title"], bold=True,
+        slide, heading, 0.78, 0.68, 11.72, 1.18, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
-    _shape(slide, 0.78, 1.58, 0.72, 0.05, theme["accent"], radius=False)
-    _shape(slide, 1.58, 1.58, 0.08, 0.05, theme["green"], radius=False)
+    _shape(slide, 0.78, 1.86, 0.72, 0.04, theme["accent"], radius=False)
+    _shape(slide, 1.58, 1.86, 0.08, 0.04, theme["green"], radius=False)
 
 
 def _footer(slide: Any, unit: SlideSpec, page: int, total: int, theme: dict[str, str]) -> None:
@@ -1207,7 +1618,7 @@ def _text(
     frame.margin_top = frame.margin_bottom = Inches(0.01)
     frame.vertical_anchor = MSO_ANCHOR.TOP
     paragraph = frame.paragraphs[0]
-    paragraph.text = str(value or "")
+    paragraph.text = _display_text(str(value or ""))
     _configure_font(paragraph.font, font, east_asian_font)
     paragraph.font.size = Pt(size)
     paragraph.font.bold = bold
@@ -1236,7 +1647,7 @@ def _bullets(
     frame.clear()
     frame.word_wrap = True
     frame.margin_left = frame.margin_right = Inches(0.01)
-    for index, value in enumerate([str(item) for item in items if str(item).strip()]):
+    for index, value in enumerate([_display_text(str(item)) for item in items if str(item).strip()]):
         paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
         paragraph.text = f"•  {value}"
         _configure_font(paragraph.font, BODY_FONT)
@@ -1278,7 +1689,11 @@ def _table(
     for row_index in range(row_count):
         for column_index in range(column_count):
             cell = table.cell(row_index, column_index)
-            cell.text = values[row_index][column_index] if row_index < len(values) and column_index < len(values[row_index]) else ""
+            cell.text = (
+                _display_text(values[row_index][column_index])
+                if row_index < len(values) and column_index < len(values[row_index])
+                else ""
+            )
             cell.fill.solid()
             cell.fill.fore_color.rgb = RGBColor.from_string(
                 theme["accent_soft"]
@@ -1299,16 +1714,43 @@ def _display_heading(unit: SlideSpec) -> str:
     takeaway = str(unit.takeaway or "").strip()
     visual_kind = str(unit.visuals[0].get("kind") or "") if unit.visuals else ""
     if not takeaway:
-        return unit.title
+        return _heading_excerpt(_format_formula_text(unit.title))
     if (
         visual_kind == "formula"
         or takeaway.startswith(("$", "\\[", "\\("))
         or re.search(r"\\[A-Za-z]+", takeaway)
-        or len(takeaway) > 96
         or re.fullmatch(r"[\d\s.、:：()（）-]+", takeaway)
     ):
-        return unit.title
-    return takeaway
+        return _heading_excerpt(_format_formula_text(unit.title), limit=46)
+    return _heading_excerpt(_format_formula_text(takeaway))
+
+
+def _heading_excerpt(value: str, limit: int = 48) -> str:
+    """Choose a complete audience-facing title phrase without an ellipsis."""
+    clean = " ".join(str(value or "").split()).strip("，,；;：:。… ")
+    if len(clean) <= limit:
+        return clean
+    excerpt = clean[:limit]
+    opening = max(excerpt.rfind("（"), excerpt.rfind("("))
+    closing = max(excerpt.rfind("）"), excerpt.rfind(")"))
+    if opening > closing and opening >= max(8, limit // 3):
+        excerpt = excerpt[:opening]
+    else:
+        punctuation = max(
+            excerpt.rfind("。"),
+            excerpt.rfind("；"),
+            excerpt.rfind("，"),
+            excerpt.rfind("："),
+            excerpt.rfind("）"),
+            excerpt.rfind(")"),
+        )
+        if punctuation >= max(10, limit // 2):
+            excerpt = excerpt[: punctuation + (1 if excerpt[punctuation] in "）)" else 0)]
+        else:
+            space = excerpt.rfind(" ")
+            if space >= max(10, limit // 2):
+                excerpt = excerpt[:space]
+    return excerpt.rstrip("，,；;：:。 ")
 
 
 def _configure_font(font: Any, latin_font: str, east_asian_font: str = BODY_EAST_ASIAN_FONT) -> None:

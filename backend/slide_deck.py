@@ -87,6 +87,14 @@ class SlideSpec(_StrictModel):
     mastery_refs: list[str] = Field(default_factory=list)
     knowledge_labels: list[str] = Field(default_factory=list)
     ability_labels: list[str] = Field(default_factory=list)
+    chapter_id: str = ""
+    episode_id: str = ""
+    scene_kind: str = ""
+    beat_role: str = ""
+    primary_claim_source: dict[str, Any] = Field(default_factory=dict)
+    prerequisite_refs: list[str] = Field(default_factory=list)
+    mastery_criterion_refs: list[str] = Field(default_factory=list)
+    layout_selection_reason: str = ""
     quality: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -125,7 +133,11 @@ class SlideDeckPlanV1(_StrictModel):
 
 
 class SlideDeckContent(_StrictModel):
-    schema_version: Literal["slide_deck_v2", "slide_deck_v3"] = SLIDE_DECK_SCHEMA
+    schema_version: Literal[
+        "slide_deck_v2",
+        "slide_deck_v3",
+        "slide_deck_v4",
+    ] = SLIDE_DECK_SCHEMA
     title: str
     theme: str = "qingfeng-classroom"
     mode: str = ""
@@ -140,6 +152,12 @@ class SlideDeckContent(_StrictModel):
     visual_asset_manifest: list[dict[str, Any]] = Field(default_factory=list)
     build_signature: dict[str, Any] = Field(default_factory=dict)
     visual_quality_report: dict[str, Any] = Field(default_factory=dict)
+    story_plan: dict[str, Any] = Field(default_factory=dict)
+    scene_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    layout_plan: dict[str, Any] = Field(default_factory=dict)
+    render_review: dict[str, Any] = Field(default_factory=dict)
+    pedagogical_quality_report: dict[str, Any] = Field(default_factory=dict)
+    presentation_quality_report: dict[str, Any] = Field(default_factory=dict)
     coverage_report: dict[str, Any] = Field(default_factory=dict)
     exclusions: list[dict[str, Any]] = Field(default_factory=list)
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
@@ -724,7 +742,7 @@ def validate_slide_deck(
         if (
             _looks_like_raw_latex(_slide_non_code_visible_text(slide))
             and not (
-                deck.schema_version == "slide_deck_v3"
+                deck.schema_version in {"slide_deck_v3", "slide_deck_v4"}
                 and str(slide.quality.get("requested_layout") or "") == "formula"
             )
         ):
@@ -742,7 +760,7 @@ def validate_slide_deck(
                 slide.unit_id,
             ))
         if (
-            deck.schema_version != "slide_deck_v3"
+            deck.schema_version not in {"slide_deck_v3", "slide_deck_v4"}
             and any(len(block.content) > 360 and block.type != "code" for block in slide.blocks)
         ):
             visual_issues.append(_issue(

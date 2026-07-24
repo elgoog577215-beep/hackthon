@@ -30,4 +30,35 @@ describe('SlideVisualRenderer', () => {
     expect(wrapper.text()).toContain('线性映射')
     expect(wrapper.findAll('line')).toHaveLength(1)
   })
+
+  it('renders formula visuals through the shared math renderer instead of a placeholder', () => {
+    const wrapper = mount(SlideVisualRenderer, {
+      props: {
+        visuals: [{
+          visual_id: 'formula-1',
+          kind: 'formula',
+          purpose: 'evidence',
+          source_fragment_ids: ['fragment-formula'],
+          alt_text: '线性映射定义式',
+          nodes: [],
+          edges: [],
+          parameters: {
+            formula: '$$T(au+bv)=aT(u)+bT(v)$$',
+          },
+        }],
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: {
+            props: ['content'],
+            template: '<div class="katex-test">{{ content }}</div>',
+          },
+        },
+      },
+    })
+
+    expect(wrapper.find('.slide-visual__formula').exists()).toBe(true)
+    expect(wrapper.get('.katex-test').text()).toBe('$$T(au+bv)=aT(u)+bT(v)$$')
+    expect(wrapper.text()).not.toContain('ƒ(x)')
+  })
 })

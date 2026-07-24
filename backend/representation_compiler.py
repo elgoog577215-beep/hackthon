@@ -19,7 +19,7 @@ from slide_deck import (
     compile_slide_deck,
     validate_slide_deck,
 )
-from slide_deck_renderer import export_structured_slide_deck
+from slide_deck_renderer import audit_exported_pptx, export_structured_slide_deck
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -30,6 +30,12 @@ from slide_deck_v3 import (
     slide_deck_variant_key,
     validate_slide_deck_v3,
 )
+from slide_deck_v4 import (
+    SLIDE_DECK_V4_COMPILER_VERSION,
+    compile_slide_deck_v4,
+    validate_slide_deck_v4,
+)
+from slide_story_plan import SlideStoryPlanV2
 from slide_visuals import SlideVisualPlanV1
 from teaching_representations import (
     RepresentationPlan,
@@ -455,6 +461,7 @@ def compile_slide_deck_variant(
     theme: SlideDeckTheme,
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
     visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
+    story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -485,17 +492,69 @@ def compile_slide_deck_variant(
         status="ready",
     )
     repository.register_plan(plan)
-    content = compile_slide_deck_v3(
-        document,
-        course_data,
-        mode=mode,
-        theme=normalized_theme,
-        allocation_plan=allocation_plan,
-        visual_plan=visual_plan,
-        progress_callback=progress_callback,
-        resume_slides=resume_slides,
-    )
-    quality = validate_slide_deck_v3(content, course_data=course_data)
+    compiler_version = SLIDE_DECK_V3_COMPILER_VERSION
+    if story_plan is not None:
+        content = compile_slide_deck_v4(
+            document,
+            course_data,
+            story_plan=story_plan,
+            allocation_plan=allocation_plan,
+            visual_plan=visual_plan,
+            progress_callback=progress_callback,
+            resume_slides=resume_slides,
+        )
+        with tempfile.TemporaryDirectory(prefix="lingzhi-slide-render-review-") as review_dir:
+            review_path = Path(review_dir) / "candidate.pptx"
+            export_structured_slide_deck(
+                content,
+                review_path,
+                require_quality=False,
+                theme=normalized_theme,
+            )
+            content["render_review"] = audit_exported_pptx(
+                review_path,
+                expected_slide_count=len(content.get("slides") or []),
+            )
+        if progress_callback:
+            progress_callback({
+                "event": "render_review",
+                "progress": 98,
+                "stage": "render_review",
+                "render_review": deepcopy(content["render_review"]),
+            })
+            progress_callback({
+                "event": "repair_progress",
+                "progress": 99,
+                "stage": "repair_progress",
+                "status": (
+                    "not_needed"
+                    if content["render_review"].get("passed")
+                    else "blocked_after_export_audit"
+                ),
+                "repair_attempts": 0,
+            })
+        quality = validate_slide_deck_v4(content, course_data=course_data)
+        render_blockers = list((content.get("render_review") or {}).get("blockers") or [])
+        if render_blockers:
+            quality["passed"] = False
+            quality["blockers"] = [
+                *(quality.get("blockers") or []),
+                *render_blockers,
+            ]
+            quality["score"] = max(0, int(quality.get("score") or 0) - 20)
+        compiler_version = SLIDE_DECK_V4_COMPILER_VERSION
+    else:
+        content = compile_slide_deck_v3(
+            document,
+            course_data,
+            mode=mode,
+            theme=normalized_theme,
+            allocation_plan=allocation_plan,
+            visual_plan=visual_plan,
+            progress_callback=progress_callback,
+            resume_slides=resume_slides,
+        )
+        quality = validate_slide_deck_v3(content, course_data=course_data)
     content["quality_report"] = deepcopy(quality)
     content["quality_summary"] = {
         **(content.get("quality_summary") or {}),
@@ -510,7 +569,7 @@ def compile_slide_deck_variant(
     ])
     spec_payload = {
         "compiler_version": (
-            f"{REPRESENTATION_COMPILER_VERSION}:{SLIDE_DECK_V3_COMPILER_VERSION}"
+            f"{REPRESENTATION_COMPILER_VERSION}:{compiler_version}"
         ),
         "representation_type": "slide_deck",
         "variant_key": variant_key,
@@ -557,7 +616,7 @@ def compile_slide_deck_variant(
         }, prefix="sem_"),
         render_fingerprint=stable_hash({
             "spec_revision": spec_revision,
-            "renderer": f"pptx:{SLIDE_DECK_V3_COMPILER_VERSION}",
+            "renderer": f"pptx:{compiler_version}",
             "theme": normalized_theme,
         }, prefix="rnd_"),
         quality_report_id=stable_hash({
@@ -603,6 +662,7 @@ def rebuild_slide_deck_variant_safely(
     theme: SlideDeckTheme,
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
     visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
+    story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -629,6 +689,7 @@ def rebuild_slide_deck_variant_safely(
                 theme=theme,
                 allocation_plan=allocation_plan,
                 visual_plan=visual_plan,
+                story_plan=story_plan,
                 progress_callback=progress_callback,
                 resume_slides=resume_slides,
             )

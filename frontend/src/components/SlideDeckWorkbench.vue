@@ -19,6 +19,9 @@
         <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
           {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
         </small>
+        <small v-if="currentRepresentation?.course_logic_upgrade_required" class="slide-workbench__engine-update">
+          {{ currentRepresentation.course_logic_upgrade_reason || '请先升级课程教学计划，再生成课程逻辑版 PPT' }}
+        </small>
       </div>
       <div class="slide-workbench__commands">
         <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
@@ -43,8 +46,8 @@
         <button v-if="standalone" type="button" class="slide-workbench__configure-compact" title="选择模式与风格" @click="emit('configure')">
           <SlidersHorizontal :size="16" />
         </button>
-        <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="emit('rebuild')">
-          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.sync', '同步课程') }}</span>
+        <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
+          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.rebuildCurrent', '重新生成当前组合') }}</span>
         </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
           <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
@@ -132,8 +135,13 @@
             <dl>
               <div><dt>{{ t('teachingRepresentations.slides.layout', '版式') }}</dt><dd>{{ layoutLabel(activeSlide.layout) }}</dd></div>
               <div><dt>{{ t('teachingRepresentations.slides.purpose', '教学作用') }}</dt><dd>{{ purposeLabel(activeSlide.slide_purpose) }}</dd></div>
+              <div v-if="activeSlide.scene_kind"><dt>教学场景</dt><dd>{{ sceneLabel(activeSlide.scene_kind) }}</dd></div>
+              <div v-if="activeSlide.beat_role"><dt>页面节拍</dt><dd>{{ beatRoleLabel(activeSlide.beat_role) }}</dd></div>
+              <div v-if="activeSlide.chapter_id"><dt>章节</dt><dd>{{ activeSlide.chapter_id }}</dd></div>
               <div><dt>{{ t('teachingRepresentations.slides.textLoad', '文字负载') }}</dt><dd>{{ activeSlide.quality?.character_count || 0 }}</dd></div>
             </dl>
+            <p v-if="activeSlide.teaching_job">{{ activeSlide.teaching_job }}</p>
+            <p v-if="activeSlide.layout_selection_reason">{{ activeSlide.layout_selection_reason }}</p>
           </section>
 
           <section>
@@ -369,6 +377,14 @@ interface Slide {
   practice_task_ids?: string[]
   knowledge_labels?: string[]
   ability_labels?: string[]
+  chapter_id?: string
+  episode_id?: string
+  scene_kind?: string
+  beat_role?: string
+  primary_claim_source?: Record<string, any>
+  prerequisite_refs?: string[]
+  mastery_criterion_refs?: string[]
+  layout_selection_reason?: string
   quality?: { passed?: boolean; character_count?: number; issues?: Array<Record<string, any>> }
 }
 
@@ -496,6 +512,8 @@ const sourceCount = computed(() => {
     ...(slide.source_keys || []),
     ...(slide.knowledge_refs || []),
     ...(slide.ability_refs || []),
+    ...(slide.prerequisite_refs || []),
+    ...(slide.mastery_criterion_refs || []),
   ]).size
 })
 const changed = computed(() => Boolean(activeSlide.value) && editValue.value.trim() !== currentFieldValue.value.trim())
@@ -537,6 +555,10 @@ const hasDetailedSyncReceipt = computed(() => (
 const stageLabel = computed(() => ({
   fragmenting: t('teachingRepresentations.slides.stages.fragmenting', '正在切分课程原文'),
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
+  story_plan: '正在读取课程逻辑',
+  chapter_plan: '正在编排章节叙事',
+  episode_progress: '正在生成教学场景',
+  layout_plan: '正在匹配语义版式',
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
   visual_plan: '正在规划教学视觉',
   asset_compilation: '正在准备课程视觉素材',
@@ -544,6 +566,8 @@ const stageLabel = computed(() => ({
   reviewing: t('teachingRepresentations.slides.stages.reviewing', '正在审核页面分配'),
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查质量'),
   visual_quality: '正在检查视觉质量',
+  render_review: '正在渲染复核成品',
+  repair_progress: '正在定向修复问题页面',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 
@@ -907,6 +931,37 @@ function layoutLabel(value: string) {
 
 function purposeLabel(value: string) {
   return t(`teachingRepresentations.slides.purposes.${value}`, value || t('teachingRepresentations.slides.purposes.teaching', '教学讲解'))
+}
+
+function sceneLabel(value: string) {
+  return ({
+    chapter_entry: '章节导入',
+    prerequisite_activation: '前置唤醒',
+    concept: '概念讲解',
+    reasoning: '原理推导',
+    method: '方法教学',
+    worked_example: '完整例题',
+    practice_feedback: '练习反馈',
+    misconception: '误区修复',
+    application: '应用迁移',
+    chapter_recap: '章节收束',
+  } as Record<string, string>)[value] || value
+}
+
+function beatRoleLabel(value: string) {
+  return ({
+    driving_question: '驱动问题',
+    recall: '知识唤醒',
+    formal_explanation: '正式解释',
+    reasoning_step: '推导步骤',
+    procedure: '操作方法',
+    prompt: '题目呈现',
+    solution: '解答揭示',
+    feedback: '反馈判断',
+    repair: '错误修复',
+    mapping: '情境映射',
+    closure: '目标闭环',
+  } as Record<string, string>)[value] || value
 }
 
 function classificationLabel(value: string) {

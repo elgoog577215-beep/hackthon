@@ -29,7 +29,7 @@
         <small>{{ slide.eyebrow }}</small>
         <h2>{{ slide.title }}</h2>
         <i></i>
-        <blockquote>{{ slide.key_message }}</blockquote>
+        <blockquote>{{ slide.key_message || slide.teaching_job || slide.takeaway }}</blockquote>
       </div>
       <footer><span>{{ deckTitle }}</span><span>{{ pageNumber }} / {{ pageCount }}</span></footer>
     </template>
@@ -54,32 +54,42 @@
         v-if="slide.visuals?.length"
         class="deck-canvas__story"
         :data-composition="slide.composition || 'split-visual'"
+        :data-source-empty="sourceBlocks.length === 0"
+        :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
       >
         <SlideVisualRenderer
           :visuals="slide.visuals"
           :course-id="courseId"
           :representation-id="representationId"
         />
-        <div class="deck-canvas__source">
+        <div v-if="sourceBlocks.length" class="deck-canvas__source">
           <small>{{ slide.teaching_job }}</small>
-          <section v-for="block in slide.blocks" :key="block.block_id" :data-type="block.type">
+          <section v-for="block in sourceBlocks" :key="block.block_id" :data-type="block.type">
             <b v-if="block.title">{{ block.title }}</b>
             <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
             <ol v-else-if="block.type === 'process'">
               <li v-for="(item, itemIndex) in block.items" :key="item">
-                <i>{{ itemIndex + 1 }}</i><span>{{ item }}</span>
+                <i>{{ itemIndex + 1 }}</i>
+                <MarkdownRenderer :content="item" :enable-code-run="false" />
               </li>
             </ol>
             <ul v-else-if="block.items?.length">
-              <li v-for="item in block.items" :key="item">{{ item }}</li>
+              <li v-for="item in block.items" :key="item">
+                <MarkdownRenderer :content="item" :enable-code-run="false" />
+              </li>
             </ul>
-            <p v-else>{{ block.content }}</p>
+            <MarkdownRenderer
+              v-else
+              class="deck-inline-markdown"
+              :content="block.content || ''"
+              :enable-code-run="false"
+            />
           </section>
         </div>
       </div>
 
       <div
-        v-else
+        v-else-if="slide.blocks?.length"
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
         :data-count="slide.blocks?.length || 0"
@@ -103,14 +113,29 @@
           </table>
           <ol v-else-if="block.type === 'process'">
             <li v-for="(item, itemIndex) in block.items" :key="item">
-              <b>{{ itemIndex + 1 }}</b><span>{{ item }}</span>
+              <b>{{ itemIndex + 1 }}</b>
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
             </li>
           </ol>
           <ul v-else-if="block.items?.length">
-            <li v-for="item in block.items" :key="item">{{ item }}</li>
+            <li v-for="item in block.items" :key="item">
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
+            </li>
           </ul>
-          <p v-else>{{ block.content }}</p>
+          <MarkdownRenderer
+            v-else
+            class="deck-inline-markdown"
+            :content="block.content || ''"
+            :enable-code-run="false"
+          />
         </section>
+      </div>
+
+      <div v-else class="deck-canvas__navigation">
+        <i></i>
+        <small>{{ navigationPrefix }}</small>
+        <strong>{{ navigationDetail }}</strong>
+        <p>先明确问题，再连接概念、方法与检验。</p>
       </div>
 
       <footer>
@@ -126,6 +151,7 @@ import { computed } from 'vue'
 import { t } from '../shared/i18n'
 import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 import SlideVisualRenderer from './SlideVisualRenderer.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import themePack from '../data/slide-themes.json'
 import type { SlideVisual } from '../types/slideVisual'
 
@@ -176,6 +202,78 @@ const props = withDefaults(defineProps<{
 })
 
 const visualLayout = computed(() => props.slide.quality?.requested_layout || props.slide.layout)
+const sourceBlocks = computed(() => {
+  const visualKind = props.slide.visuals?.[0]?.kind
+  if (visualKind !== 'formula') return props.slide.blocks || []
+  return (props.slide.blocks || []).filter(
+    block => block.type !== 'formula' && !block.metadata?.formula,
+  )
+})
+const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
+  (total, block) => total
+    + String(block.title || '').length
+    + String(block.content || '').length
+    + (block.items || []).reduce((sum, item) => sum + String(item).length, 0),
+  0,
+))
+const headingSubscripts: Record<string, string> = {
+  0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄',
+  5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉',
+  i: 'ᵢ', j: 'ⱼ', k: 'ₖ', n: 'ₙ',
+}
+function formatHeading(value: string) {
+  return value
+    .replace(/^(?:\$\$|\\\[|\\\()/, '')
+    .replace(/(?:\$\$|\\\]|\\\))$/, '')
+    .replace(/\\mathbb\{([A-Za-z])\}/g, '$1')
+    .replace(/\\(?:mathbf|mathrm|operatorname|text)\{([^{}]+)\}/g, '$1')
+    .replace(/\\subseteq/g, '⊆')
+    .replace(/\\cap/g, '∩')
+    .replace(/\\cup/g, '∪')
+    .replace(/\\in(?![A-Za-z])/g, '∈')
+    .replace(/\\mid/g, '∣')
+    .replace(/\\land/g, '∧')
+    .replace(/\\lor/g, '∨')
+    .replace(/\\sum/g, '∑')
+    .replace(/\\Sigma/g, 'Σ')
+    .replace(/\\cdots/g, '⋯')
+    .replace(/\\times/g, '×')
+    .replace(/\\leq/g, '≤')
+    .replace(/\\geq/g, '≥')
+    .replace(/\\approx/g, '≈')
+    .replace(/\\neq/g, '≠')
+    .replace(/\\left|\\right/g, '')
+    .replace(/\\\{/g, '{')
+    .replace(/\\\}/g, '}')
+    .replace(/[{}]/g, '')
+    .replace(/_([0-9ijkn])/g, (_match, token: string) => headingSubscripts[token] || token)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function headingExcerpt(value: string, limit = 48) {
+  const clean = formatHeading(value).replace(/[，,；;：:。…\s]+$/g, '')
+  if (clean.length <= limit) return clean
+  let excerpt = clean.slice(0, limit)
+  const opening = Math.max(excerpt.lastIndexOf('（'), excerpt.lastIndexOf('('))
+  const closing = Math.max(excerpt.lastIndexOf('）'), excerpt.lastIndexOf(')'))
+  if (opening > closing && opening >= Math.max(8, Math.floor(limit / 3))) {
+    excerpt = excerpt.slice(0, opening)
+  } else {
+    const punctuation = ['。', '；', '，', '：', '）', ')']
+      .map(mark => ({ index: excerpt.lastIndexOf(mark), mark }))
+      .sort((a, b) => b.index - a.index)[0]
+    if (punctuation && punctuation.index >= Math.max(10, Math.floor(limit / 2))) {
+      excerpt = excerpt.slice(
+        0,
+        punctuation.index + (['）', ')'].includes(punctuation.mark) ? 1 : 0),
+      )
+    } else {
+      const space = excerpt.lastIndexOf(' ')
+      if (space >= Math.max(10, Math.floor(limit / 2))) excerpt = excerpt.slice(0, space)
+    }
+  }
+  return excerpt.replace(/[，,；;：:。…\s]+$/g, '')
+}
 const displayHeading = computed(() => {
   const takeaway = String(props.slide.takeaway || '').trim()
   if (
@@ -185,13 +283,24 @@ const displayHeading = computed(() => {
     || takeaway.startsWith('\\[')
     || takeaway.startsWith('\\(')
     || /\\[A-Za-z]+/.test(takeaway)
-    || takeaway.length > 96
     || /^[\d\s.、:：()（）-]+$/.test(takeaway)
   ) {
-    return props.slide.title
+    return headingExcerpt(props.slide.title, 46)
   }
-  return takeaway
+  return headingExcerpt(takeaway)
 })
+const navigationText = computed(() => String(
+  props.slide.teaching_job
+  || props.slide.key_message
+  || props.slide.takeaway
+  || props.slide.title,
+))
+const navigationPrefix = computed(() => {
+  return ['recap', 'summary'].includes(String(props.slide.layout || ''))
+    ? '本章回顾'
+    : '本节学习问题'
+})
+const navigationDetail = computed(() => navigationText.value)
 const themeStyle = computed(() => {
   const aliases: Record<string, string> = {
     'qingfeng-classroom': 'qizhi-classroom',
@@ -514,6 +623,14 @@ function layoutLabel(value: string) {
 .deck-canvas__story[data-composition="exercise"] {
   grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);
 }
+.deck-canvas__story[data-density="dense"] {
+  grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);
+}
+.deck-canvas__story[data-density="dense"] > .slide-visual { order:2; }
+.deck-canvas__story[data-density="dense"] > .deck-canvas__source { order:1; }
+.deck-canvas__story[data-source-empty="true"] {
+  grid-template-columns:minmax(0,1fr);
+}
 .deck-canvas__source {
   min-width:0;
   overflow:hidden;
@@ -524,7 +641,7 @@ function layoutLabel(value: string) {
   display:block;
   margin-bottom:1cqw;
   color:var(--deck-blue);
-  font-size:.82cqw;
+  font-size:1.05cqw;
   font-weight:800;
   letter-spacing:.08em;
 }
@@ -537,12 +654,12 @@ function layoutLabel(value: string) {
 .deck-canvas__source section > b {
   display:block;
   margin-bottom:.4cqw;
-  font-size:1.12cqw;
+  font-size:1.35cqw;
 }
 .deck-canvas__source p,.deck-canvas__source li {
   color:var(--deck-body);
-  font-size:1.28cqw;
-  line-height:1.48;
+  font-size:1.68cqw;
+  line-height:1.38;
 }
 .deck-canvas__source ul,.deck-canvas__source ol {
   display:grid;
@@ -575,7 +692,7 @@ function layoutLabel(value: string) {
   max-height:13.5cqw;
   overflow:hidden;
   white-space:pre-wrap;
-  font-size:1.05cqw;
+  font-size:1.68cqw;
   line-height:1.42;
 }
 .deck-canvas__blocks {
@@ -584,6 +701,47 @@ function layoutLabel(value: string) {
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(0,1fr));
   gap:1.8%;
+}
+.deck-canvas__navigation {
+  position:absolute;
+  inset:31% 8% 18%;
+  display:grid;
+  grid-template-columns:.8cqw 1fr;
+  grid-template-rows:auto 1fr auto;
+  column-gap:2.2cqw;
+  align-items:start;
+}
+.deck-canvas__navigation > i {
+  grid-row:1/4;
+  width:.42cqw;
+  height:100%;
+  background:var(--deck-blue);
+}
+.deck-canvas__navigation > small {
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-canvas__navigation > strong {
+  align-self:center;
+  color:var(--deck-title);
+  font:800 2.4cqw/1.32 var(--deck-title-font);
+}
+.deck-canvas__navigation > p {
+  margin:0;
+  color:var(--deck-muted);
+  font-size:1.18cqw;
+  font-weight:650;
+}
+.deck-inline-markdown :deep(.markdown-body) {
+  margin:0;
+  color:inherit;
+  font:inherit;
+}
+.deck-inline-markdown :deep(.katex-display) {
+  margin:.45em 0;
+  overflow:visible;
 }
 .deck-canvas__blocks[data-has-message="true"] { top:38%; }
 .deck-canvas__blocks[data-layout="objective"],

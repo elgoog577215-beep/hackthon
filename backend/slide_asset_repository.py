@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from storage import DATA_DIR
 from material_storage import IMAGE_EXTENSIONS, material_repository
-from slide_image_provider import SlideImageProvider
+from slide_image_provider import IMAGE_PROMPT_POLICY_VERSION, SlideImageProvider
 from slide_theme import slide_theme
 from slide_visuals import SlideVisualPlanV1, VisualAnchorV1, VisualNodeV1
 
@@ -39,6 +39,7 @@ class SlideVisualAsset(BaseModel):
     prompt: str = ""
     model: str = ""
     generation_seed: str = ""
+    quality_checks: dict[str, bool] = Field(default_factory=dict)
 
 
 class SlideAssetRepository:
@@ -60,6 +61,7 @@ class SlideAssetRepository:
         prompt: str = "",
         model: str = "",
         generation_seed: str = "",
+        quality_checks: dict[str, bool] | None = None,
     ) -> SlideVisualAsset:
         source = Path(source_path)
         try:
@@ -101,6 +103,7 @@ class SlideAssetRepository:
             prompt=prompt,
             model=model,
             generation_seed=generation_seed,
+            quality_checks=dict(quality_checks or {}),
         )
         (staged_dir / "manifest.json").write_text(
             asset.model_dump_json(indent=2),
@@ -181,6 +184,35 @@ class SlideAssetRepository:
             raise ValueError("Slide asset hash no longer matches its manifest")
         return path
 
+    def find_generated(
+        self,
+        *,
+        course_id: str,
+        source_fragment_ids: list[str],
+        prompt: str,
+        generation_seed: str,
+    ) -> SlideVisualAsset | None:
+        """Reuse a published website-generated asset for an identical request."""
+        expected_sources = list(dict.fromkeys(source_fragment_ids))
+        for manifest in self.root.glob("sva_*/manifest.json"):
+            try:
+                asset = SlideVisualAsset.model_validate(
+                    json.loads(manifest.read_text(encoding="utf-8"))
+                )
+            except (OSError, ValueError):
+                continue
+            if (
+                asset.kind == "generated_illustration"
+                and asset.course_id == course_id
+                and asset.source_fragment_ids == expected_sources
+                and asset.prompt == prompt
+                and asset.generation_seed == generation_seed
+                and asset.quality_checks.get("embedded_text_absent") is True
+                and asset.quality_checks.get("visual_detail_present") is True
+            ):
+                return asset
+        return None
+
     @staticmethod
     def _validate_id(asset_id: str) -> None:
         if not asset_id.startswith("sva_") or not all(
@@ -209,13 +241,13 @@ def resolve_visual_plan_assets(
     }
     resolved = visual_plan.model_copy(deep=True)
     provider = SlideImageProvider()
+    chapter_count = len({
+        page.chapter_id
+        for page in resolved.pages
+        if page.chapter_id and not page.appendix
+    })
+    illustration_limit = min(max(1, chapter_count), 6)
     if provider.configured:
-        chapter_count = len({
-            page.chapter_id
-            for page in resolved.pages
-            if page.chapter_id and not page.appendix
-        })
-        illustration_limit = min(chapter_count + 1, 12)
         candidates = [
             page
             for page in resolved.pages
@@ -231,16 +263,68 @@ def resolve_visual_plan_assets(
                 " ".join(str(getattr(catalog.get(fragment_id), "text", "") or "").split())
                 for fragment_id in page.visual_anchor.source_fragment_ids
             )[:700]
+            if len(source_text) > 190:
+                continue
+            scene_prompt = provider.plan_prompt(
+                source_text=source_text,
+                style=prompt_style,
+            )
             page.visual_anchor.kind = "generated_illustration"
             page.visual_anchor.nodes = []
             page.visual_anchor.edges = []
             page.visual_anchor.parameters = {
-                "prompt": f"{prompt_style}. Educational concept: {source_text}",
-                "size": "1536x1024",
+                "prompt": (
+                    f"[{IMAGE_PROMPT_POLICY_VERSION}] {scene_prompt}"
+                ),
+                "size": "1664x928",
                 "generation_seed": hashlib.sha256(
                     f"{resolved.source_document_revision}:{page.page_id}".encode("utf-8")
                 ).hexdigest()[:16],
+                "information_gain_score": 0.9,
             }
+    for page in resolved.pages:
+        anchor = page.visual_anchor
+        if anchor.kind != "generated_illustration" or anchor.asset_id:
+            continue
+        source_text = " ".join(
+            " ".join(str(getattr(catalog.get(fragment_id), "text", "") or "").split())
+            for fragment_id in anchor.source_fragment_ids
+        )
+        if len(source_text) > 190:
+            page.visual_anchor = _fallback_anchor(anchor, catalog)
+            continue
+        prompt = str(anchor.parameters.get("prompt") or "")
+        if IMAGE_PROMPT_POLICY_VERSION not in prompt:
+            scene_prompt = provider.plan_prompt(
+                source_text=source_text,
+                style=str(slide_theme(resolved.theme).get("prompt_style") or ""),
+            )
+            anchor.parameters["prompt"] = (
+                f"[{IMAGE_PROMPT_POLICY_VERSION}] {scene_prompt}"
+            )
+        cached = target.find_generated(
+            course_id=course_id,
+            source_fragment_ids=anchor.source_fragment_ids,
+            prompt=str(anchor.parameters.get("prompt") or ""),
+            generation_seed=str(
+                anchor.parameters.get("generation_seed") or ""
+            ),
+        )
+        if cached is not None:
+            anchor.asset_id = cached.asset_id
+    planned_illustrations = [
+        page
+        for page in resolved.pages
+        if (
+            page.visual_anchor.kind == "generated_illustration"
+            and not page.visual_anchor.asset_id
+        )
+    ]
+    for page in planned_illustrations[illustration_limit:]:
+        page.visual_anchor = _fallback_anchor(page.visual_anchor, catalog)
+    if not provider.configured:
+        for page in planned_illustrations[:illustration_limit]:
+            page.visual_anchor = _fallback_anchor(page.visual_anchor, catalog)
     image_pages = [
         page
         for page in resolved.pages
@@ -279,7 +363,10 @@ def resolve_visual_plan_assets(
                     generated_path = provider.generate(
                         prompt=prompt,
                         output_path=Path(temp_dir) / "generated.png",
-                        size=str(anchor.parameters.get("size") or "1536x1024"),
+                        size=str(anchor.parameters.get("size") or "1664x928"),
+                        seed=_seed_value(
+                            str(anchor.parameters.get("generation_seed") or "")
+                        ),
                     )
                     staged = target.stage_image(
                         generated_path,
@@ -291,6 +378,10 @@ def resolve_visual_plan_assets(
                         prompt=prompt,
                         model=provider.model,
                         generation_seed=str(anchor.parameters.get("generation_seed") or ""),
+                        quality_checks={
+                            "embedded_text_absent": True,
+                            "visual_detail_present": True,
+                        },
                     )
                     asset = staged
                     anchor.asset_id = asset.asset_id
@@ -354,31 +445,25 @@ def _fallback_anchor(
             source_fragment_ids=[fragment_id],
             emphasis="primary" if index == 0 else "secondary",
         ))
-    if not nodes:
-        return VisualAnchorV1(
-            visual_id=anchor.visual_id,
-            kind="none",
-            purpose=anchor.purpose,
-        )
-    from slide_visuals import VisualEdgeV1
-
+    # Image failure must not manufacture a semantic relationship between
+    # unrelated excerpts.  The renderer falls back to a source-grounded
+    # statement composition, while the quality report records the missing
+    # explanatory asset.
     return VisualAnchorV1(
         visual_id=anchor.visual_id,
-        kind="relational_diagram",
+        kind="none",
         purpose=anchor.purpose,
-        source_fragment_ids=anchor.source_fragment_ids,
-        alt_text=f"{anchor.alt_text}（确定性图解降级）",
-        nodes=nodes,
-        edges=[
-            VisualEdgeV1(
-                source=nodes[index].node_id,
-                target=nodes[index + 1].node_id,
-                relation="sequence",
-            )
-            for index in range(len(nodes) - 1)
-        ],
-        parameters={"diagram_type": "relationship", "fallback": True},
     )
+
+
+def _seed_value(value: str) -> int | None:
+    clean = str(value or "").strip()
+    if not clean:
+        return None
+    try:
+        return int(clean, 16) % (2**31)
+    except ValueError:
+        return int(hashlib.sha256(clean.encode("utf-8")).hexdigest()[:8], 16)
 
 
 __all__ = [

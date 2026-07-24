@@ -12,9 +12,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from course_document import CourseDocument, stable_hash
+from teaching_storyboard import (
+    TEACHING_STORYBOARD_POLICY_VERSION,
+    build_teaching_storyboard,
+    storyboard_page_index,
+)
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v1"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v4_audience_facing"
 
 VisualKind = Literal[
     "source_image",
@@ -60,10 +65,9 @@ _VISUAL_KINDS = {
 }
 _NAVIGATION_LAYOUTS = {"cover", "roadmap", "section-divider", "summary"}
 _NUMBER_RE = re.compile(r"\d+")
-_SPATIAL_MATH_RE = re.compile(
-    r"(?:坐标|向量|平面|空间|基底|线性变换|线性映射|旋转|投影|特征向量|"
-    r"coordinate|vector|plane|space|basis|rotation|projection)",
-    re.IGNORECASE,
+_COORDINATE_PAIR_RE = re.compile(
+    r"(?P<label>[\(（]\s*(?P<x>-?\d+(?:\.\d+)?)\s*[,，]\s*"
+    r"(?P<y>-?\d+(?:\.\d+)?)\s*[\)）])"
 )
 
 
@@ -115,8 +119,29 @@ class VisualAnchorV1(_StrictModel):
             raise ValueError("A meaningful visual must bind source fragments")
         if not self.alt_text:
             raise ValueError("A meaningful visual must have alt text")
-        if self.kind == "relational_diagram" and not self.nodes:
-            raise ValueError("A relational diagram needs source-bound nodes")
+        if self.kind == "relational_diagram":
+            if len(self.nodes) < 2 or not self.edges:
+                raise ValueError(
+                    "A relational diagram needs at least two nodes and one edge"
+                )
+            if not self.parameters.get("relation_evidence"):
+                raise ValueError(
+                    "A relational diagram needs explicit structural evidence"
+                )
+        if self.kind == "coordinate_plot":
+            points = self.parameters.get("points") or []
+            labels = self.parameters.get("point_labels") or []
+            if len(points) < 2 or len(labels) != len(points):
+                raise ValueError("A coordinate plot needs at least two labeled source points")
+            if not all(
+                isinstance(point, list)
+                and len(point) == 2
+                and all(isinstance(value, (int, float)) for value in point)
+                for point in points
+            ):
+                raise ValueError("Coordinate plot points must be numeric pairs")
+        if self.kind == "formula" and not str(self.parameters.get("formula") or "").strip():
+            raise ValueError("A formula visual must retain the source formula")
         if self.kind in {"source_image", "generated_illustration"} and not (
             self.asset_id or self.parameters.get("asset_ref") or self.parameters.get("prompt")
         ):
@@ -135,6 +160,11 @@ class SlideVisualPlanPageV1(_StrictModel):
     role_layout_variant: Literal["primary", "alternate", "dense"] = "primary"
     chapter_id: str = ""
     appendix: bool = False
+    episode_id: str = ""
+    episode_title: str = ""
+    learning_question: str = ""
+    beat_role: str = ""
+    beat_index: int = Field(default=0, ge=0)
 
 
 class SlideVisualPlanV1(_StrictModel):
@@ -162,6 +192,8 @@ def deterministic_visual_plan(
 ) -> SlideVisualPlanV1:
     """Build a source-grounded visual plan without requiring a model or image API."""
     catalog = {item.fragment_id: item for item in fragments}
+    storyboard = build_teaching_storyboard(document, allocation_plan)
+    episode_pages = storyboard_page_index(storyboard)
     pages: list[SlideVisualPlanPageV1] = []
     prior_takeaway = ""
     content_index = 0
@@ -189,6 +221,7 @@ def deterministic_visual_plan(
             anchor = _visual_anchor(page, page_fragments, content_index)
             composition = _composition_for(page, anchor, content_index)
             content_index += 1
+        episode, beat = episode_pages.get(page.page_id, (None, None))
         pages.append(SlideVisualPlanPageV1(
             page_id=page.page_id,
             teaching_job=teaching_job,
@@ -200,19 +233,22 @@ def deterministic_visual_plan(
             role_layout_variant=("primary", "alternate", "dense")[content_index % 3],
             chapter_id=str(getattr(page, "chapter_id", "") or ""),
             appendix=bool(page.appendix),
+            episode_id=episode.episode_id if episode else "",
+            episode_title=episode.title if episode else "",
+            learning_question=episode.learning_question if episode else "",
+            beat_role=beat.role if beat else "",
+            beat_index=beat.beat_index if beat else 0,
         ))
         prior_takeaway = takeaway
-    _rebalance_compositions(pages)
+    rebalance_visual_plan_pages(pages, allocation_plan, fragments)
     plan = SlideVisualPlanV1(
         source_document_revision=document.document_revision,
         mode=allocation_plan.mode,
         theme=allocation_plan.theme,
         variant_key=allocation_plan.variant_key,
         deck_brief={
-            "communication_job": (
-                f"帮助学习者沿课程原文建立“{document.title}”的概念、方法与应用链条。"
-            ),
-            "audience": "课程学习者",
+            "communication_job": storyboard.communication_job,
+            "audience": storyboard.audience,
             "narrative_arc": [
                 "导入",
                 "概念",
@@ -223,6 +259,8 @@ def deterministic_visual_plan(
                 "回顾",
             ],
             "content_policy": "source_fragments_only",
+            "storyboard_policy_version": TEACHING_STORYBOARD_POLICY_VERSION,
+            "storyboard": storyboard.model_dump(mode="json"),
         },
         pages=pages,
     )
@@ -315,6 +353,206 @@ def _rebalance_compositions(pages: list[SlideVisualPlanPageV1]) -> None:
                 page.composition = replacement
                 changed = True
                 break
+            if not changed:
+                break
+
+    # The share repair above can create a new three-page run when pages that
+    # are outside the gate subset sit between eligible pages. Repair the
+    # rendered sequence without pushing any gated composition over 35%.
+    eligible_ids = {page.page_id for page in eligible}
+    chapter_counts = {
+        chapter_id: Counter(page.composition for page in chapter_pages)
+        for chapter_id, chapter_pages in chapters.items()
+    }
+    chapter_maximum = {
+        chapter_id: max(1, int(len(chapter_pages) * 0.35))
+        for chapter_id, chapter_pages in chapters.items()
+    }
+    visual_pages = [
+        page for page in pages
+        if not page.appendix and page.visual_anchor.kind != "none"
+    ]
+    previous: SlideComposition | str = ""
+    run = 0
+    for index, page in enumerate(visual_pages):
+        if page.composition == previous:
+            run += 1
+        else:
+            previous = page.composition
+            run = 1
+        if run <= 2:
+            continue
+        counts = chapter_counts.get(page.chapter_id, Counter())
+        maximum = chapter_maximum.get(page.chapter_id, len(visual_pages))
+        replacement = next(
+            (
+                candidate
+                for candidate in alternatives
+                if (
+                    candidate != page.composition
+                    and (
+                        page.page_id not in eligible_ids
+                        or counts[candidate] < maximum
+                    )
+                    and candidate != visual_pages[index - 1].composition
+                    and (
+                        index == len(visual_pages) - 1
+                        or candidate != visual_pages[index + 1].composition
+                    )
+                )
+            ),
+            None,
+        )
+        if replacement is None:
+            continue
+        if page.page_id in eligible_ids:
+            counts[page.composition] -= 1
+            counts[replacement] += 1
+        page.composition = replacement
+        previous = replacement
+        run = 1
+
+    # Chapter-level balancing can create a new local repetition.  Repair the
+    # final sequence once more so the rendered rhythm matches the report.
+    previous = ""
+    run = 0
+    for index, page in enumerate(eligible):
+        if page.composition == previous:
+            run += 1
+        else:
+            previous = page.composition
+            run = 1
+        if run <= 2:
+            continue
+        replacement = next(
+            candidate
+            for candidate in alternatives
+            if (
+                candidate != page.composition
+                and (index == 0 or candidate != eligible[index - 1].composition)
+                and (
+                    index == len(eligible) - 1
+                    or candidate != eligible[index + 1].composition
+                )
+            )
+        )
+        page.composition = replacement
+        previous = replacement
+        run = 1
+
+
+def rebalance_visual_plan_pages(
+    pages: list[SlideVisualPlanPageV1],
+    allocation_plan: Any,
+    fragments: list[Any],
+) -> None:
+    """Reapply rhythm after optional assets degrade into deterministic visuals."""
+    _rebalance_compositions(pages)
+    _rebalance_quality_eligible_compositions(
+        pages,
+        allocation_plan,
+        fragments,
+    )
+
+
+def _rebalance_quality_eligible_compositions(
+    pages: list[SlideVisualPlanPageV1],
+    allocation_plan: Any,
+    fragments: list[Any],
+) -> None:
+    """Apply the 35% rhythm contract to the same subset used by the gate."""
+    allocation_by_id = {
+        page.page_id: page for page in allocation_plan.pages
+    }
+    fragment_kind = {
+        str(fragment.fragment_id): str(fragment.kind)
+        for fragment in fragments
+    }
+    eligible = [
+        page
+        for page in pages
+        if (
+            not page.appendix
+            and page.page_id in allocation_by_id
+            and allocation_by_id[page.page_id].fragment_ids
+            and allocation_by_id[page.page_id].layout != "section-divider"
+            and (
+                str(getattr(
+                    allocation_by_id[page.page_id],
+                    "narrative_role",
+                    "",
+                )) in {"method", "example", "misconception"}
+                or page.visual_anchor.kind != "none"
+                or any(
+                    fragment_kind.get(fragment_id)
+                    in {"formula", "code", "table", "image", "diagram"}
+                    for fragment_id in allocation_by_id[page.page_id].fragment_ids
+                )
+            )
+            and str(getattr(
+                allocation_by_id[page.page_id],
+                "narrative_role",
+                "",
+            )) != "checkpoint"
+        )
+    ]
+    alternatives: list[SlideComposition] = [
+        "figure-first",
+        "split-visual",
+        "diagram-full",
+        "comparison",
+        "process",
+        "exercise",
+        "statement",
+    ]
+    chapters: dict[str, list[SlideVisualPlanPageV1]] = defaultdict(list)
+    for page in eligible:
+        if page.chapter_id:
+            chapters[page.chapter_id].append(page)
+    for chapter_pages in chapters.values():
+        if len(chapter_pages) < 4:
+            continue
+        maximum = max(1, int(len(chapter_pages) * 0.35))
+        for _ in range(len(chapter_pages) * 2):
+            counts = Counter(page.composition for page in chapter_pages)
+            overused = next(
+                (
+                    composition
+                    for composition, count in counts.most_common()
+                    if count > maximum
+                ),
+                None,
+            )
+            if overused is None:
+                break
+            changed = False
+            for index in range(len(chapter_pages) - 1, -1, -1):
+                page = chapter_pages[index]
+                if page.composition != overused:
+                    continue
+                replacement = next(
+                    (
+                        candidate
+                        for candidate in alternatives
+                        if (
+                            candidate != overused
+                            and counts[candidate] < maximum
+                            and (
+                                index == 0
+                                or chapter_pages[index - 1].composition != candidate
+                            )
+                            and (
+                                index == len(chapter_pages) - 1
+                                or chapter_pages[index + 1].composition != candidate
+                            )
+                        )
+                    ),
+                    None,
+                )
+                if replacement is not None:
+                    page.composition = replacement
+                    changed = True
+                    break
             if not changed:
                 break
 
@@ -457,12 +695,19 @@ def validate_visual_plan(
                 if excerpt and _normalized_grounding_text(excerpt) not in _normalized_grounding_text(source_text):
                     raise ValueError("Visual table row is not a source excerpt")
         if page.visual_anchor.kind == "coordinate_plot":
-            for label in page.visual_anchor.parameters.get("labels") or []:
-                excerpt = str(
-                    label.get("text") if isinstance(label, dict) else label
-                ).rstrip("…")
+            labels = page.visual_anchor.parameters.get("point_labels") or []
+            for label in labels:
+                excerpt = str(label).rstrip("…")
                 if excerpt and _normalized_grounding_text(excerpt) not in _normalized_grounding_text(source_text):
                     raise ValueError("Coordinate label is not a source excerpt")
+        if page.visual_anchor.kind == "formula":
+            formula = str(page.visual_anchor.parameters.get("formula") or "")
+            if (
+                formula
+                and _normalized_grounding_text(formula)
+                not in _normalized_grounding_text(source_text)
+            ):
+                raise ValueError("Formula visual is not a source excerpt")
     return {"passed": True, "page_count": len(visual_plan.pages)}
 
 
@@ -499,10 +744,19 @@ def apply_visual_plan_to_slides(
 def visual_quality_report(
     visual_plan: SlideVisualPlanV1,
     allocation_plan: Any,
+    fragments: list[Any] | None = None,
 ) -> dict[str, Any]:
-    """Measure meaningful visual rhythm without counting decorative shapes."""
+    """Measure explanatory gain instead of merely counting rendered objects."""
     allocation_by_id = {page.page_id: page for page in allocation_plan.pages}
-    eligible = [
+    fragment_text = {
+        str(item.fragment_id): str(item.text or "")
+        for item in fragments or []
+    }
+    fragment_kind = {
+        str(item.fragment_id): str(item.kind or "")
+        for item in fragments or []
+    }
+    content_pages = [
         page
         for page in visual_plan.pages
         if (
@@ -511,18 +765,52 @@ def visual_quality_report(
             and allocation_by_id[page.page_id].layout not in {"section-divider"}
         )
     ]
-    visual_pages = [
-        page for page in eligible
-        if page.visual_anchor.kind != "none"
+    eligible = [
+        page
+        for page in content_pages
+        if (
+            str(getattr(allocation_by_id[page.page_id], "narrative_role", ""))
+            in {"method", "example", "misconception"}
+            or page.visual_anchor.kind != "none"
+            or any(
+                fragment_kind.get(fragment_id)
+                in {"formula", "code", "table", "image", "diagram"}
+                for fragment_id in allocation_by_id[page.page_id].fragment_ids
+            )
+        )
+        and str(
+            getattr(allocation_by_id[page.page_id], "narrative_role", "")
+        ) not in {"checkpoint"}
     ]
+    scores = {
+        page.page_id: _visual_information_gain(page.visual_anchor, fragment_text)
+        for page in eligible
+    }
+    visual_pages = [page for page in eligible if scores[page.page_id] >= 0.5]
     ratio = 1.0 if not eligible else len(visual_pages) / len(eligible)
     required = {"teaching": 0.70, "concise": 0.80, "full": 0.40}[visual_plan.mode]
+    strict_visual_gate = len(eligible) >= 8
     issues: list[dict[str, Any]] = []
     if ratio + 1e-9 < required:
         issues.append({
-            "severity": "critical",
+            "severity": "critical" if strict_visual_gate else "minor",
             "code": "visual_coverage_below_threshold",
             "message": f"Effective visual coverage {ratio:.1%} is below {required:.0%}.",
+        })
+    one_node_diagrams = [
+        page
+        for page in eligible
+        if (
+            page.visual_anchor.kind == "relational_diagram"
+            and len(page.visual_anchor.nodes) < 2
+        )
+    ]
+    if one_node_diagrams:
+        issues.append({
+            "severity": "critical",
+            "code": "single_node_diagram_is_not_visual",
+            "page_id": one_node_diagrams[0].page_id,
+            "count": len(one_node_diagrams),
         })
 
     chapter_pages: dict[str, list[SlideVisualPlanPageV1]] = defaultdict(list)
@@ -530,9 +818,9 @@ def visual_quality_report(
         if page.chapter_id:
             chapter_pages[page.chapter_id].append(page)
     for chapter_id, pages in chapter_pages.items():
-        if not any(page.visual_anchor.kind != "none" for page in pages):
+        if not any(scores[page.page_id] >= 0.5 for page in pages):
             issues.append({
-                "severity": "critical",
+                "severity": "critical" if len(pages) >= 6 else "minor",
                 "code": "chapter_explanatory_visual_missing",
                 "chapter_id": chapter_id,
             })
@@ -543,22 +831,89 @@ def visual_quality_report(
                 "code": "chapter_composition_overused",
                 "chapter_id": chapter_id,
             })
+        meaningful_kinds = {
+            page.visual_anchor.kind
+            for page in pages
+            if scores[page.page_id] >= 0.5
+        }
+        if len(pages) >= 8 and len(meaningful_kinds) < 2:
+            issues.append({
+                "severity": "major",
+                "code": "chapter_visual_vocabulary_too_narrow",
+                "chapter_id": chapter_id,
+            })
 
     previous = ""
     run = 0
-    for page in eligible:
+    for page in content_pages:
+        if page.visual_anchor.kind == "none":
+            previous = ""
+            run = 0
+            continue
         if page.composition == previous:
             run += 1
         else:
             previous = page.composition
             run = 1
-        if run > 2:
+        if strict_visual_gate and run > 2:
             issues.append({
                 "severity": "critical",
                 "code": "composition_repeated_more_than_twice",
                 "page_id": page.page_id,
             })
             break
+    previous_kind = ""
+    kind_run = 0
+    for page in eligible:
+        kind = (
+            page.visual_anchor.kind
+            if scores[page.page_id] >= 0.5
+            else "none"
+        )
+        if kind == previous_kind:
+            kind_run += 1
+        else:
+            previous_kind = kind
+            kind_run = 1
+        maximum_kind_run = 5 if kind in {"formula", "code"} else 3
+        if (
+            strict_visual_gate
+            and kind != "none"
+            and kind_run > maximum_kind_run
+        ):
+            issues.append({
+                "severity": "critical",
+                "code": "visual_kind_repeated_more_than_three_times",
+                "page_id": page.page_id,
+                "visual_kind": kind,
+            })
+            break
+    episode_warnings = []
+    storyboard = visual_plan.deck_brief.get("storyboard") or {}
+    for episode in storyboard.get("episodes") or []:
+        score = float(episode.get("progression_score") or 0)
+        missing = list(episode.get("missing_roles") or [])
+        beat_count = len(episode.get("beats") or [])
+        if score < 0.65 or missing:
+            episode_warnings.append({
+                "severity": "major" if beat_count >= 4 else "minor",
+                "code": "teaching_episode_incomplete",
+                "episode_id": str(episode.get("episode_id") or ""),
+                "topic_id": str(episode.get("topic_id") or ""),
+                "progression_score": score,
+                "missing_roles": missing,
+            })
+    issues.extend(episode_warnings[:20])
+    image_count = sum(
+        page.visual_anchor.kind in {"source_image", "generated_illustration"}
+        and scores[page.page_id] >= 0.5
+        for page in eligible
+    )
+    if len(eligible) >= 12 and image_count == 0:
+        issues.append({
+            "severity": "minor",
+            "code": "teaching_deck_has_no_image_assets",
+        })
     passed = not any(item["severity"] == "critical" for item in issues)
     return {
         "passed": passed,
@@ -566,14 +921,72 @@ def visual_quality_report(
         "required_visual_coverage_ratio": required,
         "eligible_page_count": len(eligible),
         "visual_page_count": len(visual_pages),
+        "image_visual_count": image_count,
+        "mean_information_gain": round(
+            sum(scores.values()) / max(1, len(scores)),
+            6,
+        ),
+        "page_information_gain": {
+            page_id: round(score, 6)
+            for page_id, score in scores.items()
+        },
         "visual_kind_counts": dict(Counter(
             page.visual_anchor.kind for page in visual_pages
+        )),
+        "composition_counts": dict(Counter(
+            page.composition for page in eligible
         )),
         "issues": issues,
         "blockers": [item for item in issues if item["severity"] == "critical"],
         "warnings": [item for item in issues if item["severity"] != "critical"],
         "render_contract": "shared_slide_spec_v1",
     }
+
+
+def _visual_information_gain(
+    anchor: VisualAnchorV1,
+    fragment_text: dict[str, str],
+) -> float:
+    if anchor.kind == "none":
+        return 0.0
+    declared = anchor.parameters.get("information_gain_score")
+    if isinstance(declared, (int, float)):
+        score = float(declared)
+    else:
+        score = {
+            "source_image": 1.0,
+            "generated_illustration": 0.9,
+            "coordinate_plot": 1.0,
+            "chart": 1.0,
+            "table": 0.7,
+            "formula": 0.78,
+            "code": 0.8,
+            "relational_diagram": 0.0,
+        }.get(anchor.kind, 0.0)
+    if anchor.kind == "relational_diagram":
+        if (
+            len(anchor.nodes) < 2
+            or not anchor.edges
+            or not anchor.parameters.get("relation_evidence")
+        ):
+            return 0.0
+        source = _normalized_grounding_text(" ".join(
+            fragment_text.get(fragment_id, "")
+            for fragment_id in anchor.source_fragment_ids
+        ))
+        labels = _normalized_grounding_text(" ".join(
+            node.label for node in anchor.nodes
+        ))
+        duplication = (
+            len(labels) / len(source)
+            if source
+            else float(anchor.parameters.get("source_text_duplication_ratio") or 0)
+        )
+        if not isinstance(declared, (int, float)) and duplication > 0.8:
+            score -= 0.22
+        if all(len(_clean_source_text(node.label)) > 34 for node in anchor.nodes):
+            score -= 0.12
+    return min(1.0, max(0.0, score))
 
 
 def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
@@ -655,6 +1068,43 @@ def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
                     issues.append({
                         "severity": "critical",
                         "code": "chart_data_not_source_bound",
+                        "slide_id": slide_id,
+                    })
+            if kind == "coordinate_plot":
+                parameters = visual.get("parameters") or {}
+                points = parameters.get("points") or []
+                labels = parameters.get("point_labels") or []
+                if len(points) < 2 or len(labels) != len(points):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "coordinate_data_invalid",
+                        "slide_id": slide_id,
+                    })
+                elif any(
+                    _normalized_grounding_text(str(label).rstrip("…"))
+                    not in _normalized_grounding_text(source_text)
+                    for label in labels
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "coordinate_data_not_source_bound",
+                        "slide_id": slide_id,
+                    })
+            if kind == "formula":
+                formula = str((visual.get("parameters") or {}).get("formula") or "")
+                if not formula:
+                    issues.append({
+                        "severity": "critical",
+                        "code": "formula_source_missing",
+                        "slide_id": slide_id,
+                    })
+                elif (
+                    _normalized_grounding_text(formula)
+                    not in _normalized_grounding_text(source_text)
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "formula_not_source_bound",
                         "slide_id": slide_id,
                     })
     if content.get("visual_plan") and (
@@ -789,7 +1239,10 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             purpose="evidence",
             source_fragment_ids=ids,
             alt_text=_trim_takeaway(source_image.text, 120),
-            parameters={"asset_ref": source_image.asset_refs[0]},
+            parameters={
+                "asset_ref": source_image.asset_refs[0],
+                "information_gain_score": 1.0,
+            },
         )
     if "code" in kinds:
         return VisualAnchorV1(
@@ -797,17 +1250,30 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             kind="code",
             purpose="evidence",
             source_fragment_ids=ids,
-            alt_text="课程原始代码及其阅读重点",
-            parameters={"language": "code"},
+            alt_text="代码示例与阅读重点",
+            parameters={
+                "language": "code",
+                "information_gain_score": 0.8,
+            },
         )
-    if "formula" in kinds:
+    embedded_formula = _source_formula(fragments)
+    if "formula" in kinds or embedded_formula:
+        formula = embedded_formula or next(
+            str(item.text)
+            for item in fragments
+            if item.kind == "formula"
+        )
         return VisualAnchorV1(
             visual_id=visual_id,
             kind="formula",
             purpose="evidence",
             source_fragment_ids=ids,
-            alt_text="课程原始公式",
-            parameters={"source_bound": True},
+            alt_text="关键公式",
+            parameters={
+                "source_bound": True,
+                "formula": formula,
+                "information_gain_score": 0.78,
+            },
         )
     if "table" in kinds:
         return VisualAnchorV1(
@@ -815,8 +1281,12 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             kind="table",
             purpose="comparison",
             source_fragment_ids=ids,
-            alt_text="课程原始结构化表格",
-            parameters={"text": "\n".join(item.text for item in fragments)},
+            alt_text="结构化对照",
+            parameters={
+                "text": "\n".join(item.text for item in fragments),
+                "source_bound": True,
+                "information_gain_score": 0.82,
+            },
         )
 
     clauses = _source_clauses(fragments)
@@ -826,9 +1296,8 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
         if item.kind == "list_item" and _clean_source_text(item.text)
     ]
     if (
-        len(list_clauses) >= 3
-        or (role == "misconception" and len(clauses) >= 2)
-        or (str(getattr(page, "layout", "") or "") == "comparison" and len(clauses) >= 2)
+        (role == "misconception" or str(getattr(page, "layout", "") or "") == "comparison")
+        and len(clauses) >= 2
     ):
         rows = [
             [str(row_index + 1).zfill(2), label]
@@ -839,83 +1308,108 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             kind="table",
             purpose="comparison" if role == "misconception" else "structure",
             source_fragment_ids=ids,
-            alt_text="按课程原文顺序整理的结构化要点",
+            alt_text="关键要点对照",
             parameters={
-                "headers": ["顺序", "课程原文要点"],
+                "headers": ["序号", "关键要点"],
                 "rows": rows,
                 "source_bound": True,
+                "information_gain_score": 0.68,
             },
         )
-    joined_source = " ".join(_clean_source_text(item.text) for item in fragments)
-    if (
-        clauses
-        and _SPATIAL_MATH_RE.search(joined_source)
-        and role in {"concept", "reasoning", "method", "example"}
-        and (role == "example" or index % 4 == 1)
-    ):
+    coordinate_parameters = _coordinate_parameters(fragments)
+    if coordinate_parameters:
         return VisualAnchorV1(
             visual_id=visual_id,
             kind="coordinate_plot",
-            purpose="application" if role == "example" else "structure",
+            purpose="application",
             source_fragment_ids=ids,
-            alt_text="以坐标空间承载课程原文概念的非比例示意",
+            alt_text="二维坐标关系",
             parameters={
-                "labels": [
-                    {"text": label, "source_fragment_id": fragment_id}
-                    for label, fragment_id in clauses[:4]
-                ],
-                "source_bound": True,
-                "not_to_scale": True,
+                **coordinate_parameters,
+                "information_gain_score": 1.0,
             },
         )
-    nodes = [
-        VisualNodeV1(
-            node_id=f"n{node_index + 1}",
-            label=label,
-            source_fragment_ids=[fragment_id],
-            emphasis="primary" if node_index == 0 else "secondary",
+    relation = _semantic_relation_spec(page, fragments, clauses, list_clauses)
+    if relation is not None:
+        relation_kind, diagram_type, relation_clauses, evidence = relation
+        nodes = [
+            VisualNodeV1(
+                node_id=f"n{node_index + 1}",
+                label=label,
+                source_fragment_ids=[fragment_id],
+                emphasis="primary" if node_index == 0 else "secondary",
+            )
+            for node_index, (label, fragment_id) in enumerate(relation_clauses[:5])
+        ]
+        edges = _relation_edges(nodes, relation_kind, diagram_type)
+        source_length = max(
+            1,
+            len(_normalized_grounding_text(
+                " ".join(str(item.text or "") for item in fragments)
+            )),
         )
-        for node_index, (label, fragment_id) in enumerate(clauses[:5])
-    ]
-    edges = [
-        VisualEdgeV1(
-            source=nodes[node_index].node_id,
-            target=nodes[node_index + 1].node_id,
-            relation=(
-                "contrasts"
-                if role == "misconception"
-                else "supports"
-                if role == "reasoning"
-                else "sequence"
-            ),
+        label_length = sum(
+            len(_normalized_grounding_text(node.label))
+            for node in nodes
         )
-        for node_index in range(max(0, len(nodes) - 1))
-    ]
-    if nodes:
+        duplication_ratio = min(1.0, label_length / source_length)
+        score = 0.8 if diagram_type in {"process", "cause-effect", "comparison"} else 0.72
+        if duplication_ratio > 0.8:
+            score -= 0.22
         purpose: VisualPurpose = {
             "example": "application",
-            "checkpoint": "exercise",
             "misconception": "comparison",
             "reasoning": "structure",
             "method": "process",
         }.get(role, "structure")  # type: ignore[assignment]
+        diagram_label = {
+            "process": "步骤关系",
+            "cause-effect": "因果关系",
+            "comparison": "对比关系",
+            "mapping": "映射关系",
+            "hierarchy": "概念层级",
+            "reasoning": "推理关系",
+        }.get(diagram_type, "概念关系")
         return VisualAnchorV1(
             visual_id=visual_id,
             kind="relational_diagram",
             purpose=purpose,
             source_fragment_ids=ids,
-            alt_text=f"以课程原文片段构成的{purpose}图解",
+            alt_text=diagram_label,
             nodes=nodes,
             edges=edges,
             parameters={
                 "direction": "horizontal" if index % 2 == 0 else "vertical",
-                "diagram_type": (
-                    "process"
-                    if role in {"method", "checkpoint"}
-                    else "cause-effect"
-                    if role == "reasoning"
-                    else "relationship"
+                "diagram_type": diagram_type,
+                "relation_evidence": evidence,
+                "source_text_duplication_ratio": round(duplication_ratio, 6),
+                "information_gain_score": round(max(0.0, score), 6),
+            },
+        )
+    source_text = " ".join(
+        _clean_source_text(item.text)
+        for item in fragments
+        if _clean_source_text(item.text)
+    )
+    if role == "example" and len(source_text) >= 20:
+        return VisualAnchorV1(
+            visual_id=visual_id,
+            kind="generated_illustration",
+            purpose="application",
+            source_fragment_ids=ids,
+            alt_text=_trim_takeaway(source_text, 120),
+            parameters={
+                "prompt": (
+                    "Create a clear educational illustration for this source concept. "
+                    "Use one dominant scene, no written words, no letters, no numbers, "
+                    f"no logo. Source concept: {source_text[:600]}"
                 ),
+                "size": "1536x1024",
+                "generation_seed": stable_hash(
+                    {"page_id": page.page_id, "source": source_text},
+                    prefix="seed_",
+                )[-16:],
+                "information_gain_score": 0.9,
             },
         )
     return _none_anchor(page.page_id, "structure")
@@ -952,10 +1446,163 @@ def _source_clauses(fragments: list[Any]) -> list[tuple[str, str]]:
     for fragment in fragments:
         clean = _clean_source_text(fragment.text)
         for value in re.split(r"(?:[。！？；;]\s*|\n+)", clean):
-            label = _trim_takeaway(value.strip(), 34)
+            label = _trim_takeaway(value.strip(), 26)
             if label and label not in {item[0] for item in values}:
                 values.append((label, fragment.fragment_id))
     return values
+
+
+def _source_formula(fragments: list[Any]) -> str:
+    """Extract an existing display expression without rewriting it."""
+    source = "\n".join(str(item.text or "") for item in fragments)
+    display = re.search(
+        r"(\$\$.*?\$\$|\\\[.*?\\\])",
+        source,
+        re.DOTALL,
+    )
+    if display:
+        formula = display.group(1).strip()
+        body = re.sub(r"^(?:\$\$|\\\[)|(?:\$\$|\\\])$", "", formula).strip()
+        if len(body) > 220:
+            return ""
+        if len(re.findall(r"[\u4e00-\u9fff]", body)) > 36:
+            return ""
+        if len(re.findall(r"[。！？；]", body)) > 2:
+            return ""
+        if not re.search(
+            r"(?:[=<>≤≥∈⊆∩∪+\-*/^_]|\\(?:frac|sum|prod|int|dim|begin))",
+            body,
+        ):
+            return ""
+        return formula
+    return ""
+
+
+def _semantic_relation_spec(
+    page: Any,
+    fragments: list[Any],
+    clauses: list[tuple[str, str]],
+    list_clauses: list[tuple[str, str]],
+) -> tuple[str, str, list[tuple[str, str]], str] | None:
+    """Infer a diagram only when the source exposes an actual relationship."""
+    role = str(getattr(page, "narrative_role", "") or "")
+    source = " ".join(_clean_source_text(item.text) for item in fragments)
+    if role == "method" and len(list_clauses) >= 2:
+        return "sequence", "process", list_clauses, "method_role_with_ordered_items"
+    if role == "misconception" and len(clauses) >= 2:
+        return "contrasts", "comparison", clauses, "misconception_role"
+    if (
+        len(list_clauses) >= 2
+        and any(item.kind == "heading" for item in fragments)
+    ):
+        heading = next(
+            (
+                (_trim_takeaway(_clean_source_text(item.text), 26), item.fragment_id)
+                for item in fragments
+                if item.kind == "heading" and _clean_source_text(item.text)
+            ),
+            None,
+        )
+        if heading:
+            return (
+                "contains",
+                "hierarchy",
+                [heading, *list_clauses[:4]],
+                "heading_with_source_list",
+            )
+    relation_rules = (
+        (
+            "causes",
+            "cause-effect",
+            r"(?:因为|由于|因此|所以|导致|使得|从而|because|therefore|causes?|leads?\s+to)",
+            "explicit_causal_connector",
+        ),
+        (
+            "contrasts",
+            "comparison",
+            r"(?:相比|区别|不同|相反|但是|而非|versus|\bvs\.?\b|whereas|unlike)",
+            "explicit_comparison_connector",
+        ),
+        (
+            "maps_to",
+            "mapping",
+            r"(?:映射为|变换为|转化为|输入.+输出|maps?\s+to|transforms?\s+into)",
+            "explicit_mapping_connector",
+        ),
+        (
+            "sequence",
+            "process",
+            r"(?:首先|然后|随后|最后|第一步|第二步|流程|first|then|finally|step\s+\d+)",
+            "explicit_sequence_connector",
+        ),
+        (
+            "supports",
+            "reasoning",
+            r"(?:说明|表明|推出|可得|证明|意味着|implies|shows?|proves?|hence)",
+            "explicit_reasoning_connector",
+        ),
+    )
+    if len(clauses) >= 2:
+        for relation, diagram_type, pattern, evidence in relation_rules:
+            if re.search(pattern, source, re.IGNORECASE):
+                return relation, diagram_type, clauses, evidence
+    return None
+
+
+def _relation_edges(
+    nodes: list[VisualNodeV1],
+    relation: str,
+    diagram_type: str,
+) -> list[VisualEdgeV1]:
+    relation_value = relation if relation in {
+        "sequence",
+        "supports",
+        "contrasts",
+        "causes",
+        "contains",
+        "maps_to",
+    } else "supports"
+    if diagram_type == "hierarchy":
+        return [
+            VisualEdgeV1(
+                source=nodes[0].node_id,
+                target=node.node_id,
+                relation="contains",
+            )
+            for node in nodes[1:]
+        ]
+    return [
+        VisualEdgeV1(
+            source=nodes[index].node_id,
+            target=nodes[index + 1].node_id,
+            relation=relation_value,  # type: ignore[arg-type]
+        )
+        for index in range(len(nodes) - 1)
+    ]
+
+
+def _coordinate_parameters(fragments: list[Any]) -> dict[str, Any] | None:
+    source = " ".join(str(item.text or "") for item in fragments)
+    matches = list(_COORDINATE_PAIR_RE.finditer(source))
+    if len(matches) < 2:
+        return None
+    points: list[list[float]] = []
+    labels: list[str] = []
+    for match in matches[:6]:
+        point = [float(match.group("x")), float(match.group("y"))]
+        if point in points:
+            continue
+        points.append(point)
+        labels.append(match.group("label"))
+    if len(points) < 2:
+        return None
+    return {
+        "points": points,
+        "point_labels": labels,
+        "connect_points": bool(re.search(r"(?:映射|变换|旋转|→|->|maps?\s+to)", source, re.I)),
+        "axis_labels": ["x", "y"],
+        "source_bound": True,
+    }
 
 
 def _clean_source_text(value: str) -> str:
@@ -995,9 +1642,33 @@ def _normalized_grounding_text(value: str) -> str:
     return re.sub(r"\s+", "", _clean_source_text(value))
 
 
-def _trim_takeaway(value: str, limit: int = 54) -> str:
+def _trim_takeaway(value: str, limit: int = 48) -> str:
     clean = _clean_source_text(value)
-    return clean if len(clean) <= limit else clean[: limit - 1].rstrip("，,；;：: ") + "…"
+    if len(clean) <= limit:
+        return clean
+    excerpt = clean[:limit]
+    opening = max(excerpt.rfind("（"), excerpt.rfind("("))
+    closing = max(excerpt.rfind("）"), excerpt.rfind(")"))
+    if opening > closing and opening >= max(8, limit // 2):
+        excerpt = excerpt[:opening]
+    else:
+        punctuation = max(
+            excerpt.rfind("，"),
+            excerpt.rfind(","),
+            excerpt.rfind("；"),
+            excerpt.rfind(";"),
+            excerpt.rfind("："),
+            excerpt.rfind(":"),
+            excerpt.rfind("）"),
+            excerpt.rfind(")"),
+        )
+        if punctuation >= max(8, limit // 2):
+            excerpt = excerpt[:punctuation + (1 if excerpt[punctuation] in "）)" else 0)]
+        else:
+            space = excerpt.rfind(" ")
+            if space >= max(8, limit // 2):
+                excerpt = excerpt[:space]
+    return excerpt.rstrip("，,；;：:、 ")
 
 
 __all__ = [
@@ -1012,6 +1683,7 @@ __all__ = [
     "build_signature",
     "deterministic_visual_plan",
     "plan_slide_visuals",
+    "rebalance_visual_plan_pages",
     "validate_visual_plan",
     "visual_quality_report",
     "visual_integrity_issues",
