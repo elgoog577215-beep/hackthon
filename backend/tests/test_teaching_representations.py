@@ -624,6 +624,15 @@ def test_representation_edits_classify_semantic_boundary_and_preserve_course_sou
     assert detected_goal_shift["semantic_change"]["to_label"] == "概念理解"
     assert "不只是措辞调整" in detected_goal_shift["semantic_change"]["interpretation"]
     assert len(detected_goal_shift["semantic_change"]["instructional_implications"]) == 3
+    detected_version_refresh = classify_representation_edit(
+        field="key_message",
+        before="直接介绍 DeepSeek V3.2 的核心能力与典型应用",
+        after="以 DeepSeek V4 为当前主线，并回顾 V3.2 的关键能力与技术演进",
+    )
+    assert detected_version_refresh["classification"] == "semantic"
+    assert detected_version_refresh["semantic_change"]["from_label"] == "DeepSeek V3.2"
+    assert detected_version_refresh["semantic_change"]["to_label"] == "DeepSeek V4"
+    assert "技术演进背景" in detected_version_refresh["semantic_change"]["interpretation"]
 
     impact = representation_edit_impact(registry, spec, unit_id="slide:section-a")
     assert document.blocks[0].block_id in impact["block_ids"]

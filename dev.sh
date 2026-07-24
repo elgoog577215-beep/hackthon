@@ -111,13 +111,18 @@ if [ "$RECORDLY_DEMO" -eq 1 ]; then
     printf '正在重置双 Demo 的课程、教学材料与个人学习状态…\n'
     "$PYTHON_BIN" "$ROOT_DIR/scripts/prepare_recordly_demo.py" \
         --frontend-origin "http://$FRONTEND_HOST:$FRONTEND_PORT" >/dev/null
-    printf '录屏数据已就绪：课程 demo-matrix-growth-v2，学习者 video2-demo-student\n'
+    printf '录屏数据已就绪：视频一人工智能通识课，视频二矩阵课程，学习者 video2-demo-student\n'
 fi
 
 printf '正在启动后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
 (
     cd "$BACKEND_DIR"
     export EVOLUTION_DEMO_MODE
+    if [ "$RECORDLY_DEMO" -eq 1 ]; then
+        exec "$PYTHON_BIN" -m uvicorn main:app \
+            --host "$BACKEND_HOST" \
+            --port "$BACKEND_PORT"
+    fi
     exec "$PYTHON_BIN" -m uvicorn main:app \
         --host "$BACKEND_HOST" \
         --port "$BACKEND_PORT" \
@@ -144,7 +149,7 @@ printf '前端：http://%s:%s\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
 printf '后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
 printf 'API 文档：http://%s:%s/docs\n' "$BACKEND_HOST" "$BACKEND_PORT"
 if [ "$RECORDLY_DEMO" -eq 1 ]; then
-    printf '视频一：http://%s:%s/course/demo-matrix-growth-v2/ppt\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
+    printf '视频一：http://%s:%s/course/demo-ai-literacy-update-v1/ppt\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
     printf '视频二：http://%s:%s/course/demo-matrix-growth-v2/learn/v2-sec-1-2\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
     printf '固定提问：矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。\n'
 fi

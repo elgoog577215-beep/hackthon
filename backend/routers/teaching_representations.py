@@ -384,6 +384,17 @@ def _representation_and_spec(course_id: str, representation_id: str):
     return registry, representation, spec
 
 
+def _representation_and_spec_reconciled(course_id: str, representation_id: str):
+    try:
+        return _representation_and_spec(course_id, representation_id)
+    except KeyError:
+        # A representation request can race with an atomic registry publish.
+        # Reconcile once from the canonical operation log before treating a
+        # previously visible representation as missing.
+        _reconciled_registry(course_id)
+        return _representation_and_spec(course_id, representation_id)
+
+
 def _representation_unit(spec: Any, unit_id: str) -> dict[str, Any] | None:
     content = spec.payload.get("content") or {}
     units = (
@@ -410,7 +421,7 @@ async def preview_teaching_representation_edit(
         await get_course_or_404(course_id)
     try:
         registry, _representation, spec = await run_in_threadpool(
-            _representation_and_spec,
+            _representation_and_spec_reconciled,
             course_id,
             representation_id,
         )
@@ -427,6 +438,7 @@ async def preview_teaching_representation_edit(
         spec,
         unit_id=body.unit_id,
         field=body.field,
+        semantic_change=classification.get("semantic_change"),
     )
     return {"status": "preview", **classification, "impact": impact}
 
@@ -443,7 +455,7 @@ async def apply_teaching_representation_edit(
         await get_course_or_404(course_id)
     try:
         registry, representation, spec = await run_in_threadpool(
-            _representation_and_spec,
+            _representation_and_spec_reconciled,
             course_id,
             representation_id,
         )
@@ -460,6 +472,7 @@ async def apply_teaching_representation_edit(
         spec,
         unit_id=body.unit_id,
         field=body.field,
+        semantic_change=classification.get("semantic_change"),
     )
     if body.decision == "representation_only":
         try:
