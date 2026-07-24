@@ -8,7 +8,7 @@ const { chromium } = require('/Users/yq/.cache/codex-runtimes/codex-primary-runt
 const cdpEndpoint = process.env.EDGE_CDP_URL ?? 'http://127.0.0.1:9224'
 const outputDir = process.env.VIDEO1_FRAME_DIR
 const frameRate = Number(process.env.VIDEO1_FRAME_RATE ?? 15)
-const durationSeconds = Number(process.env.VIDEO1_DURATION ?? 91)
+const durationSeconds = Number(process.env.VIDEO1_DURATION ?? 70)
 if (!outputDir) throw new Error('缺少 VIDEO1_FRAME_DIR')
 
 await mkdir(outputDir, { recursive: true })
