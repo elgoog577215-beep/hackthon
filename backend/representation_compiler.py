@@ -19,7 +19,24 @@ from slide_deck import (
     compile_slide_deck,
     validate_slide_deck,
 )
-from slide_deck_renderer import export_structured_slide_deck
+from slide_deck_renderer import audit_exported_pptx, export_structured_slide_deck
+from slide_deck_v3 import (
+    SLIDE_DECK_V3_COMPILER_VERSION,
+    SlideAllocationPlanV2,
+    SlideDeckMode,
+    SlideDeckTheme,
+    compile_slide_deck_v3,
+    normalize_slide_deck_theme,
+    slide_deck_variant_key,
+    validate_slide_deck_v3,
+)
+from slide_deck_v4 import (
+    SLIDE_DECK_V4_COMPILER_VERSION,
+    compile_slide_deck_v4,
+    validate_slide_deck_v4,
+)
+from slide_story_plan import SlideStoryPlanV2
+from slide_visuals import SlideVisualPlanV1
 from teaching_representations import (
     RepresentationPlan,
     SourceBinding,
@@ -51,6 +68,7 @@ def compile_core_representations(
     existing_by_type = {
         item.representation_type: item
         for item in baseline.representations
+        if not item.variant_key
     }
     existing_specs_by_type = {
         item.representation_type: next(
@@ -58,6 +76,7 @@ def compile_core_representations(
             None,
         )
         for item in baseline.representations
+        if not item.variant_key
     }
     plan = RepresentationPlan(
         plan_id=stable_hash({
@@ -288,6 +307,38 @@ def rebuild_core_representations_safely(
                 resume_slides=resume_slides,
             )
             candidate = shadow.load(document.course_id)
+            # PPT v3 variants are independently cached.  A legacy all-core
+            # rebuild must not erase them from the registry.
+            variant_representations = [
+                deepcopy(item) for item in previous.representations
+                if item.representation_type == "slide_deck" and item.variant_key
+            ]
+            variant_spec_ids = {item.spec_id for item in variant_representations}
+            candidate.representations.extend(variant_representations)
+            candidate.specs.extend(
+                deepcopy(item) for item in previous.specs
+                if item.spec_id in variant_spec_ids
+            )
+            # Keep derivation edges for independently cached variants so later
+            # course edits still mark the affected combinations stale.
+            merged_nodes = {
+                item.node_id: deepcopy(item)
+                for item in previous.derivation_graph.nodes
+            }
+            merged_nodes.update({
+                item.node_id: deepcopy(item)
+                for item in candidate.derivation_graph.nodes
+            })
+            merged_edges = {
+                item.edge_id: deepcopy(item)
+                for item in previous.derivation_graph.edges
+            }
+            merged_edges.update({
+                item.edge_id: deepcopy(item)
+                for item in candidate.derivation_graph.edges
+            })
+            candidate.derivation_graph.nodes = list(merged_nodes.values())
+            candidate.derivation_graph.edges = list(merged_edges.values())
             current_spec_ids = {item.spec_id for item in candidate.representations}
             current_specs = [
                 item for item in candidate.specs if item.spec_id in current_spec_ids
@@ -392,12 +443,320 @@ def export_slide_deck_pptx(
     spec: TeachingRepresentationSpec,
     output_path: str | Path,
     *,
-    theme: str = "qingfeng-classroom",
+    theme: str | None = None,
 ) -> Path:
     if spec.representation_type != "slide_deck":
         raise ValueError("Only slide deck specs can be exported to pptx")
     content = spec.payload.get("content") or {}
-    return export_structured_slide_deck(content, output_path, theme=theme)
+    resolved_theme = theme or str(content.get("theme") or "qingfeng-classroom")
+    return export_structured_slide_deck(content, output_path, theme=resolved_theme)
+
+
+def compile_slide_deck_variant(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    repository: TeachingRepresentationRepository,
+    *,
+    mode: SlideDeckMode,
+    theme: SlideDeckTheme,
+    allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
+    visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
+    story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Compile and register one source-first PPT variant only."""
+    now = datetime.now(timezone.utc).isoformat()
+    normalized_theme = normalize_slide_deck_theme(theme)
+    variant_key = slide_deck_variant_key(mode, normalized_theme)
+    vector = revision_vector_for_document(document).revisions
+    plan = RepresentationPlan(
+        plan_id=stable_hash({
+            "course_id": document.course_id,
+            "revision": document.document_revision,
+            "type": "slide_deck",
+            "variant_key": variant_key,
+        }, prefix="rpl_"),
+        course_id=document.course_id,
+        source_revision_vector=vector,
+        target_scope={"kind": "course", "variant_key": variant_key},
+        requested_representations=["slide_deck"],
+        pedagogical_reasons=[
+            "课程正文是唯一内容源",
+            "模型只分配片段与审核页面，不生成教学正文",
+        ],
+        cost_class="medium",
+        accessibility_requirements=["阅读顺序", "可编辑文本", "16:9"],
+        quality_requirements=["正文哈希完整", "模式覆盖完整", "页面无溢出"],
+        fallback_chain=["slide_deck"],
+        status="ready",
+    )
+    repository.register_plan(plan)
+    compiler_version = SLIDE_DECK_V3_COMPILER_VERSION
+    if story_plan is not None:
+        content = compile_slide_deck_v4(
+            document,
+            course_data,
+            story_plan=story_plan,
+            allocation_plan=allocation_plan,
+            visual_plan=visual_plan,
+            progress_callback=progress_callback,
+            resume_slides=resume_slides,
+        )
+        with tempfile.TemporaryDirectory(prefix="lingzhi-slide-render-review-") as review_dir:
+            review_path = Path(review_dir) / "candidate.pptx"
+            export_structured_slide_deck(
+                content,
+                review_path,
+                require_quality=False,
+                theme=normalized_theme,
+            )
+            content["render_review"] = audit_exported_pptx(
+                review_path,
+                expected_slide_count=len(content.get("slides") or []),
+            )
+        if progress_callback:
+            progress_callback({
+                "event": "render_review",
+                "progress": 98,
+                "stage": "render_review",
+                "render_review": deepcopy(content["render_review"]),
+            })
+            progress_callback({
+                "event": "repair_progress",
+                "progress": 99,
+                "stage": "repair_progress",
+                "status": (
+                    "not_needed"
+                    if content["render_review"].get("passed")
+                    else "blocked_after_export_audit"
+                ),
+                "repair_attempts": 0,
+            })
+        quality = validate_slide_deck_v4(content, course_data=course_data)
+        render_blockers = list((content.get("render_review") or {}).get("blockers") or [])
+        if render_blockers:
+            quality["passed"] = False
+            quality["blockers"] = [
+                *(quality.get("blockers") or []),
+                *render_blockers,
+            ]
+            quality["score"] = max(0, int(quality.get("score") or 0) - 20)
+        compiler_version = SLIDE_DECK_V4_COMPILER_VERSION
+    else:
+        content = compile_slide_deck_v3(
+            document,
+            course_data,
+            mode=mode,
+            theme=normalized_theme,
+            allocation_plan=allocation_plan,
+            visual_plan=visual_plan,
+            progress_callback=progress_callback,
+            resume_slides=resume_slides,
+        )
+        quality = validate_slide_deck_v3(content, course_data=course_data)
+    content["quality_report"] = deepcopy(quality)
+    content["quality_summary"] = {
+        **(content.get("quality_summary") or {}),
+        "passed": quality["passed"],
+        "score": quality["score"],
+    }
+    unit_bindings = _unit_bindings_for_payload(document, content)
+    bindings = _dedupe_bindings([
+        binding
+        for values in unit_bindings.values()
+        for binding in values
+    ])
+    spec_payload = {
+        "compiler_version": (
+            f"{REPRESENTATION_COMPILER_VERSION}:{compiler_version}"
+        ),
+        "representation_type": "slide_deck",
+        "variant_key": variant_key,
+        "content": content,
+        "quality_report": deepcopy(quality),
+    }
+    spec_id = stable_hash({
+        "course_id": document.course_id,
+        "type": "slide_deck",
+        "variant_key": variant_key,
+        "source_revision_vector": _combined_revisions(bindings),
+        "payload": spec_payload,
+    }, prefix="trs_")
+    spec_revision = stable_hash(spec_payload, prefix="tsr_")
+    spec = TeachingRepresentationSpec(
+        spec_id=spec_id,
+        course_id=document.course_id,
+        representation_type="slide_deck",
+        variant_key=variant_key,
+        source_bindings=bindings,
+        unit_bindings=unit_bindings,
+        payload=spec_payload,
+        revision=spec_revision,
+        created_at=now,
+        updated_at=now,
+    )
+    repository.register_spec(spec)
+    representation_id = stable_hash({
+        "course_id": document.course_id,
+        "type": "slide_deck",
+        "variant_key": variant_key,
+    }, prefix="trp_")
+    representation = TeachingRepresentation(
+        representation_id=representation_id,
+        course_id=document.course_id,
+        representation_type="slide_deck",
+        variant_key=variant_key,
+        source_bindings=bindings,
+        source_revision_vector=_combined_revisions(bindings),
+        spec_id=spec_id,
+        semantic_fingerprint=stable_hash({
+            "fragment_manifest": content.get("fragment_manifest"),
+            "allocation_plan": content.get("allocation_plan"),
+        }, prefix="sem_"),
+        render_fingerprint=stable_hash({
+            "spec_revision": spec_revision,
+            "renderer": f"pptx:{compiler_version}",
+            "theme": normalized_theme,
+        }, prefix="rnd_"),
+        quality_report_id=stable_hash({
+            "spec_revision": spec_revision,
+            "quality": quality,
+        }, prefix="rqr_"),
+        revision=stable_hash({
+            "spec_revision": spec_revision,
+            "source_revision_vector": _combined_revisions(bindings),
+            "variant_key": variant_key,
+        }, prefix="rpr_"),
+        status="ready" if quality["passed"] else "failed",
+        stale_unit_ids=[],
+        stale_reasons=[] if quality["passed"] else [
+            str(item.get("code") or "slide_quality_failed")
+            for item in quality.get("blockers") or []
+        ],
+        created_at=now,
+        updated_at=now,
+    )
+    repository.register_representation(
+        representation,
+        dependency_kind="layout",
+        rebuild_policy="on_demand",
+    )
+    return {
+        "plan_id": plan.plan_id,
+        "variant_key": variant_key,
+        "representation_id": representation_id,
+        "spec_id": spec_id,
+        "status": representation.status,
+        "unit_count": len(content.get("slides") or []),
+        "quality": quality,
+    }
+
+
+def rebuild_slide_deck_variant_safely(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    repository: TeachingRepresentationRepository,
+    *,
+    mode: SlideDeckMode,
+    theme: SlideDeckTheme,
+    allocation_plan: SlideAllocationPlanV2 | dict[str, Any] | None = None,
+    visual_plan: SlideVisualPlanV1 | dict[str, Any] | None = None,
+    story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    resume_slides: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Publish one variant atomically and keep the last usable version on failure."""
+    previous = repository.load(document.course_id)
+    variant_key = slide_deck_variant_key(mode, theme)
+    previous_variant = next(
+        (
+            item for item in previous.representations
+            if item.representation_type == "slide_deck"
+            and item.variant_key == variant_key
+        ),
+        None,
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="lingzhi-slide-variant-build-") as temp_dir:
+            shadow = TeachingRepresentationRepository(temp_dir)
+            shadow.save(deepcopy(previous))
+            build = compile_slide_deck_variant(
+                document,
+                course_data,
+                shadow,
+                mode=mode,
+                theme=theme,
+                allocation_plan=allocation_plan,
+                visual_plan=visual_plan,
+                story_plan=story_plan,
+                progress_callback=progress_callback,
+                resume_slides=resume_slides,
+            )
+            if not build["quality"]["passed"]:
+                if progress_callback:
+                    progress_callback({
+                        "event": "build_blocked",
+                        "progress": 100,
+                        "quality": build["quality"],
+                    })
+                return {
+                    "status": "failed_using_last_available",
+                    "variant_key": variant_key,
+                    "quality": build["quality"],
+                    "last_available": (
+                        previous_variant.model_dump(mode="json")
+                        if previous_variant
+                        else None
+                    ),
+                }
+            candidate = shadow.load(document.course_id)
+            committed = repository.save(candidate)
+            if progress_callback:
+                progress_callback({
+                    "event": "build_published",
+                    "progress": 100,
+                    "quality": build["quality"],
+                    "variant_key": variant_key,
+                })
+            return {
+                "status": "synchronized",
+                "variant_key": variant_key,
+                "quality": build["quality"],
+                "registry_revision": committed.registry_revision,
+                "rebuilt": [build],
+                "rebuilt_unit_count": build["unit_count"],
+                "reused_unit_count": len(resume_slides or []),
+            }
+    except Exception as exc:
+        if progress_callback:
+            progress_callback({
+                "event": "build_failed",
+                "progress": 100,
+                "message": str(exc),
+            })
+        return {
+            "status": "failed_using_last_available",
+            "variant_key": variant_key,
+            "quality": {
+                "passed": False,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "slide_variant_rebuild_failed",
+                    "message": str(exc),
+                }],
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "slide_variant_rebuild_failed",
+                    "message": str(exc),
+                }],
+            },
+            "last_available": (
+                previous_variant.model_dump(mode="json")
+                if previous_variant
+                else None
+            ),
+        }
 
 
 def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -> dict[str, Any]:

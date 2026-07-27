@@ -27,8 +27,8 @@
       <small>{{ t('pptWorkspace.emptyEyebrow', '课堂课件尚未生成') }}</small>
       <h1>{{ courseTitle }}</h1>
       <p>{{ buildErrorLabel || t('pptWorkspace.emptyDescription', '从课程目标、正文、知识点与理解检查编译一套可直接上课的 PPT。') }}</p>
-      <button type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="rebuild">
-        <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '生成完整课件') }}
+      <button type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="openGenerator(false)">
+        <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '选择模式与风格') }}
       </button>
     </div>
 
@@ -59,8 +59,13 @@
         :error="store.buildError"
         :quality="store.slideQuality"
         :preview-source="store.slidePreviewSource"
+        :mode="selectedMode"
+        :theme="selectedTheme"
+        :variants="slideVariants"
         @back="backToCourse"
         @rebuild="rebuild"
+        @configure="openGenerator(false)"
+        @variant-change="selectVariant"
         @open-materials="openMaterials"
         @ask-ai="openAiForSlide"
         @open-course="openSameSourceCourse"
@@ -90,6 +95,17 @@
         />
       </Transition>
     </template>
+
+    <SlideDeckGeneratorDialog
+      :open="generatorOpen"
+      :mode="selectedMode"
+      :theme="selectedTheme"
+      :busy="store.building"
+      :closable="Boolean(slideRepresentation)"
+      :fragment-count="estimatedFragmentCount"
+      @close="closeGenerator"
+      @confirm="generateVariant"
+    />
   </section>
 </template>
 
@@ -99,10 +115,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
+import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
+import type { SlideDeckMode, SlideDeckTheme, TeachingRepresentation } from '../stores/teachingRepresentations'
 import type { CourseDocumentEnvelope } from '../stores/types'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import http from '../utils/http'
@@ -122,7 +140,13 @@ const documentEnvelope = ref<CourseDocumentEnvelope | null>(null)
 const migrating = ref(false)
 const migrationMessage = ref('')
 const documentLoadError = ref('')
+const generatorOpen = ref(false)
+const forceGeneratorBuild = ref(false)
+const selectedMode = ref<SlideDeckMode>('teaching')
+const selectedTheme = ref<V3Theme>('qizhi-classroom')
 let workspaceAttempt = 0
+
+type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const courseId = computed(() => String(route.params.courseId || ''))
 const courseTitle = computed(() => (
@@ -130,8 +154,18 @@ const courseTitle = computed(() => (
   || courseStore.currentCourse?.course_name
   || t('pptWorkspace.untitledCourse', '课程演示')
 ))
+const slideVariants = computed(() => (
+  store.representations.filter(item => item.representation_type === 'slide_deck' && item.variant_key)
+))
+const activeVariantKey = computed(() => `${selectedMode.value}:${selectedTheme.value}`)
 const slideRepresentation = computed(() => (
-  store.representations.find(item => item.representation_type === 'slide_deck') || null
+  store.representations.find(item => (
+    item.representation_type === 'slide_deck'
+    && item.representation_id === store.selectedId
+  ))
+  || slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+  || store.representations.find(item => item.representation_type === 'slide_deck')
+  || null
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const displaySlides = computed(() => (
@@ -139,16 +173,28 @@ const displaySlides = computed(() => (
     ? store.liveSlides
     : (content.value?.slides || [])
 ))
+const estimatedFragmentCount = computed(() => (
+  Number(content.value?.fragment_manifest?.length)
+  || (documentEnvelope.value?.document?.blocks || []).length * 3
+))
 const buildErrorLabel = computed(() => (
   store.buildError === 'quality_gate_failed'
     ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
     : store.buildError
 ))
 const stageLabel = computed(() => ({
+  fragmenting: '正在切分并校验课程原文',
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
+  story_plan: '正在读取课程逻辑',
+  chapter_plan: '正在编排章节叙事',
+  episode_progress: '正在生成教学场景',
+  layout_plan: '正在匹配语义版式',
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划整套页面'),
   slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在逐页生成教学内容'),
+  reviewing: '正在审核页面分配',
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
+  render_review: '正在渲染复核成品',
+  repair_progress: '正在定向修复问题页面',
   paused: '已暂停，可从保存点继续',
   resuming: '正在从保存点继续',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
@@ -166,9 +212,22 @@ async function loadWorkspace() {
   try {
     const envelope = await loadDocumentEnvelope(id, attempt)
     if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
-    await store.ensure(id)
+    store.deferMissingSlideBuild = true
+    try {
+      await store.ensure(id)
+    } finally {
+      store.deferMissingSlideBuild = false
+    }
     if (!isCurrentAttempt(id, attempt)) return
-    if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+    const preferred = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+      || slideVariants.value[0]
+      || store.representations.find(item => item.representation_type === 'slide_deck')
+    if (preferred) {
+      applyVariantSelection(preferred)
+      await store.select(preferred.representation_id)
+    } else if (!store.liveSlides.length) {
+      generatorOpen.value = true
+    }
   } catch {
     if (isCurrentAttempt(id, attempt)) {
       documentLoadError.value = t('pptWorkspace.documentLoadFailed', '加载课程源失败，请重试')
@@ -208,9 +267,22 @@ async function migrateCourse() {
     courseStore.applyCourseDocumentEnvelope(response.data)
     documentEnvelope.value = response.data
     if (response.data.source_format !== 'canonical') return
-    await store.ensure(id)
+    store.deferMissingSlideBuild = true
+    try {
+      await store.ensure(id)
+    } finally {
+      store.deferMissingSlideBuild = false
+    }
     if (!isCurrentAttempt(id, attempt)) return
-    if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+    const preferred = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+      || slideVariants.value[0]
+      || store.representations.find(item => item.representation_type === 'slide_deck')
+    if (preferred) {
+      applyVariantSelection(preferred)
+      await store.select(preferred.representation_id)
+    } else if (!store.liveSlides.length) {
+      generatorOpen.value = true
+    }
   } catch (error: any) {
     if (error?.response?.status !== 409 || !isCurrentAttempt(id, attempt)) return
     const refreshed = await loadDocumentEnvelope(id, attempt)
@@ -225,8 +297,63 @@ async function migrateCourse() {
 async function rebuild() {
   if (!courseId.value || store.building) return
   if (store.buildPaused) await store.resumeBuild().catch(() => undefined)
-  else await store.buildProgressive(courseId.value).catch(() => undefined)
+  else await store.buildSlideDeckVariant(courseId.value, {
+    mode: selectedMode.value,
+    theme: selectedTheme.value,
+    forceRebuild: true,
+  }).catch(() => undefined)
   if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+}
+
+function openGenerator(forceRebuild: boolean) {
+  forceGeneratorBuild.value = forceRebuild
+  generatorOpen.value = true
+}
+
+function closeGenerator() {
+  generatorOpen.value = false
+  const current = store.selectedRepresentation
+  if (current?.variant_key) {
+    applyVariantSelection(current)
+  } else {
+    selectedMode.value = 'teaching'
+    selectedTheme.value = 'qizhi-classroom'
+  }
+}
+
+async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
+  if (!courseId.value || store.building) return
+  selectedMode.value = value.mode
+  selectedTheme.value = value.theme
+  generatorOpen.value = false
+  await store.buildSlideDeckVariant(courseId.value, {
+    mode: value.mode,
+    theme: value.theme,
+    forceRebuild: forceGeneratorBuild.value,
+  }).catch(() => undefined)
+  forceGeneratorBuild.value = false
+  const variant = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+  if (variant) await store.select(variant.representation_id)
+}
+
+async function selectVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
+  selectedMode.value = value.mode
+  selectedTheme.value = value.theme
+  const cached = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+  if (cached) {
+    await store.select(cached.representation_id)
+    return
+  }
+  forceGeneratorBuild.value = false
+  generatorOpen.value = true
+}
+
+function applyVariantSelection(representation: TeachingRepresentation) {
+  const [mode = '', theme = ''] = String(representation.variant_key || '').split(':')
+  if (['full', 'teaching', 'concise'].includes(mode)) selectedMode.value = mode as SlideDeckMode
+  if (['qizhi-classroom', 'academic-editorial', 'grid-notebook', 'modern-geometric', 'dark-tech'].includes(theme)) {
+    selectedTheme.value = theme as V3Theme
+  }
 }
 
 async function pauseBuild() {

@@ -99,6 +99,7 @@ class TeachingRepresentation(BaseModel):
     representation_id: str
     course_id: str
     representation_type: RepresentationType
+    variant_key: str = ""
     source_bindings: list[SourceBinding]
     source_revision_vector: dict[str, str] = Field(default_factory=dict)
     spec_id: str
@@ -150,6 +151,7 @@ class TeachingRepresentationSpec(BaseModel):
     spec_id: str
     course_id: str
     representation_type: RepresentationType
+    variant_key: str = ""
     source_bindings: list[SourceBinding]
     unit_bindings: dict[str, list[SourceBinding]] = Field(default_factory=dict)
     payload: dict[str, Any] = Field(default_factory=dict)

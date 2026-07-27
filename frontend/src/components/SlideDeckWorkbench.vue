@@ -1,5 +1,5 @@
 <template>
-  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="theme" :data-preview-source="previewSource">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="previewTheme" :data-preview-source="previewSource">
     <header class="slide-workbench__toolbar">
       <div class="slide-workbench__identity">
         <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
@@ -15,14 +15,40 @@
           <TriangleAlert v-else :size="13" />
           {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
-        <small class="slide-workbench__count">{{ t('teachingRepresentations.slides.demoPageCount', '{count} 页 · Demo 标准 12–18 页').replace('{count}', String(slides.length)) }}</small>
+        <small class="slide-workbench__count">{{ deckCountLabel }}</small>
+        <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
+          {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
+        </small>
+        <small v-if="currentRepresentation?.course_logic_upgrade_required" class="slide-workbench__engine-update">
+          {{ currentRepresentation.course_logic_upgrade_reason || '请先升级课程教学计划，再生成课程逻辑版 PPT' }}
+        </small>
       </div>
       <div class="slide-workbench__commands">
         <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
           <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
         </button>
-        <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuild', '同步课程最新内容')" @click="emit('rebuild')">
-          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.sync', '同步课程') }}</span>
+        <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
+          <select :value="mode" :disabled="building" aria-label="内容模式" @change="changeMode">
+            <option value="full">完整</option>
+            <option value="teaching">授课</option>
+            <option value="concise">精简</option>
+          </select>
+          <select :value="theme" :disabled="building" aria-label="视觉风格" @change="changeTheme">
+            <option value="qizhi-classroom">启智课堂{{ variantCached(mode, 'qizhi-classroom') ? ' · 已生成' : '' }}</option>
+            <option value="academic-editorial">学术编辑{{ variantCached(mode, 'academic-editorial') ? ' · 已生成' : '' }}</option>
+            <option value="grid-notebook">网格笔记{{ variantCached(mode, 'grid-notebook') ? ' · 已生成' : '' }}</option>
+            <option value="modern-geometric">现代几何{{ variantCached(mode, 'modern-geometric') ? ' · 已生成' : '' }}</option>
+            <option value="dark-tech">深色科技{{ variantCached(mode, 'dark-tech') ? ' · 已生成' : '' }}</option>
+          </select>
+          <button type="button" :disabled="building" title="查看模式与风格预览" @click="emit('configure')">
+            <SlidersHorizontal :size="15" />
+          </button>
+        </div>
+        <button v-if="standalone" type="button" class="slide-workbench__configure-compact" title="选择模式与风格" @click="emit('configure')">
+          <SlidersHorizontal :size="16" />
+        </button>
+        <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
+          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.rebuildCurrent', '重新生成当前组合') }}</span>
         </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
           <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
@@ -69,7 +95,9 @@
           :page-number="activeIndex + 1"
           :page-count="slides.length"
           :deck-title="deckTitle"
-          :theme="theme"
+          :theme="previewTheme"
+          :course-id="courseId"
+          :representation-id="representationId"
         />
         <div v-else class="slide-stage__empty">
           <LoaderCircle v-if="building" :size="24" class="spinning" />
@@ -108,8 +136,13 @@
             <dl>
               <div><dt>{{ t('teachingRepresentations.slides.layout', '版式') }}</dt><dd>{{ layoutLabel(activeSlide.layout) }}</dd></div>
               <div><dt>{{ t('teachingRepresentations.slides.purpose', '教学作用') }}</dt><dd>{{ purposeLabel(activeSlide.slide_purpose) }}</dd></div>
+              <div v-if="activeSlide.scene_kind"><dt>教学场景</dt><dd>{{ sceneLabel(activeSlide.scene_kind) }}</dd></div>
+              <div v-if="activeSlide.beat_role"><dt>页面节拍</dt><dd>{{ beatRoleLabel(activeSlide.beat_role) }}</dd></div>
+              <div v-if="activeSlide.chapter_id"><dt>章节</dt><dd>{{ activeSlide.chapter_id }}</dd></div>
               <div><dt>{{ t('teachingRepresentations.slides.textLoad', '文字负载') }}</dt><dd>{{ activeSlide.quality?.character_count || 0 }}</dd></div>
             </dl>
+            <p v-if="activeSlide.teaching_job">{{ activeSlide.teaching_job }}</p>
+            <p v-if="activeSlide.layout_selection_reason">{{ activeSlide.layout_selection_reason }}</p>
           </section>
 
           <section>
@@ -271,7 +304,9 @@
             :page-number="activeIndex + 1"
             :page-count="slides.length"
             :deck-title="deckTitle"
-            :theme="theme"
+            :theme="previewTheme"
+            :course-id="courseId"
+            :representation-id="representationId"
             presenting
           />
           <aside v-if="notesVisible">
@@ -297,12 +332,13 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, Layers3, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, ClipboardCheck, Download, GitBranch, Layers3, LoaderCircle, Moon, NotebookText, Pencil, Play, Presentation, RefreshCw, ScanSearch, ShieldCheck, SlidersHorizontal, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
-import type { SlideDeckPreviewSource, SlideDeckTheme } from '../stores/teachingRepresentations'
+import type { SlideDeckMode, SlideDeckPreviewSource, SlideDeckTheme, TeachingRepresentation } from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
+import type { SlideVisual } from '../types/slideVisual'
 import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import SlideCanvas from './SlideCanvas.vue'
@@ -325,6 +361,11 @@ interface Slide {
   title: string
   subtitle?: string
   key_message?: string
+  teaching_job?: string
+  takeaway?: string
+  transition_from?: string
+  composition?: string
+  visuals?: SlideVisual[]
   speaker_notes?: string
   section_id?: string
   blocks: SlideBlock[]
@@ -337,6 +378,14 @@ interface Slide {
   practice_task_ids?: string[]
   knowledge_labels?: string[]
   ability_labels?: string[]
+  chapter_id?: string
+  episode_id?: string
+  scene_kind?: string
+  beat_role?: string
+  primary_claim_source?: Record<string, any>
+  prerequisite_refs?: string[]
+  mastery_criterion_refs?: string[]
+  layout_selection_reason?: string
   quality?: { passed?: boolean; character_count?: number; issues?: Array<Record<string, any>> }
 }
 
@@ -353,13 +402,20 @@ const props = withDefaults(defineProps<{
   quality?: Record<string, any> | null
   previewSource?: SlideDeckPreviewSource
   standalone?: boolean
+  mode?: SlideDeckMode
+  theme?: SlideDeckTheme
+  variants?: TeachingRepresentation[]
 }>(), {
   standalone: false,
+  mode: 'teaching',
+  theme: 'qingfeng-classroom',
+  variants: () => [],
 })
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
-  (event: 'back' | 'rebuild' | 'open-materials'): void
+  (event: 'back' | 'rebuild' | 'configure' | 'open-materials'): void
+  (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
 
@@ -385,13 +441,32 @@ const presentationOpen = ref(false)
 const notesVisible = ref(false)
 const presentationBlank = ref(false)
 const presentationSurface = ref<HTMLElement | null>(null)
-const theme = ref<SlideDeckTheme>('qingfeng-classroom')
-const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap']
+const previewTheme = ref<SlideDeckTheme>(props.theme)
+const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap', 'appendix']
 let autoPreviewTimer: number | undefined
+type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const activeIndex = computed(() => Math.max(0, props.slides.findIndex(slide => slide.unit_id === activeUnitId.value)))
 const activeSlide = computed(() => props.slides[activeIndex.value] || null)
+const currentRepresentation = computed(() => (
+  props.variants.find(item => item.representation_id === props.representationId) || null
+))
 const qualityPassed = computed(() => props.quality?.passed === true)
+const deckCountLabel = computed(() => {
+  const main = Number(props.quality?.main_slide_count || 0)
+  const appendix = Number(props.quality?.appendix_slide_count || 0)
+  if (main || appendix) {
+    const parts = [
+      main ? `${main} 页主线` : '',
+      appendix ? `${appendix} 页附录` : '',
+    ].filter(Boolean)
+    const warning = props.quality?.large_deck_warning
+      ? ' · 超大课件，建议按章节拆分'
+      : ''
+    return `${parts.join(' + ')} · 共 ${main + appendix} 页${warning}`
+  }
+  return `${props.slides.length} 页`
+})
 const slideQualityPassed = computed(() => activeSlide.value?.quality?.passed === true)
 const previewSource = computed<SlideDeckPreviewSource>(() => (
   props.previewSource || (props.error ? 'draft' : 'published')
@@ -438,6 +513,8 @@ const sourceCount = computed(() => {
     ...(slide.source_keys || []),
     ...(slide.knowledge_refs || []),
     ...(slide.ability_refs || []),
+    ...(slide.prerequisite_refs || []),
+    ...(slide.mastery_criterion_refs || []),
   ]).size
 })
 const changed = computed(() => Boolean(activeSlide.value) && editValue.value.trim() !== currentFieldValue.value.trim())
@@ -477,10 +554,21 @@ const hasDetailedSyncReceipt = computed(() => (
   Array.isArray(syncReceipt.value?.changes) && syncReceipt.value.changes.length > 0
 ))
 const stageLabel = computed(() => ({
+  fragmenting: t('teachingRepresentations.slides.stages.fragmenting', '正在切分课程原文'),
   planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
+  story_plan: '正在读取课程逻辑',
+  chapter_plan: '正在编排章节叙事',
+  episode_progress: '正在生成教学场景',
+  layout_plan: '正在匹配语义版式',
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划页面'),
+  visual_plan: '正在规划教学视觉',
+  asset_compilation: '正在准备课程视觉素材',
   slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在生成页面'),
+  reviewing: t('teachingRepresentations.slides.stages.reviewing', '正在审核页面分配'),
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查质量'),
+  visual_quality: '正在检查视觉质量',
+  render_review: '正在渲染复核成品',
+  repair_progress: '正在定向修复问题页面',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 
@@ -492,6 +580,9 @@ watch(() => props.slides.map(slide => slide.unit_id), unitIds => {
   if (!unitIds.includes(activeUnitId.value)) activeUnitId.value = unitIds[0] || ''
   if (props.building && !userSelected.value) activeUnitId.value = unitIds[unitIds.length - 1] || ''
 }, { immediate: true })
+watch(() => props.theme, value => {
+  previewTheme.value = value
+})
 
 watch(activeSlide, initializeEdit, { immediate: true })
 watch(editValue, scheduleAutomaticPreview)
@@ -548,10 +639,28 @@ async function downloadSlides() {
   if (exportDisabled.value) return
   exportBusy.value = true
   try {
-    await store.downloadSlides(props.representationId, props.deckTitle, theme.value)
+    await store.downloadSlides(props.representationId, props.deckTitle, previewTheme.value)
   } finally {
     exportBusy.value = false
   }
+}
+
+function changeMode(event: Event) {
+  emit('variant-change', {
+    mode: (event.target as HTMLSelectElement).value as SlideDeckMode,
+    theme: props.theme as V3Theme,
+  })
+}
+
+function changeTheme(event: Event) {
+  emit('variant-change', {
+    mode: props.mode,
+    theme: (event.target as HTMLSelectElement).value as V3Theme,
+  })
+}
+
+function variantCached(mode: SlideDeckMode, theme: V3Theme) {
+  return props.variants.some(item => item.variant_key === `${mode}:${theme}`)
 }
 
 function resetEdit() {
@@ -780,12 +889,43 @@ function askAi() {
 
 function layoutLabel(value: string) {
   return t(`teachingRepresentations.slides.layouts.${value}`, ({
-    cover: '封面', roadmap: '路线', chapter: '章节', objective: '目标', concept: '概念', comparison: '对比', process: '过程', code: '代码', misconception: '易错', practice: '练习', recap: '小结',
+    cover: '封面', roadmap: '路线', chapter: '章节', objective: '目标', concept: '概念', comparison: '对比', process: '过程', code: '代码', misconception: '易错', practice: '练习', recap: '小结', appendix: '附录',
   } as Record<string, string>)[value] || value)
 }
 
 function purposeLabel(value: string) {
   return t(`teachingRepresentations.slides.purposes.${value}`, value || t('teachingRepresentations.slides.purposes.teaching', '教学讲解'))
+}
+
+function sceneLabel(value: string) {
+  return ({
+    chapter_entry: '章节导入',
+    prerequisite_activation: '前置唤醒',
+    concept: '概念讲解',
+    reasoning: '原理推导',
+    method: '方法教学',
+    worked_example: '完整例题',
+    practice_feedback: '练习反馈',
+    misconception: '误区修复',
+    application: '应用迁移',
+    chapter_recap: '章节收束',
+  } as Record<string, string>)[value] || value
+}
+
+function beatRoleLabel(value: string) {
+  return ({
+    driving_question: '驱动问题',
+    recall: '知识唤醒',
+    formal_explanation: '正式解释',
+    reasoning_step: '推导步骤',
+    procedure: '操作方法',
+    prompt: '题目呈现',
+    solution: '解答揭示',
+    feedback: '反馈判断',
+    repair: '错误修复',
+    mapping: '情境映射',
+    closure: '目标闭环',
+  } as Record<string, string>)[value] || value
 }
 
 function classificationLabel(value: string) {
@@ -805,10 +945,13 @@ function classificationLabel(value: string) {
 .slide-workbench__toolbar > div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }.slide-workbench__toolbar strong { overflow:hidden; color:var(--lz-text-strong); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.slide-workbench__toolbar small { flex:none; color:var(--lz-text-muted); font-size:9px; }
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
 .slide-workbench__status[data-state="error"] { color:#b42318; background:#fef3f2; }
+.slide-workbench__engine-update { padding:4px 7px; border-radius:6px; color:#8a4b08; background:#fff4dc; font-size:9px; font-weight:750; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
-.slide-workbench__theme { display:grid; grid-template-columns:1fr 1fr; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
-.slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0 9px; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
-.slide-workbench__commands .slide-workbench__theme button.active { color:#1f4fbe; background:#fff; box-shadow:0 2px 7px rgba(32,55,86,.12); }
+.slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
+.slide-workbench__theme select { min-height:28px; max-width:112px; padding:0 25px 0 8px; border:0; border-radius:6px; color:#536174; background:#fff; font-size:11px; font-weight:700; outline:none; }
+.slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
+.slide-workbench__commands .slide-workbench__theme .legacy-theme-option { display:none; }
+.slide-workbench__configure-compact { display:none !important; }
 .slide-workbench__progress { position:absolute; inset:auto 0 -1px; height:2px; background:#eef0f8; }.slide-workbench__progress i { display:block; height:100%; background:#6d5dfb; transition:width .2s ease; }
 .slide-workbench__body { min-width:0; min-height:0; display:grid; grid-template-columns:176px minmax(430px,1fr) 236px; }
 .slide-thumbnails { min-height:0; overflow:auto; padding:10px 8px 18px; border-right:1px solid var(--lz-border); background:#fbfcff; }.slide-thumbnails > button { width:100%; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:5px; margin:0 0 6px; padding:5px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }.slide-thumbnails > button:hover { background:#f3f5fb; }.slide-thumbnails > button.active { border-color:#a5b4fc; color:var(--lz-brand); background:#fff; box-shadow:0 4px 12px rgba(79,70,229,.08); }.slide-thumbnails > button.stale { border-left-color:#f59e0b; }.slide-thumbnails > button > span { padding-top:3px; font:700 8px ui-monospace,monospace; text-align:center; }
@@ -886,8 +1029,8 @@ function classificationLabel(value: string) {
 .is-standalone .slide-workbench__count { color:#8fa0b4; font-size:10px; }
 .is-standalone .slide-workbench__commands { gap:7px; }
 .is-standalone .slide-workbench__theme { border-color:rgba(255,255,255,.12); background:rgba(255,255,255,.05); }
+.is-standalone .slide-workbench__theme select { min-height:30px; color:#d8e1ec; background:#304052; }
 .is-standalone .slide-workbench__commands .slide-workbench__theme button { min-height:30px; color:#9cacbf; background:transparent; }
-.is-standalone .slide-workbench__commands .slide-workbench__theme button.active { color:#fff; background:#304052; box-shadow:0 2px 8px rgba(0,0,0,.22); }
 .is-standalone .slide-workbench__commands button {
   min-height:38px;
   padding:0 12px;
@@ -1091,7 +1234,7 @@ function classificationLabel(value: string) {
   .is-standalone .slide-workbench__commands button { width:38px; padding:0; }
   .is-standalone .slide-workbench__commands .slide-workbench__export { width:auto; padding:0 12px; }
   .is-standalone .slide-workbench__commands .slide-workbench__export span { display:inline; }
-  .is-standalone .slide-workbench__commands .slide-workbench__theme button { width:auto; padding:0 8px; }
+  .is-standalone .slide-workbench__commands .slide-workbench__theme button { width:auto; padding:0 7px; }
 }
 @media (max-width:900px) {
   .slide-workbench.is-standalone { grid-template-rows:auto minmax(0,1fr); }
@@ -1108,6 +1251,7 @@ function classificationLabel(value: string) {
   .is-standalone .slide-workbench__identity > div { display:none; }
   .is-standalone .slide-workbench__commands { margin-left:auto; }
   .is-standalone .slide-workbench__theme { display:none; }
+  .is-standalone .slide-workbench__commands .slide-workbench__configure-compact { display:grid !important; }
   .is-standalone .slide-workbench__commands > button:nth-of-type(1),
   .is-standalone .slide-workbench__commands > button:nth-of-type(2) { display:none; }
   .deck-presentation > main { padding:8px; }

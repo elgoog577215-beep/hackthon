@@ -2,8 +2,9 @@
   <article
     class="deck-canvas"
     :class="{ 'is-presenting': presenting }"
-    :data-layout="slide.layout"
+    :data-layout="visualLayout"
     :data-theme="theme"
+    :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
     <template v-if="slide.layout === 'cover'">
@@ -28,7 +29,7 @@
         <small>{{ slide.eyebrow }}</small>
         <h2>{{ slide.title }}</h2>
         <i></i>
-        <blockquote>{{ slide.key_message }}</blockquote>
+        <blockquote>{{ slide.key_message || slide.teaching_job || slide.takeaway }}</blockquote>
       </div>
       <footer><span>{{ deckTitle }}</span><span>{{ pageNumber }} / {{ pageCount }}</span></footer>
     </template>
@@ -36,8 +37,8 @@
     <template v-else>
       <header class="deck-canvas__heading">
         <div>
-          <small>{{ slide.eyebrow || layoutLabel(slide.layout) }}</small>
-          <h2>{{ slide.title }}</h2>
+          <small>{{ slide.eyebrow || layoutLabel(visualLayout) }}</small>
+          <h2>{{ displayHeading }}</h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
       </header>
@@ -49,7 +50,51 @@
         {{ slide.key_message }}
       </blockquote>
 
-      <div class="deck-canvas__blocks" :data-layout="slide.layout" :data-count="slide.blocks?.length || 0">
+      <div
+        v-if="slide.visuals?.length"
+        class="deck-canvas__story"
+        :data-composition="slide.composition || 'split-visual'"
+        :data-source-empty="sourceBlocks.length === 0"
+        :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
+      >
+        <SlideVisualRenderer
+          :visuals="slide.visuals"
+          :course-id="courseId"
+          :representation-id="representationId"
+        />
+        <div v-if="sourceBlocks.length" class="deck-canvas__source">
+          <small>{{ slide.teaching_job }}</small>
+          <section v-for="block in sourceBlocks" :key="block.block_id" :data-type="block.type">
+            <b v-if="block.title">{{ block.title }}</b>
+            <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
+            <ol v-else-if="block.type === 'process'">
+              <li v-for="(item, itemIndex) in block.items" :key="item">
+                <i>{{ itemIndex + 1 }}</i>
+                <MarkdownRenderer :content="item" :enable-code-run="false" />
+              </li>
+            </ol>
+            <ul v-else-if="block.items?.length">
+              <li v-for="item in block.items" :key="item">
+                <MarkdownRenderer :content="item" :enable-code-run="false" />
+              </li>
+            </ul>
+            <MarkdownRenderer
+              v-else
+              class="deck-inline-markdown"
+              :content="block.content || ''"
+              :enable-code-run="false"
+            />
+          </section>
+        </div>
+      </div>
+
+      <div
+        v-else-if="slide.blocks?.length"
+        class="deck-canvas__blocks"
+        :data-layout="visualLayout"
+        :data-count="slide.blocks?.length || 0"
+        :data-has-message="Boolean(slide.key_message)"
+      >
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
           <header v-if="block.title">
             <b>{{ String(blockIndex + 1).padStart(2, '0') }}</b>
@@ -68,14 +113,29 @@
           </table>
           <ol v-else-if="block.type === 'process'">
             <li v-for="(item, itemIndex) in block.items" :key="item">
-              <b>{{ itemIndex + 1 }}</b><span>{{ item }}</span>
+              <b>{{ itemIndex + 1 }}</b>
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
             </li>
           </ol>
           <ul v-else-if="block.items?.length">
-            <li v-for="item in block.items" :key="item">{{ item }}</li>
+            <li v-for="item in block.items" :key="item">
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
+            </li>
           </ul>
-          <p v-else>{{ block.content }}</p>
+          <MarkdownRenderer
+            v-else
+            class="deck-inline-markdown"
+            :content="block.content || ''"
+            :enable-code-run="false"
+          />
         </section>
+      </div>
+
+      <div v-else class="deck-canvas__navigation">
+        <i></i>
+        <small>{{ navigationPrefix }}</small>
+        <strong>{{ navigationDetail }}</strong>
+        <p>先明确问题，再连接概念、方法与检验。</p>
       </div>
 
       <footer>
@@ -87,8 +147,13 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { t } from '../shared/i18n'
 import type { SlideDeckTheme } from '../stores/teachingRepresentations'
+import SlideVisualRenderer from './SlideVisualRenderer.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
+import themePack from '../data/slide-themes.json'
+import type { SlideVisual } from '../types/slideVisual'
 
 interface SlideBlock {
   block_id: string
@@ -105,20 +170,164 @@ interface Slide {
   title: string
   subtitle?: string
   key_message?: string
+  teaching_job?: string
+  takeaway?: string
+  transition_from?: string
+  composition?: string
+  visuals?: SlideVisual[]
   section_id?: string
   blocks: SlideBlock[]
+  quality?: {
+    passed?: boolean
+    character_count?: number
+    issues?: Array<Record<string, any>>
+    requested_layout?: string
+  }
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   slide: Slide
   pageNumber: number
   pageCount: number
   deckTitle: string
   theme?: SlideDeckTheme
   presenting?: boolean
+  courseId?: string
+  representationId?: string
 }>(), {
   theme: 'qingfeng-classroom',
   presenting: false,
+  courseId: '',
+  representationId: '',
+})
+
+const visualLayout = computed(() => props.slide.quality?.requested_layout || props.slide.layout)
+const sourceBlocks = computed(() => {
+  const visualKind = props.slide.visuals?.[0]?.kind
+  if (visualKind !== 'formula') return props.slide.blocks || []
+  return (props.slide.blocks || []).filter(
+    block => block.type !== 'formula' && !block.metadata?.formula,
+  )
+})
+const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
+  (total, block) => total
+    + String(block.title || '').length
+    + String(block.content || '').length
+    + (block.items || []).reduce((sum, item) => sum + String(item).length, 0),
+  0,
+))
+const headingSubscripts: Record<string, string> = {
+  0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄',
+  5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉',
+  i: 'ᵢ', j: 'ⱼ', k: 'ₖ', n: 'ₙ',
+}
+function formatHeading(value: string) {
+  return value
+    .replace(/^(?:\$\$|\\\[|\\\()/, '')
+    .replace(/(?:\$\$|\\\]|\\\))$/, '')
+    .replace(/\\mathbb\{([A-Za-z])\}/g, '$1')
+    .replace(/\\(?:mathbf|mathrm|operatorname|text)\{([^{}]+)\}/g, '$1')
+    .replace(/\\subseteq/g, '⊆')
+    .replace(/\\cap/g, '∩')
+    .replace(/\\cup/g, '∪')
+    .replace(/\\in(?![A-Za-z])/g, '∈')
+    .replace(/\\mid/g, '∣')
+    .replace(/\\land/g, '∧')
+    .replace(/\\lor/g, '∨')
+    .replace(/\\sum/g, '∑')
+    .replace(/\\Sigma/g, 'Σ')
+    .replace(/\\cdots/g, '⋯')
+    .replace(/\\times/g, '×')
+    .replace(/\\leq/g, '≤')
+    .replace(/\\geq/g, '≥')
+    .replace(/\\approx/g, '≈')
+    .replace(/\\neq/g, '≠')
+    .replace(/\\left|\\right/g, '')
+    .replace(/\\\{/g, '{')
+    .replace(/\\\}/g, '}')
+    .replace(/[{}]/g, '')
+    .replace(/_([0-9ijkn])/g, (_match, token: string) => headingSubscripts[token] || token)
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function headingExcerpt(value: string, limit = 48) {
+  const clean = formatHeading(value).replace(/[，,；;：:。…\s]+$/g, '')
+  if (clean.length <= limit) return clean
+  let excerpt = clean.slice(0, limit)
+  const opening = Math.max(excerpt.lastIndexOf('（'), excerpt.lastIndexOf('('))
+  const closing = Math.max(excerpt.lastIndexOf('）'), excerpt.lastIndexOf(')'))
+  if (opening > closing && opening >= Math.max(8, Math.floor(limit / 3))) {
+    excerpt = excerpt.slice(0, opening)
+  } else {
+    const punctuation = ['。', '；', '，', '：', '）', ')']
+      .map(mark => ({ index: excerpt.lastIndexOf(mark), mark }))
+      .sort((a, b) => b.index - a.index)[0]
+    if (punctuation && punctuation.index >= Math.max(10, Math.floor(limit / 2))) {
+      excerpt = excerpt.slice(
+        0,
+        punctuation.index + (['）', ')'].includes(punctuation.mark) ? 1 : 0),
+      )
+    } else {
+      const space = excerpt.lastIndexOf(' ')
+      if (space >= Math.max(10, Math.floor(limit / 2))) excerpt = excerpt.slice(0, space)
+    }
+  }
+  return excerpt.replace(/[，,；;：:。…\s]+$/g, '')
+}
+const displayHeading = computed(() => {
+  const takeaway = String(props.slide.takeaway || '').trim()
+  if (
+    !takeaway
+    || props.slide.visuals?.[0]?.kind === 'formula'
+    || takeaway.startsWith('$')
+    || takeaway.startsWith('\\[')
+    || takeaway.startsWith('\\(')
+    || /\\[A-Za-z]+/.test(takeaway)
+    || /^[\d\s.、:：()（）-]+$/.test(takeaway)
+  ) {
+    return headingExcerpt(props.slide.title, 46)
+  }
+  return headingExcerpt(takeaway)
+})
+const navigationText = computed(() => String(
+  props.slide.teaching_job
+  || props.slide.key_message
+  || props.slide.takeaway
+  || props.slide.title,
+))
+const navigationPrefix = computed(() => {
+  return ['recap', 'summary'].includes(String(props.slide.layout || ''))
+    ? '本章回顾'
+    : '本节学习问题'
+})
+const navigationDetail = computed(() => navigationText.value)
+const themeStyle = computed(() => {
+  const aliases: Record<string, string> = {
+    'qingfeng-classroom': 'qizhi-classroom',
+    'academic-bluegray': 'academic-editorial',
+  }
+  const key = aliases[props.theme] || props.theme
+  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
+  if (!token) return {}
+  return {
+    '--deck-bg': `#${token.surface}`,
+    '--deck-paper': `#${token.surface}`,
+    '--deck-title': `#${token.title}`,
+    '--deck-ink': `#${token.title}`,
+    '--deck-body': `#${token.ink}`,
+    '--deck-muted': `#${token.muted}`,
+    '--deck-main': `#${token.accent}`,
+    '--deck-blue': `#${token.accent}`,
+    '--deck-blue-soft': `#${token.accent_soft}`,
+    '--deck-teal': `#${token.green}`,
+    '--deck-amber': `#${token.amber}`,
+    '--deck-card': `#${token.surface}`,
+    '--deck-line': `#${token.chart_bg}`,
+    '--deck-message-bg': `#${token.accent_soft}`,
+    '--deck-callout': `#${token.accent}`,
+    '--deck-title-font': `"${token.title_font}","${token.title_east_asian_font}",sans-serif`,
+    '--deck-body-font': `"${token.body_font}","${token.body_east_asian_font}",sans-serif`,
+  }
 })
 
 function chapterNumber(title: string) {
@@ -132,12 +341,19 @@ function layoutLabel(value: string) {
     chapter: '章节',
     objective: '目标',
     concept: '概念',
+    'hero-statement': '核心判断',
+    'editorial-body': '正文',
+    'two-column': '双栏推理',
+    'case-study': '案例',
+    question: '思考',
+    summary: '回顾',
     comparison: '对比',
     process: '过程',
     code: '代码',
     misconception: '易错',
     practice: '练习',
     recap: '小结',
+    appendix: '附录',
   } as Record<string, string>)[value] || value)
 }
 </script>
@@ -196,6 +412,137 @@ function layoutLabel(value: string) {
   --deck-body-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
   --deck-cover-wash:linear-gradient(155deg,var(--deck-title),#63778D 58%,#AAB3BD);
 }
+.deck-canvas[data-theme="qizhi-classroom"] {
+  --deck-bg:#FFFDF7;
+  --deck-title:#17365D;
+  --deck-body:#34465C;
+  --deck-main:#2F6FE4;
+  --deck-accent:#F29D38;
+  --deck-chart:#DCE9F7;
+  --deck-blue-soft:#E7F0FF;
+  --deck-teal:#16856B;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#fff;
+  --deck-line:#DDE5EE;
+  --deck-message-bg:#EAF1FF;
+  --deck-callout:#2F6FE4;
+  --deck-cover-wash:linear-gradient(145deg,#17365D,#2F6FE4 60%,#F29D38);
+}
+.deck-canvas[data-theme="academic-editorial"] {
+  --deck-bg:#FBFAF7;
+  --deck-title:#273340;
+  --deck-body:#45515D;
+  --deck-main:#315E7D;
+  --deck-accent:#8B6B3E;
+  --deck-chart:#E1E2DF;
+  --deck-blue-soft:#E8ECEC;
+  --deck-teal:#4F6D64;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#FFFEFB;
+  --deck-line:#D8D8D3;
+  --deck-message-bg:#ECEDE9;
+  --deck-callout:#315E7D;
+  --deck-title-font:"Noto Serif SC","SimSun","宋体",serif;
+  --deck-cover-wash:linear-gradient(145deg,#273340,#526575 64%,#B2A58D);
+}
+.deck-canvas[data-theme="grid-notebook"] {
+  --deck-bg:#FAF8F0;
+  --deck-title:#283B36;
+  --deck-body:#40524D;
+  --deck-main:#2D7464;
+  --deck-accent:#D18A32;
+  --deck-chart:#DDE5DE;
+  --deck-blue-soft:#E1ECE5;
+  --deck-teal:#648B57;
+  --deck-paper:var(--deck-bg);
+  --deck-card:rgba(255,255,252,.9);
+  --deck-line:#D5DED7;
+  --deck-message-bg:#E7EFE9;
+  --deck-callout:#2D7464;
+  --deck-cover-wash:linear-gradient(145deg,#283B36,#2D7464 62%,#D18A32);
+  background-image:linear-gradient(rgba(45,116,100,.075) 1px,transparent 1px),linear-gradient(90deg,rgba(45,116,100,.075) 1px,transparent 1px);
+  background-size:3.2cqw 3.2cqw;
+}
+.deck-canvas[data-theme="modern-geometric"] {
+  --deck-bg:#F6F3FF;
+  --deck-title:#231A4A;
+  --deck-body:#463D62;
+  --deck-main:#6548E8;
+  --deck-accent:#F08B3E;
+  --deck-chart:#DDD5F2;
+  --deck-blue-soft:#E6DFFF;
+  --deck-teal:#138D85;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#fff;
+  --deck-line:#D8D0EC;
+  --deck-message-bg:#E8E1FF;
+  --deck-callout:#6548E8;
+  --deck-cover-wash:linear-gradient(135deg,#231A4A,#6548E8 58%,#F08B3E);
+}
+.deck-canvas[data-theme="modern-geometric"]::before {
+  content:"";
+  position:absolute;
+  right:-7%;
+  top:-12%;
+  width:31%;
+  aspect-ratio:1;
+  border-radius:25% 52% 30% 55%;
+  background:color-mix(in srgb,var(--deck-accent) 18%,transparent);
+  transform:rotate(27deg);
+}
+.deck-canvas[data-theme="dark-tech"] {
+  --deck-bg:#0C1321;
+  --deck-title:#F3F8FF;
+  --deck-body:#D7E3F2;
+  --deck-main:#4DB5FF;
+  --deck-accent:#40D6B1;
+  --deck-chart:#22334B;
+  --deck-ink:var(--deck-title);
+  --deck-muted:#91A6BE;
+  --deck-blue:#4DB5FF;
+  --deck-blue-soft:#183C5A;
+  --deck-teal:#40D6B1;
+  --deck-amber:#FFB35A;
+  --deck-paper:var(--deck-bg);
+  --deck-card:#121E30;
+  --deck-line:#29405C;
+  --deck-message-bg:#142D43;
+  --deck-callout:#4DB5FF;
+  --deck-cover-wash:linear-gradient(145deg,#050912,#123150 62%,#166B68);
+}
+.deck-canvas[data-theme="dark-tech"] .deck-canvas__blocks > section {
+  box-shadow:inset 0 0 0 1px rgba(77,181,255,.14),0 0 28px rgba(22,96,135,.08);
+}
+.deck-canvas[data-layout="editorial-body"] .deck-canvas__blocks { grid-template-columns:1fr; }
+.deck-canvas[data-layout="two-column"] .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.deck-canvas[data-layout="concept-cards"] .deck-canvas__blocks { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.deck-canvas[data-layout="hero-statement"] .deck-canvas__blocks section {
+  display:flex;
+  align-items:center;
+  padding:6% 8%;
+  border:0;
+  border-left:.55cqw solid var(--deck-blue);
+  background:var(--deck-blue-soft);
+}
+.deck-canvas[data-layout="hero-statement"] .deck-canvas__blocks p {
+  font-family:var(--deck-title-font);
+  font-size:2.15cqw;
+  font-weight:700;
+  line-height:1.42;
+}
+.deck-canvas[data-layout="case-study"] .deck-canvas__blocks {
+  padding-left:25%;
+  background:linear-gradient(90deg,var(--deck-blue-soft) 0 22%,transparent 22%);
+}
+.deck-canvas[data-layout="case-study"] .deck-canvas__blocks section {
+  border-left:.48cqw solid var(--deck-teal);
+}
+.deck-canvas[data-layout="question"] .deck-canvas__blocks section {
+  border-color:color-mix(in srgb,var(--deck-amber) 38%,var(--deck-line));
+  background:color-mix(in srgb,var(--deck-amber) 8%,var(--deck-card));
+}
+.deck-canvas[data-layout="appendix"] .deck-canvas__heading small { color:var(--deck-amber); }
+.deck-canvas[data-layout="formula"] .deck-canvas__blocks p { font-family:"Times New Roman",serif; font-size:1.8cqw; }
 .deck-canvas::after {
   content:"";
   position:absolute;
@@ -257,20 +604,185 @@ function layoutLabel(value: string) {
   font-weight:720;
   line-height:1.42;
 }
+.deck-canvas__story {
+  position:absolute;
+  inset:25% 5.5% 10.5%;
+  display:grid;
+  grid-template-columns:minmax(0,1.18fr) minmax(0,.82fr);
+  gap:2.4%;
+  min-height:0;
+}
+.deck-canvas__story[data-composition="split-visual"] {
+  grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
+}
+.deck-canvas__story[data-composition="split-visual"] > .slide-visual { order:2; }
+.deck-canvas__story[data-composition="split-visual"] > .deck-canvas__source { order:1; }
+.deck-canvas__story[data-composition="diagram-full"] {
+  grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);
+}
+.deck-canvas__story[data-composition="exercise"] {
+  grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);
+}
+.deck-canvas__story[data-density="dense"] {
+  grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);
+}
+.deck-canvas__story[data-density="dense"] > .slide-visual { order:2; }
+.deck-canvas__story[data-density="dense"] > .deck-canvas__source { order:1; }
+.deck-canvas__story[data-source-empty="true"] {
+  grid-template-columns:minmax(0,1fr);
+}
+.deck-canvas__source {
+  min-width:0;
+  overflow:hidden;
+  padding:1.3cqw 0 1cqw 1.6cqw;
+  border-left:.34cqw solid var(--deck-blue);
+}
+.deck-canvas__source > small {
+  display:block;
+  margin-bottom:1cqw;
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-canvas__source section {
+  margin:0 0 .9cqw;
+  padding:0;
+  border:0;
+  background:transparent;
+}
+.deck-canvas__source section > b {
+  display:block;
+  margin-bottom:.4cqw;
+  font-size:1.35cqw;
+}
+.deck-canvas__source p,.deck-canvas__source li {
+  color:var(--deck-body);
+  font-size:1.68cqw;
+  line-height:1.38;
+}
+.deck-canvas__source ul,.deck-canvas__source ol {
+  display:grid;
+  gap:.52cqw;
+  margin:0;
+  padding-left:1.25cqw;
+}
+.deck-canvas__source ol {
+  list-style:none;
+  padding-left:0;
+}
+.deck-canvas__source ol li {
+  display:flex;
+  gap:.7cqw;
+}
+.deck-canvas__source ol i {
+  display:grid;
+  width:1.55cqw;
+  height:1.55cqw;
+  flex:0 0 auto;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font-style:normal;
+  font-size:.82cqw;
+  font-weight:800;
+}
+.deck-canvas__source pre {
+  max-height:13.5cqw;
+  overflow:hidden;
+  white-space:pre-wrap;
+  font-size:1.68cqw;
+  line-height:1.42;
+}
 .deck-canvas__blocks {
   position:absolute;
-  inset:38% 5.5% 10.5%;
+  inset:25% 5.5% 10.5%;
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(0,1fr));
   gap:1.8%;
 }
-.deck-canvas__blocks[data-layout="objective"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }
+.deck-canvas__navigation {
+  position:absolute;
+  inset:31% 8% 18%;
+  display:grid;
+  grid-template-columns:.8cqw 1fr;
+  grid-template-rows:auto 1fr auto;
+  column-gap:2.2cqw;
+  align-items:start;
+}
+.deck-canvas__navigation > i {
+  grid-row:1/4;
+  width:.42cqw;
+  height:100%;
+  background:var(--deck-blue);
+}
+.deck-canvas__navigation > small {
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-canvas__navigation > strong {
+  align-self:center;
+  color:var(--deck-title);
+  font:800 2.4cqw/1.32 var(--deck-title-font);
+}
+.deck-canvas__navigation > p {
+  margin:0;
+  color:var(--deck-muted);
+  font-size:1.18cqw;
+  font-weight:650;
+}
+.deck-inline-markdown :deep(.markdown-body) {
+  margin:0;
+  color:inherit;
+  font:inherit;
+}
+.deck-inline-markdown :deep(.katex-display) {
+  margin:.45em 0;
+  overflow:visible;
+}
+.deck-canvas__blocks[data-has-message="true"] { top:38%; }
+.deck-canvas__blocks[data-layout="objective"],
+.deck-canvas__blocks[data-layout="objective-cards"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }
 .deck-canvas__blocks[data-layout="code"] { inset:25% 5.5% 10.5%; grid-template-columns:1.75fr 1fr; }
 .deck-canvas__blocks[data-layout="practice"],
+.deck-canvas__blocks[data-layout="question"],
 .deck-canvas__blocks[data-layout="misconception"] { inset:25% 5.5% 10.5%; grid-template-columns:1.55fr .9fr; }
 .deck-canvas__blocks[data-layout="roadmap"],
 .deck-canvas__blocks[data-layout="process"] { inset:28% 5.5% 11%; }
 .deck-canvas__blocks[data-layout="comparison"] { inset:26% 5.5% 10.5%; }
+.deck-canvas__blocks[data-layout="appendix"] {
+  inset:25% 5.5% 10.5%;
+  grid-template-columns:1fr;
+}
+.deck-canvas__blocks[data-layout="appendix"] section {
+  padding:3.1%;
+  border-left:.42cqw solid var(--deck-blue);
+}
+.deck-canvas__blocks[data-layout="appendix"] p {
+  white-space:pre-line;
+  font-size:1.42cqw;
+  line-height:1.58;
+}
+.deck-canvas__blocks[data-layout="appendix"][data-count="1"] p {
+  column-count:2;
+  column-gap:3.2cqw;
+  column-rule:1px solid var(--deck-line);
+}
+.deck-canvas__blocks[data-count="1"]:not([data-layout="appendix"]) p {
+  font-size:1.72cqw;
+  line-height:1.48;
+}
+.deck-canvas__blocks[data-count="1"]:not([data-layout="appendix"]) li {
+  font-size:1.48cqw;
+}
+.deck-canvas__blocks:is([data-layout="recap"],[data-layout="summary"])[data-count="1"] ul {
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1.1cqw 2.4cqw;
+  padding-left:1.4em;
+}
 .deck-canvas__blocks section {
   min-width:0;
   overflow:hidden;

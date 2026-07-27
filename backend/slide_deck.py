@@ -41,6 +41,7 @@ SlideLayout = Literal[
     "misconception",
     "practice",
     "recap",
+    "appendix",
 ]
 
 
@@ -66,6 +67,11 @@ class SlideSpec(_StrictModel):
     title: str
     subtitle: str = ""
     key_message: str = ""
+    teaching_job: str = ""
+    takeaway: str = ""
+    transition_from: str = ""
+    composition: str = ""
+    visuals: list[dict[str, Any]] = Field(default_factory=list, max_length=3)
     blocks: list[SlideBlockSpec] = Field(default_factory=list, max_length=6)
     speaker_notes: str = ""
     section_id: str | None = None
@@ -81,6 +87,14 @@ class SlideSpec(_StrictModel):
     mastery_refs: list[str] = Field(default_factory=list)
     knowledge_labels: list[str] = Field(default_factory=list)
     ability_labels: list[str] = Field(default_factory=list)
+    chapter_id: str = ""
+    episode_id: str = ""
+    scene_kind: str = ""
+    beat_role: str = ""
+    primary_claim_source: dict[str, Any] = Field(default_factory=dict)
+    prerequisite_refs: list[str] = Field(default_factory=list)
+    mastery_criterion_refs: list[str] = Field(default_factory=list)
+    layout_selection_reason: str = ""
     quality: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -119,11 +133,33 @@ class SlideDeckPlanV1(_StrictModel):
 
 
 class SlideDeckContent(_StrictModel):
-    schema_version: Literal["slide_deck_v2"] = SLIDE_DECK_SCHEMA
+    schema_version: Literal[
+        "slide_deck_v2",
+        "slide_deck_v3",
+        "slide_deck_v4",
+    ] = SLIDE_DECK_SCHEMA
     title: str
     theme: str = "qingfeng-classroom"
+    mode: str = ""
+    variant_key: str = ""
+    source_document_revision: str = ""
     aspect_ratio: Literal["16:9"] = "16:9"
     slides: list[SlideSpec]
+    fragment_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    allocation_plan: dict[str, Any] = Field(default_factory=dict)
+    deck_brief: dict[str, Any] = Field(default_factory=dict)
+    visual_plan: dict[str, Any] = Field(default_factory=dict)
+    visual_asset_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    build_signature: dict[str, Any] = Field(default_factory=dict)
+    visual_quality_report: dict[str, Any] = Field(default_factory=dict)
+    story_plan: dict[str, Any] = Field(default_factory=dict)
+    scene_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    layout_plan: dict[str, Any] = Field(default_factory=dict)
+    render_review: dict[str, Any] = Field(default_factory=dict)
+    pedagogical_quality_report: dict[str, Any] = Field(default_factory=dict)
+    presentation_quality_report: dict[str, Any] = Field(default_factory=dict)
+    coverage_report: dict[str, Any] = Field(default_factory=dict)
+    exclusions: list[dict[str, Any]] = Field(default_factory=list)
     presentation_overrides: dict[str, dict[str, dict[str, Any]]] = Field(default_factory=dict)
     override_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     quality_summary: dict[str, Any] = Field(default_factory=dict)
@@ -151,6 +187,7 @@ LAYOUT_CAPACITY: dict[str, dict[str, int]] = {
     "misconception": {"blocks": 1, "characters": 620, "items": 4},
     "practice": {"blocks": 2, "characters": 1000, "items": 8},
     "recap": {"blocks": 3, "characters": 720, "items": 8},
+    "appendix": {"blocks": 1, "characters": 820, "items": 0},
 }
 
 
@@ -702,7 +739,13 @@ def validate_slide_deck(
                 "页面仍包含 Markdown 表格或标题符号，说明正文没有被转译为演示结构。",
                 slide.unit_id,
             ))
-        if _looks_like_raw_latex(_slide_non_code_visible_text(slide)):
+        if (
+            _looks_like_raw_latex(_slide_non_code_visible_text(slide))
+            and not (
+                deck.schema_version in {"slide_deck_v3", "slide_deck_v4"}
+                and str(slide.quality.get("requested_layout") or "") == "formula"
+            )
+        ):
             visual_issues.append(_issue(
                 "critical",
                 "raw_latex_leaked",
@@ -716,7 +759,10 @@ def validate_slide_deck(
                 "页面包含替换字符或常见错误解码片段，不能导出为课堂课件。",
                 slide.unit_id,
             ))
-        if any(len(block.content) > 360 and block.type != "code" for block in slide.blocks):
+        if (
+            deck.schema_version not in {"slide_deck_v3", "slide_deck_v4"}
+            and any(len(block.content) > 360 and block.type != "code" for block in slide.blocks)
+        ):
             visual_issues.append(_issue(
                 "critical",
                 "paragraph_copy_detected",
@@ -1727,14 +1773,35 @@ def _layout_content_issues(slide: SlideSpec) -> list[dict[str, Any]]:
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "objective_content_overflow", "目标页内容超过左右栏容量。", slide.unit_id))
+    concept_block_count = max(1, len(visible_blocks))
+    concept_content_limit = {1: 280, 2: 150}.get(concept_block_count, 96)
+    concept_item_limit = {1: 72, 2: 48}.get(concept_block_count, 32)
     if slide.layout == "concept" and any(
-        len(block.content) > 96
-        or len(block.items) > 3
-        or any(len(item) > 32 for item in block.items)
+        len(block.content) > concept_content_limit
+        or len(block.items) > (6 if concept_block_count == 1 else 3)
+        or any(len(item) > concept_item_limit for item in block.items)
         or bool(block.content.strip() and block.items)
         for block in visible_blocks
     ):
         issues.append(_issue("critical", "concept_card_overflow", "概念页卡片内容超过实际容量。", slide.unit_id))
+    if slide.layout == "appendix":
+        appendix_values = [
+            value
+            for block in visible_blocks
+            for value in ([block.content] if block.content else block.items)
+            if value
+        ]
+        if (
+            len(visible_blocks) > 1
+            or sum(len(value) for value in appendix_values) > 820
+            or any(len(item) > 110 for block in visible_blocks for item in block.items)
+        ):
+            issues.append(_issue(
+                "critical",
+                "appendix_content_overflow",
+                "附录正文超过宽版编辑布局容量。",
+                slide.unit_id,
+            ))
     if slide.layout == "process" and any(
         len(item) > 48 for block in visible_blocks for item in block.items
     ):

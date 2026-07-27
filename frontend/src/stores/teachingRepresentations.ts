@@ -2,18 +2,37 @@ import { defineStore } from 'pinia'
 import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
 
 export type RepresentationType = 'outline' | 'lesson_plan' | 'handout' | 'practice_sheet' | 'slide_deck' | 'diagram'
-export type SlideDeckTheme = 'qingfeng-classroom' | 'academic-bluegray'
+export type SlideDeckMode = 'full' | 'teaching' | 'concise'
+export type SlideDeckTheme =
+  | 'qizhi-classroom'
+  | 'academic-editorial'
+  | 'grid-notebook'
+  | 'modern-geometric'
+  | 'dark-tech'
+  | 'qingfeng-classroom'
+  | 'academic-bluegray'
 export type SlideDeckPreviewSource = 'draft' | 'published'
+
+export interface SlideDeckBuildOptions {
+  mode: SlideDeckMode
+  theme: Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
+  forceRebuild?: boolean
+}
 
 export interface TeachingRepresentation {
   representation_id: string
   representation_type: RepresentationType
+  variant_key?: string
   spec_id: string
   status: 'planned' | 'building' | 'ready' | 'stale' | 'failed' | 'archived'
   stale_unit_ids: string[]
   stale_reasons: string[]
   revision: string
   updated_at: string
+  visual_engine_update_available?: boolean
+  visual_engine_update_reason?: string
+  course_logic_upgrade_required?: boolean
+  course_logic_upgrade_reason?: string
 }
 
 export interface TeachingRepresentationSpec {
@@ -38,6 +57,10 @@ export interface TeachingRepresentationBuildEvent {
   registry?: Record<string, any>
   sequence?: number
   task_id?: string
+  visual_plan?: Record<string, any>
+  asset_id?: string
+  completed?: number
+  total?: number
 }
 
 export async function consumeTeachingRepresentationStream(
@@ -90,6 +113,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     buildPaused: false,
     loading: false,
     building: false,
+    deferMissingSlideBuild: false,
     courseRequestToken: 0,
     loadRequestToken: 0,
     specRequestToken: 0,
@@ -159,7 +183,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     async build(courseId: string) {
       return this.buildProgressive(courseId)
     },
-    async buildProgressive(courseId: string) {
+    async buildProgressive(courseId: string, options?: SlideDeckBuildOptions) {
       this.switchCourse(courseId)
       this.loadRequestToken += 1
       this.loading = false
@@ -182,8 +206,23 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.slideQuality = this.publishedSlideQuality
       try {
         const response = await fetch(
-          withApiBase(`/api/courses/${courseId}/teaching-representations/build/stream`),
-          { method: 'POST', headers: learnerIdentityHeaders({ Accept: 'text/event-stream' }) },
+          withApiBase(options
+            ? `/api/courses/${courseId}/teaching-representations/slide-decks/build/stream`
+            : `/api/courses/${courseId}/teaching-representations/build/stream`),
+          {
+            method: 'POST',
+            headers: learnerIdentityHeaders({
+              Accept: 'text/event-stream',
+              ...(options ? { 'Content-Type': 'application/json' } : {}),
+            }),
+            ...(options ? {
+              body: JSON.stringify({
+                mode: options.mode,
+                theme: options.theme,
+                force_rebuild: options.forceRebuild === true,
+              }),
+            } : {}),
+          },
         )
         const completedRef: { value?: TeachingRepresentationBuildEvent } = {}
         await consumeTeachingRepresentationStream(response, event => {
@@ -191,7 +230,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.task_id) this.buildTaskId = event.task_id
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
           if (event.stage) this.buildStage = event.stage
+          if (event.event === 'story_plan') this.buildStage = 'story_plan'
+          if (event.event === 'chapter_plan') this.buildStage = 'chapter_plan'
+          if (event.event === 'episode_progress') this.buildStage = 'episode_progress'
+          if (event.event === 'layout_plan') this.buildStage = 'layout_plan'
           if (event.event === 'deck_plan') this.buildStage = 'slide_plan'
+          if (event.event === 'visual_plan') this.buildStage = 'visual_plan'
+          if (event.event === 'asset_progress' || event.event === 'asset_ready') {
+            this.buildStage = 'asset_compilation'
+          }
           if (event.event === 'slide_upsert' && event.slide) {
             this.buildStage = 'slide_build'
             if (this.slidePreviewSource !== 'draft') {
@@ -210,14 +257,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
               this.slideQuality = event.quality
             }
           }
-          if (event.event === 'build_blocked') {
-            if (event.quality) {
-              this.draftSlideQuality = event.quality
-              if (this.liveSlides.length) {
-                this.slidePreviewSource = 'draft'
-                this.slideQuality = event.quality
-              }
+          if (event.event === 'visual_quality' && event.quality) {
+            this.buildStage = 'visual_quality'
+            this.draftSlideQuality = {
+              ...(this.draftSlideQuality || {}),
+              visual: event.quality,
             }
+          }
+          if (event.event === 'render_review') this.buildStage = 'render_review'
+          if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
+          if (event.event === 'build_blocked') {
+            this.settleFailedSlideDraft(event.quality)
             this.buildError = 'quality_gate_failed'
           }
           if (event.event === 'build_complete') completedRef.value = event
@@ -225,13 +275,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             event.event === 'build_complete'
             && String(event.build?.status || '').startsWith('failed')
           ) {
-            if (event.quality) {
-              this.draftSlideQuality = event.quality
-              if (this.liveSlides.length) {
-                this.slidePreviewSource = 'draft'
-                this.slideQuality = event.quality
-              }
-            }
+            this.settleFailedSlideDraft(event.quality)
             this.buildError = 'quality_gate_failed'
           }
           if (event.event === 'error') this.buildError = event.message || 'Teaching representation build failed'
@@ -251,7 +295,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.buildProgress = 100
         this.buildStage = 'complete'
         const available = this.representations
-        if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
+        const requestedVariant = options ? `${options.mode}:${options.theme}` : ''
+        const requestedRepresentation = requestedVariant
+          ? available.find(item => item.representation_type === 'slide_deck' && item.variant_key === requestedVariant)
+          : null
+        if (requestedRepresentation) {
+          this.selectedId = requestedRepresentation.representation_id
+        } else if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
           this.selectedId = available[0]?.representation_id || ''
         }
         if (this.selectedId) await this.loadSpec(this.selectedId)
@@ -263,6 +313,35 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         throw error
       } finally {
         if (isCurrentAttempt()) this.building = false
+      }
+    },
+    async buildSlideDeckVariant(courseId: string, options: SlideDeckBuildOptions) {
+      return this.buildProgressive(courseId, options)
+    },
+    settleFailedSlideDraft(quality?: Record<string, any>) {
+      if (quality) this.draftSlideQuality = quality
+      const publishedContent = this.selectedSpec?.payload?.content
+      const hasPublishedDeck = (
+        this.selectedRepresentation?.status === 'ready'
+        && ['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(publishedContent?.schema_version)
+      )
+      if (hasPublishedDeck) {
+        this.liveSlides = []
+        this.slidePreviewSource = 'published'
+        this.slideQuality = (
+          this.publishedSlideQuality
+          || publishedContent?.quality_summary
+          || null
+        )
+        return
+      }
+      this.liveSlides = this.liveSlides.slice(0, 5)
+      if (this.liveSlides.length) {
+        this.slidePreviewSource = 'draft'
+        this.slideQuality = this.draftSlideQuality
+      } else {
+        this.slidePreviewSource = 'published'
+        this.slideQuality = this.publishedSlideQuality
       }
     },
     async pauseBuild() {
@@ -322,7 +401,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     async ensure(courseId: string) {
       const registry = await this.load(courseId)
       if (!registry || this.courseId !== courseId) return
-      if (!this.representations.length) {
+      if (!this.representations.length && !this.deferMissingSlideBuild) {
         await this.buildProgressive(courseId)
         return
       }
@@ -331,7 +410,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         (item: TeachingRepresentationSpec) => item.spec_id === slideRepresentation?.spec_id,
       ) as TeachingRepresentationSpec | undefined
       const content = slideSpec?.payload?.content
-      if (slideRepresentation && content?.schema_version !== 'slide_deck_v2') {
+      if (
+        !this.deferMissingSlideBuild
+        && slideRepresentation
+        && !['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(content?.schema_version)
+      ) {
         await this.buildProgressive(courseId)
       }
     },
@@ -354,8 +437,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       ) return null
       const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
       this.selectedSpec = spec
-      if (spec?.payload?.content?.schema_version === 'slide_deck_v2') {
-        const summary = spec.payload.content.quality_summary
+      if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(spec?.payload?.content?.schema_version)) {
+        const summary = spec?.payload.content.quality_summary
         if (summary) {
           this.publishedSlideQuality = summary
           if (this.slidePreviewSource === 'published') this.slideQuality = summary

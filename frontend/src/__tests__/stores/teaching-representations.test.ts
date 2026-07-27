@@ -55,6 +55,34 @@ beforeEach(() => {
 })
 
 describe('teaching representation progressive build', () => {
+  it('posts mode and theme to the scoped slide variant stream', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse([
+      {
+        event: 'build_complete',
+        progress: 100,
+        registry: { representations: [], specs: [] },
+        quality: { passed: true },
+      },
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useTeachingRepresentationsStore()
+
+    await store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'grid-notebook',
+      forceRebuild: true,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('/api/courses/course-1/teaching-representations/slide-decks/build/stream')
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: 'teaching',
+      theme: 'grid-notebook',
+      force_rebuild: true,
+    })
+  })
+
   it('resets all course-scoped state as soon as a different course starts loading', async () => {
     const pending = deferred<{ data: { registry: { representations: never[] } } }>()
     httpMock.get.mockReturnValueOnce(pending.promise)
@@ -471,9 +499,9 @@ describe('teaching representation progressive build', () => {
     await store.select('slides-1')
 
     expect(store.selectedSpec?.payload.content.title).toBe('已发布课件')
-    expect(store.liveSlides[0]?.title).toBe('失败草稿')
-    expect(store.slidePreviewSource).toBe('draft')
-    expect(store.slideQuality).toEqual(failedDraftQuality)
+    expect(store.liveSlides).toEqual([])
+    expect(store.slidePreviewSource).toBe('published')
+    expect(store.slideQuality).toEqual(oldPublishedQuality)
     expect(store.draftSlideQuality).toEqual(failedDraftQuality)
     expect(store.publishedSlideQuality).toEqual(oldPublishedQuality)
 
@@ -492,6 +520,29 @@ describe('teaching representation progressive build', () => {
     expect(store.draftSlideQuality).toBeNull()
     expect(store.publishedSlideQuality).toEqual(successfulQuality)
     expect(store.buildError).toBe('')
+  })
+
+  it('caps an unpublished failed draft to a small diagnostic sample', async () => {
+    const draftSlides = Array.from({ length: 12 }, (_, index) => ({
+      event: 'slide_upsert',
+      progress: 10 + index,
+      slide: { unit_id: `slide:draft:${index}`, title: `Draft ${index}`, layout: 'concept' },
+    }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { event: 'deck_plan', progress: 4 },
+      ...draftSlides,
+      { event: 'build_blocked', progress: 99, quality: { passed: false, issues: [] } },
+      { event: 'build_complete', progress: 100, build: { status: 'failed' } },
+    ])))
+
+    const store = useTeachingRepresentationsStore()
+    await expect(store.buildProgressive('course-1')).rejects.toThrow('quality_gate_failed')
+
+    expect(store.slidePreviewSource).toBe('draft')
+    expect(store.liveSlides).toHaveLength(5)
+    expect(store.liveSlides.map(slide => slide.unit_id)).toEqual(
+      Array.from({ length: 5 }, (_, index) => `slide:draft:${index}`),
+    )
   })
 
   it('exports pptx with the selected rendering theme query', async () => {
