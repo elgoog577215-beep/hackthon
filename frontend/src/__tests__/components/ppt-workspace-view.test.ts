@@ -146,6 +146,64 @@ describe('PptWorkspaceView', () => {
     ).toBe('slide_deck_v4')
   })
 
+  it('does not select a legacy V3 deck when the course now targets V4', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      slide_deck_target_schema: 'slide_deck_v4',
+      slide_deck_v4_eligible: true,
+      representations: [{
+        representation_id: 'slides-v3',
+        representation_type: 'slide_deck',
+        variant_key: 'teaching:qizhi-classroom',
+        spec_id: 'spec-v3',
+        status: 'ready',
+        stale_unit_ids: [],
+        stale_reasons: [],
+        revision: 'r1',
+        updated_at: 'now',
+      }],
+      specs: [{
+        spec_id: 'spec-v3',
+        representation_type: 'slide_deck',
+        unit_bindings: {},
+        revision: 'r1',
+        payload: {
+          compiler_version: 'same_source_compiler_v3',
+          content: {
+            schema_version: 'slide_deck_v3',
+            title: 'Legacy V3 deck',
+            slides: [{
+              unit_id: 'slide:v3',
+              layout: 'cover',
+              slide_purpose: 'orientation',
+              title: 'Legacy cover',
+              blocks: [],
+            }],
+          },
+        },
+      }],
+    }
+    store.selectedId = 'slides-v3'
+    store.selectedSpec = store.registry.specs[0] as any
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    vi.spyOn(store, 'select').mockResolvedValue(undefined)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.slide-workbench').exists()).toBe(false)
+    expect(
+      wrapper.get('[data-testid="ppt-engine-status"]').attributes('data-engine-status'),
+    ).toBe('slide_deck_v4')
+    expect(
+      wrapper.get('.ppt-workspace-state__build').attributes('disabled'),
+    ).toBeUndefined()
+  })
+
   it('requires an explicit legacy-course migration before building, then continues automatically', async () => {
     httpMock.get.mockResolvedValue({ data: courseEnvelope('legacy_projection', 'checksum-legacy') })
     httpMock.post.mockResolvedValue({ data: courseEnvelope('canonical') })
