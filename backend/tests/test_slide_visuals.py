@@ -20,6 +20,7 @@ from slide_visuals import (
     VisualAnchorV1,
     deterministic_visual_plan,
     plan_slide_visuals,
+    rebalance_visual_plan_pages,
     validate_visual_plan,
 )
 from teaching_storyboard import build_teaching_storyboard
@@ -158,6 +159,69 @@ def test_deterministic_director_uses_source_bound_visual_variety() -> None:
         page.visual_anchor.parameters.get("relation_evidence")
         for page in relation_pages
     )
+
+
+def test_rebalance_breaks_visual_kind_runs_longer_than_quality_gate_limit() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    relation = VisualAnchorV1.model_validate({
+        "visual_id": "visual-repeated-relation",
+        "kind": "relational_diagram",
+        "purpose": "structure",
+        "source_fragment_ids": ["fragment-a", "fragment-b"],
+        "alt_text": "source-bound relationship",
+        "nodes": [
+            {
+                "node_id": "a",
+                "label": "A",
+                "source_fragment_ids": ["fragment-a"],
+            },
+            {
+                "node_id": "b",
+                "label": "B",
+                "source_fragment_ids": ["fragment-b"],
+            },
+        ],
+        "edges": [{
+            "source": "a",
+            "target": "b",
+            "relation": "sequence",
+        }],
+        "parameters": {"relation_evidence": "source_order"},
+    })
+    allocation_by_id = {page.page_id: page for page in allocation.pages}
+    candidates = [
+        page
+        for page in plan.pages
+        if (
+            not page.appendix
+            and allocation_by_id[page.page_id].fragment_ids
+            and allocation_by_id[page.page_id].layout != "section-divider"
+        )
+    ][:4]
+    assert len(candidates) == 4
+    for page in candidates:
+        page.visual_anchor = relation.model_copy(deep=True)
+
+    rebalance_visual_plan_pages(plan.pages, allocation, fragments)
+
+    run = 0
+    previous = ""
+    maximum_run = 0
+    for page in candidates:
+        kind = page.visual_anchor.kind
+        run = run + 1 if kind == previous else 1
+        previous = kind
+        maximum_run = max(maximum_run, run)
+    assert maximum_run <= 3
 
 
 def test_storyboard_groups_pages_into_source_neutral_teaching_episodes() -> None:

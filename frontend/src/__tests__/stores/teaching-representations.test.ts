@@ -352,6 +352,67 @@ describe('teaching representation progressive build', () => {
     expect(store.buildStage).toBe('cancelled')
   })
 
+  it('reconciles a failed durable task when its SSE stream never reaches a terminal event', async () => {
+    vi.useFakeTimers()
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+        controller.enqueue(encoder.encode(
+          'event: planner_started\ndata: {"event":"planner_started","progress":1,"task_id":"representation-job-stuck"}\n\n',
+        ))
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    httpMock.get.mockResolvedValue({ data: {
+      id: 'representation-job-stuck',
+      type: 'slide_deck_variant_build',
+      status: 'failed',
+      progress: 100,
+      phase: 'build_blocked',
+      error: 'slide_deck_variant_quality_gate_failed',
+    } })
+    const store = useTeachingRepresentationsStore()
+
+    const building = store.buildProgressive('course-1')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.buildTaskId).toBe('representation-job-stuck')
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(httpMock.get).toHaveBeenCalledWith('/api/tasks/representation-job-stuck')
+    expect(store.building).toBe(false)
+    expect(store.buildProgress).toBe(100)
+    expect(store.buildStage).toBe('build_blocked')
+    expect(store.buildError).toBe('quality_gate_failed')
+
+    controller.close()
+    await building
+    vi.useRealTimers()
+  })
+
+  it('restores a failed PPT build terminal state after reopening the workspace', async () => {
+    httpMock.get.mockResolvedValue({ data: {
+      id: 'representation-job-failed',
+      type: 'slide_deck_variant_build',
+      status: 'failed',
+      progress: 100,
+      phase: 'build_blocked',
+      error: 'slide_deck_variant_split_required',
+    } })
+    const store = useTeachingRepresentationsStore()
+
+    await store.recoverDurableBuild('course-1')
+
+    expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/task')
+    expect(store.buildTaskId).toBe('representation-job-failed')
+    expect(store.building).toBe(false)
+    expect(store.buildProgress).toBe(100)
+    expect(store.buildStage).toBe('build_blocked')
+    expect(store.buildError).toBe('deck_split_required')
+  })
+
   it('keeps an in-flight cancellation from being overwritten by the old SSE stream', async () => {
     const encoder = new TextEncoder()
     let controller!: ReadableStreamDefaultController<Uint8Array>

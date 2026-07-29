@@ -17,12 +17,14 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
 )
 from slide_deck_v3 import (
+    MAX_GENERATED_SLIDE_COUNT,
     SLIDE_DECK_THEMES,
     SlideAllocationPlanV2,
     compile_slide_deck_v3,
     deterministic_slide_allocation,
     fragment_course_document,
     plan_slide_deck_v3,
+    slide_deck_preflight_quality,
 )
 from teaching_representations import TeachingRepresentationRepository
 
@@ -168,6 +170,33 @@ def test_fragmenter_preserves_source_headings_as_semantic_boundaries() -> None:
         "思考与挑战",
         "延伸阅读",
     ]
+
+
+def test_preflight_blocks_decks_that_require_chapter_splitting() -> None:
+    document = document_from_legacy_course(source_course())
+    fragments = fragment_course_document(document)
+    plan = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    template = plan.pages[-1]
+    while len(plan.pages) <= MAX_GENERATED_SLIDE_COUNT:
+        clone = template.model_copy(deep=True)
+        clone.page_id = f"slide:oversized:{len(plan.pages)}"
+        plan.pages.append(clone)
+
+    quality = slide_deck_preflight_quality(plan)
+
+    assert quality["passed"] is False
+    assert quality["blockers"] == [{
+        "severity": "critical",
+        "code": "deck_split_required",
+        "message": "课件预计页数超过单次生成上限，请按章节拆分后生成。",
+        "estimated_slide_count": len(plan.pages),
+        "maximum_slide_count": MAX_GENERATED_SLIDE_COUNT,
+    }]
 
 
 def test_teaching_plan_builds_a_chapter_level_learning_progression() -> None:
