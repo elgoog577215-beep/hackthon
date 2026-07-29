@@ -68,6 +68,84 @@ describe('PptWorkspaceView', () => {
     expect(calls).toEqual(['document', 'ensure'])
   })
 
+  it('blocks a new PPT build when the course is not eligible for V4', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      representations: [],
+      slide_deck_target_schema: 'blocked',
+      slide_deck_v4_eligible: false,
+      slide_deck_v4_blockers: ['course_knowledge_base'],
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(
+      wrapper.get('[data-testid="ppt-engine-status"]').attributes('data-engine-status'),
+    ).toBe('blocked')
+    expect(
+      wrapper.get('.ppt-workspace-state__build').attributes('disabled'),
+    ).toBeDefined()
+  })
+
+  it('labels a current course-logic deck as V4 in the workbench', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      slide_deck_target_schema: 'slide_deck_v4',
+      slide_deck_v4_eligible: true,
+      representations: [{
+        representation_id: 'slides-v4',
+        representation_type: 'slide_deck',
+        variant_key: 'teaching:qizhi-classroom',
+        spec_id: 'spec-v4',
+        status: 'ready',
+        stale_unit_ids: [],
+        stale_reasons: [],
+        revision: 'r1',
+        updated_at: 'now',
+      }],
+    }
+    store.selectedId = 'slides-v4'
+    store.selectedSpec = {
+      spec_id: 'spec-v4',
+      representation_type: 'slide_deck',
+      unit_bindings: {},
+      revision: 'r1',
+      payload: {
+        compiler_version: 'same_source_compiler_v4',
+        content: {
+          schema_version: 'slide_deck_v4',
+          title: 'V4 deck',
+          slides: [{
+            unit_id: 'slide:v4',
+            layout: 'cover',
+            slide_purpose: 'orientation',
+            title: 'V4 cover',
+            blocks: [],
+          }],
+        },
+      },
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    vi.spyOn(store, 'select').mockResolvedValue(undefined)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(
+      wrapper.get('.slide-workbench').attributes('data-engine-status'),
+    ).toBe('slide_deck_v4')
+  })
+
   it('requires an explicit legacy-course migration before building, then continues automatically', async () => {
     httpMock.get.mockResolvedValue({ data: courseEnvelope('legacy_projection', 'checksum-legacy') })
     httpMock.post.mockResolvedValue({ data: courseEnvelope('canonical') })
