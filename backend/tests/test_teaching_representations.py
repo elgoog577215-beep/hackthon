@@ -190,6 +190,28 @@ def test_course_bound_representation_stales_on_any_semantic_change(tmp_path):
     assert "source_revision_changed:course_document" in updated.representations[0].stale_reasons
 
 
+def test_course_revision_reconciliation_preserves_external_practice_sources(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+    item = representation(document, representation_id="practice-linked-slides")
+    practice_binding = SourceBinding(
+        course_id=document.course_id,
+        practice_task_ids=["question-1"],
+        source_revisions={"practice:question-1": "question-revision-1"},
+    )
+    item.source_bindings.append(practice_binding)
+    item.source_revision_vector.update(practice_binding.source_revisions)
+    repository.register_representation(item)
+
+    reconciled = repository.reconcile_source_revision_vector(
+        document.course_id,
+        revision_vector_for_document(document),
+    )
+
+    assert reconciled.representations[0].status == "ready"
+    assert reconciled.representations[0].stale_reasons == []
+
+
 def test_revision_event_replay_is_idempotent_and_course_isolated(tmp_path):
     before = document_from_legacy_course(legacy_course())
     repository = TeachingRepresentationRepository(tmp_path)
