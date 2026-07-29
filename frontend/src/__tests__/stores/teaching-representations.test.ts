@@ -83,6 +83,43 @@ describe('teaching representation progressive build', () => {
     })
   })
 
+  it('selects the first generated bundle part for the requested mode and theme', async () => {
+    const registry = {
+      representations: [
+        {
+          representation_id: 'outline-1', representation_type: 'outline', spec_id: 'outline-spec',
+          status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+        },
+        {
+          representation_id: 'slides-part-1', representation_type: 'slide_deck', spec_id: 'part-spec-1',
+          variant_key: 'teaching:qizhi-classroom:part:01',
+          status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+        },
+        {
+          representation_id: 'slides-part-2', representation_type: 'slide_deck', spec_id: 'part-spec-2',
+          variant_key: 'teaching:qizhi-classroom:part:02',
+          status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+        },
+      ],
+      specs: [],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([{
+      event: 'build_complete',
+      progress: 100,
+      registry,
+      quality: { passed: true },
+    }])))
+    httpMock.get.mockResolvedValue({ data: { spec: slideSpec('slides-part-1', '第一分册') } })
+    const store = useTeachingRepresentationsStore()
+
+    await store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+    })
+
+    expect(store.selectedId).toBe('slides-part-1')
+  })
+
   it('resets all course-scoped state as soon as a different course starts loading', async () => {
     const pending = deferred<{ data: { registry: { representations: never[] } } }>()
     httpMock.get.mockReturnValueOnce(pending.promise)

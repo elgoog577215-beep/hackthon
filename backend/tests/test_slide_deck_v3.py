@@ -14,6 +14,7 @@ from course_repository import CourseDocumentRepository
 from representation_compiler import (
     compile_core_representations,
     export_slide_deck_pptx,
+    rebuild_slide_deck_variant_bundle_safely,
     rebuild_slide_deck_variant_safely,
 )
 from slide_deck_v3 import (
@@ -24,6 +25,7 @@ from slide_deck_v3 import (
     deterministic_slide_allocation,
     fragment_course_document,
     plan_slide_deck_v3,
+    split_slide_deck_plan_by_chapter,
     slide_deck_preflight_quality,
 )
 from teaching_representations import TeachingRepresentationRepository
@@ -78,6 +80,35 @@ def source_course() -> dict:
                     },
                 ],
             },
+        ],
+    }
+
+
+def multi_chapter_course(chapter_count: int = 4) -> dict:
+    return {
+        "course_id": "chapter-bundle-course",
+        "course_name": "分册课程",
+        "nodes": [
+            {
+                "node_id": f"chapter-{index}",
+                "parent_node_id": "root",
+                "node_name": f"第 {index} 章",
+                "node_level": 1,
+                "learning_objective": f"掌握第 {index} 章",
+                "objective_id": f"objective-{index}",
+                "content_blocks": [{
+                    "block_id": f"chapter-{index}-body",
+                    "title": f"第 {index} 章核心内容",
+                    "content": (
+                        f"## 第 {index} 章概念\n\n"
+                        f"这是第 {index} 章的课程正文与方法说明。\n\n"
+                        f"## 第 {index} 章案例\n\n"
+                        f"通过第 {index} 章案例完成理解检查。"
+                    ),
+                    "metadata": {"role": "concept"},
+                }],
+            }
+            for index in range(1, chapter_count + 1)
         ],
     }
 
@@ -197,6 +228,94 @@ def test_preflight_blocks_decks_that_require_chapter_splitting() -> None:
         "estimated_slide_count": len(plan.pages),
         "maximum_slide_count": MAX_GENERATED_SLIDE_COUNT,
     }]
+
+
+def test_oversized_plan_splits_on_chapter_boundaries_without_losing_source() -> None:
+    course = multi_chapter_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    plan = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    parts = split_slide_deck_plan_by_chapter(
+        document,
+        plan,
+        maximum_slide_count=8,
+    )
+
+    assert len(parts) > 1
+    assert all(len(part.allocation_plan.pages) <= 8 for part in parts)
+    part_fragment_ids = [
+        {
+            fragment.fragment_id
+            for fragment in fragment_course_document(part.document)
+        }
+        for part in parts
+    ]
+    assert set().union(*part_fragment_ids) == {
+        fragment.fragment_id for fragment in fragments
+    }
+    assert sum(len(values) for values in part_fragment_ids) == len(fragments)
+    assert all(
+        part.allocation_plan.source_document_revision
+        == part.document.document_revision
+        for part in parts
+    )
+
+
+def test_oversized_variant_publishes_atomic_ready_part_representations(
+    tmp_path: Path,
+) -> None:
+    course = multi_chapter_course()
+    document = document_from_legacy_course(course)
+    plan = deterministic_slide_allocation(
+        document,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    parts = split_slide_deck_plan_by_chapter(
+        document,
+        plan,
+        maximum_slide_count=8,
+    )
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    result = rebuild_slide_deck_variant_bundle_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        parts=parts,
+        progress_callback=events.append,
+    )
+
+    assert result["status"] == "synchronized"
+    assert result["bundle"] is True
+    assert result["part_count"] == len(parts)
+    registry = repository.load(document.course_id)
+    representations = [
+        item for item in registry.representations
+        if item.variant_key.startswith("teaching:qizhi-classroom:part:")
+    ]
+    assert len(representations) == len(parts)
+    assert all(item.status == "ready" for item in representations)
+    specs = {
+        spec.spec_id: spec
+        for spec in registry.specs
+    }
+    assert [
+        specs[item.spec_id].payload["content"]["bundle_part"]["part_index"]
+        for item in representations
+    ] == list(range(1, len(parts) + 1))
+    assert any(event["event"] == "bundle_plan" for event in events)
+    assert sum(event["event"] == "bundle_part_complete" for event in events) == len(parts)
 
 
 def test_teaching_plan_builds_a_chapter_level_learning_progression() -> None:

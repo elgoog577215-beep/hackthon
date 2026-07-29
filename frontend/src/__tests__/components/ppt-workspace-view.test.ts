@@ -240,6 +240,62 @@ describe('PptWorkspaceView', () => {
     expect(wrapper.find('.deck-canvas').text()).not.toContain('残留失败预览')
   })
 
+  it('switches between automatically generated PPT bundle parts', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    const representations = [
+      {
+        representation_id: 'slides-part-1', representation_type: 'slide_deck', spec_id: 'part-spec-1',
+        variant_key: 'teaching:qizhi-classroom:part:01',
+        status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+      },
+      {
+        representation_id: 'slides-part-2', representation_type: 'slide_deck', spec_id: 'part-spec-2',
+        variant_key: 'teaching:qizhi-classroom:part:02',
+        status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+      },
+    ] as any
+    const specs: Record<string, any> = {
+      'slides-part-1': {
+        spec_id: 'part-spec-1', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+        payload: { compiler_version: 'same_source_compiler_v4', content: {
+          schema_version: 'slide_deck_v3', title: '第一分册',
+          bundle_part: { part_index: 1, part_count: 2, title: '第 1 册' },
+          slides: [{ unit_id: 'slide:part-1', layout: 'cover', slide_purpose: 'orientation', title: '第一分册页面', blocks: [] }],
+        } },
+      },
+      'slides-part-2': {
+        spec_id: 'part-spec-2', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+        payload: { compiler_version: 'same_source_compiler_v4', content: {
+          schema_version: 'slide_deck_v3', title: '第二分册',
+          bundle_part: { part_index: 2, part_count: 2, title: '第 2 册' },
+          slides: [{ unit_id: 'slide:part-2', layout: 'cover', slide_purpose: 'orientation', title: '第二分册页面', blocks: [] }],
+        } },
+      },
+    }
+    store.registry = { representations }
+    store.selectedId = 'slides-part-1'
+    store.selectedSpec = specs['slides-part-1']
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    const select = vi.spyOn(store, 'select').mockImplementation(async (representationId: string) => {
+      store.selectedId = representationId
+      store.selectedSpec = specs[representationId]
+      return store.selectedSpec
+    })
+
+    const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    const partSelector = wrapper.get('select[aria-label="PPT 分册"]')
+    expect(partSelector.findAll('option')).toHaveLength(2)
+    await partSelector.setValue('slides-part-2')
+    await flushPromises()
+
+    expect(select).toHaveBeenLastCalledWith('slides-part-2')
+    expect(wrapper.find('.deck-canvas').text()).toContain('第二分册页面')
+  })
+
   it('restores the slide representation after closing the teaching-material overview', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'
