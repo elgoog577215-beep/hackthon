@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from course_document import CourseBlock, CourseDocument, stable_hash
-from course_revisions import revision_vector_for_document
+from course_revisions import revision_vector_for_course, revision_vector_for_document
 from diagram_spec import DIAGRAM_COMPILER_VERSION, compile_diagram_spec, validate_diagram_spec
 from slide_deck import (
     SLIDE_DECK_COMPILER_VERSION,
@@ -578,7 +578,11 @@ def compile_slide_deck_variant(
         "passed": quality["passed"],
         "score": quality["score"],
     }
-    unit_bindings = _unit_bindings_for_payload(canonical_document, content)
+    unit_bindings = _unit_bindings_for_payload(
+        canonical_document,
+        content,
+        course_data=course_data,
+    )
     bindings = _dedupe_bindings([
         binding
         for values in unit_bindings.values()
@@ -1645,8 +1649,25 @@ def _practice_sheet_spec(document: CourseDocument, course_data: dict[str, Any]) 
 def _unit_bindings_for_payload(
     document: CourseDocument,
     payload: dict[str, Any],
+    *,
+    course_data: dict[str, Any] | None = None,
 ) -> dict[str, list[SourceBinding]]:
     vector = revision_vector_for_document(document).revisions
+    course_logic_revisions: dict[str, str] = {}
+    if (
+        payload.get("schema_version") == "slide_deck_v4"
+        and course_data is not None
+    ):
+        course_vector = revision_vector_for_course(document, course_data).revisions
+        course_logic_revisions = {
+            key: course_vector[key]
+            for key in (
+                "course_teaching_plan",
+                "course_knowledge_base",
+                "course_coherence_contract",
+            )
+            if key in course_vector
+        }
     blocks_by_id = {block.block_id: block for block in document.blocks}
     result: dict[str, list[SourceBinding]] = {}
     units = payload.get("units") or payload.get("slides") or payload.get("sections") or []
@@ -1707,9 +1728,20 @@ def _unit_bindings_for_payload(
                 practice_task_ids=[practice_task_id],
                 source_revisions={f"practice:{practice_task_id}": practice_revision_id},
             ))
+        if course_logic_revisions:
+            bindings.append(SourceBinding(
+                course_id=document.course_id,
+                section_id=str(unit.get("section_id") or "") or None,
+                source_revisions=course_logic_revisions,
+            ))
         result[unit_id] = _dedupe_bindings(bindings or [source_binding_for_document(document)])
     if not result:
         result["__whole__"] = [source_binding_for_document(document)]
+        if course_logic_revisions:
+            result["__whole__"].append(SourceBinding(
+                course_id=document.course_id,
+                source_revisions=course_logic_revisions,
+            ))
     return result
 
 

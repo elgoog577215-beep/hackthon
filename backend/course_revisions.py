@@ -80,6 +80,36 @@ def revision_vector_for_document(
     return CourseRevisionVector(course_id=item.course_id, revisions=revisions)
 
 
+def revision_vector_for_course(
+    document: CourseDocument | dict[str, Any],
+    course_data: dict[str, Any],
+) -> CourseRevisionVector:
+    """Extend the canonical document vector with official course-logic artifacts."""
+    vector = revision_vector_for_document(document)
+    revisions = dict(vector.revisions)
+    artifacts = {
+        "course_teaching_plan": (
+            course_data.get("course_teaching_plan") or {}
+        ),
+        "course_knowledge_base": (
+            course_data.get("course_knowledge_base") or {}
+        ),
+        "course_coherence_contract": (
+            course_data.get("course_coherence_contract") or {}
+        ),
+    }
+    for source_key, artifact in artifacts.items():
+        if not isinstance(artifact, dict):
+            continue
+        revision = str(artifact.get("revision_id") or "")
+        if revision:
+            revisions[source_key] = revision
+    return CourseRevisionVector(
+        course_id=vector.course_id,
+        revisions=revisions,
+    )
+
+
 def revision_event_for_documents(
     previous: CourseDocument | dict[str, Any],
     current: CourseDocument | dict[str, Any],

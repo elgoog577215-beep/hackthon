@@ -13,7 +13,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from course_document import CourseDocument, stable_hash
-from course_revisions import CourseRevisionEvent, revision_vector_for_document
+from course_revisions import (
+    CourseRevisionEvent,
+    CourseRevisionVector,
+    revision_vector_for_document,
+)
 
 TEACHING_REPRESENTATION_REGISTRY_SCHEMA = "teaching_representation_registry_v1"
 
@@ -469,6 +473,78 @@ class TeachingRepresentationRepository:
             registry.applied_revision_event_ids.append(item.event_id)
             registry.applied_revision_event_ids = registry.applied_revision_event_ids[-500:]
             return self.save(registry)
+
+    def reconcile_source_revision_vector(
+        self,
+        course_id: str,
+        current: CourseRevisionVector | dict[str, Any],
+    ) -> TeachingRepresentationRegistry:
+        """Mark derived artifacts stale when non-document source revisions drift."""
+        vector = (
+            current
+            if isinstance(current, CourseRevisionVector)
+            else CourseRevisionVector.model_validate(current)
+        )
+        if vector.course_id != course_id:
+            raise RepresentationConflict("Course revision vector belongs to another course")
+        registry = self.load(course_id)
+        previous_revisions = {
+            node.object_id: node.revision_or_fingerprint
+            for node in registry.derivation_graph.nodes
+            if node.node_type == "source"
+        }
+        bound_keys = set(previous_revisions)
+        current_keys = set(vector.revisions)
+        managed_bound_keys = {
+            key
+            for key in bound_keys
+            if (
+                key in {
+                    "course_document",
+                    "course_title",
+                    "course_teaching_plan",
+                    "course_knowledge_base",
+                    "course_coherence_contract",
+                }
+                or key.startswith((
+                    "block:",
+                    "section:",
+                    "section_structure:",
+                    "objective:",
+                ))
+            )
+        }
+        changed = sorted(
+            key
+            for key in managed_bound_keys & current_keys
+            if previous_revisions[key] != vector.revisions[key]
+        )
+        removed = sorted(managed_bound_keys - current_keys)
+        if not changed and not removed:
+            return registry
+        timestamp = datetime.now(timezone.utc).isoformat()
+        event_payload = {
+            "course_id": course_id,
+            "command_id": "",
+            "operation": "reconcile_source_revision_vector",
+            "previous": CourseRevisionVector(
+                course_id=course_id,
+                revisions=previous_revisions,
+            ).model_dump(mode="json"),
+            "current": vector.model_dump(mode="json"),
+            "changed_source_keys": changed,
+            "added_source_keys": sorted(current_keys - bound_keys),
+            "removed_source_keys": removed,
+            "affected_block_ids": [],
+            "created_at": timestamp,
+        }
+        return self.apply_revision_event(
+            course_id,
+            CourseRevisionEvent(
+                event_id=stable_hash(event_payload, prefix="cre_"),
+                **event_payload,
+            ),
+        )
 
     def reconcile_course_operation_log(
         self,

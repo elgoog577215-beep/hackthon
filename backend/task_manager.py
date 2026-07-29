@@ -151,8 +151,8 @@ from slide_deck_v4 import (
 )
 from slide_story_plan import (
     SlideStoryPlanV2,
-    course_supports_slide_deck_v4,
     plan_slide_story_v2,
+    resolve_slide_deck_schema,
 )
 from slide_theme import slide_theme_version
 from slide_visuals import (
@@ -3479,7 +3479,11 @@ class TaskManager:
             "SLIDE_STORY_ENGINE_V2_ENABLED",
             "true",
         ).strip().lower() in {"1", "true", "yes", "on"}
-        use_v4 = story_engine_enabled and course_supports_slide_deck_v4(course_view)
+        slide_schema = resolve_slide_deck_schema(
+            course_view,
+            story_engine_enabled=story_engine_enabled,
+        )
+        use_v4 = slide_schema == "slide_deck_v4"
         source_revision = str(document.document_revision or "")
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")

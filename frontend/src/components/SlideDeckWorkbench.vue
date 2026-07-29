@@ -1,5 +1,5 @@
 <template>
-  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="previewTheme" :data-preview-source="previewSource">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="previewTheme" :data-preview-source="previewSource" :data-engine-status="engineStatus">
     <header class="slide-workbench__toolbar">
       <div class="slide-workbench__identity">
         <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
@@ -16,6 +16,9 @@
           {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
         <small class="slide-workbench__count">{{ deckCountLabel }}</small>
+        <small class="slide-workbench__engine-status" :data-state="engineStatus">
+          {{ engineStatusLabel }}
+        </small>
         <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
           {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
         </small>
@@ -421,6 +424,7 @@ const props = withDefaults(defineProps<{
   variants?: TeachingRepresentation[]
   bundleParts?: Array<{ representationId: string; label: string }>
   activeBundlePartId?: string
+  engineStatus?: 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
 }>(), {
   standalone: false,
   mode: 'teaching',
@@ -428,6 +432,7 @@ const props = withDefaults(defineProps<{
   variants: () => [],
   bundleParts: () => [],
   activeBundlePartId: '',
+  engineStatus: 'unknown',
 })
 
 const emit = defineEmits<{
@@ -470,6 +475,12 @@ const activeSlide = computed(() => props.slides[activeIndex.value] || null)
 const currentRepresentation = computed(() => (
   props.variants.find(item => item.representation_id === props.representationId) || null
 ))
+const engineStatusLabel = computed(() => ({
+  slide_deck_v4: '课程逻辑 V4',
+  slide_deck_v3: '兼容模式 V3',
+  blocked: '课程逻辑未就绪',
+  unknown: '引擎状态读取中',
+}[props.engineStatus]))
 const qualityPassed = computed(() => props.quality?.passed === true)
 const deckCountLabel = computed(() => {
   const main = Number(props.quality?.main_slide_count || 0)
@@ -976,6 +987,9 @@ function classificationLabel(value: string) {
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
 .slide-workbench__status[data-state="error"] { color:#b42318; background:#fef3f2; }
 .slide-workbench__engine-update { padding:4px 7px; border-radius:6px; color:#8a4b08; background:#fff4dc; font-size:9px; font-weight:750; }
+.slide-workbench__engine-status { padding:4px 7px; border:1px solid #bfd1ff; border-radius:999px; color:#2449a8; background:#edf3ff; font-size:9px; font-weight:800; }
+.slide-workbench__engine-status[data-state="slide_deck_v3"] { border-color:#ecd09c; color:#85520a; background:#fff7e6; }
+.slide-workbench__engine-status[data-state="blocked"] { border-color:#efb6b6; color:#a12828; background:#fff0f0; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
 .slide-workbench__part-selector { min-height:34px; max-width:110px; padding:0 28px 0 10px; border:1px solid var(--lz-border); border-radius:9px; color:#536174; background:#fff; font-size:11px; font-weight:800; outline:none; }

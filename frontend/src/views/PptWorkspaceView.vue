@@ -26,8 +26,13 @@
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <small>{{ t('pptWorkspace.emptyEyebrow', '课堂课件尚未生成') }}</small>
       <h1>{{ courseTitle }}</h1>
+      <small
+        class="ppt-workspace-state__engine"
+        data-testid="ppt-engine-status"
+        :data-engine-status="slideEngineStatus"
+      >{{ slideEngineStatusLabel }}</small>
       <p>{{ buildErrorLabel || t('pptWorkspace.emptyDescription', '从课程目标、正文、知识点与理解检查编译一套可直接上课的 PPT。') }}</p>
-      <button type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="openGenerator(false)">
+      <button type="button" class="ppt-workspace-state__build" :disabled="store.building || slideEngineStatus === 'blocked'" @click="openGenerator(false)">
         <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '选择模式与风格') }}
       </button>
     </div>
@@ -64,6 +69,7 @@
         :variants="slideVariants"
         :bundle-parts="activeBundleParts"
         :active-bundle-part-id="slideRepresentation?.representation_id || ''"
+        :engine-status="slideEngineStatus"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -157,8 +163,14 @@ const courseTitle = computed(() => (
   || courseStore.currentCourse?.course_name
   || t('pptWorkspace.untitledCourse', '课程演示')
 ))
+const targetSlideRepresentations = computed(() => (
+  store.representations.filter(item => (
+    item.representation_type === 'slide_deck'
+    && representationMatchesTargetEngine(item)
+  ))
+))
 const slideVariants = computed(() => (
-  store.representations.filter(item => item.representation_type === 'slide_deck' && item.variant_key)
+  targetSlideRepresentations.value.filter(item => item.variant_key)
 ))
 const activeVariantKey = computed(() => `${selectedMode.value}:${selectedTheme.value}`)
 const activeBundleRepresentations = computed(() => (
@@ -179,15 +191,52 @@ const activeBundleParts = computed(() => (
     ))
 ))
 const slideRepresentation = computed(() => (
-  store.representations.find(item => (
-    item.representation_type === 'slide_deck'
-    && item.representation_id === store.selectedId
-  ))
+  targetSlideRepresentations.value.find(
+    item => item.representation_id === store.selectedId,
+  )
   || slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
-  || store.representations.find(item => item.representation_type === 'slide_deck')
+  || targetSlideRepresentations.value[0]
   || null
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
+const slideEngineStatus = computed<
+  'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+>(() => {
+  const target = String(store.registry?.slide_deck_target_schema || '')
+  if (['slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
+    return target as 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
+  }
+  const publishedSchema = String(content.value?.schema_version || '')
+  if (publishedSchema === 'slide_deck_v4' || publishedSchema === 'slide_deck_v3') {
+    return publishedSchema
+  }
+  return 'unknown'
+})
+const slideEngineStatusLabel = computed(() => ({
+  slide_deck_v4: '将使用新版课程逻辑 V4 生成',
+  slide_deck_v3: '当前使用兼容模式 V3',
+  blocked: '课程逻辑产物未就绪，暂不能生成 PPT',
+  unknown: '正在确认 PPT 生成引擎',
+}[slideEngineStatus.value]))
+
+function representationMatchesTargetEngine(item: TeachingRepresentation) {
+  const target = String(store.registry?.slide_deck_target_schema || '')
+  if (target !== 'slide_deck_v4' && target !== 'slide_deck_v3') return true
+  const registrySpec = (store.registry?.specs || []).find(
+    (spec: Record<string, any>) => spec.spec_id === item.spec_id,
+  )
+  const selectedSpec = (
+    store.selectedSpec?.spec_id === item.spec_id
+      ? store.selectedSpec
+      : null
+  )
+  const schema = String(
+    registrySpec?.payload?.content?.schema_version
+    || selectedSpec?.payload?.content?.schema_version
+    || '',
+  )
+  return schema === target
+}
 const displaySlides = computed(() => (
   store.liveSlides.length && store.slidePreviewSource === 'draft'
     ? store.liveSlides
@@ -249,11 +298,14 @@ async function loadWorkspace() {
     if (!isCurrentAttempt(id, attempt)) return
     const preferred = preferredVariantRepresentation()
       || slideVariants.value[0]
-      || store.representations.find(item => item.representation_type === 'slide_deck')
+      || targetSlideRepresentations.value[0]
     if (preferred) {
       applyVariantSelection(preferred)
       await store.select(preferred.representation_id)
-    } else if (!store.liveSlides.length) {
+    } else if (
+      !store.liveSlides.length
+      && slideEngineStatus.value !== 'blocked'
+    ) {
       generatorOpen.value = true
     }
   } catch {
@@ -304,11 +356,14 @@ async function migrateCourse() {
     if (!isCurrentAttempt(id, attempt)) return
     const preferred = preferredVariantRepresentation()
       || slideVariants.value[0]
-      || store.representations.find(item => item.representation_type === 'slide_deck')
+      || targetSlideRepresentations.value[0]
     if (preferred) {
       applyVariantSelection(preferred)
       await store.select(preferred.representation_id)
-    } else if (!store.liveSlides.length) {
+    } else if (
+      !store.liveSlides.length
+      && slideEngineStatus.value !== 'blocked'
+    ) {
       generatorOpen.value = true
     }
   } catch (error: any) {
@@ -334,6 +389,7 @@ async function rebuild() {
 }
 
 function openGenerator(forceRebuild: boolean) {
+  if (slideEngineStatus.value === 'blocked') return
   forceGeneratorBuild.value = forceRebuild
   generatorOpen.value = true
 }
@@ -482,6 +538,10 @@ onMounted(loadWorkspace)
 .ppt-workspace-state__task-actions button { min-height:34px; padding:0 14px; border:1px solid #cbd5e1; border-radius:9px; color:#334155; background:#fff; cursor:pointer; }
 .ppt-workspace-state__back { position:absolute; top:22px; left:22px; width:40px; height:40px; display:grid; place-items:center; border:1px solid #d4dae4; border-radius:10px; color:#526174; background:#fff; cursor:pointer; }
 .ppt-workspace-state__build { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:26px; padding:0 18px; border:0; border-radius:10px; color:#fff; background:#2556d8; box-shadow:0 10px 24px rgba(37,86,216,.24); font-size:13px; font-weight:700; cursor:pointer; }
+.ppt-workspace-state__build:disabled { cursor:not-allowed; opacity:.5; box-shadow:none; }
+.ppt-workspace-state__engine { display:inline-flex; align-items:center; min-height:28px; padding:0 10px; border:1px solid #bfd1ff; border-radius:999px; color:#2449a8; background:#edf3ff; font-size:11px; font-weight:800; }
+.ppt-workspace-state__engine[data-engine-status="slide_deck_v3"] { border-color:#ecd09c; color:#85520a; background:#fff7e6; }
+.ppt-workspace-state__engine[data-engine-status="blocked"] { border-color:#efb6b6; color:#a12828; background:#fff0f0; }
 .ppt-ai-enter-active,.ppt-ai-leave-active { transition:transform .22s ease,opacity .22s ease; }
 .ppt-ai-enter-from,.ppt-ai-leave-to { opacity:0; transform:translateX(20px); }
 @media (max-width:860px) {

@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from change_proposals import change_proposal_repository, create_authoring_change
 from ai_base import AIBase
 from course_document import stable_hash
-from course_revisions import revision_vector_for_document
+from course_revisions import revision_vector_for_course, revision_vector_for_document
 from dependencies import (
     get_course_document_repository,
     get_course_or_404,
@@ -52,6 +52,7 @@ from slide_story_plan import (
     SlideStoryPlanV2,
     compile_slide_story_plan_v2,
     course_supports_slide_deck_v4,
+    slide_deck_v4_prerequisite_issues,
 )
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from slide_asset_repository import slide_asset_repository
@@ -135,14 +136,31 @@ def _reconciled_registry(course_id: str) -> dict:
     raw = course_repository.load_raw(course_id)
     document, _canonical = course_repository.load_document(course_id)
     course_view = course_repository.load_course_view(course_id)
-    registry = get_teaching_representation_repository().reconcile_course_operation_log(
+    repository = get_teaching_representation_repository()
+    repository.reconcile_course_operation_log(
         course_id,
         list(raw.get("course_operation_log") or []),
     )
+    registry = repository.reconcile_source_revision_vector(
+        course_id,
+        revision_vector_for_course(document, course_view),
+    )
     payload = registry.model_dump(mode="json")
+    story_engine_enabled = _story_engine_enabled()
     v4_eligible = course_supports_slide_deck_v4(course_view)
     payload["slide_deck_v4_eligible"] = v4_eligible
     payload["slide_deck_v4_upgrade_required"] = not v4_eligible
+    payload["slide_deck_story_engine_enabled"] = story_engine_enabled
+    payload["slide_deck_target_schema"] = (
+        "slide_deck_v3"
+        if not story_engine_enabled
+        else "slide_deck_v4"
+        if v4_eligible
+        else "blocked"
+    )
+    payload["slide_deck_v4_blockers"] = (
+        [] if v4_eligible else slide_deck_v4_prerequisite_issues(course_view)
+    )
     specs = {
         item["spec_id"]: item
         for item in payload.get("specs") or []
@@ -155,10 +173,12 @@ def _reconciled_registry(course_id: str) -> dict:
         schema_version = content.get("schema_version")
         if schema_version not in {"slide_deck_v3", "slide_deck_v4"}:
             continue
-        if schema_version == "slide_deck_v3" and not v4_eligible:
+        if schema_version == "slide_deck_v3" and story_engine_enabled:
             representation["course_logic_upgrade_required"] = True
             representation["course_logic_upgrade_reason"] = (
-                "当前课程缺少已完成的新版教学计划；请先升级课程，再生成课程逻辑版 PPT"
+                "新版课程逻辑 V4 已可用，请重新生成当前 PPT"
+                if v4_eligible
+                else "当前课程逻辑产物未就绪，请先完成课程升级后再生成 PPT"
             )
         expected = _expected_slide_signature(
             document,
