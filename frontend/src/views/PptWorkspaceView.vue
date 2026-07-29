@@ -178,9 +178,11 @@ const estimatedFragmentCount = computed(() => (
   || (documentEnvelope.value?.document?.blocks || []).length * 3
 ))
 const buildErrorLabel = computed(() => (
-  store.buildError === 'quality_gate_failed'
-    ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
-    : store.buildError
+  store.buildError === 'deck_split_required'
+    ? '课程内容过多，预计超过 300 页。请按章节拆分课程后再生成 PPT。'
+    : store.buildError === 'quality_gate_failed'
+      ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
+      : store.buildError
 ))
 const stageLabel = computed(() => ({
   fragmenting: '正在切分并校验课程原文',
@@ -190,6 +192,8 @@ const stageLabel = computed(() => ({
   episode_progress: '正在生成教学场景',
   layout_plan: '正在匹配语义版式',
   slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划整套页面'),
+  visual_plan: '正在规划课件视觉',
+  asset_compilation: '正在编译课件素材',
   slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在逐页生成教学内容'),
   reviewing: '正在审核页面分配',
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
@@ -197,6 +201,8 @@ const stageLabel = computed(() => ({
   repair_progress: '正在定向修复问题页面',
   paused: '已暂停，可从保存点继续',
   resuming: '正在从保存点继续',
+  build_blocked: '生成已停止',
+  cancelled: '生成已取消',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[store.buildStage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 

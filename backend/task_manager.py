@@ -141,6 +141,7 @@ from slide_deck_v3 import (
     fragment_course_document,
     normalize_slide_deck_theme,
     plan_slide_deck_v3,
+    slide_deck_preflight_quality,
     slide_deck_variant_key,
 )
 from slide_deck_v4 import (
@@ -3618,6 +3619,16 @@ class TaskManager:
                     ai_reviewer=reviewer,
                 )
             resume_slides = []
+        preflight = slide_deck_preflight_quality(allocation_plan)
+        if not preflight["passed"]:
+            await self._record_representation_event(task_id, {
+                "event": "build_blocked",
+                "progress": 100,
+                "stage": "build_blocked",
+                "quality": preflight,
+                "variant_key": variant_key,
+            })
+            raise RuntimeError("slide_deck_variant_split_required")
         if visual_plan is None:
             visual_plan = await plan_slide_visuals(
                 document,

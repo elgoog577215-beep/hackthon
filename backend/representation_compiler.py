@@ -27,6 +27,7 @@ from slide_deck_v3 import (
     SlideDeckTheme,
     compile_slide_deck_v3,
     normalize_slide_deck_theme,
+    slide_deck_preflight_quality,
     slide_deck_variant_key,
     validate_slide_deck_v3,
 )
@@ -678,6 +679,26 @@ def rebuild_slide_deck_variant_safely(
         None,
     )
     try:
+        if allocation_plan is not None:
+            preflight = slide_deck_preflight_quality(allocation_plan)
+            if not preflight["passed"]:
+                if progress_callback:
+                    progress_callback({
+                        "event": "build_blocked",
+                        "progress": 100,
+                        "stage": "build_blocked",
+                        "quality": preflight,
+                    })
+                return {
+                    "status": "failed_using_last_available",
+                    "variant_key": variant_key,
+                    "quality": preflight,
+                    "last_available": (
+                        previous_variant.model_dump(mode="json")
+                        if previous_variant
+                        else None
+                    ),
+                }
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-variant-build-") as temp_dir:
             shadow = TeachingRepresentationRepository(temp_dir)
             shadow.save(deepcopy(previous))

@@ -43,6 +43,7 @@ from slide_visuals import (
 
 SLIDE_DECK_V3_SCHEMA = "slide_deck_v3"
 SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v4_teaching_storyboard"
+MAX_GENERATED_SLIDE_COUNT = 300
 
 SlideDeckMode = Literal["full", "teaching", "concise"]
 SlideDeckTheme = Literal[
@@ -236,6 +237,36 @@ def slide_deck_variant_key(mode: str, theme: str) -> str:
     if mode not in SLIDE_DECK_MODES:
         raise ValueError(f"Unknown slide mode '{mode}'")
     return f"{mode}:{normalize_slide_deck_theme(theme)}"
+
+
+def slide_deck_preflight_quality(
+    allocation_plan: SlideAllocationPlanV2 | dict[str, Any],
+) -> dict[str, Any]:
+    """Reject a deck that must be split before visual and asset compilation."""
+    plan = (
+        allocation_plan
+        if isinstance(allocation_plan, SlideAllocationPlanV2)
+        else SlideAllocationPlanV2.model_validate(allocation_plan)
+    )
+    blockers: list[dict[str, Any]] = []
+    estimated_slide_count = len(plan.pages)
+    if estimated_slide_count > MAX_GENERATED_SLIDE_COUNT:
+        blockers.append({
+            "severity": "critical",
+            "code": "deck_split_required",
+            "message": "课件预计页数超过单次生成上限，请按章节拆分后生成。",
+            "estimated_slide_count": estimated_slide_count,
+            "maximum_slide_count": MAX_GENERATED_SLIDE_COUNT,
+        })
+    return {
+        "passed": not blockers,
+        "score": 100 if not blockers else 0,
+        "issues": blockers,
+        "blockers": blockers,
+        "warnings": [],
+        "estimated_slide_count": estimated_slide_count,
+        "maximum_slide_count": MAX_GENERATED_SLIDE_COUNT,
+    }
 
 
 def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1]:
@@ -2082,6 +2113,7 @@ def validate_slide_deck_v3(
 __all__ = [
     "ContentFragmentV1",
     "LEGACY_THEME_ALIASES",
+    "MAX_GENERATED_SLIDE_COUNT",
     "SLIDE_DECK_MODES",
     "SLIDE_DECK_THEMES",
     "SLIDE_DECK_V3_COMPILER_VERSION",
@@ -2095,6 +2127,7 @@ __all__ = [
     "fragment_course_document",
     "normalize_slide_deck_theme",
     "plan_slide_deck_v3",
+    "slide_deck_preflight_quality",
     "slide_deck_variant_key",
     "validate_allocation_plan",
     "validate_slide_deck_v3",

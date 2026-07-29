@@ -447,12 +447,121 @@ def rebalance_visual_plan_pages(
     fragments: list[Any],
 ) -> None:
     """Reapply rhythm after optional assets degrade into deterministic visuals."""
+    _rebalance_visual_kind_runs(pages, allocation_plan, fragments)
     _rebalance_compositions(pages)
     _rebalance_quality_eligible_compositions(
         pages,
         allocation_plan,
         fragments,
     )
+
+
+def _rebalance_visual_kind_runs(
+    pages: list[SlideVisualPlanPageV1],
+    allocation_plan: Any,
+    fragments: list[Any],
+) -> None:
+    """Break visual-kind runs using a deterministic, source-bound alternate."""
+    allocation_by_id = {
+        page.page_id: page for page in allocation_plan.pages
+    }
+    fragment_by_id = {
+        str(fragment.fragment_id): fragment
+        for fragment in fragments
+    }
+    fragment_text = {
+        fragment_id: str(fragment.text or "")
+        for fragment_id, fragment in fragment_by_id.items()
+    }
+    fragment_kind = {
+        fragment_id: str(fragment.kind or "")
+        for fragment_id, fragment in fragment_by_id.items()
+    }
+    eligible = [
+        page
+        for page in pages
+        if (
+            not page.appendix
+            and page.page_id in allocation_by_id
+            and allocation_by_id[page.page_id].fragment_ids
+            and allocation_by_id[page.page_id].layout != "section-divider"
+            and (
+                str(getattr(
+                    allocation_by_id[page.page_id],
+                    "narrative_role",
+                    "",
+                )) in {"method", "example", "misconception"}
+                or page.visual_anchor.kind != "none"
+                or any(
+                    fragment_kind.get(fragment_id)
+                    in {"formula", "code", "table", "image", "diagram"}
+                    for fragment_id in allocation_by_id[page.page_id].fragment_ids
+                )
+            )
+            and str(getattr(
+                allocation_by_id[page.page_id],
+                "narrative_role",
+                "",
+            )) != "checkpoint"
+        )
+    ]
+    previous_kind = ""
+    kind_run = 0
+    for page in eligible:
+        anchor = page.visual_anchor
+        kind = anchor.kind
+        if kind == previous_kind:
+            kind_run += 1
+        else:
+            previous_kind = kind
+            kind_run = 1
+        maximum_kind_run = 5 if kind in {"formula", "code"} else 3
+        if kind == "none" or kind_run <= maximum_kind_run:
+            continue
+        if kind != "table" and anchor.source_fragment_ids:
+            labels = [
+                node.label
+                for node in anchor.nodes
+                if str(node.label or "").strip()
+            ]
+            if not labels:
+                labels = [
+                    _trim_takeaway(
+                        fragment_text.get(fragment_id, ""),
+                        60,
+                    )
+                    for fragment_id in anchor.source_fragment_ids
+                    if _trim_takeaway(
+                        fragment_text.get(fragment_id, ""),
+                        60,
+                    )
+                ]
+            page.visual_anchor = VisualAnchorV1(
+                visual_id=stable_hash(
+                    {"page_id": page.page_id, "kind": "table"},
+                    prefix="sv_",
+                ),
+                kind="table",
+                purpose=anchor.purpose,
+                source_fragment_ids=list(anchor.source_fragment_ids),
+                alt_text=anchor.alt_text,
+                parameters={
+                    "headers": ["顺序", "课程原文要点"],
+                    "rows": [
+                        [str(index + 1), label]
+                        for index, label in enumerate(labels[:6])
+                    ],
+                    "information_gain_score": 0.7,
+                    "source_bound": True,
+                },
+            )
+            page.composition = "split-visual"
+            previous_kind = "table"
+        else:
+            page.visual_anchor = _none_anchor(page.page_id, anchor.purpose)
+            page.composition = "statement"
+            previous_kind = "none"
+        kind_run = 1
 
 
 def _rebalance_quality_eligible_compositions(
