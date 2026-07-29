@@ -7,6 +7,7 @@ import pytest
 from pptx import Presentation
 
 from course_document import document_from_legacy_course
+from course_revisions import revision_vector_for_course
 from representation_compiler import (
     rebuild_slide_deck_variant_bundle_safely,
     rebuild_slide_deck_variant_safely,
@@ -23,6 +24,7 @@ from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     compile_slide_story_plan_v2,
     plan_slide_story_v2,
+    resolve_slide_deck_schema,
 )
 from teaching_representations import TeachingRepresentationRepository
 
@@ -330,6 +332,25 @@ def test_story_plan_requires_completed_official_teaching_plan() -> None:
         )
 
 
+def test_enabled_story_engine_rejects_silent_v3_fallback() -> None:
+    course = _course_with_teaching_plan()
+    course.pop("course_knowledge_base")
+
+    with pytest.raises(
+        SlideStoryPlanPrerequisiteError,
+        match="active official course knowledge base",
+    ):
+        resolve_slide_deck_schema(
+            course,
+            story_engine_enabled=True,
+        )
+
+    assert resolve_slide_deck_schema(
+        course,
+        story_engine_enabled=False,
+    ) == "slide_deck_v3"
+
+
 def test_v4_signature_binds_teaching_logic_revisions() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
@@ -496,6 +517,67 @@ def test_v4_variant_is_atomically_published_under_existing_variant_key(tmp_path)
     assert result["status"] == "synchronized"
     assert representation.status == "ready"
     assert spec.payload["content"]["schema_version"] == "slide_deck_v4"
+
+
+def test_v4_variant_becomes_stale_when_course_logic_revision_changes(tmp_path) -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    allocation, _ = allocation_from_story_plan_v2(document, fragments, story)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        allocation_plan=allocation,
+        story_plan=story,
+    )
+
+    registry = repository.load(document.course_id)
+    representation = next(
+        item for item in registry.representations
+        if item.variant_key == "teaching:qizhi-classroom"
+    )
+    assert representation.source_revision_vector["course_teaching_plan"] == (
+        "teaching-plan-rev-1"
+    )
+    assert representation.source_revision_vector["course_knowledge_base"] == (
+        "kb-rev-1"
+    )
+    assert representation.source_revision_vector["course_coherence_contract"] == (
+        "coherence-rev-1"
+    )
+
+    changed_course = deepcopy(course)
+    changed_course["course_knowledge_base"]["revision_id"] = "kb-rev-2"
+    reconciled = repository.reconcile_source_revision_vector(
+        document.course_id,
+        revision_vector_for_course(document, changed_course),
+    )
+    changed_representation = next(
+        item for item in reconciled.representations
+        if item.representation_id == representation.representation_id
+    )
+
+    assert changed_representation.status == "stale"
+    assert "source_revision_changed:course_knowledge_base" in (
+        changed_representation.stale_reasons
+    )
+    assert set(changed_representation.stale_unit_ids) == set(
+        next(
+            item for item in reconciled.specs
+            if item.spec_id == changed_representation.spec_id
+        ).unit_bindings
+    )
 
 
 def test_v4_bundle_parts_keep_the_latest_story_engine(tmp_path) -> None:
