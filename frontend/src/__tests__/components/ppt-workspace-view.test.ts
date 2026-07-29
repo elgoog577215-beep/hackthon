@@ -281,7 +281,6 @@ describe('PptWorkspaceView', () => {
     const select = vi.spyOn(store, 'select').mockImplementation(async (representationId: string) => {
       store.selectedId = representationId
       store.selectedSpec = specs[representationId]
-      return store.selectedSpec
     })
 
     const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })

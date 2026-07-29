@@ -62,10 +62,13 @@
         :mode="selectedMode"
         :theme="selectedTheme"
         :variants="slideVariants"
+        :bundle-parts="activeBundleParts"
+        :active-bundle-part-id="slideRepresentation?.representation_id || ''"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
         @variant-change="selectVariant"
+        @bundle-part-change="selectBundlePart"
         @open-materials="openMaterials"
         @ask-ai="openAiForSlide"
         @open-course="openSameSourceCourse"
@@ -158,6 +161,23 @@ const slideVariants = computed(() => (
   store.representations.filter(item => item.representation_type === 'slide_deck' && item.variant_key)
 ))
 const activeVariantKey = computed(() => `${selectedMode.value}:${selectedTheme.value}`)
+const activeBundleRepresentations = computed(() => (
+  slideVariants.value.filter(item => (
+    baseVariantKey(item.variant_key) === activeVariantKey.value
+    && String(item.variant_key || '').includes(':part:')
+  ))
+))
+const activeBundleParts = computed(() => (
+  activeBundleRepresentations.value
+    .map(item => ({
+      representationId: item.representation_id,
+      label: `第 ${bundlePartIndex(item.variant_key)} 册`,
+    }))
+    .sort((left, right) => (
+      Number(left.label.match(/\d+/)?.[0] || 0)
+      - Number(right.label.match(/\d+/)?.[0] || 0)
+    ))
+))
 const slideRepresentation = computed(() => (
   store.representations.find(item => (
     item.representation_type === 'slide_deck'
@@ -199,6 +219,8 @@ const stageLabel = computed(() => ({
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
   render_review: '正在渲染复核成品',
   repair_progress: '正在定向修复问题页面',
+  bundle_plan: '正在按章节拆分课件',
+  bundle_part_build: '正在逐册生成课件',
   paused: '已暂停，可从保存点继续',
   resuming: '正在从保存点继续',
   build_blocked: '生成已停止',
@@ -225,7 +247,7 @@ async function loadWorkspace() {
       store.deferMissingSlideBuild = false
     }
     if (!isCurrentAttempt(id, attempt)) return
-    const preferred = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+    const preferred = preferredVariantRepresentation()
       || slideVariants.value[0]
       || store.representations.find(item => item.representation_type === 'slide_deck')
     if (preferred) {
@@ -280,7 +302,7 @@ async function migrateCourse() {
       store.deferMissingSlideBuild = false
     }
     if (!isCurrentAttempt(id, attempt)) return
-    const preferred = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+    const preferred = preferredVariantRepresentation()
       || slideVariants.value[0]
       || store.representations.find(item => item.representation_type === 'slide_deck')
     if (preferred) {
@@ -338,14 +360,14 @@ async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
     forceRebuild: forceGeneratorBuild.value,
   }).catch(() => undefined)
   forceGeneratorBuild.value = false
-  const variant = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+  const variant = preferredVariantRepresentation()
   if (variant) await store.select(variant.representation_id)
 }
 
 async function selectVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
-  const cached = slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+  const cached = preferredVariantRepresentation()
   if (cached) {
     await store.select(cached.representation_id)
     return
@@ -360,6 +382,32 @@ function applyVariantSelection(representation: TeachingRepresentation) {
   if (['qizhi-classroom', 'academic-editorial', 'grid-notebook', 'modern-geometric', 'dark-tech'].includes(theme)) {
     selectedTheme.value = theme as V3Theme
   }
+}
+
+function baseVariantKey(variantKey?: string) {
+  return String(variantKey || '').split(':part:')[0]
+}
+
+function bundlePartIndex(variantKey?: string) {
+  return Number(String(variantKey || '').split(':part:')[1] || 1)
+}
+
+function preferredVariantRepresentation() {
+  return (
+    slideVariants.value.find(item => item.variant_key === activeVariantKey.value)
+    || activeBundleRepresentations.value
+      .slice()
+      .sort((left, right) => (
+        bundlePartIndex(left.variant_key) - bundlePartIndex(right.variant_key)
+      ))[0]
+  )
+}
+
+async function selectBundlePart(representationId: string) {
+  const part = activeBundleRepresentations.value.find(
+    item => item.representation_id === representationId,
+  )
+  if (part) await store.select(part.representation_id)
 }
 
 async function pauseBuild() {

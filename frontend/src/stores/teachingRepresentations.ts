@@ -326,7 +326,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         const available = this.representations
         const requestedVariant = options ? `${options.mode}:${options.theme}` : ''
         const requestedRepresentation = requestedVariant
-          ? available.find(item => item.representation_type === 'slide_deck' && item.variant_key === requestedVariant)
+          ? available.find(item => (
+              item.representation_type === 'slide_deck'
+              && (
+                item.variant_key === requestedVariant
+                || item.variant_key?.startsWith(`${requestedVariant}:part:`)
+              )
+            ))
           : null
         if (requestedRepresentation) {
           this.selectedId = requestedRepresentation.representation_id

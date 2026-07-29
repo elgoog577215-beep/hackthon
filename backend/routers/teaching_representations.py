@@ -519,24 +519,80 @@ async def stream_slide_deck_variant_build(
         and item.variant_key == variant_key
         and item.status == "ready"
     ), None)
+    cached_parts = sorted(
+        [
+            item for item in registry.representations
+            if (
+                item.representation_type == "slide_deck"
+                and item.variant_key.startswith(f"{variant_key}:part:")
+                and item.status == "ready"
+            )
+        ],
+        key=lambda item: item.variant_key,
+    )
+    if cached is None and cached_parts:
+        cached = cached_parts[0]
     cached_spec = next((
         item for item in registry.specs
         if cached is not None and item.spec_id == cached.spec_id
     ), None)
-    cached_current = bool(
-        cached_spec
-        and str((cached_spec.payload.get("content") or {}).get("source_document_revision") or "")
-        == str(document.document_revision or "")
-        and str(
-            ((cached_spec.payload.get("content") or {}).get("build_signature") or {}).get("signature")
-            or ""
-        )
-        == _expected_slide_signature(
+    cached_content = cached_spec.payload.get("content") if cached_spec else {}
+    cached_bundle_part = (cached_content or {}).get("bundle_part") or {}
+    cached_source_revision = str(
+        cached_bundle_part.get("source_document_revision")
+        or (cached_content or {}).get("source_document_revision")
+        or ""
+    )
+    cached_signature = (
+        cached_bundle_part.get("build_signature")
+        or (cached_content or {}).get("build_signature")
+        or {}
+    )
+    expected_signature = (
+        (
+            build_signature_v4(
+                document=document,
+                course_data=course_view,
+                mode=body.mode,
+                theme=theme,
+            )
+            if cached_bundle_part.get("slide_schema_version") == "slide_deck_v4"
+            else build_signature(
+                source_document_revision=str(document.document_revision or ""),
+                mode=body.mode,
+                theme=theme,
+                compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+                theme_version=slide_theme_version(),
+            )
+        )["signature"]
+        if cached_bundle_part
+        else _expected_slide_signature(
             document,
             course_view,
             mode=body.mode,
             theme=theme,
         )["signature"]
+    )
+    cached_bundle_complete = (
+        not cached_bundle_part
+        or (
+            len(cached_parts) == int(cached_bundle_part.get("part_count") or 0)
+            and all(
+                item.variant_key
+                == f"{variant_key}:part:{index:02d}"
+                for index, item in enumerate(cached_parts, start=1)
+            )
+        )
+    )
+    cached_current = bool(
+        cached_spec
+        and cached_source_revision == str(document.document_revision or "")
+        and str(
+            cached_signature.get("signature")
+            or ""
+        )
+        == expected_signature
+        and cached_bundle_complete
     )
     if cached_current and not body.force_rebuild:
         async def cached_event_stream():

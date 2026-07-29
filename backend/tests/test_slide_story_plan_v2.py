@@ -7,9 +7,12 @@ import pytest
 from pptx import Presentation
 
 from course_document import document_from_legacy_course
-from representation_compiler import rebuild_slide_deck_variant_safely
+from representation_compiler import (
+    rebuild_slide_deck_variant_bundle_safely,
+    rebuild_slide_deck_variant_safely,
+)
 from slide_deck_renderer import export_structured_slide_deck
-from slide_deck_v3 import fragment_course_document
+from slide_deck_v3 import fragment_course_document, split_slide_deck_plan_by_chapter
 from slide_deck_v4 import (
     allocation_from_story_plan_v2,
     build_signature_v4,
@@ -493,6 +496,41 @@ def test_v4_variant_is_atomically_published_under_existing_variant_key(tmp_path)
     assert result["status"] == "synchronized"
     assert representation.status == "ready"
     assert spec.payload["content"]["schema_version"] == "slide_deck_v4"
+
+
+def test_v4_bundle_parts_keep_the_latest_story_engine(tmp_path) -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    allocation, _ = allocation_from_story_plan_v2(document, fragments, story)
+    parts = split_slide_deck_plan_by_chapter(document, allocation)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+
+    result = rebuild_slide_deck_variant_bundle_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        parts=parts,
+        story_plan=story,
+    )
+
+    assert result["status"] == "synchronized"
+    registry = repository.load(document.course_id)
+    schemas = {
+        spec.payload["content"]["schema_version"]
+        for spec in registry.specs
+        if spec.variant_key.startswith("teaching:qizhi-classroom:part:")
+    }
+    assert schemas == {"slide_deck_v4"}
 
 
 def test_concise_mode_keeps_a_minimum_loop_and_records_every_omission() -> None:

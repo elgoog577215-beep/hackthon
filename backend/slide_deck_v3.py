@@ -16,7 +16,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
+from course_document import (
+    CourseBlock,
+    CourseDocument,
+    CourseSection,
+    refresh_document_revision,
+    stable_hash,
+)
 from slide_deck import (
     SlideBlockSpec,
     SlideSpec,
@@ -225,6 +231,14 @@ class SlideAllocationPlanV2(_StrictModel):
         return self
 
 
+class SlideDeckPlanPartV1(_StrictModel):
+    part_id: str
+    title: str
+    chapter_ids: list[str]
+    document: CourseDocument
+    allocation_plan: SlideAllocationPlanV2
+
+
 def normalize_slide_deck_theme(theme: str) -> str:
     normalized = LEGACY_THEME_ALIASES.get(str(theme or "").strip(), str(theme or "").strip())
     if normalized not in SLIDE_DECK_THEMES:
@@ -267,6 +281,255 @@ def slide_deck_preflight_quality(
         "estimated_slide_count": estimated_slide_count,
         "maximum_slide_count": MAX_GENERATED_SLIDE_COUNT,
     }
+
+
+def split_slide_deck_plan_by_chapter(
+    document: CourseDocument,
+    allocation_plan: SlideAllocationPlanV2 | dict[str, Any],
+    *,
+    maximum_slide_count: int = MAX_GENERATED_SLIDE_COUNT,
+) -> list[SlideDeckPlanPartV1]:
+    """Split a source-complete plan into independently valid chapter bundles."""
+    plan = (
+        allocation_plan
+        if isinstance(allocation_plan, SlideAllocationPlanV2)
+        else SlideAllocationPlanV2.model_validate(allocation_plan)
+    )
+    if plan.source_document_revision != document.document_revision:
+        raise ValueError("Slide allocation source revision is stale")
+    if maximum_slide_count < 4:
+        raise ValueError("A slide bundle part needs room for cover and summary pages")
+
+    source_pages = [
+        page for page in plan.pages
+        if page.fragment_ids or page.chapter_id
+    ]
+    chapter_order = list(dict.fromkeys(
+        page.chapter_id or page.section_id
+        for page in source_pages
+        if page.chapter_id or page.section_id
+    ))
+    page_units: list[tuple[list[str], list[str]]] = []
+    for chapter_id in chapter_order:
+        chapter_pages = [
+            page for page in source_pages
+            if (page.chapter_id or page.section_id) == chapter_id
+        ]
+        if len(chapter_pages) + 3 <= maximum_slide_count:
+            page_units.append((
+                [chapter_id],
+                [page.page_id for page in chapter_pages],
+            ))
+            continue
+        page_units.extend(
+            _split_oversized_chapter_pages(
+                chapter_id,
+                chapter_pages,
+                maximum_slide_count=maximum_slide_count,
+            )
+        )
+
+    unassigned_pages = [
+        page for page in source_pages
+        if page.page_id not in {
+            page_id
+            for _, page_ids in page_units
+            for page_id in page_ids
+        }
+    ]
+    if unassigned_pages:
+        page_units.append((
+            [],
+            [page.page_id for page in unassigned_pages],
+        ))
+
+    grouped_units: list[list[tuple[list[str], list[str]]]] = []
+    current: list[tuple[list[str], list[str]]] = []
+    current_page_count = 3
+    for unit in page_units:
+        unit_page_count = len(unit[1])
+        if current and current_page_count + unit_page_count > maximum_slide_count:
+            grouped_units.append(current)
+            current = []
+            current_page_count = 3
+        if current_page_count + unit_page_count > maximum_slide_count:
+            raise ValueError("slide_deck_section_split_required")
+        current.append(unit)
+        current_page_count += unit_page_count
+    if current:
+        grouped_units.append(current)
+    if not grouped_units:
+        grouped_units = [[]]
+
+    fragments = fragment_course_document(document)
+    fragment_by_id = {fragment.fragment_id: fragment for fragment in fragments}
+    block_by_id = {block.block_id: block for block in document.blocks}
+    section_by_id = {
+        section.section_id: section for section in document.sections
+    }
+    page_by_id = {page.page_id: page for page in plan.pages}
+    cover = next(page for page in plan.pages if page.layout == "cover")
+    summary = next(
+        (
+            page for page in reversed(plan.pages)
+            if page.layout == "summary" and not page.chapter_id
+        ),
+        None,
+    )
+    appendix_divider = next(
+        (
+            page for page in plan.pages
+            if page.appendix and page.layout == "section-divider"
+        ),
+        None,
+    )
+    part_count = len(grouped_units)
+    parts: list[SlideDeckPlanPartV1] = []
+    for part_index, units in enumerate(grouped_units, start=1):
+        selected_page_ids = {
+            page_id
+            for _, page_ids in units
+            for page_id in page_ids
+        }
+        selected_pages = [
+            page_by_id[page.page_id].model_copy(deep=True)
+            for page in plan.pages
+            if page.page_id in selected_page_ids
+        ]
+        main_pages = [page for page in selected_pages if not page.appendix]
+        appendix_pages = [page for page in selected_pages if page.appendix]
+        part_label = f"第 {part_index} 册 / 共 {part_count} 册"
+        part_pages = [
+            cover.model_copy(deep=True),
+            *main_pages,
+        ]
+        if appendix_pages and appendix_divider is not None:
+            part_pages.append(appendix_divider.model_copy(deep=True))
+        part_pages.extend(appendix_pages)
+        if summary is not None:
+            part_pages.append(summary.model_copy(deep=True))
+        if len(part_pages) > maximum_slide_count:
+            raise ValueError("slide_deck_part_exceeds_maximum")
+
+        selected_fragment_ids = {
+            fragment_id
+            for page in selected_pages
+            for fragment_id in page.fragment_ids
+        }
+        selected_block_ids = {
+            fragment_by_id[fragment_id].block_id
+            for fragment_id in selected_fragment_ids
+            if fragment_id in fragment_by_id
+        }
+        selected_section_ids = {
+            block_by_id[block_id].section_id
+            for block_id in selected_block_ids
+            if block_id in block_by_id
+        }
+        pending_section_ids = list(selected_section_ids)
+        while pending_section_ids:
+            section = section_by_id.get(pending_section_ids.pop())
+            parent_id = section.parent_section_id if section else None
+            if parent_id and parent_id not in selected_section_ids:
+                selected_section_ids.add(parent_id)
+                pending_section_ids.append(parent_id)
+        part_title = f"{document.title} · {part_label}"
+        part_document = refresh_document_revision(CourseDocument(
+            course_id=document.course_id,
+            title=part_title,
+            sections=[
+                section.model_copy(deep=True)
+                for section in document.sections
+                if section.section_id in selected_section_ids
+            ],
+            blocks=[
+                block.model_copy(deep=True)
+                for block in document.blocks
+                if block.block_id in selected_block_ids
+            ],
+        )).model_copy(update={
+            # A bundle part projects only selected chapters, but it remains a
+            # representation of the full canonical course revision. Keeping
+            # this binding prevents reconciliation from immediately marking
+            # the freshly published part stale.
+            "document_revision": document.document_revision,
+        })
+        part_fragments = fragment_course_document(part_document)
+        part_fragment_ids = {
+            fragment.fragment_id for fragment in part_fragments
+        }
+        part_plan = plan.model_copy(deep=True, update={
+            "title": part_title,
+            "source_document_revision": part_document.document_revision,
+            "pages": part_pages,
+            "exclusions": [
+                exclusion.model_copy(deep=True)
+                for exclusion in plan.exclusions
+                if exclusion.fragment_id in part_fragment_ids
+            ],
+            "fallback_reason": (
+                f"{plan.fallback_reason}:chapter_bundle"
+                if plan.fallback_reason
+                else "chapter_bundle"
+            ),
+        })
+        validate_allocation_plan(part_plan, part_fragments)
+        parts.append(SlideDeckPlanPartV1(
+            part_id=f"part:{part_index:02d}",
+            title=part_title,
+            chapter_ids=list(dict.fromkeys(
+                chapter_id
+                for chapter_ids, _ in units
+                for chapter_id in chapter_ids
+            )),
+            document=part_document,
+            allocation_plan=part_plan,
+        ))
+    return parts
+
+
+def _split_oversized_chapter_pages(
+    chapter_id: str,
+    pages: list[PlannedPageV2],
+    *,
+    maximum_slide_count: int,
+) -> list[tuple[list[str], list[str]]]:
+    navigation_pages = [
+        page for page in pages if not page.fragment_ids
+    ]
+    content_pages = [
+        page for page in pages if page.fragment_ids
+    ]
+    section_order = list(dict.fromkeys(
+        page.section_id or chapter_id for page in content_pages
+    ))
+    section_units = [
+        [
+            page for page in content_pages
+            if (page.section_id or chapter_id) == section_id
+        ]
+        for section_id in section_order
+    ]
+    units: list[tuple[list[str], list[str]]] = []
+    for index, section_pages in enumerate(section_units):
+        page_ids = [page.page_id for page in section_pages]
+        if index == 0:
+            page_ids = [
+                *[
+                    page.page_id for page in navigation_pages
+                    if page.layout == "section-divider"
+                ],
+                *page_ids,
+            ]
+        if index == len(section_units) - 1:
+            page_ids.extend(
+                page.page_id for page in navigation_pages
+                if page.layout != "section-divider"
+            )
+        if len(page_ids) + 3 > maximum_slide_count:
+            raise ValueError("slide_deck_section_split_required")
+        units.append(([chapter_id], page_ids))
+    return units
 
 
 def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1]:
@@ -2119,6 +2382,7 @@ __all__ = [
     "SLIDE_DECK_V3_COMPILER_VERSION",
     "SLIDE_DECK_V3_SCHEMA",
     "SlideAllocationPlanV2",
+    "SlideDeckPlanPartV1",
     "SlideDeckMode",
     "SlideDeckTheme",
     "V3_LAYOUTS",
@@ -2127,6 +2391,7 @@ __all__ = [
     "fragment_course_document",
     "normalize_slide_deck_theme",
     "plan_slide_deck_v3",
+    "split_slide_deck_plan_by_chapter",
     "slide_deck_preflight_quality",
     "slide_deck_variant_key",
     "validate_allocation_plan",

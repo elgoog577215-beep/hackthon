@@ -27,6 +27,20 @@
         <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
           <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
         </button>
+        <select
+          v-if="bundleParts.length > 1"
+          class="slide-workbench__part-selector"
+          :value="activeBundlePartId"
+          :disabled="building"
+          aria-label="PPT 分册"
+          @change="changeBundlePart"
+        >
+          <option
+            v-for="part in bundleParts"
+            :key="part.representationId"
+            :value="part.representationId"
+          >{{ part.label }}</option>
+        </select>
         <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
           <select :value="mode" :disabled="building" aria-label="内容模式" @change="changeMode">
             <option value="full">完整</option>
@@ -405,17 +419,22 @@ const props = withDefaults(defineProps<{
   mode?: SlideDeckMode
   theme?: SlideDeckTheme
   variants?: TeachingRepresentation[]
+  bundleParts?: Array<{ representationId: string; label: string }>
+  activeBundlePartId?: string
 }>(), {
   standalone: false,
   mode: 'teaching',
   theme: 'qingfeng-classroom',
   variants: () => [],
+  bundleParts: () => [],
+  activeBundlePartId: '',
 })
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
   (event: 'back' | 'rebuild' | 'configure' | 'open-materials'): void
   (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
+  (event: 'bundle-part-change', representationId: string): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
 
@@ -659,8 +678,19 @@ function changeTheme(event: Event) {
   })
 }
 
+function changeBundlePart(event: Event) {
+  emit(
+    'bundle-part-change',
+    (event.target as HTMLSelectElement).value,
+  )
+}
+
 function variantCached(mode: SlideDeckMode, theme: V3Theme) {
-  return props.variants.some(item => item.variant_key === `${mode}:${theme}`)
+  const requestedVariant = `${mode}:${theme}`
+  return props.variants.some(item => (
+    item.variant_key === requestedVariant
+    || item.variant_key?.startsWith(`${requestedVariant}:part:`)
+  ))
 }
 
 function resetEdit() {
@@ -948,6 +978,7 @@ function classificationLabel(value: string) {
 .slide-workbench__engine-update { padding:4px 7px; border-radius:6px; color:#8a4b08; background:#fff4dc; font-size:9px; font-weight:750; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
+.slide-workbench__part-selector { min-height:34px; max-width:110px; padding:0 28px 0 10px; border:1px solid var(--lz-border); border-radius:9px; color:#536174; background:#fff; font-size:11px; font-weight:800; outline:none; }
 .slide-workbench__theme select { min-height:28px; max-width:112px; padding:0 25px 0 8px; border:0; border-radius:6px; color:#536174; background:#fff; font-size:11px; font-weight:700; outline:none; }
 .slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
 .slide-workbench__commands .slide-workbench__theme .legacy-theme-option { display:none; }
@@ -1029,6 +1060,7 @@ function classificationLabel(value: string) {
 .is-standalone .slide-workbench__count { color:#8fa0b4; font-size:10px; }
 .is-standalone .slide-workbench__commands { gap:7px; }
 .is-standalone .slide-workbench__theme { border-color:rgba(255,255,255,.12); background:rgba(255,255,255,.05); }
+.is-standalone .slide-workbench__part-selector { color:#d8e1ec; border-color:rgba(255,255,255,.12); background:#304052; }
 .is-standalone .slide-workbench__theme select { min-height:30px; color:#d8e1ec; background:#304052; }
 .is-standalone .slide-workbench__commands .slide-workbench__theme button { min-height:30px; color:#9cacbf; background:transparent; }
 .is-standalone .slide-workbench__commands button {

@@ -143,6 +143,7 @@ from slide_deck_v3 import (
     plan_slide_deck_v3,
     slide_deck_preflight_quality,
     slide_deck_variant_key,
+    split_slide_deck_plan_by_chapter,
 )
 from slide_deck_v4 import (
     allocation_from_story_plan_v2,
@@ -3620,16 +3621,32 @@ class TaskManager:
                 )
             resume_slides = []
         preflight = slide_deck_preflight_quality(allocation_plan)
+        bundle_parts = []
         if not preflight["passed"]:
+            bundle_parts = split_slide_deck_plan_by_chapter(
+                document,
+                allocation_plan,
+            )
             await self._record_representation_event(task_id, {
-                "event": "build_blocked",
-                "progress": 100,
-                "stage": "build_blocked",
+                "event": "bundle_plan",
+                "progress": 20,
+                "stage": "bundle_plan",
                 "quality": preflight,
                 "variant_key": variant_key,
+                "part_count": len(bundle_parts),
+                "parts": [
+                    {
+                        "part_id": part.part_id,
+                        "title": part.title,
+                        "chapter_ids": part.chapter_ids,
+                        "estimated_slide_count": len(part.allocation_plan.pages),
+                    }
+                    for part in bundle_parts
+                ],
             })
-            raise RuntimeError("slide_deck_variant_split_required")
-        if visual_plan is None:
+            visual_plan = None
+            resume_slides = []
+        if visual_plan is None and not bundle_parts:
             visual_plan = await plan_slide_visuals(
                 document,
                 allocation_plan,

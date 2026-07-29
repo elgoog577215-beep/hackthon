@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from copy import deepcopy
 
 import pytest
 from fastapi import FastAPI
@@ -11,6 +11,7 @@ from pptx import Presentation
 
 from course_document import COURSE_DOCUMENT_SCHEMA, document_from_legacy_course
 from course_repository import CourseDocumentRepository
+from course_revisions import revision_vector_for_document
 from representation_compiler import (
     compile_core_representations,
     export_slide_deck_pptx,
@@ -102,8 +103,8 @@ def multi_chapter_course(chapter_count: int = 4) -> dict:
                     "content": (
                         f"## 第 {index} 章概念\n\n"
                         f"这是第 {index} 章的课程正文与方法说明。\n\n"
-                        f"## 第 {index} 章案例\n\n"
-                        f"通过第 {index} 章案例完成理解检查。"
+                        f"## 第 {index} 章深入理解\n\n"
+                        f"继续完成第 {index} 章的知识解释与理解检查。"
                     ),
                     "metadata": {"role": "concept"},
                 }],
@@ -265,6 +266,10 @@ def test_oversized_plan_splits_on_chapter_boundaries_without_losing_source() -> 
         == part.document.document_revision
         for part in parts
     )
+    assert all(
+        part.document.document_revision == document.document_revision
+        for part in parts
+    )
 
 
 def test_oversized_variant_publishes_atomic_ready_part_representations(
@@ -314,6 +319,23 @@ def test_oversized_variant_publishes_atomic_ready_part_representations(
         specs[item.spec_id].payload["content"]["bundle_part"]["part_index"]
         for item in representations
     ] == list(range(1, len(parts) + 1))
+    assert all(
+        any(
+            binding.source_revisions.get("course_document")
+            == document.document_revision
+            for binding in specs[item.spec_id].source_bindings
+        )
+        for item in representations
+    )
+    canonical_title_revision = revision_vector_for_document(document).revisions["course_title"]
+    assert all(
+        any(
+            binding.source_revisions.get("course_title")
+            == canonical_title_revision
+            for binding in specs[item.spec_id].source_bindings
+        )
+        for item in representations
+    )
     assert any(event["event"] == "bundle_plan" for event in events)
     assert sum(event["event"] == "bundle_part_complete" for event in events) == len(parts)
 
@@ -1076,3 +1098,91 @@ def test_variant_stream_endpoint_builds_only_requested_combination(tmp_path: Pat
         (item.representation_type, item.variant_key)
         for item in registry.representations
     ] == [("slide_deck", "teaching:grid-notebook")]
+
+
+def test_variant_stream_publishes_and_reuses_an_atomic_bundle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import representation_compiler
+    from routers import teaching_representations as representation_router
+
+    course = multi_chapter_course()
+    document = document_from_legacy_course(course)
+    canonical = {
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    course_repository = CourseDocumentRepository(MemoryStorage(canonical))
+    representation_repository = TeachingRepresentationRepository(tmp_path / "registry")
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+    monkeypatch.setattr(representation_router, "get_task_manager_optional", lambda: None)
+    monkeypatch.setattr(
+        representation_compiler,
+        "slide_deck_preflight_quality",
+        lambda _plan: {
+            "passed": False,
+            "score": 0,
+            "issues": [],
+            "blockers": [],
+            "warnings": [],
+        },
+    )
+
+    async def existing_course(_course_id: str):
+        return course_repository.load_course_view(document.course_id)
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+    endpoint = (
+        f"/api/courses/{document.course_id}"
+        "/teaching-representations/slide-decks/build/stream"
+    )
+    request = {
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "force_rebuild": False,
+    }
+
+    with client.stream(
+        "POST",
+        endpoint,
+        headers={"X-User-Id": "teacher-1"},
+        json=request,
+    ) as response:
+        first_stream = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: bundle_plan" in first_stream
+    assert "event: build_complete" in first_stream
+    registry = representation_repository.load(document.course_id)
+    assert [
+        item.variant_key
+        for item in registry.representations
+    ] == ["teaching:qizhi-classroom:part:01"]
+
+    with client.stream(
+        "POST",
+        endpoint,
+        headers={"X-User-Id": "teacher-1"},
+        json=request,
+    ) as response:
+        cached_stream = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert '"cached": true' in cached_stream
+    assert "event: slide_upsert" not in cached_stream

@@ -24,20 +24,24 @@ from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
     SlideDeckMode,
+    SlideDeckPlanPartV1,
     SlideDeckTheme,
     compile_slide_deck_v3,
     normalize_slide_deck_theme,
     slide_deck_preflight_quality,
     slide_deck_variant_key,
+    split_slide_deck_plan_by_chapter,
     validate_slide_deck_v3,
 )
 from slide_deck_v4 import (
     SLIDE_DECK_V4_COMPILER_VERSION,
+    build_signature_v4,
     compile_slide_deck_v4,
     validate_slide_deck_v4,
 )
 from slide_story_plan import SlideStoryPlanV2
-from slide_visuals import SlideVisualPlanV1
+from slide_theme import slide_theme_version
+from slide_visuals import SlideVisualPlanV1, build_signature
 from teaching_representations import (
     RepresentationPlan,
     SourceBinding,
@@ -465,16 +469,26 @@ def compile_slide_deck_variant(
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
+    variant_key_override: str | None = None,
+    bundle_part: dict[str, Any] | None = None,
+    binding_document: CourseDocument | None = None,
 ) -> dict[str, Any]:
     """Compile and register one source-first PPT variant only."""
     now = datetime.now(timezone.utc).isoformat()
+    canonical_document = binding_document or document
+    if canonical_document.course_id != document.course_id:
+        raise ValueError("Slide binding document belongs to another course")
     normalized_theme = normalize_slide_deck_theme(theme)
-    variant_key = slide_deck_variant_key(mode, normalized_theme)
-    vector = revision_vector_for_document(document).revisions
+    variant_key = (
+        str(variant_key_override)
+        if variant_key_override
+        else slide_deck_variant_key(mode, normalized_theme)
+    )
+    vector = revision_vector_for_document(canonical_document).revisions
     plan = RepresentationPlan(
         plan_id=stable_hash({
             "course_id": document.course_id,
-            "revision": document.document_revision,
+            "revision": canonical_document.document_revision,
             "type": "slide_deck",
             "variant_key": variant_key,
         }, prefix="rpl_"),
@@ -556,13 +570,15 @@ def compile_slide_deck_variant(
             resume_slides=resume_slides,
         )
         quality = validate_slide_deck_v3(content, course_data=course_data)
+    if bundle_part:
+        content["bundle_part"] = deepcopy(bundle_part)
     content["quality_report"] = deepcopy(quality)
     content["quality_summary"] = {
         **(content.get("quality_summary") or {}),
         "passed": quality["passed"],
         "score": quality["score"],
     }
-    unit_bindings = _unit_bindings_for_payload(document, content)
+    unit_bindings = _unit_bindings_for_payload(canonical_document, content)
     bindings = _dedupe_bindings([
         binding
         for values in unit_bindings.values()
@@ -682,23 +698,20 @@ def rebuild_slide_deck_variant_safely(
         if allocation_plan is not None:
             preflight = slide_deck_preflight_quality(allocation_plan)
             if not preflight["passed"]:
-                if progress_callback:
-                    progress_callback({
-                        "event": "build_blocked",
-                        "progress": 100,
-                        "stage": "build_blocked",
-                        "quality": preflight,
-                    })
-                return {
-                    "status": "failed_using_last_available",
-                    "variant_key": variant_key,
-                    "quality": preflight,
-                    "last_available": (
-                        previous_variant.model_dump(mode="json")
-                        if previous_variant
-                        else None
-                    ),
-                }
+                parts = split_slide_deck_plan_by_chapter(
+                    document,
+                    allocation_plan,
+                )
+                return rebuild_slide_deck_variant_bundle_safely(
+                    document,
+                    course_data,
+                    repository,
+                    mode=mode,
+                    theme=theme,
+                    parts=parts,
+                    story_plan=story_plan,
+                    progress_callback=progress_callback,
+                )
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-variant-build-") as temp_dir:
             shadow = TeachingRepresentationRepository(temp_dir)
             shadow.save(deepcopy(previous))
@@ -778,6 +791,336 @@ def rebuild_slide_deck_variant_safely(
                 else None
             ),
         }
+
+
+def rebuild_slide_deck_variant_bundle_safely(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    repository: TeachingRepresentationRepository,
+    *,
+    mode: SlideDeckMode,
+    theme: SlideDeckTheme,
+    parts: list[SlideDeckPlanPartV1],
+    story_plan: SlideStoryPlanV2 | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Compile chapter parts in isolation and publish the complete bundle atomically."""
+    if not parts:
+        raise ValueError("A slide deck bundle needs at least one part")
+    previous = repository.load(document.course_id)
+    base_variant_key = slide_deck_variant_key(mode, theme)
+    bundle_prefix = f"{base_variant_key}:part:"
+    last_available = [
+        item.model_dump(mode="json")
+        for item in previous.representations
+        if (
+            item.representation_type == "slide_deck"
+            and (
+                item.variant_key == base_variant_key
+                or item.variant_key.startswith(bundle_prefix)
+            )
+            and item.status == "ready"
+        )
+    ]
+    bundle_engine = "slide_deck_v4" if story_plan is not None else "slide_deck_v3"
+    full_build_signature = (
+        build_signature_v4(
+            document=document,
+            course_data=course_data,
+            mode=mode,
+            theme=theme,
+        )
+        if story_plan is not None
+        else build_signature(
+            source_document_revision=str(document.document_revision or ""),
+            mode=mode,
+            theme=theme,
+            compiler_version=SLIDE_DECK_V3_COMPILER_VERSION,
+            theme_version=slide_theme_version(),
+        )
+    )
+    try:
+        if progress_callback:
+            progress_callback({
+                "event": "bundle_plan",
+                "progress": 20,
+                "stage": "bundle_plan",
+                "part_count": len(parts),
+                "maximum_slide_count": max(
+                    len(part.allocation_plan.pages) for part in parts
+                ),
+            })
+        with tempfile.TemporaryDirectory(
+            prefix="lingzhi-slide-bundle-build-",
+        ) as temp_dir:
+            shadow = TeachingRepresentationRepository(temp_dir)
+            shadow.save(deepcopy(previous))
+            builds: list[dict[str, Any]] = []
+            part_keys: list[str] = []
+            part_count = len(parts)
+            for part_index, part in enumerate(parts, start=1):
+                part_variant_key = f"{bundle_prefix}{part_index:02d}"
+                part_keys.append(part_variant_key)
+                if progress_callback:
+                    progress_callback({
+                        "event": "bundle_part_started",
+                        "progress": 20 + round(((part_index - 1) / part_count) * 75),
+                        "stage": "bundle_part_build",
+                        "part_index": part_index,
+                        "part_count": part_count,
+                        "part_id": part.part_id,
+                        "title": part.title,
+                    })
+
+                def publish_part_progress(
+                    payload: dict[str, Any],
+                    *,
+                    current_part_index: int = part_index,
+                    current_part: SlideDeckPlanPartV1 = part,
+                ) -> None:
+                    if not progress_callback:
+                        return
+                    inner_progress = min(
+                        100,
+                        max(0, int(payload.get("progress") or 0)),
+                    )
+                    overall_progress = 20 + round(
+                        (
+                            (current_part_index - 1)
+                            + (inner_progress / 100)
+                        )
+                        / part_count
+                        * 75
+                    )
+                    progress_callback({
+                        **payload,
+                        "progress": min(95, overall_progress),
+                        "part_index": current_part_index,
+                        "part_count": part_count,
+                        "part_id": current_part.part_id,
+                    })
+
+                build = compile_slide_deck_variant(
+                    part.document,
+                    course_data,
+                    shadow,
+                    mode=mode,
+                    theme=theme,
+                    allocation_plan=part.allocation_plan,
+                    story_plan=_story_plan_for_bundle_part(story_plan, part),
+                    progress_callback=publish_part_progress,
+                    variant_key_override=part_variant_key,
+                    bundle_part={
+                        "schema_version": "slide_deck_bundle_part_v1",
+                        "base_variant_key": base_variant_key,
+                        "part_id": part.part_id,
+                        "part_index": part_index,
+                        "part_count": part_count,
+                        "title": part.title,
+                        "chapter_ids": list(part.chapter_ids),
+                        "slide_schema_version": bundle_engine,
+                        "source_document_revision": document.document_revision,
+                        "build_signature": full_build_signature,
+                    },
+                    binding_document=document,
+                )
+                builds.append(build)
+                if not build["quality"]["passed"]:
+                    quality = _slide_bundle_quality(builds, part_count)
+                    if progress_callback:
+                        progress_callback({
+                            "event": "build_blocked",
+                            "progress": 100,
+                            "stage": "build_blocked",
+                            "quality": quality,
+                            "part_index": part_index,
+                            "part_count": part_count,
+                        })
+                    return {
+                        "status": "failed_using_last_available",
+                        "variant_key": base_variant_key,
+                        "bundle": True,
+                        "part_count": part_count,
+                        "quality": quality,
+                        "last_available": last_available,
+                    }
+                if progress_callback:
+                    progress_callback({
+                        "event": "bundle_part_complete",
+                        "progress": 20 + round((part_index / part_count) * 75),
+                        "stage": "bundle_part_build",
+                        "part_index": part_index,
+                        "part_count": part_count,
+                        "part_id": part.part_id,
+                        "variant_key": part_variant_key,
+                        "quality": build["quality"],
+                    })
+
+            candidate = shadow.load(document.course_id)
+            candidate.representations = [
+                item
+                for item in candidate.representations
+                if not (
+                    item.representation_type == "slide_deck"
+                    and (
+                        item.variant_key == base_variant_key
+                        or (
+                            item.variant_key.startswith(bundle_prefix)
+                            and item.variant_key not in part_keys
+                        )
+                    )
+                )
+            ]
+            committed = repository.save(candidate)
+            quality = _slide_bundle_quality(builds, part_count)
+            if progress_callback:
+                progress_callback({
+                    "event": "bundle_complete",
+                    "progress": 100,
+                    "stage": "complete",
+                    "part_count": part_count,
+                    "quality": quality,
+                })
+            return {
+                "status": "synchronized",
+                "variant_key": base_variant_key,
+                "bundle": True,
+                "part_count": part_count,
+                "parts": [
+                    {
+                        "part_id": part.part_id,
+                        "part_index": index,
+                        "title": part.title,
+                        "chapter_ids": part.chapter_ids,
+                        "variant_key": part_keys[index - 1],
+                        "representation_id": builds[index - 1]["representation_id"],
+                        "slide_count": builds[index - 1]["unit_count"],
+                    }
+                    for index, part in enumerate(parts, start=1)
+                ],
+                "quality": quality,
+                "registry_revision": committed.registry_revision,
+                "rebuilt": builds,
+                "rebuilt_unit_count": sum(
+                    int(build.get("unit_count") or 0) for build in builds
+                ),
+                "reused_unit_count": 0,
+            }
+    except Exception as exc:
+        if progress_callback:
+            progress_callback({
+                "event": "build_failed",
+                "progress": 100,
+                "stage": "build_blocked",
+                "message": str(exc),
+            })
+        blocker = {
+            "severity": "critical",
+            "code": "slide_bundle_rebuild_failed",
+            "message": str(exc),
+        }
+        return {
+            "status": "failed_using_last_available",
+            "variant_key": base_variant_key,
+            "bundle": True,
+            "part_count": len(parts),
+            "quality": {
+                "passed": False,
+                "score": 0,
+                "issues": [blocker],
+                "blockers": [blocker],
+                "warnings": [],
+            },
+            "last_available": last_available,
+        }
+
+
+def _story_plan_for_bundle_part(
+    story_plan: SlideStoryPlanV2 | None,
+    part: SlideDeckPlanPartV1,
+) -> SlideStoryPlanV2 | None:
+    if story_plan is None:
+        return None
+    selected_chapter_ids = set(part.chapter_ids)
+    selected_fragment_ids = {
+        fragment_id
+        for page in part.allocation_plan.pages
+        for fragment_id in page.fragment_ids
+    }
+    chapters = [
+        chapter.model_copy(deep=True)
+        for chapter in story_plan.chapters
+        if (
+            chapter.chapter_id in selected_chapter_ids
+            or any(
+                selected_fragment_ids.intersection(beat.fragment_ids)
+                for episode in chapter.episodes
+                for beat in episode.beats
+            )
+        )
+    ]
+    if not chapters:
+        return None
+    for index, chapter in enumerate(chapters):
+        chapter.next_chapter_id = (
+            chapters[index + 1].chapter_id
+            if index + 1 < len(chapters)
+            else ""
+        )
+    return story_plan.model_copy(deep=True, update={
+        "plan_id": stable_hash({
+            "source_plan_id": story_plan.plan_id,
+            "part_id": part.part_id,
+            "chapter_ids": [chapter.chapter_id for chapter in chapters],
+        }, prefix="ssp_"),
+        "chapters": chapters,
+    })
+
+
+def _slide_bundle_quality(
+    builds: list[dict[str, Any]],
+    expected_part_count: int,
+) -> dict[str, Any]:
+    issues = [
+        {
+            **issue,
+            "part_index": part_index,
+        }
+        for part_index, build in enumerate(builds, start=1)
+        for issue in (build.get("quality") or {}).get("issues") or []
+    ]
+    blockers = [
+        issue for issue in issues
+        if issue.get("severity") == "critical"
+    ]
+    warnings = [
+        issue for issue in issues
+        if issue.get("severity") != "critical"
+    ]
+    complete = len(builds) == expected_part_count
+    passed = complete and all(
+        (build.get("quality") or {}).get("passed") is True
+        for build in builds
+    )
+    return {
+        "passed": passed,
+        "score": min(
+            [
+                int((build.get("quality") or {}).get("score") or 0)
+                for build in builds
+            ]
+            or [0]
+        ),
+        "issues": issues,
+        "blockers": blockers,
+        "warnings": warnings,
+        "bundle": True,
+        "part_count": expected_part_count,
+        "completed_part_count": len(builds),
+        "slide_count": sum(
+            int(build.get("unit_count") or 0) for build in builds
+        ),
+    }
 
 
 def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -> dict[str, Any]:
