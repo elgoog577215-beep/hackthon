@@ -283,7 +283,7 @@ def test_unsupported_mermaid_degrades_without_raw_source_or_placeholder() -> Non
                     "Server-->>Client: Response\n"
                     "```"
                 ),
-                "metadata": {"role": "concept"},
+                "metadata": {"role": "remediation"},
             }],
         }],
     }
