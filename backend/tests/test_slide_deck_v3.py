@@ -258,6 +258,7 @@ def test_fragmenter_preserves_mermaid_as_diagram_and_drops_visual_marker() -> No
         "paragraph",
     ]
     assert all("可视化图解" not in item.text for item in fragments)
+    assert fragments[1].language == "mermaid"
     assert fragments[1].text.startswith("graph TD")
 
 

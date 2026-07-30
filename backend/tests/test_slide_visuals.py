@@ -210,6 +210,109 @@ def test_mermaid_fragment_compiles_to_source_bound_rule_diagram() -> None:
     assert all(node.source_fragment_ids for node in anchor.nodes)
 
 
+def test_rule_diagram_exports_as_editable_ppt_shapes(tmp_path: Path) -> None:
+    course = {
+        "course_id": "editable-rule-diagram",
+        "course_name": "System classification",
+        "nodes": [{
+            "node_id": "chapter-system",
+            "parent_node_id": "root",
+            "node_name": "System classification",
+            "node_level": 1,
+            "content_blocks": [{
+                "block_id": "system-flow",
+                "title": "Closed system",
+                "content": (
+                    "A closed system cannot exchange matter with its environment."
+                    "\n\n```mermaid\n"
+                    "flowchart LR\n"
+                    "A[Closed system] -->|cannot exchange matter| B[Environment]\n"
+                    "```"
+                ),
+                "metadata": {"role": "concept"},
+            }],
+        }],
+    }
+    document = document_from_legacy_course(course)
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    output = export_structured_slide_deck(
+        content,
+        tmp_path / "rule-diagram.pptx",
+    )
+    presentation = Presentation(output)
+    slide_text = "\n".join(
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+
+    assert "Closed system" in slide_text
+    assert "Environment" in slide_text
+    assert "cannot exchange matter" in slide_text
+    assert "flowchart LR" not in slide_text
+    assert any(
+        shape.shape_type == MSO_SHAPE_TYPE.LINE
+        for slide in presentation.slides
+        for shape in slide.shapes
+    )
+
+
+def test_unsupported_mermaid_degrades_without_raw_source_or_placeholder() -> None:
+    course = {
+        "course_id": "unsupported-rule-diagram",
+        "course_name": "Interaction sequence",
+        "nodes": [{
+            "node_id": "chapter-sequence",
+            "parent_node_id": "root",
+            "node_name": "Interaction sequence",
+            "node_level": 1,
+            "content_blocks": [{
+                "block_id": "sequence",
+                "title": "Unsupported sequence",
+                "content": (
+                    "The learner should focus on the request and response."
+                    "\n\n```mermaid\n"
+                    "sequenceDiagram\n"
+                    "Client->>Server: Request\n"
+                    "Server-->>Client: Response\n"
+                    "```"
+                ),
+                "metadata": {"role": "concept"},
+            }],
+        }],
+    }
+    document = document_from_legacy_course(course)
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    visible_text = "\n".join(
+        str(block.get("content") or "")
+        for slide in content["slides"]
+        for block in slide["blocks"]
+    )
+
+    assert "sequenceDiagram" not in visible_text
+    assert "Client->>Server" not in visible_text
+    assert not any(
+        visual["kind"] in {"code", "generated_illustration"}
+        for slide in content["slides"]
+        for visual in slide["visuals"]
+    )
+    assert not any(
+        issue["code"] == "raw_mermaid_visible"
+        for issue in content["quality_report"]["issues"]
+    )
+
+
 def test_visual_integrity_rejects_visible_raw_mermaid() -> None:
     issues = visual_integrity_issues({
         "fragment_manifest": [],
@@ -226,6 +329,48 @@ def test_visual_integrity_rejects_visible_raw_mermaid() -> None:
     })
 
     assert any(issue["code"] == "raw_mermaid_visible" for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_ai_visual_request_exposes_only_safe_rule_diagram_controls() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    captured: dict = {}
+
+    async def capture_request(request):
+        captured.update(request)
+        return deterministic_visual_plan(
+            document,
+            allocation,
+            fragments,
+        ).model_dump(mode="json")
+
+    await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=capture_request,
+    )
+
+    assert captured["allowed_rule_diagram_templates"] == [
+        "apparatus",
+        "cycle",
+        "energy_balance",
+        "process_flow",
+        "qualitative_plot",
+        "relation_graph",
+        "system_boundary",
+    ]
+    assert captured["rules"]["arbitrary_drawing_code_forbidden"] is True
+    assert captured["rules"]["uncertain_visual_must_be_none"] is True
+    assert captured["rules"]["raster_generation_default"] == "disabled"
 
 
 def test_rebalance_breaks_visual_kind_runs_longer_than_quality_gate_limit() -> None:
