@@ -391,6 +391,55 @@ def test_dense_mixed_concept_scene_is_split_before_layout_selection() -> None:
         ) <= layout["item_budget"]
 
 
+def test_v4_allocation_preserves_source_order_across_semantic_scenes() -> None:
+    course = _course_with_teaching_plan()
+    original_section = course["nodes"][0]
+    original_section["parent_node_id"] = "chapter-root"
+    original_section["node_level"] = 2
+    course["nodes"].insert(0, {
+        "node_id": "chapter-root",
+        "parent_node_id": "root",
+        "node_name": "第一章 线性映射",
+        "node_level": 1,
+        "content_blocks": [{
+            "block_id": "block-root-concept",
+            "title": "章节概览",
+            "content": "本章从保持线性结构的问题出发。",
+            "metadata": {
+                "role": "concept",
+                "module_id": "module-concept",
+            },
+        }],
+    })
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        story,
+    )
+
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+    allocated_ordinals = [
+        fragment_by_id[fragment_id].ordinal
+        for page in allocation.pages
+        if not page.appendix
+        for fragment_id in page.fragment_ids
+    ]
+    assert allocated_ordinals == sorted(allocated_ordinals)
+
+
 def test_story_plan_requires_completed_official_teaching_plan() -> None:
     course = _course_with_teaching_plan()
     course["generation_stage_artifacts"]["course_teaching_plan"]["status"] = "pending"
