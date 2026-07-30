@@ -13,7 +13,7 @@
     />
 
     <svg
-      v-else-if="visual.kind === 'relational_diagram'"
+      v-else-if="['relational_diagram', 'rule_diagram'].includes(visual.kind)"
       viewBox="0 0 1000 560"
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
@@ -32,6 +32,16 @@
         :y2="edge.y2"
         marker-end="url(#slide-arrow)"
       />
+      <text
+        v-for="edge in diagramEdges.filter(item => item.label)"
+        :key="`${edge.source}-${edge.target}-label`"
+        :x="(edge.x1 + edge.x2) / 2"
+        :y="(edge.y1 + edge.y2) / 2 - 12"
+        class="slide-visual__edge-label"
+        text-anchor="middle"
+      >
+        {{ edge.label }}
+      </text>
       <g
         v-for="node in diagramNodes"
         :key="node.node_id"
@@ -337,10 +347,17 @@ onBeforeUnmount(revokeImage)
   text-align: center;
 }
 .slide-visual__point-label,
-.slide-visual__axis-label {
+.slide-visual__axis-label,
+.slide-visual__edge-label {
   fill: var(--deck-muted);
   font-size: 24px;
   font-weight: 760;
+}
+.slide-visual__edge-label {
+  paint-order: stroke;
+  stroke: var(--deck-card);
+  stroke-width: 8px;
+  stroke-linejoin: round;
 }
 .slide-visual svg line.slide-visual__mapping {
   stroke: var(--deck-blue);

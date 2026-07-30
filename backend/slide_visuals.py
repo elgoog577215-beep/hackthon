@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import re
 from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable
@@ -12,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from course_document import CourseDocument, stable_hash
+from slide_rule_diagrams import RULE_DIAGRAM_TEMPLATES, parse_mermaid_rule_diagram
 from teaching_storyboard import (
     TEACHING_STORYBOARD_POLICY_VERSION,
     build_teaching_storyboard,
@@ -19,11 +21,12 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v4_audience_facing"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_source_grounded_rules"
 
 VisualKind = Literal[
     "source_image",
     "generated_illustration",
+    "rule_diagram",
     "relational_diagram",
     "coordinate_plot",
     "chart",
@@ -55,6 +58,7 @@ SlideComposition = Literal[
 _VISUAL_KINDS = {
     "source_image",
     "generated_illustration",
+    "rule_diagram",
     "relational_diagram",
     "coordinate_plot",
     "chart",
@@ -68,6 +72,10 @@ _NUMBER_RE = re.compile(r"\d+")
 _COORDINATE_PAIR_RE = re.compile(
     r"(?P<label>[\(（]\s*(?P<x>-?\d+(?:\.\d+)?)\s*[,，]\s*"
     r"(?P<y>-?\d+(?:\.\d+)?)\s*[\)）])"
+)
+_RAW_MERMAID_RE = re.compile(
+    r"(?im)^\s*(?:graph\s+(?:TD|TB|BT|LR|RL)\b|flowchart\b|"
+    r"sequenceDiagram\b|classDiagram\b|stateDiagram(?:-v2)?\b|erDiagram\b)"
 )
 
 
@@ -119,15 +127,18 @@ class VisualAnchorV1(_StrictModel):
             raise ValueError("A meaningful visual must bind source fragments")
         if not self.alt_text:
             raise ValueError("A meaningful visual must have alt text")
-        if self.kind == "relational_diagram":
+        if self.kind in {"relational_diagram", "rule_diagram"}:
             if len(self.nodes) < 2 or not self.edges:
                 raise ValueError(
-                    "A relational diagram needs at least two nodes and one edge"
+                    "A diagram needs at least two nodes and one edge"
                 )
             if not self.parameters.get("relation_evidence"):
                 raise ValueError(
-                    "A relational diagram needs explicit structural evidence"
+                    "A diagram needs explicit structural evidence"
                 )
+        if self.kind == "rule_diagram":
+            if self.parameters.get("template") not in RULE_DIAGRAM_TEMPLATES:
+                raise ValueError("A rule diagram needs an allow-listed template")
         if self.kind == "coordinate_plot":
             points = self.parameters.get("points") or []
             labels = self.parameters.get("point_labels") or []
@@ -683,6 +694,13 @@ async def plan_slide_visuals(
         fallback.deck_brief["planner"] = "deterministic_fallback"
         fallback.deck_brief["fallback_reason"] = "no_ai_visual_planner"
         return fallback
+    raster_generation_enabled = os.getenv(
+        "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
+        "",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    allowed_visual_kinds = set(_VISUAL_KINDS)
+    if not raster_generation_enabled:
+        allowed_visual_kinds.discard("generated_illustration")
     request = {
         "schema_version": "slide_visual_plan_request_v1",
         "source_document_revision": document.document_revision,
@@ -694,9 +712,15 @@ async def plan_slide_visuals(
             "unknown_fragment_ids_forbidden": True,
             "takeaway_must_be_source_grounded": True,
             "visual_labels_must_be_source_excerpts": True,
+            "arbitrary_drawing_code_forbidden": True,
+            "uncertain_visual_must_be_none": True,
             "generated_images_may_not_contain_text_or_logos": True,
+            "raster_generation_default": (
+                "enabled" if raster_generation_enabled else "disabled"
+            ),
         },
-        "allowed_visual_kinds": sorted(_VISUAL_KINDS),
+        "allowed_visual_kinds": sorted(allowed_visual_kinds),
+        "allowed_rule_diagram_templates": sorted(RULE_DIAGRAM_TEMPLATES),
         "pages": [
             {
                 "page_id": page.page_id,
@@ -708,6 +732,7 @@ async def plan_slide_visuals(
                     {
                         "fragment_id": fragment.fragment_id,
                         "kind": fragment.kind,
+                        "language": str(getattr(fragment, "language", "") or ""),
                         "text": fragment.text,
                     }
                     for fragment in fragments
@@ -910,7 +935,7 @@ def visual_quality_report(
         page
         for page in eligible
         if (
-            page.visual_anchor.kind == "relational_diagram"
+            page.visual_anchor.kind in {"relational_diagram", "rule_diagram"}
             and len(page.visual_anchor.nodes) < 2
         )
     ]
@@ -1070,9 +1095,10 @@ def _visual_information_gain(
             "table": 0.7,
             "formula": 0.78,
             "code": 0.8,
+            "rule_diagram": 0.88,
             "relational_diagram": 0.0,
         }.get(anchor.kind, 0.0)
-    if anchor.kind == "relational_diagram":
+    if anchor.kind in {"relational_diagram", "rule_diagram"}:
         if (
             len(anchor.nodes) < 2
             or not anchor.edges
@@ -1098,6 +1124,28 @@ def _visual_information_gain(
     return min(1.0, max(0.0, score))
 
 
+def _formula_has_adjacent_explanation(
+    formula_fragments: list[dict[str, Any]],
+    all_fragments: list[dict[str, Any]],
+    allocation_by_fragment: dict[str, str],
+    slide_id: str,
+) -> bool:
+    explanatory_kinds = {"heading", "paragraph", "list_item"}
+    for formula in formula_fragments:
+        formula_ordinal = int(formula.get("ordinal") or 0)
+        for candidate in all_fragments:
+            if candidate.get("block_id") != formula.get("block_id"):
+                continue
+            if str(candidate.get("kind") or "") not in explanatory_kinds:
+                continue
+            if abs(int(candidate.get("ordinal") or 0) - formula_ordinal) != 1:
+                continue
+            candidate_id = str(candidate.get("fragment_id") or "")
+            if allocation_by_fragment.get(candidate_id) not in {"", slide_id, None}:
+                return True
+    return False
+
+
 def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
     """Validate source bindings and immutable assets in a materialized deck."""
     fragments = {
@@ -1109,9 +1157,53 @@ def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
         for item in content.get("visual_asset_manifest") or []
     }
     issues: list[dict[str, Any]] = []
+    allocation_by_fragment = {
+        str(fragment_id): str(slide.get("unit_id") or "")
+        for slide in content.get("slides") or []
+        for fragment_id in (slide.get("quality") or {}).get("fragment_ids") or []
+    }
+    fragment_list = list(fragments.values())
     for slide in content.get("slides") or []:
         slide_id = str(slide.get("unit_id") or "")
         allocated = set((slide.get("quality") or {}).get("fragment_ids") or [])
+        visible_text = "\n".join(
+            [
+                str(block.get("content") or "")
+                for block in slide.get("blocks") or []
+            ]
+            + [
+                str(item)
+                for block in slide.get("blocks") or []
+                for item in block.get("items") or []
+            ]
+        )
+        if _RAW_MERMAID_RE.search(visible_text):
+            issues.append({
+                "severity": "critical",
+                "code": "raw_mermaid_visible",
+                "slide_id": slide_id,
+            })
+        allocated_fragments = [
+            fragments[fragment_id]
+            for fragment_id in allocated
+            if fragment_id in fragments
+        ]
+        if (
+            allocated_fragments
+            and {str(item.get("kind") or "") for item in allocated_fragments}
+            == {"formula"}
+            and _formula_has_adjacent_explanation(
+                allocated_fragments,
+                fragment_list,
+                allocation_by_fragment,
+                slide_id,
+            )
+        ):
+            issues.append({
+                "severity": "critical",
+                "code": "orphan_formula_without_context",
+                "slide_id": slide_id,
+            })
         for visual in slide.get("visuals") or []:
             kind = str(visual.get("kind") or "")
             source_ids = set(visual.get("source_fragment_ids") or [])
@@ -1144,6 +1236,19 @@ def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
                     issues.append({
                         "severity": "critical",
                         "code": "diagram_label_not_source_bound",
+                        "slide_id": slide_id,
+                    })
+            if kind == "rule_diagram":
+                parameters = visual.get("parameters") or {}
+                if (
+                    parameters.get("template") not in RULE_DIAGRAM_TEMPLATES
+                    or len(visual.get("nodes") or []) < 2
+                    or not visual.get("edges")
+                    or not parameters.get("relation_evidence")
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "rule_diagram_invalid",
                         "slide_id": slide_id,
                     })
             if kind in {"source_image", "generated_illustration"}:
@@ -1351,6 +1456,49 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             parameters={
                 "asset_ref": source_image.asset_refs[0],
                 "information_gain_score": 1.0,
+            },
+        )
+    diagram_fragment = next(
+        (item for item in fragments if item.kind == "diagram"),
+        None,
+    )
+    if diagram_fragment is not None:
+        program = parse_mermaid_rule_diagram(
+            str(diagram_fragment.text or ""),
+            fragment_id=diagram_fragment.fragment_id,
+        )
+        if program is None:
+            return _none_anchor(page.page_id, "structure")
+        return VisualAnchorV1(
+            visual_id=visual_id,
+            kind="rule_diagram",
+            purpose="process",
+            source_fragment_ids=program.source_fragment_ids,
+            alt_text="Source-grounded rule diagram",
+            nodes=[
+                VisualNodeV1(
+                    node_id=node.node_id,
+                    label=node.label,
+                    source_fragment_ids=node.source_fragment_ids,
+                    emphasis="primary" if node_index == 0 else "secondary",
+                )
+                for node_index, node in enumerate(program.nodes)
+            ],
+            edges=[
+                VisualEdgeV1(
+                    source=edge.source,
+                    target=edge.target,
+                    label=edge.label,
+                    relation=edge.relation,
+                )
+                for edge in program.edges
+            ],
+            parameters={
+                "schema_version": program.schema_version,
+                "template": program.template,
+                "direction": program.direction,
+                "relation_evidence": program.relation_evidence,
+                "information_gain_score": 0.88,
             },
         )
     if "code" in kinds:

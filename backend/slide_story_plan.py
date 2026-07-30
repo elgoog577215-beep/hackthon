@@ -369,6 +369,9 @@ def _claim_for_scene(
             text=chapter.learning_objective,
             objective_id=chapter.objective_id,
         )
+    if fragments:
+        heading = next((item for item in fragments if item.kind == "heading"), fragments[0])
+        return _fragment_claim(heading)
     knowledge = _knowledge_catalog(section_plan)
     if knowledge:
         statement = str(knowledge[0].get("statement") or "").strip()
@@ -386,9 +389,6 @@ def _claim_for_scene(
                 text=teaching_purpose,
                 module_id=str(module.get("module_id") or ""),
             )
-    if fragments:
-        heading = next((item for item in fragments if item.kind == "heading"), fragments[0])
-        return _fragment_claim(heading)
     if chapter.title:
         return ClaimSourceV2(kind="source_heading", text=chapter.title)
     raise ValueError(f"Cannot derive an official claim source for scene {scene}")
@@ -528,13 +528,6 @@ def _make_episode(
         for name in item.get("prerequisite_names") or []
         if str(name)
     })
-    claim = _claim_for_scene(
-        scene=scene,
-        chapter=chapter,
-        section_plan=section_plan,
-        fragments=fragments,
-        module=module,
-    )
     episode_id = stable_hash({
         "chapter": chapter.section_id,
         "scene": scene,
@@ -568,6 +561,13 @@ def _make_episode(
     for index, (role, beat_fragments, selection) in enumerate(
         selected_beat_groups
     ):
+        claim = _claim_for_scene(
+            scene=scene,
+            chapter=chapter,
+            section_plan=section_plan,
+            fragments=beat_fragments or fragments,
+            module=module,
+        )
         evidence = _fragment_evidence(beat_fragments)
         character_count = sum(len(item.text) for item in beat_fragments)
         beat_id = stable_hash({

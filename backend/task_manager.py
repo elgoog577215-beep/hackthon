@@ -275,7 +275,13 @@ def _source_first_slide_visual_ai_worker() -> (
                 "Return only one slide_visual_plan_v1 JSON object. "
                 "Use only the provided page_id and fragment_id values. "
                 "Takeaways and diagram labels must be short excerpts of their bound source text. "
-                "Do not emit slide body copy or add facts, numbers, claims, or chart data."
+                "Do not emit slide body copy or add facts, numbers, claims, or chart data. "
+                "Prefer kind=none whenever a useful visual cannot be guaranteed. "
+                "For kind=rule_diagram, use only an allowed_rule_diagram_templates value "
+                "and source-bound nodes, edges, and relation_evidence. Never emit Mermaid, "
+                "SVG, HTML, coordinates, executable drawing code, or invented labels. "
+                "Do not request generated_illustration when it is absent from "
+                "allowed_visual_kinds."
             ),
             use_fast_model=True,
             retry_count=1,
