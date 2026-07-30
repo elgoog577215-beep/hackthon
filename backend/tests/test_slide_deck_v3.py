@@ -216,6 +216,7 @@ def mermaid_and_formula_course() -> dict:
                     "title": "Internal energy change",
                     "content": (
                         "Internal energy change is measured between two states."
+                        "\n\n- State-difference equation:"
                         "\n\n$$\\Delta U = U_2 - U_1$$"
                         "\n\nThe sign records whether the final state has more or less energy."
                     ),
@@ -270,16 +271,23 @@ def test_formula_is_not_paginated_without_adjacent_explanation() -> None:
         if item.block_id == "formula-explanation"
     ]
 
-    pages = _paginate_fragments(fragments, 1200)
+    # Teaching-mode promotion can end the mainline run at the formula while
+    # moving the later interpretation to detail pages.
+    pages = _paginate_fragments(fragments[:-1], 1200)
     formula_page = next(
         page for page in pages
         if any(fragment.kind == "formula" for fragment in page)
     )
 
-    assert any(fragment.kind == "paragraph" for fragment in formula_page)
+    assert any(
+        fragment.kind in {"paragraph", "list_item"}
+        for fragment in formula_page
+    )
     assert [fragment.kind for fragment in formula_page] in (
         ["paragraph", "formula"],
+        ["list_item", "formula"],
         ["formula", "paragraph"],
+        ["formula", "list_item"],
         ["paragraph", "formula", "paragraph"],
     )
 
