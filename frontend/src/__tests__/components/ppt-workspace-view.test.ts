@@ -93,6 +93,49 @@ describe('PptWorkspaceView', () => {
     ).toBeDefined()
   })
 
+  it('repairs migrated course logic in place and unlocks the V4 generator', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      representations: [],
+      slide_deck_target_schema: 'blocked',
+      slide_deck_v4_eligible: false,
+      slide_deck_v4_blockers: [
+        'slide_deck_v4 requires a completed official course teaching plan',
+      ],
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    httpMock.post.mockResolvedValue({
+      data: {
+        status: 'success',
+        already_ready: false,
+        registry: {
+          representations: [],
+          slide_deck_target_schema: 'slide_deck_v4',
+          slide_deck_v4_eligible: true,
+          slide_deck_v4_blockers: [],
+        },
+      },
+    })
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.ppt-workspace-state__upgrade-logic').text()).toContain(
+      '补全课程逻辑',
+    )
+    await wrapper.get('.ppt-workspace-state__upgrade-logic').trigger('click')
+    await flushPromises()
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-representations/course-logic/upgrade',
+    )
+    expect(store.registry?.slide_deck_target_schema).toBe('slide_deck_v4')
+  })
+
   it('labels a current course-logic deck as V4 in the workbench', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'
