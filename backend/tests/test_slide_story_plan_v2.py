@@ -23,6 +23,7 @@ from slide_deck_v4 import (
 from slide_layout_registry import registry_summary_v2, select_layout_v2
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
+    _claim_for_scene,
     compile_slide_story_plan_v2,
     plan_slide_story_v2,
     resolve_slide_deck_schema,
@@ -257,6 +258,39 @@ def test_story_plan_uses_official_course_logic_and_closes_the_chapter() -> None:
     assert scene_kinds[-1] == "chapter_recap"
     assert plan.chapters[0].owned_knowledge_ids == ["kp-linear-map"]
     assert plan.chapters[0].prerequisite_knowledge_names == ["向量空间"]
+
+
+def test_content_scene_claim_is_derived_from_the_local_beat() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    source_fragment = next(
+        fragment
+        for fragment in fragment_course_document(document)
+        if fragment.block_id == "block-concept"
+    )
+    local_heading = source_fragment.model_copy(update={
+        "kind": "heading",
+        "text": "Local continuation: scalar multiplication",
+    })
+
+    claim = _claim_for_scene(
+        scene="concept",
+        chapter=document.sections[0],
+        section_plan={
+            "knowledge_structure": [{
+                "knowledge_points": [{
+                    "knowledge_id": "kp-global",
+                    "statement": "Global chapter claim",
+                }],
+            }],
+        },
+        fragments=[local_heading],
+        module={"module_id": "module-concept", "teaching_purpose": "Global purpose"},
+    )
+
+    assert claim.kind == "source_heading"
+    assert claim.text == "Local continuation: scalar multiplication"
+    assert claim.fragment_id == local_heading.fragment_id
 
 
 def test_example_and_practice_answers_are_revealed_after_the_prompt() -> None:

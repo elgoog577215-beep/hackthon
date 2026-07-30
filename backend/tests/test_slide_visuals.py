@@ -22,6 +22,7 @@ from slide_visuals import (
     plan_slide_visuals,
     rebalance_visual_plan_pages,
     validate_visual_plan,
+    visual_integrity_issues,
 )
 from teaching_storyboard import build_teaching_storyboard
 
@@ -159,6 +160,72 @@ def test_deterministic_director_uses_source_bound_visual_variety() -> None:
         page.visual_anchor.parameters.get("relation_evidence")
         for page in relation_pages
     )
+
+
+def test_mermaid_fragment_compiles_to_source_bound_rule_diagram() -> None:
+    course = {
+        "course_id": "rule-diagram-course",
+        "course_name": "System classification",
+        "nodes": [{
+            "node_id": "chapter-system",
+            "parent_node_id": "root",
+            "node_name": "System classification",
+            "node_level": 1,
+            "content_blocks": [{
+                "block_id": "system-flow",
+                "title": "Closed system",
+                "content": (
+                    "```mermaid\n"
+                    "graph TD\n"
+                    "A[Closed system] -->|cannot exchange matter| B[Environment]\n"
+                    "```"
+                ),
+                "metadata": {"role": "concept"},
+            }],
+        }],
+    }
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    anchor = next(
+        page.visual_anchor
+        for page in plan.pages
+        if page.visual_anchor.kind == "rule_diagram"
+    )
+
+    assert anchor.parameters["template"] == "process_flow"
+    assert anchor.parameters["relation_evidence"]
+    assert [node.label for node in anchor.nodes] == [
+        "Closed system",
+        "Environment",
+    ]
+    assert anchor.edges[0].label == "cannot exchange matter"
+    assert all(node.source_fragment_ids for node in anchor.nodes)
+
+
+def test_visual_integrity_rejects_visible_raw_mermaid() -> None:
+    issues = visual_integrity_issues({
+        "fragment_manifest": [],
+        "visual_asset_manifest": [],
+        "slides": [{
+            "unit_id": "slide-raw-mermaid",
+            "quality": {"fragment_ids": []},
+            "blocks": [{
+                "kind": "code",
+                "content": "graph TD\nA[Closed system] --> B[Environment]",
+            }],
+            "visuals": [],
+        }],
+    })
+
+    assert any(issue["code"] == "raw_mermaid_visible" for issue in issues)
 
 
 def test_rebalance_breaks_visual_kind_runs_longer_than_quality_gate_limit() -> None:
@@ -474,6 +541,7 @@ def test_image_provider_failure_degrades_to_deterministic_diagram(
     monkeypatch.setenv("SLIDE_IMAGE_API_BASE", "https://images.invalid/v1")
     monkeypatch.setenv("SLIDE_IMAGE_API_KEY", "test-key")
     monkeypatch.setenv("SLIDE_IMAGE_MODEL", "test-image-model")
+    monkeypatch.setenv("SLIDE_GENERATED_ILLUSTRATIONS_ENABLED", "true")
 
     def fail_generation(*_args, **_kwargs):
         raise TimeoutError("provider timeout")
@@ -509,6 +577,42 @@ def test_image_provider_failure_degrades_to_deterministic_diagram(
     )
 
 
+def test_raster_generation_requires_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SLIDE_IMAGE_API_BASE", "https://images.example/v1")
+    monkeypatch.setenv("SLIDE_IMAGE_API_KEY", "test-key")
+    monkeypatch.setenv("SLIDE_IMAGE_MODEL", "test-image-model")
+    monkeypatch.delenv("SLIDE_GENERATED_ILLUSTRATIONS_ENABLED", raising=False)
+    generation_calls = 0
+
+    def unexpected_generation(*_args, **_kwargs):
+        nonlocal generation_calls
+        generation_calls += 1
+        raise AssertionError("raster generation must be opt-in")
+
+    monkeypatch.setattr(
+        "slide_asset_repository.SlideImageProvider.generate",
+        unexpected_generation,
+    )
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    assert generation_calls == 0
+    assert not content["visual_asset_manifest"]
+    assert all(
+        visual["kind"] != "generated_illustration"
+        for slide in content["slides"]
+        for visual in slide["visuals"]
+    )
+
+
 def test_configured_image_provider_exports_a_real_picture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -516,6 +620,7 @@ def test_configured_image_provider_exports_a_real_picture(
     monkeypatch.setenv("SLIDE_IMAGE_API_BASE", "https://images.example/v1")
     monkeypatch.setenv("SLIDE_IMAGE_API_KEY", "test-key")
     monkeypatch.setenv("SLIDE_IMAGE_MODEL", "test-image-model")
+    monkeypatch.setenv("SLIDE_GENERATED_ILLUSTRATIONS_ENABLED", "true")
 
     def generate_image(_provider, *, output_path, **_kwargs):
         Image.new("RGB", (960, 640), "#B9DCF4").save(output_path)

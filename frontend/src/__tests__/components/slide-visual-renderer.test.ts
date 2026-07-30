@@ -31,6 +31,40 @@ describe('SlideVisualRenderer', () => {
     expect(wrapper.findAll('line')).toHaveLength(1)
   })
 
+  it('renders a validated rule diagram through the native diagram adapter', () => {
+    const wrapper = mount(SlideVisualRenderer, {
+      props: {
+        visuals: [{
+          visual_id: 'rule-1',
+          kind: 'rule_diagram',
+          purpose: 'process',
+          source_fragment_ids: ['fragment-system'],
+          alt_text: 'Closed-system relation',
+          nodes: [
+            { node_id: 'a', label: 'Closed system', source_fragment_ids: ['fragment-system'] },
+            { node_id: 'b', label: 'Environment', source_fragment_ids: ['fragment-system'] },
+          ],
+          edges: [{
+            source: 'a',
+            target: 'b',
+            relation: 'maps_to',
+            label: 'cannot exchange matter',
+          }],
+          parameters: {
+            template: 'process_flow',
+            direction: 'horizontal',
+            relation_evidence: ['fragment-system'],
+          },
+        }],
+      },
+    })
+
+    expect(wrapper.attributes('data-kind')).toBe('rule_diagram')
+    expect(wrapper.text()).toContain('Closed system')
+    expect(wrapper.text()).toContain('Environment')
+    expect(wrapper.findAll('line')).toHaveLength(1)
+  })
+
   it('renders formula visuals through the shared math renderer instead of a placeholder', () => {
     const wrapper = mount(SlideVisualRenderer, {
       props: {

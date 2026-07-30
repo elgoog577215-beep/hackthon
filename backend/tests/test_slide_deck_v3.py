@@ -22,6 +22,7 @@ from slide_deck_v3 import (
     MAX_GENERATED_SLIDE_COUNT,
     SLIDE_DECK_THEMES,
     SlideAllocationPlanV2,
+    _paginate_fragments,
     compile_slide_deck_v3,
     deterministic_slide_allocation,
     fragment_course_document,
@@ -186,6 +187,45 @@ def narrative_course() -> dict:
     }
 
 
+def mermaid_and_formula_course() -> dict:
+    return {
+        "course_id": "typed-visual-source",
+        "course_name": "Thermodynamics",
+        "nodes": [{
+            "node_id": "chapter-system",
+            "parent_node_id": "root",
+            "node_name": "Systems and energy",
+            "node_level": 1,
+            "content_blocks": [
+                {
+                    "block_id": "mermaid-flow",
+                    "title": "System classification",
+                    "content": (
+                        "A closed system is classified by its exchange with the environment."
+                        "\n\n#### 🎨 可视化图解"
+                        "\n```mermaid"
+                        "\ngraph TD"
+                        "\nA[Closed system] -->|cannot exchange matter| B[Environment]"
+                        "\n```"
+                        "\n\nThis relation distinguishes a closed system from an open system."
+                    ),
+                    "metadata": {"role": "concept"},
+                },
+                {
+                    "block_id": "formula-explanation",
+                    "title": "Internal energy change",
+                    "content": (
+                        "Internal energy change is measured between two states."
+                        "\n\n$$\\Delta U = U_2 - U_1$$"
+                        "\n\nThe sign records whether the final state has more or less energy."
+                    ),
+                    "metadata": {"role": "reasoning"},
+                },
+            ],
+        }],
+    }
+
+
 def test_fragmenter_preserves_source_headings_as_semantic_boundaries() -> None:
     document = document_from_legacy_course(narrative_course())
     fragments = fragment_course_document(document)
@@ -202,6 +242,45 @@ def test_fragmenter_preserves_source_headings_as_semantic_boundaries() -> None:
         "思考与挑战",
         "延伸阅读",
     ]
+
+
+def test_fragmenter_preserves_mermaid_as_diagram_and_drops_visual_marker() -> None:
+    document = document_from_legacy_course(mermaid_and_formula_course())
+    fragments = [
+        item
+        for item in fragment_course_document(document)
+        if item.block_id == "mermaid-flow"
+    ]
+
+    assert [item.kind for item in fragments] == [
+        "paragraph",
+        "diagram",
+        "paragraph",
+    ]
+    assert all("可视化图解" not in item.text for item in fragments)
+    assert fragments[1].text.startswith("graph TD")
+
+
+def test_formula_is_not_paginated_without_adjacent_explanation() -> None:
+    document = document_from_legacy_course(mermaid_and_formula_course())
+    fragments = [
+        item
+        for item in fragment_course_document(document)
+        if item.block_id == "formula-explanation"
+    ]
+
+    pages = _paginate_fragments(fragments, 1200)
+    formula_page = next(
+        page for page in pages
+        if any(fragment.kind == "formula" for fragment in page)
+    )
+
+    assert any(fragment.kind == "paragraph" for fragment in formula_page)
+    assert [fragment.kind for fragment in formula_page] in (
+        ["paragraph", "formula"],
+        ["formula", "paragraph"],
+        ["paragraph", "formula", "paragraph"],
+    )
 
 
 def test_preflight_blocks_decks_that_require_chapter_splitting() -> None:
