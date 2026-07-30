@@ -65,13 +65,20 @@ export interface TeachingRepresentationBuildEvent {
 
 function normalizedBuildError(value: unknown, quality?: Record<string, any>) {
   const error = String(value || '')
+  const normalizedError = error.toLowerCase()
   const blockerCodes = (quality?.blockers || []).map(
     (item: Record<string, any>) => String(item?.code || ''),
   )
-  if (error.includes('split_required') || blockerCodes.includes('deck_split_required')) {
+  if (normalizedError.includes('split_required') || blockerCodes.includes('deck_split_required')) {
     return 'deck_split_required'
   }
-  if (error.includes('quality_gate_failed') || blockerCodes.length) {
+  if (
+    normalizedError.includes('no capacity-safe layout')
+    || normalizedError.includes('layout_capacity_failed')
+  ) {
+    return 'layout_capacity_failed'
+  }
+  if (normalizedError.includes('quality_gate_failed') || blockerCodes.length) {
     return 'quality_gate_failed'
   }
   return error || 'Teaching representation build failed'

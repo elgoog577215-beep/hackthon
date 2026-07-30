@@ -14,6 +14,7 @@ from course_document import CourseBlock, CourseDocument, CourseSection, stable_h
 from course_teaching_plan_projection import project_course_teaching_plan
 from slide_deck_v3 import ContentFragmentV1, SlideDeckMode, SlideDeckTheme
 from slide_layout_registry import (
+    LayoutSelectionV2,
     SlideSceneKind,
     registry_summary_v2,
     select_layout_v2,
@@ -433,6 +434,70 @@ def _split_prompt_and_answer(
     return result
 
 
+def _select_capacity_safe_beat_groups(
+    *,
+    scene: SlideSceneKind,
+    beat_groups: list[tuple[str, list[ContentFragmentV1]]],
+    theme: SlideDeckTheme,
+    recent_layout_families: list[str],
+) -> list[tuple[str, list[ContentFragmentV1], LayoutSelectionV2]]:
+    """Split source-ordered beat groups before assigning a capacity-safe layout."""
+    selected_groups: list[
+        tuple[str, list[ContentFragmentV1], LayoutSelectionV2]
+    ] = []
+    for role, fragments in beat_groups:
+        if not fragments:
+            selection = select_layout_v2(
+                scene_kind=scene,
+                evidence_kinds=["text"],
+                character_count=0,
+                item_count=0,
+                theme=theme,
+                recent_layout_families=recent_layout_families,
+            )
+            selected_groups.append((role, [], selection))
+            recent_layout_families.append(selection.layout_family)
+            continue
+
+        pending: list[ContentFragmentV1] = []
+        pending_selection: LayoutSelectionV2 | None = None
+        for fragment in fragments:
+            candidate = [*pending, fragment]
+            try:
+                candidate_selection = select_layout_v2(
+                    scene_kind=scene,
+                    evidence_kinds=_fragment_evidence(candidate),
+                    character_count=sum(len(item.text) for item in candidate),
+                    item_count=sum(
+                        item.kind == "list_item"
+                        for item in candidate
+                    ),
+                    theme=theme,
+                    recent_layout_families=recent_layout_families,
+                )
+            except ValueError:
+                if not pending or pending_selection is None:
+                    raise
+                selected_groups.append((role, pending, pending_selection))
+                recent_layout_families.append(pending_selection.layout_family)
+                pending = [fragment]
+                pending_selection = select_layout_v2(
+                    scene_kind=scene,
+                    evidence_kinds=_fragment_evidence(pending),
+                    character_count=len(fragment.text),
+                    item_count=int(fragment.kind == "list_item"),
+                    theme=theme,
+                    recent_layout_families=recent_layout_families,
+                )
+            else:
+                pending = candidate
+                pending_selection = candidate_selection
+        if pending and pending_selection is not None:
+            selected_groups.append((role, pending, pending_selection))
+            recent_layout_families.append(pending_selection.layout_family)
+    return selected_groups
+
+
 def _make_episode(
     *,
     scene: SlideSceneKind,
@@ -504,20 +569,19 @@ def _make_episode(
             }[scene],
             fragments,
         )]
+    selected_beat_groups = _select_capacity_safe_beat_groups(
+        scene=scene,
+        beat_groups=beat_groups,
+        theme=theme,
+        recent_layout_families=recent_layout_families,
+    )
     beats: list[StoryBeatV2] = []
     transition = ""
-    for index, (role, beat_fragments) in enumerate(beat_groups):
+    for index, (role, beat_fragments, selection) in enumerate(
+        selected_beat_groups
+    ):
         evidence = _fragment_evidence(beat_fragments)
         character_count = sum(len(item.text) for item in beat_fragments)
-        item_count = sum(1 for item in beat_fragments if item.kind == "list_item")
-        selection = select_layout_v2(
-            scene_kind=scene,
-            evidence_kinds=evidence,
-            character_count=min(character_count, 1100),
-            item_count=min(item_count, 10),
-            theme=theme,
-            recent_layout_families=recent_layout_families,
-        )
         beat_id = stable_hash({
             "episode_id": episode_id,
             "role": role,
@@ -545,7 +609,6 @@ def _make_episode(
             mastery_criterion_refs=mastery_refs,
         ))
         transition = beat_id
-        recent_layout_families.append(selection.layout_family)
     return TeachingEpisodeV2(
         episode_id=episode_id,
         scene_kind=scene,
