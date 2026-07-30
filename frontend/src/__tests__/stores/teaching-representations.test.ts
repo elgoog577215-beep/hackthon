@@ -450,6 +450,25 @@ describe('teaching representation progressive build', () => {
     expect(store.buildError).toBe('deck_split_required')
   })
 
+  it('normalizes a layout-capacity planner failure after reopening the workspace', async () => {
+    httpMock.get.mockResolvedValue({ data: {
+      id: 'representation-job-layout-capacity',
+      type: 'slide_deck_variant_build',
+      status: 'failed',
+      progress: 3,
+      phase: 'fragmenting',
+      error: (
+        "No capacity-safe layout for scene=concept, characters=1100, "
+        + "items=10, evidence=['code', 'formula', 'list', 'text']"
+      ),
+    } })
+    const store = useTeachingRepresentationsStore()
+
+    await store.recoverDurableBuild('course-1')
+
+    expect(store.buildError).toBe('layout_capacity_failed')
+  })
+
   it('keeps an in-flight cancellation from being overwritten by the old SSE stream', async () => {
     const encoder = new TextEncoder()
     let controller!: ReadableStreamDefaultController<Uint8Array>

@@ -19,7 +19,7 @@ from slide_deck_v4 import (
     build_signature_v4,
     compile_slide_deck_v4,
 )
-from slide_layout_registry import select_layout_v2
+from slide_layout_registry import registry_summary_v2, select_layout_v2
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     compile_slide_story_plan_v2,
@@ -315,6 +315,80 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
     assert first.scene_match_score > 0
     assert first.capacity_passed is True
     assert first.layout_family != "split"
+
+
+def test_dense_mixed_concept_scene_is_split_before_layout_selection() -> None:
+    course = _course_with_teaching_plan()
+    concept_block = next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-concept"
+    )
+    concept_block["content"] = "\n\n".join([
+        (
+            "热力学系统由大量微观粒子构成，宏观状态需要用统计量描述。"
+            "当系统从一个宏观状态演化到另一个宏观状态时，必须同时区分状态函数、"
+            "过程量和约束条件，才能解释熵变、热量与功之间的关系。"
+        ) * 4,
+        "\n".join(
+            f"- 判断要点 {index}：核对系统边界、状态变量与适用条件。"
+            for index in range(1, 11)
+        ),
+        "$$\\Delta S = \\int \\frac{\\delta Q_{rev}}{T}$$",
+        "```python\n" + "\n".join(
+            f"state_{index} = energy_{index} / temperature_{index}"
+            for index in range(1, 13)
+        ) + "\n```",
+    ])
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+
+    plan = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    concept = next(
+        episode
+        for episode in plan.chapters[0].episodes
+        if episode.scene_kind == "concept"
+    )
+    concept_source_ids = {
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.block_id == "block-concept"
+    }
+    allocated_ids = [
+        fragment_id
+        for beat in concept.beats
+        for fragment_id in beat.fragment_ids
+    ]
+    layouts = {
+        layout["layout_id"]: layout
+        for layout in registry_summary_v2()
+    }
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+
+    assert len(concept.beats) > 1
+    assert set(allocated_ids) == concept_source_ids
+    assert len(allocated_ids) == len(set(allocated_ids))
+    for beat in concept.beats:
+        layout = layouts[beat.layout_intent]
+        beat_fragments = [
+            fragment_by_id[fragment_id]
+            for fragment_id in beat.fragment_ids
+        ]
+        assert sum(len(fragment.text) for fragment in beat_fragments) <= layout["density_budget"]
+        assert sum(
+            fragment.kind == "list_item"
+            for fragment in beat_fragments
+        ) <= layout["item_budget"]
 
 
 def test_story_plan_requires_completed_official_teaching_plan() -> None:
