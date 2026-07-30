@@ -8,13 +8,18 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from course_document import document_from_legacy_course
+from slide_deck import SlideSpec
 from slide_asset_repository import SlideAssetRepository, finalize_visual_assets
 from slide_deck_v3 import (
     compile_slide_deck_v3,
     deterministic_slide_allocation,
     fragment_course_document,
 )
-from slide_deck_renderer import _format_formula_text, export_structured_slide_deck
+from slide_deck_renderer import (
+    _display_heading,
+    _format_formula_text,
+    export_structured_slide_deck,
+)
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
@@ -159,6 +164,30 @@ def test_classification_page_does_not_use_next_heading_as_diagram_root() -> None
     assert "深度原理/底层机制" not in classification_text
     assert visual_page.visual_anchor.kind == "none"
     assert visual_page.composition == "statement"
+
+
+def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None:
+    explicit_heading = SlideSpec(
+        unit_id="explicit-heading",
+        position=0,
+        layout="concept",
+        slide_purpose="reasoning",
+        title="🔍 深度原理/底层机制",
+        takeaway=(
+            "热力学系统的核心在于其“边界”及其对物质与能量的控制能力。"
+        ),
+    )
+    classification_heading = SlideSpec(
+        unit_id="classification-heading",
+        position=0,
+        layout="concept",
+        slide_purpose="concept",
+        title="根据系统与环境之间的交互方式，热力学将系统分为三类",
+        takeaway="根据系统与环境之间的交互方式，热力学将系统分为三类",
+    )
+
+    assert _display_heading(explicit_heading) == "🔍 深度原理/底层机制"
+    assert _display_heading(classification_heading) == "根据系统与环境之间的交互方式"
 
 
 def test_deterministic_director_uses_source_bound_visual_variety() -> None:
