@@ -15,6 +15,7 @@ from representation_compiler import (
 from slide_deck_renderer import export_structured_slide_deck
 from slide_deck_v3 import fragment_course_document, split_slide_deck_plan_by_chapter
 from slide_deck_v4 import (
+    _presentation_quality,
     allocation_from_story_plan_v2,
     build_signature_v4,
     compile_slide_deck_v4,
@@ -315,6 +316,67 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
     assert first.scene_match_score > 0
     assert first.capacity_passed is True
     assert first.layout_family != "split"
+
+
+def test_layout_rhythm_resets_at_chapter_boundaries() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    first_chapter = story.chapters[0].model_copy(deep=True)
+    first_concept = next(
+        episode
+        for episode in first_chapter.episodes
+        if episode.scene_kind == "concept"
+    )
+    template = first_concept.beats[0]
+    first = template.model_copy(update={
+        "beat_id": "beat-chapter-1-a",
+        "layout_family": "comparison",
+    })
+    second = template.model_copy(update={
+        "beat_id": "beat-chapter-1-b",
+        "layout_family": "comparison",
+    })
+    first_concept.beats = [first, second]
+    second_chapter = first_chapter.model_copy(
+        deep=True,
+        update={"chapter_id": "chapter-two"},
+    )
+    second_concept = next(
+        episode
+        for episode in second_chapter.episodes
+        if episode.scene_kind == "concept"
+    )
+    third = template.model_copy(update={
+        "beat_id": "beat-chapter-2-a",
+        "layout_family": "comparison",
+    })
+    second_concept.beats = [third]
+    two_chapter_story = story.model_copy(
+        deep=True,
+        update={"chapters": [first_chapter, second_chapter]},
+    )
+
+    quality = _presentation_quality(
+        two_chapter_story,
+        {
+            "page-1": first,
+            "page-2": second,
+            "page-3": third,
+        },
+    )
+
+    assert quality["passed"] is True
+    assert not any(
+        issue["code"] == "layout_family_repeated_more_than_twice"
+        for issue in quality["issues"]
+    )
 
 
 def test_dense_mixed_concept_scene_is_split_before_layout_selection() -> None:
