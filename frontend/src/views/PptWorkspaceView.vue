@@ -32,7 +32,17 @@
         :data-engine-status="slideEngineStatus"
       >{{ slideEngineStatusLabel }}</small>
       <p>{{ buildErrorLabel || t('pptWorkspace.emptyDescription', '从课程目标、正文、知识点与理解检查编译一套可直接上课的 PPT。') }}</p>
-      <button type="button" class="ppt-workspace-state__build" :disabled="store.building || slideEngineStatus === 'blocked'" @click="openGenerator(false)">
+      <p v-if="logicUpgradeError" class="ppt-workspace-state__logic-error">{{ logicUpgradeError }}</p>
+      <button
+        v-if="slideEngineStatus === 'blocked'"
+        type="button"
+        class="ppt-workspace-state__upgrade-logic"
+        :disabled="logicUpgrading"
+        @click="upgradeCourseLogic"
+      >
+        <Sparkles :size="17" />{{ logicUpgrading ? '正在补全课程逻辑…' : '补全课程逻辑' }}
+      </button>
+      <button v-else type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="openGenerator(false)">
         <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '选择模式与风格') }}
       </button>
     </div>
@@ -148,6 +158,8 @@ const aiPrefill = ref('')
 const documentEnvelope = ref<CourseDocumentEnvelope | null>(null)
 const migrating = ref(false)
 const migrationMessage = ref('')
+const logicUpgrading = ref(false)
+const logicUpgradeError = ref('')
 const documentLoadError = ref('')
 const generatorOpen = ref(false)
 const forceGeneratorBuild = ref(false)
@@ -285,6 +297,8 @@ async function loadWorkspace() {
   documentEnvelope.value = null
   migrating.value = false
   migrationMessage.value = ''
+  logicUpgrading.value = false
+  logicUpgradeError.value = ''
   documentLoadError.value = ''
   try {
     const envelope = await loadDocumentEnvelope(id, attempt)
@@ -374,6 +388,39 @@ async function migrateCourse() {
     }
   } finally {
     if (isCurrentAttempt(id, attempt)) migrating.value = false
+  }
+}
+
+async function upgradeCourseLogic() {
+  const id = courseId.value
+  const attempt = workspaceAttempt
+  if (
+    !id
+    || logicUpgrading.value
+    || slideEngineStatus.value !== 'blocked'
+  ) return
+
+  logicUpgrading.value = true
+  logicUpgradeError.value = ''
+  try {
+    await store.upgradeCourseLogic(id)
+    if (!isCurrentAttempt(id, attempt)) return
+    const targetSchema = String(
+      store.registry?.slide_deck_target_schema || '',
+    )
+    if (targetSchema === 'slide_deck_v4') {
+      generatorOpen.value = true
+      return
+    }
+    logicUpgradeError.value = '课程逻辑补全后仍未通过检查，请检查课程知识点与教学目标。'
+  } catch (error: any) {
+    if (!isCurrentAttempt(id, attempt)) return
+    logicUpgradeError.value = String(
+      error?.response?.data?.detail?.message
+      || '课程逻辑补全失败，请稍后重试。',
+    )
+  } finally {
+    if (isCurrentAttempt(id, attempt)) logicUpgrading.value = false
   }
 }
 
@@ -539,6 +586,9 @@ onMounted(loadWorkspace)
 .ppt-workspace-state__back { position:absolute; top:22px; left:22px; width:40px; height:40px; display:grid; place-items:center; border:1px solid #d4dae4; border-radius:10px; color:#526174; background:#fff; cursor:pointer; }
 .ppt-workspace-state__build { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:26px; padding:0 18px; border:0; border-radius:10px; color:#fff; background:#2556d8; box-shadow:0 10px 24px rgba(37,86,216,.24); font-size:13px; font-weight:700; cursor:pointer; }
 .ppt-workspace-state__build:disabled { cursor:not-allowed; opacity:.5; box-shadow:none; }
+.ppt-workspace-state__upgrade-logic { min-height:42px; display:inline-flex; align-items:center; gap:8px; margin-top:22px; padding:0 18px; border:0; border-radius:10px; color:#fff; background:#2556d8; box-shadow:0 10px 24px rgba(37,86,216,.24); font-size:13px; font-weight:700; cursor:pointer; }
+.ppt-workspace-state__upgrade-logic:disabled { cursor:wait; opacity:.65; box-shadow:none; }
+.ppt-workspace-state__logic-error { color:#a12828 !important; }
 .ppt-workspace-state__engine { display:inline-flex; align-items:center; min-height:28px; padding:0 10px; border:1px solid #bfd1ff; border-radius:999px; color:#2449a8; background:#edf3ff; font-size:11px; font-weight:800; }
 .ppt-workspace-state__engine[data-engine-status="slide_deck_v3"] { border-color:#ecd09c; color:#85520a; background:#fff7e6; }
 .ppt-workspace-state__engine[data-engine-status="blocked"] { border-color:#efb6b6; color:#a12828; background:#fff0f0; }

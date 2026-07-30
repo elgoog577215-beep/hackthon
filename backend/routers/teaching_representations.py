@@ -19,6 +19,11 @@ from pydantic import BaseModel, ConfigDict
 from change_proposals import change_proposal_repository, create_authoring_change
 from ai_base import AIBase
 from course_document import stable_hash
+from course_logic_upgrade import (
+    CourseLogicUpgradeError,
+    compile_course_logic_upgrade,
+)
+from course_repository import CourseDocumentConflict
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from dependencies import (
     get_course_document_repository,
@@ -341,6 +346,47 @@ async def get_teaching_representations(course_id: str, request: Request) -> dict
             "message": str(exc),
         }) from exc
     return {"status": "success", "registry": registry}
+
+
+@router.post("/course-logic/upgrade")
+async def upgrade_course_logic(course_id: str, request: Request) -> dict:
+    """Promote migrated node semantics into the official V4 course contracts."""
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    course_repository = get_course_document_repository()
+    raw = course_repository.load_raw(course_id)
+    if not course_repository.is_canonical(raw):
+        raise HTTPException(status_code=409, detail={
+            "code": "course_migration_required",
+            "message": "Course must be migrated before upgrading course logic",
+        })
+    course_view = course_repository.load_course_view(course_id)
+    try:
+        upgrade = await run_in_threadpool(
+            compile_course_logic_upgrade,
+            course_view,
+        )
+        if not upgrade["already_ready"]:
+            await course_repository.update_metadata(
+                course_id,
+                upgrade["updates"],
+                expected_document_revision=str(
+                    raw.get("course_document_revision") or ""
+                ),
+            )
+        registry = await run_in_threadpool(_reconciled_registry, course_id)
+    except (CourseLogicUpgradeError, CourseDocumentConflict) as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "course_logic_upgrade_blocked",
+            "message": str(exc),
+        }) from exc
+    return {
+        "status": "success",
+        "course_id": course_id,
+        "already_ready": bool(upgrade["already_ready"]),
+        "summary": upgrade["summary"],
+        "registry": registry,
+    }
 
 
 @router.get("/derivation-graph")

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from course_document import COURSE_DOCUMENT_SCHEMA, document_from_legacy_course
+from course_logic_upgrade import (
+    CourseLogicUpgradeError,
+    compile_course_logic_upgrade,
+)
 from course_repository import CourseDocumentRepository
 from slide_story_plan import course_supports_slide_deck_v4
 from teaching_representations import TeachingRepresentationRepository
@@ -44,48 +49,6 @@ def migrated_course_missing_logic() -> dict:
                 "node_level": 2,
                 "learning_objective": "能够用热力学第一定律分析封闭系统的能量变化",
                 "objective_id": "objective-first-law",
-                "key_points": ["热力学第一定律", "内能", "功与热量"],
-                "knowledge_structure": [
-                    {
-                        "concept_group": "能量守恒",
-                        "knowledge_points": [
-                            {
-                                "name": "热力学第一定律",
-                                "statement": "封闭系统内能的变化等于传入热量与外界对系统做功之和。",
-                                "knowledge_type": "principle",
-                                "conditions": ["封闭系统"],
-                                "boundaries": ["符号约定必须保持一致"],
-                                "capability": "能够建立并求解封闭系统能量平衡式",
-                                "capability_points": [
-                                    {
-                                        "statement": "根据过程条件判断热量、功和内能变化的符号",
-                                    },
-                                ],
-                                "mastery_criteria": [
-                                    {
-                                        "statement": "能够解释能量平衡式中每一项的物理意义",
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-                "module_plan": [
-                    {
-                        "module_id": "core_explanation",
-                        "label": "原理讲解",
-                        "required": True,
-                        "block_role": "concept",
-                        "output_contract": "解释第一定律及符号约定",
-                    },
-                    {
-                        "module_id": "worked_example",
-                        "label": "例题",
-                        "required": True,
-                        "block_role": "example",
-                        "output_contract": "完成一个封闭系统能量平衡例题",
-                    },
-                ],
                 "node_content": (
                     "## 热力学第一定律\n\n"
                     "封闭系统中的能量守恒可写成 ΔU = Q + W。"
@@ -160,7 +123,7 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
         headers=headers,
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["already_ready"] is False
@@ -175,6 +138,7 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
     assert storage.course["course_teaching_plan"]["sections"]
     assert storage.course["course_knowledge_base"]["lifecycle_status"] == "active"
     assert storage.course["course_coherence_contract"]["status"] == "active"
+    assert payload["summary"]["recovered_section_count"] == 1
     assert storage.save_count == 1
 
     repeated = client.post(
@@ -186,3 +150,26 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
     assert repeated.status_code == 200
     assert repeated.json()["already_ready"] is True
     assert storage.save_count == 1
+
+
+def test_upgrade_rejects_missing_semantics_without_mutating_input():
+    course = migrated_course_missing_logic()
+    section = next(
+        item
+        for item in course["course_document"]["sections"]
+        if item["section_id"] == "section-1"
+    )
+    section["attributes"]["knowledge_structure"] = []
+    course["course_document"]["blocks"] = []
+    before = deepcopy(course)
+    repository = CourseDocumentRepository(MemoryStorage(course))
+
+    with pytest.raises(
+        CourseLogicUpgradeError,
+        match="既没有结构化知识点",
+    ):
+        compile_course_logic_upgrade(
+            repository.load_course_view("course-legacy-logic")
+        )
+
+    assert course == before

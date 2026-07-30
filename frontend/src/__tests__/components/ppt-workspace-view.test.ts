@@ -88,9 +88,10 @@ describe('PptWorkspaceView', () => {
     expect(
       wrapper.get('[data-testid="ppt-engine-status"]').attributes('data-engine-status'),
     ).toBe('blocked')
+    expect(wrapper.find('.ppt-workspace-state__build').exists()).toBe(false)
     expect(
-      wrapper.get('.ppt-workspace-state__build').attributes('disabled'),
-    ).toBeDefined()
+      wrapper.get('.ppt-workspace-state__upgrade-logic').attributes('disabled'),
+    ).toBeUndefined()
   })
 
   it('repairs migrated course logic in place and unlocks the V4 generator', async () => {
