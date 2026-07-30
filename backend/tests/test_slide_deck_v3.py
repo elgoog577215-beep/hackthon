@@ -202,7 +202,7 @@ def mermaid_and_formula_course() -> dict:
                     "title": "System classification",
                     "content": (
                         "A closed system is classified by its exchange with the environment."
-                        "\n\n#### 🎨 可视化图解"
+                        "\n\n#### ### 🎨 可视化图解"
                         "\n```mermaid"
                         "\ngraph TD"
                         "\nA[Closed system] -->|cannot exchange matter| B[Environment]"
