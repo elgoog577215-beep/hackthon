@@ -106,6 +106,61 @@ def test_compiler_adds_grounded_visual_director_plan() -> None:
     assert all(slide["takeaway"] for slide in content["slides"])
 
 
+def test_classification_page_does_not_use_next_heading_as_diagram_root() -> None:
+    course = visual_course()
+    concept = course["nodes"][0]["content_blocks"][0]
+    concept["content"] = (
+        "#### 核心概念与背景\n\n"
+        "系统是研究对象，环境是系统以外的部分。\n\n"
+        "根据系统与环境之间的交互方式，热力学将系统分为三类：\n\n"
+        "- 孤立系统：既不交换物质，也不交换能量。\n"
+        "- 封闭系统：不交换物质，但可以交换能量。\n"
+        "- 开放系统：既可以交换物质，也可以交换能量。\n\n"
+        "这些分类是后续建立模型和分析的基础。\n\n"
+        "#### 深度原理/底层机制\n\n"
+        "系统边界决定了物质和能量能否通过。"
+    )
+    course["nodes"][0]["content_blocks"] = [concept]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+    classification_page = next(
+        page
+        for page in allocation.pages
+        if {
+            "孤立系统：既不交换物质，也不交换能量。",
+            "封闭系统：不交换物质，但可以交换能量。",
+            "开放系统：既可以交换物质，也可以交换能量。",
+        } <= {
+            fragment_by_id[fragment_id].text
+            for fragment_id in page.fragment_ids
+        }
+    )
+    classification_text = {
+        fragment_by_id[fragment_id].text
+        for fragment_id in classification_page.fragment_ids
+    }
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    visual_page = next(
+        page for page in plan.pages
+        if page.page_id == classification_page.page_id
+    )
+
+    assert "深度原理/底层机制" not in classification_text
+    assert visual_page.visual_anchor.kind == "none"
+    assert visual_page.composition == "statement"
+
+
 def test_deterministic_director_uses_source_bound_visual_variety() -> None:
     course = visual_course()
     document = document_from_legacy_course(course)
