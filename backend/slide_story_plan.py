@@ -12,7 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_teaching_plan_projection import project_course_teaching_plan
-from slide_deck_v3 import ContentFragmentV1, SlideDeckMode, SlideDeckTheme
+from slide_deck_v3 import (
+    ContentFragmentV1,
+    SlideDeckMode,
+    SlideDeckTheme,
+    _paginate_fragments,
+)
 from slide_layout_registry import (
     LayoutSelectionV2,
     SlideSceneKind,
@@ -22,6 +27,7 @@ from slide_layout_registry import (
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
 SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.1"
+STORY_BEAT_TEXT_CAPACITY = 230
 
 ClaimSourceKind = Literal[
     "learning_objective",
@@ -434,6 +440,23 @@ def _split_prompt_and_answer(
     return result
 
 
+def _select_fragment_layout(
+    *,
+    scene: SlideSceneKind,
+    fragments: list[ContentFragmentV1],
+    theme: SlideDeckTheme,
+    recent_layout_families: list[str],
+) -> LayoutSelectionV2:
+    return select_layout_v2(
+        scene_kind=scene,
+        evidence_kinds=_fragment_evidence(fragments),
+        character_count=sum(len(item.text) for item in fragments),
+        item_count=sum(item.kind == "list_item" for item in fragments),
+        theme=theme,
+        recent_layout_families=recent_layout_families,
+    )
+
+
 def _select_capacity_safe_beat_groups(
     *,
     scene: SlideSceneKind,
@@ -446,55 +469,20 @@ def _select_capacity_safe_beat_groups(
         tuple[str, list[ContentFragmentV1], LayoutSelectionV2]
     ] = []
     for role, fragments in beat_groups:
-        if not fragments:
-            selection = select_layout_v2(
-                scene_kind=scene,
-                evidence_kinds=["text"],
-                character_count=0,
-                item_count=0,
+        fragment_groups = (
+            _paginate_fragments(fragments, STORY_BEAT_TEXT_CAPACITY)
+            if fragments
+            else [[]]
+        )
+        for fragment_group in fragment_groups:
+            selection = _select_fragment_layout(
+                scene=scene,
+                fragments=fragment_group,
                 theme=theme,
                 recent_layout_families=recent_layout_families,
             )
-            selected_groups.append((role, [], selection))
+            selected_groups.append((role, fragment_group, selection))
             recent_layout_families.append(selection.layout_family)
-            continue
-
-        pending: list[ContentFragmentV1] = []
-        pending_selection: LayoutSelectionV2 | None = None
-        for fragment in fragments:
-            candidate = [*pending, fragment]
-            try:
-                candidate_selection = select_layout_v2(
-                    scene_kind=scene,
-                    evidence_kinds=_fragment_evidence(candidate),
-                    character_count=sum(len(item.text) for item in candidate),
-                    item_count=sum(
-                        item.kind == "list_item"
-                        for item in candidate
-                    ),
-                    theme=theme,
-                    recent_layout_families=recent_layout_families,
-                )
-            except ValueError:
-                if not pending or pending_selection is None:
-                    raise
-                selected_groups.append((role, pending, pending_selection))
-                recent_layout_families.append(pending_selection.layout_family)
-                pending = [fragment]
-                pending_selection = select_layout_v2(
-                    scene_kind=scene,
-                    evidence_kinds=_fragment_evidence(pending),
-                    character_count=len(fragment.text),
-                    item_count=int(fragment.kind == "list_item"),
-                    theme=theme,
-                    recent_layout_families=recent_layout_families,
-                )
-            else:
-                pending = candidate
-                pending_selection = candidate_selection
-        if pending and pending_selection is not None:
-            selected_groups.append((role, pending, pending_selection))
-            recent_layout_families.append(pending_selection.layout_family)
     return selected_groups
 
 
@@ -756,11 +744,14 @@ def compile_slide_story_plan_v2(
             if scene not in scene_blocks:
                 continue
             blocks = scene_blocks[scene]
-            scene_fragments = [
-                fragment
-                for block in blocks
-                for fragment in fragments_by_block.get(block.block_id, [])
-            ]
+            scene_fragments = sorted(
+                (
+                    fragment
+                    for block in blocks
+                    for fragment in fragments_by_block.get(block.block_id, [])
+                ),
+                key=lambda item: item.ordinal,
+            )
             if scene not in {"chapter_entry", "chapter_recap", "prerequisite_activation"} and not (
                 blocks or scene_modules.get(scene)
             ):

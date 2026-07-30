@@ -21,9 +21,11 @@ from slide_deck_v3 import (
     slide_deck_variant_key,
     validate_allocation_plan,
 )
-from slide_layout_registry import SLIDE_LAYOUT_REGISTRY_V2
+from slide_layout_registry import SLIDE_LAYOUT_REGISTRY_V2, SlideSceneKind
 from slide_story_plan import (
     SLIDE_STORY_ENGINE_V2_VERSION,
+    STORY_BEAT_TEXT_CAPACITY,
+    ChapterStoryV2,
     SlideStoryPlanV2,
     StoryBeatV2,
 )
@@ -117,7 +119,7 @@ def _beat_pages(
     # in the story manifest, but do not fabricate a body page for it.
     if not fragments:
         return []
-    chunks = _paginate_fragments(fragments, 230)
+    chunks = _paginate_fragments(fragments, STORY_BEAT_TEXT_CAPACITY)
     pages: list[PlannedPageV2] = []
     for chunk_index, chunk in enumerate(chunks):
         derived = [DerivedTextV1(
@@ -145,6 +147,47 @@ def _beat_pages(
             chapter_id=chapter_id,
         ))
     return pages
+
+
+def _source_ordered_beat_runs(
+    chapter: ChapterStoryV2,
+    catalog: dict[str, ContentFragmentV1],
+) -> list[tuple[StoryBeatV2, SlideSceneKind]]:
+    assignments: dict[str, tuple[StoryBeatV2, SlideSceneKind]] = {}
+    for episode in chapter.episodes:
+        for beat in episode.beats:
+            for fragment_id in beat.fragment_ids:
+                if fragment_id not in catalog:
+                    raise ValueError(
+                        f"Story beat {beat.beat_id} references an unknown source fragment"
+                    )
+                if fragment_id in assignments:
+                    raise ValueError(
+                        f"Story beat {beat.beat_id} duplicates an allocated source fragment"
+                    )
+                assignments[fragment_id] = (beat, episode.scene_kind)
+
+    ordered_ids = sorted(
+        assignments,
+        key=lambda fragment_id: catalog[fragment_id].ordinal,
+    )
+    runs: list[tuple[StoryBeatV2, SlideSceneKind]] = []
+    for fragment_id in ordered_ids:
+        beat, scene_kind = assignments[fragment_id]
+        if runs and runs[-1][0].beat_id == beat.beat_id:
+            previous, previous_scene = runs[-1]
+            runs[-1] = (
+                previous.model_copy(update={
+                    "fragment_ids": [*previous.fragment_ids, fragment_id],
+                }),
+                previous_scene,
+            )
+            continue
+        runs.append((
+            beat.model_copy(update={"fragment_ids": [fragment_id]}),
+            scene_kind,
+        ))
+    return runs
 
 
 def allocation_from_story_plan_v2(
@@ -181,24 +224,23 @@ def allocation_from_story_plan_v2(
     allocated: set[str] = set()
     counter = 1
     for chapter in story_plan.chapters:
-        for episode in chapter.episodes:
-            for beat in episode.beats:
-                if any(fragment_id in allocated for fragment_id in beat.fragment_ids):
-                    raise ValueError(
-                        f"Story beat {beat.beat_id} duplicates an allocated source fragment"
-                    )
-                beat_pages = _beat_pages(
-                    beat,
-                    chapter_id=chapter.chapter_id,
-                    scene_kind=episode.scene_kind,
-                    catalog=catalog,
-                    page_counter=counter,
+        for beat, scene_kind in _source_ordered_beat_runs(chapter, catalog):
+            if any(fragment_id in allocated for fragment_id in beat.fragment_ids):
+                raise ValueError(
+                    f"Story beat {beat.beat_id} duplicates an allocated source fragment"
                 )
-                for page in beat_pages:
-                    page_beats[page.page_id] = beat
-                pages.extend(beat_pages)
-                allocated.update(beat.fragment_ids)
-                counter += len(beat_pages)
+            beat_pages = _beat_pages(
+                beat,
+                chapter_id=chapter.chapter_id,
+                scene_kind=scene_kind,
+                catalog=catalog,
+                page_counter=counter,
+            )
+            for page in beat_pages:
+                page_beats[page.page_id] = beat
+            pages.extend(beat_pages)
+            allocated.update(beat.fragment_ids)
+            counter += len(beat_pages)
     leftovers = [item for item in fragments if item.fragment_id not in allocated]
     exclusions: list[FragmentExclusionV1] = []
     if story_plan.mode == "concise":
@@ -334,10 +376,21 @@ def _presentation_quality(
     page_beats: dict[str, StoryBeatV2],
 ) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
-    families = [beat.layout_family for beat in page_beats.values()]
+    chapter_by_beat_id = {
+        beat.beat_id: chapter.chapter_id
+        for chapter in story_plan.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+    }
     consecutive = 0
     previous = ""
-    for family in families:
+    previous_chapter = ""
+    for beat in page_beats.values():
+        chapter_id = chapter_by_beat_id.get(beat.beat_id, "")
+        if chapter_id != previous_chapter:
+            consecutive = 0
+            previous = ""
+        family = beat.layout_family
         consecutive = consecutive + 1 if family == previous else 1
         if consecutive > 2:
             issues.append({
@@ -347,6 +400,7 @@ def _presentation_quality(
             })
             break
         previous = family
+        previous_chapter = chapter_id
     for chapter in story_plan.chapters:
         chapter_families = [
             beat.layout_family
