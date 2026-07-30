@@ -190,6 +190,49 @@ def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None
     assert _display_heading(classification_heading) == "根据系统与环境之间的交互方式"
 
 
+def test_dense_prose_relation_is_suppressed_when_it_repeats_the_source() -> None:
+    course = visual_course()
+    concept = course["nodes"][0]["content_blocks"][0]
+    concept["content"] = (
+        "#### 🔍 深度原理/底层机制\n\n"
+        "热力学系统的核心在于其“边界”及其对物质与能量的控制能力。"
+        "边界决定了系统是否能与环境发生互动。"
+        "例如，在一个密封保温杯中的水就是一个封闭系统——"
+        "水不会流出，但可以通过杯子壁传递热量。\n\n"
+        "从微观角度看，系统的状态由大量粒子的运动构成。"
+        "热力学通过宏观变量来描述这些微观行为的统计结果。"
+        "因此，系统分类不仅影响理论建模，也直接影响实验设计。"
+    )
+    course["nodes"][0]["content_blocks"] = [concept]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    page = next(
+        page
+        for page in allocation.pages
+        if any(
+            fragment.fragment_id in page.fragment_ids
+            and fragment.kind == "heading"
+            and "深度原理" in fragment.text
+            for fragment in fragments
+        )
+    )
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    visual_page = next(
+        item for item in plan.pages
+        if item.page_id == page.page_id
+    )
+
+    assert visual_page.visual_anchor.kind == "none"
+    assert visual_page.composition == "statement"
+
+
 def test_deterministic_director_uses_source_bound_visual_variety() -> None:
     course = visual_course()
     document = document_from_legacy_course(course)
