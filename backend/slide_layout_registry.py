@@ -149,7 +149,7 @@ SLIDE_LAYOUT_REGISTRY_V2: tuple[LayoutDefinitionV2, ...] = (
     ),
     _layout(
         "positive-negative",
-        "comparison",
+        "two-column",
         "正反例对照",
         "comparison",
         ["concept", "misconception"],

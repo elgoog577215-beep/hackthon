@@ -15,11 +15,12 @@ from representation_compiler import (
 from slide_deck_renderer import export_structured_slide_deck
 from slide_deck_v3 import fragment_course_document, split_slide_deck_plan_by_chapter
 from slide_deck_v4 import (
+    _presentation_quality,
     allocation_from_story_plan_v2,
     build_signature_v4,
     compile_slide_deck_v4,
 )
-from slide_layout_registry import select_layout_v2
+from slide_layout_registry import registry_summary_v2, select_layout_v2
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     compile_slide_story_plan_v2,
@@ -315,6 +316,222 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
     assert first.scene_match_score > 0
     assert first.capacity_passed is True
     assert first.layout_family != "split"
+
+
+def test_layout_rhythm_resets_at_chapter_boundaries() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    first_chapter = story.chapters[0].model_copy(deep=True)
+    first_concept = next(
+        episode
+        for episode in first_chapter.episodes
+        if episode.scene_kind == "concept"
+    )
+    template = first_concept.beats[0]
+    first = template.model_copy(update={
+        "beat_id": "beat-chapter-1-a",
+        "layout_family": "comparison",
+    })
+    second = template.model_copy(update={
+        "beat_id": "beat-chapter-1-b",
+        "layout_family": "comparison",
+    })
+    first_concept.beats = [first, second]
+    second_chapter = first_chapter.model_copy(
+        deep=True,
+        update={"chapter_id": "chapter-two"},
+    )
+    second_concept = next(
+        episode
+        for episode in second_chapter.episodes
+        if episode.scene_kind == "concept"
+    )
+    third = template.model_copy(update={
+        "beat_id": "beat-chapter-2-a",
+        "layout_family": "comparison",
+    })
+    second_concept.beats = [third]
+    two_chapter_story = story.model_copy(
+        deep=True,
+        update={"chapters": [first_chapter, second_chapter]},
+    )
+
+    quality = _presentation_quality(
+        two_chapter_story,
+        {
+            "page-1": first,
+            "page-2": second,
+            "page-3": third,
+        },
+    )
+
+    assert quality["passed"] is True
+    assert not any(
+        issue["code"] == "layout_family_repeated_more_than_twice"
+        for issue in quality["issues"]
+    )
+
+
+def test_dense_mixed_concept_scene_is_split_before_layout_selection() -> None:
+    course = _course_with_teaching_plan()
+    concept_block = next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-concept"
+    )
+    concept_block["content"] = "\n\n".join([
+        (
+            "热力学系统由大量微观粒子构成，宏观状态需要用统计量描述。"
+            "当系统从一个宏观状态演化到另一个宏观状态时，必须同时区分状态函数、"
+            "过程量和约束条件，才能解释熵变、热量与功之间的关系。"
+        ) * 4,
+        "\n".join(
+            f"- 判断要点 {index}：核对系统边界、状态变量与适用条件。"
+            for index in range(1, 11)
+        ),
+        "$$\\Delta S = \\int \\frac{\\delta Q_{rev}}{T}$$",
+        "```python\n" + "\n".join(
+            f"state_{index} = energy_{index} / temperature_{index}"
+            for index in range(1, 13)
+        ) + "\n```",
+    ])
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+
+    plan = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    concept = next(
+        episode
+        for episode in plan.chapters[0].episodes
+        if episode.scene_kind == "concept"
+    )
+    concept_source_ids = {
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.block_id == "block-concept"
+    }
+    allocated_ids = [
+        fragment_id
+        for beat in concept.beats
+        for fragment_id in beat.fragment_ids
+    ]
+    layouts = {
+        layout["layout_id"]: layout
+        for layout in registry_summary_v2()
+    }
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+
+    assert len(concept.beats) > 1
+    assert set(allocated_ids) == concept_source_ids
+    assert len(allocated_ids) == len(set(allocated_ids))
+    for beat in concept.beats:
+        layout = layouts[beat.layout_intent]
+        beat_fragments = [
+            fragment_by_id[fragment_id]
+            for fragment_id in beat.fragment_ids
+        ]
+        assert sum(len(fragment.text) for fragment in beat_fragments) <= layout["density_budget"]
+        assert sum(
+            fragment.kind == "list_item"
+            for fragment in beat_fragments
+        ) <= layout["item_budget"]
+        if sum(len(fragment.text) for fragment in beat_fragments) > 230:
+            assert len(beat_fragments) == 1
+            assert beat_fragments[0].kind in {"code", "formula", "table"}
+
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        plan,
+    )
+    content = compile_slide_deck_v4(
+        document,
+        course,
+        story_plan=plan,
+        allocation_plan=allocation,
+    )
+    blocker_codes = {
+        item["code"]
+        for item in content["quality_report"]["blockers"]
+    }
+    assert not blocker_codes & {
+        "slide_block_overflow",
+        "slide_item_overflow",
+        "slide_text_overflow",
+    }
+
+
+def test_v4_allocation_preserves_source_order_across_semantic_scenes() -> None:
+    course = _course_with_teaching_plan()
+    original_section = course["nodes"][0]
+    original_section["parent_node_id"] = "chapter-root"
+    original_section["node_level"] = 2
+    course["nodes"].insert(0, {
+        "node_id": "chapter-root",
+        "parent_node_id": "root",
+        "node_name": "第一章 线性映射",
+        "node_level": 1,
+        "content_blocks": [{
+            "block_id": "block-root-concept",
+            "title": "章节概览",
+            "content": "本章从保持线性结构的问题出发。",
+            "metadata": {
+                "role": "concept",
+                "module_id": "module-concept",
+            },
+        }],
+    })
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+    for chapter in story.chapters:
+        for episode in chapter.episodes:
+            for beat in episode.beats:
+                beat_ordinals = [
+                    fragment_by_id[fragment_id].ordinal
+                    for fragment_id in beat.fragment_ids
+                ]
+                assert beat_ordinals == sorted(beat_ordinals)
+
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        story,
+    )
+
+    allocated_ordinals = [
+        fragment_by_id[fragment_id].ordinal
+        for page in allocation.pages
+        if not page.appendix
+        for fragment_id in page.fragment_ids
+    ]
+    assert allocated_ordinals == sorted(allocated_ordinals)
 
 
 def test_story_plan_requires_completed_official_teaching_plan() -> None:

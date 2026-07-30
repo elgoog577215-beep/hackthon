@@ -317,6 +317,24 @@ describe('PptWorkspaceView', () => {
     expect(wrapper.text()).toContain('未发布问题预览')
   })
 
+  it('shows a Chinese recovery hint for a layout-capacity planner failure', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = { representations: [] }
+    store.buildError = 'layout_capacity_failed'
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('课程内容排版失败')
+    expect(wrapper.text()).toContain('系统未发布不完整课件')
+    expect(wrapper.text()).not.toContain('layout_capacity_failed')
+  })
+
   it('keeps failed live slides visible instead of covering them with the published deck', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'

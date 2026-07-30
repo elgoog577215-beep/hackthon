@@ -261,6 +261,8 @@ const estimatedFragmentCount = computed(() => (
 const buildErrorLabel = computed(() => (
   store.buildError === 'deck_split_required'
     ? '课程内容过多，预计超过 300 页。请按章节拆分课程后再生成 PPT。'
+    : store.buildError === 'layout_capacity_failed'
+      ? '课程内容排版失败，系统未发布不完整课件。请重试；若仍失败，请拆分过长的代码、公式或列表。'
     : store.buildError === 'quality_gate_failed'
       ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
       : store.buildError

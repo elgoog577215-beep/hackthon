@@ -12,15 +12,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_teaching_plan_projection import project_course_teaching_plan
-from slide_deck_v3 import ContentFragmentV1, SlideDeckMode, SlideDeckTheme
+from slide_deck_v3 import (
+    ContentFragmentV1,
+    SlideDeckMode,
+    SlideDeckTheme,
+    _paginate_fragments,
+)
 from slide_layout_registry import (
+    LayoutSelectionV2,
     SlideSceneKind,
     registry_summary_v2,
     select_layout_v2,
 )
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
-SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.1"
+SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.2"
+STORY_BEAT_TEXT_CAPACITY = 230
 
 ClaimSourceKind = Literal[
     "learning_objective",
@@ -433,6 +440,52 @@ def _split_prompt_and_answer(
     return result
 
 
+def _select_fragment_layout(
+    *,
+    scene: SlideSceneKind,
+    fragments: list[ContentFragmentV1],
+    theme: SlideDeckTheme,
+    recent_layout_families: list[str],
+) -> LayoutSelectionV2:
+    return select_layout_v2(
+        scene_kind=scene,
+        evidence_kinds=_fragment_evidence(fragments),
+        character_count=sum(len(item.text) for item in fragments),
+        item_count=sum(item.kind == "list_item" for item in fragments),
+        theme=theme,
+        recent_layout_families=recent_layout_families,
+    )
+
+
+def _select_capacity_safe_beat_groups(
+    *,
+    scene: SlideSceneKind,
+    beat_groups: list[tuple[str, list[ContentFragmentV1]]],
+    theme: SlideDeckTheme,
+    recent_layout_families: list[str],
+) -> list[tuple[str, list[ContentFragmentV1], LayoutSelectionV2]]:
+    """Split source-ordered beat groups before assigning a capacity-safe layout."""
+    selected_groups: list[
+        tuple[str, list[ContentFragmentV1], LayoutSelectionV2]
+    ] = []
+    for role, fragments in beat_groups:
+        fragment_groups = (
+            _paginate_fragments(fragments, STORY_BEAT_TEXT_CAPACITY)
+            if fragments
+            else [[]]
+        )
+        for fragment_group in fragment_groups:
+            selection = _select_fragment_layout(
+                scene=scene,
+                fragments=fragment_group,
+                theme=theme,
+                recent_layout_families=recent_layout_families,
+            )
+            selected_groups.append((role, fragment_group, selection))
+            recent_layout_families.append(selection.layout_family)
+    return selected_groups
+
+
 def _make_episode(
     *,
     scene: SlideSceneKind,
@@ -504,20 +557,19 @@ def _make_episode(
             }[scene],
             fragments,
         )]
+    selected_beat_groups = _select_capacity_safe_beat_groups(
+        scene=scene,
+        beat_groups=beat_groups,
+        theme=theme,
+        recent_layout_families=recent_layout_families,
+    )
     beats: list[StoryBeatV2] = []
     transition = ""
-    for index, (role, beat_fragments) in enumerate(beat_groups):
+    for index, (role, beat_fragments, selection) in enumerate(
+        selected_beat_groups
+    ):
         evidence = _fragment_evidence(beat_fragments)
         character_count = sum(len(item.text) for item in beat_fragments)
-        item_count = sum(1 for item in beat_fragments if item.kind == "list_item")
-        selection = select_layout_v2(
-            scene_kind=scene,
-            evidence_kinds=evidence,
-            character_count=min(character_count, 1100),
-            item_count=min(item_count, 10),
-            theme=theme,
-            recent_layout_families=recent_layout_families,
-        )
         beat_id = stable_hash({
             "episode_id": episode_id,
             "role": role,
@@ -545,7 +597,6 @@ def _make_episode(
             mastery_criterion_refs=mastery_refs,
         ))
         transition = beat_id
-        recent_layout_families.append(selection.layout_family)
     return TeachingEpisodeV2(
         episode_id=episode_id,
         scene_kind=scene,
@@ -693,11 +744,14 @@ def compile_slide_story_plan_v2(
             if scene not in scene_blocks:
                 continue
             blocks = scene_blocks[scene]
-            scene_fragments = [
-                fragment
-                for block in blocks
-                for fragment in fragments_by_block.get(block.block_id, [])
-            ]
+            scene_fragments = sorted(
+                (
+                    fragment
+                    for block in blocks
+                    for fragment in fragments_by_block.get(block.block_id, [])
+                ),
+                key=lambda item: item.ordinal,
+            )
             if scene not in {"chapter_entry", "chapter_recap", "prerequisite_activation"} and not (
                 blocks or scene_modules.get(scene)
             ):
