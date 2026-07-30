@@ -194,6 +194,23 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         if (isCurrentRequest()) this.loading = false
       }
     },
+    async upgradeCourseLogic(courseId: string) {
+      this.switchCourse(courseId)
+      const courseToken = this.courseRequestToken
+      const response = await http.post(
+        `/api/courses/${courseId}/teaching-representations/course-logic/upgrade`,
+      )
+      if (
+        this.courseId === courseId
+        && this.courseRequestToken === courseToken
+        && response.data?.registry
+      ) {
+        this.registry = response.data.registry
+        this.selectedId = ''
+        this.selectedSpec = null
+      }
+      return response.data
+    },
     async build(courseId: string) {
       return this.buildProgressive(courseId)
     },
