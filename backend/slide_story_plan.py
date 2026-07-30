@@ -26,7 +26,7 @@ from slide_layout_registry import (
 )
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
-SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.1"
+SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.2"
 STORY_BEAT_TEXT_CAPACITY = 230
 
 ClaimSourceKind = Literal[

@@ -32,8 +32,8 @@ from slide_story_plan import (
 from slide_theme import slide_theme_version
 
 SLIDE_DECK_V4_SCHEMA = "slide_deck_v4"
-SLIDE_DECK_V4_COMPILER_VERSION = "course_logic_slide_compiler_v4.1"
-SLIDE_LAYOUT_REGISTRY_V2_VERSION = "slide_layout_registry_v2.1"
+SLIDE_DECK_V4_COMPILER_VERSION = "course_logic_slide_compiler_v4.2"
+SLIDE_LAYOUT_REGISTRY_V2_VERSION = "slide_layout_registry_v2.2"
 SLIDE_RENDER_REVIEW_VERSION = "slide_render_review_v1"
 
 _SCENE_TO_NARRATIVE_ROLE = {
