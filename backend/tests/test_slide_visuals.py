@@ -22,6 +22,7 @@ from slide_visuals import (
     plan_slide_visuals,
     rebalance_visual_plan_pages,
     validate_visual_plan,
+    visual_integrity_issues,
 )
 from teaching_storyboard import build_teaching_storyboard
 
@@ -159,6 +160,217 @@ def test_deterministic_director_uses_source_bound_visual_variety() -> None:
         page.visual_anchor.parameters.get("relation_evidence")
         for page in relation_pages
     )
+
+
+def test_mermaid_fragment_compiles_to_source_bound_rule_diagram() -> None:
+    course = {
+        "course_id": "rule-diagram-course",
+        "course_name": "System classification",
+        "nodes": [{
+            "node_id": "chapter-system",
+            "parent_node_id": "root",
+            "node_name": "System classification",
+            "node_level": 1,
+            "content_blocks": [{
+                "block_id": "system-flow",
+                "title": "Closed system",
+                "content": (
+                    "```mermaid\n"
+                    "graph TD\n"
+                    "A[Closed system] -->|cannot exchange matter| B[Environment]\n"
+                    "```"
+                ),
+                "metadata": {"role": "concept"},
+            }],
+        }],
+    }
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    anchor = next(
+        page.visual_anchor
+        for page in plan.pages
+        if page.visual_anchor.kind == "rule_diagram"
+    )
+
+    assert anchor.parameters["template"] == "process_flow"
+    assert anchor.parameters["relation_evidence"]
+    assert [node.label for node in anchor.nodes] == [
+        "Closed system",
+        "Environment",
+    ]
+    assert anchor.edges[0].label == "cannot exchange matter"
+    assert all(node.source_fragment_ids for node in anchor.nodes)
+
+
+def test_rule_diagram_exports_as_editable_ppt_shapes(tmp_path: Path) -> None:
+    course = {
+        "course_id": "editable-rule-diagram",
+        "course_name": "System classification",
+        "nodes": [{
+            "node_id": "chapter-system",
+            "parent_node_id": "root",
+            "node_name": "System classification",
+            "node_level": 1,
+            "content_blocks": [{
+                "block_id": "system-flow",
+                "title": "Closed system",
+                "content": (
+                    "A closed system cannot exchange matter with its environment."
+                    "\n\n```mermaid\n"
+                    "flowchart LR\n"
+                    "A[Closed system] -->|cannot exchange matter| B[Environment]\n"
+                    "```"
+                ),
+                "metadata": {"role": "concept"},
+            }],
+        }],
+    }
+    document = document_from_legacy_course(course)
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    output = export_structured_slide_deck(
+        content,
+        tmp_path / "rule-diagram.pptx",
+    )
+    presentation = Presentation(output)
+    slide_text = "\n".join(
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+
+    assert "Closed system" in slide_text
+    assert "Environment" in slide_text
+    assert "cannot exchange matter" in slide_text
+    assert "flowchart LR" not in slide_text
+    assert any(
+        shape.shape_type == MSO_SHAPE_TYPE.LINE
+        for slide in presentation.slides
+        for shape in slide.shapes
+    )
+
+
+def test_unsupported_mermaid_degrades_without_raw_source_or_placeholder() -> None:
+    course = {
+        "course_id": "unsupported-rule-diagram",
+        "course_name": "Interaction sequence",
+        "nodes": [{
+            "node_id": "chapter-sequence",
+            "parent_node_id": "root",
+            "node_name": "Interaction sequence",
+            "node_level": 1,
+            "content_blocks": [{
+                "block_id": "sequence",
+                "title": "Unsupported sequence",
+                "content": (
+                    "The learner should focus on the request and response."
+                    "\n\n```mermaid\n"
+                    "sequenceDiagram\n"
+                    "Client->>Server: Request\n"
+                    "Server-->>Client: Response\n"
+                    "```"
+                ),
+                "metadata": {"role": "remediation"},
+            }],
+        }],
+    }
+    document = document_from_legacy_course(course)
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    visible_text = "\n".join(
+        str(block.get("content") or "")
+        for slide in content["slides"]
+        for block in slide["blocks"]
+    )
+
+    assert "sequenceDiagram" not in visible_text
+    assert "Client->>Server" not in visible_text
+    assert not any(
+        visual["kind"] in {"code", "generated_illustration"}
+        for slide in content["slides"]
+        for visual in slide["visuals"]
+    )
+    assert not any(
+        issue["code"] == "raw_mermaid_visible"
+        for issue in content["quality_report"]["issues"]
+    )
+
+
+def test_visual_integrity_rejects_visible_raw_mermaid() -> None:
+    issues = visual_integrity_issues({
+        "fragment_manifest": [],
+        "visual_asset_manifest": [],
+        "slides": [{
+            "unit_id": "slide-raw-mermaid",
+            "quality": {"fragment_ids": []},
+            "blocks": [{
+                "kind": "code",
+                "content": "graph TD\nA[Closed system] --> B[Environment]",
+            }],
+            "visuals": [],
+        }],
+    })
+
+    assert any(issue["code"] == "raw_mermaid_visible" for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_ai_visual_request_exposes_only_safe_rule_diagram_controls() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    captured: dict = {}
+
+    async def capture_request(request):
+        captured.update(request)
+        return deterministic_visual_plan(
+            document,
+            allocation,
+            fragments,
+        ).model_dump(mode="json")
+
+    await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=capture_request,
+    )
+
+    assert captured["allowed_rule_diagram_templates"] == [
+        "apparatus",
+        "cycle",
+        "energy_balance",
+        "process_flow",
+        "qualitative_plot",
+        "relation_graph",
+        "system_boundary",
+    ]
+    assert captured["rules"]["arbitrary_drawing_code_forbidden"] is True
+    assert captured["rules"]["uncertain_visual_must_be_none"] is True
+    assert captured["rules"]["raster_generation_default"] == "disabled"
 
 
 def test_rebalance_breaks_visual_kind_runs_longer_than_quality_gate_limit() -> None:
@@ -474,6 +686,7 @@ def test_image_provider_failure_degrades_to_deterministic_diagram(
     monkeypatch.setenv("SLIDE_IMAGE_API_BASE", "https://images.invalid/v1")
     monkeypatch.setenv("SLIDE_IMAGE_API_KEY", "test-key")
     monkeypatch.setenv("SLIDE_IMAGE_MODEL", "test-image-model")
+    monkeypatch.setenv("SLIDE_GENERATED_ILLUSTRATIONS_ENABLED", "true")
 
     def fail_generation(*_args, **_kwargs):
         raise TimeoutError("provider timeout")
@@ -509,6 +722,42 @@ def test_image_provider_failure_degrades_to_deterministic_diagram(
     )
 
 
+def test_raster_generation_requires_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SLIDE_IMAGE_API_BASE", "https://images.example/v1")
+    monkeypatch.setenv("SLIDE_IMAGE_API_KEY", "test-key")
+    monkeypatch.setenv("SLIDE_IMAGE_MODEL", "test-image-model")
+    monkeypatch.delenv("SLIDE_GENERATED_ILLUSTRATIONS_ENABLED", raising=False)
+    generation_calls = 0
+
+    def unexpected_generation(*_args, **_kwargs):
+        nonlocal generation_calls
+        generation_calls += 1
+        raise AssertionError("raster generation must be opt-in")
+
+    monkeypatch.setattr(
+        "slide_asset_repository.SlideImageProvider.generate",
+        unexpected_generation,
+    )
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    content = compile_slide_deck_v3(
+        document,
+        course,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    assert generation_calls == 0
+    assert not content["visual_asset_manifest"]
+    assert all(
+        visual["kind"] != "generated_illustration"
+        for slide in content["slides"]
+        for visual in slide["visuals"]
+    )
+
+
 def test_configured_image_provider_exports_a_real_picture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -516,6 +765,7 @@ def test_configured_image_provider_exports_a_real_picture(
     monkeypatch.setenv("SLIDE_IMAGE_API_BASE", "https://images.example/v1")
     monkeypatch.setenv("SLIDE_IMAGE_API_KEY", "test-key")
     monkeypatch.setenv("SLIDE_IMAGE_MODEL", "test-image-model")
+    monkeypatch.setenv("SLIDE_GENERATED_ILLUSTRATIONS_ENABLED", "true")
 
     def generate_image(_provider, *, output_path, **_kwargs):
         Image.new("RGB", (960, 640), "#B9DCF4").save(output_path)

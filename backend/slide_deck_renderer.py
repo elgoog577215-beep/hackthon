@@ -360,7 +360,7 @@ def _render_visual_directed(
             asset_repository,
         ):
             return
-    if kind == "relational_diagram":
+    if kind in {"relational_diagram", "rule_diagram"}:
         _render_relational_visual(slide, unit, visual, theme)
         return
     if kind == "coordinate_plot":
@@ -465,6 +465,7 @@ def _render_relational_visual(
                 )
 
     # Connectors are deliberately created first so they remain behind nodes.
+    edge_labels: list[tuple[str, float, float]] = []
     for edge in edges:
         source = positions.get(str(edge.get("source") or ""))
         target = positions.get(str(edge.get("target") or ""))
@@ -483,6 +484,23 @@ def _render_relational_visual(
         )
         connector.line.color.rgb = RGBColor.from_string(theme["muted"])
         connector.line.width = Inches(0.018)
+        edge_label = str(edge.get("label") or "").strip()
+        if edge_label:
+            edge_labels.append((edge_label, (x1 + x2) / 2, (y1 + y2) / 2))
+
+    for edge_label, x, y in edge_labels:
+        _text(
+            slide,
+            _diagram_label(edge_label),
+            x - 0.68,
+            y - 0.22,
+            1.36,
+            0.4,
+            9,
+            theme["muted"],
+            bold=True,
+            align="center",
+        )
 
     for index, node in enumerate(nodes):
         node_id = str(node.get("node_id") or "")

@@ -48,7 +48,7 @@ from slide_visuals import (
 )
 
 SLIDE_DECK_V3_SCHEMA = "slide_deck_v3"
-SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v4_teaching_storyboard"
+SLIDE_DECK_V3_COMPILER_VERSION = "source_first_slide_compiler_v5_rule_diagrams"
 MAX_GENERATED_SLIDE_COUNT = 300
 
 SlideDeckMode = Literal["full", "teaching", "concise"]
@@ -154,6 +154,7 @@ class ContentFragmentV1(_StrictModel):
         "diagram",
     ]
     text: str
+    language: str = ""
     ordinal: int = Field(ge=0)
     source_hash: str
     role: str
@@ -554,23 +555,27 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
                 or payload.get("title")
                 or block.asset_refs[0]
             ).strip()
-            units = [(block.kind, label)]
-        for unit_index, (kind, text) in enumerate(units):
+            units = [(block.kind, label, "")]
+        for unit_index, (kind, text, language) in enumerate(units):
             clean = text.strip()
             if not clean:
                 continue
-            fragment_id = stable_hash({
+            fragment_identity = {
                 "block_id": block.block_id,
                 "unit_index": unit_index,
                 "kind": kind,
                 "text": clean,
-            }, prefix="sfg_")
+            }
+            if language:
+                fragment_identity["language"] = language
+            fragment_id = stable_hash(fragment_identity, prefix="sfg_")
             fragments.append(ContentFragmentV1(
                 fragment_id=fragment_id,
                 section_id=block.section_id,
                 block_id=block.block_id,
                 kind=kind,
                 text=clean,
+                language=language,
                 ordinal=ordinal,
                 source_hash=stable_hash(clean, prefix="sfh_"),
                 role=block.role,
@@ -619,7 +624,7 @@ def _pedagogical_section_order(
     }
 
 
-def _fragment_block(block: CourseBlock) -> list[tuple[str, str]]:
+def _fragment_block(block: CourseBlock) -> list[tuple[str, str, str]]:
     payload = block.payload or {}
     raw = str(
         payload.get("markdown")
@@ -632,7 +637,11 @@ def _fragment_block(block: CourseBlock) -> list[tuple[str, str]]:
         structured = payload.get("items") or payload.get("steps") or []
         if isinstance(structured, list):
             return [
-                ("list_item", str(item.get("text") if isinstance(item, dict) else item))
+                (
+                    "list_item",
+                    str(item.get("text") if isinstance(item, dict) else item),
+                    "",
+                )
                 for item in structured
                 if str(item.get("text") if isinstance(item, dict) else item).strip()
             ]
@@ -644,13 +653,25 @@ def _fragment_block(block: CourseBlock) -> list[tuple[str, str]]:
     if not raw:
         return []
 
-    result: list[tuple[str, str]] = []
+    result: list[tuple[str, str, str]] = []
     cursor = 0
-    for match in re.finditer(r"```[\w+.-]*\s*\n(.*?)```", raw, flags=re.S):
-        result.extend(_fragment_prose(raw[cursor:match.start()], block))
-        result.append(("code", match.group(1).rstrip()))
+    fence_pattern = re.compile(
+        r"```(?P<language>[\w+.-]*)[^\S\r\n]*\r?\n(?P<body>.*?)```",
+        flags=re.S,
+    )
+    for match in fence_pattern.finditer(raw):
+        result.extend(
+            (kind, text, "")
+            for kind, text in _fragment_prose(raw[cursor:match.start()], block)
+        )
+        language = str(match.group("language") or "").strip().lower()
+        kind = "diagram" if language == "mermaid" else "code"
+        result.append((kind, match.group("body").rstrip(), language))
         cursor = match.end()
-    result.extend(_fragment_prose(raw[cursor:], block))
+    result.extend(
+        (kind, text, "")
+        for kind, text in _fragment_prose(raw[cursor:], block)
+    )
     return result
 
 
@@ -693,7 +714,9 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
         heading_match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", stripped)
         if heading_match:
             flush_paragraph()
-            result.append(("heading", heading_match.group(1).strip()))
+            heading = heading_match.group(1).strip()
+            if not _is_authoring_visual_marker(heading):
+                result.append(("heading", heading))
             continue
         if re.fullmatch(r"(?:-{3,}|_{3,}|\*{3,})", stripped):
             flush_paragraph()
@@ -710,6 +733,22 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
         paragraph_lines.append(stripped)
     flush_paragraph()
     return result
+
+
+def _is_authoring_visual_marker(value: str) -> bool:
+    without_nested_heading = re.sub(
+        r"^#{1,6}\s*",
+        "",
+        str(value or "").strip(),
+    )
+    normalized = re.sub(r"[\s:：\-—_]+", "", without_nested_heading).lower()
+    normalized = normalized.lstrip("🎨🖼️🖼📊📈")
+    return normalized in {
+        "可视化图解",
+        "可视化",
+        "visualization",
+        "visualexplanation",
+    }
 
 
 def _looks_like_formula(value: str) -> bool:
@@ -1352,7 +1391,7 @@ def _paginate_fragments(
     current: list[ContentFragmentV1] = []
     current_size = 0
     for fragment in fragments:
-        size = len(fragment.text)
+        size = 0 if fragment.kind == "diagram" else len(fragment.text)
         candidate = [*current, fragment]
         page_limit = (
             8 if appendix and not _has_atomic_fragment(candidate)
@@ -1363,7 +1402,7 @@ def _paginate_fragments(
             if appendix
             else _materialized_text_capacity(candidate, capacity)
         )
-        if current and (
+        must_flush = current and (
             current_size + size > text_capacity
             or len(current) >= page_limit
             or (
@@ -1372,10 +1411,22 @@ def _paginate_fragments(
             )
             or (not appendix and not _fits_materialized_layout(candidate))
             or (fragment.kind == "code" and current)
-        ):
-            pages.append(current)
-            current = []
-            current_size = 0
+        )
+        if must_flush:
+            if (
+                not appendix
+                and fragment.kind == "formula"
+                and _can_keep_formula_with_support(current[-1], fragment, capacity)
+            ):
+                prefix = current[:-1]
+                if prefix:
+                    pages.append(prefix)
+                current = [current[-1]]
+                current_size = len(current[-1].text)
+            else:
+                pages.append(current)
+                current = []
+                current_size = 0
         current.append(fragment)
         current_size += size
         if fragment.kind == "code" or current_size >= capacity:
@@ -1387,8 +1438,24 @@ def _paginate_fragments(
     return pages
 
 
+def _can_keep_formula_with_support(
+    support: ContentFragmentV1,
+    formula: ContentFragmentV1,
+    capacity: int,
+) -> bool:
+    if support.kind not in {"heading", "paragraph", "list_item"}:
+        return False
+    candidate = [support, formula]
+    return (
+        len(support.text) + len(formula.text)
+        <= _materialized_text_capacity(candidate, capacity)
+        and _estimated_materialized_block_count(candidate) <= 2
+        and _fits_materialized_layout(candidate)
+    )
+
+
 def _has_atomic_fragment(fragments: list[ContentFragmentV1]) -> bool:
-    return bool({item.kind for item in fragments} & {"code", "formula", "table"})
+    return bool({item.kind for item in fragments} & {"code", "table"})
 
 
 def _materialized_text_capacity(
@@ -1400,14 +1467,14 @@ def _materialized_text_capacity(
         return min(theme_capacity, 280)
     if kinds == {"list_item"}:
         return min(theme_capacity, 360)
-    if kinds & {"code", "formula", "table"}:
+    if kinds & {"code", "formula", "table", "diagram"}:
         return theme_capacity
     return min(theme_capacity, 280)
 
 
 def _fragment_page_limit(fragments: list[ContentFragmentV1]) -> int:
     kinds = {item.kind for item in fragments}
-    if kinds & {"code", "formula", "table"}:
+    if kinds & {"code", "table"}:
         return 1
     if kinds == {"list_item"}:
         return 5
@@ -2066,6 +2133,12 @@ def _slide_blocks_from_fragments(
     fragments: list[ContentFragmentV1],
 ) -> list[SlideBlockSpec]:
     if page.layout == "appendix":
+        visible_fragments = [
+            fragment for fragment in fragments
+            if fragment.kind != "diagram"
+        ]
+        if not visible_fragments:
+            return []
         return [SlideBlockSpec(
             block_id=f"{page.page_id}:appendix-body",
             type="statement",
@@ -2075,15 +2148,15 @@ def _slide_blocks_from_fragments(
                     if fragment.kind == "list_item"
                     else _display_text(fragment.text)
                 )
-                for fragment in fragments
+                for fragment in visible_fragments
             ),
             metadata={
                 "fragment_ids": [
-                    fragment.fragment_id for fragment in fragments
+                    fragment.fragment_id for fragment in visible_fragments
                 ],
                 "source_hashes": {
                     fragment.fragment_id: fragment.source_hash
-                    for fragment in fragments
+                    for fragment in visible_fragments
                 },
                 "fragment_kind": "appendix_body",
             },
@@ -2139,6 +2212,8 @@ def _slide_blocks_from_fragments(
             pending_prose.append(fragment)
             continue
         flush_prose()
+        if fragment.kind == "diagram":
+            continue
         block_type = "code" if fragment.kind == "code" else "statement"
         result.append(SlideBlockSpec(
             block_id=f"{page.page_id}:fragment:{fragment.fragment_id}",

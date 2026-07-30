@@ -241,13 +241,21 @@ def resolve_visual_plan_assets(
     }
     resolved = visual_plan.model_copy(deep=True)
     provider = SlideImageProvider()
+    illustrations_enabled = os.getenv(
+        "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
+        "",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if not illustrations_enabled:
+        for page in resolved.pages:
+            if page.visual_anchor.kind == "generated_illustration":
+                page.visual_anchor = _fallback_anchor(page.visual_anchor, catalog)
     chapter_count = len({
         page.chapter_id
         for page in resolved.pages
         if page.chapter_id and not page.appendix
     })
     illustration_limit = min(max(1, chapter_count), 6)
-    if provider.configured:
+    if illustrations_enabled and provider.configured:
         candidates = [
             page
             for page in resolved.pages
