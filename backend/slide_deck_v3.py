@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import math
 import re
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -711,6 +712,9 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
         if not stripped:
             flush_paragraph()
             continue
+        if _is_authoring_metadata_line(stripped):
+            flush_paragraph()
+            continue
         heading_match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", stripped)
         if heading_match:
             flush_paragraph()
@@ -733,6 +737,28 @@ def _fragment_prose(raw: str, block: CourseBlock) -> list[tuple[str, str]]:
         paragraph_lines.append(stripped)
     flush_paragraph()
     return result
+
+
+def _is_authoring_metadata_line(value: str) -> bool:
+    """Recognize diagram control fields without hiding ordinary learner prose."""
+    stripped = str(value or "").strip()
+    quoted_control = re.fullmatch(
+        r">\s*(?:\*{0,2}|_{0,2})\s*"
+        r"(?:id|diagram[\s_-]*id|visual[\s_-]*id|图示\s*id|图表\s*id)"
+        r"\s*[:：]\s*[\"'“‘]?[A-Za-z0-9_.:-]+[\"'”’]?\s*"
+        r"(?:\*{0,2}|_{0,2})",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    explicit_visual_control = re.fullmatch(
+        r"(?:\*{0,2}|_{0,2})\s*"
+        r"(?:diagram[\s_-]*id|visual[\s_-]*id|图示\s*id|图表\s*id)"
+        r"\s*[:：]\s*[\"'“‘]?[A-Za-z0-9_.:-]+[\"'”’]?\s*"
+        r"(?:\*{0,2}|_{0,2})",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    return bool(quoted_control or explicit_visual_control)
 
 
 def _is_authoring_visual_marker(value: str) -> bool:
@@ -1390,9 +1416,13 @@ def _paginate_fragments(
     pages: list[list[ContentFragmentV1]] = []
     current: list[ContentFragmentV1] = []
     current_size = 0
-    for fragment in fragments:
-        size = 0 if fragment.kind == "diagram" else len(fragment.text)
-        candidate = [*current, fragment]
+    for semantic_unit in _semantic_fragment_units(fragments):
+        first = semantic_unit[0]
+        size = sum(
+            0 if fragment.kind == "diagram" else len(fragment.text)
+            for fragment in semantic_unit
+        )
+        candidate = [*current, *semantic_unit]
         page_limit = (
             8 if appendix and not _has_atomic_fragment(candidate)
             else _fragment_page_limit(candidate)
@@ -1403,20 +1433,22 @@ def _paginate_fragments(
             else _materialized_text_capacity(candidate, capacity)
         )
         must_flush = current and (
-            current_size + size > text_capacity
-            or len(current) >= page_limit
+            (first.kind == "heading" and any(item.kind != "heading" for item in current))
+            or current_size + size > text_capacity
+            or len(candidate) > page_limit
             or (
                 not appendix
                 and _estimated_materialized_block_count(candidate) > 2
             )
             or (not appendix and not _fits_materialized_layout(candidate))
-            or (fragment.kind == "code" and current)
+            or (first.kind == "code" and current)
         )
         if must_flush:
             if (
                 not appendix
-                and fragment.kind == "formula"
-                and _can_keep_formula_with_support(current[-1], fragment, capacity)
+                and len(semantic_unit) == 1
+                and first.kind == "formula"
+                and _can_keep_formula_with_support(current[-1], first, capacity)
             ):
                 prefix = current[:-1]
                 if prefix:
@@ -1427,15 +1459,88 @@ def _paginate_fragments(
                 pages.append(current)
                 current = []
                 current_size = 0
-        current.append(fragment)
+        current.extend(semantic_unit)
         current_size += size
-        if fragment.kind == "code" or current_size >= capacity:
+        if any(fragment.kind == "code" for fragment in semantic_unit) or current_size >= capacity:
             pages.append(current)
             current = []
             current_size = 0
     if current:
         pages.append(current)
     return pages
+
+
+def _semantic_fragment_units(
+    fragments: list[ContentFragmentV1],
+) -> list[list[ContentFragmentV1]]:
+    """Bind source fragments that lose meaning when split across slide pages."""
+    units: list[list[ContentFragmentV1]] = []
+    index = 0
+    while index < len(fragments):
+        start = index
+        while index < len(fragments) and fragments[index].kind == "heading":
+            index += 1
+        headings = fragments[start:index]
+        if headings:
+            if index >= len(fragments):
+                units.append(headings)
+                break
+            enumeration_end = _enumeration_end(fragments, index)
+            if enumeration_end is not None:
+                units.append([*headings, *fragments[index:enumeration_end]])
+                index = enumeration_end
+            else:
+                units.append([*headings, fragments[index]])
+                index += 1
+            continue
+
+        enumeration_end = _enumeration_end(fragments, index)
+        if enumeration_end is not None:
+            units.append(fragments[index:enumeration_end])
+            index = enumeration_end
+            continue
+        units.append([fragments[index]])
+        index += 1
+    return units
+
+
+def _enumeration_end(
+    fragments: list[ContentFragmentV1],
+    start: int,
+) -> int | None:
+    if (
+        start >= len(fragments)
+        or fragments[start].kind != "paragraph"
+        or start + 1 >= len(fragments)
+        or fragments[start + 1].kind != "list_item"
+    ):
+        return None
+    index = start + 1
+    while index < len(fragments) and fragments[index].kind == "list_item":
+        index += 1
+    item_count = index - (start + 1)
+    if item_count < 2 or item_count > 5:
+        return None
+    if (
+        index < len(fragments)
+        and fragments[index].kind == "paragraph"
+        and _is_enumeration_summary(fragments[index].text)
+    ):
+        index += 1
+    candidate = fragments[start:index]
+    if sum(len(item.text) for item in candidate) > 340:
+        return None
+    return index
+
+
+def _is_enumeration_summary(value: str) -> bool:
+    clean = _display_text(value).strip()
+    return bool(re.match(
+        r"^(?:这些|上述|以上|由此|因此|所以|总之|综上|可见|"
+        r"these|those|the above|therefore|thus|in summary)",
+        clean,
+        flags=re.IGNORECASE,
+    ))
 
 
 def _can_keep_formula_with_support(
@@ -1491,6 +1596,8 @@ def _estimated_materialized_block_count(
 def _visual_fragment_groups(
     fragments: list[ContentFragmentV1],
 ) -> list[tuple[str, list[ContentFragmentV1]]]:
+    if _is_compact_enumeration(fragments):
+        return [("enumeration", list(fragments))]
     groups: list[tuple[str, list[ContentFragmentV1]]] = []
     for fragment in fragments:
         if fragment.kind in {"heading", "paragraph"}:
@@ -1508,6 +1615,16 @@ def _visual_fragment_groups(
     return groups
 
 
+def _is_compact_enumeration(fragments: list[ContentFragmentV1]) -> bool:
+    if not fragments:
+        return False
+    first_body = 0
+    while first_body < len(fragments) and fragments[first_body].kind == "heading":
+        first_body += 1
+    end = _enumeration_end(fragments, first_body)
+    return end == len(fragments)
+
+
 def _fits_materialized_layout(fragments: list[ContentFragmentV1]) -> bool:
     groups = _visual_fragment_groups(fragments)
     visible_count = max(1, len(groups))
@@ -1521,10 +1638,37 @@ def _fits_materialized_layout(fragments: list[ContentFragmentV1]) -> bool:
                 len(value) > item_limit for value in values
             ):
                 return False
+        elif group == "enumeration":
+            body = [item for item in items if item.kind != "heading"]
+            list_items = [item for item in body if item.kind == "list_item"]
+            if (
+                len(list_items) > 5
+                or any(len(_display_text(item.text)) > 72 for item in list_items)
+                or _estimated_wrapped_lines(body, characters_per_line=42) > 12
+            ):
+                return False
         elif group in {"prose", "long-list", "formula", "table"}:
             if len("\n\n".join(values)) > content_limit:
                 return False
     return True
+
+
+def _estimated_wrapped_lines(
+    fragments: list[ContentFragmentV1],
+    *,
+    characters_per_line: int,
+) -> int:
+    lines = 0
+    for fragment in fragments:
+        text = _display_text(fragment.text)
+        weighted_length = sum(
+            1.0 if "\u2e80" <= character <= "\u9fff" else 0.56
+            for character in text
+        )
+        lines += max(1, math.ceil(weighted_length / characters_per_line))
+        if fragment.kind in {"paragraph", "list_item"}:
+            lines += 1
+    return lines
 
 
 def _layout_for_fragments(
@@ -2159,6 +2303,29 @@ def _slide_blocks_from_fragments(
                     for fragment in visible_fragments
                 },
                 "fragment_kind": "appendix_body",
+            },
+        )]
+    if _is_compact_enumeration(fragments):
+        content_lines: list[str] = []
+        for fragment in fragments:
+            value = _display_text(fragment.text)
+            if fragment.kind == "list_item":
+                content_lines.append(f"• {value}")
+            elif value:
+                if content_lines:
+                    content_lines.append("")
+                content_lines.append(value)
+        return [SlideBlockSpec(
+            block_id=f"{page.page_id}:enumeration",
+            type="statement",
+            content="\n".join(content_lines),
+            metadata={
+                "fragment_ids": [item.fragment_id for item in fragments],
+                "source_hashes": {
+                    item.fragment_id: item.source_hash
+                    for item in fragments
+                },
+                "fragment_kind": "semantic_enumeration",
             },
         )]
     result: list[SlideBlockSpec] = []
