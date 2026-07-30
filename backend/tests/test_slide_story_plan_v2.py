@@ -389,6 +389,30 @@ def test_dense_mixed_concept_scene_is_split_before_layout_selection() -> None:
             fragment.kind == "list_item"
             for fragment in beat_fragments
         ) <= layout["item_budget"]
+        if sum(len(fragment.text) for fragment in beat_fragments) > 230:
+            assert len(beat_fragments) == 1
+            assert beat_fragments[0].kind in {"code", "formula", "table"}
+
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        plan,
+    )
+    content = compile_slide_deck_v4(
+        document,
+        course,
+        story_plan=plan,
+        allocation_plan=allocation,
+    )
+    blocker_codes = {
+        item["code"]
+        for item in content["quality_report"]["blockers"]
+    }
+    assert not blocker_codes & {
+        "slide_block_overflow",
+        "slide_item_overflow",
+        "slide_text_overflow",
+    }
 
 
 def test_v4_allocation_preserves_source_order_across_semantic_scenes() -> None:
@@ -420,6 +444,18 @@ def test_v4_allocation_preserves_source_order_across_semantic_scenes() -> None:
         mode="teaching",
         theme="qizhi-classroom",
     )
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+    for chapter in story.chapters:
+        for episode in chapter.episodes:
+            for beat in episode.beats:
+                beat_ordinals = [
+                    fragment_by_id[fragment_id].ordinal
+                    for fragment_id in beat.fragment_ids
+                ]
+                assert beat_ordinals == sorted(beat_ordinals)
 
     allocation, _ = allocation_from_story_plan_v2(
         document,
@@ -427,10 +463,6 @@ def test_v4_allocation_preserves_source_order_across_semantic_scenes() -> None:
         story,
     )
 
-    fragment_by_id = {
-        fragment.fragment_id: fragment
-        for fragment in fragments
-    }
     allocated_ordinals = [
         fragment_by_id[fragment_id].ordinal
         for page in allocation.pages
