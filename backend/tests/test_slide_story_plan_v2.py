@@ -810,12 +810,13 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
         requests.append(request)
         beat = request["beat_catalog"][0]
         return {
-            "schema_version": "slide_story_chapter_directives_v2",
-            "chapter_id": request["scope"]["chapter_id"],
-            "beat_directives": [{
-                "beat_id": beat["beat_id"],
-                "layout_id": beat["current_layout_id"],
-            }],
+            "slide_story_chapter_directives_v2": {
+                "chapter_id": request["scope"]["chapter_id"],
+                "beat_directives": [{
+                    "beat_id": beat["beat_id"],
+                    "layout_id": beat["current_layout_id"],
+                }],
+            },
         }
 
     planned = asyncio.run(plan_slide_story_v2(
