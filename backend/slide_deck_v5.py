@@ -85,6 +85,12 @@ _RAW_TITLE_PATTERN = re.compile(
     r"-->|```|^\s*\\(?:begin|frac|Delta|sum|int)\b)",
     re.IGNORECASE,
 )
+_TEMPLATE_LEAD_PATTERN = re.compile(
+    r"^\s*[^\w\u4e00-\u9fff]*\s*"
+    r"(?:核心概念与背景|核心概念|背景与意义|关键名词解释|"
+    r"实战案例(?:/行业应用)?|思考与挑战|练习与思考|"
+    r"深度原理/底层机制|行业应用)\s*[:：]?\s*"
+)
 _V5_DEFAULT_DENSITY_BUDGET = {"characters": 360, "items": 6, "title": 28}
 _V5_DENSITY_BUDGETS = {
     "cover-minimal": {"characters": 90, "items": 0, "title": 44},
@@ -868,13 +874,17 @@ def _is_numbered_section_title(value: str) -> bool:
     return bool(_NUMBERED_SECTION_TITLE_PATTERN.match(_clean_text(value)))
 
 
+def _strip_template_lead(value: str) -> str:
+    return _TEMPLATE_LEAD_PATTERN.sub("", str(value or ""), count=1)
+
+
 def _body_title_candidates(value: str) -> list[str]:
     candidates: list[str] = []
     for segment in re.split(
         r"[\r\n]+|(?<=[。！？!?])\s*",
         str(value or ""),
     ):
-        candidate = _title_candidate(segment)
+        candidate = _title_candidate(_strip_template_lead(segment))
         if (
             candidate
             and not _is_numbered_section_title(candidate)
