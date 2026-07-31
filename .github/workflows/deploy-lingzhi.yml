@@ -5,6 +5,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Production operation to run
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - recover
 
 permissions:
   contents: read
@@ -15,6 +24,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'deploy'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -93,3 +103,76 @@ jobs:
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             "LINGZHI_TARGET_COMMIT='$GITHUB_SHA' LINGZHI_ARTIFACT_PATH='$remote_artifact' LINGZHI_ARTIFACT_SHA256='$artifact_sha256' bash -s" \
             < scripts/github-action-deploy.sh
+
+  recover:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'recover'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Configure recovery SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_recover
+          chmod 600 ~/.ssh/lingzhi_recover
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Diagnose and recover current release
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/lingzhi_recover \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "bash -s" <<'REMOTE'
+          set -u
+          echo "=== host resources ==="
+          uptime
+          free -h
+          df -h /
+          ps -eo pid,ppid,comm,rss,%mem --sort=-rss | head -n 15
+          echo "=== active release ==="
+          readlink -f /opt/lingzhi/hackthon || true
+          echo "=== service before recovery ==="
+          systemctl show lingzhi \
+            --property=ActiveState \
+            --property=SubState \
+            --property=Result \
+            --property=ExecMainCode \
+            --property=ExecMainStatus \
+            --no-pager || true
+          journalctl -u lingzhi -n 100 --no-pager || true
+          systemctl reset-failed lingzhi || true
+          systemctl restart lingzhi
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --show-error --max-time 2 \
+              http://127.0.0.1:7862/api/health; then
+              echo
+              echo "RECOVERY_OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "=== service after failed recovery ==="
+          systemctl show lingzhi \
+            --property=ActiveState \
+            --property=SubState \
+            --property=Result \
+            --property=ExecMainCode \
+            --property=ExecMainStatus \
+            --no-pager || true
+          journalctl -u lingzhi -n 160 --no-pager || true
+          exit 1
+          REMOTE
