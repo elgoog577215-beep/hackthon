@@ -744,6 +744,21 @@ def test_title_compiler_prefers_the_lead_definition_over_later_detail() -> None:
     assert title == "内能是系统内所有微观粒子能量的总和"
 
 
+def test_title_compiler_strips_template_label_before_selecting_body_claim() -> None:
+    title = compile_page_title_v5(
+        explicit_title="内能的本质",
+        primary_claim="内能的本质",
+        body_text=(
+            "💡 核心概念与背景 "
+            "内能是系统内所有微观粒子能量的总和。"
+            "它由分子平动、转动和振动能共同构成。"
+        ),
+        prefer_body_claim=True,
+    )
+
+    assert title == "内能是系统内所有微观粒子能量的总和"
+
+
 def test_title_compiler_keeps_an_existing_takeaway_title() -> None:
     title = compile_page_title_v5(
         explicit_title="系统边界决定可发生的交换",
