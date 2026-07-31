@@ -16,6 +16,7 @@ from slide_deck_v3 import (
     ContentFragmentV1,
     SlideDeckMode,
     SlideDeckTheme,
+    V3_LAYOUTS,
     _paginate_fragments,
 )
 from slide_layout_registry import (
@@ -29,7 +30,7 @@ SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
 SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (
     "slide_story_chapter_directives_v2"
 )
-SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.2"
+SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.3"
 STORY_BEAT_TEXT_CAPACITY = 230
 
 ClaimSourceKind = Literal[
@@ -936,6 +937,10 @@ def validate_ai_story_plan_v2(
     for chapter in candidate.chapters:
         for episode in chapter.episodes:
             for beat in episode.beats:
+                if beat.renderer_layout not in V3_LAYOUTS:
+                    raise ValueError(
+                        "AI story plan selected an unsupported renderer layout"
+                    )
                 unknown = set(beat.fragment_ids) - set(catalog)
                 if unknown:
                     raise ValueError("AI story plan referenced unknown fragment IDs")
@@ -968,6 +973,8 @@ def _compatible_layout_options_v2(
     options: list[dict[str, str]] = []
     for layout in registry_summary_v2():
         if scene_kind not in layout["scene_kinds"]:
+            continue
+        if str(layout["renderer_layout"]) not in V3_LAYOUTS:
             continue
         if (
             character_count > int(layout["density_budget"])
