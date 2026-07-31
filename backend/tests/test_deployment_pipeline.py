@@ -15,6 +15,20 @@ def test_server_activation_script_never_builds_application() -> None:
     assert 'HEALTH_INTERVAL_SECONDS="${LINGZHI_HEALTH_INTERVAL_SECONDS:-2}"' in script
 
 
+def test_server_activation_bounds_backup_and_failed_artifact_retention() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    activation = script.index("\nvalidate_settings\n")
+    cleanup_incoming = script.index("\ncleanup_incoming\n", activation)
+    ensure_free_space = script.index("\nensure_free_space\n", activation)
+    rollback = script.index("rollback()")
+
+    assert 'KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-5}"' in script
+    assert cleanup_incoming < ensure_free_space
+    assert "'lingzhi-release-*.tgz'" in script
+    assert 'rm -f -- "$ARTIFACT_PATH" || true' in script[rollback:]
+
+
 def test_server_activation_uses_checkpoint_recovery_for_active_tasks() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
