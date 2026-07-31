@@ -28,6 +28,7 @@ from slide_story_plan import (
     ChapterStoryV2,
     SlideStoryPlanV2,
     StoryBeatV2,
+    V5_SEMANTIC_CORE_REASONS,
 )
 from slide_theme import slide_theme_version
 
@@ -119,14 +120,17 @@ def _beat_pages(
     # in the story manifest, but do not fabricate a body page for it.
     if not fragments:
         return []
+    semantic_core = (
+        beat.layout_selection_reason in V5_SEMANTIC_CORE_REASONS
+    )
     text_capacity = (
         360
-        if beat.layout_selection_reason == "v5_semantic_grouping"
+        if semantic_core
         else STORY_BEAT_TEXT_CAPACITY
     )
     chunks = (
         [fragments]
-        if beat.layout_selection_reason == "v5_semantic_grouping"
+        if semantic_core
         else _paginate_fragments(fragments, text_capacity)
     )
     pages: list[PlannedPageV2] = []
@@ -253,7 +257,7 @@ def allocation_from_story_plan_v2(
     leftovers = [item for item in fragments if item.fragment_id not in allocated]
     exclusions: list[FragmentExclusionV1] = []
     v5_semantic_core = any(
-        beat.layout_selection_reason == "v5_semantic_grouping"
+        beat.layout_selection_reason in V5_SEMANTIC_CORE_REASONS
         for chapter in story_plan.chapters
         for episode in chapter.episodes
         for beat in episode.beats
