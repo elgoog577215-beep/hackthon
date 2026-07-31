@@ -719,6 +719,28 @@ def test_title_compiler_replaces_numbered_section_heading_with_visible_claim() -
     assert title == "热力学系统的三种类型"
 
 
+def test_title_compiler_prefers_supported_claim_over_source_topic_heading() -> None:
+    title = compile_page_title_v5(
+        explicit_title="内能的本质",
+        primary_claim="内能的本质",
+        body_text="内能是系统内所有微观粒子能量的总和。",
+        prefer_body_claim=True,
+    )
+
+    assert title == "内能是系统内所有微观粒子能量的总和"
+
+
+def test_title_compiler_keeps_an_existing_takeaway_title() -> None:
+    title = compile_page_title_v5(
+        explicit_title="系统边界决定可发生的交换",
+        primary_claim="系统边界决定可发生的交换",
+        body_text="系统和环境之间存在边界。",
+        prefer_body_claim=True,
+    )
+
+    assert title == "系统边界决定可发生的交换"
+
+
 @pytest.mark.parametrize(
     ("template_title", "body"),
     [
