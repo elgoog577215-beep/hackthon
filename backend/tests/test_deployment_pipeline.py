@@ -23,7 +23,7 @@ def test_server_activation_bounds_backup_and_failed_artifact_retention() -> None
     ensure_free_space = script.index("\nensure_free_space\n", activation)
     rollback = script.index("rollback()")
 
-    assert 'KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-5}"' in script
+    assert 'KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-2}"' in script
     assert cleanup_incoming < ensure_free_space
     assert "'lingzhi-release-*.tgz'" in script
     assert 'rm -f -- "$ARTIFACT_PATH" || true' in script[rollback:]
