@@ -62,6 +62,7 @@ from slide_story_plan import (
 )
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from slide_asset_repository import slide_asset_repository
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_theme import slide_theme_version
 from slide_visuals import build_signature
 from storage import DATA_DIR
@@ -89,12 +90,11 @@ def get_teaching_representation_repository() -> TeachingRepresentationRepository
 
 
 def get_slide_deck_ai_planner() -> Callable[[dict[str, Any]], Any] | None:
-    """Return the opt-in OpenAI-compatible planner used by production builds."""
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None
+    """Return the OpenAI-compatible planner when a provider is configured."""
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:

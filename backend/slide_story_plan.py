@@ -931,7 +931,7 @@ async def plan_slide_story_v2(
         [dict[str, Any]],
         Awaitable[dict[str, Any]] | dict[str, Any],
     ] | None = None,
-    timeout_seconds: float = 14.0,
+    timeout_seconds: float = 45.0,
 ) -> SlideStoryPlanV2:
     """Use a constrained website planner, falling back to deterministic scenes."""
     fallback = compile_slide_story_plan_v2(
@@ -950,6 +950,7 @@ async def plan_slide_story_v2(
             "body_text_forbidden": True,
             "fragment_ids_only": True,
             "claims_must_be_exact_official_source_text": True,
+            "structured_headlines_required": True,
             "unknown_ids_forbidden": True,
             "preserve_chapter_order": True,
             "preserve_proof_example_step_order": True,
@@ -970,6 +971,7 @@ async def plan_slide_story_v2(
                 "kind": item.kind,
                 "role": item.role,
                 "ordinal": item.ordinal,
+                "source_text": item.text[:400],
             }
             for item in fragments
         ],

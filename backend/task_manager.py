@@ -155,6 +155,7 @@ from slide_story_plan import (
     plan_slide_story_v2,
     resolve_slide_deck_schema,
 )
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_theme import slide_theme_version
 from slide_visuals import (
     SlideVisualPlanV1,
@@ -185,12 +186,11 @@ def _source_first_slide_ai_workers() -> tuple[
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
 ]:
-    """Create opt-in ID-only planner and reviewer functions."""
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None, None
+    """Create source-bound planner and reviewer functions when AI is available."""
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None, None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
@@ -231,12 +231,11 @@ def _source_first_slide_ai_workers() -> tuple[
 def _source_first_story_ai_worker() -> (
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
 ):
-    """Return the opt-in, source-ID-only v4 story planner."""
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None
+    """Return the source-bound story planner when AI is available."""
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
@@ -262,11 +261,10 @@ def _source_first_story_ai_worker() -> (
 def _source_first_slide_visual_ai_worker() -> (
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
 ):
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:

@@ -512,6 +512,8 @@ const qualityPassed = computed(() => props.quality?.passed === true)
 const deckCountLabel = computed(() => {
   const main = Number(props.quality?.main_slide_count || 0)
   const appendix = Number(props.quality?.appendix_slide_count || 0)
+  const total = Number(props.quality?.total_slide_count || 0)
+  if (total && main + appendix !== total) return `${total} 页`
   if (main || appendix) {
     const parts = [
       main ? `${main} 页主线` : '',
