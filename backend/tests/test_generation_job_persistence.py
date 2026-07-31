@@ -58,7 +58,8 @@ def test_task_manager_history_survives_restart(tmp_path, monkeypatch):
     assert restarted.tasks["job-1"]["course_id"] == "course-1"
 
 
-def test_failed_slide_task_summary_exposes_quality_blockers(
+@pytest.mark.asyncio
+async def test_failed_slide_task_summary_exposes_quality_blockers(
     tmp_path,
     monkeypatch,
 ):
@@ -70,29 +71,32 @@ def test_failed_slide_task_summary_exposes_quality_blockers(
         "id": task_id,
         "course_id": "course-1",
         "type": "slide_deck_variant_build",
-        "status": "failed",
+        "status": "running",
         "phase": "build_blocked",
         "progress": 100,
         "error": "slide_deck_variant_quality_gate_failed",
         "event_history": [],
-        "last_event": {
-            "event": "build_blocked",
-            "quality": {
-                "passed": False,
-                "score": 80,
-                "blockers": [
-                    {
-                        "severity": "critical",
-                        "code": "body_density_overflow",
-                        "page_id": "slide:v4:leftover:0001",
-                    },
-                ],
-                "warnings": [],
-            },
-        },
     }
+    await manager._record_representation_event(task_id, {
+        "event": "build_blocked",
+        "quality": {
+            "passed": False,
+            "score": 80,
+            "blockers": [
+                {
+                    "severity": "critical",
+                    "code": "body_density_overflow",
+                    "page_id": "slide:v4:leftover:0001",
+                },
+            ],
+            "warnings": [],
+        },
+    })
+    manager.tasks[task_id]["status"] = "failed"
+    manager.save_tasks(strict=True)
+    restarted = TaskManager(storage=None, course_service=None, ws_service=None)
 
-    summary = manager.get_task_summary(task_id)
+    summary = restarted.get_task_summary(task_id)
 
     assert summary is not None
     assert summary["quality"]["passed"] is False
