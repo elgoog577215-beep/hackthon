@@ -477,7 +477,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const publishedContent = this.selectedSpec?.payload?.content
       const hasPublishedDeck = (
         this.selectedRepresentation?.status === 'ready'
-        && ['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(publishedContent?.schema_version)
+        && ['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(publishedContent?.schema_version)
       )
       if (hasPublishedDeck) {
         this.liveSlides = []
@@ -574,7 +574,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       if (
         !this.deferMissingSlideBuild
         && slideRepresentation
-        && !['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(content?.schema_version)
+        && !['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(content?.schema_version)
       ) {
         await this.buildProgressive(courseId)
       }
@@ -598,7 +598,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       ) return null
       const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
       this.selectedSpec = spec
-      if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4'].includes(spec?.payload?.content?.schema_version)) {
+      if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(spec?.payload?.content?.schema_version)) {
         const summary = spec?.payload.content.quality_summary
         if (summary) {
           this.publishedSlideQuality = summary

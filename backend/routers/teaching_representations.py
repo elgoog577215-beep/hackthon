@@ -53,6 +53,7 @@ from slide_deck_v4 import (
     allocation_from_story_plan_v2,
     build_signature_v4,
 )
+from slide_deck_v5 import build_signature_v5
 from slide_story_plan import (
     SlideStoryPlanV2,
     compile_slide_story_plan_v2,
@@ -159,6 +160,8 @@ def _reconciled_registry(course_id: str) -> dict:
     payload["slide_deck_target_schema"] = (
         "slide_deck_v3"
         if not story_engine_enabled
+        else "slide_deck_v5"
+        if v4_eligible and _v5_enabled()
         else "slide_deck_v4"
         if v4_eligible
         else "blocked"
@@ -176,7 +179,11 @@ def _reconciled_registry(course_id: str) -> dict:
         spec = specs.get(representation.get("spec_id")) or {}
         content = (spec.get("payload") or {}).get("content") or {}
         schema_version = content.get("schema_version")
-        if schema_version not in {"slide_deck_v3", "slide_deck_v4"}:
+        if schema_version not in {
+            "slide_deck_v3",
+            "slide_deck_v4",
+            "slide_deck_v5",
+        }:
             continue
         if schema_version == "slide_deck_v3" and story_engine_enabled:
             representation["course_logic_upgrade_required"] = True
@@ -208,6 +215,13 @@ def _story_engine_enabled() -> bool:
     ).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _v5_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_DECK_V5_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _expected_slide_signature(
     document: Any,
     course_view: dict[str, Any],
@@ -216,20 +230,29 @@ def _expected_slide_signature(
     theme: str,
     force_schema: str = "",
 ) -> dict[str, Any]:
-    use_v4 = (
-        force_schema == "slide_deck_v4"
-        or (
-            force_schema != "slide_deck_v3"
-            and _story_engine_enabled()
-            and course_supports_slide_deck_v4(course_view)
-        )
-    )
-    if use_v4:
+    if force_schema == "slide_deck_v4":
         return build_signature_v4(
             document=document,
             course_data=course_view,
             mode=mode,  # type: ignore[arg-type]
             theme=theme,  # type: ignore[arg-type]
+        )
+    use_v5 = (
+        force_schema == "slide_deck_v5"
+        or (
+            force_schema != "slide_deck_v3"
+            and force_schema != "slide_deck_v4"
+            and _story_engine_enabled()
+            and _v5_enabled()
+            and course_supports_slide_deck_v4(course_view)
+        )
+    )
+    if use_v5:
+        return build_signature_v5(
+            document=document,
+            course_data=course_view,
+            mode=mode,
+            theme=theme,
         )
     return build_signature(
         source_document_revision=str(document.document_revision or ""),
@@ -616,7 +639,14 @@ async def stream_slide_deck_variant_build(
     )
     expected_signature = (
         (
-            build_signature_v4(
+            build_signature_v5(
+                document=document,
+                course_data=course_view,
+                mode=body.mode,
+                theme=theme,
+            )
+            if cached_bundle_part.get("slide_schema_version") == "slide_deck_v5"
+            else build_signature_v4(
                 document=document,
                 course_data=course_view,
                 mode=body.mode,
@@ -1196,7 +1226,11 @@ async def export_teaching_slide_deck(
     content = spec.payload.get("content") or {}
     resolved_theme = (
         str(content.get("theme") or "qizhi-classroom")
-        if content.get("schema_version") in {"slide_deck_v3", "slide_deck_v4"}
+        if content.get("schema_version") in {
+            "slide_deck_v3",
+            "slide_deck_v4",
+            "slide_deck_v5",
+        }
         else str(theme or content.get("theme") or "qingfeng-classroom")
     )
     try:

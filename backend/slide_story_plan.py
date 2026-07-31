@@ -249,12 +249,13 @@ def resolve_slide_deck_schema(
     course_data: dict[str, Any],
     *,
     story_engine_enabled: bool,
-) -> Literal["slide_deck_v3", "slide_deck_v4"]:
-    """Select the requested engine without silently degrading an enabled V4 build."""
+    v5_enabled: bool = True,
+) -> Literal["slide_deck_v3", "slide_deck_v4", "slide_deck_v5"]:
+    """Select the requested engine without silently degrading an enabled V5 build."""
     if not story_engine_enabled:
         return "slide_deck_v3"
     _course_logic_inputs(course_data)
-    return "slide_deck_v4"
+    return "slide_deck_v5" if v5_enabled else "slide_deck_v4"
 
 
 def _chapter_for_section(

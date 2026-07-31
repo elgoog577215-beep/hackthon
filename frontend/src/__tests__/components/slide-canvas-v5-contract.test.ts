@@ -136,4 +136,37 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.find('.deck-cover__brand').exists()).toBe(false)
     expect(wrapper.get('.deck-cover__content h2').text()).toBe('热力学与统计物理')
   })
+
+  it('does not repeat a promoted single claim as body copy', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '常见误区',
+          title: '只验证加法保持不够，还必须验证数乘保持',
+          takeaway: '只验证加法保持不够，还必须验证数乘保持。',
+          blocks: [{
+            block_id: 'claim',
+            type: 'rich_text',
+            content: '只验证加法保持不够，还必须验证数乘保持。',
+          }],
+          quality: {
+            requested_layout: 'two-column',
+            resolved_layout: 'hero-claim',
+            suppress_redundant_body: true,
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { template: '<span />' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-claim-only').exists()).toBe(true)
+    expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+  })
 })

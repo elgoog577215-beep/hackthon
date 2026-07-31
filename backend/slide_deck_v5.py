@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from copy import deepcopy
 from typing import Any, Literal, TypeVar
@@ -49,7 +50,19 @@ _CHAPTER_PREFIX = re.compile(
     r"^\s*(?:第\s*[一二三四五六七八九十百\d]+\s*[章节篇部]|"
     r"[一二三四五六七八九十百\d]+\s*[.、．:：])\s*"
 )
+_RAW_TITLE_PATTERN = re.compile(
+    r"(?:^\s*>?\s*(?:ID|graph|flowchart|sequenceDiagram|classDiagram)\s*[:\s]|"
+    r"-->|```|^\s*\\(?:begin|frac|Delta|sum|int)\b)",
+    re.IGNORECASE,
+)
 _T = TypeVar("_T")
+
+
+def slide_deck_v5_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_DECK_V5_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
 
 
 class _StrictModel(BaseModel):
@@ -242,12 +255,23 @@ def compile_deck_outline_v5(
 
 
 def _meaningful_title(value: str) -> bool:
-    normalized = re.sub(r"[\s:：/\\_.-]+", "", _clean_text(value)).lower()
+    cleaned = _clean_text(value)
+    if _RAW_TITLE_PATTERN.search(cleaned):
+        return False
+    normalized = re.sub(r"[\s:：/\\_.-]+", "", cleaned).lower()
     return normalized not in _GENERIC_TITLES and bool(normalized)
 
 
 def _first_body_sentence(value: str) -> str:
     return re.split(r"[。！？!?\n]", _clean_text(value), maxsplit=1)[0].strip()
+
+
+def _normalize_title_match(value: Any) -> str:
+    return re.sub(
+        r"[\s，,；;：:。！？!?、]+$",
+        "",
+        _clean_text(value),
+    )
 
 
 def _structured_claim_title(value: str) -> str:
@@ -510,6 +534,29 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
             ),
             body_text=body_text,
         )
+        blocks = list(updated.get("blocks") or [])
+        single_claim_block = (
+            len(blocks) == 1
+            and bool(_clean_text(blocks[0].get("content")))
+            and not any(
+                _clean_text(item)
+                for item in blocks[0].get("items") or []
+            )
+            and not updated.get("visuals")
+        )
+        if (
+            single_claim_block
+            and _normalize_title_match(updated["title"])
+            == _normalize_title_match(_first_body_sentence(body_text))
+        ):
+            quality.update({
+                "resolved_layout": "hero-claim",
+                "resolved_composition": "statement",
+                "suppress_redundant_body": True,
+                "major_region_count": 1,
+                "occupied_major_region_count": 1,
+            })
+            updated["composition"] = "statement"
     return updated
 
 
@@ -756,17 +803,29 @@ def _materialize_v5_structure(
             slide for slide in teaching
             if str(slide.get("chapter_id") or "") == chapter.chapter_id
         ]
-        entry = _chapter_entry_slide(chapter)
+        existing_entry = next((
+            slide for slide in chapter_slides
+            if (
+                str(slide.get("scene_kind") or "") == "chapter_entry"
+                or str(slide.get("layout") or "") == "chapter"
+            )
+        ), None)
+        entry = existing_entry or _chapter_entry_slide(chapter)
         if entry["unit_id"] not in used_units:
             result.append(entry)
             used_units.add(entry["unit_id"])
-        result.extend(chapter_slides)
-        used_units.update(str(slide.get("unit_id") or "") for slide in chapter_slides)
-        if not any(
-            str(slide.get("scene_kind") or "") == "chapter_recap"
-            for slide in chapter_slides
-        ):
-            recap = _chapter_recap_slide(chapter, chapter_slides)
+        existing_recap = next((
+            slide for slide in chapter_slides
+            if str(slide.get("scene_kind") or "") == "chapter_recap"
+        ), None)
+        body_slides = [
+            slide for slide in chapter_slides
+            if slide is not existing_entry and slide is not existing_recap
+        ]
+        result.extend(body_slides)
+        used_units.update(str(slide.get("unit_id") or "") for slide in body_slides)
+        recap = existing_recap or _chapter_recap_slide(chapter, body_slides)
+        if recap["unit_id"] not in used_units:
             result.append(recap)
             used_units.add(recap["unit_id"])
 
@@ -806,7 +865,7 @@ def build_signature_v5(
     }
 
 
-def _v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for slide in slides:
         quality = slide.get("quality") or {}
@@ -834,6 +893,49 @@ def _v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             issues.append({
                 "severity": "critical",
                 "code": "empty_major_region",
+                "page_id": slide.get("unit_id"),
+            })
+        title = _clean_text(slide.get("title"))
+        if _RAW_TITLE_PATTERN.search(title):
+            issues.append({
+                "severity": "critical",
+                "code": "raw_source_sentence_as_title",
+                "page_id": slide.get("unit_id"),
+            })
+        body_text = " ".join(
+            _clean_text(value)
+            for block in slide.get("blocks") or []
+            for value in [
+                block.get("content"),
+                *((block.get("items") or [])),
+            ]
+            if _clean_text(value)
+        )
+        first_body = _first_body_sentence(body_text)
+        if (
+            title
+            and first_body
+            and _normalize_title_match(title) == _normalize_title_match(first_body)
+            and not bool(quality.get("suppress_redundant_body"))
+        ):
+            issues.append({
+                "severity": "critical",
+                "code": "title_body_duplication",
+                "page_id": slide.get("unit_id"),
+            })
+        formula_visual = any(
+            str(visual.get("kind") or "") == "formula"
+            for visual in visuals
+        )
+        formula_interpretation = any(
+            str(binding.get("semantic_role") or "") == "formula_interpretation"
+            for binding in quality.get("slot_bindings") or []
+            if isinstance(binding, dict)
+        )
+        if formula_visual and not formula_interpretation and not body_text:
+            issues.append({
+                "severity": "critical",
+                "code": "orphan_formula",
                 "page_id": slide.get("unit_id"),
             })
         if requested in {"two-column", "positive-negative"} and resolved == "editorial-body":
@@ -873,7 +975,7 @@ def compile_slide_deck_v5(
         outline,
     )
     slides = [apply_page_contract_v5(slide) for slide in slides]
-    issues = _v5_contract_issues(slides)
+    issues = v5_contract_issues(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})
     previous_blockers = list(previous_quality.get("blockers") or [])
     content.update({
@@ -936,7 +1038,7 @@ def validate_slide_deck_v5(
     compatibility = deepcopy(content)
     compatibility["schema_version"] = SLIDE_DECK_V4_SCHEMA
     base = validate_slide_deck_v4(compatibility, course_data=course_data)
-    issues = _v5_contract_issues(list(content.get("slides") or []))
+    issues = v5_contract_issues(list(content.get("slides") or []))
     blockers = [*(base.get("blockers") or []), *issues]
     return {
         **base,

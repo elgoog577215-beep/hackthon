@@ -137,18 +137,18 @@ describe('PptWorkspaceView', () => {
     expect(store.registry?.slide_deck_target_schema).toBe('slide_deck_v4')
   })
 
-  it('labels a current course-logic deck as V4 in the workbench', async () => {
+  it('labels a current V5 course-logic deck in the workbench', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'
     const store = useTeachingRepresentationsStore()
     store.registry = {
-      slide_deck_target_schema: 'slide_deck_v4',
+      slide_deck_target_schema: 'slide_deck_v5',
       slide_deck_v4_eligible: true,
       representations: [{
-        representation_id: 'slides-v4',
+        representation_id: 'slides-v5',
         representation_type: 'slide_deck',
         variant_key: 'teaching:qizhi-classroom',
-        spec_id: 'spec-v4',
+        spec_id: 'spec-v5',
         status: 'ready',
         stale_unit_ids: [],
         stale_reasons: [],
@@ -156,22 +156,23 @@ describe('PptWorkspaceView', () => {
         updated_at: 'now',
       }],
     }
-    store.selectedId = 'slides-v4'
+    store.selectedId = 'slides-v5'
     store.selectedSpec = {
-      spec_id: 'spec-v4',
+      spec_id: 'spec-v5',
       representation_type: 'slide_deck',
       unit_bindings: {},
       revision: 'r1',
       payload: {
         compiler_version: 'same_source_compiler_v4',
         content: {
-          schema_version: 'slide_deck_v4',
-          title: 'V4 deck',
+          schema_version: 'slide_deck_v5',
+          title: 'V5 deck',
+          deck_outline: { schema_version: 'deck_outline_v5' },
           slides: [{
-            unit_id: 'slide:v4',
+            unit_id: 'slide:v5',
             layout: 'cover',
             slide_purpose: 'orientation',
-            title: 'V4 cover',
+            title: 'V5 cover',
             blocks: [],
           }],
         },
@@ -187,7 +188,7 @@ describe('PptWorkspaceView', () => {
 
     expect(
       wrapper.get('.slide-workbench').attributes('data-engine-status'),
-    ).toBe('slide_deck_v4')
+    ).toBe('slide_deck_v5')
   })
 
   it('does not select a legacy V3 deck when the course now targets V4', async () => {

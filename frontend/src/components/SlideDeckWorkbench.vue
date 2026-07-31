@@ -424,7 +424,7 @@ const props = withDefaults(defineProps<{
   variants?: TeachingRepresentation[]
   bundleParts?: Array<{ representationId: string; label: string }>
   activeBundlePartId?: string
-  engineStatus?: 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  engineStatus?: 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
 }>(), {
   standalone: false,
   mode: 'teaching',
@@ -466,7 +466,33 @@ const notesVisible = ref(false)
 const presentationBlank = ref(false)
 const presentationSurface = ref<HTMLElement | null>(null)
 const previewTheme = ref<SlideDeckTheme>(props.theme)
-const layouts = ['cover', 'roadmap', 'chapter', 'objective', 'concept', 'comparison', 'process', 'code', 'misconception', 'practice', 'recap', 'appendix']
+const layouts = [
+  'cover',
+  'cover-minimal',
+  'roadmap',
+  'agenda-linear',
+  'chapter',
+  'chapter-entry',
+  'objective',
+  'concept',
+  'editorial-body',
+  'balanced-two-column',
+  'classification-3',
+  'comparison',
+  'comparison-matrix',
+  'process',
+  'process-sequence',
+  'formula-explanation',
+  'worked-example',
+  'code',
+  'misconception',
+  'practice',
+  'practice-feedback',
+  'recap',
+  'chapter-recap',
+  'course-synthesis',
+  'appendix',
+]
 let autoPreviewTimer: number | undefined
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
@@ -476,6 +502,7 @@ const currentRepresentation = computed(() => (
   props.variants.find(item => item.representation_id === props.representationId) || null
 ))
 const engineStatusLabel = computed(() => ({
+  slide_deck_v5: '课程叙事 V5',
   slide_deck_v4: '课程逻辑 V4',
   slide_deck_v3: '兼容模式 V3',
   blocked: '课程逻辑未就绪',

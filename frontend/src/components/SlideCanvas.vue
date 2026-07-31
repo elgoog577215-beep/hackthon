@@ -89,6 +89,14 @@
       </div>
 
       <div
+        v-else-if="slide.quality?.suppress_redundant_body"
+        class="deck-claim-only"
+      >
+        <i></i>
+        <small>{{ slide.teaching_job || slide.eyebrow || '核心判断' }}</small>
+      </div>
+
+      <div
         v-else-if="slide.blocks?.length"
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
@@ -198,6 +206,7 @@ interface Slide {
     resolved_layout?: string
     requested_composition?: string
     resolved_composition?: string
+    suppress_redundant_body?: boolean
   }
 }
 
@@ -955,6 +964,26 @@ function layoutLabel(value: string) {
   display:flex;
   flex-direction:column;
   justify-content:center;
+}
+.deck-claim-only {
+  position:absolute;
+  inset:31% 8% 17%;
+  display:grid;
+  grid-template-columns:.7cqw 1fr;
+  grid-template-rows:auto 1fr;
+  column-gap:2cqw;
+}
+.deck-claim-only > i {
+  grid-row:1/3;
+  width:.38cqw;
+  height:100%;
+  background:var(--deck-blue);
+}
+.deck-claim-only > small {
+  color:var(--deck-blue);
+  font-size:1.08cqw;
+  font-weight:800;
+  letter-spacing:.08em;
 }
 .deck-canvas[data-layout="cover-minimal"] .deck-cover__content::before {
   content:"";

@@ -127,7 +127,7 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["already_ready"] is False
-    assert payload["registry"]["slide_deck_target_schema"] == "slide_deck_v4"
+    assert payload["registry"]["slide_deck_target_schema"] == "slide_deck_v5"
     assert course_supports_slide_deck_v4(
         course_repository.load_course_view("course-legacy-logic")
     )

@@ -4,12 +4,13 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from course_document import CourseDocument, CourseSection
-from slide_deck import SlideDeckContent
-from slide_deck_renderer import _render_slide
+from slide_deck import SlideDeckContent, validate_slide_deck
+from slide_deck_renderer import _render_editorial_body, _render_slide
 from slide_deck_v5 import (
     compile_deck_outline_v5,
     compile_page_title_v5,
     resolve_page_contract_v5,
+    v5_contract_issues,
 )
 from slide_story_plan import (
     ChapterStoryV2,
@@ -205,6 +206,51 @@ def test_shared_slide_model_accepts_v5_outline_contract() -> None:
     assert deck.deck_outline["schema_version"] == "deck_outline_v5"
 
 
+def test_v5_navigation_slide_can_bind_a_chapter_without_inventing_body_sources() -> None:
+    report = validate_slide_deck({
+        "schema_version": "slide_deck_v5",
+        "title": "V5",
+        "slides": [
+            {
+                "unit_id": "cover",
+                "position": 0,
+                "layout": "cover",
+                "slide_purpose": "orientation",
+                "title": "V5",
+                "blocks": [],
+            },
+            {
+                "unit_id": "chapter-entry",
+                "position": 1,
+                "layout": "chapter",
+                "slide_purpose": "chapter_open",
+                "title": "第一章",
+                "section_id": "chapter-1",
+                "source_section_ids": ["chapter-1"],
+                "source_block_ids": [],
+                "blocks": [],
+                "quality": {"navigation_only": True},
+            },
+            {
+                "unit_id": "recap",
+                "position": 2,
+                "layout": "recap",
+                "slide_purpose": "course_recap",
+                "title": "课程总结",
+                "blocks": [{
+                    "block_id": "summary",
+                    "type": "bullets",
+                    "items": ["关键结论"],
+                }],
+            },
+        ],
+    })
+
+    assert "slide_source_missing" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
 def test_pptx_renderer_uses_resolved_layout_instead_of_requested_layout() -> None:
     unit = SimpleNamespace(
         visuals=[],
@@ -234,6 +280,100 @@ def test_pptx_renderer_uses_resolved_layout_instead_of_requested_layout() -> Non
 
     editorial_renderer.assert_called_once()
     two_column_renderer.assert_not_called()
+
+
+def test_v5_editorial_body_does_not_reserve_a_fake_right_sidebar() -> None:
+    unit = SimpleNamespace(
+        blocks=[
+            SimpleNamespace(
+                items=[],
+                content="系统边界决定系统与环境之间可以发生的交换。",
+                title="",
+            ),
+        ],
+        key_message="",
+        eyebrow="核心概念",
+        title="系统边界决定交换方式",
+    )
+    shape = Mock()
+    text = Mock()
+
+    with (
+        patch("slide_deck_renderer._heading"),
+        patch("slide_deck_renderer._shape", shape),
+        patch("slide_deck_renderer._text", text),
+    ):
+        _render_editorial_body(
+            Mock(),
+            unit,
+            {
+                "accent": "00F",
+                "accent_soft": "DDF",
+                "canvas": "FFF",
+                "chart_bg": "DDD",
+                "ink": "000",
+            },
+        )
+
+    assert all(float(call.args[1]) < 9.5 for call in shape.call_args_list)
+    body_call = next(
+        call for call in text.call_args_list
+        if call.args[1].startswith("系统边界")
+    )
+    assert float(body_call.args[4]) >= 10
+    assert int(body_call.args[6]) >= 24
+
+
+def test_title_compiler_rejects_raw_diagram_identifiers() -> None:
+    title = compile_page_title_v5(
+        explicit_title='> ID: "ThermodynamicSystemClassification"',
+        primary_claim="热力学系统按交换方式分为三类",
+        body_text="孤立、封闭和开放系统的边界条件不同。",
+    )
+
+    assert title == "热力学系统按交换方式分为三类"
+    assert "ID:" not in title
+
+
+def test_v5_quality_gate_rejects_orphan_formula_and_title_duplication() -> None:
+    issues = v5_contract_issues([
+        {
+            "unit_id": "formula-only",
+            "title": "内能变化",
+            "visuals": [{"kind": "formula", "latex": r"\Delta U=U_2-U_1"}],
+            "blocks": [],
+            "quality": {
+                "requested_layout": "formula-explanation",
+                "resolved_layout": "figure-text",
+                "resolved_composition": "split-visual",
+                "major_region_count": 2,
+                "occupied_major_region_count": 1,
+            },
+        },
+        {
+            "unit_id": "duplicate-title",
+            "title": "系统边界决定可发生的交换",
+            "visuals": [],
+            "blocks": [{
+                "block_id": "body",
+                "type": "rich_text",
+                "content": "系统边界决定可发生的交换。",
+                "items": [],
+            }],
+            "quality": {
+                "requested_layout": "editorial-body",
+                "resolved_layout": "editorial-body",
+                "resolved_composition": "statement",
+                "major_region_count": 1,
+                "occupied_major_region_count": 1,
+            },
+        },
+    ])
+
+    assert {issue["code"] for issue in issues} >= {
+        "orphan_formula",
+        "title_body_duplication",
+    }
 
 
 def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> None:

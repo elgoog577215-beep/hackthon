@@ -340,6 +340,7 @@ def _render_slide(
         "course-synthesis": _render_recap,
         "appendix": _render_appendix,
         "hero-statement": _render_hero_statement,
+        "hero-claim": _render_claim_only,
         "editorial-body": _render_editorial_body,
         "two-column": _render_two_column,
         "balanced-two-column": _render_two_column,
@@ -1341,6 +1342,24 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
     )
 
 
+def _render_claim_only(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    """Render a promoted one-sentence claim once, without a duplicate body panel."""
+    _heading(slide, unit, theme)
+    _shape(slide, 0.9, 2.25, 0.12, 3.35, theme["accent"], radius=False)
+    _text(
+        slide,
+        unit.teaching_job or unit.eyebrow or "核心判断",
+        1.4,
+        2.3,
+        3.4,
+        0.38,
+        13,
+        theme["accent"],
+        bold=True,
+    )
+    _shape(slide, 1.4, 4.95, 4.25, 0.05, theme["chart_bg"], radius=False)
+
+
 def _render_navigation_statement(
     slide: Any,
     unit: SlideSpec,
@@ -1447,12 +1466,18 @@ def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
         if value
     ]
     body = "\n\n".join(values)
-    _shape(slide, 0.82, 1.82, 8.82, 4.55, theme["canvas"], radius=True, line=theme["chart_bg"])
-    _shape(slide, 0.82, 1.82, 0.09, 4.55, theme["accent"], radius=False)
-    _text(slide, body, 1.22, 2.2, 7.98, 3.72, 18 if len(body) <= 180 else 16, theme["ink"])
-    _shape(slide, 9.94, 1.82, 2.56, 4.55, theme["accent_soft"], radius=True)
-    _text(slide, unit.eyebrow or "阅读线索", 10.25, 2.18, 1.95, 0.32, 11, theme["accent"], bold=True)
-    _text(slide, "定义\n→\n条件\n→\n结论", 10.25, 3.0, 1.95, 2.15, 18, theme["ink"], bold=True, align="center")
+    _shape(slide, 0.86, 1.92, 0.1, 4.32, theme["accent"], radius=False)
+    _text(
+        slide,
+        body,
+        1.34,
+        2.3,
+        10.75,
+        3.55,
+        26 if len(body) <= 90 else 22 if len(body) <= 180 else 17,
+        theme["ink"],
+    )
+    _shape(slide, 1.34, 6.13, 4.35, 0.025, theme["chart_bg"], radius=False)
 
 
 def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
