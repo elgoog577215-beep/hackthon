@@ -1,0 +1,78 @@
+import { mount } from '@vue/test-utils'
+import { describe, expect, it } from 'vitest'
+
+import SlideCanvas from '../../components/SlideCanvas.vue'
+
+const baseProps = {
+  pageNumber: 4,
+  pageCount: 20,
+  deckTitle: '热力学课程',
+}
+
+describe('SlideCanvas V5 final page contract', () => {
+  it('renders the explicit title instead of promoting takeaway copy', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '核心概念',
+          title: '热力学系统的三种类型',
+          takeaway: '根据系统与环境之间的交互方式，热力学将系统分为三类。',
+          blocks: [{
+            block_id: 'classification',
+            type: 'bullets',
+            items: ['孤立系统', '封闭系统', '开放系统'],
+          }],
+          quality: {
+            requested_layout: 'two-column',
+            resolved_layout: 'classification-3',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { template: '<span />' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.get('.deck-canvas__heading h2').text()).toBe('热力学系统的三种类型')
+  })
+
+  it('uses resolved layout instead of stale requested layout', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '核心概念',
+          title: '系统边界决定交换方式',
+          takeaway: '系统边界决定交换方式。',
+          composition: 'split-visual',
+          blocks: [{
+            block_id: 'definition',
+            type: 'rich_text',
+            content: '系统边界决定可发生的交换。',
+          }],
+          visuals: [],
+          quality: {
+            requested_layout: 'two-column',
+            resolved_layout: 'editorial-body',
+            resolved_composition: 'statement',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { template: '<span />' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.attributes('data-layout')).toBe('editorial-body')
+    expect(wrapper.get('.deck-canvas__blocks').attributes('data-layout')).toBe('editorial-body')
+  })
+})
