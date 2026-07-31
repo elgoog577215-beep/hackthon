@@ -222,6 +222,35 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
     assert {
         exclusion.fragment_id for exclusion in allocation.exclusions
     } >= {"method-heading", "method-body"}
+    refined = compact.model_copy(update={
+        "planner": "ai",
+        "chapters": [
+            compact.chapters[0].model_copy(update={
+                "episodes": [
+                    episode.model_copy(update={
+                        "beats": [
+                            beat.model_copy(update={
+                                "layout_selection_reason": (
+                                    "ai_source_bound_directive"
+                                ),
+                            })
+                            for beat in episode.beats
+                        ],
+                    })
+                    for episode in compact.chapters[0].episodes
+                ],
+            }),
+        ],
+    })
+
+    recompacted = compact_story_plan_v5(document, refined, fragments)
+
+    assert all(
+        beat.layout_selection_reason == "ai_source_bound_directive"
+        for chapter in recompacted.chapters
+        for episode in chapter.episodes[1:-1]
+        for beat in episode.beats
+    )
 
 
 def test_one_text_group_cannot_keep_a_two_column_layout() -> None:
