@@ -37,6 +37,13 @@ page-heading levels.
 - **THEN** it produces or falls back to a bounded audience-facing title
 - **AND** it does not repeat the first body sentence as the title
 
+#### Scenario: Source heading names a numbered section or topic
+- **WHEN** the selected source heading is a section label such as `1.1` or a
+  topic-only label and the visible semantic group contains a supported claim
+- **THEN** V5 keeps section context in the eyebrow or source metadata
+- **AND** it uses the visible claim as the primary audience-facing title
+- **AND** it does not expose the numbered source heading as the page title
+
 ### Requirement: Required Layout Slots Must Be Occupied
 
 The system SHALL reject a candidate layout unless each required semantic slot is
@@ -69,6 +76,15 @@ continuation pages.
 - **THEN** it keeps the selected group on one page
 - **AND** it rejects an oversized group rather than cutting it at an arbitrary
   fragment boundary
+
+#### Scenario: A selected group promises an enumerated set
+- **WHEN** a visible source fragment promises `N` classes, steps, parts, or
+  alternatives and the following source list supplies those `N` members
+- **THEN** the promise and all required members form one indivisible semantic
+  bundle
+- **AND** optional background prose is omitted before any required member
+- **AND** no required member may be recorded as an allowed semantic-core
+  exclusion while the promise remains visible
 
 #### Scenario: A chapter has no source-grounded practice and feedback
 - **WHEN** V5 compacts the chapter teaching arc
@@ -142,7 +158,8 @@ content-shaped teaching pages, chapter recap, and course synthesis layouts.
 
 The system SHALL block publication for unfilled required slots, visual layouts
 without visuals, empty major regions, orphan formulas, title/body duplication,
-or web/PPT final-contract drift.
+enumeration cardinality mismatches, numbered source headings used as content
+titles, or web/PPT final-contract drift.
 
 #### Scenario: One major region is empty
 - **WHEN** the empty region is not intentional cover or transition whitespace
@@ -158,3 +175,10 @@ or web/PPT final-contract drift.
   resolved layout's presentation-safe budget
 - **THEN** publication is blocked
 - **AND** neither renderer shrinks body text below 14 pt or titles below 24 pt
+
+#### Scenario: Visible claim promises more members than the page contains
+- **WHEN** the title or body promises `N` classes, steps, parts, or alternatives
+  but fewer than `N` list members are visible
+- **THEN** publication is blocked with
+  `enumeration_cardinality_mismatch`
+- **AND** the incomplete page is not treated as a quality-equivalent fallback

@@ -253,6 +253,74 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
     )
 
 
+def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
+    document = CourseDocument(
+        course_id="course-enumeration",
+        title="热力学",
+        document_revision="doc-enumeration",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="第一章 热力学基础",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 热力学系统的分类与描述",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    raw = [
+        ("title", "heading", "1.1 热力学系统的分类与描述"),
+        ("core-heading", "heading", "核心概念与背景"),
+        (
+            "background",
+            "paragraph",
+            "在热力学中，系统（System）是指我们研究的物理对象或区域，"
+            "而环境（Surroundings）则是系统以外的部分。"
+            "系统和环境之间的边界可以是实际存在的（如容器壁），"
+            "也可以是想象的（如一个气球内的气体）。"
+            "系统与环境之间可能有物质、能量甚至信息的交换。",
+        ),
+        ("promise", "paragraph", "根据系统与环境之间的交互方式，热力学将系统分为三类："),
+        ("isolated", "list_item", "孤立系统：既不交换物质，也不交换能量。"),
+        ("closed", "list_item", "封闭系统：不交换物质，但可以交换能量。"),
+        ("open", "list_item", "开放系统：既可以交换物质，也可以交换能量。"),
+        ("summary", "paragraph", "三种类型为后续建模提供边界条件。"),
+    ]
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate(raw)
+    ]
+
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    concept_beat = next(
+        beat
+        for episode in compact.chapters[0].episodes
+        if episode.scene_kind == "concept"
+        for beat in episode.beats
+    )
+
+    assert {"promise", "isolated", "closed", "open"} <= set(
+        concept_beat.fragment_ids
+    )
+    assert "background" not in concept_beat.fragment_ids
+
+
 def test_one_text_group_cannot_keep_a_two_column_layout() -> None:
     contract = resolve_page_contract_v5({
         "layout": "concept",
@@ -636,6 +704,72 @@ def test_title_compiler_rejects_raw_diagram_identifiers() -> None:
     assert "ID:" not in title
 
 
+def test_title_compiler_replaces_numbered_section_heading_with_visible_claim() -> None:
+    title = compile_page_title_v5(
+        explicit_title="1.1 热力学系统的分类与描述",
+        primary_claim="1.1 热力学系统的分类与描述",
+        body_text=(
+            "核心概念与背景\n"
+            "在热力学中，系统是我们研究的对象，环境是系统以外的部分。\n"
+            "根据系统与环境之间的交互方式，热力学将系统分为三类：\n"
+            "孤立系统\n封闭系统\n开放系统"
+        ),
+    )
+
+    assert title == "热力学系统的三种类型"
+
+
+def test_title_compiler_prefers_supported_claim_over_source_topic_heading() -> None:
+    title = compile_page_title_v5(
+        explicit_title="内能的本质",
+        primary_claim="内能的本质",
+        body_text="内能是系统内所有微观粒子能量的总和。",
+        prefer_body_claim=True,
+    )
+
+    assert title == "内能是系统内所有微观粒子能量的总和"
+
+
+def test_title_compiler_prefers_the_lead_definition_over_later_detail() -> None:
+    title = compile_page_title_v5(
+        explicit_title="内能的本质",
+        primary_claim="内能的本质",
+        body_text=(
+            "内能是系统内所有微观粒子能量的总和。"
+            "它由分子平动、转动、振动以及相互作用势能共同构成。"
+        ),
+        prefer_body_claim=True,
+    )
+
+    assert title == "内能是系统内所有微观粒子能量的总和"
+
+
+def test_title_compiler_strips_template_label_before_selecting_body_claim() -> None:
+    title = compile_page_title_v5(
+        explicit_title="内能的本质",
+        primary_claim="内能的本质",
+        body_text=(
+            "💡 核心概念与背景 "
+            "内能是系统内所有微观粒子能量的总和。"
+            "它由分子平动、转动和振动能共同构成。"
+        ),
+        prefer_body_claim=True,
+    )
+
+    assert title == "内能是系统内所有微观粒子能量的总和"
+
+
+def test_title_compiler_keeps_an_existing_takeaway_title() -> None:
+    title = compile_page_title_v5(
+        explicit_title="系统边界决定可发生的交换",
+        primary_claim="系统边界决定可发生的交换",
+        body_text="系统和环境之间存在边界。",
+        prefer_body_claim=True,
+    )
+
+    assert title == "系统边界决定可发生的交换"
+
+
 @pytest.mark.parametrize(
     ("template_title", "body"),
     [
@@ -701,6 +835,42 @@ def test_v5_quality_gate_rejects_orphan_formula_and_title_duplication() -> None:
     assert {issue["code"] for issue in issues} >= {
         "orphan_formula",
         "title_body_duplication",
+    }
+
+
+def test_v5_quality_gate_rejects_incomplete_enumeration_and_section_title() -> None:
+    issues = v5_contract_issues([
+        {
+            "unit_id": "incomplete-classification",
+            "title": "1.1 热力学系统的分类与描述",
+            "visuals": [],
+            "blocks": [
+                {
+                    "block_id": "promise",
+                    "type": "statement",
+                    "content": "根据交换方式，热力学系统分为三类：",
+                    "items": [],
+                },
+                {
+                    "block_id": "classification",
+                    "type": "bullets",
+                    "content": "",
+                    "items": ["孤立系统"],
+                },
+            ],
+            "quality": {
+                "requested_layout": "editorial-body",
+                "resolved_layout": "editorial-body",
+                "resolved_composition": "statement",
+                "major_region_count": 1,
+                "occupied_major_region_count": 1,
+            },
+        },
+    ])
+
+    assert {issue["code"] for issue in issues} >= {
+        "enumeration_cardinality_mismatch",
+        "source_section_heading_as_title",
     }
 
 

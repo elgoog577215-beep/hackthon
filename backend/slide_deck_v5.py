@@ -27,7 +27,7 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.2"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.3"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.0"
 
@@ -65,12 +65,31 @@ _GENERIC_TITLES = {
 }
 _CHAPTER_PREFIX = re.compile(
     r"^\s*(?:第\s*[一二三四五六七八九十百\d]+\s*[章节篇部]|"
+    r"\d+(?:\s*[.．]\s*\d+)+\s*|"
     r"[一二三四五六七八九十百\d]+\s*[.、．:：])\s*"
+)
+_NUMBERED_SECTION_TITLE_PATTERN = re.compile(
+    r"^\s*\d+(?:\s*[.．]\s*\d+)+\s+\S+"
+)
+_ENUMERATION_PROMISE_PATTERN = re.compile(
+    r"(?:分为|分成|可分为|包括|包含|共有|共计)"
+    r"\s*([一二两三四五六七八九十百\d]+)\s*"
+    r"(?:类|种|项|个|步|部分|方面|阶段)"
+)
+_TITLE_ENUMERATION_PATTERN = re.compile(
+    r"([一二两三四五六七八九十百\d]+)\s*"
+    r"(?:类|种|项|个|步|部分|方面|阶段)"
 )
 _RAW_TITLE_PATTERN = re.compile(
     r"(?:^\s*>?\s*(?:ID|graph|flowchart|sequenceDiagram|classDiagram)\s*[:\s]|"
     r"-->|```|^\s*\\(?:begin|frac|Delta|sum|int)\b)",
     re.IGNORECASE,
+)
+_TEMPLATE_LEAD_PATTERN = re.compile(
+    r"^\s*[^\w\u4e00-\u9fff]*\s*"
+    r"(?:核心概念与背景|核心概念|背景与意义|关键名词解释|"
+    r"实战案例(?:/行业应用)?|思考与挑战|练习与思考|"
+    r"深度原理/底层机制|行业应用)\s*[:：]?\s*"
 )
 _V5_DEFAULT_DENSITY_BUDGET = {"characters": 360, "items": 6, "title": 28}
 _V5_DENSITY_BUDGETS = {
@@ -148,7 +167,113 @@ def _v5_group_kind(group: list[Any]) -> str:
     return "concept"
 
 
+def _chinese_count(value: str) -> int | None:
+    token = str(value or "").strip()
+    if not token:
+        return None
+    if token.isdigit():
+        parsed = int(token)
+        return parsed if parsed > 0 else None
+    digits = {
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+    if token == "十":
+        return 10
+    if "十" in token:
+        left, right = token.split("十", 1)
+        tens = digits.get(left, 1 if not left else 0)
+        ones = digits.get(right, 0 if not right else -1)
+        parsed = tens * 10 + ones
+        return parsed if parsed > 0 else None
+    return digits.get(token)
+
+
+def _enumeration_counts(value: str) -> list[int]:
+    return [
+        count
+        for match in _ENUMERATION_PROMISE_PATTERN.finditer(str(value or ""))
+        if (count := _chinese_count(match.group(1))) is not None
+    ]
+
+
+def _title_enumeration_counts(value: str) -> list[int]:
+    return [
+        count
+        for match in _TITLE_ENUMERATION_PATTERN.finditer(str(value or ""))
+        if (count := _chinese_count(match.group(1))) is not None
+    ]
+
+
+def _v5_required_enumeration_fragments(group: list[Any]) -> set[str]:
+    """Return source fragments that form an indivisible enumerated claim."""
+    for index, fragment in enumerate(group):
+        counts = _enumeration_counts(str(fragment.text or ""))
+        if not counts:
+            continue
+        expected = counts[0]
+        members: list[Any] = []
+        for candidate in group[index + 1 :]:
+            if candidate.kind == "heading":
+                break
+            if candidate.kind == "list_item":
+                members.append(candidate)
+                if len(members) == expected:
+                    break
+            elif members:
+                break
+        if len(members) == expected:
+            return {
+                fragment.fragment_id,
+                *(item.fragment_id for item in members),
+            }
+    return set()
+
+
 def _v5_fit_group(group: list[Any], *, limit: int = 230) -> list[Any]:
+    required_ids = _v5_required_enumeration_fragments(group)
+    if required_ids:
+        required = [
+            fragment for fragment in group
+            if fragment.fragment_id in required_ids
+        ]
+        selected_ids = set(required_ids)
+        visible = sum(len(str(fragment.text or "")) for fragment in required)
+
+        # Preserve one source heading for traceability when it fits.  Additional
+        # headings and prose are optional; they must never displace members
+        # required to close a visible enumerated claim.
+        first_heading = next(
+            (fragment for fragment in group if fragment.kind == "heading"),
+            None,
+        )
+        if first_heading is not None:
+            heading_size = len(str(first_heading.text or ""))
+            if visible + heading_size <= limit:
+                selected_ids.add(first_heading.fragment_id)
+                visible += heading_size
+
+        for fragment in group:
+            if fragment.fragment_id in selected_ids:
+                continue
+            size = len(str(fragment.text or ""))
+            if len(selected_ids) >= 8 or (size and visible + size > limit):
+                continue
+            selected_ids.add(fragment.fragment_id)
+            visible += size
+        return [
+            fragment for fragment in group
+            if fragment.fragment_id in selected_ids
+        ]
+
     selected: list[Any] = []
     visible = 0
     for fragment in group:
@@ -745,6 +870,103 @@ def _first_body_sentence(value: str) -> str:
     return re.split(r"[。！？!?\n]", _clean_text(value), maxsplit=1)[0].strip()
 
 
+def _is_numbered_section_title(value: str) -> bool:
+    return bool(_NUMBERED_SECTION_TITLE_PATTERN.match(_clean_text(value)))
+
+
+def _strip_template_lead(value: str) -> str:
+    return _TEMPLATE_LEAD_PATTERN.sub("", str(value or ""), count=1)
+
+
+def _body_title_candidates(value: str) -> list[str]:
+    candidates: list[str] = []
+    for segment in re.split(
+        r"[\r\n]+|(?<=[。！？!?])\s*",
+        str(value or ""),
+    ):
+        candidate = _title_candidate(_strip_template_lead(segment))
+        if (
+            candidate
+            and not _is_numbered_section_title(candidate)
+            and candidate not in candidates
+        ):
+            candidates.append(candidate)
+    return candidates
+
+
+def _best_body_title_claim(value: str) -> str:
+    candidates = _body_title_candidates(value)
+    enumerated = next(
+        (
+            candidate for candidate in candidates
+            if _enumeration_counts(candidate)
+        ),
+        "",
+    )
+    if enumerated:
+        return enumerated
+    definition = next(
+        (
+            candidate for candidate in candidates
+            if (
+                "是否" not in candidate
+                and not candidate.startswith(
+                    ("为什么", "为何", "如何", "是否", "哪", "谁")
+                )
+                and re.match(r"^.{1,12}?(?:是指|是|为)", candidate)
+            )
+        ),
+        "",
+    )
+    if definition:
+        return definition
+    relational = next(
+        (
+            candidate for candidate in candidates
+            if any(
+                marker in candidate
+                for marker in (
+                    "是指",
+                    "意味着",
+                    "决定",
+                    "导致",
+                    "构成",
+                    "属于",
+                    "取决于",
+                    "因此",
+                )
+            )
+        ),
+        "",
+    )
+    return relational or (candidates[0] if candidates else "")
+
+
+def _is_takeaway_title(value: str) -> bool:
+    title = _clean_text(value)
+    return bool(
+        _enumeration_counts(title)
+        or title.endswith(("？", "?"))
+        or any(
+            marker in title
+            for marker in (
+                "是指",
+                "意味着",
+                "决定",
+                "导致",
+                "构成",
+                "属于",
+                "取决于",
+                "表明",
+                "说明",
+                "等于",
+                "形成",
+                "支持",
+            )
+        )
+    )
+
+
 def _body_text_from_blocks(blocks: list[dict[str, Any]]) -> str:
     return "\n".join(
         value
@@ -835,8 +1057,10 @@ def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
 
 
 def _structured_claim_title(value: str) -> str:
-    claim = _clean_text(value).strip("“”\"'。！？!?")
+    claim = _clean_text(value).strip("“”\"'。！？!?：:")
     if "，" in claim and claim.startswith(("根据", "通过", "基于", "当", "如果")):
+        claim = claim.split("，", 1)[1].strip()
+    if claim.startswith("在") and "，" in claim[:20]:
         claim = claim.split("，", 1)[1].strip()
     classification = re.fullmatch(
         r"(.{1,12}?)将(.{1,12}?)分为([一二三四五六七八九十\d]+)类",
@@ -871,20 +1095,33 @@ def compile_page_title_v5(
     primary_claim: str = "",
     body_text: str = "",
     fallback_context: str = "",
+    prefer_body_claim: bool = False,
 ) -> str:
     """Compile one audience-facing title without promoting takeaway at render time."""
     explicit = _title_candidate(explicit_title)
     claim = _title_candidate(primary_claim)
-    first_body = _title_candidate(_first_body_sentence(body_text))
+    if _is_numbered_section_title(explicit):
+        explicit = ""
+    if _is_numbered_section_title(claim):
+        claim = ""
+    body_claim = _best_body_title_claim(body_text)
     fallback = _title_candidate(fallback_context)
+    if (
+        prefer_body_claim
+        and body_claim
+        and explicit
+        and explicit == claim
+        and not _is_takeaway_title(explicit)
+    ):
+        return _structured_claim_title(body_claim)
     if explicit:
-        if explicit not in {claim, first_body} or len(explicit) <= 24:
+        if explicit not in {claim, body_claim} or len(explicit) <= 24:
             return _bounded_title(explicit)
         return _structured_claim_title(explicit)
     if claim:
         return _structured_claim_title(claim)
-    if first_body:
-        return _structured_claim_title(first_body)
+    if body_claim:
+        return _structured_claim_title(body_claim)
     if fallback:
         return _structured_claim_title(fallback)
     return "课程内容"
@@ -1189,6 +1426,13 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
                 or updated.get("teaching_job")
                 or updated.get("eyebrow")
                 or ""
+            ),
+            prefer_body_claim=(
+                str(
+                    (updated.get("primary_claim_source") or {}).get("kind")
+                    or ""
+                )
+                == "source_heading"
             ),
         )
         deduplicated_blocks, removed_lead = _remove_repeated_lead_sentence(
@@ -1585,6 +1829,21 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "code": "raw_source_sentence_as_title",
                 "page_id": slide.get("unit_id"),
             })
+        if (
+            _is_numbered_section_title(title)
+            and resolved not in {
+                "cover-minimal",
+                "agenda-linear",
+                "chapter-entry",
+                "chapter-recap",
+                "course-synthesis",
+            }
+        ):
+            issues.append({
+                "severity": "critical",
+                "code": "source_section_heading_as_title",
+                "page_id": slide.get("unit_id"),
+            })
         density = _page_density_metrics(slide)
         if (
             density["title_character_count"]
@@ -1622,6 +1881,25 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             ]
             if _clean_text(value)
         )
+        visible_items = [
+            _clean_text(item)
+            for block in slide.get("blocks") or []
+            for item in block.get("items") or []
+            if _clean_text(item)
+        ]
+        expected_counts = [
+            *_title_enumeration_counts(title),
+            *_enumeration_counts(body_text),
+        ]
+        expected_count = max(expected_counts, default=0)
+        if expected_count and len(visible_items) < expected_count:
+            issues.append({
+                "severity": "critical",
+                "code": "enumeration_cardinality_mismatch",
+                "page_id": slide.get("unit_id"),
+                "expected_count": expected_count,
+                "visible_item_count": len(visible_items),
+            })
         first_body = _first_body_sentence(body_text)
         if (
             title
