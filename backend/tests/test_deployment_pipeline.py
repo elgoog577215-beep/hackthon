@@ -43,6 +43,23 @@ def test_server_activation_uses_checkpoint_recovery_for_active_tasks() -> None:
     assert deployment_complete < remove_artifact
 
 
+def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    activation = script.index("\nvalidate_settings\n")
+    preflight = script.index("\npreflight_release_runtime\n", activation)
+    stop_service = script.index('systemctl stop "$SERVICE_NAME"', preflight)
+    rollback = script.index("rollback()")
+    health_failure = script.index("if ! wait_for_health")
+    diagnostics = script.index("log_service_diagnostics", health_failure)
+    fail_activation = script.index("\n    false", health_failure)
+
+    assert '"$VENV/bin/python" -c \'import main\'' in script
+    assert preflight < stop_service
+    assert diagnostics < fail_activation
+    assert 'systemctl reset-failed "$SERVICE_NAME" || true' in script[rollback:]
+
+
 def test_server_activation_script_has_valid_bash_syntax() -> None:
     subprocess.run(
         ["bash", "-n", str(ROOT / "scripts" / "github-action-deploy.sh")],
