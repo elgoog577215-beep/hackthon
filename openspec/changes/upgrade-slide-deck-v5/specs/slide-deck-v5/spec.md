@@ -114,9 +114,21 @@ chapter-scoped, source-bound directives before page allocation.
 #### Scenario: AI returns an invalid or failed refinement
 - **WHEN** the configured provider times out, invents an ID, changes source
   claims, or returns an invalid contract
-- **THEN** the system retains the deterministic source-bound story
-- **AND** the V5 publication gate reports the failed AI planning stage instead
-  of presenting the fallback as an AI-quality result
+- **THEN** the system retains the deterministic source-bound story for that
+  chapter without discarding valid refinements from other chapters
+- **AND** it records the failed chapter, failure category, and successful and
+  failed chapter counts in planning diagnostics
+- **AND** the V5 publication gate reports the unavailable refinement as a
+  warning instead of presenting the fallback as an AI-quality result
+- **AND** provider availability alone does not block a deterministic deck that
+  passes every source, semantic, capacity, composition, and rendering gate
+
+#### Scenario: Every chapter refinement request fails
+- **WHEN** all chapter-scoped AI requests time out or return invalid contracts
+- **THEN** V5 compiles the complete source-grounded deterministic story
+- **AND** the deck remains publishable only if its final page contracts pass
+  all non-AI quality gates
+- **AND** the planning diagnostics retain one failure result per chapter
 
 #### Scenario: AI supplies a useful teaching transition
 - **WHEN** the transition is grounded in fragments already owned by the beat
@@ -149,6 +161,15 @@ The system SHALL compute the final page layout after visual assets are resolved.
   local source excerpts into a defensible relationship
 - **THEN** V5 resolves the visual decision to `none`
 - **AND** it does not chain unrelated paragraphs into a synthetic diagram
+
+#### Scenario: A long deck exceeds the bounded visual-planning budget
+- **WHEN** the allocated deck contains more pages than the configured safe
+  single-request visual-planning limit
+- **THEN** V5 does not send the entire deck through one AI visual-planning call
+- **AND** it uses only deterministic source-evidenced visuals whose quality can
+  be guaranteed
+- **AND** ambiguous pages resolve to `none` and reflow to a complete text-native
+  composition without an empty visual region
 
 ### Requirement: Web and PPT Render the Same Final Contract
 
@@ -211,6 +232,13 @@ titles, or web/PPT final-contract drift.
   quality contract
 - **THEN** the deck-level V5 publication report is failed
 - **AND** the page issue remains visible in the deck blockers
+
+#### Scenario: V5 replaces a V4 page-capacity decision
+- **WHEN** V5 reflows a page and the final V5 contract fits its resolved layout
+- **THEN** superseded V4 capacity findings are removed from the page and deck
+  reports
+- **AND** only issues recomputed from the final visible V5 composition may
+  block publication
 
 ### Requirement: Durable Completion Publishes Atomically
 

@@ -47,7 +47,8 @@
 - [x] 6.3 Replace full-story rewrites with bounded chapter directive requests
 - [x] 6.4 Validate headline and layout IDs against source and capacity contracts
 - [x] 6.5 Preserve accepted AI decisions through idempotent V5 compilation
-- [x] 6.6 Block publication when a configured AI refinement fails
+- [x] 6.6 Report configured AI refinement failures without granting an
+      AI-quality pass
 
 ## 7. Semantic Closure and Audience Titles
 
@@ -72,3 +73,18 @@
       `none` for ambiguous or template-shaped visual candidates
 - [x] 8.6 Align browser, PPTX, and layout-contract typography floors to 35 pt
       titles and 16 pt audience body copy
+
+## 9. Long-Course Reliability
+
+- [x] 9.1 Isolate AI story-planning failures per chapter and preserve valid
+      chapter refinements
+- [x] 9.2 Persist chapter-level planning diagnostics for timeout and invalid
+      response failures
+- [x] 9.3 Skip unsafe single-shot AI visual planning for long decks and use the
+      deterministic evidence-first visual policy
+- [x] 9.4 Treat AI availability as a warning while retaining all deterministic
+      publication gates
+- [x] 9.5 Remove superseded V4 capacity findings after V5 final-contract
+      resolution
+- [x] 9.6 Verify the 8-chapter, 74-source-block thermodynamics course with both
+      AI planning stages unavailable
