@@ -48,3 +48,14 @@
 - [x] 6.4 Validate headline and layout IDs against source and capacity contracts
 - [x] 6.5 Preserve accepted AI decisions through idempotent V5 compilation
 - [x] 6.6 Block publication when a configured AI refinement fails
+
+## 7. Semantic Closure and Audience Titles
+
+- [x] 7.1 Treat counted enumerations as indivisible source-bound bundles
+- [x] 7.2 Prefer required members over optional background during capacity fitting
+- [x] 7.3 Replace numbered or topic-only source headings with supported visible
+      claims while preserving the two-level eyebrow/title contract
+- [x] 7.4 Block publication for enumeration cardinality mismatches and numbered
+      source headings used as content-page titles
+- [x] 7.5 Add thermodynamics regression coverage for the three-system
+      classification failure

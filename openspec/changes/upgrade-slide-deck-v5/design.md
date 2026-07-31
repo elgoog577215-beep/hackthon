@@ -108,6 +108,14 @@ fragment remains source-traceable through an explicit `v5_semantic_core`
 exclusion, including in teaching mode. This preserves decision coverage without
 turning the slide deck into a dense appendix or reproducing the textbook.
 
+Enumeration promises add a transitive completeness obligation. When a visible
+fragment states that a concept has `N` classes, steps, parts, or alternatives,
+the promise and the following `N` source list members become one semantic
+bundle. Capacity fitting preserves that bundle before optional headings,
+background paragraphs, summaries, or examples. If the required bundle itself
+cannot fit, compilation rejects it instead of retaining the promise and
+excluding one or more members.
+
 ### Source-Bound AI Refinement
 
 AI planning runs after deterministic semantic compaction. The planner does not
@@ -162,9 +170,13 @@ The title must not:
 - consist only of numbering or punctuation;
 - exceed the configured title budget.
 
-Deterministic fallback prefers the explicit source heading, then a bounded local
-claim excerpt. `takeaway` remains body meaning and never overrides `title` in a
-renderer.
+Deterministic fallback keeps an existing audience-facing takeaway title. A
+numbered section heading or topic-only source heading does not automatically
+earn primary-title status: when the visible semantic group contains a supported
+classification, definition, relation, example conclusion, or question, the
+compiler promotes that claim and retains section context only in the eyebrow or
+source metadata. `takeaway` remains body meaning and never overrides `title` in
+a renderer.
 
 ## Semantic Groups and Slot Binding
 
