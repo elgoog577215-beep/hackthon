@@ -895,6 +895,21 @@ def _best_body_title_claim(value: str) -> str:
     )
     if enumerated:
         return enumerated
+    definition = next(
+        (
+            candidate for candidate in candidates
+            if (
+                "是否" not in candidate
+                and not candidate.startswith(
+                    ("为什么", "为何", "如何", "是否", "哪", "谁")
+                )
+                and re.match(r"^.{1,12}?(?:是指|是|为)", candidate)
+            )
+        ),
+        "",
+    )
+    if definition:
+        return definition
     relational = next(
         (
             candidate for candidate in candidates
