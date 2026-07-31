@@ -808,7 +808,15 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
 
     async def planner(request: dict) -> dict:
         requests.append(request)
-        return request["deterministic_baseline"]
+        beat = request["beat_catalog"][0]
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": beat["beat_id"],
+                "layout_id": beat["current_layout_id"],
+            }],
+        }
 
     planned = asyncio.run(plan_slide_story_v2(
         document,
@@ -825,10 +833,8 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
         "chapter-second",
     ]
     assert len(requests) == 2
-    assert all(
-        len(request["deterministic_baseline"]["chapters"]) == 1
-        for request in requests
-    )
+    assert all("deterministic_baseline" not in request for request in requests)
+    assert all(request["chapter_contract"]["chapter_id"] for request in requests)
     assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
 
 
@@ -856,10 +862,20 @@ def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
         return {
             "schema_version": "slide_story_chapter_directives_v2",
             "chapter_id": request["scope"]["chapter_id"],
-            "beat_directives": [{
-                "beat_id": target.beat_id,
-                "headline_fragment_id": headline_fragment_id,
-                "layout_id": target.layout_intent,
+            "episode_directives": [{
+                "episode_id": next(
+                    episode.episode_id
+                    for episode in fallback.chapters[0].episodes
+                    if any(
+                        beat.beat_id == target.beat_id
+                        for beat in episode.beats
+                    )
+                ),
+                "beat_directives": [{
+                    "beat_id": target.beat_id,
+                    "headline_fragment_id": headline_fragment_id,
+                    "layout_id": target.layout_intent,
+                }],
             }],
         }
 
