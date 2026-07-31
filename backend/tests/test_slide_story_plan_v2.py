@@ -13,7 +13,11 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
 )
 from slide_deck_renderer import export_structured_slide_deck
-from slide_deck_v3 import fragment_course_document, split_slide_deck_plan_by_chapter
+from slide_deck_v3 import (
+    V3_LAYOUTS,
+    fragment_course_document,
+    split_slide_deck_plan_by_chapter,
+)
 from slide_deck_v4 import (
     _presentation_quality,
     allocation_from_story_plan_v2,
@@ -365,6 +369,15 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
     assert first.scene_match_score > 0
     assert first.capacity_passed is True
     assert first.layout_family != "split"
+
+
+def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
+    renderer_layouts = {
+        str(layout["renderer_layout"])
+        for layout in registry_summary_v2()
+    }
+
+    assert renderer_layouts <= set(V3_LAYOUTS)
 
 
 def test_layout_rhythm_resets_at_chapter_boundaries() -> None:
@@ -903,6 +916,105 @@ def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
         item.text
         for item in fragments
         if item.fragment_id == headline_fragment_id
+    )
+
+
+def test_ai_practice_prompt_layout_compiles_to_a_supported_allocation() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    practice_episode = next(
+        episode
+        for episode in fallback.chapters[0].episodes
+        if episode.scene_kind == "practice_feedback"
+    )
+    prompt = practice_episode.beats[0]
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "episode_directives": [{
+                "episode_id": practice_episode.episode_id,
+                "beat_directives": [{
+                    "beat_id": prompt.beat_id,
+                    "layout_id": "practice-prompt",
+                }],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        planned,
+    )
+    planned_prompt = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == prompt.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_prompt.renderer_layout == "question"
+    assert all(page.layout in V3_LAYOUTS for page in allocation.pages)
+
+
+def test_ai_story_with_unknown_renderer_layout_uses_deterministic_fallback() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    raw_candidate = fallback.model_dump(mode="json")
+    raw_candidate["chapters"][0]["episodes"][0]["beats"][0][
+        "renderer_layout"
+    ] = "unknown-renderer-layout"
+    raw_candidate["planner"] = "ai"
+    raw_candidate["fallback_reason"] = ""
+
+    async def planner(_request: dict) -> dict:
+        return raw_candidate
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "deterministic_fallback"
+    assert planned.fallback_reason == "invalid_or_failed_ai_story_plan"
+    assert all(
+        beat.renderer_layout in V3_LAYOUTS
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
     )
 
 

@@ -251,7 +251,7 @@ SLIDE_LAYOUT_REGISTRY_V2: tuple[LayoutDefinitionV2, ...] = (
     ),
     _layout(
         "practice-prompt",
-        "practice",
+        "question",
         "练习题目与思考",
         "question",
         ["practice_feedback"],
