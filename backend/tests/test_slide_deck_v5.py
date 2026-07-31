@@ -1328,7 +1328,7 @@ def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
     }
 
 
-def test_v5_failed_ai_plan_is_a_blocker_instead_of_a_silent_fallback() -> None:
+def test_v5_publishable_ai_fallback_is_a_warning_not_a_blocker() -> None:
     report = finalize_v5_quality_report(
         previous_quality={
             "passed": True,
@@ -1342,10 +1342,62 @@ def test_v5_failed_ai_plan_is_a_blocker_instead_of_a_silent_fallback() -> None:
         fallback_reason="invalid_or_failed_ai_story_plan",
     )
 
-    assert report["passed"] is False
+    assert report["passed"] is True
+    assert report["blockers"] == []
     assert {
-        issue["code"] for issue in report["blockers"]
-    } == {"ai_story_planner_failed"}
+        issue["code"] for issue in report["warnings"]
+    } == {"ai_story_planner_fallback"}
+
+
+def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "slide:v4:long-course",
+        "layout": "concept",
+        "composition": "statement",
+        "title": "状态变量只取决于系统当前状态",
+        "blocks": [{
+            "block_id": "definition",
+            "type": "rich_text",
+            "content": "状态变量与过程路径无关。",
+            "items": [],
+        }],
+        "visuals": [],
+        "quality": {
+            "passed": False,
+            "issues": [{
+                "severity": "critical",
+                "code": "concept_card_overflow",
+                "slide_id": "slide:v4:long-course",
+            }],
+            "blockers": [{
+                "severity": "critical",
+                "code": "slide_block_overflow",
+                "slide_id": "slide:v4:long-course",
+            }],
+        },
+    })
+
+    assert slide["quality"]["passed"] is True
+    assert slide["quality"]["issues"] == []
+    assert slide["quality"]["blockers"] == []
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": False,
+            "score": 0,
+            "semantic": {"passed": True, "issues": []},
+            "visual": {"passed": True, "issues": []},
+            "blockers": [{
+                "severity": "critical",
+                "code": "slide_block_overflow",
+                "slide_id": "slide:v4:long-course",
+            }],
+        },
+        slides=[slide],
+        planner="deterministic_fallback",
+        fallback_reason="invalid_or_failed_ai_story_plan",
+    )
+    assert report["passed"] is True
+    assert report["blockers"] == []
 
 
 def test_v5_slide_counts_include_inserted_navigation_and_chapter_pages() -> None:
