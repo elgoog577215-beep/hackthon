@@ -93,10 +93,10 @@
           @click="selectSlide(slide.unit_id)"
         >
           <span>{{ index + 1 }}</span>
-          <div class="slide-thumbnail" :data-layout="slide.layout">
+          <div class="slide-thumbnail" :data-layout="effectiveSlideLayout(slide)">
             <i></i>
             <strong>{{ slide.title }}</strong>
-            <small>{{ layoutLabel(slide.layout) }}</small>
+            <small>{{ layoutLabel(effectiveSlideLayout(slide)) }}</small>
           </div>
         </button>
         <div v-if="building" class="slide-thumbnails__generating">
@@ -403,7 +403,12 @@ interface Slide {
   prerequisite_refs?: string[]
   mastery_criterion_refs?: string[]
   layout_selection_reason?: string
-  quality?: { passed?: boolean; character_count?: number; issues?: Array<Record<string, any>> }
+  quality?: {
+    passed?: boolean
+    character_count?: number
+    issues?: Array<Record<string, any>>
+    resolved_layout?: string
+  }
 }
 
 const props = withDefaults(defineProps<{
@@ -961,6 +966,10 @@ function layoutLabel(value: string) {
   return t(`teachingRepresentations.slides.layouts.${value}`, ({
     cover: '封面', roadmap: '路线', chapter: '章节', objective: '目标', concept: '概念', comparison: '对比', process: '过程', code: '代码', misconception: '易错', practice: '练习', recap: '小结', appendix: '附录',
   } as Record<string, string>)[value] || value)
+}
+
+function effectiveSlideLayout(slide: Slide) {
+  return String(slide.quality?.resolved_layout || slide.layout || 'concept')
 }
 
 function purposeLabel(value: string) {

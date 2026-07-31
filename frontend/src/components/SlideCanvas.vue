@@ -645,7 +645,7 @@ function layoutLabel(value: string) {
 }
 .deck-classification__item :deep(.markdown-body) {
   color:var(--deck-ink);
-  font-size:1.55cqw;
+  font-size:1.6cqw;
   line-height:1.46;
 }
 .deck-worked-example,
@@ -701,7 +701,7 @@ function layoutLabel(value: string) {
   letter-spacing:.1em;
 }
 .deck-worked-example article :deep(.markdown-body) {
-  font-size:1.5cqw;
+  font-size:1.6cqw;
   font-weight:680;
   line-height:1.42;
 }
@@ -739,7 +739,7 @@ function layoutLabel(value: string) {
   padding-left:1.25em;
 }
 .deck-practice-feedback aside :deep(.markdown-body) {
-  font-size:1.42cqw;
+  font-size:1.6cqw;
   line-height:1.45;
 }
 .deck-chapter-recap {
@@ -772,7 +772,7 @@ function layoutLabel(value: string) {
   font:800 .92cqw/1 "Aptos Mono","SFMono-Regular",monospace;
 }
 .deck-chapter-recap article :deep(.markdown-body) {
-  font-size:1.42cqw;
+  font-size:1.6cqw;
   font-weight:700;
   line-height:1.44;
 }
@@ -816,7 +816,7 @@ function layoutLabel(value: string) {
   font:800 .9cqw/1 "Aptos Mono","SFMono-Regular",monospace;
 }
 .deck-course-synthesis > ol li :deep(.markdown-body) {
-  font-size:1.4cqw;
+  font-size:1.6cqw;
   font-weight:700;
   line-height:1.35;
 }
@@ -887,7 +887,7 @@ function layoutLabel(value: string) {
   margin-top:.7%;
   max-width:78cqw;
   font-family:var(--deck-title-font);
-  font-size:2.72cqw;
+  font-size:3.55cqw;
   font-weight:700;
   line-height:1.16;
   letter-spacing:-.025em;
@@ -904,7 +904,7 @@ function layoutLabel(value: string) {
   border-left:.42cqw solid var(--deck-blue);
   color:var(--deck-ink);
   background:var(--deck-message-bg);
-  font-size:1.36cqw;
+  font-size:1.6cqw;
   font-weight:720;
   line-height:1.42;
 }
@@ -1035,7 +1035,7 @@ function layoutLabel(value: string) {
 .deck-canvas__navigation > p {
   margin:0;
   color:var(--deck-muted);
-  font-size:1.18cqw;
+  font-size:1.6cqw;
   font-weight:650;
 }
 .deck-inline-markdown :deep(.markdown-body) {
@@ -1067,7 +1067,7 @@ function layoutLabel(value: string) {
 }
 .deck-canvas__blocks[data-layout="appendix"] p {
   white-space:pre-line;
-  font-size:1.42cqw;
+  font-size:1.6cqw;
   line-height:1.58;
 }
 .deck-canvas__blocks[data-layout="appendix"][data-count="1"] p {
@@ -1080,7 +1080,7 @@ function layoutLabel(value: string) {
   line-height:1.48;
 }
 .deck-canvas__blocks[data-count="1"]:not([data-layout="appendix"]) li {
-  font-size:1.48cqw;
+  font-size:1.6cqw;
 }
 .deck-canvas__blocks:is([data-layout="recap"],[data-layout="summary"])[data-count="1"] ul {
   grid-template-columns:repeat(2,minmax(0,1fr));
@@ -1113,7 +1113,7 @@ function layoutLabel(value: string) {
 .deck-canvas__blocks p,.deck-canvas__blocks li {
   margin:0;
   color:var(--deck-ink);
-  font-size:1.18cqw;
+  font-size:1.6cqw;
   line-height:1.52;
 }
 .deck-canvas__blocks ul { display:grid; gap:.55em; margin:0; padding-left:1.25em; }
@@ -1147,7 +1147,7 @@ function layoutLabel(value: string) {
 .deck-canvas__blocks section[data-type="callout"] p,
 .deck-canvas__blocks section[data-type="callout"] li,
 .deck-canvas__blocks section[data-type="callout"] > header span { color:#fff; }
-.deck-canvas table { width:100%; border-collapse:collapse; font-size:1cqw; }
+.deck-canvas table { width:100%; border-collapse:collapse; font-size:1.6cqw; }
 .deck-canvas th,.deck-canvas td { padding:.55em .65em; border-bottom:1px solid var(--deck-line); text-align:left; }
 .deck-canvas th { color:var(--deck-blue); background:var(--deck-blue-soft); }
 .deck-cover__wash {
@@ -1194,14 +1194,14 @@ function layoutLabel(value: string) {
   line-height:1.12;
   letter-spacing:-.035em;
 }
-.deck-cover__content p { margin-top:4%; color:var(--deck-muted); font-size:1.48cqw; }
+.deck-cover__content p { margin-top:4%; color:var(--deck-muted); font-size:1.6cqw; }
 .deck-cover__content blockquote {
   margin-top:7%;
   padding:3% 3.5%;
   border-left:.35cqw solid var(--deck-teal);
   color:#2c3746;
   background:var(--deck-message-bg);
-  font-size:1.42cqw;
+  font-size:1.6cqw;
   font-weight:700;
   line-height:1.45;
 }
@@ -1298,6 +1298,6 @@ function layoutLabel(value: string) {
   line-height:1.18;
 }
 .deck-chapter__content i { display:block; width:12%; height:.34cqw; margin-top:6%; background:var(--deck-blue); }
-.deck-chapter__content blockquote { margin-top:7%; color:var(--deck-muted); font-size:1.48cqw; font-weight:650; line-height:1.48; }
+.deck-chapter__content blockquote { margin-top:7%; color:var(--deck-muted); font-size:1.6cqw; font-weight:650; line-height:1.48; }
 .deck-canvas.is-presenting { width:min(92vw, 166vh); max-height:88vh; box-shadow:0 32px 96px rgba(0,0,0,.4); }
 </style>

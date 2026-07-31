@@ -10,7 +10,12 @@ from pptx import Presentation
 
 from course_document import CourseDocument, CourseSection
 from slide_deck import SlideDeckContent, validate_slide_deck
-from slide_deck_v3 import ContentFragmentV1
+from slide_deck_v3 import (
+    ContentFragmentV1,
+    PlannedPageV2,
+    SlideAllocationPlanV2,
+    slide_deck_variant_key,
+)
 from slide_deck_renderer import (
     _render_editorial_body,
     _render_slide,
@@ -22,6 +27,7 @@ from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
     apply_page_contract_v5,
     compact_story_plan_v5,
+    compile_slide_deck_v5,
     compile_deck_outline_v5,
     compile_page_title_v5,
     finalize_v5_quality_report,
@@ -29,6 +35,7 @@ from slide_deck_v5 import (
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
+from slide_visuals import deterministic_visual_plan, validate_visual_plan
 from slide_story_plan import (
     ChapterStoryV2,
     ClaimSourceV2,
@@ -116,6 +123,80 @@ def _document(chapter_count: int) -> CourseDocument:
             )
             for index in range(1, chapter_count + 1)
         ],
+    )
+
+
+def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
+    document = _document(1)
+    variant_key = slide_deck_variant_key("teaching", "qizhi-classroom")
+    supplied_allocation = SlideAllocationPlanV2(
+        title=document.title,
+        mode="teaching",
+        theme="qizhi-classroom",
+        variant_key=variant_key,
+        source_document_revision=document.document_revision,
+        pages=[
+            PlannedPageV2(page_id="slide:title", layout="cover"),
+            PlannedPageV2(page_id="slide:roadmap", layout="roadmap"),
+            PlannedPageV2(
+                page_id="slide:v4:0001",
+                layout="editorial-body",
+                chapter_id="chapter-1",
+            ),
+        ],
+    )
+    compact_allocation = supplied_allocation.model_copy(update={
+        "pages": supplied_allocation.pages[:2],
+    })
+    supplied_visual_plan = deterministic_visual_plan(
+        document,
+        supplied_allocation,
+        [],
+    )
+    captured: dict[str, object] = {}
+
+    def _compile_v4(*args: object, **kwargs: object) -> dict[str, object]:
+        visual_plan = kwargs["visual_plan"]
+        allocation_plan = kwargs["allocation_plan"]
+        validate_visual_plan(visual_plan, allocation_plan, [])
+        captured["visual_plan"] = visual_plan
+        captured["allocation_plan"] = allocation_plan
+        return {
+            "schema_version": "slide_deck_v4",
+            "slides": [],
+            "quality_report": {"passed": True, "score": 100, "issues": []},
+            "quality_summary": {},
+        }
+
+    with (
+        patch("slide_deck_v5.fragment_course_document", return_value=[]),
+        patch("slide_deck_v5.compact_story_plan_v5", return_value=_story(1)),
+        patch(
+            "slide_deck_v5.allocation_from_story_plan_v2",
+            return_value=(compact_allocation, {}),
+        ),
+        patch("slide_deck_v5.compile_slide_deck_v4", side_effect=_compile_v4),
+        patch("slide_deck_v5._materialize_v5_structure", return_value=[]),
+        patch(
+            "slide_deck_v5.finalize_v5_quality_report",
+            return_value={"passed": True, "score": 100, "issues": []},
+        ),
+    ):
+        compile_slide_deck_v5(
+            document,
+            {},
+            story_plan=_story(1),
+            allocation_plan=supplied_allocation,
+            visual_plan=supplied_visual_plan,
+        )
+
+    rebuilt_visual_plan = captured["visual_plan"]
+    rebuilt_allocation = captured["allocation_plan"]
+    assert [page.page_id for page in rebuilt_visual_plan.pages] == [
+        page.page_id for page in rebuilt_allocation.pages
+    ]
+    assert rebuilt_visual_plan.deck_brief["fallback_reason"] == (
+        "v5_compaction_visual_plan_rebuilt"
     )
 
 
@@ -632,6 +713,8 @@ def test_shared_v5_layout_catalog_matches_pptx_renderer_contract() -> None:
     }
 
     assert expected == V5_LAYOUT_RENDERER_NAMES
+    assert catalog["minimum_title_font_pt"] >= 35
+    assert catalog["minimum_body_font_pt"] >= 16
     assert all(
         callable(getattr(slide_deck_renderer, renderer_name))
         for renderer_name in expected.values()
@@ -1145,8 +1228,8 @@ def test_v5_density_contract_rejects_overflow_without_reducing_font_floor() -> N
     })
 
     assert slide["quality"]["density_band"] == "overflow"
-    assert slide["quality"]["minimum_body_font_pt"] >= 14
-    assert slide["quality"]["minimum_title_font_pt"] >= 24
+    assert slide["quality"]["minimum_body_font_pt"] >= 16
+    assert slide["quality"]["minimum_title_font_pt"] >= 35
     assert {
         issue["code"] for issue in v5_contract_issues([slide])
     } >= {"body_density_overflow"}
@@ -1212,6 +1295,37 @@ def test_v5_quality_cannot_publish_when_a_retained_nested_gate_is_critical() -> 
     assert {
         issue["code"] for issue in report["blockers"]
     } == {"official_source_revision_mismatch"}
+
+
+def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": True,
+            "score": 100,
+            "semantic": {"passed": True, "issues": []},
+            "visual": {"passed": True, "issues": []},
+            "blockers": [],
+        },
+        slides=[{
+            "unit_id": "slide:v4:0001",
+            "quality": {
+                "passed": False,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "slide_block_overflow",
+                    "slide_id": "slide:v4:0001",
+                    "message": "The final slide still exceeds its resolved layout.",
+                }],
+            },
+        }],
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is False
+    assert "slide_block_overflow" in {
+        issue["code"] for issue in report["blockers"]
+    }
 
 
 def test_v5_failed_ai_plan_is_a_blocker_instead_of_a_silent_fallback() -> None:

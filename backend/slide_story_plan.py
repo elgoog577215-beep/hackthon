@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -34,7 +35,7 @@ V5_SEMANTIC_CORE_REASONS = frozenset({
 SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (
     "slide_story_chapter_directives_v2"
 )
-SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.3"
+SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.4"
 STORY_BEAT_TEXT_CAPACITY = 230
 
 ClaimSourceKind = Literal[
@@ -43,6 +44,11 @@ ClaimSourceKind = Literal[
     "teaching_purpose",
     "source_heading",
     "source_sentence",
+]
+StoryCopyModeV2 = Literal[
+    "source_exact",
+    "source_faithful_rewrite",
+    "instructional_scaffold",
 ]
 
 
@@ -87,12 +93,33 @@ class StoryBeatV2(_StrictModel):
     knowledge_refs: list[str] = Field(default_factory=list)
     prerequisite_refs: list[str] = Field(default_factory=list)
     mastery_criterion_refs: list[str] = Field(default_factory=list)
+    audience_facing_title: str = Field(default="", max_length=44)
+    audience_facing_summary: str = Field(default="", max_length=180)
+    copy_mode: StoryCopyModeV2 = "source_exact"
+    copy_source_fragment_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 class StoryBeatDirectiveV2(_StrictModel):
     beat_id: str
     headline_fragment_id: str = ""
     layout_id: str = ""
+    audience_facing_title: str = Field(default="", max_length=44)
+    audience_facing_summary: str = Field(default="", max_length=180)
+    copy_mode: StoryCopyModeV2 = "source_exact"
+    supporting_fragment_ids: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_copy_contract(self) -> "StoryBeatDirectiveV2":
+        has_copy = bool(
+            self.audience_facing_title or self.audience_facing_summary
+        )
+        if self.copy_mode == "source_exact" and has_copy:
+            raise ValueError("Audience-facing copy must declare a rewrite mode")
+        if self.copy_mode != "source_exact" and not has_copy:
+            raise ValueError("A rewrite mode requires audience-facing copy")
+        if has_copy and not self.supporting_fragment_ids:
+            raise ValueError("Audience-facing copy requires supporting fragments")
+        return self
 
 
 class StoryEpisodeDirectivesV2(_StrictModel):
@@ -1110,9 +1137,81 @@ def _apply_chapter_directives_v2(
                     "renderer_layout": selected["renderer_layout"],
                     "layout_family": selected["layout_family"],
                 })
+            if directive.copy_mode != "source_exact":
+                supporting_ids = list(dict.fromkeys(
+                    directive.supporting_fragment_ids
+                ))
+                if not set(supporting_ids) <= set(beat.fragment_ids):
+                    raise ValueError(
+                        "AI story copy referenced a fragment outside its beat"
+                    )
+                supporting_fragments = [
+                    fragment_catalog[fragment_id]
+                    for fragment_id in supporting_ids
+                    if fragment_id in fragment_catalog
+                ]
+                if len(supporting_fragments) != len(supporting_ids):
+                    raise ValueError(
+                        "AI story copy referenced an unknown supporting fragment"
+                    )
+                _validate_grounded_audience_copy_v2(
+                    title=directive.audience_facing_title,
+                    summary=directive.audience_facing_summary,
+                    source_text=" ".join(
+                        fragment.text for fragment in supporting_fragments
+                    ),
+                )
+                updates.update({
+                    "audience_facing_title": (
+                        directive.audience_facing_title.strip()
+                    ),
+                    "audience_facing_summary": (
+                        directive.audience_facing_summary.strip()
+                    ),
+                    "copy_mode": directive.copy_mode,
+                    "copy_source_fragment_ids": supporting_ids,
+                })
             beats.append(beat.model_copy(update=updates))
         episodes.append(episode.model_copy(update={"beats": beats}))
     return chapter.model_copy(update={"episodes": episodes})
+
+
+_COPY_INTERNAL_LANGUAGE = re.compile(
+    r"(?:system prompt|prompt|planner|model|"
+    r"layout[_\s-]*id|fragment[_\s-]*id|beat[_\s-]*id)",
+    re.IGNORECASE,
+)
+_COPY_PROTECTED_TOKEN = re.compile(
+    r"(?:\d+(?:\.\d+)?%?|[A-Za-z][A-Za-z0-9_+./-]*|"
+    r"[一二两三四五六七八九十百]+(?=\s*(?:类|种|项|个|步|部分|方面|阶段))|"
+    r"[Δ∑∏√∞≈≠≤≥±×÷])"
+)
+
+
+def _validate_grounded_audience_copy_v2(
+    *,
+    title: str,
+    summary: str,
+    source_text: str,
+) -> None:
+    generated = " ".join(f"{title} {summary}".split())
+    if not generated:
+        raise ValueError("Audience-facing copy cannot be empty")
+    if _COPY_INTERNAL_LANGUAGE.search(generated):
+        raise ValueError("Audience-facing copy exposed internal planning language")
+    if any(marker in generated for marker in ("```", "graph TD", "graph LR")):
+        raise ValueError("Audience-facing copy exposed code or diagram syntax")
+    source_lower = source_text.lower()
+    unsupported_tokens = {
+        token
+        for token in _COPY_PROTECTED_TOKEN.findall(generated)
+        if token.lower() not in source_lower
+    }
+    if unsupported_tokens:
+        raise ValueError(
+            "Audience-facing copy introduced unsupported factual tokens: "
+            + ", ".join(sorted(unsupported_tokens))
+        )
 
 
 def _normalize_chapter_directives_v2(
@@ -1267,9 +1366,13 @@ async def plan_slide_story_v2(
                     "chapter_count": chapter_count,
                 },
                 "rules": {
-                    "body_text_forbidden": True,
-                    "fragment_ids_only": True,
-                    "claims_must_be_exact_official_source_text": True,
+                    "body_text_forbidden": False,
+                    "fragment_ids_only": False,
+                    "claims_must_be_exact_official_source_text": False,
+                    "copy_policy": "source_faithful_rewrite",
+                    "unsupported_new_facts_forbidden": True,
+                    "supporting_fragment_ids_required_for_rewrite": True,
+                    "instructional_scaffolds_may_frame_but_not_add_facts": True,
                     "structured_headlines_required": True,
                     "unknown_ids_forbidden": True,
                     "preserve_chapter_order": True,

@@ -101,8 +101,13 @@ chapter-scoped, source-bound directives before page allocation.
 - **WHEN** V5 has already selected complete semantic groups
 - **THEN** the planner receives bounded chapter requests instead of one full-deck
   rewrite request
-- **AND** it may select only supplied beat IDs, headline fragment IDs, and
-  capacity-compatible layout IDs
+- **AND** it may select only supplied beat IDs, headline fragment IDs,
+  capacity-compatible layout IDs, and supporting fragment IDs owned by the beat
+- **AND** it may provide a bounded audience-facing title or summary only as a
+  source-faithful rewrite or instructional scaffold
+- **AND** every rewrite records its copy mode and exact supporting fragment IDs
+- **AND** it must not invent or alter facts, numbers, formulas, units, named
+  entities, or conclusions
 - **AND** compilation preserves the accepted AI decisions through final
   materialization
 
@@ -112,6 +117,17 @@ chapter-scoped, source-bound directives before page allocation.
 - **THEN** the system retains the deterministic source-bound story
 - **AND** the V5 publication gate reports the failed AI planning stage instead
   of presenting the fallback as an AI-quality result
+
+#### Scenario: AI supplies a useful teaching transition
+- **WHEN** the transition is grounded in fragments already owned by the beat
+- **THEN** V5 may use it as audience-facing summary copy
+- **AND** the exact primary claim and source provenance remain unchanged
+
+#### Scenario: AI introduces an unsupported factual token
+- **WHEN** a rewrite introduces a number, formula symbol, Latin identifier, or
+  other protected factual token absent from its supporting fragments
+- **THEN** the rewrite contract is rejected
+- **AND** the deterministic source-exact beat remains available for diagnosis
 
 ### Requirement: Visual Rejection Triggers Layout Re-Resolution
 
@@ -127,6 +143,12 @@ The system SHALL compute the final page layout after visual assets are resolved.
 - **WHEN** a source-grounded visual passes quality gates
 - **THEN** the resolver may retain a compatible visual-led layout
 - **AND** all required text and visual slots remain occupied
+
+#### Scenario: Prose contains an incidental connector
+- **WHEN** a connector such as `但是` or `不同` does not bind two meaningful
+  local source excerpts into a defensible relationship
+- **THEN** V5 resolves the visual decision to `none`
+- **AND** it does not chain unrelated paragraphs into a synthetic diagram
 
 ### Requirement: Web and PPT Render the Same Final Contract
 
@@ -174,7 +196,8 @@ titles, or web/PPT final-contract drift.
 - **WHEN** title characters, visible items, or body characters exceed the
   resolved layout's presentation-safe budget
 - **THEN** publication is blocked
-- **AND** neither renderer shrinks body text below 14 pt or titles below 24 pt
+- **AND** neither renderer shrinks audience body text below 16 pt or primary
+  titles below 35 pt
 
 #### Scenario: Visible claim promises more members than the page contains
 - **WHEN** the title or body promises `N` classes, steps, parts, or alternatives
@@ -182,3 +205,22 @@ titles, or web/PPT final-contract drift.
 - **THEN** publication is blocked with
   `enumeration_cardinality_mismatch`
 - **AND** the incomplete page is not treated as a quality-equivalent fallback
+
+#### Scenario: A final slide retains a page-level critical issue
+- **WHEN** any materialized slide reports a critical blocker or failed page
+  quality contract
+- **THEN** the deck-level V5 publication report is failed
+- **AND** the page issue remains visible in the deck blockers
+
+### Requirement: Durable Completion Publishes Atomically
+
+The frontend SHALL reconcile durable task completion to the newly published V5
+registry and SHALL clear any intermediate live-slide draft before presenting a
+terminal completed state.
+
+#### Scenario: Durable task completes while the event stream is still open
+- **WHEN** polling observes `completed` before the SSE stream emits its terminal
+  event
+- **THEN** the frontend reloads the published registry and selected V5 spec
+- **AND** it switches the preview and quality report to the published version
+- **AND** stale live slides and draft quality are cleared atomically
