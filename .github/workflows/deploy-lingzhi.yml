@@ -13,6 +13,7 @@ on:
         type: choice
         options:
           - deploy
+          - compact
           - inspect
           - recover
 
@@ -108,7 +109,11 @@ jobs:
   recover:
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      (inputs.operation == 'inspect' || inputs.operation == 'recover')
+      (
+        inputs.operation == 'compact' ||
+        inputs.operation == 'inspect' ||
+        inputs.operation == 'recover'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -175,6 +180,22 @@ jobs:
             systemctl stop lingzhi || true
             echo "INSPECTION_OK"
             exit 0
+          fi
+          if [ "$LINGZHI_OPERATION" = "compact" ]; then
+            jobs_file="/opt/lingzhi/state/backend-data/generation_jobs.json"
+            if [ -f "$jobs_file" ]; then
+              jobs_size="$(stat -c '%s' "$jobs_file")"
+              if [ "$jobs_size" -gt 33554432 ]; then
+                archive="/opt/lingzhi/backups/generation_jobs-oversized-$(date +%Y%m%d-%H%M%S).json"
+                systemctl stop lingzhi || true
+                mv "$jobs_file" "$archive"
+                jobs_tmp="${jobs_file}.tmp"
+                printf '{}\n' > "$jobs_tmp"
+                chmod 600 "$jobs_tmp"
+                mv "$jobs_tmp" "$jobs_file"
+                echo "ARCHIVED_OVERSIZED_JOB_INDEX=$archive"
+              fi
+            fi
           fi
           systemctl reset-failed lingzhi || true
           systemctl restart lingzhi
