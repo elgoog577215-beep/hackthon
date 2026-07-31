@@ -766,6 +766,72 @@ def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() 
     )
 
 
+def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    second = fallback.chapters[0].model_copy(
+        update={
+            "chapter_id": "chapter-second",
+            "next_chapter_id": "",
+            "episodes": [
+                episode.model_copy(update={
+                    "beats": [
+                        beat.model_copy(update={"fragment_ids": []})
+                        for beat in episode.beats
+                    ],
+                })
+                for episode in fallback.chapters[0].episodes
+            ],
+        },
+    )
+    batched_fallback = fallback.model_copy(update={
+        "chapters": [
+            fallback.chapters[0].model_copy(
+                update={"next_chapter_id": "chapter-second"},
+            ),
+            second,
+        ],
+    })
+    monkeypatch.setattr(
+        "slide_story_plan.compile_slide_story_plan_v2",
+        lambda *_args, **_kwargs: batched_fallback,
+    )
+    requests: list[dict] = []
+
+    async def planner(request: dict) -> dict:
+        requests.append(request)
+        return request["deterministic_baseline"]
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "ai"
+    assert [item.chapter_id for item in planned.chapters] == [
+        fallback.chapters[0].chapter_id,
+        "chapter-second",
+    ]
+    assert len(requests) == 2
+    assert all(
+        len(request["deterministic_baseline"]["chapters"]) == 1
+        for request in requests
+    )
+    assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
+
+
 def test_v4_exports_editable_widescreen_pptx(tmp_path) -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
