@@ -832,6 +832,63 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
     assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
 
 
+def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    target = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.fragment_ids
+    )
+    headline_fragment_id = target.fragment_ids[-1]
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": target.beat_id,
+                "headline_fragment_id": headline_fragment_id,
+                "layout_id": target.layout_intent,
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    planned_target = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == target.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_target.primary_claim_source.fragment_id == headline_fragment_id
+    assert planned_target.primary_claim_source.text == next(
+        item.text
+        for item in fragments
+        if item.fragment_id == headline_fragment_id
+    )
+
+
 def test_v4_exports_editable_widescreen_pptx(tmp_path) -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
