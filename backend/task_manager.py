@@ -344,6 +344,25 @@ MAX_TASK_INDEX_BYTES = max(
 )
 
 
+def _public_representation_quality(
+    quality: Any,
+) -> dict[str, Any] | None:
+    if not isinstance(quality, dict):
+        return None
+    blockers = list(quality.get("blockers") or [])
+    warnings = list(quality.get("warnings") or [])
+    return {
+        key: deepcopy(quality[key])
+        for key in ("passed", "score", "planning")
+        if key in quality
+    } | {
+        "blockers": deepcopy(blockers[:24]),
+        "warnings": deepcopy(warnings[:24]),
+        "blocker_count": len(blockers),
+        "warning_count": len(warnings),
+    }
+
+
 class TaskRecoveryConflict(RuntimeError):
     def __init__(self, message: str, *, recovery: dict[str, Any]) -> None:
         super().__init__(message)
@@ -2297,6 +2316,16 @@ class TaskManager:
             for key, value in task.items()
             if key not in PUBLIC_TASK_OMITTED_FIELDS and key != "logs"
         }
+        last_event = task.get("last_event") or {}
+        blocked_quality = (
+            last_event.get("quality")
+            if isinstance(last_event, dict)
+            and last_event.get("event") == "build_blocked"
+            else None
+        )
+        public_quality = _public_representation_quality(blocked_quality)
+        if "quality" not in view and public_quality is not None:
+            view["quality"] = public_quality
         view["logs"] = deepcopy((task.get("logs") or [])[-PUBLIC_TASK_LOG_LIMIT:])
         view["recovery"] = self._task_recovery_summary(task)
         return view
@@ -3956,6 +3985,12 @@ class TaskManager:
             history.append(event)
             task["event_history"] = history[-240:]
             task["last_event"] = event
+            if payload.get("event") == "build_blocked":
+                public_quality = _public_representation_quality(
+                    payload.get("quality")
+                )
+                if public_quality is not None:
+                    task["quality"] = public_quality
             task["progress"] = max(
                 int(task.get("progress") or 0), int(payload.get("progress") or 0),
             )

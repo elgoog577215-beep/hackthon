@@ -24,10 +24,11 @@ from slide_story_plan import (
     SlideStoryPlanV2,
     StoryBeatV2,
     TeachingEpisodeV2,
+    V5_SEMANTIC_CORE_REASONS,
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.3"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.4"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.0"
 
@@ -201,7 +202,10 @@ def _enumeration_counts(value: str) -> list[int]:
     return [
         count
         for match in _ENUMERATION_PROMISE_PATTERN.finditer(str(value or ""))
-        if (count := _chinese_count(match.group(1))) is not None
+        if (
+            (count := _chinese_count(match.group(1))) is not None
+            and count >= 2
+        )
     ]
 
 
@@ -209,7 +213,10 @@ def _title_enumeration_counts(value: str) -> list[int]:
     return [
         count
         for match in _TITLE_ENUMERATION_PATTERN.finditer(str(value or ""))
-        if (count := _chinese_count(match.group(1))) is not None
+        if (
+            (count := _chinese_count(match.group(1))) is not None
+            and count >= 2
+        )
     ]
 
 
@@ -238,7 +245,20 @@ def _v5_required_enumeration_fragments(group: list[Any]) -> set[str]:
     return set()
 
 
+def _formula_group_has_source_explanation(group: list[Any]) -> bool:
+    return (
+        not any(fragment.kind == "formula" for fragment in group)
+        or any(
+            fragment.kind in {"paragraph", "list_item"}
+            and _clean_text(fragment.text)
+            for fragment in group
+        )
+    )
+
+
 def _v5_fit_group(group: list[Any], *, limit: int = 230) -> list[Any]:
+    if not _formula_group_has_source_explanation(group):
+        return []
     required_ids = _v5_required_enumeration_fragments(group)
     if required_ids:
         required = [
@@ -269,10 +289,11 @@ def _v5_fit_group(group: list[Any], *, limit: int = 230) -> list[Any]:
                 continue
             selected_ids.add(fragment.fragment_id)
             visible += size
-        return [
+        fitted = [
             fragment for fragment in group
             if fragment.fragment_id in selected_ids
         ]
+        return fitted if _formula_group_has_source_explanation(fitted) else []
 
     selected: list[Any] = []
     visible = 0
@@ -286,7 +307,7 @@ def _v5_fit_group(group: list[Any], *, limit: int = 230) -> list[Any]:
         visible += size
         if len(selected) == 8:
             break
-    return selected
+    return selected if _formula_group_has_source_explanation(selected) else []
 
 
 def _compact_existing_episodes_v5(
@@ -366,8 +387,7 @@ def compact_story_plan_v5(
         for beat in episode.beats
     ]
     if interior_beats and all(
-        beat.layout_selection_reason
-        in {"v5_semantic_grouping", "ai_source_bound_directive"}
+        beat.layout_selection_reason in V5_SEMANTIC_CORE_REASONS
         for beat in interior_beats
     ):
         return story
@@ -1073,7 +1093,7 @@ def _structured_claim_title(value: str) -> str:
 
 
 def _bounded_title(value: str, limit: int = 24) -> str:
-    cleaned = _clean_text(value).strip("：:，,。！？!?；;、")
+    cleaned = _clean_text(value).strip("：:，,。！？!?；;、•·")
     if len(cleaned) <= limit:
         return cleaned
     excerpt = cleaned[:limit]
@@ -1086,7 +1106,7 @@ def _bounded_title(value: str, limit: int = 24) -> str:
     )
     if boundary >= max(8, limit // 2):
         excerpt = excerpt[:boundary]
-    return excerpt.strip("：:，,。！？!?；;、")
+    return excerpt.strip("：:，,。！？!?；;、•·")
 
 
 def compile_page_title_v5(
@@ -1171,6 +1191,37 @@ def _remove_repeated_lead_sentence(
             )
         ]
     return updated, changed
+
+
+_VISIBLE_BULLET_LINE = re.compile(
+    r"^\s*(?:[•●▪◦*\-]|\d+[.)、])\s*(\S.*)$"
+)
+
+
+def _structure_visible_enumerations(
+    blocks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    updated = deepcopy(blocks)
+    for block in updated:
+        if any(_clean_text(item) for item in block.get("items") or []):
+            continue
+        content = str(block.get("content") or "")
+        lines = content.splitlines()
+        items = [
+            _clean_text(match.group(1))
+            for line in lines
+            if (match := _VISIBLE_BULLET_LINE.match(line)) is not None
+        ]
+        if len(items) < 2:
+            continue
+        block["items"] = items
+        block["content"] = "\n".join(
+            line for line in lines
+            if _VISIBLE_BULLET_LINE.match(line) is None
+        ).strip()
+        if str(block.get("type") or "") == "statement":
+            block["type"] = "bullets"
+    return updated
 
 
 def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
@@ -1385,6 +1436,9 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
 
 def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     updated = deepcopy(slide)
+    updated["blocks"] = _structure_visible_enumerations(
+        list(updated.get("blocks") or [])
+    )
     contract = resolve_page_contract_v5(updated)
     quality = deepcopy(updated.get("quality") or {})
     quality.update({
@@ -1887,6 +1941,12 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for item in block.get("items") or []
             if _clean_text(item)
         ]
+        visible_items.extend(
+            _clean_text(match.group(1))
+            for block in slide.get("blocks") or []
+            for line in str(block.get("content") or "").splitlines()
+            if (match := _VISIBLE_BULLET_LINE.match(line)) is not None
+        )
         expected_counts = [
             *_title_enumeration_counts(title),
             *_enumeration_counts(body_text),
