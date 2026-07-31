@@ -152,9 +152,11 @@ from slide_deck_v4 import (
 from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
 from slide_story_plan import (
     SlideStoryPlanV2,
+    compile_slide_story_plan_v2,
     plan_slide_story_v2,
     resolve_slide_deck_schema,
 )
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_theme import slide_theme_version
 from slide_visuals import (
     SlideVisualPlanV1,
@@ -185,12 +187,11 @@ def _source_first_slide_ai_workers() -> tuple[
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
 ]:
-    """Create opt-in ID-only planner and reviewer functions."""
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None, None
+    """Create source-bound planner and reviewer functions when AI is available."""
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None, None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
@@ -231,28 +232,43 @@ def _source_first_slide_ai_workers() -> tuple[
 def _source_first_story_ai_worker() -> (
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
 ):
-    """Return the opt-in, source-ID-only v4 story planner."""
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None
+    """Return the source-bound story planner when AI is available."""
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         response = await provider._call_llm(
             json.dumps(request, ensure_ascii=False),
             system_prompt=(
-                "Return only one valid slide_story_plan_v2 JSON object. You are a "
-                "teaching-sequence director, not a course author. Use only supplied "
-                "fragment_id values and exact official claim sources. Never write, "
-                "summarize, translate, or supplement teaching body text. Preserve "
-                "chapter, prerequisite, proof, worked-example, prompt, and answer order."
+                "Return only one valid slide_story_chapter_directives_v2 JSON "
+                "object for the requested chapter. Do not echo or rewrite the "
+                "deterministic baseline. For each useful beat, select one "
+                "headline_fragment_id from that beat's headline_candidates and "
+                "one layout_id from that beat's allowed_layouts. Prefer a concise "
+                "source heading for the headline; otherwise choose the shortest "
+                "source sentence that states the beat's teaching point. Use only "
+                "supplied beat_id, fragment_id, and layout_id values. Never write, "
+                "summarize, translate, or supplement teaching text. Omit a beat "
+                "instead of making an uncertain choice. Preserve proof, example, "
+                "prompt, answer, and chapter order. The root object must contain "
+                "exactly schema_version, chapter_id, and beat_directives. Use this "
+                "shape: {\"schema_version\":\"slide_story_chapter_directives_v2\","
+                "\"chapter_id\":\"<exact supplied chapter_id>\","
+                "\"beat_directives\":[{\"beat_id\":\"<exact beat_id>\","
+                "\"headline_fragment_id\":\"<exact fragment_id or empty>\","
+                "\"layout_id\":\"<exact layout_id or empty>\"}]}. Never wrap this "
+                "object and never return episodes or the baseline."
             ),
             use_fast_model=True,
             retry_count=1,
             enable_thinking=False,
+            max_tokens=4096,
+            reject_truncated=True,
             raise_on_failure=True,
+            json_mode=True,
         )
         return provider._extract_json(response or "") or {}
 
@@ -262,11 +278,10 @@ def _source_first_story_ai_worker() -> (
 def _source_first_slide_visual_ai_worker() -> (
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
 ):
-    enabled = os.getenv("AI_SLIDE_PLANNER_ENABLED", "false").strip().lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None
     provider = AIBase()
-    if provider.client is None:
+    if not ai_slide_planning_enabled(
+        provider_available=provider.client is not None,
+    ):
         return None
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
@@ -3605,20 +3620,28 @@ class TaskManager:
             })
             if use_story_engine:
                 source_fragments = fragment_course_document(document)
+                story_baseline = None
+                if slide_schema == "slide_deck_v5":
+                    story_baseline = compact_story_plan_v5(
+                        document,
+                        compile_slide_story_plan_v2(
+                            document,
+                            course_view,
+                            source_fragments,
+                            mode=mode,  # type: ignore[arg-type]
+                            theme=theme,  # type: ignore[arg-type]
+                        ),
+                        source_fragments,
+                    )
                 story_plan = await plan_slide_story_v2(
                     document,
                     course_view,
                     source_fragments,
                     mode=mode,  # type: ignore[arg-type]
                     theme=theme,  # type: ignore[arg-type]
+                    baseline=story_baseline,
                     ai_planner=_source_first_story_ai_worker(),
                 )
-                if slide_schema == "slide_deck_v5":
-                    story_plan = compact_story_plan_v5(
-                        document,
-                        story_plan,
-                        source_fragments,
-                    )
                 allocation_plan, _ = allocation_from_story_plan_v2(
                     document,
                     source_fragments,

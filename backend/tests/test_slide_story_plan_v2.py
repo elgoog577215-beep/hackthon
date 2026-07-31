@@ -260,6 +260,21 @@ def test_story_plan_uses_official_course_logic_and_closes_the_chapter() -> None:
     assert plan.chapters[0].prerequisite_knowledge_names == ["向量空间"]
 
 
+def test_single_family_scene_remains_selectable_after_rhythm_limit() -> None:
+    selection = select_layout_v2(
+        scene_kind="chapter_entry",
+        evidence_kinds=["text"],
+        character_count=0,
+        item_count=0,
+        theme="qizhi-classroom",
+        recent_layout_families=["hero", "hero"],
+    )
+
+    assert selection.layout_id == "chapter-question"
+    assert selection.capacity_passed is True
+    assert selection.rhythm_score < 1
+
+
 def test_content_scene_claim_is_derived_from_the_local_beat() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
@@ -713,6 +728,181 @@ def test_illegal_ai_claim_is_rejected_and_uses_deterministic_story() -> None:
         for chapter in planned.chapters
         for episode in chapter.episodes
         for beat in episode.beats
+    )
+
+
+def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    baseline = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    ).model_dump(mode="json")
+    captured: dict = {}
+
+    async def planner(request: dict) -> dict:
+        captured.update(request)
+        return baseline
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "ai"
+    assert captured["rules"]["structured_headlines_required"] is True
+    assert all(
+        item["source_text"]
+        and len(item["source_text"]) <= 400
+        for item in captured["fragments"]
+    )
+
+
+def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    second = fallback.chapters[0].model_copy(
+        update={
+            "chapter_id": "chapter-second",
+            "next_chapter_id": "",
+            "episodes": [
+                episode.model_copy(update={
+                    "beats": [
+                        beat.model_copy(update={"fragment_ids": []})
+                        for beat in episode.beats
+                    ],
+                })
+                for episode in fallback.chapters[0].episodes
+            ],
+        },
+    )
+    batched_fallback = fallback.model_copy(update={
+        "chapters": [
+            fallback.chapters[0].model_copy(
+                update={"next_chapter_id": "chapter-second"},
+            ),
+            second,
+        ],
+    })
+    monkeypatch.setattr(
+        "slide_story_plan.compile_slide_story_plan_v2",
+        lambda *_args, **_kwargs: batched_fallback,
+    )
+    requests: list[dict] = []
+
+    async def planner(request: dict) -> dict:
+        requests.append(request)
+        beat = request["beat_catalog"][0]
+        return {
+            "slide_story_chapter_directives_v2": {
+                "chapter_id": request["scope"]["chapter_id"],
+                "beat_directives": [{
+                    "beat_id": beat["beat_id"],
+                    "layout_id": beat["current_layout_id"],
+                }],
+            },
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "ai"
+    assert [item.chapter_id for item in planned.chapters] == [
+        fallback.chapters[0].chapter_id,
+        "chapter-second",
+    ]
+    assert len(requests) == 2
+    assert all("deterministic_baseline" not in request for request in requests)
+    assert all(request["chapter_contract"]["chapter_id"] for request in requests)
+    assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
+
+
+def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    target = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.fragment_ids
+    )
+    headline_fragment_id = target.fragment_ids[-1]
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "episode_directives": [{
+                "episode_id": next(
+                    episode.episode_id
+                    for episode in fallback.chapters[0].episodes
+                    if any(
+                        beat.beat_id == target.beat_id
+                        for beat in episode.beats
+                    )
+                ),
+                "beat_directives": [{
+                    "beat_id": target.beat_id,
+                    "headline_fragment_id": headline_fragment_id,
+                    "layout_id": target.layout_intent,
+                }],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    planned_target = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == target.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_target.primary_claim_source.fragment_id == headline_fragment_id
+    assert planned_target.primary_claim_source.text == next(
+        item.text
+        for item in fragments
+        if item.fragment_id == headline_fragment_id
     )
 
 

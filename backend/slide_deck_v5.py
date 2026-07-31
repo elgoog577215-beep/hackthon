@@ -27,7 +27,7 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.1"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.2"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.0"
 
@@ -234,6 +234,18 @@ def compact_story_plan_v5(
         if isinstance(story_plan, SlideStoryPlanV2)
         else SlideStoryPlanV2.model_validate(story_plan)
     )
+    interior_beats = [
+        beat
+        for chapter in story.chapters
+        for episode in chapter.episodes[1:-1]
+        for beat in episode.beats
+    ]
+    if interior_beats and all(
+        beat.layout_selection_reason
+        in {"v5_semantic_grouping", "ai_source_bound_directive"}
+        for beat in interior_beats
+    ):
+        return story
     source_fragments = fragments or fragment_course_document(document)
     fragments_by_section: dict[str, list[Any]] = {}
     for fragment in source_fragments:
@@ -1642,6 +1654,197 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return issues
 
 
+def summarize_v5_slide_counts(
+    slides: list[dict[str, Any]],
+) -> dict[str, int]:
+    appendix = sum(
+        1
+        for slide in slides
+        if (
+            bool((slide.get("quality") or {}).get("appendix"))
+            or str(slide.get("layout") or "") == "appendix"
+            or str(slide.get("narrative_role") or "") == "appendix"
+        )
+    )
+    return {
+        "main_slide_count": len(slides) - appendix,
+        "appendix_slide_count": appendix,
+        "total_slide_count": len(slides),
+    }
+
+
+def _v5_issue_identity(issue: dict[str, Any]) -> tuple[str, ...]:
+    return (
+        str(issue.get("severity") or ""),
+        str(issue.get("code") or ""),
+        str(
+            issue.get("page_id")
+            or issue.get("slide_id")
+            or issue.get("target")
+            or ""
+        ),
+    )
+
+
+def _v5_semantic_issue(issue: dict[str, Any]) -> bool:
+    code = str(issue.get("code") or "")
+    return (
+        code in {
+            "ai_story_planner_failed",
+            "ai_story_planner_unavailable",
+            "knowledge_binding_missing",
+            "official_source_revision_mismatch",
+            "raw_source_sentence_as_title",
+            "title_body_duplication",
+        }
+        or code.startswith(
+            (
+                "ai_story_",
+                "concise_",
+                "fragment_",
+                "knowledge_",
+                "official_",
+                "source_",
+            )
+        )
+    )
+
+
+def finalize_v5_quality_report(
+    *,
+    previous_quality: dict[str, Any],
+    slides: list[dict[str, Any]],
+    planner: str,
+    fallback_reason: str,
+) -> dict[str, Any]:
+    """Replace stale V3/V4 gates with one internally consistent V5 report."""
+    previous_candidates = [
+        *(previous_quality.get("blockers") or []),
+        *((previous_quality.get("semantic") or {}).get("issues") or []),
+        *((previous_quality.get("visual") or {}).get("issues") or []),
+    ]
+    retained = [
+        deepcopy(issue)
+        for issue in previous_candidates
+        if str(issue.get("code") or "") not in _V5_REPLACED_V4_QUALITY_CODES
+    ]
+    planning_issues: list[dict[str, Any]] = []
+    if fallback_reason == "invalid_or_failed_ai_story_plan":
+        planning_issues.append({
+            "severity": "critical",
+            "code": "ai_story_planner_failed",
+            "target": "deck",
+            "message": (
+                "AI story planning failed validation; the deterministic fallback "
+                "was not published as a quality-equivalent V5 deck."
+            ),
+            "suggestion": "Retry the build after the AI planner is available.",
+        })
+    elif planner != "ai":
+        planning_issues.append({
+            "severity": "major",
+            "code": "ai_story_planner_unavailable",
+            "target": "deck",
+            "message": (
+                "The deck used deterministic story planning because no AI planner "
+                "was available."
+            ),
+            "suggestion": "Configure the AI provider to enable semantic planning.",
+        })
+
+    combined = [
+        *retained,
+        *v5_contract_issues(slides),
+        *planning_issues,
+    ]
+    issues: list[dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
+    for issue in combined:
+        identity = _v5_issue_identity(issue)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        issues.append(issue)
+
+    blockers = [
+        issue for issue in issues
+        if str(issue.get("severity") or "") == "critical"
+    ]
+    warnings = [
+        issue for issue in issues
+        if str(issue.get("severity") or "") != "critical"
+    ]
+    semantic_issues = [
+        issue for issue in issues
+        if _v5_semantic_issue(issue)
+    ]
+    visual_issues = [
+        issue for issue in issues
+        if issue not in semantic_issues
+    ]
+    score = max(
+        0,
+        100 - sum(
+            {
+                "critical": 20,
+                "major": 6,
+                "minor": 1,
+            }.get(str(issue.get("severity") or ""), 1)
+            for issue in issues
+        ),
+    )
+    passthrough = {
+        key: deepcopy(value)
+        for key, value in previous_quality.items()
+        if key not in {
+            "passed",
+            "score",
+            "issues",
+            "blockers",
+            "warnings",
+            "semantic",
+            "visual",
+            "v5_composition",
+        }
+    }
+    contract_issues = v5_contract_issues(slides)
+    return {
+        **passthrough,
+        "passed": not blockers,
+        "score": score,
+        "issues": issues,
+        "blockers": blockers,
+        "warnings": warnings,
+        "semantic": {
+            "passed": not any(
+                str(issue.get("severity") or "") == "critical"
+                for issue in semantic_issues
+            ),
+            "issues": semantic_issues,
+        },
+        "visual": {
+            "passed": not any(
+                str(issue.get("severity") or "") == "critical"
+                for issue in visual_issues
+            ),
+            "issues": visual_issues,
+        },
+        "planning": {
+            "planner": planner,
+            "fallback_reason": fallback_reason,
+            "passed": not any(
+                str(issue.get("severity") or "") == "critical"
+                for issue in planning_issues
+            ),
+            "issues": planning_issues,
+        },
+        "v5_composition": {
+            "passed": not contract_issues,
+            "issues": contract_issues,
+        },
+    }
+
+
 def compile_slide_deck_v5(
     document: CourseDocument,
     course_data: dict[str, Any],
@@ -1715,16 +1918,7 @@ def compile_slide_deck_v5(
                 "requested_layout": scene_layout,
             }
     slides = [apply_page_contract_v5(slide) for slide in slides]
-    issues = v5_contract_issues(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})
-    previous_blockers = [
-        blocker
-        for blocker in previous_quality.get("blockers") or []
-        if (
-            str(blocker.get("code") or "")
-            not in _V5_REPLACED_V4_QUALITY_CODES
-        )
-    ]
     content.update({
         "schema_version": SLIDE_DECK_V5_SCHEMA,
         "slides": slides,
@@ -1758,18 +1952,17 @@ def compile_slide_deck_v5(
             ],
         },
     })
-    content["quality_report"] = {
-        **previous_quality,
-        "passed": not previous_blockers and not issues,
-        "blockers": [*previous_blockers, *issues],
-        "v5_composition": {
-            "passed": not issues,
-            "issues": issues,
-        },
-    }
+    content["quality_report"] = finalize_v5_quality_report(
+        previous_quality=previous_quality,
+        slides=slides,
+        planner=outline.planner,
+        fallback_reason=outline.fallback_reason,
+    )
     content["quality_summary"] = {
         **(content.get("quality_summary") or {}),
         "passed": content["quality_report"]["passed"],
+        "score": content["quality_report"]["score"],
+        **summarize_v5_slide_counts(slides),
     }
     return content
 
@@ -1785,24 +1978,10 @@ def validate_slide_deck_v5(
     compatibility = deepcopy(content)
     compatibility["schema_version"] = SLIDE_DECK_V4_SCHEMA
     base = validate_slide_deck_v4(compatibility, course_data=course_data)
-    issues = v5_contract_issues(list(content.get("slides") or []))
-    base_blockers = [
-        blocker
-        for blocker in base.get("blockers") or []
-        if (
-            str(blocker.get("code") or "")
-            not in _V5_REPLACED_V4_QUALITY_CODES
-        )
-    ]
-    blockers = [*base_blockers, *issues]
-    passed = not blockers
-    return {
-        **base,
-        "passed": passed,
-        "score": max(int(base.get("score") or 0), 85 if passed else 0),
-        "blockers": blockers,
-        "v5_composition": {
-            "passed": not issues,
-            "issues": issues,
-        },
-    }
+    outline = content.get("deck_outline") or {}
+    return finalize_v5_quality_report(
+        previous_quality=base,
+        slides=list(content.get("slides") or []),
+        planner=str(outline.get("planner") or ""),
+        fallback_reason=str(outline.get("fallback_reason") or ""),
+    )

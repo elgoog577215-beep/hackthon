@@ -103,6 +103,36 @@ describe('SlideDeckWorkbench', () => {
     expect(count).toContain('建议按章节拆分')
   })
 
+  it('shows the actual V5 slide total after structural pages are inserted', () => {
+    const fullDeck = Array.from({ length: 91 }, (_, index) => ({
+      ...slides[index % slides.length]!,
+      unit_id: `slide:${index + 1}`,
+    }))
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-v5',
+        deckTitle: 'Thermodynamics',
+        slides: fullDeck,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        quality: {
+          passed: true,
+          main_slide_count: 74,
+          appendix_slide_count: 0,
+          total_slide_count: 91,
+        },
+      },
+    })
+
+    const count = wrapper.find('.slide-workbench__count').text()
+    expect(count).toContain('91')
+    expect(count).not.toContain('74')
+  })
+
   it('uses the same structured slide spec for thumbnails, canvas, and source inspection', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
