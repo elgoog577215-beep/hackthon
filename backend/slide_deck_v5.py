@@ -917,6 +917,31 @@ def _best_body_title_claim(value: str) -> str:
     return relational or (candidates[0] if candidates else "")
 
 
+def _is_takeaway_title(value: str) -> bool:
+    title = _clean_text(value)
+    return bool(
+        _enumeration_counts(title)
+        or title.endswith(("？", "?"))
+        or any(
+            marker in title
+            for marker in (
+                "是指",
+                "意味着",
+                "决定",
+                "导致",
+                "构成",
+                "属于",
+                "取决于",
+                "表明",
+                "说明",
+                "等于",
+                "形成",
+                "支持",
+            )
+        )
+    )
+
+
 def _body_text_from_blocks(blocks: list[dict[str, Any]]) -> str:
     return "\n".join(
         value
@@ -1045,6 +1070,7 @@ def compile_page_title_v5(
     primary_claim: str = "",
     body_text: str = "",
     fallback_context: str = "",
+    prefer_body_claim: bool = False,
 ) -> str:
     """Compile one audience-facing title without promoting takeaway at render time."""
     explicit = _title_candidate(explicit_title)
@@ -1055,6 +1081,14 @@ def compile_page_title_v5(
         claim = ""
     body_claim = _best_body_title_claim(body_text)
     fallback = _title_candidate(fallback_context)
+    if (
+        prefer_body_claim
+        and body_claim
+        and explicit
+        and explicit == claim
+        and not _is_takeaway_title(explicit)
+    ):
+        return _structured_claim_title(body_claim)
     if explicit:
         if explicit not in {claim, body_claim} or len(explicit) <= 24:
             return _bounded_title(explicit)
@@ -1367,6 +1401,13 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
                 or updated.get("teaching_job")
                 or updated.get("eyebrow")
                 or ""
+            ),
+            prefer_body_claim=(
+                str(
+                    (updated.get("primary_claim_source") or {}).get("kind")
+                    or ""
+                )
+                == "source_heading"
             ),
         )
         deduplicated_blocks, removed_lead = _remove_repeated_lead_sentence(
