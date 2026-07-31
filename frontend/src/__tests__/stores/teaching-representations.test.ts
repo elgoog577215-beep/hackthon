@@ -429,6 +429,65 @@ describe('teaching representation progressive build', () => {
     vi.useRealTimers()
   })
 
+  it('atomically publishes a completed durable build when its SSE stream is still open', async () => {
+    vi.useFakeTimers()
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+        controller.enqueue(encoder.encode(
+          'event: planner_started\ndata: {"event":"planner_started","progress":1,"task_id":"representation-job-complete"}\n\n'
+          + 'event: slide_upsert\ndata: {"event":"slide_upsert","progress":40,"slide":{"unit_id":"slide:draft","title":"Draft","layout":"concept"}}\n\n',
+        ))
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+
+    const registry = slideRegistry('slides-published', 'r2')
+    const publishedSpec = slideSpec('slides-published', 'Published')
+    const publishedQuality = { passed: true, score: 96, total_slide_count: 91 }
+    publishedSpec.payload.content.schema_version = 'slide_deck_v5'
+    publishedSpec.payload.content.quality_summary = publishedQuality
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/tasks/representation-job-complete') {
+        return Promise.resolve({ data: {
+          id: 'representation-job-complete',
+          type: 'slide_deck_variant_build',
+          status: 'completed',
+          progress: 100,
+          phase: 'build_complete',
+        } })
+      }
+      if (url === '/api/courses/course-1/teaching-representations') {
+        return Promise.resolve({ data: { registry } })
+      }
+      if (url === '/api/courses/course-1/teaching-representations/slides-published/spec') {
+        return Promise.resolve({ data: { spec: publishedSpec } })
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    })
+    const store = useTeachingRepresentationsStore()
+
+    const building = store.buildProgressive('course-1')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.slidePreviewSource).toBe('draft')
+    expect(store.liveSlides).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(store.slidePreviewSource).toBe('published')
+    expect(store.liveSlides).toEqual([])
+    expect(store.draftSlideQuality).toBeNull()
+    expect(store.publishedSlideQuality).toEqual(publishedQuality)
+    expect(store.slideQuality).toEqual(publishedQuality)
+    expect(store.selectedSpec?.payload.content.schema_version).toBe('slide_deck_v5')
+
+    controller.close()
+    await building
+    vi.useRealTimers()
+  })
+
   it('restores a failed PPT build terminal state after reopening the workspace', async () => {
     httpMock.get.mockResolvedValue({ data: {
       id: 'representation-job-failed',

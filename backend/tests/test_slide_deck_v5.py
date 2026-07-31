@@ -1214,6 +1214,37 @@ def test_v5_quality_cannot_publish_when_a_retained_nested_gate_is_critical() -> 
     } == {"official_source_revision_mismatch"}
 
 
+def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": True,
+            "score": 100,
+            "semantic": {"passed": True, "issues": []},
+            "visual": {"passed": True, "issues": []},
+            "blockers": [],
+        },
+        slides=[{
+            "unit_id": "slide:v4:0001",
+            "quality": {
+                "passed": False,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "slide_block_overflow",
+                    "slide_id": "slide:v4:0001",
+                    "message": "The final slide still exceeds its resolved layout.",
+                }],
+            },
+        }],
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is False
+    assert "slide_block_overflow" in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
 def test_v5_failed_ai_plan_is_a_blocker_instead_of_a_silent_fallback() -> None:
     report = finalize_v5_quality_report(
         previous_quality={

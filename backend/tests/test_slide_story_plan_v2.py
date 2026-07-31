@@ -772,6 +772,9 @@ def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() 
 
     assert planned.planner == "ai"
     assert captured["rules"]["structured_headlines_required"] is True
+    assert captured["rules"]["body_text_forbidden"] is False
+    assert captured["rules"]["copy_policy"] == "source_faithful_rewrite"
+    assert captured["rules"]["unsupported_new_facts_forbidden"] is True
     assert all(
         item["source_text"]
         and len(item["source_text"]) <= 400
@@ -917,6 +920,66 @@ def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
         for item in fragments
         if item.fragment_id == headline_fragment_id
     )
+
+
+def test_ai_story_planner_accepts_grounded_audience_facing_copy() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    target = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.fragment_ids
+    )
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": target.beat_id,
+                "layout_id": target.layout_intent,
+                "copy_mode": "source_faithful_rewrite",
+                "audience_facing_title": "先抓住定义条件，再判断概念是否成立",
+                "audience_facing_summary": "把来源中的定义、条件和边界压缩成一条可讲授的判断路径。",
+                "supporting_fragment_ids": target.fragment_ids,
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    planned_target = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == target.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_target.primary_claim_source == target.primary_claim_source
+    assert planned_target.audience_facing_title == "先抓住定义条件，再判断概念是否成立"
+    assert planned_target.audience_facing_summary == (
+        "把来源中的定义、条件和边界压缩成一条可讲授的判断路径。"
+    )
+    assert planned_target.copy_mode == "source_faithful_rewrite"
+    assert planned_target.copy_source_fragment_ids == target.fragment_ids
 
 
 def test_ai_practice_prompt_layout_compiles_to_a_supported_allocation() -> None:
