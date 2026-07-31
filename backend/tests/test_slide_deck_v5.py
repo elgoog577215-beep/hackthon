@@ -328,6 +328,85 @@ def test_v5_compaction_excludes_formula_without_source_explanation() -> None:
     assert not any(page.appendix for page in allocation.pages)
 
 
+def test_ai_refinement_keeps_formula_and_source_explanation_on_one_page() -> None:
+    document = CourseDocument(
+        course_id="course-v5-formula-binding",
+        title="公式绑定测试",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="第一章",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 能量守恒",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate([
+            ("formula-heading", "heading", "热力学第一定律"),
+            ("formula", "formula", r"$$ \Delta U = Q - W $$"),
+            ("formula-explanation", "paragraph", "其中各符号分别表示内能、热量和功。"),
+        ])
+    ]
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    refined = compact.model_copy(update={
+        "planner": "ai",
+        "chapters": [
+            chapter.model_copy(update={
+                "episodes": [
+                    episode.model_copy(update={
+                        "beats": [
+                            beat.model_copy(update={
+                                "layout_selection_reason": (
+                                    "ai_source_bound_directive"
+                                ),
+                            })
+                            for beat in episode.beats
+                        ],
+                    })
+                    for episode in chapter.episodes
+                ],
+            })
+            for chapter in compact.chapters
+        ],
+    })
+
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        refined,
+    )
+    formula_pages = [
+        page for page in allocation.pages
+        if "formula" in page.fragment_ids
+    ]
+
+    assert len(formula_pages) == 1
+    assert {
+        "formula",
+        "formula-explanation",
+    } <= set(formula_pages[0].fragment_ids)
+
+
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
     document = CourseDocument(
         course_id="course-enumeration",
