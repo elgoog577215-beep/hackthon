@@ -569,21 +569,13 @@ def _render_relational_visual(
             align="center",
         )
 
-    for index, node in enumerate(nodes):
+    for node in nodes:
         node_id = str(node.get("node_id") or "")
         x, y, width, height = positions[node_id]
         primary = str(node.get("emphasis") or "") == "primary"
         full_label = str(node.get("label") or "")
-        visible_label = _diagram_label(full_label)
-        label_size = (
-            11
-            if height < 0.82 and len(visible_label) > 18
-            else 12
-            if len(visible_label) > 26
-            else 14
-            if len(visible_label) > 17
-            else 16
-        )
+        visible_label = _diagram_label(full_label, maximum=18)
+        label_size = 16
         shape = _shape(
             slide,
             x,
@@ -1201,7 +1193,7 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
     )
     _shape(slide, 0.88, 5.5, 3.25, 0.06, theme["accent"], radius=False)
     if unit.subtitle:
-        _text(slide, unit.subtitle, 0.9, 5.78, 8.4, 0.45, 15, theme["muted"])
+        _text(slide, unit.subtitle, 0.9, 5.78, 8.4, 0.45, 16, theme["muted"])
 
 
 def _render_roadmap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -1258,7 +1250,7 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
             y + 0.08,
             9.95,
             row_h - 0.12,
-            18 if len(item) <= 24 else 15,
+            18 if len(item) <= 24 else 16,
             theme["ink"],
             bold=True,
         )
@@ -1270,7 +1262,7 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _text(slide, chapter_number, 0.72, 1.15, 2.5, 1.35, 54, theme["accent"], bold=True)
     _text(slide, unit.eyebrow or "章节转场", 4.65, 1.08, 2.3, 0.32, 12, theme["green"], bold=True)
     _text(
-        slide, unit.title, 4.65, 1.62, 7.55, 1.4, 31, theme["title"], bold=True,
+        slide, unit.title, 4.65, 1.62, 7.55, 1.4, 35, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
     _shape(slide, 4.65, 3.45, 6.95, 1.55, theme["canvas"], radius=True, line=theme["chart_bg"])
@@ -1281,7 +1273,7 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         or unit.teaching_job
         or unit.takeaway
     )
-    _text(slide, chapter_message, 4.98, 4.12, 6.18, 0.62, 15, theme["ink"], bold=True)
+    _text(slide, chapter_message, 4.98, 4.12, 6.18, 0.62, 16, theme["ink"], bold=True)
 
 
 def _render_objective(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -1477,7 +1469,7 @@ def _render_classification_three(
             3.0,
             3.38,
             2.35,
-            18 if len(item) <= 48 else 15,
+            18 if len(item) <= 48 else 16,
             theme["ink"],
             bold=True,
         )
@@ -1624,7 +1616,7 @@ def _render_worked_example(
             y,
             9.02,
             0.96,
-            18 if len(value) <= 90 else 15,
+            18 if len(value) <= 90 else 16,
             theme["ink"],
             bold=index == 2,
         )
@@ -1761,7 +1753,7 @@ def _render_practice_feedback(
             2.72,
             3.25,
             2.72,
-            14,
+            16,
             theme["ink"],
             theme["green"],
         )
@@ -1773,7 +1765,7 @@ def _render_practice_feedback(
             5.62,
             3.3,
             0.52,
-            11,
+            16,
             theme["muted"],
             bold=True,
         )
@@ -1862,7 +1854,7 @@ def _render_chapter_recap(
             3.68,
             max(1.65, width - 0.22),
             1.25,
-            15 if len(item) <= 48 else 14,
+            16,
             theme["ink"],
             bold=True,
         )
@@ -1876,7 +1868,7 @@ def _render_chapter_recap(
             5.58,
             10.65,
             0.52,
-            14,
+            16,
             theme["muted"],
             bold=True,
         )
@@ -1937,7 +1929,7 @@ def _render_course_synthesis(
             y,
             6.34,
             max(0.45, row_height - 0.08),
-            15 if len(item) <= 70 else 14,
+            16,
             theme["ink"],
             bold=True,
         )

@@ -119,7 +119,7 @@ excluding one or more members.
 ### Source-Bound AI Refinement
 
 AI planning runs after deterministic semantic compaction. The planner does not
-rewrite `SlideStoryPlanV2`; it receives one bounded request per chapter and
+replace `SlideStoryPlanV2`; it receives one bounded request per chapter and
 returns only `slide_story_chapter_directives_v2`:
 
 ```text
@@ -128,12 +128,20 @@ beat_directives[]
   beat_id
   headline_fragment_id
   layout_id
+  copy_mode
+  audience_facing_title
+  audience_facing_summary
+  supporting_fragment_ids[]
 ```
 
 Each headline must point to a fragment already owned by that beat, and each
 layout must be one of the capacity-compatible options computed by code. Requests
 run with bounded concurrency so a large course does not exceed provider context
-limits or require one giant JSON response. The compiler treats an already
+limits or require one giant JSON response. Audience-facing copy may compress,
+clarify, question, or bridge the owned source, but cannot introduce unsupported
+facts, numbers, formulas, units, identifiers, named entities, or conclusions.
+Every non-exact copy decision retains its supporting fragment IDs while the
+exact `primary_claim_source` remains unchanged. The compiler treats an already
 compacted and AI-refined story as authoritative, making compaction idempotent
 instead of rebuilding and erasing accepted decisions.
 
@@ -258,6 +266,11 @@ V5 starts with a small reliable set rather than many weak templates:
 Adjacent slides should vary silhouette only within layouts compatible with their
 semantic groups.
 
+Rule-based diagrams require a local, bounded relation between meaningful source
+excerpts. Template headings, incidental connector words, and unrelated adjacent
+paragraphs do not qualify. If information gain cannot be defended, `none` is the
+successful visual decision and layout resolution chooses a text-native page.
+
 ## Rendering
 
 The existing `SlideSpec` remains the interchange envelope during migration.
@@ -275,6 +288,8 @@ quality.layout_fallback_reason
 Both the Vue canvas and PPTX renderer must resolve from those final fields. V5
 cover, agenda, and chapter pages use flat presentation-native compositions with
 thin rules and restrained accent color rather than UI cards, pills, or badges.
+Primary titles use a 35 pt minimum and audience body copy uses a 16 pt minimum;
+density overflow is repaired by omission or reflow, never by silent shrinking.
 
 ## Quality Gates
 
@@ -290,6 +305,11 @@ The following are critical:
 - `preview_export_contract_mismatch`
 - title, visible-item, or body density overflow at the resolved-layout budget
 - unresolved required assets or invalid visual programs
+- any page-level critical issue retained by a final materialized slide
+
+Durable task completion is also atomic at the frontend boundary: the registry,
+selected published spec, preview source, and quality report switch together,
+and intermediate live slides are cleared after the published V5 spec loads.
 
 The regression set includes quantitative, programming, humanities, business,
 and medical/structural course fixtures.

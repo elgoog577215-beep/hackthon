@@ -59,3 +59,16 @@
       source headings used as content-page titles
 - [x] 7.5 Add thermodynamics regression coverage for the three-system
       classification failure
+
+## 8. V5.5 Publication and Grounded Copy Hardening
+
+- [x] 8.1 Reconcile durable terminal completion to the published V5 registry and
+      clear stale intermediate slides atomically
+- [x] 8.2 Aggregate final page-level blockers into the deck publication gate
+- [x] 8.3 Allow source-faithful audience titles, summaries, and instructional
+      scaffolds with explicit supporting-fragment provenance
+- [x] 8.4 Reject unsupported factual tokens and preserve the exact primary claim
+- [x] 8.5 Require local semantic evidence for rule-based diagrams and prefer
+      `none` for ambiguous or template-shaped visual candidates
+- [x] 8.6 Align browser, PPTX, and layout-contract typography floors to 35 pt
+      titles and 16 pt audience body copy

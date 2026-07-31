@@ -15,6 +15,8 @@ describe('SlideCanvas V5 final page contract', () => {
     const layouts = new Set(layoutContract.layouts.map(item => item.layout))
 
     expect(layoutContract.schema_version).toBe('slide_layout_contract_v5')
+    expect(layoutContract.minimum_title_font_pt).toBeGreaterThanOrEqual(35)
+    expect(layoutContract.minimum_body_font_pt).toBeGreaterThanOrEqual(16)
     expect(layouts).toEqual(new Set([
       'cover-minimal',
       'agenda-linear',

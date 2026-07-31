@@ -632,6 +632,8 @@ def test_shared_v5_layout_catalog_matches_pptx_renderer_contract() -> None:
     }
 
     assert expected == V5_LAYOUT_RENDERER_NAMES
+    assert catalog["minimum_title_font_pt"] >= 35
+    assert catalog["minimum_body_font_pt"] >= 16
     assert all(
         callable(getattr(slide_deck_renderer, renderer_name))
         for renderer_name in expected.values()
@@ -1145,8 +1147,8 @@ def test_v5_density_contract_rejects_overflow_without_reducing_font_floor() -> N
     })
 
     assert slide["quality"]["density_band"] == "overflow"
-    assert slide["quality"]["minimum_body_font_pt"] >= 14
-    assert slide["quality"]["minimum_title_font_pt"] >= 24
+    assert slide["quality"]["minimum_body_font_pt"] >= 16
+    assert slide["quality"]["minimum_title_font_pt"] >= 35
     assert {
         issue["code"] for issue in v5_contract_issues([slide])
     } >= {"body_density_overflow"}

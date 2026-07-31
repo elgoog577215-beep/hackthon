@@ -543,13 +543,17 @@ def compile_slide_deck_v4(
         if not beat:
             continue
         chapter_id, episode_id, episode = episode_by_beat[beat.beat_id]
+        audience_title = str(beat.audience_facing_title or "").strip()
+        audience_summary = str(beat.audience_facing_summary or "").strip()
         slide.update({
             "chapter_id": chapter_id,
             "episode_id": episode_id,
             "scene_kind": episode.scene_kind,
             "beat_role": beat.beat_role,
             "teaching_job": beat.teaching_job,
-            "takeaway": beat.primary_claim_source.text,
+            "title": audience_title or slide.get("title") or beat.primary_claim_source.text,
+            "key_message": audience_summary or slide.get("key_message") or "",
+            "takeaway": audience_summary or beat.primary_claim_source.text,
             "primary_claim_source": beat.primary_claim_source.model_dump(mode="json"),
             "transition_from": beat.transition_from,
             "knowledge_refs": beat.knowledge_refs,
@@ -557,6 +561,12 @@ def compile_slide_deck_v4(
             "mastery_criterion_refs": beat.mastery_criterion_refs,
             "layout_selection_reason": beat.layout_selection_reason,
         })
+        slide["quality"] = {
+            **(slide.get("quality") or {}),
+            "copy_mode": beat.copy_mode,
+            "copy_source_fragment_ids": list(beat.copy_source_fragment_ids),
+            "audience_copy_applied": bool(audience_title or audience_summary),
+        }
     pedagogical = _pedagogical_quality(resolved_story)
     presentation = _presentation_quality(resolved_story, page_beats)
     previous_quality = deepcopy(content.get("quality_report") or {})

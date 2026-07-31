@@ -401,6 +401,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             if (status === 'completed') {
               await this.load(courseId)
               if (this.courseId === courseId) {
+                this.settleCompletedSlideBuild()
                 this.buildProgress = 100
                 this.buildStage = 'complete'
               }
@@ -457,6 +458,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         return null
       }
       this.applyDurableBuildTask(task)
+      if (String(task.status || '') === 'completed') {
+        await this.load(courseId)
+        if (this.courseId === courseId) this.settleCompletedSlideBuild()
+      }
       if (['pending', 'running'].includes(String(task.status || ''))) {
         const courseToken = this.courseRequestToken
         const attemptToken = ++this.buildAttemptToken
@@ -471,6 +476,21 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async buildSlideDeckVariant(courseId: string, options: SlideDeckBuildOptions) {
       return this.buildProgressive(courseId, options)
+    },
+    settleCompletedSlideBuild(quality?: Record<string, any>) {
+      const publishedContent = this.selectedSpec?.payload?.content
+      const publishedQuality = (
+        quality
+        || publishedContent?.quality_summary
+        || this.publishedSlideQuality
+        || null
+      )
+      this.liveSlides = []
+      this.slidePreviewSource = 'published'
+      this.draftSlideQuality = null
+      this.publishedSlideQuality = publishedQuality
+      this.slideQuality = publishedQuality
+      if (quality) this.quality = quality
     },
     settleFailedSlideDraft(quality?: Record<string, any>) {
       if (quality) this.draftSlideQuality = quality
@@ -521,6 +541,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           this.buildStage = String(task.phase || task.current_phase || this.buildStage)
           if (task.status === 'completed') {
             await this.load(courseId)
+            this.settleCompletedSlideBuild()
             this.buildProgress = 100
             this.buildStage = 'complete'
             return task

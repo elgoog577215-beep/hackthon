@@ -1743,20 +1743,40 @@ def _semantic_relation_spec(
 ) -> tuple[str, str, list[tuple[str, str]], str] | None:
     """Infer a diagram only when the source exposes an actual relationship."""
     role = str(getattr(page, "narrative_role", "") or "")
-    source = " ".join(_clean_source_text(item.text) for item in fragments)
-    if role == "method" and len(list_clauses) >= 2:
-        return "sequence", "process", list_clauses, "method_role_with_ordered_items"
+    meaningful_lists = [
+        item for item in list_clauses
+        if _is_meaningful_visual_label(item[0])
+    ]
+    meaningful_clauses = [
+        item for item in clauses
+        if _is_meaningful_visual_label(item[0])
+    ]
+    if role == "method" and len(meaningful_lists) >= 2:
+        return (
+            "sequence",
+            "process",
+            meaningful_lists,
+            "method_role_with_ordered_items",
+        )
     if role == "misconception" and len(clauses) >= 2:
-        return "contrasts", "comparison", clauses, "misconception_role"
+        return (
+            "contrasts",
+            "comparison",
+            meaningful_clauses,
+            "misconception_role",
+        ) if len(meaningful_clauses) >= 2 else None
     if (
-        len(list_clauses) >= 2
+        len(meaningful_lists) >= 2
         and any(item.kind == "heading" for item in fragments)
     ):
         heading = next(
             (
                 (_trim_takeaway(_clean_source_text(item.text), 26), item.fragment_id)
                 for item in fragments
-                if item.kind == "heading" and _clean_source_text(item.text)
+                if (
+                    item.kind == "heading"
+                    and _is_meaningful_visual_label(_clean_source_text(item.text))
+                )
             ),
             None,
         )
@@ -1764,7 +1784,7 @@ def _semantic_relation_spec(
             return (
                 "contains",
                 "hierarchy",
-                [heading, *list_clauses[:4]],
+                [heading, *meaningful_lists[:4]],
                 "heading_with_source_list",
             )
     relation_rules = (
@@ -1777,7 +1797,8 @@ def _semantic_relation_spec(
         (
             "contrasts",
             "comparison",
-            r"(?:相比|区别|不同|相反|但是|而非|versus|\bvs\.?\b|whereas|unlike)",
+            r"(?:相比|区别(?:在于|是|为)?|不同于|有所不同|存在差异|"
+            r"相反|但是|而非|versus|\bvs\.?\b|whereas|unlike)",
             "explicit_comparison_connector",
         ),
         (
@@ -1799,10 +1820,49 @@ def _semantic_relation_spec(
             "explicit_reasoning_connector",
         ),
     )
-    if len(clauses) >= 2:
-        for relation, diagram_type, pattern, evidence in relation_rules:
-            if re.search(pattern, source, re.IGNORECASE):
-                return relation, diagram_type, clauses, evidence
+    for relation, diagram_type, pattern, evidence in relation_rules:
+        local_nodes = _local_relation_nodes(meaningful_clauses, pattern)
+        if local_nodes:
+            return relation, diagram_type, local_nodes, evidence
+    return None
+
+
+_GENERIC_VISUAL_HEADING_RE = re.compile(
+    r"^(?:核心概念(?:与背景)?|深度原理(?:/底层机制)?|"
+    r"实战案例(?:/行业应用)?|思考与挑战|可视化图解|"
+    r"概念|原理|方法|案例|练习|总结)$",
+    re.IGNORECASE,
+)
+
+
+def _is_meaningful_visual_label(value: str) -> bool:
+    clean = re.sub(r"^[\W_]+|[\W_]+$", "", str(value or "").strip())
+    if len(clean) < 3 or _GENERIC_VISUAL_HEADING_RE.fullmatch(clean):
+        return False
+    if _RAW_MERMAID_RE.search(clean):
+        return False
+    return True
+
+
+def _local_relation_nodes(
+    clauses: list[tuple[str, str]],
+    pattern: str,
+) -> list[tuple[str, str]] | None:
+    """Return only two source excerpts joined by a connector in one clause."""
+    connector = re.compile(pattern, re.IGNORECASE)
+    for clause, fragment_id in clauses:
+        for match in connector.finditer(clause):
+            left = clause[:match.start()].strip(" ，,：:；;。.!！?？")
+            right = clause[match.end():].strip(" ，,：:；;。.!！?？")
+            if not (
+                _is_meaningful_visual_label(left)
+                and _is_meaningful_visual_label(right)
+            ):
+                continue
+            return [
+                (_trim_takeaway(left, 26), fragment_id),
+                (_trim_takeaway(right, 26), fragment_id),
+            ]
     return None
 
 

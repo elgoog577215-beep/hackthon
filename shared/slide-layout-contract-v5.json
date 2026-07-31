@@ -1,7 +1,7 @@
 {
   "schema_version": "slide_layout_contract_v5",
-  "minimum_title_font_pt": 24,
-  "minimum_body_font_pt": 14,
+  "minimum_title_font_pt": 35,
+  "minimum_body_font_pt": 16,
   "layouts": [
     {
       "layout": "cover-minimal",

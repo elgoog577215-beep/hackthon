@@ -505,7 +505,7 @@ def compile_slide_deck_variant(
         requested_representations=["slide_deck"],
         pedagogical_reasons=[
             "课程正文是唯一内容源",
-            "模型只分配片段与审核页面，不生成教学正文",
+            "模型可做有来源锚点的教学化改写，但不得新增事实",
         ],
         cost_class="medium",
         accessibility_requirements=["阅读顺序", "可编辑文本", "16:9"],

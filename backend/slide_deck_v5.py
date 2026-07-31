@@ -28,7 +28,7 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.4"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.5"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.0"
 
@@ -110,8 +110,8 @@ _V5_DENSITY_BUDGETS = {
     "chapter-recap": {"characters": 320, "items": 5, "title": 28},
     "course-synthesis": {"characters": 340, "items": 6, "title": 28},
 }
-_V5_MINIMUM_BODY_FONT_PT = 14
-_V5_MINIMUM_TITLE_FONT_PT = 24
+_V5_MINIMUM_BODY_FONT_PT = 16
+_V5_MINIMUM_TITLE_FONT_PT = 35
 _V5_REPLACED_V4_QUALITY_CODES = {
     "appendix_content_overflow",
     "chapter_message_overflow",
@@ -2090,9 +2090,38 @@ def finalize_v5_quality_report(
             "suggestion": "Configure the AI provider to enable semantic planning.",
         })
 
+    final_slide_issues: list[dict[str, Any]] = []
+    for slide in slides:
+        quality = slide.get("quality") or {}
+        slide_issues = [
+            deepcopy(issue)
+            for issue in [
+                *(quality.get("blockers") or []),
+                *(quality.get("issues") or []),
+            ]
+            if isinstance(issue, dict)
+        ]
+        for issue in slide_issues:
+            issue.setdefault("target", str(slide.get("unit_id") or "slide"))
+            issue.setdefault("slide_id", str(slide.get("unit_id") or ""))
+        if quality.get("passed") is False and not any(
+            str(issue.get("severity") or "") == "critical"
+            for issue in slide_issues
+        ):
+            slide_issues.append({
+                "severity": "critical",
+                "code": "final_slide_quality_failed",
+                "target": str(slide.get("unit_id") or "slide"),
+                "slide_id": str(slide.get("unit_id") or ""),
+                "message": "A final slide failed its page-level quality contract.",
+                "suggestion": "Repair or reflow the final slide before publication.",
+            })
+        final_slide_issues.extend(slide_issues)
+
     combined = [
         *retained,
         *v5_contract_issues(slides),
+        *final_slide_issues,
         *planning_issues,
     ]
     issues: list[dict[str, Any]] = []

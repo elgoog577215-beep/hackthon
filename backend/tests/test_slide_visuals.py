@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -23,6 +24,7 @@ from slide_deck_renderer import (
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
+    _semantic_relation_spec,
     deterministic_visual_plan,
     plan_slide_visuals,
     rebalance_visual_plan_pages,
@@ -231,6 +233,72 @@ def test_dense_prose_relation_is_suppressed_when_it_repeats_the_source() -> None
 
     assert visual_page.visual_anchor.kind == "none"
     assert visual_page.composition == "statement"
+
+
+def test_relation_diagram_requires_a_local_bounded_relationship() -> None:
+    fragments = [
+        SimpleNamespace(
+            fragment_id="f1",
+            kind="paragraph",
+            text="系统边界用于区分研究对象和环境。",
+        ),
+        SimpleNamespace(
+            fragment_id="f2",
+            kind="paragraph",
+            text="实验记录用于检查测量结果。",
+        ),
+        SimpleNamespace(
+            fragment_id="f3",
+            kind="paragraph",
+            text="但是本节还需要讨论单位换算。",
+        ),
+    ]
+    clauses = [
+        (fragment.text, fragment.fragment_id)
+        for fragment in fragments
+    ]
+
+    relation = _semantic_relation_spec(
+        SimpleNamespace(narrative_role="concept"),
+        fragments,
+        clauses,
+        [],
+    )
+
+    assert relation is None
+
+
+def test_template_heading_cannot_become_a_diagram_node() -> None:
+    fragments = [
+        SimpleNamespace(
+            fragment_id="heading",
+            kind="heading",
+            text="核心概念与背景",
+        ),
+        SimpleNamespace(
+            fragment_id="item-a",
+            kind="list_item",
+            text="孤立系统不交换物质和能量。",
+        ),
+        SimpleNamespace(
+            fragment_id="item-b",
+            kind="list_item",
+            text="封闭系统可以交换能量。",
+        ),
+    ]
+    list_clauses = [
+        (fragment.text, fragment.fragment_id)
+        for fragment in fragments[1:]
+    ]
+
+    relation = _semantic_relation_spec(
+        SimpleNamespace(narrative_role="concept"),
+        fragments,
+        [(fragment.text, fragment.fragment_id) for fragment in fragments],
+        list_clauses,
+    )
+
+    assert relation is None
 
 
 def test_deterministic_director_uses_source_bound_visual_variety() -> None:

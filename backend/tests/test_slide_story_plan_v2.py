@@ -982,6 +982,51 @@ def test_ai_story_planner_accepts_grounded_audience_facing_copy() -> None:
     assert planned_target.copy_source_fragment_ids == target.fragment_ids
 
 
+def test_ai_story_planner_rejects_unsupported_factual_tokens_in_copy() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    target = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.fragment_ids
+    )
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": target.beat_id,
+                "copy_mode": "source_faithful_rewrite",
+                "audience_facing_title": "这种方法能提升50%效率",
+                "supporting_fragment_ids": target.fragment_ids,
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "deterministic_fallback"
+    assert planned.fallback_reason == "invalid_or_failed_ai_story_plan"
+
+
 def test_ai_practice_prompt_layout_compiles_to_a_supported_allocation() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
