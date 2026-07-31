@@ -311,6 +311,22 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "node_drafts",
 })
 PUBLIC_TASK_LOG_LIMIT = 100
+TERMINAL_TASK_STATUSES = frozenset({
+    "cancelled",
+    "canceled",
+    "completed",
+    "completed_with_warnings",
+    "error",
+    "failed",
+})
+MAX_TERMINAL_TASK_HISTORY = max(
+    1,
+    int(os.getenv("GENERATION_JOB_HISTORY_LIMIT", "100")),
+)
+MAX_TASK_INDEX_BYTES = max(
+    1024 * 1024,
+    int(os.getenv("GENERATION_JOB_INDEX_MAX_BYTES", str(96 * 1024 * 1024))),
+)
 
 
 class TaskRecoveryConflict(RuntimeError):
@@ -4868,6 +4884,41 @@ class TaskManager:
     # Persistence
     # -------------------------------------------------------------------------
 
+    def _tasks_for_persistence(self) -> dict[str, dict[str, Any]]:
+        terminal = sorted(
+            (
+                (task_id, task)
+                for task_id, task in self.tasks.items()
+                if str(task.get("status") or "") in TERMINAL_TASK_STATUSES
+            ),
+            key=lambda item: str(
+                item[1].get("updated_at")
+                or item[1].get("created_at")
+                or ""
+            ),
+            reverse=True,
+        )
+        retained_terminal_ids = {
+            task_id
+            for task_id, _task in terminal[:MAX_TERMINAL_TASK_HISTORY]
+        }
+        persisted: dict[str, dict[str, Any]] = {}
+        for task_id, task in self.tasks.items():
+            is_terminal = (
+                str(task.get("status") or "") in TERMINAL_TASK_STATUSES
+            )
+            if is_terminal and task_id not in retained_terminal_ids:
+                continue
+            if is_terminal:
+                persisted[task_id] = {
+                    key: value
+                    for key, value in task.items()
+                    if key not in PUBLIC_TASK_OMITTED_FIELDS
+                }
+            else:
+                persisted[task_id] = task
+        return persisted
+
     def load_tasks(self) -> None:
         """从文件加载任务。"""
         source = TASKS_FILE
@@ -4879,6 +4930,20 @@ class TaskManager:
             source = LEGACY_TASKS_FILE
         try:
             if not source.exists():
+                self.tasks = {}
+                return
+            if source.stat().st_size > MAX_TASK_INDEX_BYTES:
+                archive = source.with_name(
+                    f"{source.stem}.oversized-"
+                    f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-"
+                    f"{uuid.uuid4().hex[:8]}{source.suffix}"
+                )
+                os.replace(source, archive)
+                logger.error(
+                    "Archived oversized generation job index (%d bytes) to %s",
+                    archive.stat().st_size,
+                    archive,
+                )
                 self.tasks = {}
                 return
             with source.open(encoding="utf-8") as handle:
@@ -4940,8 +5005,14 @@ class TaskManager:
         try:
             TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
             temp_path = TASKS_FILE.with_suffix(".tmp")
+            persisted_tasks = self._tasks_for_persistence()
             with temp_path.open("w", encoding="utf-8") as handle:
-                json.dump(self.tasks, handle, indent=2, ensure_ascii=False)
+                json.dump(
+                    persisted_tasks,
+                    handle,
+                    indent=2,
+                    ensure_ascii=False,
+                )
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, TASKS_FILE)

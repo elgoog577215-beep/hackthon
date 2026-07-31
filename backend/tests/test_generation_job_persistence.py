@@ -58,6 +58,115 @@ def test_task_manager_history_survives_restart(tmp_path, monkeypatch):
     assert restarted.tasks["job-1"]["course_id"] == "course-1"
 
 
+def test_terminal_job_persistence_omits_large_recovery_payloads(
+    tmp_path,
+    monkeypatch,
+):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager.tasks["job-complete"] = {
+        "id": "job-complete",
+        "course_id": "course-1",
+        "type": "course_generation",
+        "status": "completed",
+        "updated_at": "2026-07-31T12:00:00",
+        "result": {"content": "x" * 100_000},
+        "event_history": [{"payload": "x" * 100_000}],
+        "node_drafts": {"node-1": "x" * 100_000},
+        "request_snapshot": {"source": "x" * 100_000},
+    }
+
+    manager.save_tasks(strict=True)
+
+    persisted = json.loads(durable.read_text(encoding="utf-8"))
+    terminal = persisted["job-complete"]
+    assert terminal["course_id"] == "course-1"
+    assert terminal["status"] == "completed"
+    assert "result" not in terminal
+    assert "event_history" not in terminal
+    assert "node_drafts" not in terminal
+    assert "request_snapshot" not in terminal
+    assert manager.tasks["job-complete"]["result"]["content"]
+
+
+def test_job_persistence_keeps_active_recovery_and_bounds_terminal_history(
+    tmp_path,
+    monkeypatch,
+):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+    monkeypatch.setattr(
+        task_manager_module,
+        "MAX_TERMINAL_TASK_HISTORY",
+        2,
+        raising=False,
+    )
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager.tasks = {
+        "job-old": {
+            "id": "job-old",
+            "status": "completed",
+            "updated_at": "2026-07-31T09:00:00",
+        },
+        "job-middle": {
+            "id": "job-middle",
+            "status": "failed",
+            "updated_at": "2026-07-31T10:00:00",
+        },
+        "job-new": {
+            "id": "job-new",
+            "status": "cancelled",
+            "updated_at": "2026-07-31T11:00:00",
+        },
+        "job-running": {
+            "id": "job-running",
+            "status": "running",
+            "updated_at": "2026-07-31T08:00:00",
+            "request_snapshot": {"topic": "热力学"},
+            "node_drafts": {"node-1": "checkpoint"},
+        },
+    }
+
+    manager.save_tasks(strict=True)
+
+    persisted = json.loads(durable.read_text(encoding="utf-8"))
+    assert set(persisted) == {"job-middle", "job-new", "job-running"}
+    assert persisted["job-running"]["request_snapshot"] == {"topic": "热力学"}
+    assert persisted["job-running"]["node_drafts"] == {"node-1": "checkpoint"}
+
+
+def test_oversized_job_index_is_archived_before_json_hydration(
+    tmp_path,
+    monkeypatch,
+):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    durable.parent.mkdir(parents=True)
+    original = json.dumps({
+        "job-oversized": {
+            "id": "job-oversized",
+            "status": "completed",
+            "result": "x" * 500,
+        },
+    })
+    durable.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+    monkeypatch.setattr(
+        task_manager_module,
+        "MAX_TASK_INDEX_BYTES",
+        128,
+        raising=False,
+    )
+
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+
+    archives = list(durable.parent.glob("generation_jobs.oversized-*.json"))
+    assert manager.tasks == {}
+    assert not durable.exists()
+    assert len(archives) == 1
+    assert archives[0].read_text(encoding="utf-8") == original
+
+
 @pytest.mark.asyncio
 async def test_outline_growth_never_regresses_when_parallel_updates_arrive_out_of_order(
     tmp_path,
