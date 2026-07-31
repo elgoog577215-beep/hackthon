@@ -5,6 +5,7 @@ set -Eeuo pipefail
 BASE_DIR="${LINGZHI_BASE_DIR:-/opt/lingzhi}"
 CURRENT_LINK="${LINGZHI_CURRENT_LINK:-$BASE_DIR/hackthon}"
 RELEASES_DIR="${LINGZHI_RELEASES_DIR:-$BASE_DIR/releases}"
+INCOMING_DIR="${LINGZHI_INCOMING_DIR:-$BASE_DIR/incoming}"
 STATE_DIR="${LINGZHI_STATE_DIR:-$BASE_DIR/state}"
 BACKUP_DIR="${LINGZHI_BACKUP_DIR:-$BASE_DIR/backups}"
 VENV="${LINGZHI_VENV:-$BASE_DIR/.venv}"
@@ -16,7 +17,7 @@ TASKS_URL="${LINGZHI_TASKS_URL:-${HEALTH_URL%/health}/tasks?limit=100}"
 SERVICE_NAME="${LINGZHI_SERVICE_NAME:-lingzhi}"
 LOCK_FILE="${LINGZHI_DEPLOY_LOCK:-/var/lock/lingzhi-deploy.lock}"
 KEEP_RELEASES="${LINGZHI_KEEP_RELEASES:-2}"
-KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-10}"
+KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-5}"
 MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-2048}"
 HEALTH_ATTEMPTS="${LINGZHI_HEALTH_ATTEMPTS:-60}"
 HEALTH_INTERVAL_SECONDS="${LINGZHI_HEALTH_INTERVAL_SECONDS:-2}"
@@ -86,6 +87,21 @@ cleanup_backups() {
         log "清理旧数据备份：${backups[index]}"
         rm -f -- "${backups[index]}"
     done
+}
+
+cleanup_incoming() {
+    local artifact
+
+    while IFS= read -r -d '' artifact; do
+        if [ "$artifact" = "$ARTIFACT_PATH" ]; then
+            continue
+        fi
+        log "清理失败或过期的上传包：$artifact"
+        rm -f -- "$artifact"
+    done < <(
+        find "$INCOMING_DIR" -maxdepth 1 -type f \
+            -name 'lingzhi-release-*.tgz' -print0
+    )
 }
 
 cleanup_releases() {
@@ -207,6 +223,12 @@ rollback() {
         log "清理失败版本：$release_path"
         rm -rf --one-file-system -- "$release_path" || true
     fi
+    case "$ARTIFACT_PATH" in
+        "$INCOMING_DIR"/lingzhi-release-*.tgz)
+            log "清理失败发布包：$ARTIFACT_PATH"
+            rm -f -- "$ARTIFACT_PATH" || true
+            ;;
+    esac
     exit "$exit_code"
 }
 
@@ -220,8 +242,9 @@ flock -n 9 || {
     exit 1
 }
 
-mkdir -p "$RELEASES_DIR" "$STATE_DIR/backend-data" "$BACKUP_DIR"
+mkdir -p "$RELEASES_DIR" "$INCOMING_DIR" "$STATE_DIR/backend-data" "$BACKUP_DIR"
 
+cleanup_incoming
 cleanup_backups
 cleanup_releases
 ensure_free_space
