@@ -267,6 +267,67 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
     )
 
 
+def test_v5_compaction_excludes_formula_without_source_explanation() -> None:
+    document = CourseDocument(
+        course_id="course-v5-formula-compaction",
+        title="公式压缩测试",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="第一章",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 核心主题",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate([
+            ("core-heading", "heading", "核心概念"),
+            ("core-body", "paragraph", "正文解释用于建立概念。"),
+            ("formula-heading", "heading", "热力学第一定律"),
+            ("formula-only", "formula", r"$$ \Delta U = Q - W $$"),
+        ])
+    ]
+
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        compact,
+    )
+
+    allocated_ids = {
+        fragment_id
+        for page in allocation.pages
+        for fragment_id in page.fragment_ids
+    }
+    excluded_ids = {
+        exclusion.fragment_id for exclusion in allocation.exclusions
+    }
+    assert "core-body" in allocated_ids
+    assert {"formula-heading", "formula-only"} <= excluded_ids
+    assert not any(page.appendix for page in allocation.pages)
+
+
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
     document = CourseDocument(
         course_id="course-enumeration",
@@ -850,6 +911,53 @@ def test_v5_quality_gate_rejects_orphan_formula_and_title_duplication() -> None:
         "orphan_formula",
         "title_body_duplication",
     }
+
+
+def test_v5_enumeration_gate_counts_visible_bullet_lines_and_ignores_singular_phrases() -> None:
+    slides = [
+        {
+            "unit_id": "classification",
+            "title": "热力学将系统分为三类",
+            "blocks": [{
+                "type": "statement",
+                "content": (
+                    "热力学将系统分为三类：\n"
+                    "• 孤立系统\n"
+                    "• 封闭系统\n"
+                    "• 开放系统"
+                ),
+                "items": [],
+            }],
+            "visuals": [],
+            "quality": {
+                "resolved_layout": "editorial-body",
+                "occupied_major_region_count": 1,
+                "major_region_count": 1,
+            },
+        },
+        {
+            "unit_id": "singular-example",
+            "title": "一个系统的宏观状态",
+            "blocks": [{
+                "type": "statement",
+                "content": "这里解释一个系统如何由状态变量描述。",
+                "items": [],
+            }],
+            "visuals": [],
+            "quality": {
+                "resolved_layout": "editorial-body",
+                "occupied_major_region_count": 1,
+                "major_region_count": 1,
+            },
+        },
+    ]
+
+    issues = v5_contract_issues(slides)
+
+    assert not any(
+        issue["code"] == "enumeration_cardinality_mismatch"
+        for issue in issues
+    )
 
 
 def test_v5_quality_gate_rejects_incomplete_enumeration_and_section_title() -> None:
