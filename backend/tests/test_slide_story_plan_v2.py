@@ -260,6 +260,21 @@ def test_story_plan_uses_official_course_logic_and_closes_the_chapter() -> None:
     assert plan.chapters[0].prerequisite_knowledge_names == ["向量空间"]
 
 
+def test_single_family_scene_remains_selectable_after_rhythm_limit() -> None:
+    selection = select_layout_v2(
+        scene_kind="chapter_entry",
+        evidence_kinds=["text"],
+        character_count=0,
+        item_count=0,
+        theme="qizhi-classroom",
+        recent_layout_families=["hero", "hero"],
+    )
+
+    assert selection.layout_id == "chapter-question"
+    assert selection.capacity_passed is True
+    assert selection.rhythm_score < 1
+
+
 def test_content_scene_claim_is_derived_from_the_local_beat() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
