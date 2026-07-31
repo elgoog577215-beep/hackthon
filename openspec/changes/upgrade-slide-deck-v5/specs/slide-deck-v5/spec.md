@@ -75,6 +75,28 @@ continuation pages.
 - **THEN** it omits the unsupported practice episode
 - **AND** it does not fabricate a prompt or answer merely to satisfy a template
 
+### Requirement: AI Refines the Compact Source-Bound Story
+
+When an AI provider is configured and the explicit planner kill switch is not
+disabled, the system SHALL refine the deterministic V5 compact story with
+chapter-scoped, source-bound directives before page allocation.
+
+#### Scenario: A configured provider refines a multi-chapter course
+- **WHEN** V5 has already selected complete semantic groups
+- **THEN** the planner receives bounded chapter requests instead of one full-deck
+  rewrite request
+- **AND** it may select only supplied beat IDs, headline fragment IDs, and
+  capacity-compatible layout IDs
+- **AND** compilation preserves the accepted AI decisions through final
+  materialization
+
+#### Scenario: AI returns an invalid or failed refinement
+- **WHEN** the configured provider times out, invents an ID, changes source
+  claims, or returns an invalid contract
+- **THEN** the system retains the deterministic source-bound story
+- **AND** the V5 publication gate reports the failed AI planning stage instead
+  of presenting the fallback as an AI-quality result
+
 ### Requirement: Visual Rejection Triggers Layout Re-Resolution
 
 The system SHALL compute the final page layout after visual assets are resolved.

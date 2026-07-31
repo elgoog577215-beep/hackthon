@@ -38,3 +38,13 @@
       and medical/structural courses
 - [x] 5.4 Enable `slide_deck_v5` as the target schema with explicit V4 fallback
 - [x] 5.5 Run backend, frontend, build, OpenSpec, and real-course verification
+
+## 6. Production AI Refinement
+
+- [x] 6.1 Enable planning automatically when a provider is configured while
+      retaining an explicit kill switch
+- [x] 6.2 Compact the deterministic story before AI refinement
+- [x] 6.3 Replace full-story rewrites with bounded chapter directive requests
+- [x] 6.4 Validate headline and layout IDs against source and capacity contracts
+- [x] 6.5 Preserve accepted AI decisions through idempotent V5 compilation
+- [x] 6.6 Block publication when a configured AI refinement fails

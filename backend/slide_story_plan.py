@@ -26,6 +26,9 @@ from slide_layout_registry import (
 )
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
+SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (
+    "slide_story_chapter_directives_v2"
+)
 SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.2"
 STORY_BEAT_TEXT_CAPACITY = 230
 
@@ -79,6 +82,34 @@ class StoryBeatV2(_StrictModel):
     knowledge_refs: list[str] = Field(default_factory=list)
     prerequisite_refs: list[str] = Field(default_factory=list)
     mastery_criterion_refs: list[str] = Field(default_factory=list)
+
+
+class StoryBeatDirectiveV2(_StrictModel):
+    beat_id: str
+    headline_fragment_id: str = ""
+    layout_id: str = ""
+
+
+class StoryEpisodeDirectivesV2(_StrictModel):
+    episode_id: str
+    beat_directives: list[StoryBeatDirectiveV2] = Field(min_length=1)
+
+
+class StoryChapterDirectivesV2(_StrictModel):
+    schema_version: Literal["slide_story_chapter_directives_v2"] = (
+        SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA
+    )
+    chapter_id: str
+    beat_directives: list[StoryBeatDirectiveV2] = Field(default_factory=list)
+    episode_directives: list[StoryEpisodeDirectivesV2] = Field(
+        default_factory=list,
+    )
+
+    @model_validator(mode="after")
+    def validate_has_directives(self) -> "StoryChapterDirectivesV2":
+        if not self.beat_directives and not self.episode_directives:
+            raise ValueError("AI story directives must contain at least one beat")
+        return self
 
 
 class TeachingEpisodeV2(_StrictModel):
@@ -920,6 +951,190 @@ def validate_ai_story_plan_v2(
         raise ValueError("AI story plan duplicated source fragments")
 
 
+def _compatible_layout_options_v2(
+    *,
+    scene_kind: SlideSceneKind,
+    beat: StoryBeatV2,
+    fragment_catalog: dict[str, ContentFragmentV1],
+) -> list[dict[str, str]]:
+    fragments = [
+        fragment_catalog[fragment_id]
+        for fragment_id in beat.fragment_ids
+        if fragment_id in fragment_catalog
+    ]
+    character_count = sum(len(item.text) for item in fragments)
+    item_count = sum(item.kind == "list_item" for item in fragments)
+    evidence = set(_fragment_evidence(fragments))
+    options: list[dict[str, str]] = []
+    for layout in registry_summary_v2():
+        if scene_kind not in layout["scene_kinds"]:
+            continue
+        if (
+            character_count > int(layout["density_budget"])
+            or item_count > int(layout["item_budget"])
+        ):
+            continue
+        required_evidence = {
+            accepted
+            for slot in layout["slots"]
+            if slot["required"]
+            and not ({"text", "list"} & set(slot["accepts"]))
+            for accepted in slot["accepts"]
+        }
+        if required_evidence and not (required_evidence & evidence):
+            continue
+        options.append({
+            "layout_id": str(layout["layout_id"]),
+            "renderer_layout": str(layout["renderer_layout"]),
+            "layout_family": str(layout["layout_family"]),
+        })
+    if beat.layout_intent and all(
+        item["layout_id"] != beat.layout_intent
+        for item in options
+    ):
+        options.append({
+            "layout_id": beat.layout_intent,
+            "renderer_layout": beat.renderer_layout,
+            "layout_family": beat.layout_family,
+        })
+    return options
+
+
+def _apply_chapter_directives_v2(
+    *,
+    chapter: ChapterStoryV2,
+    raw: dict[str, Any],
+    fragment_catalog: dict[str, ContentFragmentV1],
+) -> ChapterStoryV2:
+    directives = StoryChapterDirectivesV2.model_validate(raw)
+    if directives.chapter_id != chapter.chapter_id:
+        raise ValueError("AI story directives changed the official chapter")
+    beat_ids = {
+        beat.beat_id
+        for episode in chapter.episodes
+        for beat in episode.beats
+    }
+    episode_ids = {
+        episode.episode_id: {
+            beat.beat_id for beat in episode.beats
+        }
+        for episode in chapter.episodes
+    }
+    grouped_directives: list[StoryBeatDirectiveV2] = []
+    for episode_directive in directives.episode_directives:
+        allowed_beat_ids = episode_ids.get(episode_directive.episode_id)
+        if allowed_beat_ids is None:
+            raise ValueError(
+                "AI story directives referenced an unknown episode"
+            )
+        if any(
+            item.beat_id not in allowed_beat_ids
+            for item in episode_directive.beat_directives
+        ):
+            raise ValueError(
+                "AI story directives moved a beat between episodes"
+            )
+        grouped_directives.extend(episode_directive.beat_directives)
+    all_directives = directives.beat_directives + grouped_directives
+    directive_ids = [item.beat_id for item in all_directives]
+    if len(directive_ids) != len(set(directive_ids)):
+        raise ValueError("AI story directives duplicated a beat")
+    if set(directive_ids) - beat_ids:
+        raise ValueError("AI story directives referenced an unknown beat")
+    directive_by_id = {
+        item.beat_id: item
+        for item in all_directives
+    }
+    episodes: list[TeachingEpisodeV2] = []
+    for episode in chapter.episodes:
+        beats: list[StoryBeatV2] = []
+        for beat in episode.beats:
+            directive = directive_by_id.get(beat.beat_id)
+            if directive is None:
+                beats.append(beat)
+                continue
+            updates: dict[str, Any] = {
+                "layout_selection_reason": "ai_source_bound_directive",
+            }
+            if directive.headline_fragment_id:
+                if directive.headline_fragment_id not in beat.fragment_ids:
+                    raise ValueError(
+                        "AI story directive selected a headline outside its beat"
+                    )
+                fragment = fragment_catalog.get(
+                    directive.headline_fragment_id,
+                )
+                if fragment is None:
+                    raise ValueError(
+                        "AI story directive selected an unknown headline fragment"
+                    )
+                updates["primary_claim_source"] = ClaimSourceV2(
+                    kind=(
+                        "source_heading"
+                        if fragment.kind == "heading"
+                        else "source_sentence"
+                    ),
+                    text=fragment.text,
+                    fragment_id=fragment.fragment_id,
+                )
+            if directive.layout_id:
+                options = _compatible_layout_options_v2(
+                    scene_kind=episode.scene_kind,
+                    beat=beat,
+                    fragment_catalog=fragment_catalog,
+                )
+                selected = next(
+                    (
+                        item for item in options
+                        if item["layout_id"] == directive.layout_id
+                    ),
+                    None,
+                )
+                if selected is None:
+                    raise ValueError(
+                        "AI story directive selected an incompatible layout"
+                    )
+                updates.update({
+                    "layout_intent": selected["layout_id"],
+                    "renderer_layout": selected["renderer_layout"],
+                    "layout_family": selected["layout_family"],
+                })
+            beats.append(beat.model_copy(update=updates))
+        episodes.append(episode.model_copy(update={"beats": beats}))
+    return chapter.model_copy(update={"episodes": episodes})
+
+
+def _normalize_chapter_directives_v2(
+    raw: Any,
+) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    payload = raw.get(SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA, raw)
+    if not isinstance(payload, dict) or not payload.get("chapter_id"):
+        return None
+    normalized = dict(payload)
+    if "episodes" in normalized and "episode_directives" not in normalized:
+        normalized["episode_directives"] = [
+            {
+                "episode_id": item.get("episode_id"),
+                "beat_directives": item.get("beat_directives")
+                or item.get("beats")
+                or [],
+            }
+            for item in normalized.pop("episodes") or []
+            if isinstance(item, dict)
+        ]
+    if not (
+        normalized.get("beat_directives")
+        or normalized.get("episode_directives")
+    ):
+        return None
+    normalized["schema_version"] = (
+        SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA
+    )
+    return normalized
+
+
 async def plan_slide_story_v2(
     document: CourseDocument,
     course_data: dict[str, Any],
@@ -927,77 +1142,228 @@ async def plan_slide_story_v2(
     *,
     mode: SlideDeckMode,
     theme: SlideDeckTheme,
+    baseline: SlideStoryPlanV2 | None = None,
     ai_planner: Callable[
         [dict[str, Any]],
         Awaitable[dict[str, Any]] | dict[str, Any],
     ] | None = None,
-    timeout_seconds: float = 45.0,
+    timeout_seconds: float = 90.0,
 ) -> SlideStoryPlanV2:
-    """Use a constrained website planner, falling back to deterministic scenes."""
-    fallback = compile_slide_story_plan_v2(
+    """Use a constrained chapter-batched planner, falling back to deterministic scenes."""
+    fallback = baseline or compile_slide_story_plan_v2(
         document,
         course_data,
         fragments,
         mode=mode,
         theme=theme,
     )
+    if fallback.mode != mode or fallback.theme != theme:
+        raise ValueError("Story planning baseline does not match the requested variant")
     if ai_planner is None:
         fallback.fallback_reason = "no_ai_story_planner"
         return fallback
-    request = {
-        "schema_version": "slide_story_planning_request_v2",
-        "rules": {
-            "body_text_forbidden": True,
-            "fragment_ids_only": True,
-            "claims_must_be_exact_official_source_text": True,
-            "structured_headlines_required": True,
-            "unknown_ids_forbidden": True,
-            "preserve_chapter_order": True,
-            "preserve_proof_example_step_order": True,
-            "answers_must_follow_prompts": True,
-        },
-        "mode": mode,
-        "theme": theme,
-        "course_teaching_plan_projection": project_course_teaching_plan(course_data),
-        "course_knowledge_base": course_data.get("course_knowledge_base") or {},
-        "course_coherence_contract": course_data.get("course_coherence_contract") or {},
-        "allowed_scene_kinds": list(_SCENE_ORDER),
-        "layout_registry": registry_summary_v2(),
-        "fragments": [
-            {
-                "fragment_id": item.fragment_id,
-                "section_id": item.section_id,
-                "block_id": item.block_id,
-                "kind": item.kind,
-                "role": item.role,
-                "ordinal": item.ordinal,
-                "source_text": item.text[:400],
-            }
-            for item in fragments
-        ],
-        "deterministic_baseline": fallback.model_dump(mode="json"),
-    }
-    try:
+    fragment_catalog = {item.fragment_id: item for item in fragments}
+    projection = project_course_teaching_plan(course_data)
+    chapter_count = len(fallback.chapters)
+
+    async def invoke_planner(request: dict[str, Any]) -> dict[str, Any]:
         if inspect.iscoroutinefunction(ai_planner):
-            raw = await asyncio.wait_for(
+            return await asyncio.wait_for(
                 ai_planner(request),
                 timeout=timeout_seconds,
             )
-        else:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(ai_planner, request),
-                timeout=timeout_seconds,
+        result = await asyncio.wait_for(
+            asyncio.to_thread(ai_planner, request),
+            timeout=timeout_seconds,
+        )
+        if inspect.isawaitable(result):
+            return await asyncio.wait_for(result, timeout=timeout_seconds)
+        return result
+
+    try:
+        planning_units: list[
+            tuple[
+                ChapterStoryV2,
+                SlideStoryPlanV2,
+                list[ContentFragmentV1],
+                dict[str, Any],
+            ]
+        ] = []
+        for chapter_index, chapter in enumerate(fallback.chapters):
+            referenced_ids = {
+                fragment_id
+                for episode in chapter.episodes
+                for beat in episode.beats
+                for fragment_id in beat.fragment_ids
+            }
+            referenced_ids.update({
+                beat.primary_claim_source.fragment_id
+                for episode in chapter.episodes
+                for beat in episode.beats
+                if beat.primary_claim_source.fragment_id
+            })
+            chapter_fragments = [
+                item for item in fragments
+                if item.fragment_id in referenced_ids
+            ]
+            section_ids = {
+                item.section_id for item in chapter_fragments
+            } | {chapter.chapter_id}
+            chapter_projection = {
+                key: value
+                for key, value in projection.items()
+                if key != "sections"
+            }
+            chapter_projection["sections"] = [
+                item
+                for item in projection.get("sections") or []
+                if str(item.get("node_id") or "") in section_ids
+            ]
+            chapter_baseline = fallback.model_copy(
+                update={"chapters": [chapter]},
             )
-            raw = await result if inspect.isawaitable(result) else result
-        candidate = SlideStoryPlanV2.model_validate(raw)
+            beat_catalog = [
+                {
+                    "beat_id": beat.beat_id,
+                    "scene_kind": episode.scene_kind,
+                    "beat_role": beat.beat_role,
+                    "current_layout_id": beat.layout_intent,
+                    "allowed_layouts": _compatible_layout_options_v2(
+                        scene_kind=episode.scene_kind,
+                        beat=beat,
+                        fragment_catalog=fragment_catalog,
+                    ),
+                    "headline_candidates": [
+                        {
+                            "fragment_id": fragment_id,
+                            "kind": fragment_catalog[fragment_id].kind,
+                            "source_text": fragment_catalog[
+                                fragment_id
+                            ].text[:200],
+                        }
+                        for fragment_id in beat.fragment_ids
+                        if fragment_id in fragment_catalog
+                    ],
+                }
+                for episode in chapter.episodes
+                for beat in episode.beats
+            ]
+            request = {
+                "schema_version": "slide_story_planning_request_v2",
+                "scope": {
+                    "chapter_id": chapter.chapter_id,
+                    "chapter_index": chapter_index,
+                    "chapter_count": chapter_count,
+                },
+                "rules": {
+                    "body_text_forbidden": True,
+                    "fragment_ids_only": True,
+                    "claims_must_be_exact_official_source_text": True,
+                    "structured_headlines_required": True,
+                    "unknown_ids_forbidden": True,
+                    "preserve_chapter_order": True,
+                    "preserve_proof_example_step_order": True,
+                    "answers_must_follow_prompts": True,
+                    "return_exactly_one_chapter": True,
+                    "return_compact_directives_only": True,
+                },
+                "mode": mode,
+                "theme": theme,
+                "course_teaching_plan_projection": chapter_projection,
+                "source_revisions": fallback.source_revisions.model_dump(
+                    mode="json",
+                ),
+                "allowed_scene_kinds": list(_SCENE_ORDER),
+                "layout_registry": registry_summary_v2(),
+                "beat_catalog": beat_catalog,
+                "chapter_contract": {
+                    "chapter_id": chapter.chapter_id,
+                    "title": chapter.title,
+                    "driving_question": chapter.driving_question,
+                    "learning_objective": chapter.learning_objective,
+                    "episode_order": [
+                        {
+                            "episode_id": episode.episode_id,
+                            "scene_kind": episode.scene_kind,
+                            "beat_ids": [
+                                beat.beat_id for beat in episode.beats
+                            ],
+                        }
+                        for episode in chapter.episodes
+                    ],
+                },
+                "fragments": [
+                    {
+                        "fragment_id": item.fragment_id,
+                        "section_id": item.section_id,
+                        "block_id": item.block_id,
+                        "kind": item.kind,
+                        "role": item.role,
+                        "ordinal": item.ordinal,
+                        "source_text": item.text[:400],
+                    }
+                    for item in chapter_fragments
+                ],
+            }
+            planning_units.append((
+                chapter,
+                chapter_baseline,
+                chapter_fragments,
+                request,
+            ))
+
+        semaphore = asyncio.Semaphore(3)
+
+        async def plan_chapter(
+            unit: tuple[
+                ChapterStoryV2,
+                SlideStoryPlanV2,
+                list[ContentFragmentV1],
+                dict[str, Any],
+            ],
+        ) -> ChapterStoryV2:
+            chapter, chapter_baseline, chapter_fragments, request = unit
+            async with semaphore:
+                raw = await invoke_planner(request)
+            normalized_directives = _normalize_chapter_directives_v2(raw)
+            if normalized_directives is not None:
+                return _apply_chapter_directives_v2(
+                    chapter=chapter,
+                    raw=normalized_directives,
+                    fragment_catalog=fragment_catalog,
+                )
+            chapter_candidate = SlideStoryPlanV2.model_validate(raw)
+            validate_ai_story_plan_v2(
+                chapter_candidate,
+                fallback=chapter_baseline,
+                course_data=course_data,
+                fragments=chapter_fragments,
+            )
+            return chapter_candidate.chapters[0]
+
+        planned_chapters = list(await asyncio.gather(*(
+            plan_chapter(unit) for unit in planning_units
+        )))
+        candidate = fallback.model_copy(update={
+            "plan_id": stable_hash({
+                "mode": mode,
+                "theme": theme,
+                "sources": fallback.source_revisions.model_dump(mode="json"),
+                "chapters": [
+                    item.model_dump(mode="json")
+                    for item in planned_chapters
+                ],
+            }, prefix="story_"),
+            "chapters": planned_chapters,
+            "planner": "ai",
+            "fallback_reason": "",
+        })
         validate_ai_story_plan_v2(
             candidate,
             fallback=fallback,
             course_data=course_data,
             fragments=fragments,
         )
-        candidate.planner = "ai"
-        candidate.fallback_reason = ""
         return candidate
     except Exception:
         fallback.fallback_reason = "invalid_or_failed_ai_story_plan"

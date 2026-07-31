@@ -234,6 +234,18 @@ def compact_story_plan_v5(
         if isinstance(story_plan, SlideStoryPlanV2)
         else SlideStoryPlanV2.model_validate(story_plan)
     )
+    interior_beats = [
+        beat
+        for chapter in story.chapters
+        for episode in chapter.episodes[1:-1]
+        for beat in episode.beats
+    ]
+    if interior_beats and all(
+        beat.layout_selection_reason
+        in {"v5_semantic_grouping", "ai_source_bound_directive"}
+        for beat in interior_beats
+    ):
+        return story
     source_fragments = fragments or fragment_course_document(document)
     fragments_by_section: dict[str, list[Any]] = {}
     for fragment in source_fragments:

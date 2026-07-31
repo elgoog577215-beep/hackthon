@@ -108,6 +108,32 @@ fragment remains source-traceable through an explicit `v5_semantic_core`
 exclusion, including in teaching mode. This preserves decision coverage without
 turning the slide deck into a dense appendix or reproducing the textbook.
 
+### Source-Bound AI Refinement
+
+AI planning runs after deterministic semantic compaction. The planner does not
+rewrite `SlideStoryPlanV2`; it receives one bounded request per chapter and
+returns only `slide_story_chapter_directives_v2`:
+
+```text
+chapter_id
+beat_directives[]
+  beat_id
+  headline_fragment_id
+  layout_id
+```
+
+Each headline must point to a fragment already owned by that beat, and each
+layout must be one of the capacity-compatible options computed by code. Requests
+run with bounded concurrency so a large course does not exceed provider context
+limits or require one giant JSON response. The compiler treats an already
+compacted and AI-refined story as authoritative, making compaction idempotent
+instead of rebuilding and erasing accepted decisions.
+
+Provider availability enables this refinement by default. An explicit false
+kill switch still disables it. A configured provider that fails validation does
+not silently earn an AI-quality pass: the deterministic story remains available
+for diagnosis, while publication is blocked by the planning quality gate.
+
 ### Closing
 
 The deck always ends with a course-level synthesis, application, next action, or
