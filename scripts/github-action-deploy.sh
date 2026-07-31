@@ -202,17 +202,38 @@ log_generation_task_recovery_plan() {
     log "未检测到正在生成的任务；继续切换版本"
 }
 
+preflight_release_runtime() {
+    log "预检新版本后端运行时导入：$TARGET_COMMIT"
+    (
+        cd "$release_path/backend"
+        "$VENV/bin/python" -c 'import main'
+    )
+}
+
+log_service_diagnostics() {
+    log "输出服务失败诊断：$SERVICE_NAME"
+    systemctl show "$SERVICE_NAME" \
+        --property=ActiveState \
+        --property=SubState \
+        --property=Result \
+        --property=ExecMainCode \
+        --property=ExecMainStatus \
+        --no-pager || true
+    journalctl -u "$SERVICE_NAME" -n 120 --no-pager || true
+}
+
 rollback() {
     local exit_code=$?
     local active_path=""
     trap - ERR
-    if [ "$service_stopped" -eq 1 ] && [ -n "$previous_path" ] && [ -e "$previous_path" ]; then
+    if [ -n "$previous_path" ] && [ -e "$previous_path" ]; then
         log "部署失败，恢复上一版本：$previous_path"
         if [ -L "$CURRENT_LINK" ]; then
             switch_current "$previous_path"
         elif [ ! -e "$CURRENT_LINK" ]; then
             mv "$previous_path" "$CURRENT_LINK"
         fi
+        systemctl reset-failed "$SERVICE_NAME" || true
         systemctl restart "$SERVICE_NAME" || true
     fi
     active_path="$(current_release)"
@@ -297,6 +318,8 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
     touch "$release_path/.deploy-ready"
 fi
 
+preflight_release_runtime
+
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     log_generation_task_recovery_plan
 fi
@@ -336,10 +359,12 @@ else
     switch_current "$release_path"
 fi
 
+systemctl reset-failed "$SERVICE_NAME" || true
 systemctl restart "$SERVICE_NAME"
 
 if ! wait_for_health; then
     log "新版本未通过健康检查：$HEALTH_URL"
+    log_service_diagnostics
     false
 fi
 
