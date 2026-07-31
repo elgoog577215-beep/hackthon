@@ -251,6 +251,20 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
         for episode in chapter.episodes[1:-1]
         for beat in episode.beats
     )
+    refined_allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        recompacted,
+    )
+
+    assert not any(page.appendix for page in refined_allocation.pages)
+    assert {
+        exclusion.fragment_id for exclusion in refined_allocation.exclusions
+    } >= {"method-heading", "method-body"}
+    assert all(
+        exclusion.reason == "v5_semantic_core"
+        for exclusion in refined_allocation.exclusions
+    )
 
 
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
