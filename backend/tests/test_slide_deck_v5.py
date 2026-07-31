@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
 from course_document import CourseDocument, CourseSection
+from slide_deck import SlideDeckContent
+from slide_deck_renderer import _render_slide
 from slide_deck_v5 import (
     compile_deck_outline_v5,
     compile_page_title_v5,
@@ -185,6 +190,52 @@ def test_rejected_visual_reflows_to_a_text_native_composition() -> None:
     assert contract.layout_fallback_reason == "visual_layout_without_visual"
 
 
+def test_shared_slide_model_accepts_v5_outline_contract() -> None:
+    deck = SlideDeckContent.model_validate({
+        "schema_version": "slide_deck_v5",
+        "title": "V5",
+        "slides": [],
+        "deck_outline": {
+            "schema_version": "deck_outline_v5",
+            "outline_id": "outline-1",
+        },
+    })
+
+    assert deck.schema_version == "slide_deck_v5"
+    assert deck.deck_outline["schema_version"] == "deck_outline_v5"
+
+
+def test_pptx_renderer_uses_resolved_layout_instead_of_requested_layout() -> None:
+    unit = SimpleNamespace(
+        visuals=[],
+        layout="concept",
+        quality={
+            "requested_layout": "two-column",
+            "resolved_layout": "editorial-body",
+        },
+    )
+    editorial_renderer = Mock()
+    two_column_renderer = Mock()
+
+    with (
+        patch("slide_deck_renderer._fill_background"),
+        patch("slide_deck_renderer._footer"),
+        patch("slide_deck_renderer._render_editorial_body", editorial_renderer),
+        patch("slide_deck_renderer._render_two_column", two_column_renderer),
+    ):
+        _render_slide(
+            Mock(),
+            unit,
+            1,
+            1,
+            {"surface": "FFFFFF"},
+            Mock(),
+        )
+
+    editorial_renderer.assert_called_once()
+    two_column_renderer.assert_not_called()
+
+
 def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> None:
     title = compile_page_title_v5(
         explicit_title="热力学系统的三种类型",
@@ -193,4 +244,3 @@ def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> No
     )
 
     assert title == "热力学系统的三种类型"
-

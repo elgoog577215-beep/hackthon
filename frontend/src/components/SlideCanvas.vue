@@ -8,9 +8,9 @@
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
     <template v-if="slide.layout === 'cover'">
-      <div class="deck-cover__wash"></div>
-      <div class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
-      <div class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '启智') }}</div>
+      <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__wash"></div>
+      <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
+      <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '启智') }}</div>
       <div class="deck-cover__content">
         <small>{{ slide.eyebrow || t('teachingRepresentations.slides.courseDeck', '课堂演示') }}</small>
         <h2>{{ slide.title }}</h2>
@@ -53,7 +53,7 @@
       <div
         v-if="slide.visuals?.length"
         class="deck-canvas__story"
-        :data-composition="slide.composition || 'split-visual'"
+        :data-composition="resolvedComposition"
         :data-source-empty="sourceBlocks.length === 0"
         :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
       >
@@ -117,6 +117,19 @@
               <MarkdownRenderer :content="item" :enable-code-run="false" />
             </li>
           </ol>
+          <div
+            v-else-if="visualLayout === 'classification-3' && block.items?.length === 3"
+            class="deck-classification"
+          >
+            <article
+              v-for="(item, itemIndex) in block.items"
+              :key="item"
+              class="deck-classification__item"
+            >
+              <b>{{ String(itemIndex + 1).padStart(2, '0') }}</b>
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
+            </article>
+          </div>
           <ul v-else-if="block.items?.length">
             <li v-for="item in block.items" :key="item">
               <MarkdownRenderer :content="item" :enable-code-run="false" />
@@ -182,6 +195,9 @@ interface Slide {
     character_count?: number
     issues?: Array<Record<string, any>>
     requested_layout?: string
+    resolved_layout?: string
+    requested_composition?: string
+    resolved_composition?: string
   }
 }
 
@@ -201,7 +217,16 @@ const props = withDefaults(defineProps<{
   representationId: '',
 })
 
-const visualLayout = computed(() => props.slide.quality?.requested_layout || props.slide.layout)
+const visualLayout = computed(() => (
+  props.slide.quality?.resolved_layout
+  || props.slide.quality?.requested_layout
+  || props.slide.layout
+))
+const resolvedComposition = computed(() => (
+  props.slide.quality?.resolved_composition
+  || props.slide.composition
+  || 'statement'
+))
 const sourceBlocks = computed(() => {
   const visualKind = props.slide.visuals?.[0]?.kind
   if (visualKind !== 'formula') return props.slide.blocks || []
@@ -275,19 +300,7 @@ function headingExcerpt(value: string, limit = 48) {
   return excerpt.replace(/[，,；;：:。…\s]+$/g, '')
 }
 const displayHeading = computed(() => {
-  const takeaway = String(props.slide.takeaway || '').trim()
-  if (
-    !takeaway
-    || props.slide.visuals?.[0]?.kind === 'formula'
-    || takeaway.startsWith('$')
-    || takeaway.startsWith('\\[')
-    || takeaway.startsWith('\\(')
-    || /\\[A-Za-z]+/.test(takeaway)
-    || /^[\d\s.、:：()（）-]+$/.test(takeaway)
-  ) {
-    return headingExcerpt(props.slide.title, 46)
-  }
-  return headingExcerpt(takeaway)
+  return headingExcerpt(props.slide.title, 46)
 })
 const navigationText = computed(() => String(
   props.slide.teaching_job
@@ -344,6 +357,12 @@ function layoutLabel(value: string) {
     'hero-statement': '核心判断',
     'editorial-body': '正文',
     'two-column': '双栏推理',
+    'balanced-two-column': '双栏推理',
+    'classification-3': '三项分类',
+    'agenda-linear': '课程路线',
+    'chapter-entry': '章节导入',
+    'chapter-recap': '章节回顾',
+    'course-synthesis': '课程总结',
     'case-study': '案例',
     question: '思考',
     summary: '回顾',
@@ -514,8 +533,38 @@ function layoutLabel(value: string) {
   box-shadow:inset 0 0 0 1px rgba(77,181,255,.14),0 0 28px rgba(22,96,135,.08);
 }
 .deck-canvas[data-layout="editorial-body"] .deck-canvas__blocks { grid-template-columns:1fr; }
-.deck-canvas[data-layout="two-column"] .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .deck-canvas[data-layout="concept-cards"] .deck-canvas__blocks { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.deck-canvas[data-layout="classification-3"] .deck-canvas__blocks { grid-template-columns:1fr; }
+.deck-canvas[data-layout="classification-3"] .deck-canvas__blocks > section {
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+}
+.deck-classification {
+  display:grid;
+  height:100%;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:2.4cqw;
+}
+.deck-classification__item {
+  min-width:0;
+  padding:1.5cqw 1.2cqw;
+  border-top:.32cqw solid var(--deck-blue);
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-classification__item > b {
+  display:block;
+  margin-bottom:1.2cqw;
+  color:var(--deck-blue);
+  font:800 1.05cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-classification__item :deep(.markdown-body) {
+  color:var(--deck-ink);
+  font-size:1.55cqw;
+  line-height:1.46;
+}
 .deck-canvas[data-layout="hero-statement"] .deck-canvas__blocks section {
   display:flex;
   align-items:center;
@@ -900,6 +949,57 @@ function layoutLabel(value: string) {
   font-size:1.42cqw;
   font-weight:700;
   line-height:1.45;
+}
+.deck-canvas[data-layout="cover-minimal"] .deck-cover__content {
+  inset:18% 8% 16%;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.deck-canvas[data-layout="cover-minimal"] .deck-cover__content::before {
+  content:"";
+  width:4.8cqw;
+  height:.32cqw;
+  margin-bottom:2.2cqw;
+  background:var(--deck-blue);
+}
+.deck-canvas[data-layout="cover-minimal"] .deck-cover__content h2 {
+  max-width:84cqw;
+  font-size:5.1cqw;
+  line-height:1.08;
+}
+.deck-canvas[data-layout="cover-minimal"] .deck-cover__content p {
+  max-width:68cqw;
+  margin-top:2.4cqw;
+}
+.deck-canvas[data-layout="agenda-linear"] .deck-canvas__blocks {
+  inset:25% 7% 11%;
+  grid-template-columns:1fr;
+}
+.deck-canvas[data-layout="agenda-linear"] .deck-canvas__blocks > section {
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+}
+.deck-canvas[data-layout="agenda-linear"] .deck-canvas__blocks ol {
+  height:100%;
+  gap:0;
+}
+.deck-canvas[data-layout="agenda-linear"] .deck-canvas__blocks ol li {
+  display:grid;
+  grid-template-columns:3.4cqw 1fr;
+  align-items:center;
+  padding:.72cqw 0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-canvas[data-layout="agenda-linear"] .deck-canvas__blocks ol b {
+  width:auto;
+  height:auto;
+  border-radius:0;
+  color:var(--deck-blue);
+  background:transparent;
+  font:800 1cqw/1 "Aptos Mono","SFMono-Regular",monospace;
 }
 .deck-chapter__panel {
   position:absolute;

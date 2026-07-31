@@ -137,6 +137,7 @@ class SlideDeckContent(_StrictModel):
         "slide_deck_v2",
         "slide_deck_v3",
         "slide_deck_v4",
+        "slide_deck_v5",
     ] = SLIDE_DECK_SCHEMA
     title: str
     theme: str = "qingfeng-classroom"
@@ -153,6 +154,7 @@ class SlideDeckContent(_StrictModel):
     build_signature: dict[str, Any] = Field(default_factory=dict)
     visual_quality_report: dict[str, Any] = Field(default_factory=dict)
     story_plan: dict[str, Any] = Field(default_factory=dict)
+    deck_outline: dict[str, Any] = Field(default_factory=dict)
     scene_manifest: list[dict[str, Any]] = Field(default_factory=list)
     layout_plan: dict[str, Any] = Field(default_factory=dict)
     render_review: dict[str, Any] = Field(default_factory=dict)

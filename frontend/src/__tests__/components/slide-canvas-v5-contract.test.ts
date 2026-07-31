@@ -75,4 +75,65 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.attributes('data-layout')).toBe('editorial-body')
     expect(wrapper.get('.deck-canvas__blocks').attributes('data-layout')).toBe('editorial-body')
   })
+
+  it('renders three sibling concepts as three semantic classification regions', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '核心概念',
+          title: '热力学系统的三种类型',
+          blocks: [{
+            block_id: 'classification',
+            type: 'bullets',
+            items: ['孤立系统', '封闭系统', '开放系统'],
+          }],
+          quality: {
+            requested_layout: 'two-column',
+            resolved_layout: 'classification-3',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-classification__item')).toHaveLength(3)
+    expect(wrapper.find('.deck-classification').text()).toContain('孤立系统')
+  })
+
+  it('keeps the V5 cover minimal', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        pageNumber: 1,
+        slide: {
+          layout: 'cover',
+          eyebrow: '课程课件',
+          title: '热力学与统计物理',
+          subtitle: '',
+          blocks: [],
+          quality: {
+            requested_layout: 'cover-minimal',
+            resolved_layout: 'cover-minimal',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { template: '<span />' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-cover__wash').exists()).toBe(false)
+    expect(wrapper.find('.deck-cover__brand').exists()).toBe(false)
+    expect(wrapper.get('.deck-cover__content h2').text()).toBe('热力学与统计物理')
+  })
 })
