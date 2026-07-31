@@ -127,7 +127,7 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["already_ready"] is False
-    assert payload["registry"]["slide_deck_target_schema"] == "slide_deck_v4"
+    assert payload["registry"]["slide_deck_target_schema"] == "slide_deck_v5"
     assert course_supports_slide_deck_v4(
         course_repository.load_course_view("course-legacy-logic")
     )
@@ -172,4 +172,37 @@ def test_upgrade_rejects_missing_semantics_without_mutating_input():
             repository.load_course_view("course-legacy-logic")
         )
 
+    assert course == before
+
+
+def test_upgrade_recovers_missing_objective_from_existing_section_summary():
+    course = migrated_course_missing_logic()
+    section = next(
+        item
+        for item in course["course_document"]["sections"]
+        if item["section_id"] == "section-1"
+    )
+    section["learning_objective"] = ""
+    for block in course["course_document"]["blocks"]:
+        if block["section_id"] == "section-1":
+            block["payload"]["markdown"] = (
+                "封闭系统中的能量守恒可写成 ΔU = Q + W。"
+                "应用时需要先确定系统边界和功、热量的符号约定。"
+                "本节介绍了热力学第一定律及其在封闭系统能量分析中的应用。"
+            )
+    before = deepcopy(course)
+    repository = CourseDocumentRepository(MemoryStorage(course))
+
+    result = compile_course_logic_upgrade(
+        repository.load_course_view("course-legacy-logic")
+    )
+
+    assert result["already_ready"] is False
+    assert result["summary"]["recovered_section_count"] == 1
+    contracts = result["updates"]["course_coherence_contract"][
+        "section_contracts"
+    ]
+    assert contracts[0]["learning_objective"] == (
+        "能够说明热力学第一定律及其在封闭系统能量分析中的应用"
+    )
     assert course == before

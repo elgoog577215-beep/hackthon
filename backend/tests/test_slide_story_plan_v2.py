@@ -602,6 +602,21 @@ def test_enabled_story_engine_rejects_silent_v3_fallback() -> None:
     ) == "slide_deck_v3"
 
 
+def test_enabled_story_engine_targets_v5_for_a_ready_course() -> None:
+    assert resolve_slide_deck_schema(
+        _course_with_teaching_plan(),
+        story_engine_enabled=True,
+    ) == "slide_deck_v5"
+
+
+def test_v5_can_be_explicitly_rolled_back_to_v4() -> None:
+    assert resolve_slide_deck_schema(
+        _course_with_teaching_plan(),
+        story_engine_enabled=True,
+        v5_enabled=False,
+    ) == "slide_deck_v4"
+
+
 def test_v4_signature_binds_teaching_logic_revisions() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
@@ -735,7 +750,7 @@ def test_v4_exports_editable_widescreen_pptx(tmp_path) -> None:
     )
 
 
-def test_v4_variant_is_atomically_published_under_existing_variant_key(tmp_path) -> None:
+def test_v5_variant_is_atomically_published_under_existing_variant_key(tmp_path) -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
     fragments = fragment_course_document(document)
@@ -767,7 +782,14 @@ def test_v4_variant_is_atomically_published_under_existing_variant_key(tmp_path)
 
     assert result["status"] == "synchronized"
     assert representation.status == "ready"
-    assert spec.payload["content"]["schema_version"] == "slide_deck_v4"
+    assert spec.payload["content"]["schema_version"] == "slide_deck_v5"
+    assert spec.payload["content"]["deck_outline"]["schema_version"] == "deck_outline_v5"
+    resolved_layouts = [
+        (slide.get("quality") or {}).get("resolved_layout")
+        for slide in spec.payload["content"]["slides"]
+    ]
+    assert resolved_layouts[:2] == ["cover-minimal", "agenda-linear"]
+    assert resolved_layouts.count("chapter-entry") == len(story.chapters)
 
 
 def test_v4_variant_becomes_stale_when_course_logic_revision_changes(tmp_path) -> None:
@@ -831,7 +853,7 @@ def test_v4_variant_becomes_stale_when_course_logic_revision_changes(tmp_path) -
     )
 
 
-def test_v4_bundle_parts_keep_the_latest_story_engine(tmp_path) -> None:
+def test_v5_bundle_parts_keep_the_latest_story_engine(tmp_path) -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
     fragments = fragment_course_document(document)
@@ -863,7 +885,7 @@ def test_v4_bundle_parts_keep_the_latest_story_engine(tmp_path) -> None:
         for spec in registry.specs
         if spec.variant_key.startswith("teaching:qizhi-classroom:part:")
     }
-    assert schemas == {"slide_deck_v4"}
+    assert schemas == {"slide_deck_v5"}
 
 
 def test_concise_mode_keeps_a_minimum_loop_and_records_every_omission() -> None:

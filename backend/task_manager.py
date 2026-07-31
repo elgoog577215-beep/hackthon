@@ -149,6 +149,7 @@ from slide_deck_v4 import (
     allocation_from_story_plan_v2,
     build_signature_v4,
 )
+from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
 from slide_story_plan import (
     SlideStoryPlanV2,
     plan_slide_story_v2,
@@ -3488,19 +3489,30 @@ class TaskManager:
         slide_schema = resolve_slide_deck_schema(
             course_view,
             story_engine_enabled=story_engine_enabled,
+            v5_enabled=os.getenv(
+                "SLIDE_DECK_V5_ENABLED",
+                "true",
+            ).strip().lower() in {"1", "true", "yes", "on"},
         )
-        use_v4 = slide_schema == "slide_deck_v4"
+        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5"}
         source_revision = str(document.document_revision or "")
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
         expected_signature = (
-            build_signature_v4(
+            build_signature_v5(
                 document=document,
                 course_data=course_view,
                 mode=mode,  # type: ignore[arg-type]
                 theme=theme,  # type: ignore[arg-type]
             )
-            if use_v4
+            if slide_schema == "slide_deck_v5"
+            else build_signature_v4(
+                document=document,
+                course_data=course_view,
+                mode=mode,  # type: ignore[arg-type]
+                theme=theme,  # type: ignore[arg-type]
+            )
+            if slide_schema == "slide_deck_v4"
             else build_signature(
                 source_document_revision=source_revision,
                 mode=mode,
@@ -3522,7 +3534,7 @@ class TaskManager:
         ):
             try:
                 raw_story = task.get("representation_story_plan_v2")
-                if use_v4 and isinstance(raw_story, dict):
+                if use_story_engine and isinstance(raw_story, dict):
                     story_plan = SlideStoryPlanV2.model_validate(raw_story)
             except (TypeError, ValueError):
                 story_plan = None
@@ -3564,7 +3576,7 @@ class TaskManager:
                 latest_slides.values(),
                 key=lambda item: int(item.get("position") or 0),
             )
-            if use_v4 and story_plan is None:
+            if use_story_engine and story_plan is None:
                 allocation_plan = None
                 visual_plan = None
                 resume_slides = []
@@ -3575,18 +3587,25 @@ class TaskManager:
                 "stage": "fragmenting",
                 "variant_key": variant_key,
             })
-            if use_v4:
+            if use_story_engine:
+                source_fragments = fragment_course_document(document)
                 story_plan = await plan_slide_story_v2(
                     document,
                     course_view,
-                    fragment_course_document(document),
+                    source_fragments,
                     mode=mode,  # type: ignore[arg-type]
                     theme=theme,  # type: ignore[arg-type]
                     ai_planner=_source_first_story_ai_worker(),
                 )
+                if slide_schema == "slide_deck_v5":
+                    story_plan = compact_story_plan_v5(
+                        document,
+                        story_plan,
+                        source_fragments,
+                    )
                 allocation_plan, _ = allocation_from_story_plan_v2(
                     document,
-                    fragment_course_document(document),
+                    source_fragments,
                     story_plan,
                 )
                 await self._record_representation_event(task_id, {

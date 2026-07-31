@@ -91,6 +91,9 @@ def compile_course_logic_upgrade(course_data: dict[str, Any]) -> dict[str, Any]:
     for node in working.get("nodes") or []:
         normalized = normalized_sections.get(str(node.get("node_id") or ""))
         if normalized is not None:
+            node["learning_objective"] = str(
+                normalized.get("learning_objective") or ""
+            )
             node["knowledge_structure"] = deepcopy(
                 normalized.get("knowledge_structure") or []
             )
@@ -209,6 +212,11 @@ def _normalize_legacy_section_semantics(
     raw_section: dict[str, Any],
 ) -> dict[str, Any]:
     section = deepcopy(raw_section)
+    if not str(section.get("learning_objective") or "").strip():
+        recovered_objective = _recover_learning_objective(section)
+        if recovered_objective:
+            section["learning_objective"] = recovered_objective
+            section["_course_logic_recovered"] = True
     for group in section.get("knowledge_structure") or []:
         if not isinstance(group, dict):
             continue
@@ -244,6 +252,45 @@ def _normalize_legacy_section_semantics(
             section["key_points"] = _knowledge_names(section)
             section["_course_logic_recovered"] = True
     return section
+
+
+def _recover_learning_objective(section: dict[str, Any]) -> str:
+    """Recover an objective from existing summary language or a sourced title."""
+    markdown = str(section.get("node_content") or "")
+    text = re.sub(r"```[\s\S]*?```", " ", markdown)
+    text = re.sub(r"!\[[^\]]*]\([^)]*\)", " ", text)
+    text = re.sub(r"\[([^\]]+)]\([^)]*\)", r"\1", text)
+    text = re.sub(r"[`*_>#|]", "", text)
+    text = re.sub(r"\s+", "", text)
+    patterns = (
+        r"本节(?:主要)?介绍了(?P<object>[^。！？]{4,100})",
+        r"本节(?:主要)?讲解了(?P<object>[^。！？]{4,100})",
+        r"通过本节(?:的)?学习[^，。！？]*[，,](?:学习者|你)?"
+        r"(?:将)?(?:能够|可以)(?P<object>[^。！？]{4,100})",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        recovered = match.group("object").strip("，,；;：: ")
+        recovered = re.split(
+            r"[，,](?:为|并为|从而为|这为|有助于|是后续)",
+            recovered,
+            maxsplit=1,
+        )[0].strip()
+        if recovered:
+            return f"能够说明{recovered}"[:160]
+    title = re.sub(
+        r"^\s*(?:第[一二三四五六七八九十百]+[章节]\s*)?"
+        r"\d+(?:\.\d+)*[\s、.．:：-]*",
+        "",
+        str(section.get("node_name") or "").strip(),
+    ).strip()
+    if title and _first_substantive_sentence(markdown):
+        return (
+            f"能够解释“{title}”的核心概念，并依据本节正文分析相关问题"
+        )[:160]
+    return ""
 
 
 def _recover_knowledge_structure(

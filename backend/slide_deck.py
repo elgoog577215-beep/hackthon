@@ -137,6 +137,7 @@ class SlideDeckContent(_StrictModel):
         "slide_deck_v2",
         "slide_deck_v3",
         "slide_deck_v4",
+        "slide_deck_v5",
     ] = SLIDE_DECK_SCHEMA
     title: str
     theme: str = "qingfeng-classroom"
@@ -153,6 +154,7 @@ class SlideDeckContent(_StrictModel):
     build_signature: dict[str, Any] = Field(default_factory=dict)
     visual_quality_report: dict[str, Any] = Field(default_factory=dict)
     story_plan: dict[str, Any] = Field(default_factory=dict)
+    deck_outline: dict[str, Any] = Field(default_factory=dict)
     scene_manifest: list[dict[str, Any]] = Field(default_factory=list)
     layout_plan: dict[str, Any] = Field(default_factory=dict)
     render_review: dict[str, Any] = Field(default_factory=dict)
@@ -714,7 +716,16 @@ def validate_slide_deck(
         unit_ids.add(slide.unit_id)
         if not slide.title.strip():
             semantic_issues.append(_issue("critical", "slide_title_missing", "幻灯片缺少标题。", slide.unit_id))
-        if slide.section_id and (not slide.source_section_ids or not slide.source_block_ids):
+        v5_navigation_binding = (
+            deck.schema_version == "slide_deck_v5"
+            and bool(slide.quality.get("navigation_only"))
+            and bool(slide.source_section_ids)
+        )
+        if (
+            slide.section_id
+            and (not slide.source_section_ids or not slide.source_block_ids)
+            and not v5_navigation_binding
+        ):
             semantic_issues.append(_issue("critical", "slide_source_missing", "教学页没有课程来源绑定。", slide.unit_id))
         if slide.layout not in LAYOUT_CAPACITY:
             visual_issues.append(_issue("critical", "unknown_slide_layout", "幻灯片使用了未知版式。", slide.unit_id))
@@ -742,7 +753,11 @@ def validate_slide_deck(
         if (
             _looks_like_raw_latex(_slide_non_code_visible_text(slide))
             and not (
-                deck.schema_version in {"slide_deck_v3", "slide_deck_v4"}
+                deck.schema_version in {
+                    "slide_deck_v3",
+                    "slide_deck_v4",
+                    "slide_deck_v5",
+                }
                 and str(slide.quality.get("requested_layout") or "") == "formula"
             )
         ):
@@ -760,7 +775,11 @@ def validate_slide_deck(
                 slide.unit_id,
             ))
         if (
-            deck.schema_version not in {"slide_deck_v3", "slide_deck_v4"}
+            deck.schema_version not in {
+                "slide_deck_v3",
+                "slide_deck_v4",
+                "slide_deck_v5",
+            }
             and any(len(block.content) > 360 and block.type != "code" for block in slide.blocks)
         ):
             visual_issues.append(_issue(

@@ -1,0 +1,82 @@
+{
+  "schema_version": "slide_layout_contract_v5",
+  "minimum_title_font_pt": 24,
+  "minimum_body_font_pt": 14,
+  "layouts": [
+    {
+      "layout": "cover-minimal",
+      "browser_composition": "cover",
+      "pptx_renderer": "_render_cover_minimal"
+    },
+    {
+      "layout": "agenda-linear",
+      "browser_composition": "agenda",
+      "pptx_renderer": "_render_agenda_linear"
+    },
+    {
+      "layout": "chapter-entry",
+      "browser_composition": "chapter",
+      "pptx_renderer": "_render_chapter"
+    },
+    {
+      "layout": "hero-claim",
+      "browser_composition": "claim",
+      "pptx_renderer": "_render_claim_only"
+    },
+    {
+      "layout": "editorial-body",
+      "browser_composition": "generic",
+      "pptx_renderer": "_render_editorial_body"
+    },
+    {
+      "layout": "balanced-two-column",
+      "browser_composition": "generic",
+      "pptx_renderer": "_render_two_column"
+    },
+    {
+      "layout": "classification-3",
+      "browser_composition": "classification",
+      "pptx_renderer": "_render_classification_three"
+    },
+    {
+      "layout": "process-sequence",
+      "browser_composition": "generic",
+      "pptx_renderer": "_render_process"
+    },
+    {
+      "layout": "formula-explanation",
+      "browser_composition": "generic",
+      "pptx_renderer": "_render_editorial_body"
+    },
+    {
+      "layout": "figure-text",
+      "browser_composition": "visual-with-source",
+      "pptx_renderer": "_render_visual_directed"
+    },
+    {
+      "layout": "diagram-full",
+      "browser_composition": "visual-only",
+      "pptx_renderer": "_render_visual_directed"
+    },
+    {
+      "layout": "worked-example",
+      "browser_composition": "worked-example",
+      "pptx_renderer": "_render_worked_example"
+    },
+    {
+      "layout": "practice-feedback",
+      "browser_composition": "practice-feedback",
+      "pptx_renderer": "_render_practice_feedback"
+    },
+    {
+      "layout": "chapter-recap",
+      "browser_composition": "chapter-recap",
+      "pptx_renderer": "_render_chapter_recap"
+    },
+    {
+      "layout": "course-synthesis",
+      "browser_composition": "course-synthesis",
+      "pptx_renderer": "_render_course_synthesis"
+    }
+  ]
+}

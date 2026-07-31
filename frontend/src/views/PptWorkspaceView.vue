@@ -212,19 +212,24 @@ const slideRepresentation = computed(() => (
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const slideEngineStatus = computed<
-  'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
 >(() => {
   const target = String(store.registry?.slide_deck_target_schema || '')
-  if (['slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
-    return target as 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
+  if (['slide_deck_v5', 'slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
+    return target as 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
   }
   const publishedSchema = String(content.value?.schema_version || '')
-  if (publishedSchema === 'slide_deck_v4' || publishedSchema === 'slide_deck_v3') {
+  if (
+    publishedSchema === 'slide_deck_v5'
+    || publishedSchema === 'slide_deck_v4'
+    || publishedSchema === 'slide_deck_v3'
+  ) {
     return publishedSchema
   }
   return 'unknown'
 })
 const slideEngineStatusLabel = computed(() => ({
+  slide_deck_v5: '将使用课程叙事与语义版式 V5 生成',
   slide_deck_v4: '将使用新版课程逻辑 V4 生成',
   slide_deck_v3: '当前使用兼容模式 V3',
   blocked: '课程逻辑产物未就绪，暂不能生成 PPT',
@@ -233,7 +238,11 @@ const slideEngineStatusLabel = computed(() => ({
 
 function representationMatchesTargetEngine(item: TeachingRepresentation) {
   const target = String(store.registry?.slide_deck_target_schema || '')
-  if (target !== 'slide_deck_v4' && target !== 'slide_deck_v3') return true
+  if (
+    target !== 'slide_deck_v5'
+    && target !== 'slide_deck_v4'
+    && target !== 'slide_deck_v3'
+  ) return true
   const registrySpec = (store.registry?.specs || []).find(
     (spec: Record<string, any>) => spec.spec_id === item.spec_id,
   )
@@ -410,7 +419,7 @@ async function upgradeCourseLogic() {
     const targetSchema = String(
       store.registry?.slide_deck_target_schema || '',
     )
-    if (targetSchema === 'slide_deck_v4') {
+    if (targetSchema === 'slide_deck_v5' || targetSchema === 'slide_deck_v4') {
       generatorOpen.value = true
       return
     }

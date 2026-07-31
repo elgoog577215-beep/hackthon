@@ -202,7 +202,11 @@ class PlannedPageV2(_StrictModel):
 
 class FragmentExclusionV1(_StrictModel):
     fragment_id: str
-    reason: Literal["mode_concise", "duplicate_navigation"]
+    reason: Literal[
+        "mode_concise",
+        "duplicate_navigation",
+        "v5_semantic_core",
+    ]
 
 
 class SlideAllocationPlanV2(_StrictModel):
@@ -1785,7 +1789,19 @@ def validate_allocation_plan(
                 f"({inversion[0]} before {inversion[1]})"
             )
     if plan.mode in {"full", "teaching"}:
-        if set(referenced) != set(catalog) or excluded:
+        semantic_core_exclusions = bool(plan.exclusions) and all(
+            item.reason == "v5_semantic_core"
+            for item in plan.exclusions
+        )
+        complete_v5_decision_coverage = (
+            semantic_core_exclusions
+            and set(referenced).isdisjoint(excluded)
+            and set(referenced) | set(excluded) == set(catalog)
+        )
+        if (
+            not complete_v5_decision_coverage
+            and (set(referenced) != set(catalog) or excluded)
+        ):
             raise ValueError("Full and teaching modes require complete source coverage")
     else:
         if set(referenced) & set(excluded):

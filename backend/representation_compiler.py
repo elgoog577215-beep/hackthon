@@ -39,6 +39,13 @@ from slide_deck_v4 import (
     compile_slide_deck_v4,
     validate_slide_deck_v4,
 )
+from slide_deck_v5 import (
+    SLIDE_DECK_V5_COMPILER_VERSION,
+    build_signature_v5,
+    compile_slide_deck_v5,
+    slide_deck_v5_enabled,
+    validate_slide_deck_v5,
+)
 from slide_story_plan import SlideStoryPlanV2
 from slide_theme import slide_theme_version
 from slide_visuals import SlideVisualPlanV1, build_signature
@@ -509,7 +516,9 @@ def compile_slide_deck_variant(
     repository.register_plan(plan)
     compiler_version = SLIDE_DECK_V3_COMPILER_VERSION
     if story_plan is not None:
-        content = compile_slide_deck_v4(
+        use_v5 = slide_deck_v5_enabled()
+        story_compiler = compile_slide_deck_v5 if use_v5 else compile_slide_deck_v4
+        content = story_compiler(
             document,
             course_data,
             story_plan=story_plan,
@@ -548,7 +557,11 @@ def compile_slide_deck_variant(
                 ),
                 "repair_attempts": 0,
             })
-        quality = validate_slide_deck_v4(content, course_data=course_data)
+        quality = (
+            validate_slide_deck_v5(content, course_data=course_data)
+            if use_v5
+            else validate_slide_deck_v4(content, course_data=course_data)
+        )
         render_blockers = list((content.get("render_review") or {}).get("blockers") or [])
         if render_blockers:
             quality["passed"] = False
@@ -557,7 +570,11 @@ def compile_slide_deck_variant(
                 *render_blockers,
             ]
             quality["score"] = max(0, int(quality.get("score") or 0) - 20)
-        compiler_version = SLIDE_DECK_V4_COMPILER_VERSION
+        compiler_version = (
+            SLIDE_DECK_V5_COMPILER_VERSION
+            if use_v5
+            else SLIDE_DECK_V4_COMPILER_VERSION
+        )
     else:
         content = compile_slide_deck_v3(
             document,
@@ -826,9 +843,20 @@ def rebuild_slide_deck_variant_bundle_safely(
             and item.status == "ready"
         )
     ]
-    bundle_engine = "slide_deck_v4" if story_plan is not None else "slide_deck_v3"
+    use_v5 = story_plan is not None and slide_deck_v5_enabled()
+    bundle_engine = (
+        "slide_deck_v5"
+        if use_v5
+        else "slide_deck_v4"
+        if story_plan is not None
+        else "slide_deck_v3"
+    )
     full_build_signature = (
-        build_signature_v4(
+        (
+            build_signature_v5
+            if use_v5
+            else build_signature_v4
+        )(
             document=document,
             course_data=course_data,
             mode=mode,
@@ -1655,7 +1683,7 @@ def _unit_bindings_for_payload(
     vector = revision_vector_for_document(document).revisions
     course_logic_revisions: dict[str, str] = {}
     if (
-        payload.get("schema_version") == "slide_deck_v4"
+        payload.get("schema_version") in {"slide_deck_v4", "slide_deck_v5"}
         and course_data is not None
     ):
         course_vector = revision_vector_for_course(document, course_data).revisions
