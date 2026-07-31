@@ -395,6 +395,9 @@ def select_layout_v2(
     evidence = {str(item) for item in evidence_kinds if str(item)}
     recent = list(recent_layout_families or [])
     candidates: list[tuple[float, LayoutDefinitionV2, dict[str, float]]] = []
+    rhythm_fallbacks: list[
+        tuple[float, LayoutDefinitionV2, dict[str, float]]
+    ] = []
     for layout in SLIDE_LAYOUT_REGISTRY_V2:
         if scene_kind not in layout.scene_kinds:
             continue
@@ -422,9 +425,14 @@ def select_layout_v2(
             if family != layout.layout_family:
                 break
             consecutive += 1
-        if consecutive >= layout.max_consecutive:
-            continue
-        rhythm_score = 1.0 if not recent or recent[-1] != layout.layout_family else 0.45
+        rhythm_limited = consecutive >= layout.max_consecutive
+        rhythm_score = (
+            0.1
+            if rhythm_limited
+            else 1.0
+            if not recent or recent[-1] != layout.layout_family
+            else 0.45
+        )
         theme_score = 1.0
         score = (
             scene_score * 0.35
@@ -433,7 +441,7 @@ def select_layout_v2(
             + rhythm_score * 0.10
             + theme_score * 0.10
         )
-        candidates.append((
+        candidate = (
             score,
             layout,
             {
@@ -443,7 +451,13 @@ def select_layout_v2(
                 "rhythm": rhythm_score,
                 "theme": theme_score,
             },
-        ))
+        )
+        if rhythm_limited:
+            rhythm_fallbacks.append(candidate)
+        else:
+            candidates.append(candidate)
+    if not candidates and rhythm_fallbacks:
+        candidates = rhythm_fallbacks
     if not candidates:
         raise ValueError(
             f"No capacity-safe layout for scene={scene_kind}, "
