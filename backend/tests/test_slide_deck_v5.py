@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+from pptx import Presentation
+
 from course_document import CourseDocument, CourseSection
 from slide_deck import SlideDeckContent, validate_slide_deck
-from slide_deck_renderer import _render_editorial_body, _render_slide
+from slide_deck_v3 import ContentFragmentV1
+from slide_deck_renderer import (
+    _render_editorial_body,
+    _render_slide,
+    export_structured_slide_deck,
+)
+from slide_deck_renderer import V5_LAYOUT_RENDERER_NAMES
+import slide_deck_renderer
+from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
+    apply_page_contract_v5,
+    compact_story_plan_v5,
     compile_deck_outline_v5,
     compile_page_title_v5,
     resolve_page_contract_v5,
@@ -122,6 +137,91 @@ def test_outline_does_not_invent_sections_for_a_single_chapter_course() -> None:
     assert outline.agenda_sections[0].source_chapter_ids == ["chapter-1"]
 
 
+def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> None:
+    document = CourseDocument(
+        course_id="course-v5-compaction",
+        title="课程压缩测试",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="第一章",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 核心主题",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    raw = [
+        ("title", "heading", "1.1 核心主题"),
+        ("core-heading", "heading", "核心概念与背景"),
+        ("core-body", "paragraph", "核心概念通过已有正文建立。"),
+        ("method-heading", "heading", "技术实现与方法"),
+        ("method-body", "paragraph", "先识别条件，再选择步骤。"),
+        ("case-heading", "heading", "实战案例"),
+        ("case-body", "paragraph", "案例用于检验抽象判断。"),
+        ("practice-heading", "heading", "思考与挑战"),
+        ("practice-body", "list_item", "请说明结论成立的边界。"),
+    ]
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate(raw)
+    ]
+
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    chapter = compact.chapters[0]
+
+    assert [episode.scene_kind for episode in chapter.episodes] == [
+        "chapter_entry",
+        "concept",
+        "worked_example",
+        "practice_feedback",
+        "chapter_recap",
+    ]
+    selected_ids = {
+        fragment_id
+        for episode in chapter.episodes
+        for beat in episode.beats
+        for fragment_id in beat.fragment_ids
+    }
+    assert {"core-body", "case-body", "practice-body"} <= selected_ids
+    assert "method-body" not in selected_ids
+    allocation, _ = allocation_from_story_plan_v2(
+        document,
+        fragments,
+        compact,
+    )
+    teaching_pages = [
+        page
+        for page in allocation.pages
+        if page.fragment_ids
+    ]
+    assert len(teaching_pages) == 3
+    assert all(
+        exclusion.reason == "v5_semantic_core"
+        for exclusion in allocation.exclusions
+    )
+    assert {
+        exclusion.fragment_id for exclusion in allocation.exclusions
+    } >= {"method-heading", "method-body"}
+
+
 def test_one_text_group_cannot_keep_a_two_column_layout() -> None:
     contract = resolve_page_contract_v5({
         "layout": "concept",
@@ -142,6 +242,22 @@ def test_one_text_group_cannot_keep_a_two_column_layout() -> None:
     assert contract.resolved_composition == "statement"
     assert contract.occupied_major_region_count == 1
     assert contract.layout_fallback_reason == "single_group_two_column"
+
+
+def test_one_prompt_block_cannot_fabricate_a_practice_feedback_region() -> None:
+    contract = resolve_page_contract_v5({
+        "layout": "practice",
+        "blocks": [{
+            "block_id": "prompt-only",
+            "type": "exercise",
+            "items": ["判断系统类型", "说明判断依据"],
+        }],
+        "quality": {"requested_layout": "practice-feedback"},
+    })
+
+    assert contract.resolved_layout == "editorial-body"
+    assert contract.layout_fallback_reason == "practice_without_feedback"
+    assert contract.major_region_count == 1
 
 
 def test_three_sibling_items_select_a_classification_layout() -> None:
@@ -167,6 +283,49 @@ def test_three_sibling_items_select_a_classification_layout() -> None:
         "classification_item",
     ]
     assert contract.occupied_major_region_count == 3
+
+
+@pytest.mark.parametrize(
+    ("requested_layout", "expected_regions"),
+    [
+        ("worked-example", 3),
+        ("practice-feedback", 2),
+    ],
+)
+def test_instructional_layouts_survive_final_contract_resolution(
+    requested_layout: str,
+    expected_regions: int,
+) -> None:
+    blocks = (
+        [
+            {
+                "block_id": "practice-prompt",
+                "type": "exercise",
+                "content": "先判断系统类型。",
+            },
+            {
+                "block_id": "practice-feedback",
+                "type": "bullets",
+                "items": ["边界条件一致", "排除其他类型"],
+            },
+        ]
+        if requested_layout == "practice-feedback"
+        else [
+            {
+                "block_id": "instructional-sequence",
+                "type": "process",
+                "items": ["识别条件", "选择方法", "检查结论"],
+            },
+        ]
+    )
+    contract = resolve_page_contract_v5({
+        "layout": "concept",
+        "blocks": blocks,
+        "quality": {"requested_layout": requested_layout},
+    })
+
+    assert contract.resolved_layout == requested_layout
+    assert contract.major_region_count == expected_regions
 
 
 def test_rejected_visual_reflows_to_a_text_native_composition() -> None:
@@ -204,6 +363,80 @@ def test_shared_slide_model_accepts_v5_outline_contract() -> None:
 
     assert deck.schema_version == "slide_deck_v5"
     assert deck.deck_outline["schema_version"] == "deck_outline_v5"
+
+
+def test_shared_v5_layout_catalog_matches_pptx_renderer_contract() -> None:
+    catalog = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "shared"
+            / "slide-layout-contract-v5.json"
+        ).read_text(encoding="utf-8")
+    )
+    expected = {
+        item["layout"]: item["pptx_renderer"]
+        for item in catalog["layouts"]
+    }
+
+    assert expected == V5_LAYOUT_RENDERER_NAMES
+    assert all(
+        callable(getattr(slide_deck_renderer, renderer_name))
+        for renderer_name in expected.values()
+    )
+
+
+def test_v5_render_review_fixture_exports_all_semantic_compositions(
+    tmp_path,
+) -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "slide_deck_v5_render_review.json"
+        ).read_text(encoding="utf-8")
+    )
+    output = export_structured_slide_deck(
+        fixture,
+        tmp_path / "slide-deck-v5-review.pptx",
+        require_quality=False,
+    )
+    presentation = Presentation(output)
+    visible_text = "\n".join(
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+
+    assert len(presentation.slides) == 5
+    assert {"已知", "推理", "结论", "反馈依据", "课程主线"} <= {
+        line.strip() for line in visible_text.splitlines()
+    }
+
+
+def test_pptx_export_uses_v5_quality_contract_for_v5_content(tmp_path) -> None:
+    content = {
+        "schema_version": "slide_deck_v5",
+        "title": "V5 quality routing",
+        "slides": [],
+    }
+
+    with (
+        patch(
+            "slide_deck_v5.validate_slide_deck_v5",
+            return_value={"passed": True, "blockers": []},
+        ) as validate_v5,
+        patch("slide_deck_renderer.validate_slide_deck") as validate_legacy,
+    ):
+        export_structured_slide_deck(
+            content,
+            tmp_path / "v5-quality-routing.pptx",
+            require_quality=True,
+            course_data={},
+        )
+
+    validate_v5.assert_called_once()
+    validate_legacy.assert_not_called()
 
 
 def test_v5_navigation_slide_can_bind_a_chapter_without_inventing_body_sources() -> None:
@@ -282,6 +515,43 @@ def test_pptx_renderer_uses_resolved_layout_instead_of_requested_layout() -> Non
     two_column_renderer.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("resolved_layout", "renderer_name"),
+    [
+        ("worked-example", "_render_worked_example"),
+        ("practice-feedback", "_render_practice_feedback"),
+        ("chapter-recap", "_render_chapter_recap"),
+        ("course-synthesis", "_render_course_synthesis"),
+    ],
+)
+def test_v5_semantic_layouts_use_dedicated_pptx_renderers(
+    resolved_layout: str,
+    renderer_name: str,
+) -> None:
+    unit = SimpleNamespace(
+        visuals=[],
+        layout="concept",
+        quality={"resolved_layout": resolved_layout},
+    )
+    renderer = Mock()
+
+    with (
+        patch("slide_deck_renderer._fill_background"),
+        patch("slide_deck_renderer._footer"),
+        patch(f"slide_deck_renderer.{renderer_name}", renderer),
+    ):
+        _render_slide(
+            Mock(),
+            unit,
+            1,
+            1,
+            {"surface": "FFFFFF"},
+            Mock(),
+        )
+
+    renderer.assert_called_once()
+
+
 def test_v5_editorial_body_does_not_reserve_a_fake_right_sidebar() -> None:
     unit = SimpleNamespace(
         blocks=[
@@ -335,6 +605,33 @@ def test_title_compiler_rejects_raw_diagram_identifiers() -> None:
     assert "ID:" not in title
 
 
+@pytest.mark.parametrize(
+    ("template_title", "body"),
+    [
+        (
+            "🏭 实战案例/行业应用",
+            "在航天器设计中，速度分布用于检验喷嘴方案。",
+        ),
+        (
+            "✅ 思考与挑战",
+            "为什么封闭系统仍然可以和环境交换能量？",
+        ),
+    ],
+)
+def test_title_compiler_demotes_template_labels_to_eyebrow(
+    template_title: str,
+    body: str,
+) -> None:
+    title = compile_page_title_v5(
+        explicit_title=template_title,
+        primary_claim=template_title,
+        body_text=body,
+    )
+
+    assert title not in {template_title, "实战案例/行业应用", "思考与挑战"}
+    assert title
+
+
 def test_v5_quality_gate_rejects_orphan_formula_and_title_duplication() -> None:
     issues = v5_contract_issues([
         {
@@ -374,6 +671,229 @@ def test_v5_quality_gate_rejects_orphan_formula_and_title_duplication() -> None:
         "orphan_formula",
         "title_body_duplication",
     }
+
+
+def test_v5_compiler_removes_repeated_lead_claim_but_keeps_supporting_items() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "deduplicated-claim",
+        "layout": "concept",
+        "title": "系统按交换方式分为三类",
+        "blocks": [
+            {
+                "block_id": "lead",
+                "type": "rich_text",
+                "content": "系统按交换方式分为三类。",
+                "items": [],
+            },
+            {
+                "block_id": "classification",
+                "type": "bullets",
+                "items": ["孤立系统", "封闭系统", "开放系统"],
+            },
+        ],
+        "quality": {"requested_layout": "editorial-body"},
+    })
+
+    assert [block["block_id"] for block in slide["blocks"]] == [
+        "classification"
+    ]
+    assert slide["quality"]["resolved_layout"] == "classification-3"
+    assert "title_body_duplication" not in {
+        issue["code"] for issue in v5_contract_issues([slide])
+    }
+
+
+def test_v5_compiler_removes_only_the_repeated_question_clause() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "question-clause",
+        "layout": "practice",
+        "title": "✅ 思考与挑战",
+        "blocks": [{
+            "block_id": "questions",
+            "type": "bullets",
+            "items": [
+                "为什么沙漠地区昼夜温差大？这是否与沙子的比热容有关？",
+                "水和油在相同条件下谁需要更多热量？",
+            ],
+        }],
+        "quality": {"requested_layout": "editorial-body"},
+    })
+
+    assert slide["title"] == "为什么沙漠地区昼夜温差大"
+    assert slide["blocks"][0]["items"] == [
+        "这是否与沙子的比热容有关？",
+        "水和油在相同条件下谁需要更多热量？",
+    ]
+    assert not v5_contract_issues([slide])
+
+
+def test_v5_density_contract_rejects_overflow_without_reducing_font_floor() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "dense-page",
+        "layout": "concept",
+        "title": "热力学系统的分类",
+        "key_message": "",
+        "blocks": [{
+            "block_id": "dense-body",
+            "type": "rich_text",
+            "content": "正文" * 220,
+            "items": [],
+        }],
+        "quality": {"requested_layout": "editorial-body"},
+    })
+
+    assert slide["quality"]["density_band"] == "overflow"
+    assert slide["quality"]["minimum_body_font_pt"] >= 14
+    assert slide["quality"]["minimum_title_font_pt"] >= 24
+    assert {
+        issue["code"] for issue in v5_contract_issues([slide])
+    } >= {"body_density_overflow"}
+
+
+def test_worked_example_with_more_than_three_regions_reflows_without_dropping_items() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "application-list",
+        "layout": "case-study",
+        "title": "分子速度分布支持多类工程判断",
+        "blocks": [
+            {
+                "block_id": "context",
+                "type": "statement",
+                "content": "同一统计模型可以服务不同工程场景。",
+            },
+            {
+                "block_id": "applications",
+                "type": "bullets",
+                "items": ["航天推进", "真空系统", "材料扩散", "稀薄气体流动"],
+            },
+        ],
+        "quality": {"requested_layout": "worked-example"},
+    })
+
+    assert slide["quality"]["resolved_layout"] == "editorial-body"
+    assert slide["quality"]["layout_fallback_reason"] == (
+        "worked_example_item_overflow"
+    )
+    assert slide["blocks"][1]["items"] == [
+        "航天推进",
+        "真空系统",
+        "材料扩散",
+        "稀薄气体流动",
+    ]
+    assert not v5_contract_issues([slide])
+
+
+def test_v5_title_and_item_budgets_are_hard_quality_gates() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "over-budget",
+        "layout": "recap",
+        "title": "这是一个明显超出投影扫读容量且没有进行结构化压缩的页面标题" * 2,
+        "blocks": [{
+            "block_id": "too-many",
+            "type": "bullets",
+            "items": [f"结论 {index}" for index in range(8)],
+        }],
+        "quality": {
+            "requested_layout": "chapter-recap",
+            "resolved_layout": "chapter-recap",
+            "resolved_composition": "statement",
+            "major_region_count": 1,
+            "occupied_major_region_count": 1,
+        },
+    }])
+
+    assert {issue["code"] for issue in issues} >= {
+        "slide_title_overflow",
+        "visible_item_overflow",
+    }
+
+
+@pytest.mark.parametrize(
+    ("course_type", "requested_layout", "blocks", "expected_layout"),
+    [
+        (
+            "quantitative",
+            "formula-explanation",
+            [{
+                "block_id": "energy-balance",
+                "type": "formula",
+                "content": "ΔU = Q + W 表示封闭系统的能量收支。",
+                "metadata": {"formula": r"\Delta U = Q + W"},
+            }],
+            "formula-explanation",
+        ),
+        (
+            "programming",
+            "balanced-two-column",
+            [
+                {
+                    "block_id": "source-code",
+                    "type": "code",
+                    "content": "def total(values):\n    return sum(values)",
+                },
+                {
+                    "block_id": "reading",
+                    "type": "rich_text",
+                    "content": "先确认输入，再检查返回值和空列表边界。",
+                },
+            ],
+            "balanced-two-column",
+        ),
+        (
+            "humanities",
+            "editorial-body",
+            [{
+                "block_id": "argument",
+                "type": "rich_text",
+                "content": "史料的作者、语境和受众共同决定证据能够支持的解释范围。",
+            }],
+            "editorial-body",
+        ),
+        (
+            "business",
+            "editorial-body",
+            [{
+                "block_id": "segments",
+                "type": "bullets",
+                "items": ["成本领先", "差异化", "聚焦细分市场"],
+            }],
+            "classification-3",
+        ),
+        (
+            "medical-structural",
+            "process-sequence",
+            [{
+                "block_id": "clinical-path",
+                "type": "process",
+                "items": ["采集症状", "识别危险信号", "形成鉴别诊断", "安排检查"],
+            }],
+            "process-sequence",
+        ),
+    ],
+)
+def test_v5_structural_evaluation_across_course_types(
+    course_type: str,
+    requested_layout: str,
+    blocks: list[dict[str, object]],
+    expected_layout: str,
+) -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": f"evaluation-{course_type}",
+        "layout": "concept",
+        "title": {
+            "quantitative": "能量守恒连接热、功与内能",
+            "programming": "函数契约决定边界行为",
+            "humanities": "证据必须放回历史语境",
+            "business": "竞争战略有三种基本选择",
+            "medical-structural": "临床判断沿证据路径推进",
+        }[course_type],
+        "blocks": blocks,
+        "quality": {"requested_layout": requested_layout},
+    })
+
+    assert slide["quality"]["resolved_layout"] == expected_layout
+    assert slide["quality"]["density_band"] != "overflow"
+    assert not v5_contract_issues([slide])
 
 
 def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> None:

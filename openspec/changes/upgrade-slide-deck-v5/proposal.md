@@ -40,7 +40,11 @@ selection, visual resolution, web preview, and PPTX export.
 7. Add critical publication gates for empty major regions, invalid slot
    occupancy, visual-dependent layouts without visuals, orphan formulas, and
    preview/export contract drift.
-8. Roll out V5 with an explicit target schema while retaining V4 as a reversible
+8. Compact each source section into at most three complete, source-bound
+   semantic groups for the teaching arc; record unselected details as explicit
+   coverage decisions instead of mechanically splitting or appending dense
+   source-text pages.
+9. Roll out V5 with an explicit target schema while retaining V4 as a reversible
    fallback during migration.
 
 ## Expected Outcome
@@ -54,4 +58,3 @@ visual is available.
 V5 does not claim to replace photography or high-end illustration generation.
 When visual quality cannot be guaranteed, a complete text-native composition is
 the correct successful result.
-

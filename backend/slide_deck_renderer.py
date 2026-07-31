@@ -190,12 +190,43 @@ def export_structured_slide_deck(
     require_quality: bool = True,
     theme: str = "qingfeng-classroom",
     asset_repository: SlideAssetRepository | None = None,
+    course_data: dict[str, Any] | None = None,
 ) -> Path:
     """Render the same slide spec used by the browser preview into editable PPTX."""
     deck = SlideDeckContent.model_validate(content)
-    report = validate_slide_deck(deck.model_dump(mode="json"))
-    if require_quality and not report["passed"]:
-        raise SlideDeckQualityError(report)
+    payload = deck.model_dump(mode="json")
+    if require_quality:
+        if deck.schema_version == "slide_deck_v5":
+            from slide_deck_v5 import (
+                validate_slide_deck_v5,
+                v5_contract_issues,
+            )
+
+            if course_data is not None:
+                report = validate_slide_deck_v5(
+                    payload,
+                    course_data=course_data,
+                )
+            elif payload.get("quality_report"):
+                embedded = dict(payload["quality_report"])
+                composition_issues = v5_contract_issues(
+                    list(payload.get("slides") or [])
+                )
+                blockers = [
+                    *(embedded.get("blockers") or []),
+                    *composition_issues,
+                ]
+                report = {
+                    **embedded,
+                    "passed": bool(embedded.get("passed")) and not blockers,
+                    "blockers": blockers,
+                }
+            else:
+                report = validate_slide_deck_v5(payload)
+        else:
+            report = validate_slide_deck(payload)
+        if not report["passed"]:
+            raise SlideDeckQualityError(report)
 
     from pptx import Presentation
     from pptx.util import Inches
@@ -289,6 +320,25 @@ def validate_theme(theme: str) -> dict[str, str]:
         raise ValueError(f"Unknown slide theme '{theme}'. Expected one of: {choices}") from exc
 
 
+V5_LAYOUT_RENDERER_NAMES = {
+    "cover-minimal": "_render_cover_minimal",
+    "agenda-linear": "_render_agenda_linear",
+    "chapter-entry": "_render_chapter",
+    "hero-claim": "_render_claim_only",
+    "editorial-body": "_render_editorial_body",
+    "balanced-two-column": "_render_two_column",
+    "classification-3": "_render_classification_three",
+    "process-sequence": "_render_process",
+    "formula-explanation": "_render_editorial_body",
+    "figure-text": "_render_visual_directed",
+    "diagram-full": "_render_visual_directed",
+    "worked-example": "_render_worked_example",
+    "practice-feedback": "_render_practice_feedback",
+    "chapter-recap": "_render_chapter_recap",
+    "course-synthesis": "_render_course_synthesis",
+}
+
+
 def _render_slide(
     slide: Any,
     unit: SlideSpec,
@@ -318,38 +368,27 @@ def _render_slide(
         _render_visual_directed(slide, unit, theme, asset_repository)
         _footer(slide, unit, page_number, page_count, theme)
         return
-    renderer = {
+    renderer_name = V5_LAYOUT_RENDERER_NAMES.get(resolved_layout)
+    renderer = globals().get(renderer_name) if renderer_name else None
+    renderer = renderer or {
         "cover": _render_cover,
-        "cover-minimal": _render_cover_minimal,
         "roadmap": _render_roadmap,
-        "agenda-linear": _render_agenda_linear,
         "chapter": _render_chapter,
-        "chapter-entry": _render_chapter,
         "objective": _render_objective,
         "concept": _render_concept,
-        "classification-3": _render_classification_three,
         "comparison": _render_comparison,
         "comparison-matrix": _render_comparison,
         "process": _render_process,
-        "process-sequence": _render_process,
         "code": _render_code,
         "misconception": _render_misconception,
         "practice": _render_practice,
         "recap": _render_recap,
-        "chapter-recap": _render_recap,
-        "course-synthesis": _render_recap,
         "appendix": _render_appendix,
         "hero-statement": _render_hero_statement,
-        "hero-claim": _render_claim_only,
-        "editorial-body": _render_editorial_body,
         "two-column": _render_two_column,
-        "balanced-two-column": _render_two_column,
         "case-study": _render_case_study,
         "question": _render_practice,
         "summary": _render_recap,
-        "formula-explanation": _render_editorial_body,
-        "worked-example": _render_case_study,
-        "practice-feedback": _render_practice,
     }.get(resolved_layout) or {
         "cover": _render_cover,
         "roadmap": _render_roadmap,
@@ -1529,6 +1568,78 @@ def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
     _text(slide, body, 4.48, 2.82, 7.3, 2.95, 18 if len(body) <= 180 else 16, theme["ink"])
 
 
+def _render_worked_example(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render a worked example as a visible reasoning path."""
+    _heading(slide, unit, theme)
+    values = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ]
+    if not values:
+        _render_navigation_statement(slide, unit, theme)
+        return
+    if len(values) == 1:
+        values = [
+            item.strip()
+            for item in values[0].split("\n\n")
+            if item.strip()
+        ]
+    if len(values) < 2:
+        _render_case_study(slide, unit, theme)
+        return
+    labels = (
+        ("已知", "推理", "结论")
+        if len(values) >= 3
+        else ("情境", "判断")
+    )
+    accents = (theme["accent"], theme["green"], theme["amber"])
+    _shape(slide, 1.14, 2.17, 0.035, 3.72, theme["chart_bg"], radius=False)
+    for index, (label, value) in enumerate(zip(labels, values[:3])):
+        y = 1.92 + index * 1.38
+        accent = accents[index]
+        _shape(slide, 0.88, y + 0.17, 0.55, 0.55, accent, radius=True)
+        _text(
+            slide,
+            str(index + 1),
+            0.88,
+            y + 0.34,
+            0.55,
+            0.18,
+            11,
+            "FFFFFF",
+            bold=True,
+            align="center",
+        )
+        _text(slide, label, 1.72, y + 0.1, 1.2, 0.3, 12, accent, bold=True)
+        _text(
+            slide,
+            value,
+            3.0,
+            y,
+            9.02,
+            0.96,
+            18 if len(value) <= 90 else 15,
+            theme["ink"],
+            bold=index == 2,
+        )
+        if index < len(labels) - 1:
+            _shape(
+                slide,
+                1.72,
+                y + 1.1,
+                10.28,
+                0.02,
+                theme["chart_bg"],
+                radius=False,
+            )
+
+
 def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     block = _find_block(unit, "comparison")
@@ -1603,6 +1714,71 @@ def _render_practice(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None
     _bullets(slide, checks[:4] or ["能说明理由", "能处理边界", "能独立完成"], 8.91, 2.82, 3.30, 2.82, 13, theme["ink"], theme["amber"])
 
 
+def _render_practice_feedback(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Keep the task and its success evidence visible on the same slide."""
+    _heading(slide, unit, theme)
+    exercise = _find_block(unit, "exercise") or (
+        unit.blocks[0] if unit.blocks else None
+    )
+    feedback_blocks = [
+        block
+        for block in unit.blocks
+        if block is not exercise
+    ]
+    _shape(slide, 0.82, 1.8, 0.08, 4.65, theme["accent"], radius=False)
+    _text(slide, "先作答", 1.17, 2.04, 1.4, 0.32, 12, theme["accent"], bold=True)
+    prompt = ""
+    if exercise:
+        prompt = "\n".join(exercise.items) if exercise.items else exercise.content
+    _text(
+        slide,
+        prompt or unit.key_message,
+        1.17,
+        2.66,
+        6.72,
+        2.95,
+        19 if len(prompt) <= 150 else 16,
+        theme["ink"],
+        bold=True,
+    )
+    _shape(slide, 8.25, 1.8, 0.035, 4.65, theme["chart_bg"], radius=False)
+    _text(slide, "反馈依据", 8.65, 2.04, 1.65, 0.32, 12, theme["green"], bold=True)
+    checks = [
+        value
+        for block in feedback_blocks
+        for value in (block.items or [block.content])
+        if value
+    ]
+    if checks:
+        _bullets(
+            slide,
+            checks[:4],
+            8.65,
+            2.72,
+            3.25,
+            2.72,
+            14,
+            theme["ink"],
+            theme["green"],
+        )
+    if unit.key_message and unit.key_message != prompt:
+        _text(
+            slide,
+            unit.key_message,
+            8.65,
+            5.62,
+            3.3,
+            0.52,
+            11,
+            theme["muted"],
+            bold=True,
+        )
+
+
 def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     visible_text = _visible_source_text(unit)
     if (
@@ -1639,6 +1815,132 @@ def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _text(slide, " · ".join(value for value in values if value), 3.22, y + 0.18, 8.83, 0.94, 14, theme["ink"], bold=True)
     if unit.key_message:
         _text(slide, unit.key_message, 0.86, 6.27, 11.4, 0.38, 13, theme["muted"], bold=True, align="center")
+
+
+def _render_chapter_recap(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render a compact memory path instead of generic recap cards."""
+    _heading(slide, unit, theme)
+    items = _all_items(unit)
+    if not items:
+        items = [
+            block.content
+            for block in unit.blocks
+            if block.content
+        ]
+    items = items[:5]
+    if not items:
+        _render_navigation_statement(slide, unit, theme)
+        return
+    _shape(slide, 1.0, 3.1, 11.1, 0.035, theme["chart_bg"], radius=False)
+    count = len(items)
+    width = 10.9 / max(count, 1)
+    accents = (theme["accent"], theme["green"], theme["amber"])
+    for index, item in enumerate(items):
+        x = 1.0 + index * width
+        accent = accents[index % len(accents)]
+        _shape(slide, x, 2.83, 0.56, 0.56, accent, radius=True)
+        _text(
+            slide,
+            str(index + 1),
+            x,
+            3.0,
+            0.56,
+            0.18,
+            11,
+            "FFFFFF",
+            bold=True,
+            align="center",
+        )
+        _text(
+            slide,
+            item,
+            x - 0.02,
+            3.68,
+            max(1.65, width - 0.22),
+            1.25,
+            15 if len(item) <= 48 else 14,
+            theme["ink"],
+            bold=True,
+        )
+    takeaway = unit.key_message or unit.takeaway
+    if takeaway:
+        _shape(slide, 0.98, 5.5, 0.08, 0.72, theme["accent"], radius=False)
+        _text(
+            slide,
+            takeaway,
+            1.32,
+            5.58,
+            10.65,
+            0.52,
+            14,
+            theme["muted"],
+            bold=True,
+        )
+
+
+def _render_course_synthesis(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render the whole-course route as one connected synthesis."""
+    _heading(slide, unit, theme)
+    items = _all_items(unit)
+    if not items:
+        items = [
+            block.content
+            for block in unit.blocks
+            if block.content
+        ]
+    items = items[:6]
+    if not items:
+        _render_navigation_statement(slide, unit, theme)
+        return
+    core = unit.key_message or unit.takeaway or unit.title
+    _text(slide, "课程主线", 0.92, 1.92, 1.4, 0.3, 12, theme["accent"], bold=True)
+    _text(
+        slide,
+        core,
+        0.92,
+        2.46,
+        3.08,
+        2.2,
+        23 if len(core) <= 36 else 18,
+        theme["ink"],
+        bold=True,
+    )
+    _shape(slide, 4.3, 1.86, 0.035, 4.5, theme["chart_bg"], radius=False)
+    row_height = 3.95 / max(len(items), 1)
+    for index, item in enumerate(items):
+        y = 1.94 + index * row_height
+        accent = (theme["accent"], theme["green"], theme["amber"])[index % 3]
+        _text(
+            slide,
+            f"{index + 1:02d}",
+            4.72,
+            y + 0.08,
+            0.52,
+            0.24,
+            11,
+            accent,
+            bold=True,
+            align="center",
+        )
+        _text(
+            slide,
+            item,
+            5.52,
+            y,
+            6.34,
+            max(0.45, row_height - 0.08),
+            15 if len(item) <= 70 else 14,
+            theme["ink"],
+            bold=True,
+        )
 
 
 def _render_appendix(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:

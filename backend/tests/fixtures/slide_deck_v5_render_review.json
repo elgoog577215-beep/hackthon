@@ -1,0 +1,125 @@
+{
+  "schema_version": "slide_deck_v5",
+  "title": "V5 版式审阅样例",
+  "theme": "qingfeng-classroom",
+  "slides": [
+    {
+      "unit_id": "review-cover",
+      "position": 0,
+      "layout": "cover",
+      "slide_purpose": "orientation",
+      "eyebrow": "课程课件",
+      "title": "用证据推进理解",
+      "blocks": [],
+      "quality": {
+        "requested_layout": "cover-minimal",
+        "resolved_layout": "cover-minimal"
+      }
+    },
+    {
+      "unit_id": "review-worked-example",
+      "position": 1,
+      "layout": "concept",
+      "slide_purpose": "worked_example",
+      "eyebrow": "例题推演",
+      "title": "从条件推到可检验结论",
+      "blocks": [
+        {
+          "block_id": "worked-path",
+          "type": "process",
+          "items": [
+            "确认系统边界与已知状态量",
+            "选择守恒关系并逐步代入",
+            "用量纲与边界情形检查结果"
+          ]
+        }
+      ],
+      "quality": {
+        "requested_layout": "worked-example",
+        "resolved_layout": "worked-example"
+      }
+    },
+    {
+      "unit_id": "review-practice",
+      "position": 2,
+      "layout": "practice",
+      "slide_purpose": "practice",
+      "eyebrow": "课堂练习",
+      "title": "先判断系统类型，再说明依据",
+      "blocks": [
+        {
+          "block_id": "practice-question",
+          "type": "exercise",
+          "content": "密闭气缸允许传热但不允许物质穿过边界，它属于哪类系统？"
+        },
+        {
+          "block_id": "practice-checks",
+          "type": "bullets",
+          "items": [
+            "结论与边界条件一致",
+            "分别说明物质与能量交换",
+            "能够排除另外两类系统"
+          ]
+        }
+      ],
+      "quality": {
+        "requested_layout": "practice-feedback",
+        "resolved_layout": "practice-feedback"
+      }
+    },
+    {
+      "unit_id": "review-recap",
+      "position": 3,
+      "layout": "recap",
+      "slide_purpose": "chapter_recap",
+      "eyebrow": "章节回顾",
+      "title": "沿着判断路径回看本章",
+      "blocks": [
+        {
+          "block_id": "recap-path",
+          "type": "bullets",
+          "items": [
+            "先划定系统边界",
+            "再识别交换类型",
+            "选择状态变量",
+            "用守恒关系检验"
+          ]
+        }
+      ],
+      "quality": {
+        "requested_layout": "chapter-recap",
+        "resolved_layout": "chapter-recap"
+      }
+    },
+    {
+      "unit_id": "review-synthesis",
+      "position": 4,
+      "layout": "recap",
+      "slide_purpose": "course_recap",
+      "eyebrow": "课程总结",
+      "title": "把概念、方法与检验连成主线",
+      "key_message": "从系统边界出发，用状态关系描述变化，再用定律检验结论。",
+      "blocks": [
+        {
+          "block_id": "course-route",
+          "type": "process",
+          "items": [
+            "系统与状态",
+            "能量守恒",
+            "方向与熵",
+            "统计解释",
+            "工程应用"
+          ]
+        }
+      ],
+      "quality": {
+        "requested_layout": "course-synthesis",
+        "resolved_layout": "course-synthesis"
+      }
+    }
+  ],
+  "deck_outline": {
+    "schema_version": "deck_outline_v5",
+    "outline_id": "render-review"
+  }
+}

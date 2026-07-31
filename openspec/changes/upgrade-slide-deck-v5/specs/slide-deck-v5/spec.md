@@ -52,6 +52,29 @@ bound to a distinct compatible content group.
 - **THEN** it selects a three-item classification or comparison-matrix layout
 - **AND** it does not select a positive-negative or unbalanced two-column layout
 
+### Requirement: V5 Preserves Complete Semantic Groups
+
+The system SHALL select a bounded teaching arc from complete, source-bound
+semantic groups and SHALL NOT mechanically split a selected group across
+continuation pages.
+
+#### Scenario: A legacy section contains several Markdown subsections
+- **WHEN** deterministic V5 compaction builds the section teaching arc
+- **THEN** it selects no more than three complete concept, reasoning/example,
+  and practice groups
+- **AND** it records every unselected fragment as an explicit source decision
+
+#### Scenario: A selected group mixes prose and a formula
+- **WHEN** the allocator materializes the group
+- **THEN** it keeps the selected group on one page
+- **AND** it rejects an oversized group rather than cutting it at an arbitrary
+  fragment boundary
+
+#### Scenario: A chapter has no source-grounded practice and feedback
+- **WHEN** V5 compacts the chapter teaching arc
+- **THEN** it omits the unsupported practice episode
+- **AND** it does not fabricate a prompt or answer merely to satisfy a template
+
 ### Requirement: Visual Rejection Triggers Layout Re-Resolution
 
 The system SHALL compute the final page layout after visual assets are resolved.
@@ -108,3 +131,8 @@ or web/PPT final-contract drift.
   contracts pass, and both renderers agree
 - **THEN** V5 composition integrity does not block publication
 
+#### Scenario: Resolved page exceeds its layout budget
+- **WHEN** title characters, visible items, or body characters exceed the
+  resolved layout's presentation-safe budget
+- **THEN** publication is blocked
+- **AND** neither renderer shrinks body text below 14 pt or titles below 24 pt

@@ -83,7 +83,7 @@ chapter entry
   -> concept / reasoning
   -> method
   -> worked example
-  -> practice and feedback
+  -> practice and feedback (when source-grounded)
   -> misconception repair (optional)
   -> application transfer (optional)
   -> chapter recap
@@ -91,6 +91,22 @@ chapter entry
 
 Navigation-only chapter pages may derive visible copy from chapter metadata and
 learning objectives. Knowledge claims still require source fragments.
+
+### Semantic Compaction
+
+The deterministic V5 fallback selects no more than three complete semantic
+groups for each level-2 source section:
+
+1. the core concept or background;
+2. a worked example, method, or reasoning group when available;
+3. a practice/checkpoint group when available.
+
+The selected group is an atomic page input: the allocator must not split it
+again merely because adjacent fragments have different Markdown types.
+Oversized atomic groups are rejected rather than truncated. Every unselected
+fragment remains source-traceable through an explicit `v5_semantic_core`
+exclusion, including in teaching mode. This preserves decision coverage without
+turning the slide deck into a dense appendix or reproducing the textbook.
 
 ### Closing
 
@@ -234,6 +250,7 @@ The following are critical:
 - `raw_source_sentence_as_title`
 - `title_body_duplication`
 - `preview_export_contract_mismatch`
+- title, visible-item, or body density overflow at the resolved-layout budget
 - unresolved required assets or invalid visual programs
 
 The regression set includes quantitative, programming, humanities, business,
@@ -249,4 +266,3 @@ and medical/structural course fixtures.
 5. Add rendered-slide occupancy review and cross-renderer parity fixtures.
 6. Enable V5 target schema for eligible courses.
 7. Keep V4 as an explicit fallback until the cross-course evaluation set passes.
-

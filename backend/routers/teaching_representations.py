@@ -53,7 +53,7 @@ from slide_deck_v4 import (
     allocation_from_story_plan_v2,
     build_signature_v4,
 )
-from slide_deck_v5 import build_signature_v5
+from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
 from slide_story_plan import (
     SlideStoryPlanV2,
     compile_slide_story_plan_v2,
@@ -788,16 +788,23 @@ async def stream_slide_deck_variant_build(
         yield f"id: {sequence}\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
         story_plan: SlideStoryPlanV2 | None = None
         if _story_engine_enabled() and course_supports_slide_deck_v4(course_view):
+            source_fragments = fragment_course_document(document)
             story_plan = compile_slide_story_plan_v2(
                 document,
                 course_view,
-                fragment_course_document(document),
+                source_fragments,
                 mode=body.mode,
                 theme=theme,  # type: ignore[arg-type]
             )
+            if _v5_enabled():
+                story_plan = compact_story_plan_v5(
+                    document,
+                    story_plan,
+                    source_fragments,
+                )
             allocation_plan, _ = allocation_from_story_plan_v2(
                 document,
-                fragment_course_document(document),
+                source_fragments,
                 story_plan,
             )
         else:

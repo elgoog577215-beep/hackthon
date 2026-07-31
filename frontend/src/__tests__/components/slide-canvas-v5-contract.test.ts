@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import SlideCanvas from '../../components/SlideCanvas.vue'
+import layoutContract from '../../../../shared/slide-layout-contract-v5.json'
 
 const baseProps = {
   pageNumber: 4,
@@ -10,6 +11,29 @@ const baseProps = {
 }
 
 describe('SlideCanvas V5 final page contract', () => {
+  it('loads the same V5 layout catalog used by PPTX export', () => {
+    const layouts = new Set(layoutContract.layouts.map(item => item.layout))
+
+    expect(layoutContract.schema_version).toBe('slide_layout_contract_v5')
+    expect(layouts).toEqual(new Set([
+      'cover-minimal',
+      'agenda-linear',
+      'chapter-entry',
+      'hero-claim',
+      'editorial-body',
+      'balanced-two-column',
+      'classification-3',
+      'process-sequence',
+      'formula-explanation',
+      'figure-text',
+      'diagram-full',
+      'worked-example',
+      'practice-feedback',
+      'chapter-recap',
+      'course-synthesis',
+    ]))
+  })
+
   it('renders the explicit title instead of promoting takeaway copy', () => {
     const wrapper = mount(SlideCanvas, {
       props: {
@@ -39,6 +63,7 @@ describe('SlideCanvas V5 final page contract', () => {
     })
 
     expect(wrapper.get('.deck-canvas__heading h2').text()).toBe('热力学系统的三种类型')
+    expect(wrapper.attributes('data-layout-contract')).toBe('slide_layout_contract_v5')
   })
 
   it('uses resolved layout instead of stale requested layout', () => {
@@ -167,6 +192,43 @@ describe('SlideCanvas V5 final page contract', () => {
     })
 
     expect(wrapper.find('.deck-claim-only').exists()).toBe(true)
+    expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+  })
+
+  it.each([
+    ['worked-example', '.deck-worked-example'],
+    ['practice-feedback', '.deck-practice-feedback'],
+    ['chapter-recap', '.deck-chapter-recap'],
+    ['course-synthesis', '.deck-course-synthesis'],
+  ])('renders %s with its dedicated semantic composition', (layout, selector) => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '课堂推进',
+          title: '用可检验步骤推进理解',
+          key_message: '每一步都需要可见证据。',
+          blocks: [{
+            block_id: 'semantic-content',
+            type: layout === 'practice-feedback' ? 'exercise' : 'process',
+            items: ['识别条件', '选择方法', '检查结论'],
+          }],
+          quality: {
+            requested_layout: layout,
+            resolved_layout: layout,
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find(selector).exists()).toBe(true)
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
   })
 })

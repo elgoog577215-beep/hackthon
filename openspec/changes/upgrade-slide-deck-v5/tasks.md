@@ -26,15 +26,15 @@
 
 - [x] 4.1 Implement minimal cover and linear agenda without UI-card styling
 - [x] 4.2 Implement classification, comparison, process, and formula layouts
-- [ ] 4.3 Implement worked-example, practice-feedback, recap, and synthesis layouts
-- [ ] 4.4 Enforce title and density budgets without shrinking below minimums
+- [x] 4.3 Implement worked-example, practice-feedback, recap, and synthesis layouts
+- [x] 4.4 Enforce title and density budgets without shrinking below minimums
 
 ## 5. Quality and Rollout
 
 - [x] 5.1 Add slot occupancy, empty-region, title duplication, and orphan-formula
       publication gates
-- [ ] 5.2 Add browser/PPT contract parity tests and rendered-slide review fixtures
-- [ ] 5.3 Evaluate representative quantitative, programming, humanities, business,
+- [x] 5.2 Add browser/PPT contract parity tests and rendered-slide review fixtures
+- [x] 5.3 Evaluate representative quantitative, programming, humanities, business,
       and medical/structural courses
 - [x] 5.4 Enable `slide_deck_v5` as the target schema with explicit V4 fallback
-- [ ] 5.5 Run backend, frontend, build, OpenSpec, and real-course verification
+- [x] 5.5 Run backend, frontend, build, OpenSpec, and real-course verification

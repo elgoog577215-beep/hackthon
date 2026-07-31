@@ -3,6 +3,7 @@
     class="deck-canvas"
     :class="{ 'is-presenting': presenting }"
     :data-layout="visualLayout"
+    :data-layout-contract="v5LayoutNames.has(visualLayout) ? layoutContract.schema_version : undefined"
     :data-theme="theme"
     :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
@@ -97,6 +98,65 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'worked-example'"
+        class="deck-worked-example"
+        :data-has-message="Boolean(slide.key_message)"
+      >
+        <article v-for="(item, index) in semanticItems.slice(0, 3)" :key="`${index}-${item}`">
+          <b>{{ index + 1 }}</b>
+          <small>{{ workedStepLabel(index, Math.min(3, semanticItems.length)) }}</small>
+          <MarkdownRenderer :content="item" :enable-code-run="false" />
+        </article>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'practice-feedback'"
+        class="deck-practice-feedback"
+        :data-has-message="Boolean(slide.key_message)"
+      >
+        <section>
+          <small>先独立作答</small>
+          <MarkdownRenderer :content="semanticItems[0] || slide.key_message || ''" :enable-code-run="false" />
+        </section>
+        <aside>
+          <small>反馈依据</small>
+          <ol>
+            <li v-for="item in semanticItems.slice(1, 5)" :key="item">
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
+            </li>
+          </ol>
+        </aside>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'chapter-recap'"
+        class="deck-chapter-recap"
+        :data-has-message="Boolean(slide.key_message)"
+      >
+        <article v-for="(item, index) in semanticItems.slice(0, 5)" :key="`${index}-${item}`">
+          <b>{{ String(index + 1).padStart(2, '0') }}</b>
+          <MarkdownRenderer :content="item" :enable-code-run="false" />
+        </article>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'course-synthesis'"
+        class="deck-course-synthesis"
+        :data-has-message="Boolean(slide.key_message)"
+      >
+        <aside>
+          <small>课程主线</small>
+          <strong>{{ slide.key_message || slide.takeaway || slide.title }}</strong>
+        </aside>
+        <ol>
+          <li v-for="(item, index) in semanticItems.slice(0, 6)" :key="`${index}-${item}`">
+            <b>{{ String(index + 1).padStart(2, '0') }}</b>
+            <MarkdownRenderer :content="item" :enable-code-run="false" />
+          </li>
+        </ol>
+      </div>
+
+      <div
         v-else-if="slide.blocks?.length"
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
@@ -174,6 +234,7 @@ import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 import SlideVisualRenderer from './SlideVisualRenderer.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import themePack from '../data/slide-themes.json'
+import layoutContract from '../../../shared/slide-layout-contract-v5.json'
 import type { SlideVisual } from '../types/slideVisual'
 
 interface SlideBlock {
@@ -231,6 +292,9 @@ const visualLayout = computed(() => (
   || props.slide.quality?.requested_layout
   || props.slide.layout
 ))
+const v5LayoutNames = new Set(
+  layoutContract.layouts.map(item => item.layout),
+)
 const resolvedComposition = computed(() => (
   props.slide.quality?.resolved_composition
   || props.slide.composition
@@ -250,6 +314,10 @@ const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
     + (block.items || []).reduce((sum, item) => sum + String(item).length, 0),
   0,
 ))
+const semanticItems = computed(() => (props.slide.blocks || []).flatMap((block) => {
+  if (block.items?.length) return block.items.filter(Boolean)
+  return block.content ? [block.content] : []
+}))
 const headingSubscripts: Record<string, string> = {
   0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄',
   5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉',
@@ -354,6 +422,12 @@ const themeStyle = computed(() => {
 
 function chapterNumber(title: string) {
   return title.match(/\d+/)?.[0]?.padStart(2, '0') || '·'
+}
+
+function workedStepLabel(index: number, total: number) {
+  return total >= 3
+    ? ['已知', '推理', '结论'][index]
+    : ['情境', '判断'][index]
 }
 
 function layoutLabel(value: string) {
@@ -573,6 +647,178 @@ function layoutLabel(value: string) {
   color:var(--deck-ink);
   font-size:1.55cqw;
   line-height:1.46;
+}
+.deck-worked-example,
+.deck-practice-feedback,
+.deck-chapter-recap,
+.deck-course-synthesis {
+  position:absolute;
+  inset:25% 5.5% 10.5%;
+  min-height:0;
+}
+.deck-worked-example[data-has-message="true"],
+.deck-practice-feedback[data-has-message="true"],
+.deck-chapter-recap[data-has-message="true"],
+.deck-course-synthesis[data-has-message="true"] { top:38%; }
+.deck-worked-example {
+  display:grid;
+  grid-template-rows:repeat(3,minmax(0,1fr));
+}
+.deck-worked-example::before {
+  content:"";
+  position:absolute;
+  left:1.2cqw;
+  top:1.4cqw;
+  bottom:1.4cqw;
+  width:1px;
+  background:var(--deck-line);
+}
+.deck-worked-example article {
+  position:relative;
+  display:grid;
+  grid-template-columns:2.4cqw 4.2cqw 1fr;
+  align-items:center;
+  gap:1.1cqw;
+  min-height:0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-worked-example article:last-child { border-bottom:0; }
+.deck-worked-example article > b {
+  z-index:1;
+  display:grid;
+  width:2.25cqw;
+  height:2.25cqw;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font:800 .9cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-worked-example article > small {
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.1em;
+}
+.deck-worked-example article :deep(.markdown-body) {
+  font-size:1.5cqw;
+  font-weight:680;
+  line-height:1.42;
+}
+.deck-practice-feedback {
+  display:grid;
+  grid-template-columns:minmax(0,1.8fr) minmax(0,.9fr);
+  gap:3cqw;
+}
+.deck-practice-feedback section,
+.deck-practice-feedback aside {
+  min-width:0;
+  padding:1cqw 0 1cqw 1.6cqw;
+  border-left:.34cqw solid var(--deck-blue);
+}
+.deck-practice-feedback aside {
+  border-left:1px solid var(--deck-line);
+}
+.deck-practice-feedback small {
+  display:block;
+  margin-bottom:1.2cqw;
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-practice-feedback section :deep(.markdown-body) {
+  font-size:1.72cqw;
+  font-weight:700;
+  line-height:1.5;
+}
+.deck-practice-feedback ol {
+  display:grid;
+  gap:1cqw;
+  margin:0;
+  padding-left:1.25em;
+}
+.deck-practice-feedback aside :deep(.markdown-body) {
+  font-size:1.42cqw;
+  line-height:1.45;
+}
+.deck-chapter-recap {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+  gap:1.3cqw;
+  align-items:start;
+  padding-top:1.9cqw;
+  border-top:1px solid var(--deck-line);
+}
+.deck-chapter-recap article {
+  position:relative;
+  min-width:0;
+  padding-top:1.3cqw;
+}
+.deck-chapter-recap article::before {
+  content:"";
+  position:absolute;
+  top:-2.15cqw;
+  left:0;
+  width:.72cqw;
+  height:.72cqw;
+  border-radius:50%;
+  background:var(--deck-blue);
+}
+.deck-chapter-recap article > b {
+  display:block;
+  margin-bottom:.9cqw;
+  color:var(--deck-blue);
+  font:800 .92cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-chapter-recap article :deep(.markdown-body) {
+  font-size:1.42cqw;
+  font-weight:700;
+  line-height:1.44;
+}
+.deck-course-synthesis {
+  display:grid;
+  grid-template-columns:minmax(0,.72fr) minmax(0,1.48fr);
+  gap:3.4cqw;
+}
+.deck-course-synthesis > aside {
+  padding-right:2.2cqw;
+  border-right:1px solid var(--deck-line);
+}
+.deck-course-synthesis > aside small {
+  display:block;
+  margin-bottom:1.2cqw;
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.1em;
+}
+.deck-course-synthesis > aside strong {
+  display:block;
+  font:750 2cqw/1.34 var(--deck-title-font);
+}
+.deck-course-synthesis > ol {
+  display:grid;
+  gap:.45cqw;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+.deck-course-synthesis > ol li {
+  display:grid;
+  grid-template-columns:2.4cqw 1fr;
+  align-items:center;
+  min-height:0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-course-synthesis > ol li > b {
+  color:var(--deck-blue);
+  font:800 .9cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-course-synthesis > ol li :deep(.markdown-body) {
+  font-size:1.4cqw;
+  font-weight:700;
+  line-height:1.35;
 }
 .deck-canvas[data-layout="hero-statement"] .deck-canvas__blocks section {
   display:flex;

@@ -119,7 +119,16 @@ def _beat_pages(
     # in the story manifest, but do not fabricate a body page for it.
     if not fragments:
         return []
-    chunks = _paginate_fragments(fragments, STORY_BEAT_TEXT_CAPACITY)
+    text_capacity = (
+        360
+        if beat.layout_selection_reason == "v5_semantic_grouping"
+        else STORY_BEAT_TEXT_CAPACITY
+    )
+    chunks = (
+        [fragments]
+        if beat.layout_selection_reason == "v5_semantic_grouping"
+        else _paginate_fragments(fragments, text_capacity)
+    )
     pages: list[PlannedPageV2] = []
     for chunk_index, chunk in enumerate(chunks):
         derived = [DerivedTextV1(
@@ -243,11 +252,21 @@ def allocation_from_story_plan_v2(
             counter += len(beat_pages)
     leftovers = [item for item in fragments if item.fragment_id not in allocated]
     exclusions: list[FragmentExclusionV1] = []
-    if story_plan.mode == "concise":
+    v5_semantic_core = any(
+        beat.layout_selection_reason == "v5_semantic_grouping"
+        for chapter in story_plan.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+    )
+    if story_plan.mode == "concise" or v5_semantic_core:
         exclusions = [
             FragmentExclusionV1(
                 fragment_id=item.fragment_id,
-                reason="mode_concise",
+                reason=(
+                    "v5_semantic_core"
+                    if v5_semantic_core
+                    else "mode_concise"
+                ),
             )
             for item in leftovers
         ]
