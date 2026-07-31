@@ -263,6 +263,79 @@ def test_fragmenter_preserves_mermaid_as_diagram_and_drops_visual_marker() -> No
     assert fragments[1].text.startswith("graph TD")
 
 
+def test_fragmenter_drops_quoted_diagram_id_authoring_metadata() -> None:
+    course = source_course()
+    course["nodes"][0]["content_blocks"][0]["content"] = (
+        "课程正文介绍系统分类。\n\n"
+        "```mermaid\n"
+        "graph TD\n"
+        '    A["系统"] --> B["分类"]\n'
+        "```\n\n"
+        '> ID: "ThermodynamicSystemClassification"\n\n'
+        "#### 实战案例/行业应用\n\n"
+        "空调循环用于说明开放系统。"
+    )
+    document = document_from_legacy_course(course)
+
+    fragments = fragment_course_document(document)
+    visible_text = "\n".join(fragment.text for fragment in fragments)
+
+    assert 'ID: "ThermodynamicSystemClassification"' not in visible_text
+    assert any(
+        fragment.kind == "heading"
+        and fragment.text == "实战案例/行业应用"
+        for fragment in fragments
+    )
+
+
+def test_pagination_keeps_enumeration_unit_and_next_heading_with_its_body() -> None:
+    course = source_course()
+    course["nodes"][0]["content_blocks"][0]["content"] = (
+        "### 1.1 热力学系统的分类与描述\n\n"
+        "#### 核心概念与背景\n\n"
+        "系统是研究的物理对象或区域，环境是系统以外的部分，二者通过边界区分。\n\n"
+        "根据系统与环境之间的交互方式，热力学将系统分为三类：\n\n"
+        "- 孤立系统：既不交换物质，也不交换能量。\n"
+        "- 封闭系统：不交换物质，但可以交换能量。\n"
+        "- 开放系统：既可以交换物质，也可以交换能量。\n\n"
+        "这些分类是后续建立模型和分析的基础。\n\n"
+        "#### 深度原理/底层机制\n\n"
+        "系统边界决定了系统是否能与环境交换物质和能量。"
+    )
+    document = document_from_legacy_course(course)
+    fragments = [
+        fragment
+        for fragment in fragment_course_document(document)
+        if fragment.block_id == "block-core"
+    ]
+
+    pages = _paginate_fragments(fragments, 1100)
+    page_by_text = {
+        fragment.text: page_index
+        for page_index, page in enumerate(pages)
+        for fragment in page
+    }
+
+    enumeration_texts = [
+        "根据系统与环境之间的交互方式，热力学将系统分为三类：",
+        "孤立系统：既不交换物质，也不交换能量。",
+        "封闭系统：不交换物质，但可以交换能量。",
+        "开放系统：既可以交换物质，也可以交换能量。",
+        "这些分类是后续建立模型和分析的基础。",
+    ]
+    assert len({page_by_text[text] for text in enumeration_texts}) == 1
+    assert (
+        page_by_text["系统是研究的物理对象或区域，环境是系统以外的部分，二者通过边界区分。"]
+        != page_by_text[enumeration_texts[0]]
+    )
+    assert (
+        page_by_text["深度原理/底层机制"]
+        == page_by_text["系统边界决定了系统是否能与环境交换物质和能量。"]
+    )
+    assert page_by_text["深度原理/底层机制"] != page_by_text[enumeration_texts[0]]
+    assert all(page[-1].kind != "heading" for page in pages)
+
+
 def test_formula_is_not_paginated_without_adjacent_explanation() -> None:
     document = document_from_legacy_course(mermaid_and_formula_course())
     fragments = [

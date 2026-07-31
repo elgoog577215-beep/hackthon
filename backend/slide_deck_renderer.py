@@ -1729,23 +1729,41 @@ def _table(
 
 
 def _display_heading(unit: SlideSpec) -> str:
+    title = _format_formula_text(str(unit.title or "").strip())
     takeaway = str(unit.takeaway or "").strip()
     visual_kind = str(unit.visuals[0].get("kind") or "") if unit.visuals else ""
+    if title and not _is_generic_heading(title):
+        return _heading_excerpt(title)
     if not takeaway:
-        return _heading_excerpt(_format_formula_text(unit.title))
+        return _heading_excerpt(title)
     if (
         visual_kind == "formula"
         or takeaway.startswith(("$", "\\[", "\\("))
         or re.search(r"\\[A-Za-z]+", takeaway)
         or re.fullmatch(r"[\d\s.、:：()（）-]+", takeaway)
     ):
-        return _heading_excerpt(_format_formula_text(unit.title), limit=46)
+        return _heading_excerpt(title, limit=46)
     return _heading_excerpt(_format_formula_text(takeaway))
 
 
-def _heading_excerpt(value: str, limit: int = 48) -> str:
+def _is_generic_heading(value: str) -> bool:
+    normalized = re.sub(r"[\s:：|/\\_-]+", "", str(value or "")).lower()
+    return normalized in {
+        "课程正文",
+        "课程内容",
+        "正文",
+        "内容",
+        "未命名",
+        "body",
+        "content",
+    }
+
+
+def _heading_excerpt(value: str, limit: int | None = None) -> str:
     """Choose a complete audience-facing title phrase without an ellipsis."""
     clean = " ".join(str(value or "").split()).strip("，,；;：:。… ")
+    if limit is None:
+        limit = 22 if re.search(r"[\u3400-\u9fff]", clean) else 48
     if len(clean) <= limit:
         return clean
     excerpt = clean[:limit]

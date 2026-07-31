@@ -8,13 +8,18 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from course_document import document_from_legacy_course
+from slide_deck import SlideSpec
 from slide_asset_repository import SlideAssetRepository, finalize_visual_assets
 from slide_deck_v3 import (
     compile_slide_deck_v3,
     deterministic_slide_allocation,
     fragment_course_document,
 )
-from slide_deck_renderer import _format_formula_text, export_structured_slide_deck
+from slide_deck_renderer import (
+    _display_heading,
+    _format_formula_text,
+    export_structured_slide_deck,
+)
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
@@ -104,6 +109,128 @@ def test_compiler_adds_grounded_visual_director_plan() -> None:
     assert content["visual_quality_report"]["effective_visual_coverage_ratio"] >= 0.60
     assert all(slide["teaching_job"] for slide in content["slides"])
     assert all(slide["takeaway"] for slide in content["slides"])
+
+
+def test_classification_page_does_not_use_next_heading_as_diagram_root() -> None:
+    course = visual_course()
+    concept = course["nodes"][0]["content_blocks"][0]
+    concept["content"] = (
+        "#### 核心概念与背景\n\n"
+        "系统是研究对象，环境是系统以外的部分。\n\n"
+        "根据系统与环境之间的交互方式，热力学将系统分为三类：\n\n"
+        "- 孤立系统：既不交换物质，也不交换能量。\n"
+        "- 封闭系统：不交换物质，但可以交换能量。\n"
+        "- 开放系统：既可以交换物质，也可以交换能量。\n\n"
+        "这些分类帮助我们理解不同条件下热力学行为的变化，是后续建立模型和分析的基础。\n\n"
+        "#### 深度原理/底层机制\n\n"
+        "系统边界决定了物质和能量能否通过。"
+    )
+    course["nodes"][0]["content_blocks"] = [concept]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    fragment_by_id = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+    }
+    classification_page = next(
+        page
+        for page in allocation.pages
+        if {
+            "孤立系统：既不交换物质，也不交换能量。",
+            "封闭系统：不交换物质，但可以交换能量。",
+            "开放系统：既可以交换物质，也可以交换能量。",
+        } <= {
+            fragment_by_id[fragment_id].text
+            for fragment_id in page.fragment_ids
+        }
+    )
+    classification_text = {
+        fragment_by_id[fragment_id].text
+        for fragment_id in classification_page.fragment_ids
+    }
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    visual_page = next(
+        page for page in plan.pages
+        if page.page_id == classification_page.page_id
+    )
+
+    assert "深度原理/底层机制" not in classification_text
+    assert visual_page.visual_anchor.kind == "none"
+    assert visual_page.composition == "statement"
+
+
+def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None:
+    explicit_heading = SlideSpec(
+        unit_id="explicit-heading",
+        position=0,
+        layout="concept",
+        slide_purpose="reasoning",
+        title="🔍 深度原理/底层机制",
+        takeaway=(
+            "热力学系统的核心在于其“边界”及其对物质与能量的控制能力。"
+        ),
+    )
+    classification_heading = SlideSpec(
+        unit_id="classification-heading",
+        position=0,
+        layout="concept",
+        slide_purpose="concept",
+        title="根据系统与环境之间的交互方式，热力学将系统分为三类",
+        takeaway="根据系统与环境之间的交互方式，热力学将系统分为三类",
+    )
+
+    assert _display_heading(explicit_heading) == "🔍 深度原理/底层机制"
+    assert _display_heading(classification_heading) == "根据系统与环境之间的交互方式"
+
+
+def test_dense_prose_relation_is_suppressed_when_it_repeats_the_source() -> None:
+    course = visual_course()
+    concept = course["nodes"][0]["content_blocks"][0]
+    concept["content"] = (
+        "#### 🔍 深度原理/底层机制\n\n"
+        "热力学系统的核心在于其“边界”及其对物质与能量的控制能力。"
+        "边界决定了系统是否能与环境发生互动。"
+        "例如，在一个密封保温杯中的水就是一个封闭系统——"
+        "水不会流出，但可以通过杯子壁传递热量。\n\n"
+        "从微观角度看，系统的状态由大量粒子的运动构成。"
+        "热力学通过宏观变量来描述这些微观行为的统计结果。"
+        "因此，系统分类不仅影响理论建模，也直接影响实验设计。"
+    )
+    course["nodes"][0]["content_blocks"] = [concept]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="full",
+        theme="qizhi-classroom",
+    )
+    page = next(
+        page
+        for page in allocation.pages
+        if any(
+            fragment.fragment_id in page.fragment_ids
+            and fragment.kind == "heading"
+            and "深度原理" in fragment.text
+            for fragment in fragments
+        )
+    )
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    visual_page = next(
+        item for item in plan.pages
+        if item.page_id == page.page_id
+    )
+
+    assert visual_page.visual_anchor.kind == "none"
+    assert visual_page.composition == "statement"
 
 
 def test_deterministic_director_uses_source_bound_visual_variety() -> None:

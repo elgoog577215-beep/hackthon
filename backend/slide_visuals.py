@@ -1610,9 +1610,9 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             for node in nodes
         )
         duplication_ratio = min(1.0, label_length / source_length)
+        if duplication_ratio >= 0.50:
+            return _none_anchor(page.page_id, "structure")
         score = 0.8 if diagram_type in {"process", "cause-effect", "comparison"} else 0.72
-        if duplication_ratio > 0.8:
-            score -= 0.22
         purpose: VisualPurpose = {
             "example": "application",
             "misconception": "comparison",
