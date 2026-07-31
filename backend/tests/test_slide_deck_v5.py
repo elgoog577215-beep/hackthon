@@ -24,7 +24,9 @@ from slide_deck_v5 import (
     compact_story_plan_v5,
     compile_deck_outline_v5,
     compile_page_title_v5,
+    finalize_v5_quality_report,
     resolve_page_contract_v5,
+    summarize_v5_slide_counts,
     v5_contract_issues,
 )
 from slide_story_plan import (
@@ -781,6 +783,71 @@ def test_worked_example_with_more_than_three_regions_reflows_without_dropping_it
         "稀薄气体流动",
     ]
     assert not v5_contract_issues([slide])
+
+
+def test_v5_quality_cannot_publish_when_a_retained_nested_gate_is_critical() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": True,
+            "score": 92,
+            "semantic": {
+                "passed": False,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "official_source_revision_mismatch",
+                    "target": "deck",
+                }],
+            },
+            "visual": {"passed": True, "issues": []},
+            "blockers": [],
+        },
+        slides=[],
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is False
+    assert report["semantic"]["passed"] is False
+    assert report["visual"]["passed"] is True
+    assert {
+        issue["code"] for issue in report["blockers"]
+    } == {"official_source_revision_mismatch"}
+
+
+def test_v5_failed_ai_plan_is_a_blocker_instead_of_a_silent_fallback() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": True,
+            "score": 100,
+            "semantic": {"passed": True, "issues": []},
+            "visual": {"passed": True, "issues": []},
+            "blockers": [],
+        },
+        slides=[],
+        planner="deterministic_fallback",
+        fallback_reason="invalid_or_failed_ai_story_plan",
+    )
+
+    assert report["passed"] is False
+    assert {
+        issue["code"] for issue in report["blockers"]
+    } == {"ai_story_planner_failed"}
+
+
+def test_v5_slide_counts_include_inserted_navigation_and_chapter_pages() -> None:
+    summary = summarize_v5_slide_counts([
+        {"unit_id": "slide:title", "quality": {}},
+        {"unit_id": "slide:roadmap", "quality": {}},
+        {"unit_id": "slide:v5:chapter:1", "quality": {}},
+        {"unit_id": "slide:v4:0001", "quality": {}},
+        {"unit_id": "slide:v4:leftover:0001", "quality": {"appendix": True}},
+    ])
+
+    assert summary == {
+        "main_slide_count": 4,
+        "appendix_slide_count": 1,
+        "total_slide_count": 5,
+    }
 
 
 def test_v5_title_and_item_budgets_are_hard_quality_gates() -> None:

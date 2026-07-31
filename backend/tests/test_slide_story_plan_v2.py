@@ -716,6 +716,41 @@ def test_illegal_ai_claim_is_rejected_and_uses_deterministic_story() -> None:
     )
 
 
+def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    baseline = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    ).model_dump(mode="json")
+    captured: dict = {}
+
+    async def planner(request: dict) -> dict:
+        captured.update(request)
+        return baseline
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "ai"
+    assert captured["rules"]["structured_headlines_required"] is True
+    assert all(
+        item["source_text"]
+        and len(item["source_text"]) <= 400
+        for item in captured["fragments"]
+    )
+
+
 def test_v4_exports_editable_widescreen_pptx(tmp_path) -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
