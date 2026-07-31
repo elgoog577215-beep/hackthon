@@ -13,6 +13,7 @@ on:
         type: choice
         options:
           - deploy
+          - inspect
           - recover
 
 permissions:
@@ -105,7 +106,9 @@ jobs:
             < scripts/github-action-deploy.sh
 
   recover:
-    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'recover'
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.operation == 'inspect' || inputs.operation == 'recover')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -136,7 +139,7 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "bash -s" <<'REMOTE'
+            "LINGZHI_OPERATION='${{ inputs.operation }}' bash -s" <<'REMOTE'
           set -u
           echo "=== host resources ==="
           uptime
@@ -152,8 +155,22 @@ jobs:
             --property=Result \
             --property=ExecMainCode \
             --property=ExecMainStatus \
+            --property=MemoryCurrent \
+            --property=MemoryPeak \
+            --property=MemoryHigh \
+            --property=MemoryMax \
+            --property=MemorySwapCurrent \
+            --property=MemorySwapMax \
             --no-pager || true
+          systemctl cat lingzhi || true
+          journalctl -k -n 120 --no-pager \
+            | grep -Ei 'oom|out of memory|killed process|memory cgroup' || true
           journalctl -u lingzhi -n 100 --no-pager || true
+          if [ "$LINGZHI_OPERATION" = "inspect" ]; then
+            systemctl stop lingzhi || true
+            echo "INSPECTION_OK"
+            exit 0
+          fi
           systemctl reset-failed lingzhi || true
           systemctl restart lingzhi
           for attempt in $(seq 1 45); do
