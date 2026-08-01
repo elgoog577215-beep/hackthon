@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+from pptx import Presentation
+
 from slide_deck import SlideSpec
+from slide_deck_renderer import (
+    _heading,
+    _render_practice_feedback,
+    _worked_example_labels,
+    validate_theme,
+)
 from slide_deck_v5 import (
     DeckChapterV5,
     _assign_heading_modes_v5,
@@ -9,14 +17,6 @@ from slide_deck_v5 import (
     apply_page_contract_v5,
     split_mixed_intent_slides_v5,
     v5_contract_issues,
-)
-from pptx import Presentation
-
-from slide_deck_renderer import (
-    _heading,
-    _render_practice_feedback,
-    _worked_example_labels,
-    validate_theme,
 )
 
 
@@ -204,12 +204,15 @@ def test_prompt_only_practice_is_enriched_with_grounded_answer_evidence() -> Non
         "水壶盖子没有打开时属于哪类系统？",
         "盖子打开并有蒸汽逸出时呢？",
     ]
-    assert practice["blocks"][1]["title"] == "参考答案与判断依据"
+    assert practice["blocks"][1]["title"] == "判断依据"
     assert practice["blocks"][1]["items"] == [
         "孤立系统：不交换物质，也不交换能量。",
         "封闭系统：不交换物质，但可以交换能量。",
     ]
-    assert practice["quality"]["feedback_pair_count"] == 2
+    assert practice["blocks"][1]["metadata"]["direct_answer"] is False
+    assert practice["quality"]["feedback_mode"] == "shared_evidence"
+    assert practice["quality"]["feedback_pair_count"] == 0
+    assert practice["quality"]["feedback_evidence_count"] == 2
     assert "practice_feedback_missing_answer" not in {
         issue["code"] for issue in v5_contract_issues([practice])
     }
@@ -335,3 +338,43 @@ def test_export_pairs_each_practice_question_with_its_answer() -> None:
     }
     assert text_shapes["盖子关闭时属于哪类系统？"].top == text_shapes["封闭系统。"].top
     assert text_shapes["盖子打开时呢？"].top == text_shapes["开放系统。"].top
+
+
+def test_export_does_not_present_related_evidence_as_direct_answers() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "shared-evidence",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice_feedback",
+        "eyebrow": "理解检查",
+        "title": "判断系统类型",
+        "blocks": [
+            {
+                "block_id": "questions",
+                "type": "exercise",
+                "items": ["盖子关闭时属于哪类系统？", "盖子打开时呢？"],
+            },
+            {
+                "block_id": "evidence",
+                "type": "callout",
+                "items": ["封闭系统不交换物质。", "开放系统可以交换物质。"],
+                "metadata": {"direct_answer": False},
+            },
+        ],
+        "quality": {
+            "resolved_layout": "practice-feedback",
+            "feedback_mode": "shared_evidence",
+        },
+    })
+
+    _render_practice_feedback(slide, unit, validate_theme("qizhi-classroom"))
+
+    labels = [
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and shape.text
+    ]
+    assert labels.count("判断依据") == 1
+    assert not any("回答与判断依据" in label for label in labels)

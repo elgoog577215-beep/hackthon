@@ -451,6 +451,47 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.findAll('.deck-practice-feedback__pair')).toHaveLength(2)
   })
 
+  it('labels inferred knowledge as shared evidence instead of direct answers', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '判断系统类型',
+          blocks: [
+            {
+              block_id: 'questions',
+              type: 'exercise',
+              items: ['盖子没有打开时属于哪类系统？', '盖子打开时呢？'],
+            },
+            {
+              block_id: 'evidence',
+              type: 'callout',
+              items: ['封闭系统不交换物质。', '开放系统可以交换物质。'],
+              metadata: { direct_answer: false },
+            },
+          ],
+          quality: {
+            requested_layout: 'practice-feedback',
+            resolved_layout: 'practice-feedback',
+            feedback_mode: 'shared_evidence',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-practice-feedback__pair')).toHaveLength(0)
+    expect(wrapper.findAll('.deck-practice-feedback__question')).toHaveLength(2)
+    expect(wrapper.get('.deck-practice-feedback__evidence').text()).toContain('判断依据')
+    expect(wrapper.text()).not.toContain('回答与判断依据')
+  })
+
   it('renders editorial blocks as one flat composition instead of separate cards', () => {
     const wrapper = mount(SlideCanvas, {
       props: {
