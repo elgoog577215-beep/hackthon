@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from slide_deck import SlideSpec
 from slide_deck_v5 import (
     DeckChapterV5,
     _chapter_recap_slide,
@@ -54,9 +55,10 @@ def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() 
     assert slides[1]["blocks"] == []
     assert slides[1]["teaching_job"] == ""
     assert slides[1]["takeaway"] == "下一节将深入探讨热力学第一定律。"
-    assert slides[1]["narrative_role"] == "transition"
+    assert "narrative_role" not in slides[1]
     assert slides[1]["composition"] == "statement"
     transition = apply_page_contract_v5(slides[1])
+    SlideSpec.model_validate(transition)
     assert transition["quality"]["occupied_major_region_count"] == 1
     assert "body_density_overflow" not in {
         issue["code"] for issue in v5_contract_issues([transition])

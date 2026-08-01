@@ -84,6 +84,20 @@ function normalizedBuildError(value: unknown, quality?: Record<string, any>) {
   return error || 'Teaching representation build failed'
 }
 
+function terminalPipelineFailureQuality(message: unknown) {
+  const issue = {
+    severity: 'critical',
+    code: 'slide_variant_rebuild_failed',
+    message: String(message || 'Slide deck generation failed before final quality validation'),
+  }
+  return {
+    passed: false,
+    score: 0,
+    issues: [issue],
+    blockers: [issue],
+  }
+}
+
 export async function consumeTeachingRepresentationStream(
   response: Response,
   onEvent: (event: TeachingRepresentationBuildEvent) => void,
@@ -318,6 +332,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
               event.quality,
             )
           }
+          if (event.event === 'build_failed') {
+            const terminalQuality = event.quality || terminalPipelineFailureQuality(event.message)
+            this.settleFailedSlideDraft(terminalQuality)
+            this.buildError = normalizedBuildError(event.message, terminalQuality)
+          }
           if (event.event === 'build_complete') completedRef.value = event
           if (
             event.event === 'build_complete'
@@ -422,7 +441,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
       this.buildStage = String(task.phase || task.current_phase || this.buildStage)
       if (status === 'failed') {
-        const quality = task.result?.quality || task.quality
+        const quality = (
+          task.result?.quality
+          || task.quality
+          || terminalPipelineFailureQuality(task.message || task.error)
+        )
         this.settleFailedSlideDraft(quality)
         this.building = false
         this.buildPaused = false

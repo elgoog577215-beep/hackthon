@@ -11,6 +11,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import CourseDocument, stable_hash
+from slide_deck import SlideDeckContent
 from slide_deck_v4 import (
     SLIDE_DECK_V4_SCHEMA,
     allocation_from_story_plan_v2,
@@ -29,7 +30,7 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.8"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.9"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.2"
 
@@ -2035,6 +2036,10 @@ def split_mixed_intent_slides_v5(
             block for block, intent in zip(blocks, intents)
             if intent == "transition"
         ]
+        # narrative_role belongs to the upstream story-planning model, not the
+        # strict persisted SlideSpec contract. Keep the supported semantic
+        # fields below as the single source of truth for the split pages.
+        slide.pop("narrative_role", None)
         slide["blocks"] = question_blocks
         if _TRANSITION_TEXT_PATTERN.search(_clean_text(slide.get("key_message"))):
             slide["key_message"] = ""
@@ -2046,6 +2051,7 @@ def split_mixed_intent_slides_v5(
         result.append(slide)
 
         transition = deepcopy(source)
+        transition.pop("narrative_role", None)
         transition["unit_id"] = f"{source.get('unit_id')}:transition"
         transition_message = _transition_slide_message(transition_blocks)
         transition.update({
@@ -2053,7 +2059,6 @@ def split_mixed_intent_slides_v5(
             "slide_purpose": "chapter_transition",
             "scene_kind": "transition",
             "beat_role": "transition",
-            "narrative_role": "transition",
             "eyebrow": "承上启下",
             "title": _transition_slide_title(transition_blocks),
             "key_message": transition_message,
@@ -2929,6 +2934,9 @@ def compile_slide_deck_v5(
         "score": content["quality_report"]["score"],
         **summarize_v5_slide_counts(slides),
     }
+    # Fail at the V5 compiler boundary, before rendering or publication, if a
+    # future semantic transform leaks planner-only fields into SlideSpec.
+    SlideDeckContent.model_validate(content)
     return content
 
 
