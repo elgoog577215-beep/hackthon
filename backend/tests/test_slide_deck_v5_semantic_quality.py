@@ -10,7 +10,14 @@ from slide_deck_v5 import (
     split_mixed_intent_slides_v5,
     v5_contract_issues,
 )
-from slide_deck_renderer import _worked_example_labels
+from pptx import Presentation
+
+from slide_deck_renderer import (
+    _heading,
+    _render_practice_feedback,
+    _worked_example_labels,
+    validate_theme,
+)
 
 
 def test_mixed_question_and_transition_drops_redundant_navigation_page() -> None:
@@ -264,3 +271,67 @@ def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
     assert slides[1]["quality"]["heading_mode"] == "hidden"
     assert slides[1]["quality"]["section_label"] == "1.2 状态变量与过程量"
     assert slides[1]["title"] == "温度和压力都是状态变量"
+
+
+def test_export_keeps_hidden_heading_as_metadata_only() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "continuation",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "eyebrow": "核心概念",
+        "title": "温度和压力都是状态变量",
+        "blocks": [],
+        "quality": {
+            "heading_mode": "hidden",
+            "section_label": "1.2 状态变量与过程量",
+        },
+    })
+
+    _heading(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "1.2 状态变量与过程量" in visible_text
+    assert "温度和压力都是状态变量" not in visible_text
+
+
+def test_export_pairs_each_practice_question_with_its_answer() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "paired-practice",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice_feedback",
+        "eyebrow": "理解检查",
+        "title": "判断系统类型",
+        "blocks": [
+            {
+                "block_id": "questions",
+                "type": "exercise",
+                "items": ["盖子关闭时属于哪类系统？", "盖子打开时呢？"],
+            },
+            {
+                "block_id": "answers",
+                "type": "callout",
+                "items": ["封闭系统。", "开放系统。"],
+            },
+        ],
+        "quality": {"resolved_layout": "practice-feedback"},
+    })
+
+    _render_practice_feedback(slide, unit, validate_theme("qizhi-classroom"))
+
+    text_shapes = {
+        shape.text: shape
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and shape.text
+    }
+    assert text_shapes["盖子关闭时属于哪类系统？"].top == text_shapes["封闭系统。"].top
+    assert text_shapes["盖子打开时呢？"].top == text_shapes["开放系统。"].top
