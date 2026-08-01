@@ -210,7 +210,7 @@ def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() 
         for section in outline.agenda_sections
         for chapter_id in section.source_chapter_ids
     ] == [f"chapter-{index}" for index in range(1, 9)]
-    assert outline.cover.subtitle == ""
+    assert outline.cover.subtitle == "建立一套可迁移的分析框架"
     assert outline.closing.kind == "course_synthesis"
 
 
@@ -746,9 +746,9 @@ def test_v5_render_review_fixture_exports_all_semantic_compositions(
     )
 
     assert len(presentation.slides) == 5
-    assert {"已知", "推理", "结论", "反馈依据", "课程主线"} <= {
-        line.strip() for line in visible_text.splitlines()
-    }
+    visible_lines = {line.strip() for line in visible_text.splitlines()}
+    assert {"步骤 1", "步骤 2", "步骤 3", "反馈依据", "课程主线"} <= visible_lines
+    assert {"已知", "推理", "结论"}.isdisjoint(visible_lines)
 
 
 def test_pptx_export_uses_v5_quality_contract_for_v5_content(tmp_path) -> None:

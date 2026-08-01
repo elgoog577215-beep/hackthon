@@ -786,10 +786,13 @@ def compile_slide_story_plan_v2(
             module = modules_by_id.get(_block_module_id(block))
             block_role = str(block.payload.get("role") or block.role)
             role_scene = _ROLE_TO_SCENE.get(block_role)
+            module_scene = _module_scene(module) if module else None
             scene = (
-                role_scene
+                module_scene
+                if role_scene == "worked_example" and module_scene == "application"
+                else role_scene
                 if role_scene and block_role != "concept"
-                else (_module_scene(module) if module else None) or role_scene or "concept"
+                else module_scene or role_scene or "concept"
             )
             scene_blocks[scene].append(block)
         scene_blocks.setdefault("chapter_entry", [])

@@ -1308,7 +1308,7 @@ def test_v5_variant_is_atomically_published_under_existing_variant_key(tmp_path)
         (slide.get("quality") or {}).get("resolved_layout")
         for slide in spec.payload["content"]["slides"]
     ]
-    assert resolved_layouts[:2] == ["cover-minimal", "agenda-linear"]
+    assert resolved_layouts[:2] == ["cover-editorial", "agenda-linear"]
     assert resolved_layouts.count("chapter-entry") == len(story.chapters)
 
 
