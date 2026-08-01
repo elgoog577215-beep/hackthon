@@ -264,6 +264,40 @@ def test_story_plan_uses_official_course_logic_and_closes_the_chapter() -> None:
     assert plan.chapters[0].prerequisite_knowledge_names == ["向量空间"]
 
 
+def test_example_role_in_an_application_module_stays_a_parallel_application() -> None:
+    course = _course_with_teaching_plan()
+    section_plan = course["course_teaching_plan"]["sections"][0]
+    section_plan["teaching_modules"].append({
+        "module_id": "module-application",
+        "teaching_purpose": "比较多个行业应用情境",
+        "knowledge_names": ["线性映射"],
+    })
+    course["nodes"][0]["content_blocks"].append({
+        "block_id": "block-application-examples",
+        "title": "行业应用",
+        "content": "计算机图形、信号处理和数据降维都使用线性映射。",
+        "metadata": {
+            "role": "example",
+            "module_id": "module-application",
+        },
+    })
+    document = document_from_legacy_course(course)
+
+    plan = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragment_course_document(document),
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    application = next(
+        episode for episode in plan.chapters[0].episodes
+        if episode.scene_kind == "application"
+    )
+    assert application.beats[0].beat_role == "mapping"
+
+
 def test_single_family_scene_remains_selectable_after_rhythm_limit() -> None:
     selection = select_layout_v2(
         scene_kind="chapter_entry",

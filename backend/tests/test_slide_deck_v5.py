@@ -25,6 +25,7 @@ from slide_deck_renderer import V5_LAYOUT_RENDERER_NAMES
 import slide_deck_renderer
 from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
+    _chapter_recap_slide,
     apply_page_contract_v5,
     compact_story_plan_v5,
     compile_slide_deck_v5,
@@ -1537,3 +1538,115 @@ def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> No
     )
 
     assert title == "热力学系统的三种类型"
+
+
+def test_v5_cover_splits_a_long_course_name_into_title_and_subtitle() -> None:
+    document = _document(1).model_copy(update={
+        "title": "《热力学与统计物理：原理、方法与应用》",
+    })
+
+    outline = compile_deck_outline_v5(document, _story(1))
+    cover_contract = resolve_page_contract_v5({
+        "layout": "cover",
+        "title": outline.cover.title,
+        "subtitle": outline.cover.subtitle,
+        "blocks": [],
+        "quality": {"requested_layout": "cover"},
+    })
+
+    assert outline.cover.title == "热力学与统计物理"
+    assert outline.cover.subtitle == "原理、方法与应用"
+    assert cover_contract.resolved_layout == "cover-editorial"
+
+
+def test_v5_promotes_long_title_detail_into_supporting_copy() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "classification-title",
+        "layout": "concept",
+        "title": "热力学将系统分为三类：这些分类帮助我们理解不同",
+        "key_message": "",
+        "blocks": [{
+            "block_id": "classification",
+            "type": "bullets",
+            "items": ["孤立系统", "封闭系统", "开放系统"],
+        }],
+        "quality": {"requested_layout": "classification-3"},
+    })
+
+    assert slide["title"] == "热力学将系统分为三类"
+    assert slide["key_message"] == "这些分类帮助我们理解不同"
+    assert len(slide["title"]) <= 18
+
+
+def test_parallel_application_items_never_become_a_worked_reasoning_chain() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "three-parallel-applications",
+        "layout": "case-study",
+        "scene_kind": "application",
+        "beat_role": "mapping",
+        "title": "第零定律的实际应用",
+        "blocks": [{
+            "block_id": "applications",
+            "type": "bullets",
+            "items": ["空调温控", "冷链运输", "体温测量"],
+        }],
+        "quality": {"requested_layout": "worked-example"},
+    })
+
+    assert slide["quality"]["resolved_layout"] == "parallel-examples"
+    assert slide["quality"]["resolved_composition"] == "parallel"
+    assert not v5_contract_issues([slide])
+
+
+def test_chapter_recap_uses_claims_and_a_retrieval_prompt_not_slide_titles() -> None:
+    outline = compile_deck_outline_v5(_document(1), _story(1))
+    source_slides = [
+        {
+            "unit_id": "classification",
+            "title": "1.1 热力学系统的分类与描述",
+            "takeaway": "系统类型取决于它与环境交换物质和能量的方式。",
+            "blocks": [],
+        },
+        {
+            "unit_id": "application",
+            "title": "实践案例/行业应用",
+            "key_message": "第零定律支撑温度测量和温度控制。",
+            "blocks": [],
+        },
+    ]
+
+    recap = _chapter_recap_slide(outline.chapters[0], source_slides)
+
+    assert recap["title"] == "本章必须带走的关键判断"
+    assert recap["blocks"][0]["items"] == [
+        "系统类型取决于它与环境交换物质和能量的方式。",
+        "第零定律支撑温度测量和温度控制。",
+    ]
+    assert "不看前文" in recap["key_message"]
+    assert recap["quality"]["navigation_only"] is False
+    assert recap["quality"]["retrieval_recap"] is True
+
+
+def test_quality_gate_blocks_mixed_question_and_chapter_transition() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "mixed-question-transition",
+        "layout": "practice",
+        "title": "判断水壶属于哪类系统",
+        "blocks": [
+            {
+                "block_id": "question",
+                "type": "exercise",
+                "content": "水壶盖子没有打开，这个系统属于哪种类型？",
+            },
+            {
+                "block_id": "transition",
+                "type": "statement",
+                "content": "本节介绍了系统分类。下一节将深入探讨热力学第一定律。",
+            },
+        ],
+        "quality": {"requested_layout": "two-column"},
+    })
+
+    assert "mixed_narrative_jobs" in {
+        issue["code"] for issue in v5_contract_issues([slide])
+    }

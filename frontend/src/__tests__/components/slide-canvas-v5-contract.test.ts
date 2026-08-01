@@ -19,6 +19,7 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(layoutContract.minimum_body_font_pt).toBeGreaterThanOrEqual(16)
     expect(layouts).toEqual(new Set([
       'cover-minimal',
+      'cover-editorial',
       'agenda-linear',
       'chapter-entry',
       'hero-claim',
@@ -30,6 +31,8 @@ describe('SlideCanvas V5 final page contract', () => {
       'figure-text',
       'diagram-full',
       'worked-example',
+      'parallel-examples',
+      'question-prompt',
       'practice-feedback',
       'chapter-recap',
       'course-synthesis',
@@ -134,7 +137,7 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.find('.deck-classification').text()).toContain('孤立系统')
   })
 
-  it('keeps the V5 cover minimal', () => {
+  it('renders an editorial V5 cover with supporting context', () => {
     const wrapper = mount(SlideCanvas, {
       props: {
         ...baseProps,
@@ -143,11 +146,11 @@ describe('SlideCanvas V5 final page contract', () => {
           layout: 'cover',
           eyebrow: '课程课件',
           title: '热力学与统计物理',
-          subtitle: '',
+          subtitle: '原理、方法与应用',
           blocks: [],
           quality: {
-            requested_layout: 'cover-minimal',
-            resolved_layout: 'cover-minimal',
+            requested_layout: 'cover-editorial',
+            resolved_layout: 'cover-editorial',
           },
         },
       },
@@ -159,9 +162,78 @@ describe('SlideCanvas V5 final page contract', () => {
       },
     })
 
-    expect(wrapper.find('.deck-cover__wash').exists()).toBe(false)
-    expect(wrapper.find('.deck-cover__brand').exists()).toBe(false)
+    expect(wrapper.find('.deck-cover__wash').exists()).toBe(true)
+    expect(wrapper.find('.deck-cover__brand').exists()).toBe(true)
     expect(wrapper.get('.deck-cover__content h2').text()).toBe('热力学与统计物理')
+    expect(wrapper.get('.deck-cover__content p').text()).toBe('原理、方法与应用')
+  })
+
+  it('renders parallel applications without invented reasoning labels', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '实际应用',
+          title: '第零定律的实际应用',
+          blocks: [{
+            block_id: 'applications',
+            type: 'bullets',
+            items: ['空调温控', '冷链运输', '体温测量'],
+          }],
+          quality: {
+            requested_layout: 'parallel-examples',
+            resolved_layout: 'parallel-examples',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-parallel-examples article')).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('已知')
+    expect(wrapper.text()).not.toContain('推理')
+    expect(wrapper.text()).not.toContain('结论')
+  })
+
+  it('uses explicit worked-example labels instead of positional semantics', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '例题推演',
+          title: '按步骤验证判断',
+          blocks: [{
+            block_id: 'worked-steps',
+            type: 'process',
+            items: ['整理条件', '完成推演', '检查结果'],
+          }],
+          quality: {
+            requested_layout: 'worked-example',
+            resolved_layout: 'worked-example',
+            worked_step_labels: ['条件', '推演', '验证'],
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-worked-example article small').map(node => node.text())).toEqual([
+      '条件',
+      '推演',
+      '验证',
+    ])
   })
 
   it('does not repeat a promoted single claim as body copy', () => {
