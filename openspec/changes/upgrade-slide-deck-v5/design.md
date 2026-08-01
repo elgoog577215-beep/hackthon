@@ -146,9 +146,19 @@ compacted and AI-refined story as authoritative, making compaction idempotent
 instead of rebuilding and erasing accepted decisions.
 
 Provider availability enables this refinement by default. An explicit false
-kill switch still disables it. A configured provider that fails validation does
-not silently earn an AI-quality pass: the deterministic story remains available
-for diagnosis, while publication is blocked by the planning quality gate.
+kill switch still disables it. Failures are isolated per chapter: accepted
+chapters remain AI-refined, failed chapters retain their deterministic story,
+and structured diagnostics record the failure category for every failed
+chapter. A configured provider that fails validation does not silently earn an
+AI-quality pass, but provider availability is not itself a publication gate.
+The deterministic story may publish only after it independently passes all
+source, semantic, capacity, composition, and rendering gates.
+
+For long decks, visual planning also has a bounded single-request page budget.
+Decks above that budget skip the whole-deck AI visual call and use the
+deterministic evidence-first policy. This is deliberately conservative: only
+source-evidenced rule diagrams are retained, while uncertain visuals resolve to
+`none` and trigger final text-native layout resolution.
 
 ### Closing
 
@@ -306,6 +316,11 @@ The following are critical:
 - title, visible-item, or body density overflow at the resolved-layout budget
 - unresolved required assets or invalid visual programs
 - any page-level critical issue retained by a final materialized slide
+
+Capacity issues inherited from the V4 intermediate compiler are not durable V5
+findings. Once V5 resolves and validates the final visible contract, it removes
+superseded V4 capacity codes and recomputes publication from the V5 page and
+deck gates only.
 
 Durable task completion is also atomic at the frontend boundary: the registry,
 selected published spec, preview source, and quality report switch together,

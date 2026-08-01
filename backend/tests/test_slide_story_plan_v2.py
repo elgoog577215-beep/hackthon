@@ -855,6 +855,82 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
     assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
 
 
+def test_ai_story_planner_keeps_valid_chapters_when_one_times_out(
+    monkeypatch,
+) -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    second = fallback.chapters[0].model_copy(update={
+        "chapter_id": "chapter-timeout",
+        "next_chapter_id": "",
+        "episodes": [
+            episode.model_copy(update={
+                "beats": [
+                    beat.model_copy(update={"fragment_ids": []})
+                    for beat in episode.beats
+                ],
+            })
+            for episode in fallback.chapters[0].episodes
+        ],
+    })
+    batched_fallback = fallback.model_copy(update={
+        "chapters": [
+            fallback.chapters[0].model_copy(
+                update={"next_chapter_id": "chapter-timeout"},
+            ),
+            second,
+        ],
+    })
+    monkeypatch.setattr(
+        "slide_story_plan.compile_slide_story_plan_v2",
+        lambda *_args, **_kwargs: batched_fallback,
+    )
+
+    async def planner(request: dict) -> dict:
+        if request["scope"]["chapter_id"] == "chapter-timeout":
+            raise asyncio.TimeoutError
+        beat = next(
+            item
+            for item in request["beat_catalog"]
+            if item["headline_candidates"]
+        )
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": beat["beat_id"],
+                "layout_id": beat["current_layout_id"],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "ai"
+    assert planned.fallback_reason == "partial_ai_story_plan"
+    assert planned.chapters[1] == second
+    assert planned.planning_diagnostics["failed_chapter_count"] == 1
+    assert planned.planning_diagnostics["chapter_failures"] == [{
+        "chapter_id": "chapter-timeout",
+        "code": "timeout",
+        "error_type": "TimeoutError",
+    }]
+
+
 def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)

@@ -694,6 +694,17 @@ async def plan_slide_visuals(
         fallback.deck_brief["planner"] = "deterministic_fallback"
         fallback.deck_brief["fallback_reason"] = "no_ai_visual_planner"
         return fallback
+    long_deck_page_limit = max(
+        1,
+        int(os.getenv("AI_VISUAL_PLAN_MAX_PAGES", "24")),
+    )
+    if len(allocation_plan.pages) > long_deck_page_limit:
+        fallback.deck_brief["planner"] = "deterministic_fallback"
+        fallback.deck_brief["fallback_reason"] = (
+            "long_deck_deterministic_visual_policy"
+        )
+        fallback.deck_brief["ai_visual_page_limit"] = long_deck_page_limit
+        return fallback
     raster_generation_enabled = os.getenv(
         "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
         "",

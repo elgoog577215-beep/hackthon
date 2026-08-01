@@ -208,6 +208,7 @@ class SlideStoryPlanV2(_StrictModel):
     chapters: list[ChapterStoryV2] = Field(min_length=1)
     planner: Literal["ai", "deterministic_fallback"] = "deterministic_fallback"
     fallback_reason: str = ""
+    planning_diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 _SCENE_ORDER: tuple[SlideSceneKind, ...] = (
@@ -1435,29 +1436,59 @@ async def plan_slide_story_v2(
                 list[ContentFragmentV1],
                 dict[str, Any],
             ],
-        ) -> ChapterStoryV2:
+        ) -> tuple[ChapterStoryV2, dict[str, str] | None]:
             chapter, chapter_baseline, chapter_fragments, request = unit
-            async with semaphore:
-                raw = await invoke_planner(request)
-            normalized_directives = _normalize_chapter_directives_v2(raw)
-            if normalized_directives is not None:
-                return _apply_chapter_directives_v2(
-                    chapter=chapter,
-                    raw=normalized_directives,
-                    fragment_catalog=fragment_catalog,
+            try:
+                async with semaphore:
+                    raw = await invoke_planner(request)
+                normalized_directives = _normalize_chapter_directives_v2(raw)
+                if normalized_directives is not None:
+                    planned = _apply_chapter_directives_v2(
+                        chapter=chapter,
+                        raw=normalized_directives,
+                        fragment_catalog=fragment_catalog,
+                    )
+                else:
+                    chapter_candidate = SlideStoryPlanV2.model_validate(raw)
+                    validate_ai_story_plan_v2(
+                        chapter_candidate,
+                        fallback=chapter_baseline,
+                        course_data=course_data,
+                        fragments=chapter_fragments,
+                    )
+                    planned = chapter_candidate.chapters[0]
+                return planned, None
+            except Exception as exc:
+                code = (
+                    "timeout"
+                    if isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+                    else "invalid_response"
                 )
-            chapter_candidate = SlideStoryPlanV2.model_validate(raw)
-            validate_ai_story_plan_v2(
-                chapter_candidate,
-                fallback=chapter_baseline,
-                course_data=course_data,
-                fragments=chapter_fragments,
-            )
-            return chapter_candidate.chapters[0]
+                return chapter, {
+                    "chapter_id": chapter.chapter_id,
+                    "code": code,
+                    "error_type": type(exc).__name__,
+                }
 
-        planned_chapters = list(await asyncio.gather(*(
+        chapter_results = list(await asyncio.gather(*(
             plan_chapter(unit) for unit in planning_units
         )))
+        planned_chapters = [item[0] for item in chapter_results]
+        chapter_failures = [
+            item[1]
+            for item in chapter_results
+            if item[1] is not None
+        ]
+        diagnostics = {
+            "chapter_count": chapter_count,
+            "successful_chapter_count": chapter_count - len(chapter_failures),
+            "failed_chapter_count": len(chapter_failures),
+            "chapter_failures": chapter_failures,
+        }
+        if len(chapter_failures) == chapter_count:
+            fallback.fallback_reason = "invalid_or_failed_ai_story_plan"
+            fallback.planning_diagnostics = diagnostics
+            return fallback
         candidate = fallback.model_copy(update={
             "plan_id": stable_hash({
                 "mode": mode,
@@ -1470,7 +1501,12 @@ async def plan_slide_story_v2(
             }, prefix="story_"),
             "chapters": planned_chapters,
             "planner": "ai",
-            "fallback_reason": "",
+            "fallback_reason": (
+                "partial_ai_story_plan"
+                if chapter_failures
+                else ""
+            ),
+            "planning_diagnostics": diagnostics,
         })
         validate_ai_story_plan_v2(
             candidate,
@@ -1479,6 +1515,20 @@ async def plan_slide_story_v2(
             fragments=fragments,
         )
         return candidate
-    except Exception:
+    except Exception as exc:
         fallback.fallback_reason = "invalid_or_failed_ai_story_plan"
+        fallback.planning_diagnostics = {
+            "chapter_count": len(fallback.chapters),
+            "successful_chapter_count": 0,
+            "failed_chapter_count": len(fallback.chapters),
+            "chapter_failures": [],
+            "deck_failure": {
+                "code": (
+                    "timeout"
+                    if isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+                    else "invalid_response"
+                ),
+                "error_type": type(exc).__name__,
+            },
+        }
         return fallback

@@ -747,6 +747,45 @@ async def test_ai_visual_plan_with_rewritten_body_falls_back() -> None:
     assert resolved.deck_brief["fallback_reason"] == "invalid_or_failed_ai_visual_plan"
 
 
+@pytest.mark.asyncio
+async def test_long_deck_skips_single_shot_ai_visual_planning() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    pages = list(allocation.pages)
+    source_page = next(page for page in reversed(pages) if page.fragment_ids)
+    while len(pages) < 30:
+        pages.append(source_page.model_copy(update={
+            "page_id": f"slide:long:{len(pages):04d}",
+        }))
+    long_allocation = allocation.model_copy(update={"pages": pages})
+    calls = 0
+
+    async def planner(_request: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("long decks must not use one giant visual request")
+
+    resolved = await plan_slide_visuals(
+        document,
+        long_allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    assert calls == 0
+    assert resolved.deck_brief["planner"] == "deterministic_fallback"
+    assert resolved.deck_brief["fallback_reason"] == (
+        "long_deck_deterministic_visual_policy"
+    )
+
+
 def test_asset_repository_validates_and_promotes_content_addressed_images(
     tmp_path: Path,
 ) -> None:

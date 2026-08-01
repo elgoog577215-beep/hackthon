@@ -722,6 +722,7 @@ class DeckOutlineV5(_StrictModel):
     closing: DeckClosingV5
     planner: Literal["ai", "deterministic_fallback"] = "deterministic_fallback"
     fallback_reason: str = ""
+    planning_diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class SlotBindingV5(_StrictModel):
@@ -860,6 +861,7 @@ def compile_deck_outline_v5(
         closing=closing,
         planner=story.planner,
         fallback_reason=story.fallback_reason,
+        planning_diagnostics=deepcopy(story.planning_diagnostics),
     )
 
 
@@ -1442,6 +1444,33 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     )
     contract = resolve_page_contract_v5(updated)
     quality = deepcopy(updated.get("quality") or {})
+    removed_superseded_issue = False
+    for key in ("issues", "blockers"):
+        original = [
+            item
+            for item in quality.get(key) or []
+            if isinstance(item, dict)
+        ]
+        filtered = [
+            item
+            for item in original
+            if str(item.get("code") or "")
+            not in _V5_REPLACED_V4_QUALITY_CODES
+        ]
+        removed_superseded_issue = (
+            removed_superseded_issue
+            or len(filtered) != len(original)
+        )
+        quality[key] = filtered
+    if removed_superseded_issue:
+        remaining = [
+            *(quality.get("issues") or []),
+            *(quality.get("blockers") or []),
+        ]
+        quality["passed"] = not any(
+            str(item.get("severity") or "") == "critical"
+            for item in remaining
+        )
     quality.update({
         "requested_layout": contract.requested_layout,
         "resolved_layout": contract.resolved_layout,
@@ -2055,6 +2084,7 @@ def finalize_v5_quality_report(
     slides: list[dict[str, Any]],
     planner: str,
     fallback_reason: str,
+    planning_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Replace stale V3/V4 gates with one internally consistent V5 report."""
     previous_candidates = [
@@ -2070,14 +2100,28 @@ def finalize_v5_quality_report(
     planning_issues: list[dict[str, Any]] = []
     if fallback_reason == "invalid_or_failed_ai_story_plan":
         planning_issues.append({
-            "severity": "critical",
-            "code": "ai_story_planner_failed",
+            "severity": "major",
+            "code": "ai_story_planner_fallback",
             "target": "deck",
             "message": (
-                "AI story planning failed validation; the deterministic fallback "
-                "was not published as a quality-equivalent V5 deck."
+                "AI story planning was unavailable; the deck used the "
+                "source-grounded deterministic V5 story instead."
             ),
-            "suggestion": "Retry the build after the AI planner is available.",
+            "suggestion": (
+                "Review the recorded chapter diagnostics and retry AI planning "
+                "without blocking a render-safe deterministic deck."
+            ),
+        })
+    elif fallback_reason == "partial_ai_story_plan":
+        planning_issues.append({
+            "severity": "major",
+            "code": "ai_story_planner_partial_fallback",
+            "target": "deck",
+            "message": (
+                "Some chapters used the deterministic V5 story because their "
+                "AI planning request failed."
+            ),
+            "suggestion": "Retry only the failed chapters when the AI planner recovers.",
         })
     elif planner != "ai":
         planning_issues.append({
@@ -2200,6 +2244,7 @@ def finalize_v5_quality_report(
         "planning": {
             "planner": planner,
             "fallback_reason": fallback_reason,
+            "diagnostics": deepcopy(planning_diagnostics or {}),
             "passed": not any(
                 str(issue.get("severity") or "") == "critical"
                 for issue in planning_issues
@@ -2339,6 +2384,7 @@ def compile_slide_deck_v5(
         slides=slides,
         planner=outline.planner,
         fallback_reason=outline.fallback_reason,
+        planning_diagnostics=outline.planning_diagnostics,
     )
     content["quality_summary"] = {
         **(content.get("quality_summary") or {}),
@@ -2366,4 +2412,7 @@ def validate_slide_deck_v5(
         slides=list(content.get("slides") or []),
         planner=str(outline.get("planner") or ""),
         fallback_reason=str(outline.get("fallback_reason") or ""),
+        planning_diagnostics=dict(
+            outline.get("planning_diagnostics") or {}
+        ),
     )
