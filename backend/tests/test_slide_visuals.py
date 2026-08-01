@@ -9,7 +9,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from course_document import document_from_legacy_course
-from slide_deck import SlideSpec
+from slide_deck import SlideSpec, _plain_math_text
 from slide_asset_repository import SlideAssetRepository, finalize_visual_assets
 from slide_deck_v3 import (
     compile_slide_deck_v3,
@@ -24,6 +24,7 @@ from slide_deck_renderer import (
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
+    _source_clauses,
     _semantic_relation_spec,
     deterministic_visual_plan,
     plan_slide_visuals,
@@ -266,6 +267,33 @@ def test_relation_diagram_requires_a_local_bounded_relationship() -> None:
     )
 
     assert relation is None
+
+
+def test_relation_connector_inside_parentheses_cannot_split_diagram_nodes() -> None:
+    source = (
+        "但是，空调在这个过程中消耗的电能（转化为机械功）和排放的热量，"
+        "会因控制策略不同而不同。"
+    )
+    fragments = [SimpleNamespace(
+        fragment_id="air-conditioner",
+        kind="paragraph",
+        text=source,
+    )]
+
+    clauses = _source_clauses(fragments)
+    relation = _semantic_relation_spec(
+        SimpleNamespace(narrative_role="example"),
+        fragments,
+        clauses,
+        [],
+    )
+
+    assert clauses == [(source, "air-conditioner")]
+    assert relation is None
+
+
+def test_plain_math_text_keeps_degree_symbol() -> None:
+    assert _plain_math_text(r"$30^\circ \text{C}$") == "30° C"
 
 
 def test_template_heading_cannot_become_a_diagram_node() -> None:

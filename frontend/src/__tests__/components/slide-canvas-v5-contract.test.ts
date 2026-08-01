@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
 import SlideCanvas from '../../components/SlideCanvas.vue'
+import slideCanvasSource from '../../components/SlideCanvas.vue?raw'
 import layoutContract from '../../../../shared/slide-layout-contract-v5.json'
 
 const baseProps = {
@@ -304,5 +305,108 @@ describe('SlideCanvas V5 final page contract', () => {
 
     expect(wrapper.find(selector).exists()).toBe(true)
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+  })
+
+  it('renders hero claims without leaking the generic learning-question fallback', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '承上启下',
+          title: '下一节：热力学第一定律',
+          key_message: '下一节将深入探讨热力学第一定律及其在不同系统中的表现形式。',
+          teaching_job: '用来源问题检查理解',
+          blocks: [],
+          quality: {
+            requested_layout: 'hero-claim',
+            resolved_layout: 'hero-claim',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-hero-claim').exists()).toBe(true)
+    expect(wrapper.find('.deck-canvas__navigation').exists()).toBe(false)
+    expect(wrapper.find('.deck-canvas__message').exists()).toBe(false)
+    expect(wrapper.text()).toContain('下一节将深入探讨热力学第一定律')
+    expect(wrapper.text()).not.toContain('用来源问题检查理解')
+    expect(wrapper.text()).not.toContain('本节学习问题')
+  })
+
+  it('reserves vertical space for the message before rendering a visual story', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          title: '快速冷却和缓慢降温的比较',
+          key_message: '最终状态相同，过程量可能不同。',
+          teaching_job: '比较两种过程',
+          blocks: [{
+            block_id: 'comparison',
+            type: 'rich_text',
+            content: '比较能量消耗和热量传递。',
+          }],
+          visuals: [{
+            visual_id: 'visual-1',
+            kind: 'relational_diagram',
+            purpose: 'explain',
+          }],
+          quality: {
+            requested_layout: 'figure-text',
+            resolved_layout: 'figure-text',
+            resolved_composition: 'split-visual',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { template: '<span />' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.get('.deck-canvas__story').attributes('data-has-message')).toBe('true')
+    expect(slideCanvasSource).toMatch(
+      /\.deck-canvas__story\[data-has-message="true"\]\s*\{\s*top:38%;\s*\}/,
+    )
+  })
+
+  it('keeps every prompt visible when a question slide contains multiple questions', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '判断系统类型',
+          blocks: [{
+            block_id: 'questions',
+            type: 'exercise',
+            items: ['盖子没有打开时属于哪类系统？', '盖子打开并有蒸汽逸出时呢？'],
+          }],
+          quality: {
+            requested_layout: 'question-prompt',
+            resolved_layout: 'question-prompt',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('盖子没有打开时属于哪类系统？')
+    expect(wrapper.text()).toContain('盖子打开并有蒸汽逸出时呢？')
   })
 })

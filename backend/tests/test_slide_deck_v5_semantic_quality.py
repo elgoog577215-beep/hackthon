@@ -3,6 +3,7 @@ from __future__ import annotations
 from slide_deck_v5 import (
     DeckChapterV5,
     _chapter_recap_slide,
+    _enrich_practice_feedback_slides_v5,
     apply_page_contract_v5,
     split_mixed_intent_slides_v5,
     v5_contract_issues,
@@ -20,6 +21,10 @@ def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() 
         "beat_role": "prompt",
         "title": "水壶盖子没有打开，那么这个系统应该归类为什么类型",
         "key_message": "",
+        "teaching_job": "用来源问题检查理解",
+        "takeaway": "本节内容为后续学习打下基础",
+        "narrative_role": "checkpoint",
+        "composition": "exercise",
         "blocks": [
             {
                 "block_id": "question",
@@ -47,7 +52,12 @@ def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() 
     assert slides[1]["title"] == "下一节：热力学第一定律"
     assert slides[1]["key_message"] == "下一节将深入探讨热力学第一定律。"
     assert slides[1]["blocks"] == []
+    assert slides[1]["teaching_job"] == ""
+    assert slides[1]["takeaway"] == "下一节将深入探讨热力学第一定律。"
+    assert slides[1]["narrative_role"] == "transition"
+    assert slides[1]["composition"] == "statement"
     transition = apply_page_contract_v5(slides[1])
+    assert transition["quality"]["occupied_major_region_count"] == 1
     assert "body_density_overflow" not in {
         issue["code"] for issue in v5_contract_issues([transition])
     }
@@ -122,3 +132,89 @@ def test_worked_example_labels_must_be_explicit_or_neutral() -> None:
         {"worked_step_labels": ["条件", "推演", "验证"]},
         3,
     ) == ("条件", "推演", "验证")
+
+
+def test_prompt_only_practice_is_enriched_with_grounded_answer_evidence() -> None:
+    slides = [
+        {
+            "unit_id": "concept-system-types",
+            "position": 0,
+            "chapter_id": "chapter-1",
+            "knowledge_refs": ["system-types"],
+            "layout": "concept",
+            "scene_kind": "explanation",
+            "title": "三类热力学系统",
+            "blocks": [{
+                "block_id": "definitions",
+                "type": "bullets",
+                "items": [
+                    "孤立系统：不交换物质，也不交换能量。",
+                    "封闭系统：不交换物质，但可以交换能量。",
+                    "开放系统：既可以交换物质，也可以交换能量。",
+                ],
+            }],
+            "quality": {"requested_layout": "classification-3"},
+        },
+        {
+            "unit_id": "practice-system-types",
+            "position": 1,
+            "chapter_id": "chapter-1",
+            "knowledge_refs": ["system-types"],
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": "判断水壶属于哪类系统",
+            "blocks": [{
+                "block_id": "question",
+                "type": "exercise",
+                "items": [
+                    "水壶盖子没有打开时属于哪类系统？",
+                    "盖子打开并有蒸汽逸出时呢？",
+                ],
+            }],
+            "quality": {"requested_layout": "question-prompt"},
+        },
+    ]
+
+    enriched = _enrich_practice_feedback_slides_v5(slides)
+    practice = apply_page_contract_v5(enriched[1])
+
+    assert practice["quality"]["requested_layout"] == "practice-feedback"
+    assert practice["quality"]["resolved_layout"] == "practice-feedback"
+    assert practice["quality"]["grounded_feedback_source_ids"] == [
+        "concept-system-types"
+    ]
+    assert practice["blocks"][0]["items"] == [
+        "水壶盖子没有打开时属于哪类系统？",
+        "盖子打开并有蒸汽逸出时呢？",
+    ]
+    assert practice["blocks"][1]["title"] == "参考答案与判断依据"
+    assert practice["blocks"][1]["items"] == [
+        "孤立系统：不交换物质，也不交换能量。",
+        "封闭系统：不交换物质，但可以交换能量。",
+        "开放系统：既可以交换物质，也可以交换能量。",
+    ]
+    assert "practice_feedback_missing_answer" not in {
+        issue["code"] for issue in v5_contract_issues([practice])
+    }
+
+
+def test_prompt_only_practice_fails_the_v5_contract_without_feedback() -> None:
+    practice = apply_page_contract_v5({
+        "unit_id": "prompt-only",
+        "position": 0,
+        "layout": "practice",
+        "scene_kind": "practice_feedback",
+        "beat_role": "prompt",
+        "title": "先判断再说明",
+        "blocks": [{
+            "block_id": "question",
+            "type": "exercise",
+            "content": "这个系统属于哪一类？",
+        }],
+        "quality": {"requested_layout": "question-prompt"},
+    })
+
+    assert "practice_feedback_missing_answer" in {
+        issue["code"] for issue in v5_contract_issues([practice])
+    }
