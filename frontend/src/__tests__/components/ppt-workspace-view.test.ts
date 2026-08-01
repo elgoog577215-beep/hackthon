@@ -395,6 +395,13 @@ describe('PptWorkspaceView', () => {
     store.liveSlides = []
     store.slidePreviewSource = 'published'
     store.buildError = 'quality_gate_failed'
+    store.draftSlideQuality = {
+      passed: false,
+      blockers: [
+        { severity: 'critical', code: 'body_density_overflow', page_id: 'slide:1' },
+        { severity: 'critical', code: 'body_density_overflow', page_id: 'slide:2' },
+      ],
+    }
     vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
     vi.spyOn(store, 'select').mockResolvedValue(undefined)
 
@@ -403,6 +410,8 @@ describe('PptWorkspaceView', () => {
 
     expect(wrapper.find('.deck-canvas').text()).toContain('上一版本')
     expect(wrapper.text()).toContain('本次生成失败，当前展示上一可用版本')
+    expect(wrapper.text()).toContain('正文过密 · 2 页')
+    expect(wrapper.text()).toContain('body_density_overflow')
     expect(wrapper.text()).not.toContain('未发布问题预览')
     expect(wrapper.find('.slide-workbench__export').attributes('disabled')).toBeUndefined()
   })
