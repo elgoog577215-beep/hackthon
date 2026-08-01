@@ -29,9 +29,9 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.6"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.7"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.0"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -93,23 +93,26 @@ _TEMPLATE_LEAD_PATTERN = re.compile(
     r"实战案例(?:/行业应用)?|思考与挑战|练习与思考|"
     r"深度原理/底层机制|行业应用)\s*[:：]?\s*"
 )
-_V5_DEFAULT_DENSITY_BUDGET = {"characters": 360, "items": 6, "title": 28}
+_V5_DEFAULT_DENSITY_BUDGET = {"characters": 360, "items": 6, "title": 18}
 _V5_DENSITY_BUDGETS = {
-    "cover-minimal": {"characters": 90, "items": 0, "title": 44},
-    "agenda-linear": {"characters": 240, "items": 6, "title": 28},
-    "chapter-entry": {"characters": 120, "items": 0, "title": 36},
-    "hero-claim": {"characters": 0, "items": 0, "title": 32},
-    "editorial-body": {"characters": 360, "items": 6, "title": 28},
-    "balanced-two-column": {"characters": 420, "items": 6, "title": 28},
-    "classification-3": {"characters": 270, "items": 3, "title": 28},
-    "process-sequence": {"characters": 300, "items": 5, "title": 28},
-    "formula-explanation": {"characters": 280, "items": 4, "title": 28},
-    "figure-text": {"characters": 320, "items": 5, "title": 28},
-    "diagram-full": {"characters": 0, "items": 0, "title": 28},
-    "worked-example": {"characters": 360, "items": 3, "title": 28},
-    "practice-feedback": {"characters": 400, "items": 5, "title": 28},
-    "chapter-recap": {"characters": 320, "items": 5, "title": 28},
-    "course-synthesis": {"characters": 340, "items": 6, "title": 28},
+    "cover-minimal": {"characters": 90, "items": 0, "title": 22},
+    "cover-editorial": {"characters": 120, "items": 0, "title": 22},
+    "agenda-linear": {"characters": 240, "items": 6, "title": 18},
+    "chapter-entry": {"characters": 120, "items": 0, "title": 22},
+    "hero-claim": {"characters": 180, "items": 1, "title": 18},
+    "editorial-body": {"characters": 360, "items": 6, "title": 18},
+    "balanced-two-column": {"characters": 420, "items": 6, "title": 18},
+    "classification-3": {"characters": 270, "items": 3, "title": 18},
+    "parallel-examples": {"characters": 320, "items": 4, "title": 18},
+    "question-prompt": {"characters": 260, "items": 4, "title": 18},
+    "process-sequence": {"characters": 300, "items": 5, "title": 18},
+    "formula-explanation": {"characters": 280, "items": 4, "title": 18},
+    "figure-text": {"characters": 320, "items": 5, "title": 18},
+    "diagram-full": {"characters": 0, "items": 0, "title": 18},
+    "worked-example": {"characters": 360, "items": 3, "title": 18},
+    "practice-feedback": {"characters": 400, "items": 5, "title": 18},
+    "chapter-recap": {"characters": 320, "items": 5, "title": 18},
+    "course-synthesis": {"characters": 340, "items": 6, "title": 18},
 }
 _V5_MINIMUM_BODY_FONT_PT = 16
 _V5_MINIMUM_TITLE_FONT_PT = 35
@@ -160,7 +163,9 @@ def _v5_group_kind(group: list[Any]) -> str:
     )
     if re.search(r"思考|挑战|练习|测验|检查|question|practice", headings, re.I):
         return "practice"
-    if re.search(r"案例|应用|例题|示例|实战|case|example|application", headings, re.I):
+    if re.search(r"应用|迁移|行业|情境|application|transfer", headings, re.I):
+        return "application"
+    if re.search(r"案例|例题|示例|实战|case|example", headings, re.I):
         return "worked"
     if re.search(r"方法|实现|步骤|流程|操作|method|procedure", headings, re.I):
         return "method"
@@ -477,7 +482,7 @@ def compact_story_plan_v5(
             second = next(
                 (
                     (kind, by_kind[kind][0])
-                    for kind in ("worked", "method", "reasoning")
+                    for kind in ("worked", "application", "method", "reasoning")
                     if by_kind.get(kind)
                 ),
                 None,
@@ -504,6 +509,7 @@ def compact_story_plan_v5(
                     continue
                 scene = {
                     "worked": "worked_example",
+                    "application": "application",
                     "practice": "practice_feedback",
                     "method": "method",
                     "reasoning": "reasoning",
@@ -515,6 +521,8 @@ def compact_story_plan_v5(
                     if scene == "method"
                     else "reasoning_step"
                     if scene == "reasoning"
+                    else "mapping"
+                    if scene == "application"
                     else "formal_explanation"
                 )
                 claim_fragment = next(
@@ -523,6 +531,11 @@ def compact_story_plan_v5(
                 )
                 selection = {
                     "worked_example": ("worked-example", "question", "example"),
+                    "application": (
+                        "parallel-examples",
+                        "case-study",
+                        "case",
+                    ),
                     "practice_feedback": (
                         "practice-feedback",
                         "question",
@@ -552,6 +565,7 @@ def compact_story_plan_v5(
                     beat_role=role,
                     teaching_job={
                         "worked_example": "用来源案例展示判断与验证",
+                        "application": "比较来源中的实际应用情境",
                         "practice_feedback": "用来源问题检查理解",
                         "method": "把本节知识转化为可执行步骤",
                         "reasoning": "说明结论如何从条件推出",
@@ -755,6 +769,17 @@ def _clean_chapter_title(value: str) -> str:
     return cleaned.strip(" ：:、.-") or _clean_text(value)
 
 
+def _split_course_cover_title(value: str) -> tuple[str, str]:
+    cleaned = _clean_text(value).strip("《》〈〉")
+    for separator in ("：", ":", "—", "–"):
+        if separator not in cleaned:
+            continue
+        title, subtitle = (part.strip() for part in cleaned.split(separator, 1))
+        if title and subtitle:
+            return _bounded_title(title, limit=22), _bounded_title(subtitle, limit=24)
+    return _bounded_title(cleaned, limit=22), ""
+
+
 def _balanced_groups(values: list[_T], group_count: int) -> list[list[_T]]:
     if not values:
         return []
@@ -823,10 +848,11 @@ def compile_deck_outline_v5(
     audience = _clean_text(story.communication_brief.audience) or "学习者"
     course_goal = _clean_text(story.communication_brief.course_goal) or document.title
     communication_job = f"帮助{audience}完成“{course_goal}”"
+    cover_title, cover_subtitle = _split_course_cover_title(document.title)
     cover = DeckCoverV5(
         eyebrow="课程课件",
-        title=_clean_text(document.title),
-        subtitle="",
+        title=cover_title,
+        subtitle=cover_subtitle or course_goal,
         metadata_line=audience,
     )
     chapters = [
@@ -1095,10 +1121,29 @@ def _structured_claim_title(value: str) -> str:
     return _bounded_title(claim)
 
 
-def _bounded_title(value: str, limit: int = 24) -> str:
+def _bounded_title(value: str, limit: int = 18) -> str:
     cleaned = _clean_text(value).strip("：:，,。！？!?；;、•·")
     if len(cleaned) <= limit:
         return cleaned
+    question = re.fullmatch(
+        r"(.{2,12}?)(?:，|,)?(?:那么)?(?:这个系统)?应该归类为什么类型",
+        cleaned,
+    )
+    if question:
+        subject = question.group(1).rstrip("，,")
+        return _bounded_title(f"判断{subject}属于哪类系统", limit=limit)
+    application = re.fullmatch(
+        r"(.{2,14}?)(?:在工业和日常生活中|在日常生活中)有广泛应用",
+        cleaned,
+    )
+    if application:
+        return _bounded_title(f"{application.group(1)}的实际应用", limit=limit)
+    for separator in ("：", ":", "；", ";"):
+        if separator not in cleaned:
+            continue
+        lead = cleaned.split(separator, 1)[0].strip()
+        if 6 <= len(lead) <= limit:
+            return lead
     excerpt = cleaned[:limit]
     boundary = max(
         excerpt.rfind("，"),
@@ -1110,6 +1155,18 @@ def _bounded_title(value: str, limit: int = 24) -> str:
     if boundary >= max(8, limit // 2):
         excerpt = excerpt[:boundary]
     return excerpt.strip("：:，,。！？!?；;、•·")
+
+
+def _supporting_title_detail(original: str, compiled: str) -> str:
+    source = _clean_text(original).strip("。！？!?")
+    title = _clean_text(compiled)
+    if not source or not title or source == title:
+        return ""
+    if source.startswith(title):
+        detail = source[len(title):].lstrip("：:，,；;、—- ")
+        if detail:
+            return detail
+    return source
 
 
 def compile_page_title_v5(
@@ -1298,6 +1355,8 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         or slide.get("composition")
         or "statement"
     )
+    scene_kind = str(slide.get("scene_kind") or "")
+    beat_role = str(slide.get("beat_role") or "")
     bindings = _semantic_bindings(slide)
     non_visual = [item for item in bindings if item.semantic_role != "visual"]
     has_visual = any(item.semantic_role == "visual" for item in bindings)
@@ -1308,8 +1367,18 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
     ]
     fallback_reason = ""
 
-    if requested_layout in {"cover", "cover-minimal"}:
-        resolved_layout = "cover-minimal"
+    explicit_worked_labels = [
+        _clean_text(item)
+        for item in quality.get("worked_step_labels") or []
+        if _clean_text(item)
+    ]
+    has_worked_steps = (
+        any(item.semantic_role == "process_step" for item in non_visual)
+        or len(explicit_worked_labels) >= 2
+    )
+
+    if requested_layout in {"cover", "cover-minimal", "cover-editorial"}:
+        resolved_layout = "cover-editorial"
         resolved_composition = "statement"
         major_regions = 1
     elif requested_layout in {"roadmap", "agenda-linear"}:
@@ -1320,6 +1389,23 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         resolved_layout = "chapter-entry"
         resolved_composition = "statement"
         major_regions = 1
+    elif (
+        requested_layout == "parallel-examples"
+        or scene_kind == "application"
+    ) and 2 <= len(non_visual) <= 4:
+        resolved_layout = "parallel-examples"
+        resolved_composition = "parallel"
+        major_regions = len(non_visual)
+        if requested_layout != resolved_layout:
+            fallback_reason = "application_items_are_parallel"
+    elif requested_layout == "question-prompt" or (
+        requested_layout == "worked-example" and beat_role == "prompt"
+    ):
+        resolved_layout = "question-prompt"
+        resolved_composition = "exercise"
+        major_regions = 1
+        if requested_layout != resolved_layout:
+            fallback_reason = "worked_example_prompt_is_not_a_reasoning_chain"
     elif requested_layout == "worked-example":
         if len(non_visual) < 2:
             resolved_layout = "editorial-body"
@@ -1331,6 +1417,11 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
             resolved_composition = "statement"
             major_regions = 1
             fallback_reason = "worked_example_item_overflow"
+        elif not has_worked_steps:
+            resolved_layout = "editorial-body"
+            resolved_composition = "statement"
+            major_regions = 1
+            fallback_reason = "worked_example_semantics_missing"
         else:
             resolved_layout = "worked-example"
             resolved_composition = "sequence"
@@ -1364,6 +1455,10 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         major_regions = 3
         if requested_layout != resolved_layout:
             fallback_reason = "classification_requires_three_regions"
+    elif requested_layout == "hero-claim":
+        resolved_layout = "hero-claim"
+        resolved_composition = "statement"
+        major_regions = 1
     elif requested_layout in {"editorial-body", "hero-statement"}:
         resolved_layout = "editorial-body"
         resolved_composition = "statement"
@@ -1487,6 +1582,7 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     updated["quality"] = quality
     updated["composition"] = contract.resolved_composition
     if str(updated.get("layout") or "") not in {"cover", "roadmap", "chapter", "recap"}:
+        original_title = str(updated.get("title") or "")
         body_text = _body_text_from_blocks(
             list(updated.get("blocks") or [])
         )
@@ -1519,6 +1615,13 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
                 == "source_heading"
             ),
         )
+        supporting_detail = _supporting_title_detail(
+            original_title,
+            updated["title"],
+        )
+        if supporting_detail and not _clean_text(updated.get("key_message")):
+            updated["key_message"] = supporting_detail
+            quality["title_detail_promoted"] = True
         deduplicated_blocks, removed_lead = _remove_repeated_lead_sentence(
             list(updated.get("blocks") or []),
             updated["title"],
@@ -1622,7 +1725,27 @@ def _chapter_recap_slide(
 ) -> dict[str, Any]:
     points: list[str] = []
     for slide in source_slides:
-        candidate = _clean_text(slide.get("title"))
+        slide_title = _clean_text(slide.get("title"))
+        candidates = [
+            _clean_text(slide.get("takeaway")),
+            _clean_text(slide.get("key_message")),
+            _clean_text((slide.get("primary_claim_source") or {}).get("text")),
+        ]
+        for block in slide.get("blocks") or []:
+            candidates.extend([
+                _first_body_sentence(str(block.get("content") or "")),
+                *[
+                    _first_body_sentence(str(item))
+                    for item in block.get("items") or []
+                ],
+            ])
+        candidate = next((
+            value for value in candidates
+            if value
+            and _normalize_title_match(value) != _normalize_title_match(slide_title)
+            and not _is_numbered_section_title(value)
+            and _normalize_title_match(value) not in _GENERIC_TITLES
+        ), "")
         if candidate and candidate not in points:
             points.append(candidate)
         if len(points) == 4:
@@ -1635,10 +1758,10 @@ def _chapter_recap_slide(
         "layout": "recap",
         "slide_purpose": "chapter_recap",
         "eyebrow": "章节回顾",
-        "title": "回看本章形成的关键判断",
+        "title": "本章必须带走的关键判断",
         "subtitle": "",
-        "key_message": "",
-        "teaching_job": "",
+        "key_message": "不看前文，你能否用自己的话解释这些判断？",
+        "teaching_job": "用回忆问题检验本章关键判断是否真正形成",
         "takeaway": "",
         "transition_from": "",
         "composition": "statement",
@@ -1673,16 +1796,37 @@ def _chapter_recap_slide(
         "chapter_id": chapter.chapter_id,
         "episode_id": "",
         "scene_kind": "chapter_recap",
-        "beat_role": "navigation",
+        "beat_role": "closure",
         "primary_claim_source": {},
         "prerequisite_refs": [],
         "mastery_criterion_refs": [],
         "layout_selection_reason": "required_v5_chapter_recap",
         "quality": {
             "requested_layout": "chapter-recap",
-            "navigation_only": True,
+            "navigation_only": False,
+            "retrieval_recap": True,
         },
     }
+
+
+def _recap_is_retrieval_ready(slide: dict[str, Any] | None) -> bool:
+    if not slide:
+        return False
+    quality = slide.get("quality") or {}
+    if quality.get("navigation_only"):
+        return False
+    items = [
+        _clean_text(item)
+        for block in slide.get("blocks") or []
+        for item in block.get("items") or []
+        if _clean_text(item)
+    ]
+    prompt = _clean_text(slide.get("key_message"))
+    return (
+        bool(quality.get("retrieval_recap"))
+        and len(items) >= 2
+        and ("？" in prompt or "?" in prompt)
+    )
 
 
 def _course_synthesis_slide(outline: DeckOutlineV5) -> dict[str, Any]:
@@ -1743,6 +1887,90 @@ def _course_synthesis_slide(outline: DeckOutlineV5) -> dict[str, Any]:
     }
 
 
+_TRANSITION_TEXT_PATTERN = re.compile(
+    r"(?:本节|本章|下一节|下一章|后续|为.+打下基础|将(?:深入)?(?:探讨|学习|介绍))"
+)
+
+
+def _block_visible_text(block: dict[str, Any]) -> str:
+    return _clean_text(" ".join([
+        str(block.get("title") or ""),
+        str(block.get("content") or ""),
+        *[str(item) for item in block.get("items") or []],
+    ]))
+
+
+def _block_narrative_intent(block: dict[str, Any]) -> str:
+    text = _block_visible_text(block)
+    if _TRANSITION_TEXT_PATTERN.search(text):
+        return "transition"
+    if str(block.get("type") or "") == "exercise" or "？" in text or "?" in text:
+        return "question"
+    return "content"
+
+
+def _transition_slide_title(blocks: list[dict[str, Any]]) -> str:
+    text = " ".join(_block_visible_text(block) for block in blocks)
+    match = re.search(
+        r"下一节将(?:深入)?(?:探讨|学习|介绍)\s*([^。；;，,]+)",
+        text,
+    )
+    if match:
+        topic = _bounded_title(match.group(1), limit=14)
+        if topic:
+            return f"下一节：{topic}"
+    return "下一步学习"
+
+
+def split_mixed_intent_slides_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Split question and transition content so every slide has one narrative job."""
+    result: list[dict[str, Any]] = []
+    for source in slides:
+        slide = deepcopy(source)
+        blocks = list(slide.get("blocks") or [])
+        intents = [_block_narrative_intent(block) for block in blocks]
+        if "question" not in intents or "transition" not in intents:
+            result.append(slide)
+            continue
+        question_blocks = [
+            block for block, intent in zip(blocks, intents)
+            if intent != "transition"
+        ]
+        transition_blocks = [
+            block for block, intent in zip(blocks, intents)
+            if intent == "transition"
+        ]
+        slide["blocks"] = question_blocks
+        slide["quality"] = {
+            **(slide.get("quality") or {}),
+            "requested_layout": "question-prompt",
+            "split_mixed_narrative_jobs": True,
+        }
+        result.append(slide)
+
+        transition = deepcopy(source)
+        transition["unit_id"] = f"{source.get('unit_id')}:transition"
+        transition["layout"] = "concept"
+        transition["slide_purpose"] = "chapter_transition"
+        transition["scene_kind"] = "transition"
+        transition["beat_role"] = "transition"
+        transition["eyebrow"] = "承上启下"
+        transition["title"] = _transition_slide_title(transition_blocks)
+        transition["key_message"] = _block_visible_text(transition_blocks[0])
+        transition["blocks"] = transition_blocks
+        transition["quality"] = {
+            **(transition.get("quality") or {}),
+            "requested_layout": "hero-claim",
+            "split_mixed_narrative_jobs": True,
+        }
+        result.append(transition)
+    for position, slide in enumerate(result):
+        slide["position"] = position
+    return result
+
+
 def _materialize_v5_structure(
     slides: list[dict[str, Any]],
     outline: DeckOutlineV5,
@@ -1766,12 +1994,12 @@ def _materialize_v5_structure(
         cover.update({
             "eyebrow": outline.cover.eyebrow,
             "title": outline.cover.title,
-            "subtitle": "",
+            "subtitle": outline.cover.subtitle,
             "key_message": "",
             "blocks": [],
             "quality": {
                 **(cover.get("quality") or {}),
-                "requested_layout": "cover-minimal",
+                "requested_layout": "cover-editorial",
             },
         })
         result.append(cover)
@@ -1835,7 +2063,11 @@ def _materialize_v5_structure(
         ]
         result.extend(body_slides)
         used_units.update(str(slide.get("unit_id") or "") for slide in body_slides)
-        recap = existing_recap or _chapter_recap_slide(chapter, body_slides)
+        recap = (
+            existing_recap
+            if _recap_is_retrieval_ready(existing_recap)
+            else _chapter_recap_slide(chapter, body_slides)
+        )
         if recap["unit_id"] not in used_units:
             result.append(recap)
             used_units.add(recap["unit_id"])
@@ -1885,6 +2117,47 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
         visuals = slide.get("visuals") or []
         occupied = int(quality.get("occupied_major_region_count") or 0)
         regions = int(quality.get("major_region_count") or 1)
+        narrative_intents = {
+            _block_narrative_intent(block)
+            for block in slide.get("blocks") or []
+        }
+        if {"question", "transition"} <= narrative_intents:
+            issues.append({
+                "severity": "critical",
+                "code": "mixed_narrative_jobs",
+                "page_id": slide.get("unit_id"),
+            })
+        if resolved == "worked-example":
+            binding_roles = {
+                str(binding.get("semantic_role") or "")
+                for binding in quality.get("slot_bindings") or []
+                if isinstance(binding, dict)
+            }
+            explicit_labels = [
+                _clean_text(item)
+                for item in quality.get("worked_step_labels") or []
+                if _clean_text(item)
+            ]
+            if "process_step" not in binding_roles and len(explicit_labels) < 2:
+                issues.append({
+                    "severity": "critical",
+                    "code": "worked_example_semantics_missing",
+                    "page_id": slide.get("unit_id"),
+                })
+        if resolved == "chapter-recap":
+            if quality.get("navigation_only"):
+                issues.append({
+                    "severity": "critical",
+                    "code": "recap_is_navigation_only",
+                    "page_id": slide.get("unit_id"),
+                })
+            recall_prompt = _clean_text(slide.get("key_message"))
+            if "？" not in recall_prompt and "?" not in recall_prompt:
+                issues.append({
+                    "severity": "critical",
+                    "code": "recap_retrieval_prompt_missing",
+                    "page_id": slide.get("unit_id"),
+                })
         if resolved in {"balanced-two-column", "figure-text"} and occupied < 2:
             issues.append({
                 "severity": "critical",
@@ -2061,9 +2334,13 @@ def _v5_semantic_issue(issue: dict[str, Any]) -> bool:
             "ai_story_planner_failed",
             "ai_story_planner_unavailable",
             "knowledge_binding_missing",
+            "mixed_narrative_jobs",
             "official_source_revision_mismatch",
+            "recap_is_navigation_only",
+            "recap_retrieval_prompt_missing",
             "raw_source_sentence_as_title",
             "title_body_duplication",
+            "worked_example_semantics_missing",
         }
         or code.startswith(
             (
@@ -2324,17 +2601,24 @@ def compile_slide_deck_v5(
         list(content.get("slides") or []),
         outline,
     )
+    slides = split_mixed_intent_slides_v5(slides)
     for slide in slides:
         scene_kind = str(slide.get("scene_kind") or "")
         beat_role = str(slide.get("beat_role") or "")
         scene_layout = (
-            "worked-example"
+            "parallel-examples"
+            if scene_kind == "application"
+            else "question-prompt"
+            if scene_kind == "worked_example" and beat_role == "prompt"
+            else "worked-example"
             if scene_kind == "worked_example"
             else "practice-feedback"
             if (
                 scene_kind == "practice_feedback"
                 and beat_role in {"feedback", "answer", "validation"}
             )
+            else "question-prompt"
+            if scene_kind == "practice_feedback" and beat_role == "prompt"
             else "editorial-body"
             if scene_kind == "practice_feedback"
             else None

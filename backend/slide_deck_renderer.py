@@ -322,6 +322,7 @@ def validate_theme(theme: str) -> dict[str, str]:
 
 V5_LAYOUT_RENDERER_NAMES = {
     "cover-minimal": "_render_cover_minimal",
+    "cover-editorial": "_render_cover_editorial",
     "agenda-linear": "_render_agenda_linear",
     "chapter-entry": "_render_chapter",
     "hero-claim": "_render_claim_only",
@@ -333,6 +334,8 @@ V5_LAYOUT_RENDERER_NAMES = {
     "figure-text": "_render_visual_directed",
     "diagram-full": "_render_visual_directed",
     "worked-example": "_render_worked_example",
+    "parallel-examples": "_render_parallel_examples",
+    "question-prompt": "_render_question_prompt",
     "practice-feedback": "_render_practice_feedback",
     "chapter-recap": "_render_chapter_recap",
     "course-synthesis": "_render_course_synthesis",
@@ -356,6 +359,7 @@ def _render_slide(
     if unit.visuals and resolved_layout not in {
         "cover",
         "cover-minimal",
+        "cover-editorial",
         "roadmap",
         "agenda-linear",
         "chapter",
@@ -1196,6 +1200,53 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
         _text(slide, unit.subtitle, 0.9, 5.78, 8.4, 0.45, 16, theme["muted"])
 
 
+def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    """Render a concise editorial cover with a balanced visual field."""
+    _shape(slide, 9.25, 0.0, 4.083, 7.5, theme["accent_soft"], radius=False)
+    _shape(slide, 0.88, 0.78, 0.12, 0.74, theme["accent"], radius=False)
+    _text(
+        slide,
+        unit.eyebrow or "课程课件",
+        1.18,
+        0.88,
+        3.8,
+        0.36,
+        13,
+        theme["accent"],
+        bold=True,
+    )
+    _text(
+        slide,
+        unit.title,
+        0.9,
+        2.0,
+        7.65,
+        2.0,
+        50 if len(unit.title) <= 14 else 44,
+        theme["title"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+    if unit.subtitle:
+        _shape(slide, 0.92, 4.72, 5.65, 0.05, theme["accent"], radius=False)
+        _text(slide, unit.subtitle, 0.94, 5.04, 7.3, 0.7, 20, theme["ink"], bold=True)
+    _text(slide, "COURSE", 9.72, 1.08, 2.4, 0.42, 14, theme["accent"], bold=True)
+    _text(
+        slide,
+        "概念\n方法\n应用",
+        9.72,
+        2.05,
+        2.25,
+        2.45,
+        30,
+        theme["title"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+
+
 def _render_roadmap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     items = _all_items(unit)[:8]
@@ -1560,6 +1611,72 @@ def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
     _text(slide, body, 4.48, 2.82, 7.3, 2.95, 18 if len(body) <= 180 else 16, theme["ink"])
 
 
+def _render_parallel_examples(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render peer examples without implying causality or reasoning order."""
+    _heading(slide, unit, theme)
+    values = _all_items(unit)[:4]
+    if len(values) < 2:
+        _render_editorial_body(slide, unit, theme)
+        return
+    gap = 0.28
+    width = (11.55 - gap * (len(values) - 1)) / len(values)
+    for index, value in enumerate(values):
+        x = 0.88 + index * (width + gap)
+        _shape(slide, x, 2.08, width, 0.07, theme["accent"], radius=False)
+        _text(slide, f"{index + 1:02d}", x, 2.42, 0.68, 0.28, 11, theme["accent"], bold=True)
+        _text(
+            slide,
+            value,
+            x,
+            3.0,
+            width - 0.12,
+            2.35,
+            19 if len(value) <= 48 else 16,
+            theme["ink"],
+            bold=True,
+        )
+
+
+def _render_question_prompt(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render one practice prompt as a flat, presentation-first composition."""
+    _heading(slide, unit, theme)
+    prompt = _block_content(unit.blocks, 0) or unit.key_message or unit.takeaway
+    _shape(slide, 0.92, 2.18, 0.11, 3.5, theme["accent"], radius=False)
+    _text(slide, "先独立判断", 1.42, 2.24, 2.4, 0.34, 13, theme["accent"], bold=True)
+    _text(
+        slide,
+        prompt,
+        1.42,
+        3.0,
+        10.45,
+        2.25,
+        25 if len(prompt) <= 88 else 20,
+        theme["ink"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+
+
+def _worked_example_labels(quality: dict[str, Any], count: int) -> tuple[str, ...]:
+    explicit = tuple(
+        str(item).strip()
+        for item in quality.get("worked_step_labels") or []
+        if str(item).strip()
+    )
+    if len(explicit) >= count:
+        return explicit[:count]
+    return tuple(f"步骤 {index + 1}" for index in range(count))
+
+
 def _render_worked_example(
     slide: Any,
     unit: SlideSpec,
@@ -1585,11 +1702,7 @@ def _render_worked_example(
     if len(values) < 2:
         _render_case_study(slide, unit, theme)
         return
-    labels = (
-        ("已知", "推理", "结论")
-        if len(values) >= 3
-        else ("情境", "判断")
-    )
+    labels = _worked_example_labels(unit.quality, min(3, len(values)))
     accents = (theme["accent"], theme["green"], theme["amber"])
     _shape(slide, 1.14, 2.17, 0.035, 3.72, theme["chart_bg"], radius=False)
     for index, (label, value) in enumerate(zip(labels, values[:3])):
@@ -2236,7 +2349,7 @@ def _heading_excerpt(value: str, limit: int | None = None) -> str:
     """Choose a complete audience-facing title phrase without an ellipsis."""
     clean = " ".join(str(value or "").split()).strip("，,；;：:。… ")
     if limit is None:
-        limit = 22 if re.search(r"[\u3400-\u9fff]", clean) else 48
+        limit = 18 if re.search(r"[\u3400-\u9fff]", clean) else 42
     if len(clean) <= limit:
         return clean
     excerpt = clean[:limit]

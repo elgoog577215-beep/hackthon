@@ -98,13 +98,36 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'parallel-examples'"
+        class="deck-parallel-examples"
+        :data-has-message="Boolean(slide.key_message)"
+      >
+        <article v-for="(item, index) in semanticItems.slice(0, 4)" :key="`${index}-${item}`">
+          <b>{{ String(index + 1).padStart(2, '0') }}</b>
+          <MarkdownRenderer :content="item" :enable-code-run="false" />
+        </article>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'question-prompt'"
+        class="deck-question-prompt"
+        :data-has-message="Boolean(slide.key_message)"
+      >
+        <small>先独立判断</small>
+        <MarkdownRenderer
+          :content="semanticItems[0] || slide.key_message || ''"
+          :enable-code-run="false"
+        />
+      </div>
+
+      <div
         v-else-if="visualLayout === 'worked-example'"
         class="deck-worked-example"
         :data-has-message="Boolean(slide.key_message)"
       >
         <article v-for="(item, index) in semanticItems.slice(0, 3)" :key="`${index}-${item}`">
           <b>{{ index + 1 }}</b>
-          <small>{{ workedStepLabel(index, Math.min(3, semanticItems.length)) }}</small>
+          <small>{{ workedStepLabel(index) }}</small>
           <MarkdownRenderer :content="item" :enable-code-run="false" />
         </article>
       </div>
@@ -268,6 +291,7 @@ interface Slide {
     requested_composition?: string
     resolved_composition?: string
     suppress_redundant_body?: boolean
+    worked_step_labels?: string[]
   }
 }
 
@@ -352,7 +376,7 @@ function formatHeading(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
 }
-function headingExcerpt(value: string, limit = 48) {
+function headingExcerpt(value: string, limit = 18) {
   const clean = formatHeading(value).replace(/[，,；;：:。…\s]+$/g, '')
   if (clean.length <= limit) return clean
   let excerpt = clean.slice(0, limit)
@@ -377,7 +401,7 @@ function headingExcerpt(value: string, limit = 48) {
   return excerpt.replace(/[，,；;：:。…\s]+$/g, '')
 }
 const displayHeading = computed(() => {
-  return headingExcerpt(props.slide.title, 46)
+  return headingExcerpt(props.slide.title, 18)
 })
 const navigationText = computed(() => String(
   props.slide.teaching_job
@@ -424,10 +448,8 @@ function chapterNumber(title: string) {
   return title.match(/\d+/)?.[0]?.padStart(2, '0') || '·'
 }
 
-function workedStepLabel(index: number, total: number) {
-  return total >= 3
-    ? ['已知', '推理', '结论'][index]
-    : ['情境', '判断'][index]
+function workedStepLabel(index: number) {
+  return props.slide.quality?.worked_step_labels?.[index] || `步骤 ${index + 1}`
 }
 
 function layoutLabel(value: string) {
@@ -446,6 +468,8 @@ function layoutLabel(value: string) {
     'chapter-entry': '章节导入',
     'chapter-recap': '章节回顾',
     'course-synthesis': '课程总结',
+    'parallel-examples': '并列应用',
+    'question-prompt': '理解检查',
     'case-study': '案例',
     question: '思考',
     summary: '回顾',
@@ -648,6 +672,8 @@ function layoutLabel(value: string) {
   font-size:1.6cqw;
   line-height:1.46;
 }
+.deck-parallel-examples,
+.deck-question-prompt,
 .deck-worked-example,
 .deck-practice-feedback,
 .deck-chapter-recap,
@@ -656,10 +682,56 @@ function layoutLabel(value: string) {
   inset:25% 5.5% 10.5%;
   min-height:0;
 }
+.deck-parallel-examples[data-has-message="true"],
+.deck-question-prompt[data-has-message="true"],
 .deck-worked-example[data-has-message="true"],
 .deck-practice-feedback[data-has-message="true"],
 .deck-chapter-recap[data-has-message="true"],
 .deck-course-synthesis[data-has-message="true"] { top:38%; }
+.deck-parallel-examples {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+  gap:1.8cqw;
+  align-items:stretch;
+}
+.deck-parallel-examples article {
+  min-width:0;
+  padding:1.25cqw 0;
+  border-top:.32cqw solid var(--deck-blue);
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-parallel-examples article > b {
+  display:block;
+  margin-bottom:1.15cqw;
+  color:var(--deck-blue);
+  font:800 .92cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-parallel-examples article :deep(.markdown-body) {
+  font-size:1.65cqw;
+  font-weight:700;
+  line-height:1.45;
+}
+.deck-question-prompt {
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding-left:2.3cqw;
+  border-left:.42cqw solid var(--deck-blue);
+}
+.deck-question-prompt > small {
+  margin-bottom:1.35cqw;
+  color:var(--deck-blue);
+  font-size:1.02cqw;
+  font-weight:800;
+  letter-spacing:.12em;
+}
+.deck-question-prompt :deep(.markdown-body) {
+  max-width:78cqw;
+  font-family:var(--deck-title-font);
+  font-size:2.05cqw;
+  font-weight:700;
+  line-height:1.48;
+}
 .deck-worked-example {
   display:grid;
   grid-template-rows:repeat(3,minmax(0,1fr));

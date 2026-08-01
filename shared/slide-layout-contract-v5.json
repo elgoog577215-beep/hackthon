@@ -9,6 +9,11 @@
       "pptx_renderer": "_render_cover_minimal"
     },
     {
+      "layout": "cover-editorial",
+      "browser_composition": "cover",
+      "pptx_renderer": "_render_cover_editorial"
+    },
+    {
       "layout": "agenda-linear",
       "browser_composition": "agenda",
       "pptx_renderer": "_render_agenda_linear"
@@ -62,6 +67,16 @@
       "layout": "worked-example",
       "browser_composition": "worked-example",
       "pptx_renderer": "_render_worked_example"
+    },
+    {
+      "layout": "parallel-examples",
+      "browser_composition": "parallel-examples",
+      "pptx_renderer": "_render_parallel_examples"
+    },
+    {
+      "layout": "question-prompt",
+      "browser_composition": "question-prompt",
+      "pptx_renderer": "_render_question_prompt"
     },
     {
       "layout": "practice-feedback",
