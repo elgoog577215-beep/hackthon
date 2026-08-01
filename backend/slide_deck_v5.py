@@ -1981,36 +1981,6 @@ def _block_narrative_intent(block: dict[str, Any]) -> str:
     return "content"
 
 
-def _transition_slide_title(blocks: list[dict[str, Any]]) -> str:
-    text = " ".join(_block_visible_text(block) for block in blocks)
-    match = re.search(
-        r"下一节将(?:深入)?(?:探讨|学习|介绍)\s*([^。；;，,]+)",
-        text,
-    )
-    if match:
-        topic = _bounded_title(match.group(1), limit=14)
-        if topic:
-            return f"下一节：{topic}"
-    return "下一步学习"
-
-
-def _transition_slide_message(blocks: list[dict[str, Any]]) -> str:
-    sentences = [
-        sentence
-        for block in blocks
-        for sentence in _text_sentences(_block_visible_text(block))
-        if _TRANSITION_TEXT_PATTERN.search(sentence)
-    ]
-    preferred = next(
-        (
-            sentence for sentence in sentences
-            if sentence.startswith(("下一节", "下一章", "后续"))
-        ),
-        sentences[-1] if sentences else "",
-    )
-    return _bounded_body_claim(preferred or _transition_slide_title(blocks), limit=72)
-
-
 def _section_label_from_slide(slide: dict[str, Any]) -> str:
     quality = slide.get("quality") or {}
     candidates = [

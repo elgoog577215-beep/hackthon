@@ -368,14 +368,20 @@ const visualLayout = computed(() => (
 const headingMode = computed<'full' | 'hidden'>(() => (
   props.slide.quality?.heading_mode === 'hidden' ? 'hidden' : 'full'
 ))
-const sectionLabel = computed(() => String(
-  props.slide.quality?.section_label || '',
-))
-const showsStandaloneMessage = computed(() => Boolean(
-  props.slide.key_message
-  && visualLayout.value !== 'hero-claim'
-  && !['objective', 'misconception', 'practice'].includes(props.slide.layout),
-))
+const sectionLabel = computed(() => {
+  const explicit = String(props.slide.quality?.section_label || '')
+  if (explicit) return explicit
+  const message = String(props.slide.key_message || '').trim()
+  return /^\d+(?:[.．]\d+)+\s+\S+/.test(message) ? message : ''
+})
+const showsStandaloneMessage = computed(() => {
+  const message = String(props.slide.key_message || '').trim()
+  if (!message || message === sectionLabel.value) return false
+  if (['hero-claim', 'question-prompt', 'practice-feedback'].includes(visualLayout.value)) {
+    return false
+  }
+  return !['objective', 'misconception', 'practice'].includes(props.slide.layout)
+})
 const v5LayoutNames = new Set(
   layoutContract.layouts.map(item => item.layout),
 )
