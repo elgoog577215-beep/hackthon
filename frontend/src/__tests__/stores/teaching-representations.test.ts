@@ -55,6 +55,32 @@ beforeEach(() => {
 })
 
 describe('teaching representation progressive build', () => {
+  it('replaces intermediate quality when the final V5 payload fails schema validation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      {
+        event: 'slide_quality',
+        quality: {
+          passed: false,
+          blockers: [{ severity: 'critical', code: 'concept_card_overflow' }],
+        },
+      },
+      {
+        event: 'build_failed',
+        message: '15 validation errors for SlideDeckContent: narrative_role extra_forbidden',
+      },
+      {
+        event: 'error',
+        message: 'slide_deck_variant_quality_gate_failed',
+      },
+    ])))
+    const store = useTeachingRepresentationsStore()
+
+    await expect(store.buildProgressive('course-1')).rejects.toThrow('quality_gate_failed')
+
+    expect(store.draftSlideQuality?.blockers?.[0]?.code).toBe('slide_variant_rebuild_failed')
+    expect(store.draftSlideQuality?.blockers?.[0]?.code).not.toBe('concept_card_overflow')
+  })
+
   it('posts mode and theme to the scoped slide variant stream', async () => {
     const fetchMock = vi.fn().mockResolvedValue(streamResponse([
       {
