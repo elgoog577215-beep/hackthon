@@ -1981,43 +1981,62 @@ def _block_narrative_intent(block: dict[str, Any]) -> str:
     return "content"
 
 
-def _transition_slide_title(blocks: list[dict[str, Any]]) -> str:
-    text = " ".join(_block_visible_text(block) for block in blocks)
-    match = re.search(
-        r"下一节将(?:深入)?(?:探讨|学习|介绍)\s*([^。；;，,]+)",
-        text,
-    )
-    if match:
-        topic = _bounded_title(match.group(1), limit=14)
-        if topic:
-            return f"下一节：{topic}"
-    return "下一步学习"
-
-
-def _transition_slide_message(blocks: list[dict[str, Any]]) -> str:
-    sentences = [
-        sentence
-        for block in blocks
-        for sentence in _text_sentences(_block_visible_text(block))
-        if _TRANSITION_TEXT_PATTERN.search(sentence)
-    ]
-    preferred = next(
-        (
-            sentence for sentence in sentences
-            if sentence.startswith(("下一节", "下一章", "后续"))
+def _section_label_from_slide(slide: dict[str, Any]) -> str:
+    quality = slide.get("quality") or {}
+    candidates = [
+        quality.get("section_label"),
+        slide.get("key_message"),
+        slide.get("title"),
+        *(
+            block.get("title")
+            for block in slide.get("blocks") or []
         ),
-        sentences[-1] if sentences else "",
+    ]
+    return next(
+        (
+            _clean_text(candidate)
+            for candidate in candidates
+            if _is_numbered_section_title(_clean_text(candidate))
+        ),
+        "",
     )
-    return _bounded_body_claim(preferred or _transition_slide_title(blocks), limit=72)
+
+
+def _next_source_topic(
+    slides: list[dict[str, Any]],
+    source_index: int,
+) -> str:
+    if source_index + 1 >= len(slides):
+        return ""
+    next_slide = slides[source_index + 1]
+    label = _section_label_from_slide(next_slide)
+    if label:
+        return re.sub(
+            r"^\s*\d+(?:\s*[.．]\s*\d+)+\s+",
+            "",
+            label,
+        ).strip()
+    return _bounded_title(
+        _clean_text(next_slide.get("title")),
+        limit=18,
+    )
 
 
 def split_mixed_intent_slides_v5(
     slides: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Split question and transition content so every slide has one narrative job."""
+    """Keep the question and discard a redundant source-navigation page.
+
+    A source sentence such as ``下一节将……`` is not a presentation-worthy
+    page on its own.  The actual following slide is the navigation source of
+    truth, so the stale sentence is removed and retained only as audit
+    metadata on the checkpoint page.
+    """
     result: list[dict[str, Any]] = []
-    for source in slides:
+    source_slides = list(slides)
+    for source_index, source in enumerate(source_slides):
         slide = deepcopy(source)
+        slide["quality"] = dict(slide.get("quality") or {})
         expanded = [
             item
             for block in slide.get("blocks") or []
@@ -2032,10 +2051,6 @@ def split_mixed_intent_slides_v5(
             block for block, intent in zip(blocks, intents)
             if intent != "transition"
         ]
-        transition_blocks = [
-            block for block, intent in zip(blocks, intents)
-            if intent == "transition"
-        ]
         # narrative_role belongs to the upstream story-planning model, not the
         # strict persisted SlideSpec contract. Keep the supported semantic
         # fields below as the single source of truth for the split pages.
@@ -2047,38 +2062,57 @@ def split_mixed_intent_slides_v5(
             **(slide.get("quality") or {}),
             "requested_layout": "question-prompt",
             "split_mixed_narrative_jobs": True,
+            "removed_redundant_transition": True,
+            "next_topic": _next_source_topic(source_slides, source_index),
         }
         result.append(slide)
-
-        transition = deepcopy(source)
-        transition.pop("narrative_role", None)
-        transition["unit_id"] = f"{source.get('unit_id')}:transition"
-        transition_message = _transition_slide_message(transition_blocks)
-        transition.update({
-            "layout": "concept",
-            "slide_purpose": "chapter_transition",
-            "scene_kind": "transition",
-            "beat_role": "transition",
-            "eyebrow": "承上启下",
-            "title": _transition_slide_title(transition_blocks),
-            "key_message": transition_message,
-            "takeaway": transition_message,
-            "teaching_job": "",
-            "composition": "statement",
-            "visuals": [],
-            "blocks": [],
-        })
-        transition["quality"] = {
-            **(transition.get("quality") or {}),
-            "requested_layout": "hero-claim",
-            "requested_composition": "statement",
-            "split_mixed_narrative_jobs": True,
-            "derived_density_compaction": True,
-            "navigation_only": False,
-        }
-        result.append(transition)
     for position, slide in enumerate(result):
         slide["position"] = position
+    return result
+
+
+def _assign_heading_modes_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Separate metadata titles from visible headings across one episode."""
+    result: list[dict[str, Any]] = []
+    seen_explanation_episodes: set[str] = set()
+    labels_by_episode: dict[str, str] = {}
+    labels_by_section: dict[str, str] = {}
+    for source in slides:
+        slide = deepcopy(source)
+        quality = dict(slide.get("quality") or {})
+        episode_id = _clean_text(slide.get("episode_id"))
+        section_id = _clean_text(slide.get("section_id"))
+        label = _section_label_from_slide(slide)
+        if label:
+            if episode_id:
+                labels_by_episode[episode_id] = label
+            if section_id:
+                labels_by_section[section_id] = label
+        else:
+            label = (
+                labels_by_episode.get(episode_id, "")
+                or labels_by_section.get(section_id, "")
+            )
+
+        is_explanation = (
+            str(slide.get("layout") or "") == "concept"
+            and str(slide.get("scene_kind") or "")
+            not in {"practice_feedback", "transition"}
+        )
+        is_continuation = bool(
+            is_explanation
+            and episode_id
+            and episode_id in seen_explanation_episodes
+        )
+        quality["heading_mode"] = "hidden" if is_continuation else "full"
+        if label:
+            quality["section_label"] = label
+        slide["quality"] = quality
+        result.append(slide)
+        if is_explanation and episode_id:
+            seen_explanation_episodes.add(episode_id)
     return result
 
 
@@ -2176,7 +2210,7 @@ def _practice_has_feedback(slide: dict[str, Any]) -> bool:
 def _enrich_practice_feedback_slides_v5(
     slides: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Pair a source question with preceding, knowledge-bound answer evidence."""
+    """Add grounded evidence without pretending it is a direct answer."""
     result: list[dict[str, Any]] = []
     for source in slides:
         slide = deepcopy(source)
@@ -2188,22 +2222,34 @@ def _enrich_practice_feedback_slides_v5(
             evidence, source_ids = _grounded_feedback_evidence(slide, result)
             if evidence:
                 blocks = list(slide.get("blocks") or [])
+                prompt_values = []
                 if blocks:
                     prompt = deepcopy(blocks[0])
+                    prompt_values = [
+                        _clean_text(value)
+                        for value in (
+                            prompt.get("items")
+                            or [prompt.get("content")]
+                        )
+                        if _clean_text(value)
+                    ]
                     prompt["metadata"] = {
                         **(prompt.get("metadata") or {}),
                         "semantic_role": "prompt",
                     }
                     blocks[0] = prompt
+                pair_count = min(len(prompt_values), len(evidence))
+                paired_evidence = evidence[:pair_count] if pair_count else evidence[:1]
                 blocks.append({
                     "block_id": f"{slide.get('unit_id') or 'practice'}:feedback",
                     "type": "callout",
-                    "title": "参考答案与判断依据",
+                    "title": "判断依据",
                     "content": "",
-                    "items": evidence,
+                    "items": paired_evidence,
                     "metadata": {
                         "semantic_role": "feedback",
                         "grounded": True,
+                        "direct_answer": False,
                         "source_slide_ids": source_ids,
                     },
                 })
@@ -2213,6 +2259,9 @@ def _enrich_practice_feedback_slides_v5(
                     "requested_layout": "practice-feedback",
                     "grounded_feedback": True,
                     "grounded_feedback_source_ids": source_ids,
+                    "feedback_mode": "shared_evidence",
+                    "feedback_pair_count": 0,
+                    "feedback_evidence_count": len(paired_evidence),
                 }
         result.append(slide)
     return result
@@ -2887,6 +2936,7 @@ def compile_slide_deck_v5(
             }
     slides = _enrich_practice_feedback_slides_v5(slides)
     slides = [apply_page_contract_v5(slide) for slide in slides]
+    slides = _assign_heading_modes_v5(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})
     content.update({
         "schema_version": SLIDE_DECK_V5_SCHEMA,

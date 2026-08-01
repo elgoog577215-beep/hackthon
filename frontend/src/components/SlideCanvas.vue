@@ -4,6 +4,7 @@
     :class="{ 'is-presenting': presenting }"
     :data-layout="visualLayout"
     :data-layout-contract="v5LayoutNames.has(visualLayout) ? layoutContract.schema_version : undefined"
+    :data-heading-mode="headingMode"
     :data-theme="theme"
     :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
@@ -38,14 +39,14 @@
     <template v-else>
       <header class="deck-canvas__heading">
         <div>
-          <small>{{ slide.eyebrow || layoutLabel(visualLayout) }}</small>
-          <h2>{{ displayHeading }}</h2>
+          <small>{{ sectionLabel || slide.eyebrow || layoutLabel(visualLayout) }}</small>
+          <h2 v-if="headingMode !== 'hidden'">{{ displayHeading }}</h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
       </header>
 
       <blockquote
-        v-if="slide.key_message && visualLayout !== 'hero-claim' && !['objective', 'misconception', 'practice'].includes(slide.layout)"
+        v-if="showsStandaloneMessage"
         class="deck-canvas__message"
       >
         {{ slide.key_message }}
@@ -57,7 +58,7 @@
         :data-composition="resolvedComposition"
         :data-source-empty="sourceBlocks.length === 0"
         :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <SlideVisualRenderer
           :visuals="slide.visuals"
@@ -109,7 +110,7 @@
       <div
         v-else-if="visualLayout === 'parallel-examples'"
         class="deck-parallel-examples"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <article v-for="(item, index) in semanticItems.slice(0, 4)" :key="`${index}-${item}`">
           <b>{{ String(index + 1).padStart(2, '0') }}</b>
@@ -120,7 +121,7 @@
       <div
         v-else-if="visualLayout === 'question-prompt'"
         class="deck-question-prompt"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <small>先独立判断</small>
         <div class="deck-question-prompt__items">
@@ -136,7 +137,7 @@
       <div
         v-else-if="visualLayout === 'worked-example'"
         class="deck-worked-example"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <article v-for="(item, index) in semanticItems.slice(0, 3)" :key="`${index}-${item}`">
           <b>{{ index + 1 }}</b>
@@ -148,31 +149,55 @@
       <div
         v-else-if="visualLayout === 'practice-feedback'"
         class="deck-practice-feedback"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
+        :data-feedback-mode="practiceFeedbackMode"
       >
-        <section>
-          <small>先独立作答</small>
-          <MarkdownRenderer
-            v-for="item in practicePromptItems"
-            :key="item"
-            :content="item"
-            :enable-code-run="false"
-          />
-        </section>
-        <aside>
-          <small>参考答案与判断依据</small>
-          <ol>
-            <li v-for="item in practiceFeedbackItems" :key="item">
-              <MarkdownRenderer :content="item" :enable-code-run="false" />
-            </li>
-          </ol>
-        </aside>
+        <template v-if="practiceFeedbackMode === 'shared_evidence'">
+          <section class="deck-practice-feedback__questions">
+            <article
+              v-for="(prompt, index) in practicePromptItems"
+              :key="`${index}-${prompt}`"
+              class="deck-practice-feedback__question"
+            >
+              <small>问题 {{ String(index + 1).padStart(2, '0') }}</small>
+              <MarkdownRenderer :content="prompt" :enable-code-run="false" />
+            </article>
+          </section>
+          <aside class="deck-practice-feedback__evidence">
+            <small>判断依据</small>
+            <ul>
+              <li v-for="(item, index) in practiceFeedbackItems" :key="`${index}-${item}`">
+                <MarkdownRenderer :content="item" :enable-code-run="false" />
+              </li>
+            </ul>
+          </aside>
+        </template>
+        <template v-else>
+          <article
+            v-for="(pair, index) in practiceFeedbackPairs"
+            :key="`${index}-${pair.prompt}`"
+            class="deck-practice-feedback__pair"
+          >
+            <section>
+              <small>问题 {{ String(index + 1).padStart(2, '0') }}</small>
+              <MarkdownRenderer :content="pair.prompt" :enable-code-run="false" />
+            </section>
+            <aside>
+              <small>回答与判断依据</small>
+              <MarkdownRenderer
+                v-if="pair.feedback"
+                :content="pair.feedback"
+                :enable-code-run="false"
+              />
+            </aside>
+          </article>
+        </template>
       </div>
 
       <div
         v-else-if="visualLayout === 'chapter-recap'"
         class="deck-chapter-recap"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <article v-for="(item, index) in semanticItems.slice(0, 5)" :key="`${index}-${item}`">
           <b>{{ String(index + 1).padStart(2, '0') }}</b>
@@ -183,7 +208,7 @@
       <div
         v-else-if="visualLayout === 'course-synthesis'"
         class="deck-course-synthesis"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <aside>
           <small>课程主线</small>
@@ -198,11 +223,38 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'editorial-body' && slide.blocks?.length"
+        class="deck-editorial-body"
+        :data-has-message="showsStandaloneMessage"
+      >
+        <section
+          v-for="block in slide.blocks"
+          :key="block.block_id"
+          class="deck-editorial-body__group"
+          :data-type="block.type"
+        >
+          <small v-if="block.title">{{ block.title }}</small>
+          <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
+          <ul v-else-if="block.items?.length">
+            <li v-for="item in block.items" :key="item">
+              <MarkdownRenderer :content="item" :enable-code-run="false" />
+            </li>
+          </ul>
+          <MarkdownRenderer
+            v-else
+            class="deck-inline-markdown"
+            :content="block.content || ''"
+            :enable-code-run="false"
+          />
+        </section>
+      </div>
+
+      <div
         v-else-if="slide.blocks?.length"
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
         :data-count="slide.blocks?.length || 0"
-        :data-has-message="Boolean(slide.key_message)"
+        :data-has-message="showsStandaloneMessage"
       >
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
           <header v-if="block.title">
@@ -310,6 +362,9 @@ interface Slide {
     resolved_composition?: string
     suppress_redundant_body?: boolean
     worked_step_labels?: string[]
+    heading_mode?: 'full' | 'hidden'
+    section_label?: string
+    feedback_mode?: 'paired' | 'shared_evidence'
   }
 }
 
@@ -334,6 +389,23 @@ const visualLayout = computed(() => (
   || props.slide.quality?.requested_layout
   || props.slide.layout
 ))
+const headingMode = computed<'full' | 'hidden'>(() => (
+  props.slide.quality?.heading_mode === 'hidden' ? 'hidden' : 'full'
+))
+const sectionLabel = computed(() => {
+  const explicit = String(props.slide.quality?.section_label || '')
+  if (explicit) return explicit
+  const message = String(props.slide.key_message || '').trim()
+  return /^\d+(?:[.．]\d+)+\s+\S+/.test(message) ? message : ''
+})
+const showsStandaloneMessage = computed(() => {
+  const message = String(props.slide.key_message || '').trim()
+  if (!message || message === sectionLabel.value) return false
+  if (['hero-claim', 'question-prompt', 'practice-feedback'].includes(visualLayout.value)) {
+    return false
+  }
+  return !['objective', 'misconception', 'practice'].includes(props.slide.layout)
+})
 const v5LayoutNames = new Set(
   layoutContract.layouts.map(item => item.layout),
 )
@@ -377,14 +449,32 @@ const practicePromptItems = computed(() => {
   ))
   return blockItems(prompt).slice(0, 3)
 })
-const practiceFeedbackItems = computed(() => (
-  (props.slide.blocks || [])
-    .filter(block => (
+const practiceFeedbackItems = computed(() => {
+  const blocks = props.slide.blocks || []
+  const explicit = blocks.filter(block => (
       block.metadata?.semantic_role === 'feedback'
       || ['answer', 'feedback', 'solution', 'validation'].includes(block.type)
-    ))
+  ))
+  const feedback = explicit.length
+    ? explicit
+    : blocks.filter(block => !(
+        block.metadata?.semantic_role === 'prompt'
+        || ['exercise', 'question', 'prompt'].includes(block.type)
+      ))
+  return feedback
     .flatMap(block => blockItems(block))
     .slice(0, 4)
+})
+const practiceFeedbackPairs = computed(() => practicePromptItems.value.map(
+  (prompt, index) => ({
+    prompt,
+    feedback: practiceFeedbackItems.value[index] || '',
+  }),
+))
+const practiceFeedbackMode = computed<'paired' | 'shared_evidence'>(() => (
+  props.slide.quality?.feedback_mode === 'shared_evidence'
+    ? 'shared_evidence'
+    : 'paired'
 ))
 const headingSubscripts: Record<string, string> = {
   0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄',
@@ -831,39 +921,87 @@ function layoutLabel(value: string) {
 }
 .deck-practice-feedback {
   display:grid;
-  grid-template-columns:minmax(0,1.8fr) minmax(0,.9fr);
-  gap:3cqw;
+  grid-auto-rows:minmax(0,1fr);
+  gap:1.2cqw;
+  align-content:start;
 }
-.deck-practice-feedback section,
-.deck-practice-feedback aside {
+.deck-practice-feedback[data-feedback-mode="shared_evidence"] {
+  grid-template-rows:auto minmax(0,1fr);
+  gap:1.35cqw;
+}
+.deck-practice-feedback__questions {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+  gap:2.2cqw;
+  padding:.45cqw 0 1.35cqw;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-feedback__question {
   min-width:0;
-  padding:1cqw 0 1cqw 1.6cqw;
+  padding-left:1.5cqw;
   border-left:.34cqw solid var(--deck-blue);
 }
-.deck-practice-feedback aside {
+.deck-practice-feedback__question :deep(.markdown-body) {
+  font-size:1.55cqw;
+  font-weight:700;
+  line-height:1.46;
+}
+.deck-practice-feedback__evidence {
+  min-width:0;
+  padding:1.05cqw 0 0 1.5cqw;
+  border-left:.34cqw solid var(--deck-teal);
+}
+.deck-practice-feedback__evidence ul {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+  gap:1.15cqw 2.2cqw;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+.deck-practice-feedback__evidence li {
+  min-width:0;
+  padding-top:.65cqw;
+  border-top:1px solid var(--deck-line);
+}
+.deck-practice-feedback__evidence li :deep(.markdown-body) {
+  font-size:1.43cqw;
+  line-height:1.44;
+}
+.deck-practice-feedback__pair {
+  display:grid;
+  grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);
+  gap:2.6cqw;
+  min-height:0;
+  padding:1.1cqw 0 1.25cqw;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-feedback__pair:first-child { padding-top:.4cqw; }
+.deck-practice-feedback__pair:last-child { border-bottom:0; }
+.deck-practice-feedback__pair section,
+.deck-practice-feedback__pair aside {
+  min-width:0;
+  padding-left:1.5cqw;
+  border-left:.34cqw solid var(--deck-blue);
+}
+.deck-practice-feedback__pair aside {
   border-left:1px solid var(--deck-line);
 }
 .deck-practice-feedback small {
   display:block;
-  margin-bottom:1.2cqw;
+  margin-bottom:.8cqw;
   color:var(--deck-blue);
-  font-size:1.05cqw;
+  font-size:.96cqw;
   font-weight:800;
   letter-spacing:.08em;
 }
-.deck-practice-feedback section :deep(.markdown-body) {
-  font-size:1.72cqw;
+.deck-practice-feedback__pair section :deep(.markdown-body) {
+  font-size:1.58cqw;
   font-weight:700;
-  line-height:1.5;
+  line-height:1.46;
 }
-.deck-practice-feedback ol {
-  display:grid;
-  gap:1cqw;
-  margin:0;
-  padding-left:1.25em;
-}
-.deck-practice-feedback aside :deep(.markdown-body) {
-  font-size:1.6cqw;
+.deck-practice-feedback__pair aside :deep(.markdown-body) {
+  font-size:1.48cqw;
   line-height:1.45;
 }
 .deck-chapter-recap {
@@ -1020,6 +1158,12 @@ function layoutLabel(value: string) {
   color:#aeb7c4;
   font:750 1.1cqw/1 "Aptos Mono","SFMono-Regular",monospace;
 }
+.deck-canvas[data-heading-mode="hidden"] .deck-canvas__heading {
+  padding-bottom:1.35%;
+}
+.deck-canvas[data-heading-mode="hidden"] .deck-canvas__heading small {
+  font-size:1.12cqw;
+}
 .deck-canvas__message {
   position:absolute;
   inset:25.5% 5.5% auto;
@@ -1032,6 +1176,7 @@ function layoutLabel(value: string) {
   font-weight:720;
   line-height:1.42;
 }
+.deck-canvas[data-heading-mode="hidden"] .deck-canvas__message { top:16.5%; }
 .deck-hero-claim {
   position:absolute;
   inset:27% 8% 12%;
@@ -1190,6 +1335,52 @@ function layoutLabel(value: string) {
   margin:.45em 0;
   overflow:visible;
 }
+.deck-editorial-body {
+  position:absolute;
+  inset:27% 8% 10.5%;
+  display:grid;
+  align-content:center;
+  gap:1.8cqw;
+  min-height:0;
+  padding-left:2.5cqw;
+  border-left:.34cqw solid var(--deck-blue);
+}
+.deck-editorial-body[data-has-message="true"] { top:39%; }
+.deck-editorial-body__group {
+  min-width:0;
+  overflow:hidden;
+  padding:0 0 1.25cqw;
+  border:0;
+  border-bottom:1px solid var(--deck-line);
+  border-radius:0;
+  background:transparent;
+}
+.deck-editorial-body__group:last-child {
+  padding-bottom:0;
+  border-bottom:0;
+}
+.deck-editorial-body__group > small {
+  display:block;
+  margin-bottom:.75cqw;
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+  letter-spacing:.06em;
+}
+.deck-editorial-body__group :deep(.markdown-body),
+.deck-editorial-body__group li {
+  color:var(--deck-ink);
+  font-size:1.62cqw;
+  line-height:1.5;
+}
+.deck-editorial-body__group ul {
+  display:grid;
+  gap:.65cqw;
+  margin:0;
+  padding-left:1.25em;
+}
+.deck-canvas[data-heading-mode="hidden"] .deck-editorial-body { top:18%; }
+.deck-canvas[data-heading-mode="hidden"] .deck-editorial-body[data-has-message="true"] { top:30%; }
 .deck-canvas__blocks[data-has-message="true"] { top:38%; }
 .deck-canvas__blocks[data-layout="objective"],
 .deck-canvas__blocks[data-layout="objective-cards"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }

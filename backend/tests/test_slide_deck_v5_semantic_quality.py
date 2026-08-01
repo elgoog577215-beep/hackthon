@@ -1,18 +1,26 @@
 from __future__ import annotations
 
+from pptx import Presentation
+
 from slide_deck import SlideSpec
+from slide_deck_renderer import (
+    _heading,
+    _render_practice_feedback,
+    _worked_example_labels,
+    validate_theme,
+)
 from slide_deck_v5 import (
     DeckChapterV5,
+    _assign_heading_modes_v5,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     apply_page_contract_v5,
     split_mixed_intent_slides_v5,
     v5_contract_issues,
 )
-from slide_deck_renderer import _worked_example_labels
 
 
-def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() -> None:
+def test_mixed_question_and_transition_drops_redundant_navigation_page() -> None:
     slides = split_mixed_intent_slides_v5([{
         "unit_id": "mixed-question-transition",
         "position": 5,
@@ -44,25 +52,32 @@ def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() 
             },
         ],
         "quality": {"requested_layout": "two-column"},
+    }, {
+        "unit_id": "actual-next-page",
+        "position": 6,
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "scene_kind": "concept",
+        "beat_role": "formal_explanation",
+        "title": "1.2 状态变量与过程量",
+        "key_message": "",
+        "blocks": [{
+            "block_id": "definition",
+            "type": "rich_text",
+            "content": "状态变量只依赖于系统当前状态。",
+        }],
     }])
 
     assert len(slides) == 2
     assert slides[0]["quality"]["requested_layout"] == "question-prompt"
     assert [block["block_id"] for block in slides[0]["blocks"]] == ["question"]
-    assert slides[1]["quality"]["requested_layout"] == "hero-claim"
-    assert slides[1]["title"] == "下一节：热力学第一定律"
-    assert slides[1]["key_message"] == "下一节将深入探讨热力学第一定律。"
-    assert slides[1]["blocks"] == []
-    assert slides[1]["teaching_job"] == ""
-    assert slides[1]["takeaway"] == "下一节将深入探讨热力学第一定律。"
-    assert "narrative_role" not in slides[1]
-    assert slides[1]["composition"] == "statement"
-    transition = apply_page_contract_v5(slides[1])
-    SlideSpec.model_validate(transition)
-    assert transition["quality"]["occupied_major_region_count"] == 1
-    assert "body_density_overflow" not in {
-        issue["code"] for issue in v5_contract_issues([transition])
-    }
+    assert slides[0]["quality"]["removed_redundant_transition"] is True
+    assert slides[0]["quality"]["next_topic"] == "状态变量与过程量"
+    assert slides[1]["unit_id"] == "actual-next-page"
+    assert all(
+        slide["quality"].get("requested_layout") != "hero-claim"
+        for slide in slides
+    )
 
 
 def test_question_and_transition_inside_one_block_are_split_at_sentence_level() -> None:
@@ -87,12 +102,11 @@ def test_question_and_transition_inside_one_block_are_split_at_sentence_level() 
         "quality": {"requested_layout": "two-column"},
     }])
 
-    assert len(slides) == 2
+    assert len(slides) == 1
     assert slides[0]["blocks"][0]["content"] == (
         "水壶盖子没有打开，这个系统属于哪种类型？"
     )
-    assert slides[1]["title"] == "下一节：热力学第一定律"
-    assert slides[1]["key_message"] == "下一节将深入探讨热力学第一定律。"
+    assert slides[0]["quality"]["removed_redundant_transition"] is True
 
 
 def test_derived_chapter_recap_compacts_long_claims_before_quality_gate() -> None:
@@ -190,12 +204,15 @@ def test_prompt_only_practice_is_enriched_with_grounded_answer_evidence() -> Non
         "水壶盖子没有打开时属于哪类系统？",
         "盖子打开并有蒸汽逸出时呢？",
     ]
-    assert practice["blocks"][1]["title"] == "参考答案与判断依据"
+    assert practice["blocks"][1]["title"] == "判断依据"
     assert practice["blocks"][1]["items"] == [
         "孤立系统：不交换物质，也不交换能量。",
         "封闭系统：不交换物质，但可以交换能量。",
-        "开放系统：既可以交换物质，也可以交换能量。",
     ]
+    assert practice["blocks"][1]["metadata"]["direct_answer"] is False
+    assert practice["quality"]["feedback_mode"] == "shared_evidence"
+    assert practice["quality"]["feedback_pair_count"] == 0
+    assert practice["quality"]["feedback_evidence_count"] == 2
     assert "practice_feedback_missing_answer" not in {
         issue["code"] for issue in v5_contract_issues([practice])
     }
@@ -220,3 +237,144 @@ def test_prompt_only_practice_fails_the_v5_contract_without_feedback() -> None:
     assert "practice_feedback_missing_answer" in {
         issue["code"] for issue in v5_contract_issues([practice])
     }
+
+
+def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
+    slides = _assign_heading_modes_v5([
+        {
+            "unit_id": "concept-1",
+            "position": 0,
+            "layout": "concept",
+            "slide_purpose": "concept",
+            "episode_id": "episode-state",
+            "section_id": "section-state",
+            "eyebrow": "核心概念",
+            "title": "状态变量只由当前状态决定",
+            "key_message": "1.2 状态变量与过程量",
+            "blocks": [{"block_id": "a", "type": "rich_text", "content": "定义。"}],
+            "quality": {},
+        },
+        {
+            "unit_id": "concept-2",
+            "position": 1,
+            "layout": "concept",
+            "slide_purpose": "concept",
+            "episode_id": "episode-state",
+            "section_id": "section-state",
+            "eyebrow": "核心概念",
+            "title": "温度和压力都是状态变量",
+            "key_message": "",
+            "blocks": [{"block_id": "b", "type": "rich_text", "content": "举例。"}],
+            "quality": {},
+        },
+    ])
+
+    assert slides[0]["quality"]["heading_mode"] == "full"
+    assert slides[0]["quality"]["section_label"] == "1.2 状态变量与过程量"
+    assert slides[1]["quality"]["heading_mode"] == "hidden"
+    assert slides[1]["quality"]["section_label"] == "1.2 状态变量与过程量"
+    assert slides[1]["title"] == "温度和压力都是状态变量"
+
+
+def test_export_keeps_hidden_heading_as_metadata_only() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "continuation",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "eyebrow": "核心概念",
+        "title": "温度和压力都是状态变量",
+        "blocks": [],
+        "quality": {
+            "heading_mode": "hidden",
+            "section_label": "1.2 状态变量与过程量",
+        },
+    })
+
+    _heading(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "1.2 状态变量与过程量" in visible_text
+    assert "温度和压力都是状态变量" not in visible_text
+
+
+def test_export_pairs_each_practice_question_with_its_answer() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "paired-practice",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice_feedback",
+        "eyebrow": "理解检查",
+        "title": "判断系统类型",
+        "blocks": [
+            {
+                "block_id": "questions",
+                "type": "exercise",
+                "items": ["盖子关闭时属于哪类系统？", "盖子打开时呢？"],
+            },
+            {
+                "block_id": "answers",
+                "type": "callout",
+                "items": ["封闭系统。", "开放系统。"],
+            },
+        ],
+        "quality": {"resolved_layout": "practice-feedback"},
+    })
+
+    _render_practice_feedback(slide, unit, validate_theme("qizhi-classroom"))
+
+    text_shapes = {
+        shape.text: shape
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and shape.text
+    }
+    assert text_shapes["盖子关闭时属于哪类系统？"].top == text_shapes["封闭系统。"].top
+    assert text_shapes["盖子打开时呢？"].top == text_shapes["开放系统。"].top
+
+
+def test_export_does_not_present_related_evidence_as_direct_answers() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "shared-evidence",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice_feedback",
+        "eyebrow": "理解检查",
+        "title": "判断系统类型",
+        "blocks": [
+            {
+                "block_id": "questions",
+                "type": "exercise",
+                "items": ["盖子关闭时属于哪类系统？", "盖子打开时呢？"],
+            },
+            {
+                "block_id": "evidence",
+                "type": "callout",
+                "items": ["封闭系统不交换物质。", "开放系统可以交换物质。"],
+                "metadata": {"direct_answer": False},
+            },
+        ],
+        "quality": {
+            "resolved_layout": "practice-feedback",
+            "feedback_mode": "shared_evidence",
+        },
+    })
+
+    _render_practice_feedback(slide, unit, validate_theme("qizhi-classroom"))
+
+    labels = [
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and shape.text
+    ]
+    assert labels.count("判断依据") == 1
+    assert not any("回答与判断依据" in label for label in labels)

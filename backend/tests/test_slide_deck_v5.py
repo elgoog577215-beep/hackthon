@@ -748,7 +748,7 @@ def test_v5_render_review_fixture_exports_all_semantic_compositions(
 
     assert len(presentation.slides) == 5
     visible_lines = {line.strip() for line in visible_text.splitlines()}
-    assert {"步骤 1", "步骤 2", "步骤 3", "反馈依据", "课程主线"} <= visible_lines
+    assert {"步骤 1", "步骤 2", "步骤 3", "回答与判断依据", "课程主线"} <= visible_lines
     assert {"已知", "推理", "结论"}.isdisjoint(visible_lines)
 
 

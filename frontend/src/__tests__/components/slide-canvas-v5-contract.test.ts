@@ -104,7 +104,8 @@ describe('SlideCanvas V5 final page contract', () => {
     })
 
     expect(wrapper.attributes('data-layout')).toBe('editorial-body')
-    expect(wrapper.get('.deck-canvas__blocks').attributes('data-layout')).toBe('editorial-body')
+    expect(wrapper.find('.deck-editorial-body').exists()).toBe(true)
+    expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
   })
 
   it('renders three sibling concepts as three semantic classification regions', () => {
@@ -409,5 +410,159 @@ describe('SlideCanvas V5 final page contract', () => {
 
     expect(wrapper.text()).toContain('盖子没有打开时属于哪类系统？')
     expect(wrapper.text()).toContain('盖子打开并有蒸汽逸出时呢？')
+  })
+
+  it('does not reserve message space when a practice message is intentionally hidden', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          title: '判断系统类型',
+          key_message: '思考与挑战',
+          blocks: [
+            {
+              block_id: 'questions',
+              type: 'exercise',
+              items: ['盖子没有打开时属于哪类系统？', '盖子打开时呢？'],
+            },
+            {
+              block_id: 'feedback',
+              type: 'callout',
+              items: ['封闭系统。', '开放系统。'],
+            },
+          ],
+          quality: {
+            requested_layout: 'practice-feedback',
+            resolved_layout: 'practice-feedback',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-canvas__message').exists()).toBe(false)
+    expect(wrapper.get('.deck-practice-feedback').attributes('data-has-message')).toBe('false')
+    expect(wrapper.findAll('.deck-practice-feedback__pair')).toHaveLength(2)
+  })
+
+  it('labels inferred knowledge as shared evidence instead of direct answers', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '判断系统类型',
+          blocks: [
+            {
+              block_id: 'questions',
+              type: 'exercise',
+              items: ['盖子没有打开时属于哪类系统？', '盖子打开时呢？'],
+            },
+            {
+              block_id: 'evidence',
+              type: 'callout',
+              items: ['封闭系统不交换物质。', '开放系统可以交换物质。'],
+              metadata: { direct_answer: false },
+            },
+          ],
+          quality: {
+            requested_layout: 'practice-feedback',
+            resolved_layout: 'practice-feedback',
+            feedback_mode: 'shared_evidence',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-practice-feedback__pair')).toHaveLength(0)
+    expect(wrapper.findAll('.deck-practice-feedback__question')).toHaveLength(2)
+    expect(wrapper.get('.deck-practice-feedback__evidence').text()).toContain('判断依据')
+    expect(wrapper.text()).not.toContain('回答与判断依据')
+  })
+
+  it('renders editorial blocks as one flat composition instead of separate cards', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '核心概念',
+          title: '状态变量只由系统当前状态决定',
+          key_message: '1.2 状态变量与过程量',
+          blocks: [
+            {
+              block_id: 'context',
+              type: 'statement',
+              title: '核心概念与背景',
+              content: '热力学用状态变量描述系统的宏观状态。',
+            },
+            {
+              block_id: 'definition',
+              type: 'rich_text',
+              content: '温度、压力、体积和内能都是常见状态变量。',
+            },
+          ],
+          quality: {
+            requested_layout: 'editorial-body',
+            resolved_layout: 'editorial-body',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-editorial-body__group')).toHaveLength(2)
+    expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+    expect(wrapper.find('.deck-canvas__message').exists()).toBe(false)
+    expect(wrapper.get('.deck-editorial-body').attributes('data-has-message')).toBe('false')
+    expect(slideCanvasSource).toMatch(/\.deck-editorial-body\s*\{[^}]*display:grid/s)
+    expect(slideCanvasSource).toMatch(/\.deck-editorial-body__group\s*\{[^}]*border:0/s)
+  })
+
+  it('keeps metadata titles accessible without forcing a visible heading on continuation pages', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '核心概念',
+          title: '温度和压力都是状态变量',
+          blocks: [{ block_id: 'example', type: 'rich_text', content: '举例说明。' }],
+          quality: {
+            requested_layout: 'editorial-body',
+            resolved_layout: 'editorial-body',
+            heading_mode: 'hidden',
+            section_label: '1.2 状态变量与过程量',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.attributes('aria-label')).toContain('温度和压力都是状态变量')
+    expect(wrapper.find('.deck-canvas__heading h2').exists()).toBe(false)
+    expect(wrapper.get('.deck-canvas__heading small').text()).toBe('1.2 状态变量与过程量')
   })
 })
