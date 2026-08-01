@@ -407,6 +407,49 @@ describe('PptWorkspaceView', () => {
     expect(wrapper.find('.slide-workbench__export').attributes('disabled')).toBeUndefined()
   })
 
+  it('does not reselect the previous deck after a rebuild fails', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      slide_deck_target_schema: 'slide_deck_v5',
+      slide_deck_v4_eligible: true,
+      representations: [{
+        representation_id: 'slides-v5', representation_type: 'slide_deck',
+        variant_key: 'teaching:qizhi-classroom', spec_id: 'spec-v5',
+        status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+      }],
+    }
+    store.selectedId = 'slides-v5'
+    store.selectedSpec = {
+      spec_id: 'spec-v5', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+      payload: { compiler_version: 'course_logic_slide_compiler_v5.5', content: {
+        schema_version: 'slide_deck_v5', title: 'Previous deck',
+        slides: [{
+          unit_id: 'slide:published', layout: 'cover', slide_purpose: 'orientation',
+          title: 'Previous published version', blocks: [],
+        }],
+      } },
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    const select = vi.spyOn(store, 'select').mockResolvedValue(undefined)
+    vi.spyOn(store, 'buildSlideDeckVariant').mockImplementation(async () => {
+      store.buildError = 'quality_gate_failed'
+      store.slidePreviewSource = 'published'
+      throw new Error('quality_gate_failed')
+    })
+
+    const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+    select.mockClear()
+
+    wrapper.getComponent({ name: 'SlideDeckWorkbench' }).vm.$emit('rebuild')
+    await flushPromises()
+
+    expect(select).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Previous published version')
+  })
+
   it('keeps the published deck when an errored build leaves residual live slides', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'

@@ -1261,6 +1261,98 @@ def test_variant_stream_endpoint_builds_only_requested_combination(tmp_path: Pat
     ] == [("slide_deck", "teaching:grid-notebook")]
 
 
+def test_variant_stream_rebuilds_cached_v5_after_compiler_reliability_upgrade(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import slide_deck_v5
+    from course_logic_upgrade import compile_course_logic_upgrade
+    from routers import teaching_representations as representation_router
+
+    course = source_course()
+    course["nodes"][0]["node_level"] = 2
+    course["nodes"][0]["node_content"] = "\n\n".join(
+        str(block.get("content") or "")
+        for block in course["nodes"][0]["content_blocks"]
+    )
+    course.update(compile_course_logic_upgrade(course)["updates"])
+    document = document_from_legacy_course(course)
+    canonical = {
+        **course,
+        "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+        "course_document": document.model_dump(mode="json"),
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    course_repository = CourseDocumentRepository(MemoryStorage(canonical))
+    representation_repository = TeachingRepresentationRepository(tmp_path / "registry")
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+    monkeypatch.setattr(representation_router, "get_task_manager_optional", lambda: None)
+
+    async def existing_course(_course_id: str):
+        return course_repository.load_course_view(document.course_id)
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+    endpoint = (
+        f"/api/courses/{document.course_id}"
+        "/teaching-representations/slide-decks/build/stream"
+    )
+    request = {
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "force_rebuild": False,
+    }
+    current_compiler_version = slide_deck_v5.SLIDE_DECK_V5_COMPILER_VERSION
+    monkeypatch.setattr(
+        slide_deck_v5,
+        "SLIDE_DECK_V5_COMPILER_VERSION",
+        "course_logic_slide_compiler_v5.5",
+    )
+
+    with client.stream(
+        "POST",
+        endpoint,
+        headers={"X-User-Id": "teacher-1"},
+        json=request,
+    ) as response:
+        first_stream = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "event: build_complete" in first_stream
+    registry = representation_repository.load(document.course_id)
+    spec = next(item for item in registry.specs if item.representation_type == "slide_deck")
+    assert spec.payload["content"]["schema_version"] == "slide_deck_v5"
+
+    monkeypatch.setattr(
+        slide_deck_v5,
+        "SLIDE_DECK_V5_COMPILER_VERSION",
+        current_compiler_version,
+    )
+    with client.stream(
+        "POST",
+        endpoint,
+        headers={"X-User-Id": "teacher-1"},
+        json=request,
+    ) as response:
+        upgraded_stream = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert '"cached": true' not in upgraded_stream
+    assert "event: slide_upsert" in upgraded_stream
+
+
 def test_variant_stream_publishes_and_reuses_an_atomic_bundle(
     tmp_path: Path,
     monkeypatch,
