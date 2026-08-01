@@ -132,6 +132,10 @@ class VisualAnchorV1(_StrictModel):
                 raise ValueError(
                     "A diagram needs at least two nodes and one edge"
                 )
+            if any(not _has_balanced_brackets(node.label) for node in self.nodes):
+                raise ValueError(
+                    "Diagram node labels must use balanced punctuation"
+                )
             if not self.parameters.get("relation_evidence"):
                 raise ValueError(
                     "A diagram needs explicit structural evidence"
