@@ -164,6 +164,7 @@ def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
         captured["allocation_plan"] = allocation_plan
         return {
             "schema_version": "slide_deck_v4",
+            "title": document.title,
             "slides": [],
             "quality_report": {"passed": True, "score": 100, "issues": []},
             "quality_summary": {},
