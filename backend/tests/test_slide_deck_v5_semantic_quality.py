@@ -3,6 +3,7 @@ from __future__ import annotations
 from slide_deck import SlideSpec
 from slide_deck_v5 import (
     DeckChapterV5,
+    _assign_heading_modes_v5,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     apply_page_contract_v5,
@@ -12,7 +13,7 @@ from slide_deck_v5 import (
 from slide_deck_renderer import _worked_example_labels
 
 
-def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() -> None:
+def test_mixed_question_and_transition_drops_redundant_navigation_page() -> None:
     slides = split_mixed_intent_slides_v5([{
         "unit_id": "mixed-question-transition",
         "position": 5,
@@ -44,25 +45,32 @@ def test_mixed_question_and_transition_are_split_into_separate_narrative_jobs() 
             },
         ],
         "quality": {"requested_layout": "two-column"},
+    }, {
+        "unit_id": "actual-next-page",
+        "position": 6,
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "scene_kind": "concept",
+        "beat_role": "formal_explanation",
+        "title": "1.2 状态变量与过程量",
+        "key_message": "",
+        "blocks": [{
+            "block_id": "definition",
+            "type": "rich_text",
+            "content": "状态变量只依赖于系统当前状态。",
+        }],
     }])
 
     assert len(slides) == 2
     assert slides[0]["quality"]["requested_layout"] == "question-prompt"
     assert [block["block_id"] for block in slides[0]["blocks"]] == ["question"]
-    assert slides[1]["quality"]["requested_layout"] == "hero-claim"
-    assert slides[1]["title"] == "下一节：热力学第一定律"
-    assert slides[1]["key_message"] == "下一节将深入探讨热力学第一定律。"
-    assert slides[1]["blocks"] == []
-    assert slides[1]["teaching_job"] == ""
-    assert slides[1]["takeaway"] == "下一节将深入探讨热力学第一定律。"
-    assert "narrative_role" not in slides[1]
-    assert slides[1]["composition"] == "statement"
-    transition = apply_page_contract_v5(slides[1])
-    SlideSpec.model_validate(transition)
-    assert transition["quality"]["occupied_major_region_count"] == 1
-    assert "body_density_overflow" not in {
-        issue["code"] for issue in v5_contract_issues([transition])
-    }
+    assert slides[0]["quality"]["removed_redundant_transition"] is True
+    assert slides[0]["quality"]["next_topic"] == "状态变量与过程量"
+    assert slides[1]["unit_id"] == "actual-next-page"
+    assert all(
+        slide["quality"].get("requested_layout") != "hero-claim"
+        for slide in slides
+    )
 
 
 def test_question_and_transition_inside_one_block_are_split_at_sentence_level() -> None:
@@ -87,12 +95,11 @@ def test_question_and_transition_inside_one_block_are_split_at_sentence_level() 
         "quality": {"requested_layout": "two-column"},
     }])
 
-    assert len(slides) == 2
+    assert len(slides) == 1
     assert slides[0]["blocks"][0]["content"] == (
         "水壶盖子没有打开，这个系统属于哪种类型？"
     )
-    assert slides[1]["title"] == "下一节：热力学第一定律"
-    assert slides[1]["key_message"] == "下一节将深入探讨热力学第一定律。"
+    assert slides[0]["quality"]["removed_redundant_transition"] is True
 
 
 def test_derived_chapter_recap_compacts_long_claims_before_quality_gate() -> None:
@@ -194,8 +201,8 @@ def test_prompt_only_practice_is_enriched_with_grounded_answer_evidence() -> Non
     assert practice["blocks"][1]["items"] == [
         "孤立系统：不交换物质，也不交换能量。",
         "封闭系统：不交换物质，但可以交换能量。",
-        "开放系统：既可以交换物质，也可以交换能量。",
     ]
+    assert practice["quality"]["feedback_pair_count"] == 2
     assert "practice_feedback_missing_answer" not in {
         issue["code"] for issue in v5_contract_issues([practice])
     }
@@ -220,3 +227,40 @@ def test_prompt_only_practice_fails_the_v5_contract_without_feedback() -> None:
     assert "practice_feedback_missing_answer" in {
         issue["code"] for issue in v5_contract_issues([practice])
     }
+
+
+def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
+    slides = _assign_heading_modes_v5([
+        {
+            "unit_id": "concept-1",
+            "position": 0,
+            "layout": "concept",
+            "slide_purpose": "concept",
+            "episode_id": "episode-state",
+            "section_id": "section-state",
+            "eyebrow": "核心概念",
+            "title": "状态变量只由当前状态决定",
+            "key_message": "1.2 状态变量与过程量",
+            "blocks": [{"block_id": "a", "type": "rich_text", "content": "定义。"}],
+            "quality": {},
+        },
+        {
+            "unit_id": "concept-2",
+            "position": 1,
+            "layout": "concept",
+            "slide_purpose": "concept",
+            "episode_id": "episode-state",
+            "section_id": "section-state",
+            "eyebrow": "核心概念",
+            "title": "温度和压力都是状态变量",
+            "key_message": "",
+            "blocks": [{"block_id": "b", "type": "rich_text", "content": "举例。"}],
+            "quality": {},
+        },
+    ])
+
+    assert slides[0]["quality"]["heading_mode"] == "full"
+    assert slides[0]["quality"]["section_label"] == "1.2 状态变量与过程量"
+    assert slides[1]["quality"]["heading_mode"] == "hidden"
+    assert slides[1]["quality"]["section_label"] == "1.2 状态变量与过程量"
+    assert slides[1]["title"] == "温度和压力都是状态变量"
