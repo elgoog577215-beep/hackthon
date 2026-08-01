@@ -72,7 +72,7 @@
         :progress="store.buildProgress"
         :stage="store.buildStage"
         :error="store.buildError"
-        :quality="store.slideQuality"
+        :quality="displayQuality"
         :preview-source="store.slidePreviewSource"
         :mode="selectedMode"
         :theme="selectedTheme"
@@ -266,6 +266,11 @@ const displaySlides = computed(() => (
 const estimatedFragmentCount = computed(() => (
   Number(content.value?.fragment_manifest?.length)
   || (documentEnvelope.value?.document?.blocks || []).length * 3
+))
+const displayQuality = computed(() => (
+  store.buildError && store.draftSlideQuality
+    ? store.draftSlideQuality
+    : store.slideQuality
 ))
 const buildErrorLabel = computed(() => (
   store.buildError === 'deck_split_required'

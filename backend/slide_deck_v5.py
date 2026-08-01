@@ -29,9 +29,9 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.7"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.8"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.1"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.2"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -1157,6 +1157,27 @@ def _bounded_title(value: str, limit: int = 18) -> str:
     return excerpt.strip("：:，,。！？!?；;、•·")
 
 
+def _bounded_body_claim(value: str, limit: int = 64) -> str:
+    """Keep a derived claim readable without silently overflowing its layout."""
+    cleaned = _clean_text(value)
+    if len(cleaned) <= limit:
+        return cleaned
+    excerpt = cleaned[:limit]
+    boundary = max(
+        excerpt.rfind("。"),
+        excerpt.rfind("！"),
+        excerpt.rfind("？"),
+        excerpt.rfind("；"),
+        excerpt.rfind("，"),
+        excerpt.rfind(";"),
+        excerpt.rfind(","),
+        excerpt.rfind(" "),
+    )
+    if boundary >= max(20, limit // 2):
+        excerpt = excerpt[: boundary + 1]
+    return excerpt.rstrip("：:、•· ")
+
+
 def _supporting_title_detail(original: str, compiled: str) -> str:
     source = _clean_text(original).strip("。！？!?")
     title = _clean_text(compiled)
@@ -1746,8 +1767,12 @@ def _chapter_recap_slide(
             and not _is_numbered_section_title(value)
             and _normalize_title_match(value) not in _GENERIC_TITLES
         ), "")
-        if candidate and candidate not in points:
-            points.append(candidate)
+        compact_candidate = _bounded_body_claim(candidate, limit=64)
+        normalized_candidate = _normalize_title_match(compact_candidate)
+        if compact_candidate and normalized_candidate not in {
+            _normalize_title_match(point) for point in points
+        }:
+            points.append(compact_candidate)
         if len(points) == 4:
             break
     if not points:
@@ -1805,6 +1830,7 @@ def _chapter_recap_slide(
             "requested_layout": "chapter-recap",
             "navigation_only": False,
             "retrieval_recap": True,
+            "derived_density_compaction": True,
         },
     }
 
@@ -1826,6 +1852,7 @@ def _recap_is_retrieval_ready(slide: dict[str, Any] | None) -> bool:
         bool(quality.get("retrieval_recap"))
         and len(items) >= 2
         and ("？" in prompt or "?" in prompt)
+        and _page_density_metrics(slide)["density_band"] != "overflow"
     )
 
 
@@ -1900,6 +1927,45 @@ def _block_visible_text(block: dict[str, Any]) -> str:
     ]))
 
 
+def _text_sentences(value: str) -> list[str]:
+    return [
+        _clean_text(match.group(0))
+        for match in re.finditer(r"[^。！？!?；;]+[。！？!?；;]?", str(value or ""))
+        if _clean_text(match.group(0))
+    ]
+
+
+def _split_block_narrative_jobs(
+    block: dict[str, Any],
+) -> list[tuple[dict[str, Any], str]]:
+    content = str(block.get("content") or "")
+    sentences = _text_sentences(content)
+    transition_sentences = [
+        sentence for sentence in sentences
+        if _TRANSITION_TEXT_PATTERN.search(sentence)
+    ]
+    question_sentences = [
+        sentence for sentence in sentences
+        if sentence not in transition_sentences
+    ]
+    has_question = (
+        str(block.get("type") or "") == "exercise"
+        or any("？" in sentence or "?" in sentence for sentence in question_sentences)
+    )
+    if not transition_sentences or not question_sentences or not has_question:
+        return [(deepcopy(block), _block_narrative_intent(block))]
+
+    question = deepcopy(block)
+    question["content"] = "".join(question_sentences)
+    transition = deepcopy(block)
+    transition["block_id"] = f"{block.get('block_id') or 'block'}:transition"
+    transition["type"] = "statement"
+    transition["title"] = ""
+    transition["content"] = "".join(transition_sentences)
+    transition["items"] = []
+    return [(question, "question"), (transition, "transition")]
+
+
 def _block_narrative_intent(block: dict[str, Any]) -> str:
     text = _block_visible_text(block)
     if _TRANSITION_TEXT_PATTERN.search(text):
@@ -1922,6 +1988,23 @@ def _transition_slide_title(blocks: list[dict[str, Any]]) -> str:
     return "下一步学习"
 
 
+def _transition_slide_message(blocks: list[dict[str, Any]]) -> str:
+    sentences = [
+        sentence
+        for block in blocks
+        for sentence in _text_sentences(_block_visible_text(block))
+        if _TRANSITION_TEXT_PATTERN.search(sentence)
+    ]
+    preferred = next(
+        (
+            sentence for sentence in sentences
+            if sentence.startswith(("下一节", "下一章", "后续"))
+        ),
+        sentences[-1] if sentences else "",
+    )
+    return _bounded_body_claim(preferred or _transition_slide_title(blocks), limit=72)
+
+
 def split_mixed_intent_slides_v5(
     slides: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1929,8 +2012,13 @@ def split_mixed_intent_slides_v5(
     result: list[dict[str, Any]] = []
     for source in slides:
         slide = deepcopy(source)
-        blocks = list(slide.get("blocks") or [])
-        intents = [_block_narrative_intent(block) for block in blocks]
+        expanded = [
+            item
+            for block in slide.get("blocks") or []
+            for item in _split_block_narrative_jobs(block)
+        ]
+        blocks = [block for block, _intent in expanded]
+        intents = [intent for _block, intent in expanded]
         if "question" not in intents or "transition" not in intents:
             result.append(slide)
             continue
@@ -1943,6 +2031,8 @@ def split_mixed_intent_slides_v5(
             if intent == "transition"
         ]
         slide["blocks"] = question_blocks
+        if _TRANSITION_TEXT_PATTERN.search(_clean_text(slide.get("key_message"))):
+            slide["key_message"] = ""
         slide["quality"] = {
             **(slide.get("quality") or {}),
             "requested_layout": "question-prompt",
@@ -1958,12 +2048,13 @@ def split_mixed_intent_slides_v5(
         transition["beat_role"] = "transition"
         transition["eyebrow"] = "承上启下"
         transition["title"] = _transition_slide_title(transition_blocks)
-        transition["key_message"] = _block_visible_text(transition_blocks[0])
-        transition["blocks"] = transition_blocks
+        transition["key_message"] = _transition_slide_message(transition_blocks)
+        transition["blocks"] = []
         transition["quality"] = {
             **(transition.get("quality") or {}),
             "requested_layout": "hero-claim",
             "split_mixed_narrative_jobs": True,
+            "derived_density_compaction": True,
         }
         result.append(transition)
     for position, slide in enumerate(result):

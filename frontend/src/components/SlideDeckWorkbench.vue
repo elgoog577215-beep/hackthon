@@ -145,7 +145,11 @@
         </section>
         <section v-else-if="error && previewSource === 'published'" class="slide-inspector__receipt" data-state="failed_using_last_available">
           <TriangleAlert :size="15" />
-          <div><strong>{{ t('pptWorkspace.publishedFailureFallback', '本次生成失败，当前展示上一可用版本') }}</strong></div>
+          <div>
+            <strong>{{ t('pptWorkspace.publishedFailureFallback', '本次生成失败，当前展示上一可用版本') }}</strong>
+            <p v-if="failureIssueSummary">{{ failureIssueSummary }}</p>
+            <code v-if="qualityIssues.length">{{ qualityIssues[0]?.code }}</code>
+          </div>
         </section>
         <template v-if="activeSlide">
           <section>
@@ -544,7 +548,10 @@ const exportTitle = computed(() => (
     : t('teachingRepresentations.exportPptx', '导出 PPTX')
 ))
 const qualityIssues = computed(() => {
-  const deckIssues = Array.isArray(props.quality?.issues) ? props.quality.issues : []
+  const deckIssues = [
+    ...(Array.isArray(props.quality?.blockers) ? props.quality.blockers : []),
+    ...(Array.isArray(props.quality?.issues) ? props.quality.issues : []),
+  ]
   const slideIssues = props.slides.flatMap(slide => (
     Array.isArray(slide.quality?.issues)
       ? slide.quality.issues.map(issue => ({ ...issue, __slide: slide }))
@@ -552,7 +559,9 @@ const qualityIssues = computed(() => {
   ))
   const seen = new Set<string>()
   return [...deckIssues, ...slideIssues].flatMap((raw: Record<string, any>) => {
-    const slide = String(raw.slide_id || raw.slide || raw.target || raw.__slide?.unit_id || 'deck')
+    const slide = String(
+      raw.page_id || raw.slide_id || raw.slide || raw.target || raw.__slide?.unit_id || 'deck',
+    )
     const matchingSlide = props.slides.find(item => item.unit_id === slide) || raw.__slide
     const issue = {
       key: `${raw.code || 'quality_issue'}:${slide}:${raw.message || ''}`,
@@ -567,6 +576,21 @@ const qualityIssues = computed(() => {
     seen.add(issue.key)
     return [issue]
   })
+})
+const failureIssueSummary = computed(() => {
+  const issues = qualityIssues.value.filter(issue => issue.severity === 'critical')
+  if (!issues.length) return ''
+  const firstCode = issues[0]?.code
+  if (!firstCode) return ''
+  const matching = issues.filter(issue => issue.code === firstCode)
+  const pageCount = new Set(matching.map(issue => issue.slide)).size
+  const label = ({
+    body_density_overflow: '正文过密',
+    slide_title_overflow: '标题过长',
+    visible_item_overflow: '项目过多',
+    mixed_narrative_jobs: '页面叙事混杂',
+  } as Record<string, string>)[firstCode] || '质量检查阻断'
+  return `${label} · ${pageCount} 页`
 })
 const sourceCount = computed(() => {
   const slide = activeSlide.value
