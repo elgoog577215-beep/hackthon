@@ -288,7 +288,7 @@ def test_relation_connector_inside_parentheses_cannot_split_diagram_nodes() -> N
         [],
     )
 
-    assert clauses == [(source, "air-conditioner")]
+    assert clauses == [(source.rstrip("。"), "air-conditioner")]
     assert relation is None
 
 

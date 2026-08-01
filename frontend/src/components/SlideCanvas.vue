@@ -45,7 +45,7 @@
       </header>
 
       <blockquote
-        v-if="slide.key_message && !['objective', 'misconception', 'practice'].includes(slide.layout)"
+        v-if="slide.key_message && visualLayout !== 'hero-claim' && !['objective', 'misconception', 'practice'].includes(slide.layout)"
         class="deck-canvas__message"
       >
         {{ slide.key_message }}
@@ -57,6 +57,7 @@
         :data-composition="resolvedComposition"
         :data-source-empty="sourceBlocks.length === 0"
         :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
+        :data-has-message="Boolean(slide.key_message)"
       >
         <SlideVisualRenderer
           :visuals="slide.visuals"
@@ -98,6 +99,14 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'hero-claim'"
+        class="deck-hero-claim"
+      >
+        <i></i>
+        <strong>{{ slide.key_message || slide.takeaway || slide.title }}</strong>
+      </div>
+
+      <div
         v-else-if="visualLayout === 'parallel-examples'"
         class="deck-parallel-examples"
         :data-has-message="Boolean(slide.key_message)"
@@ -114,10 +123,14 @@
         :data-has-message="Boolean(slide.key_message)"
       >
         <small>先独立判断</small>
-        <MarkdownRenderer
-          :content="semanticItems[0] || slide.key_message || ''"
-          :enable-code-run="false"
-        />
+        <div class="deck-question-prompt__items">
+          <MarkdownRenderer
+            v-for="item in questionPromptItems"
+            :key="item"
+            :content="item"
+            :enable-code-run="false"
+          />
+        </div>
       </div>
 
       <div
@@ -139,12 +152,17 @@
       >
         <section>
           <small>先独立作答</small>
-          <MarkdownRenderer :content="semanticItems[0] || slide.key_message || ''" :enable-code-run="false" />
+          <MarkdownRenderer
+            v-for="item in practicePromptItems"
+            :key="item"
+            :content="item"
+            :enable-code-run="false"
+          />
         </section>
         <aside>
-          <small>反馈依据</small>
+          <small>参考答案与判断依据</small>
           <ol>
-            <li v-for="item in semanticItems.slice(1, 5)" :key="item">
+            <li v-for="item in practiceFeedbackItems" :key="item">
               <MarkdownRenderer :content="item" :enable-code-run="false" />
             </li>
           </ol>
@@ -342,6 +360,32 @@ const semanticItems = computed(() => (props.slide.blocks || []).flatMap((block) 
   if (block.items?.length) return block.items.filter(Boolean)
   return block.content ? [block.content] : []
 }))
+function blockItems(block: SlideBlock | undefined) {
+  if (!block) return []
+  if (block.items?.length) return block.items.filter(Boolean)
+  return block.content ? [block.content] : []
+}
+const questionPromptItems = computed(() => (
+  semanticItems.value.length
+    ? semanticItems.value.slice(0, 3)
+    : [props.slide.key_message || ''].filter(Boolean)
+))
+const practicePromptItems = computed(() => {
+  const prompt = (props.slide.blocks || []).find(block => (
+    block.metadata?.semantic_role === 'prompt'
+    || ['exercise', 'question', 'prompt'].includes(block.type)
+  ))
+  return blockItems(prompt).slice(0, 3)
+})
+const practiceFeedbackItems = computed(() => (
+  (props.slide.blocks || [])
+    .filter(block => (
+      block.metadata?.semantic_role === 'feedback'
+      || ['answer', 'feedback', 'solution', 'validation'].includes(block.type)
+    ))
+    .flatMap(block => blockItems(block))
+    .slice(0, 4)
+))
 const headingSubscripts: Record<string, string> = {
   0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄',
   5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉',
@@ -732,6 +776,14 @@ function layoutLabel(value: string) {
   font-weight:700;
   line-height:1.48;
 }
+.deck-question-prompt__items {
+  display:grid;
+  gap:1.2cqw;
+}
+.deck-question-prompt__items > :deep(.markdown-body) + :deep(.markdown-body) {
+  padding-top:1cqw;
+  border-top:1px solid var(--deck-line);
+}
 .deck-worked-example {
   display:grid;
   grid-template-rows:repeat(3,minmax(0,1fr));
@@ -980,6 +1032,24 @@ function layoutLabel(value: string) {
   font-weight:720;
   line-height:1.42;
 }
+.deck-hero-claim {
+  position:absolute;
+  inset:27% 8% 12%;
+  display:grid;
+  grid-template-columns:.48cqw minmax(0,1fr);
+  align-items:center;
+  gap:3.2cqw;
+}
+.deck-hero-claim > i {
+  width:.48cqw;
+  height:72%;
+  background:var(--deck-blue);
+}
+.deck-hero-claim > strong {
+  max-width:76cqw;
+  color:var(--deck-ink);
+  font:750 2.7cqw/1.42 var(--deck-title-font);
+}
 .deck-canvas__story {
   position:absolute;
   inset:25% 5.5% 10.5%;
@@ -988,6 +1058,7 @@ function layoutLabel(value: string) {
   gap:2.4%;
   min-height:0;
 }
+.deck-canvas__story[data-has-message="true"] { top:38%; }
 .deck-canvas__story[data-composition="split-visual"] {
   grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);
 }
