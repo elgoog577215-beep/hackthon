@@ -358,6 +358,7 @@ describe('SlideCanvas V5 final page contract', () => {
             visual_id: 'visual-1',
             kind: 'relational_diagram',
             purpose: 'explain',
+            alt_text: '过程量比较示意图',
           }],
           quality: {
             requested_layout: 'figure-text',
