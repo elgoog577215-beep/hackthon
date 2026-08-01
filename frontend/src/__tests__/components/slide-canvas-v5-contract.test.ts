@@ -417,7 +417,7 @@ describe('SlideCanvas V5 final page contract', () => {
       props: {
         ...baseProps,
         slide: {
-          layout: 'practice',
+          layout: 'concept',
           title: '判断系统类型',
           key_message: '思考与挑战',
           blocks: [
@@ -489,6 +489,8 @@ describe('SlideCanvas V5 final page contract', () => {
 
     expect(wrapper.findAll('.deck-editorial-body__group')).toHaveLength(2)
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+    expect(wrapper.find('.deck-canvas__message').exists()).toBe(false)
+    expect(wrapper.get('.deck-editorial-body').attributes('data-has-message')).toBe('false')
     expect(slideCanvasSource).toMatch(/\.deck-editorial-body\s*\{[^}]*display:grid/s)
     expect(slideCanvasSource).toMatch(/\.deck-editorial-body__group\s*\{[^}]*border:0/s)
   })
