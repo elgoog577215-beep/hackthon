@@ -437,12 +437,16 @@ async function upgradeCourseLogic() {
 
 async function rebuild() {
   if (!courseId.value || store.building) return
-  if (store.buildPaused) await store.resumeBuild().catch(() => undefined)
-  else await store.buildSlideDeckVariant(courseId.value, {
-    mode: selectedMode.value,
-    theme: selectedTheme.value,
-    forceRebuild: true,
-  }).catch(() => undefined)
+  try {
+    if (store.buildPaused) await store.resumeBuild()
+    else await store.buildSlideDeckVariant(courseId.value, {
+      mode: selectedMode.value,
+      theme: selectedTheme.value,
+      forceRebuild: true,
+    })
+  } catch {
+    return
+  }
   if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
 }
 
@@ -468,12 +472,17 @@ async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
   generatorOpen.value = false
-  await store.buildSlideDeckVariant(courseId.value, {
-    mode: value.mode,
-    theme: value.theme,
-    forceRebuild: forceGeneratorBuild.value,
-  }).catch(() => undefined)
-  forceGeneratorBuild.value = false
+  try {
+    await store.buildSlideDeckVariant(courseId.value, {
+      mode: value.mode,
+      theme: value.theme,
+      forceRebuild: forceGeneratorBuild.value,
+    })
+  } catch {
+    return
+  } finally {
+    forceGeneratorBuild.value = false
+  }
   const variant = preferredVariantRepresentation()
   if (variant) await store.select(variant.representation_id)
 }
