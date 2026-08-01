@@ -1824,7 +1824,7 @@ def _render_practice_feedback(
     unit: SlideSpec,
     theme: dict[str, str],
 ) -> None:
-    """Keep the task and its success evidence visible on the same slide."""
+    """Align every task with its answer instead of creating imbalanced columns."""
     _heading(slide, unit, theme)
     exercise = _find_block(unit, "exercise") or (
         unit.blocks[0] if unit.blocks else None
@@ -1834,54 +1834,79 @@ def _render_practice_feedback(
         for block in unit.blocks
         if block is not exercise
     ]
-    _shape(slide, 0.82, 1.8, 0.08, 4.65, theme["accent"], radius=False)
-    _text(slide, "先作答", 1.17, 2.04, 1.4, 0.32, 12, theme["accent"], bold=True)
-    prompt = ""
+    prompts = []
     if exercise:
-        prompt = "\n".join(exercise.items) if exercise.items else exercise.content
-    _text(
-        slide,
-        prompt or unit.key_message,
-        1.17,
-        2.66,
-        6.72,
-        2.95,
-        19 if len(prompt) <= 150 else 16,
-        theme["ink"],
-        bold=True,
-    )
-    _shape(slide, 8.25, 1.8, 0.035, 4.65, theme["chart_bg"], radius=False)
-    _text(slide, "反馈依据", 8.65, 2.04, 1.65, 0.32, 12, theme["green"], bold=True)
+        prompts = list(exercise.items) if exercise.items else [exercise.content]
+    prompts = [value for value in prompts if value][:3]
     checks = [
         value
         for block in feedback_blocks
         for value in (block.items or [block.content])
         if value
     ]
-    if checks:
-        _bullets(
+    checks = checks[:3]
+    if not prompts:
+        prompts = [unit.key_message or unit.takeaway]
+    prompts = [value for value in prompts if value]
+    row_count = max(len(prompts), 1)
+    row_height = 4.48 / row_count
+    for index, prompt in enumerate(prompts):
+        y = 1.9 + index * row_height
+        answer = checks[index] if index < len(checks) else ""
+        _shape(
             slide,
-            checks[:4],
-            8.65,
-            2.72,
-            3.25,
-            2.72,
-            16,
-            theme["ink"],
-            theme["green"],
+            0.82,
+            y,
+            11.72,
+            0.018,
+            theme["chart_bg"],
+            radius=False,
         )
-    if unit.key_message and unit.key_message != prompt:
         _text(
             slide,
-            unit.key_message,
-            8.65,
-            5.62,
-            3.3,
-            0.52,
-            16,
-            theme["muted"],
+            f"问题 {index + 1:02d}",
+            1.05,
+            y + 0.22,
+            1.45,
+            0.28,
+            11,
+            theme["accent"],
             bold=True,
         )
+        _text(
+            slide,
+            "回答与判断依据",
+            7.25,
+            y + 0.22,
+            2.0,
+            0.28,
+            11,
+            theme["green"],
+            bold=True,
+        )
+        text_top = y + 0.72
+        _text(
+            slide,
+            prompt,
+            1.05,
+            text_top,
+            5.55,
+            max(0.7, row_height - 1.0),
+            17 if len(prompt) <= 80 else 15,
+            theme["ink"],
+            bold=True,
+        )
+        if answer:
+            _text(
+                slide,
+                answer,
+                7.25,
+                text_top,
+                4.85,
+                max(0.7, row_height - 1.0),
+                16 if len(answer) <= 80 else 14,
+                theme["ink"],
+            )
 
 
 def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2138,6 +2163,27 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    heading_mode = str(unit.quality.get("heading_mode") or "full")
+    if heading_mode == "hidden":
+        section_label = str(
+            unit.quality.get("section_label")
+            or unit.eyebrow
+            or unit.slide_purpose
+        )
+        _text(
+            slide,
+            section_label,
+            0.78,
+            0.55,
+            8.8,
+            0.38,
+            13,
+            theme["accent"],
+            bold=True,
+        )
+        _shape(slide, 0.78, 1.12, 0.72, 0.04, theme["accent"], radius=False)
+        _shape(slide, 1.58, 1.12, 0.08, 0.04, theme["green"], radius=False)
+        return
     heading = _display_heading(unit)
     heading_size = 35
     _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.3, 11, theme["accent"], bold=True)
