@@ -1539,7 +1539,12 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         resolved_composition = "statement"
         major_regions = 1
 
-    occupied = min(major_regions, len(non_visual) + (1 if has_visual else 0))
+    semantic_region_count = len(non_visual) + (1 if has_visual else 0)
+    if resolved_layout == "hero-claim" and _clean_text(
+        slide.get("key_message") or slide.get("takeaway") or slide.get("title")
+    ):
+        semantic_region_count = max(1, semantic_region_count)
+    occupied = min(major_regions, semantic_region_count)
     return FinalPageContractV5(
         requested_layout=requested_layout,
         resolved_layout=resolved_layout,
@@ -2042,23 +2047,169 @@ def split_mixed_intent_slides_v5(
 
         transition = deepcopy(source)
         transition["unit_id"] = f"{source.get('unit_id')}:transition"
-        transition["layout"] = "concept"
-        transition["slide_purpose"] = "chapter_transition"
-        transition["scene_kind"] = "transition"
-        transition["beat_role"] = "transition"
-        transition["eyebrow"] = "承上启下"
-        transition["title"] = _transition_slide_title(transition_blocks)
-        transition["key_message"] = _transition_slide_message(transition_blocks)
-        transition["blocks"] = []
+        transition_message = _transition_slide_message(transition_blocks)
+        transition.update({
+            "layout": "concept",
+            "slide_purpose": "chapter_transition",
+            "scene_kind": "transition",
+            "beat_role": "transition",
+            "narrative_role": "transition",
+            "eyebrow": "承上启下",
+            "title": _transition_slide_title(transition_blocks),
+            "key_message": transition_message,
+            "takeaway": transition_message,
+            "teaching_job": "",
+            "composition": "statement",
+            "visuals": [],
+            "blocks": [],
+        })
         transition["quality"] = {
             **(transition.get("quality") or {}),
             "requested_layout": "hero-claim",
+            "requested_composition": "statement",
             "split_mixed_narrative_jobs": True,
             "derived_density_compaction": True,
+            "navigation_only": False,
         }
         result.append(transition)
     for position, slide in enumerate(result):
         slide["position"] = position
+    return result
+
+
+def _slide_knowledge_refs(slide: dict[str, Any]) -> set[str]:
+    return {
+        _clean_text(ref)
+        for ref in slide.get("knowledge_refs") or []
+        if _clean_text(ref)
+    }
+
+
+def _grounded_feedback_evidence(
+    practice: dict[str, Any],
+    preceding: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    """Collect concise, source-visible evidence without inventing an answer."""
+    target_refs = _slide_knowledge_refs(practice)
+    if not target_refs:
+        return [], []
+    chapter_id = _clean_text(practice.get("chapter_id"))
+    evidence: list[str] = []
+    source_ids: list[str] = []
+    for candidate in reversed(preceding):
+        if chapter_id and _clean_text(candidate.get("chapter_id")) != chapter_id:
+            continue
+        if not target_refs.intersection(_slide_knowledge_refs(candidate)):
+            continue
+        if str(candidate.get("scene_kind") or "") in {
+            "practice_feedback",
+            "transition",
+        }:
+            continue
+        candidate_values = [
+            value
+            for block in candidate.get("blocks") or []
+            if str(block.get("type") or "") not in {
+                "exercise",
+                "question",
+                "prompt",
+            }
+            for value in [
+                *(block.get("items") or []),
+                block.get("content"),
+            ]
+            if _clean_text(value)
+        ]
+        added_from_candidate = False
+        for value in candidate_values:
+            for sentence in _text_sentences(str(value)):
+                clean = _bounded_body_claim(sentence, limit=64)
+                if (
+                    len(clean) < 6
+                    or "？" in clean
+                    or "?" in clean
+                    or _TRANSITION_TEXT_PATTERN.search(clean)
+                    or clean in evidence
+                ):
+                    continue
+                evidence.append(clean)
+                added_from_candidate = True
+                if len(evidence) >= 3:
+                    break
+            if len(evidence) >= 3:
+                break
+        if added_from_candidate:
+            source_id = _clean_text(candidate.get("unit_id"))
+            if source_id and source_id not in source_ids:
+                source_ids.append(source_id)
+        if len(evidence) >= 3:
+            break
+    return evidence, list(reversed(source_ids))
+
+
+def _practice_has_feedback(slide: dict[str, Any]) -> bool:
+    if str(slide.get("beat_role") or "") in {
+        "answer",
+        "feedback",
+        "solution",
+        "validation",
+    }:
+        return True
+    return any(
+        str(block.get("type") or "") in {
+            "answer",
+            "feedback",
+            "solution",
+            "validation",
+        }
+        or str((block.get("metadata") or {}).get("semantic_role") or "")
+        in {"answer", "feedback", "solution", "validation"}
+        for block in slide.get("blocks") or []
+    )
+
+
+def _enrich_practice_feedback_slides_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pair a source question with preceding, knowledge-bound answer evidence."""
+    result: list[dict[str, Any]] = []
+    for source in slides:
+        slide = deepcopy(source)
+        is_prompt = (
+            str(slide.get("scene_kind") or "") == "practice_feedback"
+            and str(slide.get("beat_role") or "") == "prompt"
+        )
+        if is_prompt and not _practice_has_feedback(slide):
+            evidence, source_ids = _grounded_feedback_evidence(slide, result)
+            if evidence:
+                blocks = list(slide.get("blocks") or [])
+                if blocks:
+                    prompt = deepcopy(blocks[0])
+                    prompt["metadata"] = {
+                        **(prompt.get("metadata") or {}),
+                        "semantic_role": "prompt",
+                    }
+                    blocks[0] = prompt
+                blocks.append({
+                    "block_id": f"{slide.get('unit_id') or 'practice'}:feedback",
+                    "type": "callout",
+                    "title": "参考答案与判断依据",
+                    "content": "",
+                    "items": evidence,
+                    "metadata": {
+                        "semantic_role": "feedback",
+                        "grounded": True,
+                        "source_slide_ids": source_ids,
+                    },
+                })
+                slide["blocks"] = blocks
+                slide["quality"] = {
+                    **(slide.get("quality") or {}),
+                    "requested_layout": "practice-feedback",
+                    "grounded_feedback": True,
+                    "grounded_feedback_source_ids": source_ids,
+                }
+        result.append(slide)
     return result
 
 
@@ -2235,6 +2386,16 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "code": "worked_example_semantics_missing",
                     "page_id": slide.get("unit_id"),
                 })
+        if (
+            str(slide.get("scene_kind") or "") == "practice_feedback"
+            and str(slide.get("beat_role") or "") == "prompt"
+            and not _practice_has_feedback(slide)
+        ):
+            issues.append({
+                "severity": "critical",
+                "code": "practice_feedback_missing_answer",
+                "page_id": slide.get("unit_id"),
+            })
         if resolved == "chapter-recap":
             if quality.get("navigation_only"):
                 issues.append({
@@ -2719,6 +2880,7 @@ def compile_slide_deck_v5(
                 **(slide.get("quality") or {}),
                 "requested_layout": scene_layout,
             }
+    slides = _enrich_practice_feedback_slides_v5(slides)
     slides = [apply_page_contract_v5(slide) for slide in slides]
     previous_quality = deepcopy(content.get("quality_report") or {})
     content.update({

@@ -2013,6 +2013,7 @@ def _plain_text(markdown: str) -> str:
 def _plain_math_text(value: str) -> str:
     text = str(value or "")
     replacements = {
+        "^\\circ": "°",
         "\\times": "×",
         "\\cdot": "·",
         "\\rightarrow": "→",
@@ -2042,6 +2043,7 @@ def _plain_math_text(value: str) -> str:
         "\\cup": "∪",
         "\\perp": "⟂",
         "\\angle": "∠",
+        "\\circ": "°",
         "\\sum": "∑",
         "\\prod": "∏",
         "\\int": "∫",

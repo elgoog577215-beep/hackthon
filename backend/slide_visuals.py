@@ -132,6 +132,10 @@ class VisualAnchorV1(_StrictModel):
                 raise ValueError(
                     "A diagram needs at least two nodes and one edge"
                 )
+            if any(not _has_balanced_brackets(node.label) for node in self.nodes):
+                raise ValueError(
+                    "Diagram node labels must use balanced punctuation"
+                )
             if not self.parameters.get("relation_evidence"):
                 raise ValueError(
                     "A diagram needs explicit structural evidence"
@@ -1714,7 +1718,7 @@ def _source_clauses(fragments: list[Any]) -> list[tuple[str, str]]:
     for fragment in fragments:
         clean = _clean_source_text(fragment.text)
         for value in re.split(r"(?:[。！？；;]\s*|\n+)", clean):
-            label = _trim_takeaway(value.strip(), 26)
+            label = value.strip()
             if label and label not in {item[0] for item in values}:
                 values.append((label, fragment.fragment_id))
     return values
@@ -1848,11 +1852,28 @@ _GENERIC_VISUAL_HEADING_RE = re.compile(
 
 def _is_meaningful_visual_label(value: str) -> bool:
     clean = re.sub(r"^[\W_]+|[\W_]+$", "", str(value or "").strip())
-    if len(clean) < 3 or _GENERIC_VISUAL_HEADING_RE.fullmatch(clean):
+    if (
+        len(clean) < 3
+        or _GENERIC_VISUAL_HEADING_RE.fullmatch(clean)
+        or not _has_balanced_brackets(clean)
+    ):
         return False
     if _RAW_MERMAID_RE.search(clean):
         return False
     return True
+
+
+def _has_balanced_brackets(value: str) -> bool:
+    pairs = {")": "(", "）": "（", "]": "[", "】": "【"}
+    openings = set(pairs.values())
+    stack: list[str] = []
+    for character in str(value or ""):
+        if character in openings:
+            stack.append(character)
+        elif character in pairs:
+            if not stack or stack.pop() != pairs[character]:
+                return False
+    return not stack
 
 
 def _local_relation_nodes(
@@ -1870,10 +1891,14 @@ def _local_relation_nodes(
                 and _is_meaningful_visual_label(right)
             ):
                 continue
-            return [
-                (_trim_takeaway(left, 26), fragment_id),
-                (_trim_takeaway(right, 26), fragment_id),
-            ]
+            trimmed_left = _trim_takeaway(left, 26)
+            trimmed_right = _trim_takeaway(right, 26)
+            if not (
+                _is_meaningful_visual_label(trimmed_left)
+                and _is_meaningful_visual_label(trimmed_right)
+            ):
+                continue
+            return [(trimmed_left, fragment_id), (trimmed_right, fragment_id)]
     return None
 
 
