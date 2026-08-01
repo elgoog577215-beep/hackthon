@@ -291,6 +291,19 @@ def test_relation_connector_inside_parentheses_cannot_split_diagram_nodes() -> N
     assert clauses == [(source.rstrip("。"), "air-conditioner")]
     assert relation is None
 
+    compact_source = "电能（转化为机械功）"
+    compact_fragments = [SimpleNamespace(
+        fragment_id="compact-parenthetical",
+        kind="paragraph",
+        text=compact_source,
+    )]
+    assert _semantic_relation_spec(
+        SimpleNamespace(narrative_role="example"),
+        compact_fragments,
+        _source_clauses(compact_fragments),
+        [],
+    ) is None
+
 
 def test_visual_anchor_rejects_unbalanced_relation_labels() -> None:
     with pytest.raises(ValueError, match="balanced punctuation"):
