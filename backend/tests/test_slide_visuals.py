@@ -292,6 +292,35 @@ def test_relation_connector_inside_parentheses_cannot_split_diagram_nodes() -> N
     assert relation is None
 
 
+def test_visual_anchor_rejects_unbalanced_relation_labels() -> None:
+    with pytest.raises(ValueError, match="balanced punctuation"):
+        VisualAnchorV1(
+            visual_id="malformed-relation",
+            kind="relational_diagram",
+            purpose="process",
+            source_fragment_ids=["coordinate-example"],
+            alt_text="错误截断的映射关系",
+            nodes=[
+                {
+                    "node_id": "input",
+                    "label": "向量坐标 (1, 2",
+                    "source_fragment_ids": ["coordinate-example"],
+                },
+                {
+                    "node_id": "output",
+                    "label": "映射为 (-2, 1",
+                    "source_fragment_ids": ["coordinate-example"],
+                },
+            ],
+            edges=[{
+                "source": "input",
+                "target": "output",
+                "relation": "maps_to",
+            }],
+            parameters={"relation_evidence": "explicit_mapping_connector"},
+        )
+
+
 def test_plain_math_text_keeps_degree_symbol() -> None:
     assert _plain_math_text(r"$30^\circ \text{C}$") == "30° C"
 
