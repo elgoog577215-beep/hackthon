@@ -2210,7 +2210,7 @@ def _practice_has_feedback(slide: dict[str, Any]) -> bool:
 def _enrich_practice_feedback_slides_v5(
     slides: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Pair a source question with preceding, knowledge-bound answer evidence."""
+    """Add grounded evidence without pretending it is a direct answer."""
     result: list[dict[str, Any]] = []
     for source in slides:
         slide = deepcopy(source)
@@ -2243,12 +2243,13 @@ def _enrich_practice_feedback_slides_v5(
                 blocks.append({
                     "block_id": f"{slide.get('unit_id') or 'practice'}:feedback",
                     "type": "callout",
-                    "title": "参考答案与判断依据",
+                    "title": "判断依据",
                     "content": "",
                     "items": paired_evidence,
                     "metadata": {
                         "semantic_role": "feedback",
                         "grounded": True,
+                        "direct_answer": False,
                         "source_slide_ids": source_ids,
                     },
                 })
@@ -2258,7 +2259,9 @@ def _enrich_practice_feedback_slides_v5(
                     "requested_layout": "practice-feedback",
                     "grounded_feedback": True,
                     "grounded_feedback_source_ids": source_ids,
-                    "feedback_pair_count": pair_count,
+                    "feedback_mode": "shared_evidence",
+                    "feedback_pair_count": 0,
+                    "feedback_evidence_count": len(paired_evidence),
                 }
         result.append(slide)
     return result

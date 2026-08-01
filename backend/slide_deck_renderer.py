@@ -1848,6 +1848,64 @@ def _render_practice_feedback(
     if not prompts:
         prompts = [unit.key_message or unit.takeaway]
     prompts = [value for value in prompts if value]
+    feedback_mode = str((unit.quality or {}).get("feedback_mode") or "paired")
+    if feedback_mode == "shared_evidence":
+        question_count = max(len(prompts), 1)
+        question_gap = 0.34
+        question_width = (11.0 - question_gap * (question_count - 1)) / question_count
+        _shape(slide, 0.82, 1.9, 11.72, 0.018, theme["chart_bg"], radius=False)
+        for index, prompt in enumerate(prompts):
+            x = 1.05 + index * (question_width + question_gap)
+            _text(
+                slide,
+                f"问题 {index + 1:02d}",
+                x,
+                2.13,
+                1.45,
+                0.28,
+                11,
+                theme["accent"],
+                bold=True,
+            )
+            _text(
+                slide,
+                prompt,
+                x,
+                2.62,
+                question_width - 0.12,
+                1.02,
+                17 if len(prompt) <= 80 else 15,
+                theme["ink"],
+                bold=True,
+            )
+        _shape(slide, 0.82, 3.98, 11.72, 0.018, theme["chart_bg"], radius=False)
+        _text(
+            slide,
+            "判断依据",
+            1.05,
+            4.28,
+            1.45,
+            0.28,
+            11,
+            theme["green"],
+            bold=True,
+        )
+        evidence_count = max(len(checks), 1)
+        evidence_gap = 0.42
+        evidence_width = (11.0 - evidence_gap * (evidence_count - 1)) / evidence_count
+        for index, evidence in enumerate(checks):
+            x = 1.05 + index * (evidence_width + evidence_gap)
+            _text(
+                slide,
+                evidence,
+                x,
+                4.78,
+                evidence_width - 0.12,
+                1.42,
+                16 if len(evidence) <= 80 else 14,
+                theme["ink"],
+            )
+        return
     row_count = max(len(prompts), 1)
     row_height = 4.48 / row_count
     for index, prompt in enumerate(prompts):

@@ -150,25 +150,48 @@
         v-else-if="visualLayout === 'practice-feedback'"
         class="deck-practice-feedback"
         :data-has-message="showsStandaloneMessage"
+        :data-feedback-mode="practiceFeedbackMode"
       >
-        <article
-          v-for="(pair, index) in practiceFeedbackPairs"
-          :key="`${index}-${pair.prompt}`"
-          class="deck-practice-feedback__pair"
-        >
-          <section>
-            <small>问题 {{ String(index + 1).padStart(2, '0') }}</small>
-            <MarkdownRenderer :content="pair.prompt" :enable-code-run="false" />
+        <template v-if="practiceFeedbackMode === 'shared_evidence'">
+          <section class="deck-practice-feedback__questions">
+            <article
+              v-for="(prompt, index) in practicePromptItems"
+              :key="`${index}-${prompt}`"
+              class="deck-practice-feedback__question"
+            >
+              <small>问题 {{ String(index + 1).padStart(2, '0') }}</small>
+              <MarkdownRenderer :content="prompt" :enable-code-run="false" />
+            </article>
           </section>
-          <aside>
-            <small>回答与判断依据</small>
-            <MarkdownRenderer
-              v-if="pair.feedback"
-              :content="pair.feedback"
-              :enable-code-run="false"
-            />
+          <aside class="deck-practice-feedback__evidence">
+            <small>判断依据</small>
+            <ul>
+              <li v-for="(item, index) in practiceFeedbackItems" :key="`${index}-${item}`">
+                <MarkdownRenderer :content="item" :enable-code-run="false" />
+              </li>
+            </ul>
           </aside>
-        </article>
+        </template>
+        <template v-else>
+          <article
+            v-for="(pair, index) in practiceFeedbackPairs"
+            :key="`${index}-${pair.prompt}`"
+            class="deck-practice-feedback__pair"
+          >
+            <section>
+              <small>问题 {{ String(index + 1).padStart(2, '0') }}</small>
+              <MarkdownRenderer :content="pair.prompt" :enable-code-run="false" />
+            </section>
+            <aside>
+              <small>回答与判断依据</small>
+              <MarkdownRenderer
+                v-if="pair.feedback"
+                :content="pair.feedback"
+                :enable-code-run="false"
+              />
+            </aside>
+          </article>
+        </template>
       </div>
 
       <div
@@ -341,6 +364,7 @@ interface Slide {
     worked_step_labels?: string[]
     heading_mode?: 'full' | 'hidden'
     section_label?: string
+    feedback_mode?: 'paired' | 'shared_evidence'
   }
 }
 
@@ -446,6 +470,11 @@ const practiceFeedbackPairs = computed(() => practicePromptItems.value.map(
     prompt,
     feedback: practiceFeedbackItems.value[index] || '',
   }),
+))
+const practiceFeedbackMode = computed<'paired' | 'shared_evidence'>(() => (
+  props.slide.quality?.feedback_mode === 'shared_evidence'
+    ? 'shared_evidence'
+    : 'paired'
 ))
 const headingSubscripts: Record<string, string> = {
   0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄',
@@ -895,6 +924,49 @@ function layoutLabel(value: string) {
   grid-auto-rows:minmax(0,1fr);
   gap:1.2cqw;
   align-content:start;
+}
+.deck-practice-feedback[data-feedback-mode="shared_evidence"] {
+  grid-template-rows:auto minmax(0,1fr);
+  gap:1.35cqw;
+}
+.deck-practice-feedback__questions {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+  gap:2.2cqw;
+  padding:.45cqw 0 1.35cqw;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-feedback__question {
+  min-width:0;
+  padding-left:1.5cqw;
+  border-left:.34cqw solid var(--deck-blue);
+}
+.deck-practice-feedback__question :deep(.markdown-body) {
+  font-size:1.55cqw;
+  font-weight:700;
+  line-height:1.46;
+}
+.deck-practice-feedback__evidence {
+  min-width:0;
+  padding:1.05cqw 0 0 1.5cqw;
+  border-left:.34cqw solid var(--deck-teal);
+}
+.deck-practice-feedback__evidence ul {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
+  gap:1.15cqw 2.2cqw;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+.deck-practice-feedback__evidence li {
+  min-width:0;
+  padding-top:.65cqw;
+  border-top:1px solid var(--deck-line);
+}
+.deck-practice-feedback__evidence li :deep(.markdown-body) {
+  font-size:1.43cqw;
+  line-height:1.44;
 }
 .deck-practice-feedback__pair {
   display:grid;
