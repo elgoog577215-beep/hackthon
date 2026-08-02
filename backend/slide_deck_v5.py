@@ -30,9 +30,9 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.10"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.11"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.3"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.4"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -75,13 +75,25 @@ _NUMBERED_SECTION_TITLE_PATTERN = re.compile(
     r"^\s*\d+(?:\s*[.．]\s*\d+)+\s+\S+"
 )
 _ENUMERATION_PROMISE_PATTERN = re.compile(
-    r"(?:分为|分成|可分为|包括|包含|共有|共计)"
-    r"\s*([一二两三四五六七八九十百\d]+)\s*"
-    r"(?:类|种|项|个|步|部分|方面|阶段)"
+    r"(?P<verb>分为|分成|可分为|包括|包含|共有|共计)"
+    r"\s*(?P<count>[一二两三四五六七八九十百\d]+)\s*"
+    r"(?P<unit>类|种|项|个|步|部分|方面|阶段)"
 )
 _TITLE_ENUMERATION_PATTERN = re.compile(
-    r"([一二两三四五六七八九十百\d]+)\s*"
-    r"(?:类|种|项|个|步|部分|方面|阶段)"
+    r"(?P<count>[一二两三四五六七八九十百\d]+)\s*"
+    r"(?:(?:类|种|项|步|部分|方面|阶段)|"
+    r"个\s*(?:要点|重点|性质|特征|条件|步骤|原因|方法|结论|"
+    r"原则|问题|维度|类别|类型|规则|标准|目标))"
+)
+_GENERIC_ENUMERATION_NOUN_PATTERN = re.compile(
+    r"^\s*(?:要点|重点|性质|特征|条件|步骤|原因|方法|结论|"
+    r"原则|问题|维度|类别|类型|规则|标准|目标)"
+)
+_INLINE_ENUMERATION_MEMBER_PATTERN = re.compile(
+    r"(?:第\s*)?(?:[一二三四五六七八九十\d]+|"
+    r"另\s*(?:一|二|三|四|五|六|七|八|九|十)?)"
+    r"(?:类|种|项|步|部分|方面|阶段)"
+    r"(?=\s*(?:是|为|指|：|:))"
 )
 _RAW_TITLE_PATTERN = re.compile(
     r"(?:^\s*>?\s*(?:ID|graph|flowchart|sequenceDiagram|classDiagram)\s*[:\s]|"
@@ -206,14 +218,22 @@ def _chinese_count(value: str) -> int | None:
 
 
 def _enumeration_counts(value: str) -> list[int]:
-    return [
-        count
-        for match in _ENUMERATION_PROMISE_PATTERN.finditer(str(value or ""))
+    text = str(value or "")
+    counts: list[int] = []
+    for match in _ENUMERATION_PROMISE_PATTERN.finditer(text):
+        count = _chinese_count(match.group("count"))
+        if count is None or count < 2:
+            continue
         if (
-            (count := _chinese_count(match.group(1))) is not None
-            and count >= 2
-        )
-    ]
+            match.group("verb") in {"共有", "共计"}
+            and match.group("unit") == "个"
+            and not _GENERIC_ENUMERATION_NOUN_PATTERN.match(
+                text[match.end():match.end() + 12]
+            )
+        ):
+            continue
+        counts.append(count)
+    return counts
 
 
 def _title_enumeration_counts(value: str) -> list[int]:
@@ -221,10 +241,27 @@ def _title_enumeration_counts(value: str) -> list[int]:
         count
         for match in _TITLE_ENUMERATION_PATTERN.finditer(str(value or ""))
         if (
-            (count := _chinese_count(match.group(1))) is not None
+            (count := _chinese_count(match.group("count"))) is not None
             and count >= 2
         )
     ]
+
+
+def _inline_enumeration_member_count(value: str) -> int:
+    """Count members written inline after an explicit enumeration promise."""
+    text = str(value or "")
+    member_count = 0
+    for promise in _ENUMERATION_PROMISE_PATTERN.finditer(text):
+        sentence_tail = re.split(
+            r"[。！？!?\n]",
+            text[promise.end():],
+            maxsplit=1,
+        )[0]
+        member_count = max(
+            member_count,
+            len(_INLINE_ENUMERATION_MEMBER_PATTERN.findall(sentence_tail)),
+        )
+    return member_count
 
 
 def _v5_required_enumeration_fragments(group: list[Any]) -> set[str]:
@@ -3088,14 +3125,25 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             *_title_enumeration_counts(title),
             *_enumeration_counts(body_text),
         ]
-        expected_count = max(expected_counts, default=0)
-        if expected_count and len(visible_items) < expected_count:
+        expected_count = max(
+            (
+                count
+                for count in expected_counts
+                if count <= density["visible_item_budget"]
+            ),
+            default=0,
+        )
+        visible_enumeration_count = max(
+            len(visible_items),
+            _inline_enumeration_member_count(body_text),
+        )
+        if expected_count and visible_enumeration_count < expected_count:
             issues.append({
                 "severity": "critical",
                 "code": "enumeration_cardinality_mismatch",
                 "page_id": slide.get("unit_id"),
                 "expected_count": expected_count,
-                "visible_item_count": len(visible_items),
+                "visible_item_count": visible_enumeration_count,
             })
         first_body = _first_body_sentence(body_text)
         if (
