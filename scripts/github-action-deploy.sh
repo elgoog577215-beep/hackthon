@@ -75,6 +75,7 @@ current_release() {
 
 cleanup_backups() {
     local index
+    local keep_count="${1:-$KEEP_BACKUPS}"
     local -a backups=()
 
     mapfile -t backups < <(
@@ -83,7 +84,7 @@ cleanup_backups() {
             | cut -d' ' -f2-
     )
 
-    for ((index = KEEP_BACKUPS; index < ${#backups[@]}; index++)); do
+    for ((index = keep_count; index < ${#backups[@]}; index++)); do
         log "清理旧数据备份：${backups[index]}"
         rm -f -- "${backups[index]}"
     done
@@ -143,6 +144,13 @@ ensure_free_space() {
     local required_kb=$((MIN_FREE_MB * 1024))
 
     available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
+    if [ -n "$available_kb" ] \
+        && [ "$available_kb" -lt "$required_kb" ] \
+        && [ "$KEEP_BACKUPS" -gt 1 ]; then
+        log "磁盘空间低于发布阈值；仅保留最新一份数据备份后重试"
+        cleanup_backups 1
+        available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
+    fi
     if [ -z "$available_kb" ] || [ "$available_kb" -lt "$required_kb" ]; then
         log "可用磁盘不足：需要至少 ${MIN_FREE_MB}MB"
         df -h "$BASE_DIR"
