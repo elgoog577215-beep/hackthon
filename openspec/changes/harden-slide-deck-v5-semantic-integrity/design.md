@@ -36,6 +36,15 @@ question, add questions, cite unknown fragments, expose internal planning
 language, or return an unbound answer. Invalid AI output falls back to shared
 evidence rather than publishing a mismatched pair.
 
+Provider formatting differences are normalized before validation. The planner
+canonicalizes an omitted rewrite as `source_exact`, removes internal fragment
+IDs accidentally repeated inside answer copy, bounds overlong answers at a
+sentence boundary, and treats A/B or 1/2 as non-factual case labels. Unsafe
+optional title copy is discarded without losing valid answer directives from
+the chapter. When several source-level questions render as one compound prompt
+row, their generated conclusions are combined into one direct answer bound to
+that row's single stable question ID.
+
 ### Micro-transitions do not own slides
 
 A transition-only V4 artifact, including a unit ending in `:transition`, is

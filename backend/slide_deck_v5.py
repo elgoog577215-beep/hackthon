@@ -2591,6 +2591,29 @@ def _enrich_practice_feedback_slides_v5(
             ) or []
             if isinstance(item, dict)
         ]
+        if (
+            len(prompt_values) == 1
+            and len(generated_answers) > 1
+            and all(_clean_text(item.get("answer_text")) for item in generated_answers)
+        ):
+            # The renderer may collapse several paragraph fragments into one
+            # compound visible prompt. Preserve the one-row identity contract
+            # by publishing one compound direct answer instead of rejecting
+            # otherwise valid LLM answers because their source granularity is
+            # finer than the rendered block granularity.
+            generated_answers = [{
+                "question_index": 0,
+                "answer_text": "；".join(
+                    _clean_text(item.get("answer_text")).rstrip("。；; ")
+                    for item in generated_answers
+                ) + "。",
+                "supporting_fragment_ids": list(dict.fromkeys(
+                    fragment_id
+                    for item in generated_answers
+                    for fragment_id in item.get("supporting_fragment_ids") or []
+                    if _clean_text(fragment_id)
+                )),
+            }]
         if len(generated_answers) == len(prompt_values) and all(
             int(item.get("question_index") or 0) == index
             and _clean_text(item.get("answer_text"))

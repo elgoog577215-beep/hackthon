@@ -15,6 +15,8 @@
 - [x] 2.4 Remove standalone micro-transition artifacts
 - [x] 2.5 Normalize formal definitions and complete title claims
 - [x] 2.6 Build recaps only from complete declarative claims
+- [x] 2.7 Normalize provider variance without discarding valid chapter answers
+- [x] 2.8 Reconcile fragment-level answers with compound visible prompts
 
 ## 3. Rendering and publication gates
 

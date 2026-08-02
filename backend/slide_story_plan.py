@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_teaching_plan_projection import project_course_teaching_plan
@@ -1019,10 +1019,13 @@ def _practice_questions_for_beat(
         if not value:
             continue
         fallback_values.append(value)
-        for sentence in re.findall(r"[^。！？!?\n]+[？?]", value):
-            question = sentence.strip()
-            if question and question not in questions:
-                questions.append(question)
+        # Preserve the same granularity as the visible prompt block: one
+        # source fragment/item maps to one stable question ID and one answer.
+        # Splitting a compound item at every question mark produced four AI
+        # answers for two rendered rows, so the identity contract correctly
+        # rejected all of them and fell back to unrelated shared evidence.
+        if ("？" in value or "?" in value) and value not in questions:
+            questions.append(value)
     if questions:
         return questions[:4]
     return fallback_values[:1]
@@ -1225,23 +1228,31 @@ def _apply_chapter_directives_v2(
                     raise ValueError(
                         "AI story copy referenced an unknown supporting fragment"
                     )
-                _validate_grounded_audience_copy_v2(
-                    title=directive.audience_facing_title,
-                    summary=directive.audience_facing_summary,
-                    source_text=" ".join(
-                        fragment.text for fragment in supporting_fragments
-                    ),
-                )
-                updates.update({
-                    "audience_facing_title": (
-                        directive.audience_facing_title.strip()
-                    ),
-                    "audience_facing_summary": (
-                        directive.audience_facing_summary.strip()
-                    ),
-                    "copy_mode": directive.copy_mode,
-                    "copy_source_fragment_ids": supporting_ids,
-                })
+                try:
+                    _validate_grounded_audience_copy_v2(
+                        title=directive.audience_facing_title,
+                        summary=directive.audience_facing_summary,
+                        source_text=" ".join(
+                            fragment.text for fragment in supporting_fragments
+                        ),
+                    )
+                except ValueError:
+                    # Audience copy is an optional enhancement. Reject only
+                    # the unsafe rewrite and retain the source-exact baseline;
+                    # do not discard valid layouts or generated answers from
+                    # the rest of the chapter.
+                    pass
+                else:
+                    updates.update({
+                        "audience_facing_title": (
+                            directive.audience_facing_title.strip()
+                        ),
+                        "audience_facing_summary": (
+                            directive.audience_facing_summary.strip()
+                        ),
+                        "copy_mode": directive.copy_mode,
+                        "copy_source_fragment_ids": supporting_ids,
+                    })
             if directive.generated_practice_answers:
                 if (
                     episode.scene_kind != "practice_feedback"
@@ -1284,9 +1295,23 @@ def _apply_chapter_directives_v2(
                     _validate_generated_practice_answer_v2(
                         answer=answer,
                         question=questions[answer.question_index],
-                        source_text=" ".join(
-                            fragment.text for fragment in supporting_fragments
-                        ),
+                        # Numeric values, units, formulas, and named entities
+                        # stated in the question are legitimate premises. The
+                        # previous validator checked only the supporting body
+                        # fragments, so an answer that repeated “120 J” from
+                        # its own question invalidated the whole AI chapter.
+                        source_text=" ".join([
+                            questions[answer.question_index],
+                            *(
+                                fragment.text
+                                for fragment in supporting_fragments
+                            ),
+                            # Generic case and option labels are pedagogical
+                            # scaffolds, not new factual claims. Models often
+                            # use A/B or 1/2 to distinguish the alternatives
+                            # already present in a compound question.
+                            "A B C D 1 2 3 4",
+                        ]),
                     )
                     generated_answers.append(answer.model_copy(update={
                         "answer_text": " ".join(answer.answer_text.split()),
@@ -1356,6 +1381,90 @@ def _normalize_chapter_directives_v2(
             for item in normalized.pop("episodes") or []
             if isinstance(item, dict)
         ]
+
+    def normalize_copy_contract(item: Any) -> Any:
+        if not isinstance(item, dict):
+            return item
+        directive = dict(item)
+        normalized_answers = []
+        for answer in directive.get("generated_practice_answers") or []:
+            if not isinstance(answer, dict):
+                normalized_answers.append(answer)
+                continue
+            normalized_answer = dict(answer)
+            answer_text = " ".join(
+                str(normalized_answer.get("answer_text") or "").split()
+            )
+            answer_text = re.sub(
+                r"(?:依据|来源|支持片段)?\s*[:：]?\s*"
+                r"(?:sfg_[A-Za-z0-9_-]+(?:\s*[,，、]\s*)?)+[。.]?",
+                "",
+                answer_text,
+                flags=re.IGNORECASE,
+            ).strip()
+            if len(answer_text) > 140:
+                clipped = answer_text[:140]
+                sentence_end = max(
+                    clipped.rfind(mark)
+                    for mark in ("。", "！", "!", "；", ";")
+                )
+                if sentence_end >= 56:
+                    answer_text = clipped[:sentence_end + 1]
+                else:
+                    answer_text = clipped[:139].rstrip(
+                        "，,；;：:、 "
+                    ) + "。"
+            normalized_answer["answer_text"] = answer_text
+            normalized_answers.append(normalized_answer)
+        if normalized_answers:
+            directive["generated_practice_answers"] = normalized_answers
+        has_copy = bool(
+            str(directive.get("audience_facing_title") or "").strip()
+            or str(directive.get("audience_facing_summary") or "").strip()
+        )
+        if not has_copy:
+            # Some providers echo the requested rewrite mode even when they
+            # correctly omit optional copy. Canonicalize that harmless shape
+            # instead of invalidating every other directive in the chapter.
+            directive["copy_mode"] = "source_exact"
+            return directive
+        supporting_ids = list(dict.fromkeys(
+            str(value).strip()
+            for value in directive.get("supporting_fragment_ids") or []
+            if str(value).strip()
+        ))
+        headline_id = str(
+            directive.get("headline_fragment_id") or ""
+        ).strip()
+        if not supporting_ids and headline_id:
+            supporting_ids = [headline_id]
+        if not supporting_ids:
+            # Audience copy is optional. Drop an ungrounded rewrite while
+            # preserving layout and generated-answer directives for the beat.
+            directive["audience_facing_title"] = ""
+            directive["audience_facing_summary"] = ""
+            directive["copy_mode"] = "source_exact"
+            return directive
+        directive["supporting_fragment_ids"] = supporting_ids
+        if directive.get("copy_mode") in {None, "", "source_exact"}:
+            directive["copy_mode"] = "source_faithful_rewrite"
+        return directive
+
+    normalized["beat_directives"] = [
+        normalize_copy_contract(item)
+        for item in normalized.get("beat_directives") or []
+    ]
+    normalized["episode_directives"] = [
+        {
+            **item,
+            "beat_directives": [
+                normalize_copy_contract(directive)
+                for directive in item.get("beat_directives") or []
+            ],
+        }
+        for item in normalized.get("episode_directives") or []
+        if isinstance(item, dict)
+    ]
     if not (
         normalized.get("beat_directives")
         or normalized.get("episode_directives")
@@ -1606,11 +1715,25 @@ async def plan_slide_story_v2(
                     if isinstance(exc, (asyncio.TimeoutError, TimeoutError))
                     else "invalid_response"
                 )
-                return chapter, {
+                failure: dict[str, Any] = {
                     "chapter_id": chapter.chapter_id,
                     "code": code,
                     "error_type": type(exc).__name__,
                 }
+                if isinstance(exc, ValidationError):
+                    failure["validation_errors"] = [
+                        {
+                            "location": ".".join(
+                                str(part) for part in item.get("loc") or []
+                            ),
+                            "type": str(item.get("type") or ""),
+                            "message": str(item.get("msg") or "")[:240],
+                        }
+                        for item in exc.errors(include_url=False)[:8]
+                    ]
+                elif str(exc).strip():
+                    failure["message"] = str(exc).strip()[:300]
+                return chapter, failure
 
         chapter_results = list(await asyncio.gather(*(
             plan_chapter(unit) for unit in planning_units

@@ -37,6 +37,19 @@ the question it answers.
 - **THEN** the page renders related material only as shared judgment evidence
   and does not pair it positionally with a question
 
+#### Scenario: Provider returns harmless formatting variance
+- **WHEN** a provider omits optional copy while echoing a rewrite mode, exceeds
+  the answer limit, repeats internal fragment IDs in answer text, or uses A/B
+  and 1/2 as case labels
+- **THEN** the system canonicalizes that variance before validation while still
+  rejecting unsupported factual numbers, formulas, units, and named entities
+
+#### Scenario: Several source questions render as one compound row
+- **WHEN** fragment-level prompt questions are combined into one visible prompt
+  block by the renderer
+- **THEN** their generated conclusions are composed into one direct answer and
+  both sides carry the same single stable question ID
+
 ### Requirement: Transition-Only Pages Are Removed
 The system SHALL not publish a full slide whose only teaching job is announcing
 the immediately following section.
