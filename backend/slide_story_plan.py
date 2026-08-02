@@ -1165,30 +1165,24 @@ def _apply_chapter_directives_v2(
             if directive is None:
                 beats.append(beat)
                 continue
-            updates: dict[str, Any] = {
-                "layout_selection_reason": "ai_source_bound_directive",
-            }
+            updates: dict[str, Any] = {}
             if directive.headline_fragment_id:
-                if directive.headline_fragment_id not in beat.fragment_ids:
-                    raise ValueError(
-                        "AI story directive selected a headline outside its beat"
-                    )
                 fragment = fragment_catalog.get(
                     directive.headline_fragment_id,
                 )
-                if fragment is None:
-                    raise ValueError(
-                        "AI story directive selected an unknown headline fragment"
+                if (
+                    directive.headline_fragment_id in beat.fragment_ids
+                    and fragment is not None
+                ):
+                    updates["primary_claim_source"] = ClaimSourceV2(
+                        kind=(
+                            "source_heading"
+                            if fragment.kind == "heading"
+                            else "source_sentence"
+                        ),
+                        text=fragment.text,
+                        fragment_id=fragment.fragment_id,
                     )
-                updates["primary_claim_source"] = ClaimSourceV2(
-                    kind=(
-                        "source_heading"
-                        if fragment.kind == "heading"
-                        else "source_sentence"
-                    ),
-                    text=fragment.text,
-                    fragment_id=fragment.fragment_id,
-                )
             if directive.layout_id:
                 options = _compatible_layout_options_v2(
                     scene_kind=episode.scene_kind,
@@ -1202,122 +1196,118 @@ def _apply_chapter_directives_v2(
                     ),
                     None,
                 )
-                if selected is None:
-                    raise ValueError(
-                        "AI story directive selected an incompatible layout"
-                    )
-                updates.update({
-                    "layout_intent": selected["layout_id"],
-                    "renderer_layout": selected["renderer_layout"],
-                    "layout_family": selected["layout_family"],
-                })
+                if selected is not None:
+                    updates.update({
+                        "layout_intent": selected["layout_id"],
+                        "renderer_layout": selected["renderer_layout"],
+                        "layout_family": selected["layout_family"],
+                    })
             if directive.copy_mode != "source_exact":
                 supporting_ids = list(dict.fromkeys(
                     directive.supporting_fragment_ids
                 ))
-                if not set(supporting_ids) <= set(beat.fragment_ids):
-                    raise ValueError(
-                        "AI story copy referenced a fragment outside its beat"
-                    )
                 supporting_fragments = [
                     fragment_catalog[fragment_id]
                     for fragment_id in supporting_ids
                     if fragment_id in fragment_catalog
                 ]
-                if len(supporting_fragments) != len(supporting_ids):
-                    raise ValueError(
-                        "AI story copy referenced an unknown supporting fragment"
-                    )
-                try:
-                    _validate_grounded_audience_copy_v2(
-                        title=directive.audience_facing_title,
-                        summary=directive.audience_facing_summary,
-                        source_text=" ".join(
-                            fragment.text for fragment in supporting_fragments
-                        ),
-                    )
-                except ValueError:
-                    # Audience copy is an optional enhancement. Reject only
-                    # the unsafe rewrite and retain the source-exact baseline;
-                    # do not discard valid layouts or generated answers from
-                    # the rest of the chapter.
-                    pass
-                else:
-                    updates.update({
-                        "audience_facing_title": (
-                            directive.audience_facing_title.strip()
-                        ),
-                        "audience_facing_summary": (
-                            directive.audience_facing_summary.strip()
-                        ),
-                        "copy_mode": directive.copy_mode,
-                        "copy_source_fragment_ids": supporting_ids,
-                    })
-            if directive.generated_practice_answers:
-                if (
-                    episode.scene_kind != "practice_feedback"
-                    or beat.beat_role != "prompt"
-                    or has_source_answer
-                ):
-                    raise ValueError(
-                        "Generated practice answers are allowed only for an unanswered prompt"
-                    )
-                questions = _practice_questions_for_beat(
-                    beat,
-                    fragment_catalog,
+                copy_is_bound = bool(
+                    set(supporting_ids) <= set(beat.fragment_ids)
+                    and len(supporting_fragments) == len(supporting_ids)
                 )
-                answer_indexes = [
-                    item.question_index
-                    for item in directive.generated_practice_answers
-                ]
-                if answer_indexes != list(range(len(questions))):
-                    raise ValueError(
-                        "Generated practice answers must cover every question in order"
-                    )
-                generated_answers: list[GeneratedPracticeAnswerV2] = []
-                for answer in directive.generated_practice_answers:
-                    supporting_ids = list(dict.fromkeys(
-                        answer.supporting_fragment_ids
-                    ))
-                    if not set(supporting_ids) <= chapter_fragment_ids:
-                        raise ValueError(
-                            "Generated practice answer referenced evidence outside its chapter"
-                        )
-                    supporting_fragments = [
-                        fragment_catalog[fragment_id]
-                        for fragment_id in supporting_ids
-                        if fragment_id in fragment_catalog
-                    ]
-                    if len(supporting_fragments) != len(supporting_ids):
-                        raise ValueError(
-                            "Generated practice answer referenced unknown evidence"
-                        )
-                    _validate_generated_practice_answer_v2(
-                        answer=answer,
-                        question=questions[answer.question_index],
-                        # Numeric values, units, formulas, and named entities
-                        # stated in the question are legitimate premises. The
-                        # previous validator checked only the supporting body
-                        # fragments, so an answer that repeated “120 J” from
-                        # its own question invalidated the whole AI chapter.
-                        source_text=" ".join([
-                            questions[answer.question_index],
-                            *(
+                if copy_is_bound:
+                    try:
+                        _validate_grounded_audience_copy_v2(
+                            title=directive.audience_facing_title,
+                            summary=directive.audience_facing_summary,
+                            source_text=" ".join(
                                 fragment.text
                                 for fragment in supporting_fragments
                             ),
-                            # Generic case and option labels are pedagogical
-                            # scaffolds, not new factual claims. Models often
-                            # use A/B or 1/2 to distinguish the alternatives
-                            # already present in a compound question.
-                            "A B C D 1 2 3 4",
-                        ]),
+                        )
+                    except ValueError:
+                        # Audience copy is an optional enhancement. Reject only
+                        # the unsafe rewrite and retain the source-exact baseline;
+                        # do not discard valid layouts or generated answers from
+                        # the rest of the chapter.
+                        pass
+                    else:
+                        updates.update({
+                            "audience_facing_title": (
+                                directive.audience_facing_title.strip()
+                            ),
+                            "audience_facing_summary": (
+                                directive.audience_facing_summary.strip()
+                            ),
+                            "copy_mode": directive.copy_mode,
+                            "copy_source_fragment_ids": supporting_ids,
+                        })
+            if directive.generated_practice_answers:
+                answers_are_ineligible = bool(
+                    episode.scene_kind != "practice_feedback"
+                    or beat.beat_role != "prompt"
+                    or has_source_answer
+                )
+                if not answers_are_ineligible:
+                    questions = _practice_questions_for_beat(
+                        beat,
+                        fragment_catalog,
                     )
-                    generated_answers.append(answer.model_copy(update={
-                        "answer_text": " ".join(answer.answer_text.split()),
-                        "supporting_fragment_ids": supporting_ids,
-                    }))
-                updates["generated_practice_answers"] = generated_answers
+                    answer_indexes = [
+                        item.question_index
+                        for item in directive.generated_practice_answers
+                    ]
+                    if answer_indexes == list(range(len(questions))):
+                        generated_answers: list[GeneratedPracticeAnswerV2] = []
+                        for answer in directive.generated_practice_answers:
+                            supporting_ids = list(dict.fromkeys(
+                                answer.supporting_fragment_ids
+                            ))
+                            supporting_fragments = [
+                                fragment_catalog[fragment_id]
+                                for fragment_id in supporting_ids
+                                if fragment_id in fragment_catalog
+                            ]
+                            answer_is_bound = bool(
+                                set(supporting_ids) <= chapter_fragment_ids
+                                and len(supporting_fragments)
+                                == len(supporting_ids)
+                            )
+                            if not answer_is_bound:
+                                generated_answers = []
+                                break
+                            try:
+                                _validate_generated_practice_answer_v2(
+                                    answer=answer,
+                                    question=questions[answer.question_index],
+                                    # Question premises and generic case labels
+                                    # may be repeated without becoming new facts.
+                                    source_text=" ".join([
+                                        questions[answer.question_index],
+                                        *(
+                                            fragment.text
+                                            for fragment in supporting_fragments
+                                        ),
+                                        "A B C D 1 2 3 4",
+                                    ]),
+                                )
+                            except (IndexError, ValueError):
+                                generated_answers = []
+                                break
+                            generated_answers.append(answer.model_copy(update={
+                                "answer_text": " ".join(
+                                    answer.answer_text.split()
+                                ),
+                                "supporting_fragment_ids": supporting_ids,
+                            }))
+                        if len(generated_answers) == len(questions):
+                            updates["generated_practice_answers"] = (
+                                generated_answers
+                            )
+            if updates:
+                updates["layout_selection_reason"] = (
+                    "ai_source_bound_directive"
+                )
             beats.append(beat.model_copy(update=updates))
         episodes.append(episode.model_copy(update={"beats": beats}))
     return chapter.model_copy(update={"episodes": episodes})
@@ -1488,7 +1478,7 @@ async def plan_slide_story_v2(
         [dict[str, Any]],
         Awaitable[dict[str, Any]] | dict[str, Any],
     ] | None = None,
-    timeout_seconds: float = 90.0,
+    timeout_seconds: float = 180.0,
 ) -> SlideStoryPlanV2:
     """Use a constrained chapter-batched planner, falling back to deterministic scenes."""
     fallback = baseline or compile_slide_story_plan_v2(

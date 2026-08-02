@@ -17,6 +17,7 @@
 - [x] 2.6 Build recaps only from complete declarative claims
 - [x] 2.7 Normalize provider variance without discarding valid chapter answers
 - [x] 2.8 Reconcile fragment-level answers with compound visible prompts
+- [x] 2.9 Isolate invalid optional AI fields and align planner/provider timeouts
 
 ## 3. Rendering and publication gates
 
