@@ -30,9 +30,9 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.9"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.10"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.2"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.3"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -112,7 +112,7 @@ _V5_DENSITY_BUDGETS = {
     "diagram-full": {"characters": 0, "items": 0, "title": 18},
     "worked-example": {"characters": 360, "items": 3, "title": 18},
     "practice-feedback": {"characters": 400, "items": 5, "title": 18},
-    "chapter-recap": {"characters": 320, "items": 5, "title": 18},
+    "chapter-recap": {"characters": 320, "items": 4, "title": 18},
     "course-synthesis": {"characters": 340, "items": 6, "title": 18},
 }
 _V5_MINIMUM_BODY_FONT_PT = 16
@@ -1119,7 +1119,77 @@ def _structured_claim_title(value: str) -> str:
     if classification:
         subject, topic, count = classification.groups()
         return f"{subject}{topic}的{count}种类型"
+    definition = re.match(
+        r"^(.{1,10}?)(?:是指|是)(只(?:依赖于|取决于).{2,18}?)(?:的)?"
+        r"(?:物理量|变量|量)(?:[，。；]|$)",
+        claim,
+    )
+    if definition:
+        subject, predicate = definition.groups()
+        predicate = predicate.replace("依赖于", "取决于")
+        return _bounded_title(f"{subject}{predicate}")
+    foundation = re.match(
+        r"^(.{2,12}?)(?:是|作为).{0,20}?(?:最基础|基础)(?:的)?(?:一条|定律|规律)",
+        claim,
+    )
+    if foundation:
+        subject = foundation.group(1)
+        return (
+            f"{subject}奠定温度定义基础"
+            if "温度" in claim
+            else f"{subject}是基础定律"
+        )
     return _bounded_title(claim)
+
+
+def _is_incomplete_visible_claim(value: str) -> bool:
+    clean = _clean_text(value).rstrip("：:，,。！？!?；;、•· ")
+    if not clean:
+        return True
+    if not _has_balanced_text_brackets(clean):
+        return True
+    return clean.endswith((
+        "的", "与", "和", "及", "或", "在", "由", "为", "是指",
+        "包括", "分为", "属于", "依赖于", "取决于", "如果", "那么",
+    ))
+
+
+_QUESTION_CLAIM_PATTERN = re.compile(
+    r"(?:为什么|是什么|什么类型|哪(?:一)?类|如何|是否|能否|"
+    r"应该归类为什么|吗|呢)$"
+)
+_QUESTION_LEAD_PATTERN = re.compile(
+    r"^(?:在.{0,18}?[，,])?(?:有哪些|什么|如何|为什么|是否|能否|"
+    r"哪(?:一)?类|你能|请问)"
+)
+_INSTRUCTIONAL_CLAIM_PATTERN = re.compile(
+    r"^(?:考虑|思考|请|判断|说明|举出|解释|分析|比较|讨论)"
+)
+
+
+def _is_complete_declarative_claim(value: str) -> bool:
+    clean = _clean_text(value).rstrip("。！？!?；;，,：:、 ")
+    return bool(
+        clean
+        and not _is_incomplete_visible_claim(clean)
+        and not _QUESTION_CLAIM_PATTERN.search(clean)
+        and not _QUESTION_LEAD_PATTERN.search(clean)
+        and not _INSTRUCTIONAL_CLAIM_PATTERN.search(clean)
+        and not _TRANSITION_TEXT_PATTERN.search(clean)
+    )
+
+
+def _has_balanced_text_brackets(value: str) -> bool:
+    pairs = {")": "(", "）": "（", "]": "[", "】": "【"}
+    stack: list[str] = []
+    openings = set(pairs.values())
+    for character in str(value or ""):
+        if character in openings:
+            stack.append(character)
+        elif character in pairs:
+            if not stack or stack.pop() != pairs[character]:
+                return False
+    return not stack
 
 
 def _bounded_title(value: str, limit: int = 18) -> str:
@@ -1154,23 +1224,51 @@ def _bounded_title(value: str, limit: int = 18) -> str:
         excerpt.rfind(" "),
     )
     if boundary >= max(8, limit // 2):
-        excerpt = excerpt[:boundary]
-    return excerpt.strip("：:，,。！？!?；;、•·")
+        return excerpt[:boundary].strip("：:，,。！？!?；;、•·")
+    subject = re.split(
+        r"(?:是指|是|将|通过|能够|可以|需要|决定|描述|包含|包括|分为|用于|具有)",
+        cleaned,
+        maxsplit=1,
+    )[0].strip("：:，,。！？!?；;、•·")
+    if (
+        4 <= len(subject) <= limit
+        and not subject.startswith(("如果", "那么", "无论", "当", "在"))
+    ):
+        return subject
+    # Fail closed to a complete topic label rather than leaking a mid-word
+    # character slice into the published heading.
+    topic = _clean_text(
+        re.split(r"[，,；;：:。！？!?]", cleaned, maxsplit=1)[0]
+    )
+    return topic if len(topic) <= limit else "本页核心判断"
 
 
-def _bounded_body_claim(value: str, limit: int = 64) -> str:
+def _bounded_body_claim(
+    value: str,
+    limit: int = 64,
+    *,
+    require_complete: bool = False,
+) -> str:
     """Keep a derived claim readable without silently overflowing its layout."""
     cleaned = _clean_text(value)
     if len(cleaned) <= limit:
         return cleaned
     excerpt = cleaned[:limit]
-    boundary = max(
+    terminal_boundary = max(
         excerpt.rfind("。"),
         excerpt.rfind("！"),
         excerpt.rfind("？"),
         excerpt.rfind("；"),
-        excerpt.rfind("，"),
+        excerpt.rfind("!"),
+        excerpt.rfind("?"),
         excerpt.rfind(";"),
+    )
+    if terminal_boundary >= max(20, limit // 2):
+        return excerpt[: terminal_boundary + 1].rstrip("：:、•· ")
+    if require_complete:
+        return ""
+    boundary = max(
+        excerpt.rfind("，"),
         excerpt.rfind(","),
         excerpt.rfind(" "),
     )
@@ -1204,6 +1302,8 @@ def compile_page_title_v5(
     claim = _title_candidate(primary_claim)
     if _is_numbered_section_title(explicit):
         explicit = ""
+    if _is_incomplete_visible_claim(explicit):
+        explicit = ""
     if _is_numbered_section_title(claim):
         claim = ""
     body_claim = _best_body_title_claim(body_text)
@@ -1217,6 +1317,8 @@ def compile_page_title_v5(
     ):
         return _structured_claim_title(body_claim)
     if explicit:
+        if len(explicit) > 24:
+            return _structured_claim_title(explicit)
         if explicit not in {claim, body_claim} or len(explicit) <= 24:
             return _bounded_title(explicit)
         return _structured_claim_title(explicit)
@@ -1306,11 +1408,81 @@ def _structure_visible_enumerations(
     return updated
 
 
+_DEFINITION_RELATION_PATTERN = re.compile(
+    r"^.{1,16}?(?:是指|定义为|指的是|称为).{3,}"
+)
+
+
+def _normalize_concept_definition_slide_v5(
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    slide = deepcopy(source)
+    if str(slide.get("scene_kind") or "") != "concept":
+        return slide
+    normalized_blocks: list[dict[str, Any]] = []
+    definition: tuple[str, dict[str, Any]] | None = None
+    definition_expected = False
+    for block_index, source_block in enumerate(slide.get("blocks") or []):
+        block = deepcopy(source_block)
+        title = _clean_text(block.get("title"))
+        if _normalize_title_match(title) in _GENERIC_TITLES:
+            block["title"] = ""
+        content = _strip_template_lead(str(block.get("content") or "")).strip()
+        items = [
+            _strip_template_lead(str(item or "")).strip()
+            for item in block.get("items") or []
+            if _strip_template_lead(str(item or "")).strip()
+        ]
+        values = [value for value in [content, *items] if value]
+        remaining: list[str] = []
+        for value in values:
+            if _DEFINITION_RELATION_PATTERN.search(_clean_text(value)):
+                definition_expected = True
+                if definition is None:
+                    definition = (value, block)
+                    continue
+            remaining.append(value)
+        if not remaining:
+            continue
+        block["content"] = remaining[0] if not items else ""
+        block["items"] = remaining if items else []
+        block["metadata"] = dict(block.get("metadata") or {})
+        block["block_id"] = str(
+            block.get("block_id") or f"concept-context-{block_index + 1}"
+        )
+        normalized_blocks.append(block)
+    if definition is not None:
+        value, original = definition
+        definition_block = {
+            "block_id": f"{slide.get('unit_id') or 'concept'}:definition",
+            "type": "statement",
+            "title": "定义",
+            "content": value,
+            "items": [],
+            "metadata": {
+                **(original.get("metadata") or {}),
+                "semantic_role": "definition",
+            },
+        }
+        normalized_blocks.insert(0, definition_block)
+    slide["blocks"] = normalized_blocks
+    slide["quality"] = {
+        **(slide.get("quality") or {}),
+        "concept_definition_expected": definition_expected,
+        "concept_definition_normalized": definition is not None,
+        "preferred_title_claim": definition[0] if definition else "",
+    }
+    return slide
+
+
 def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
     bindings: list[SlotBindingV5] = []
     for block_index, block in enumerate(slide.get("blocks") or []):
         block_id = str(block.get("block_id") or f"block-{block_index + 1}")
         block_type = str(block.get("type") or "rich_text")
+        declared_role = str(
+            (block.get("metadata") or {}).get("semantic_role") or ""
+        )
         items = [_clean_text(item) for item in block.get("items") or [] if _clean_text(item)]
         if block_type == "process":
             for item_index, _item in enumerate(items):
@@ -1353,7 +1525,7 @@ def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
         if _clean_text(block.get("content")) or _clean_text(block.get("title")):
             bindings.append(SlotBindingV5(
                 slot_id=f"text-{block_index + 1}",
-                semantic_role="text",
+                semantic_role=declared_role or "text",
                 source_block_id=block_id,
             ))
     if slide.get("visuals"):
@@ -1616,7 +1788,8 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
         updated["title"] = compile_page_title_v5(
             explicit_title=str(updated.get("title") or ""),
             primary_claim=str(
-                (updated.get("primary_claim_source") or {}).get("text")
+                quality.get("preferred_title_claim")
+                or (updated.get("primary_claim_source") or {}).get("text")
                 or updated.get("takeaway")
                 or ""
             ),
@@ -1754,6 +1927,7 @@ def _chapter_recap_slide(
     for slide in source_slides:
         slide_title = _clean_text(slide.get("title"))
         candidates = [
+            slide_title if _is_takeaway_title(slide_title) else "",
             _clean_text(slide.get("takeaway")),
             _clean_text(slide.get("key_message")),
             _clean_text((slide.get("primary_claim_source") or {}).get("text")),
@@ -1766,23 +1940,40 @@ def _chapter_recap_slide(
                     for item in block.get("items") or []
                 ],
             ])
-        candidate = next((
-            value for value in candidates
-            if value
-            and _normalize_title_match(value) != _normalize_title_match(slide_title)
-            and not _is_numbered_section_title(value)
-            and _normalize_title_match(value) not in _GENERIC_TITLES
-        ), "")
-        compact_candidate = _bounded_body_claim(candidate, limit=64)
-        normalized_candidate = _normalize_title_match(compact_candidate)
-        if compact_candidate and normalized_candidate not in {
-            _normalize_title_match(point) for point in points
-        }:
-            points.append(compact_candidate)
+        for candidate in candidates:
+            candidate = _strip_template_lead(candidate).strip()
+            if (
+                not candidate
+                or _is_numbered_section_title(candidate)
+                or _normalize_title_match(candidate) in _GENERIC_TITLES
+                or "？" in candidate
+                or "?" in candidate
+            ):
+                continue
+            compact_candidate = _bounded_body_claim(
+                candidate,
+                limit=64,
+                require_complete=True,
+            )
+            normalized_candidate = _normalize_title_match(compact_candidate)
+            if (
+                compact_candidate
+                and _is_complete_declarative_claim(compact_candidate)
+                and normalized_candidate not in {
+                    _normalize_title_match(point) for point in points
+                }
+            ):
+                points.append(compact_candidate)
+                break
         if len(points) == 4:
             break
     if not points:
-        points = [chapter.learning_objective or chapter.title]
+        fallback = _bounded_body_claim(
+            chapter.learning_objective or chapter.title,
+            limit=64,
+            require_complete=True,
+        )
+        points = [fallback or _bounded_title(chapter.title, limit=18)]
     return {
         "unit_id": f"slide:v5:chapter-recap:{chapter.chapter_id}",
         "position": 0,
@@ -2022,6 +2213,34 @@ def _next_source_topic(
     )
 
 
+def _is_standalone_micro_transition(slide: dict[str, Any]) -> bool:
+    if str(slide.get("scene_kind") or "") in {
+        "chapter_entry",
+        "course_synthesis",
+    }:
+        return False
+    unit_id = _clean_text(slide.get("unit_id"))
+    transition_identity = bool(
+        str(slide.get("scene_kind") or "") == "transition"
+        or str(slide.get("beat_role") or "") == "transition"
+        or unit_id.endswith(":transition")
+    )
+    visible_values = [
+        _clean_text(slide.get("title")),
+        _clean_text(slide.get("key_message")),
+        *[
+            _block_visible_text(block)
+            for block in slide.get("blocks") or []
+        ],
+    ]
+    visible_values = [value for value in visible_values if value]
+    return bool(
+        transition_identity
+        and visible_values
+        and all(_TRANSITION_TEXT_PATTERN.search(value) for value in visible_values)
+    )
+
+
 def split_mixed_intent_slides_v5(
     slides: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -2066,6 +2285,28 @@ def split_mixed_intent_slides_v5(
             "next_topic": _next_source_topic(source_slides, source_index),
         }
         result.append(slide)
+    filtered: list[dict[str, Any]] = []
+    for source_index, slide in enumerate(result):
+        if not _is_standalone_micro_transition(slide):
+            filtered.append(slide)
+            continue
+        next_topic = _next_source_topic(result, source_index)
+        if filtered:
+            previous = filtered[-1]
+            previous["quality"] = {
+                **(previous.get("quality") or {}),
+                "removed_redundant_transition": True,
+                "removed_transition_unit_ids": [
+                    *(
+                        (previous.get("quality") or {}).get(
+                            "removed_transition_unit_ids"
+                        ) or []
+                    ),
+                    _clean_text(slide.get("unit_id")),
+                ],
+                "next_topic": next_topic,
+            }
+    result = filtered
     for position, slide in enumerate(result):
         slide["position"] = position
     return result
@@ -2207,62 +2448,197 @@ def _practice_has_feedback(slide: dict[str, Any]) -> bool:
     )
 
 
+def _practice_block_values(block: dict[str, Any]) -> list[str]:
+    return [
+        _clean_text(value)
+        for value in (block.get("items") or [block.get("content")])
+        if _clean_text(value)
+    ]
+
+
+def _practice_question_ids(slide: dict[str, Any], count: int) -> list[str]:
+    unit_id = _clean_text(slide.get("unit_id")) or "practice"
+    return [
+        stable_hash(
+            {"unit_id": unit_id, "question_index": index},
+            prefix="question_",
+        )
+        for index in range(count)
+    ]
+
+
+def _feedback_blocks(slide: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        block
+        for block in slide.get("blocks") or []
+        if (
+            str(block.get("type") or "")
+            in {"answer", "feedback", "solution", "validation"}
+            or str((block.get("metadata") or {}).get("semantic_role") or "")
+            in {"answer", "feedback", "solution", "validation"}
+        )
+    ]
+
+
 def _enrich_practice_feedback_slides_v5(
     slides: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Add grounded evidence without pretending it is a direct answer."""
+    """Publish identity-bound answers or clearly labelled shared evidence."""
     result: list[dict[str, Any]] = []
-    for source in slides:
+    skipped_units: set[str] = set()
+    for source_index, source in enumerate(slides):
+        if _clean_text(source.get("unit_id")) in skipped_units:
+            continue
         slide = deepcopy(source)
         is_prompt = (
             str(slide.get("scene_kind") or "") == "practice_feedback"
             and str(slide.get("beat_role") or "") == "prompt"
         )
-        if is_prompt and not _practice_has_feedback(slide):
-            evidence, source_ids = _grounded_feedback_evidence(slide, result)
-            if evidence:
-                blocks = list(slide.get("blocks") or [])
-                prompt_values = []
-                if blocks:
-                    prompt = deepcopy(blocks[0])
-                    prompt_values = [
-                        _clean_text(value)
-                        for value in (
-                            prompt.get("items")
-                            or [prompt.get("content")]
-                        )
-                        if _clean_text(value)
-                    ]
-                    prompt["metadata"] = {
-                        **(prompt.get("metadata") or {}),
-                        "semantic_role": "prompt",
-                    }
-                    blocks[0] = prompt
-                pair_count = min(len(prompt_values), len(evidence))
-                paired_evidence = evidence[:pair_count] if pair_count else evidence[:1]
-                blocks.append({
-                    "block_id": f"{slide.get('unit_id') or 'practice'}:feedback",
-                    "type": "callout",
-                    "title": "判断依据",
-                    "content": "",
-                    "items": paired_evidence,
-                    "metadata": {
-                        "semantic_role": "feedback",
-                        "grounded": True,
-                        "direct_answer": False,
-                        "source_slide_ids": source_ids,
-                    },
-                })
-                slide["blocks"] = blocks
-                slide["quality"] = {
-                    **(slide.get("quality") or {}),
-                    "requested_layout": "practice-feedback",
-                    "grounded_feedback": True,
-                    "grounded_feedback_source_ids": source_ids,
-                    "feedback_mode": "shared_evidence",
-                    "feedback_pair_count": 0,
-                    "feedback_evidence_count": len(paired_evidence),
-                }
+        if not is_prompt:
+            result.append(slide)
+            continue
+
+        blocks = [deepcopy(block) for block in slide.get("blocks") or []]
+        prompt_index = next((
+            index
+            for index, block in enumerate(blocks)
+            if (
+                str(block.get("type") or "")
+                in {"exercise", "question", "prompt"}
+                or str((block.get("metadata") or {}).get("semantic_role") or "")
+                == "prompt"
+            )
+        ), 0 if blocks else -1)
+        if prompt_index < 0:
+            result.append(slide)
+            continue
+        prompt = deepcopy(blocks[prompt_index])
+        prompt_values = _practice_block_values(prompt)
+        question_ids = _practice_question_ids(slide, len(prompt_values))
+        prompt["metadata"] = {
+            **(prompt.get("metadata") or {}),
+            "semantic_role": "prompt",
+            "question_ids": question_ids,
+        }
+        blocks[prompt_index] = prompt
+
+        direct_blocks = _feedback_blocks({"blocks": blocks})
+        if not direct_blocks and source_index + 1 < len(slides):
+            candidate = slides[source_index + 1]
+            same_episode = bool(
+                _clean_text(candidate.get("episode_id"))
+                and _clean_text(candidate.get("episode_id"))
+                == _clean_text(slide.get("episode_id"))
+            )
+            is_answer_beat = (
+                str(candidate.get("scene_kind") or "") == "practice_feedback"
+                and str(candidate.get("beat_role") or "")
+                in {"answer", "feedback", "solution", "validation"}
+            )
+            if same_episode and is_answer_beat:
+                direct_blocks = [
+                    deepcopy(block)
+                    for block in candidate.get("blocks") or []
+                    if _practice_block_values(block)
+                ]
+                skipped_units.add(_clean_text(candidate.get("unit_id")))
+
+        direct_answers = [
+            value
+            for block in direct_blocks
+            for value in _practice_block_values(block)
+        ]
+        generated_answers = [
+            item
+            for item in (slide.get("quality") or {}).get(
+                "generated_practice_answers"
+            ) or []
+            if isinstance(item, dict)
+        ]
+        if len(generated_answers) == len(prompt_values) and all(
+            int(item.get("question_index") or 0) == index
+            and _clean_text(item.get("answer_text"))
+            for index, item in enumerate(generated_answers)
+        ):
+            direct_answers = [
+                _clean_text(item.get("answer_text"))
+                for item in generated_answers
+            ]
+            source_fragment_ids = list(dict.fromkeys(
+                fragment_id
+                for item in generated_answers
+                for fragment_id in item.get("supporting_fragment_ids") or []
+                if _clean_text(fragment_id)
+            ))
+            answer_mode = "llm_generated"
+        else:
+            source_fragment_ids = list(dict.fromkeys(
+                fragment_id
+                for block in direct_blocks
+                for fragment_id in (
+                    (block.get("metadata") or {}).get("source_fragment_ids")
+                    or []
+                )
+                if _clean_text(fragment_id)
+            ))
+            answer_mode = "source_extracted"
+
+        non_feedback_blocks = [
+            block for block in blocks if block not in direct_blocks
+        ]
+        if len(direct_answers) == len(prompt_values) and prompt_values:
+            non_feedback_blocks.append({
+                "block_id": f"{slide.get('unit_id') or 'practice'}:answers",
+                "type": "callout",
+                "title": "参考答案与判断依据",
+                "content": "",
+                "items": direct_answers,
+                "metadata": {
+                    "semantic_role": "answer",
+                    "direct_answer": True,
+                    "generation_mode": answer_mode,
+                    "answer_for_question_ids": question_ids,
+                    "source_fragment_ids": source_fragment_ids,
+                },
+            })
+            slide["blocks"] = non_feedback_blocks
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "requested_layout": "practice-feedback",
+                "feedback_mode": "paired",
+                "feedback_pair_count": len(prompt_values),
+                "feedback_evidence_count": 0,
+                "answer_generation_mode": answer_mode,
+            }
+            result.append(slide)
+            continue
+
+        evidence, source_ids = _grounded_feedback_evidence(slide, result)
+        if evidence:
+            paired_evidence = evidence[:len(prompt_values)] if prompt_values else evidence[:1]
+            non_feedback_blocks.append({
+                "block_id": f"{slide.get('unit_id') or 'practice'}:feedback",
+                "type": "callout",
+                "title": "判断依据",
+                "content": "",
+                "items": paired_evidence,
+                "metadata": {
+                    "semantic_role": "feedback",
+                    "grounded": True,
+                    "direct_answer": False,
+                    "source_slide_ids": source_ids,
+                },
+            })
+            slide["blocks"] = non_feedback_blocks
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "requested_layout": "practice-feedback",
+                "grounded_feedback": True,
+                "grounded_feedback_source_ids": source_ids,
+                "feedback_mode": "shared_evidence",
+                "feedback_pair_count": 0,
+                "feedback_evidence_count": len(paired_evidence),
+            }
         result.append(slide)
     return result
 
@@ -2417,6 +2793,12 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             _block_narrative_intent(block)
             for block in slide.get("blocks") or []
         }
+        if _is_standalone_micro_transition(slide):
+            issues.append({
+                "severity": "critical",
+                "code": "standalone_transition_page",
+                "page_id": slide.get("unit_id"),
+            })
         if {"question", "transition"} <= narrative_intents:
             issues.append({
                 "severity": "critical",
@@ -2450,6 +2832,59 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "code": "practice_feedback_missing_answer",
                 "page_id": slide.get("unit_id"),
             })
+        if (
+            str(slide.get("scene_kind") or "") == "practice_feedback"
+            and str(slide.get("beat_role") or "") == "prompt"
+            and str(quality.get("feedback_mode") or "") == "paired"
+        ):
+            prompt_block = next((
+                block
+                for block in slide.get("blocks") or []
+                if str((block.get("metadata") or {}).get("semantic_role") or "")
+                == "prompt"
+            ), None)
+            question_values = _practice_block_values(prompt_block or {})
+            question_ids = list(
+                ((prompt_block or {}).get("metadata") or {}).get("question_ids")
+                or []
+            )
+            answer_blocks = [
+                block
+                for block in slide.get("blocks") or []
+                if bool((block.get("metadata") or {}).get("direct_answer"))
+            ]
+            answer_values = [
+                value
+                for block in answer_blocks
+                for value in _practice_block_values(block)
+            ]
+            answer_for_ids = [
+                question_id
+                for block in answer_blocks
+                for question_id in (
+                    (block.get("metadata") or {}).get(
+                        "answer_for_question_ids"
+                    ) or []
+                )
+            ]
+            if (
+                not question_ids
+                or len(answer_for_ids) != len(question_ids)
+                or set(answer_for_ids) != set(question_ids)
+            ):
+                issues.append({
+                    "severity": "critical",
+                    "code": "practice_direct_answer_unbound",
+                    "page_id": slide.get("unit_id"),
+                })
+            if len(answer_values) != len(question_values):
+                issues.append({
+                    "severity": "critical",
+                    "code": "practice_direct_answer_count_mismatch",
+                    "page_id": slide.get("unit_id"),
+                    "question_count": len(question_values),
+                    "answer_count": len(answer_values),
+                })
         if resolved == "chapter-recap":
             if quality.get("navigation_only"):
                 issues.append({
@@ -2457,11 +2892,39 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "code": "recap_is_navigation_only",
                     "page_id": slide.get("unit_id"),
                 })
+            recap_items = [
+                _clean_text(item)
+                for block in slide.get("blocks") or []
+                for item in block.get("items") or []
+                if _clean_text(item)
+            ]
+            if any(
+                not _is_complete_declarative_claim(item)
+                for item in recap_items
+            ):
+                issues.append({
+                    "severity": "critical",
+                    "code": "recap_item_incomplete",
+                    "page_id": slide.get("unit_id"),
+                })
             recall_prompt = _clean_text(slide.get("key_message"))
             if "？" not in recall_prompt and "?" not in recall_prompt:
                 issues.append({
                     "severity": "critical",
                     "code": "recap_retrieval_prompt_missing",
+                    "page_id": slide.get("unit_id"),
+                })
+        if quality.get("concept_definition_expected"):
+            has_definition = any(
+                str((block.get("metadata") or {}).get("semantic_role") or "")
+                == "definition"
+                and bool(_clean_text(block.get("content")))
+                for block in slide.get("blocks") or []
+            )
+            if not has_definition:
+                issues.append({
+                    "severity": "critical",
+                    "code": "concept_definition_missing",
                     "page_id": slide.get("unit_id"),
                 })
         if resolved in {"balanced-two-column", "figure-text"} and occupied < 2:
@@ -2486,6 +2949,12 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "page_id": slide.get("unit_id"),
             })
         title = _clean_text(slide.get("title"))
+        if _is_incomplete_visible_claim(title):
+            issues.append({
+                "severity": "critical",
+                "code": "incomplete_title_claim",
+                "page_id": slide.get("unit_id"),
+            })
         if _RAW_TITLE_PATTERN.search(title):
             issues.append({
                 "severity": "critical",
@@ -2640,11 +3109,18 @@ def _v5_semantic_issue(issue: dict[str, Any]) -> bool:
             "ai_story_planner_failed",
             "ai_story_planner_unavailable",
             "knowledge_binding_missing",
+            "concept_definition_missing",
+            "incomplete_title_claim",
             "mixed_narrative_jobs",
             "official_source_revision_mismatch",
+            "practice_direct_answer_count_mismatch",
+            "practice_direct_answer_unbound",
+            "practice_feedback_missing_answer",
             "recap_is_navigation_only",
+            "recap_item_incomplete",
             "recap_retrieval_prompt_missing",
             "raw_source_sentence_as_title",
+            "standalone_transition_page",
             "title_body_duplication",
             "worked_example_semantics_missing",
         }
@@ -2935,6 +3411,10 @@ def compile_slide_deck_v5(
                 "requested_layout": scene_layout,
             }
     slides = _enrich_practice_feedback_slides_v5(slides)
+    slides = [
+        _normalize_concept_definition_slide_v5(slide)
+        for slide in slides
+    ]
     slides = [apply_page_contract_v5(slide) for slide in slides]
     slides = _assign_heading_modes_v5(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})

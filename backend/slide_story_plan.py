@@ -76,6 +76,12 @@ class ClaimSourceV2(_StrictModel):
     objective_id: str = ""
 
 
+class GeneratedPracticeAnswerV2(_StrictModel):
+    question_index: int = Field(ge=0)
+    answer_text: str = Field(min_length=2, max_length=140)
+    supporting_fragment_ids: list[str] = Field(min_length=1, max_length=8)
+
+
 class StoryBeatV2(_StrictModel):
     beat_id: str
     beat_role: str
@@ -97,6 +103,10 @@ class StoryBeatV2(_StrictModel):
     audience_facing_summary: str = Field(default="", max_length=180)
     copy_mode: StoryCopyModeV2 = "source_exact"
     copy_source_fragment_ids: list[str] = Field(default_factory=list, max_length=8)
+    generated_practice_answers: list[GeneratedPracticeAnswerV2] = Field(
+        default_factory=list,
+        max_length=4,
+    )
 
 
 class StoryBeatDirectiveV2(_StrictModel):
@@ -107,6 +117,10 @@ class StoryBeatDirectiveV2(_StrictModel):
     audience_facing_summary: str = Field(default="", max_length=180)
     copy_mode: StoryCopyModeV2 = "source_exact"
     supporting_fragment_ids: list[str] = Field(default_factory=list, max_length=8)
+    generated_practice_answers: list[GeneratedPracticeAnswerV2] = Field(
+        default_factory=list,
+        max_length=4,
+    )
 
     @model_validator(mode="after")
     def validate_copy_contract(self) -> "StoryBeatDirectiveV2":
@@ -991,6 +1005,48 @@ def validate_ai_story_plan_v2(
         raise ValueError("AI story plan duplicated source fragments")
 
 
+def _practice_questions_for_beat(
+    beat: StoryBeatV2,
+    fragment_catalog: dict[str, ContentFragmentV1],
+) -> list[str]:
+    questions: list[str] = []
+    fallback_values: list[str] = []
+    for fragment_id in beat.fragment_ids:
+        fragment = fragment_catalog.get(fragment_id)
+        if fragment is None or fragment.kind == "heading":
+            continue
+        value = " ".join(str(fragment.text or "").split())
+        if not value:
+            continue
+        fallback_values.append(value)
+        for sentence in re.findall(r"[^。！？!?\n]+[？?]", value):
+            question = sentence.strip()
+            if question and question not in questions:
+                questions.append(question)
+    if questions:
+        return questions[:4]
+    return fallback_values[:1]
+
+
+def _validate_generated_practice_answer_v2(
+    *,
+    answer: GeneratedPracticeAnswerV2,
+    question: str,
+    source_text: str,
+) -> None:
+    normalized_answer = " ".join(answer.answer_text.split())
+    normalized_question = " ".join(question.split()).rstrip("？?")
+    if normalized_answer.rstrip("。！？!?") == normalized_question:
+        raise ValueError("Generated practice answer merely repeats its question")
+    if normalized_answer.endswith(("？", "?")):
+        raise ValueError("Generated practice answer must be declarative")
+    _validate_grounded_audience_copy_v2(
+        title="",
+        summary=normalized_answer,
+        source_text=source_text,
+    )
+
+
 def _compatible_layout_options_v2(
     *,
     scene_kind: SlideSceneKind,
@@ -1087,8 +1143,19 @@ def _apply_chapter_directives_v2(
         item.beat_id: item
         for item in all_directives
     }
+    chapter_fragment_ids = {
+        fragment_id
+        for episode in chapter.episodes
+        for beat in episode.beats
+        for fragment_id in beat.fragment_ids
+    }
     episodes: list[TeachingEpisodeV2] = []
     for episode in chapter.episodes:
+        has_source_answer = any(
+            beat.beat_role in {"solution", "answer", "feedback", "validation"}
+            and bool(beat.fragment_ids)
+            for beat in episode.beats
+        )
         beats: list[StoryBeatV2] = []
         for beat in episode.beats:
             directive = directive_by_id.get(beat.beat_id)
@@ -1175,6 +1242,57 @@ def _apply_chapter_directives_v2(
                     "copy_mode": directive.copy_mode,
                     "copy_source_fragment_ids": supporting_ids,
                 })
+            if directive.generated_practice_answers:
+                if (
+                    episode.scene_kind != "practice_feedback"
+                    or beat.beat_role != "prompt"
+                    or has_source_answer
+                ):
+                    raise ValueError(
+                        "Generated practice answers are allowed only for an unanswered prompt"
+                    )
+                questions = _practice_questions_for_beat(
+                    beat,
+                    fragment_catalog,
+                )
+                answer_indexes = [
+                    item.question_index
+                    for item in directive.generated_practice_answers
+                ]
+                if answer_indexes != list(range(len(questions))):
+                    raise ValueError(
+                        "Generated practice answers must cover every question in order"
+                    )
+                generated_answers: list[GeneratedPracticeAnswerV2] = []
+                for answer in directive.generated_practice_answers:
+                    supporting_ids = list(dict.fromkeys(
+                        answer.supporting_fragment_ids
+                    ))
+                    if not set(supporting_ids) <= chapter_fragment_ids:
+                        raise ValueError(
+                            "Generated practice answer referenced evidence outside its chapter"
+                        )
+                    supporting_fragments = [
+                        fragment_catalog[fragment_id]
+                        for fragment_id in supporting_ids
+                        if fragment_id in fragment_catalog
+                    ]
+                    if len(supporting_fragments) != len(supporting_ids):
+                        raise ValueError(
+                            "Generated practice answer referenced unknown evidence"
+                        )
+                    _validate_generated_practice_answer_v2(
+                        answer=answer,
+                        question=questions[answer.question_index],
+                        source_text=" ".join(
+                            fragment.text for fragment in supporting_fragments
+                        ),
+                    )
+                    generated_answers.append(answer.model_copy(update={
+                        "answer_text": " ".join(answer.answer_text.split()),
+                        "supporting_fragment_ids": supporting_ids,
+                    }))
+                updates["generated_practice_answers"] = generated_answers
             beats.append(beat.model_copy(update=updates))
         episodes.append(episode.model_copy(update={"beats": beats}))
     return chapter.model_copy(update={"episodes": episodes})
@@ -1358,6 +1476,24 @@ async def plan_slide_story_v2(
                         for fragment_id in beat.fragment_ids
                         if fragment_id in fragment_catalog
                     ],
+                    "prompt_questions": (
+                        _practice_questions_for_beat(beat, fragment_catalog)
+                        if (
+                            episode.scene_kind == "practice_feedback"
+                            and beat.beat_role == "prompt"
+                        )
+                        else []
+                    ),
+                    "needs_generated_answers": bool(
+                        episode.scene_kind == "practice_feedback"
+                        and beat.beat_role == "prompt"
+                        and not any(
+                            candidate.beat_role
+                            in {"solution", "answer", "feedback", "validation"}
+                            and candidate.fragment_ids
+                            for candidate in episode.beats
+                        )
+                    ),
                 }
                 for episode in chapter.episodes
                 for beat in episode.beats
@@ -1382,6 +1518,9 @@ async def plan_slide_story_v2(
                     "preserve_chapter_order": True,
                     "preserve_proof_example_step_order": True,
                     "answers_must_follow_prompts": True,
+                    "missing_answers_may_be_synthesized_from_chapter_fragments": True,
+                    "generated_answers_must_cover_every_prompt_question": True,
+                    "generated_answers_require_supporting_fragment_ids": True,
                     "return_exactly_one_chapter": True,
                     "return_compact_directives_only": True,
                 },

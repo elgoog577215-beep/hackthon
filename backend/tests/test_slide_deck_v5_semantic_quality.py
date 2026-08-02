@@ -6,6 +6,7 @@ from slide_deck import SlideSpec
 from slide_deck_renderer import (
     _heading,
     _render_practice_feedback,
+    _uses_visual_directed_renderer,
     _worked_example_labels,
     validate_theme,
 )
@@ -14,10 +15,61 @@ from slide_deck_v5 import (
     _assign_heading_modes_v5,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
+    _normalize_concept_definition_slide_v5,
     apply_page_contract_v5,
+    compile_page_title_v5,
     split_mixed_intent_slides_v5,
     v5_contract_issues,
 )
+
+
+def test_standalone_micro_transition_is_folded_into_previous_page_metadata() -> None:
+    slides = split_mixed_intent_slides_v5([
+        {
+            "unit_id": "practice",
+            "position": 0,
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": "判断系统类型",
+            "blocks": [{
+                "block_id": "question",
+                "type": "exercise",
+                "content": "水壶盖子关闭时属于哪类系统？",
+            }],
+            "quality": {},
+        },
+        {
+            "unit_id": "slide:v4:0003:transition",
+            "position": 1,
+            "scene_kind": "transition",
+            "beat_role": "transition",
+            "title": "下一节：热力学第一定律",
+            "blocks": [{
+                "block_id": "transition",
+                "type": "statement",
+                "content": "下一节将深入探讨热力学第一定律。",
+            }],
+            "quality": {},
+        },
+        {
+            "unit_id": "next-concept",
+            "position": 2,
+            "scene_kind": "concept",
+            "title": "热力学第一定律描述能量守恒",
+            "blocks": [],
+            "quality": {},
+        },
+    ])
+
+    assert [slide["unit_id"] for slide in slides] == [
+        "practice",
+        "next-concept",
+    ]
+    assert slides[0]["quality"]["removed_redundant_transition"] is True
+    assert slides[0]["quality"]["removed_transition_unit_ids"] == [
+        "slide:v4:0003:transition"
+    ]
+    assert slides[0]["quality"]["next_topic"] == "热力学第一定律描述能量守恒"
 
 
 def test_mixed_question_and_transition_drops_redundant_navigation_page() -> None:
@@ -140,6 +192,119 @@ def test_derived_chapter_recap_compacts_long_claims_before_quality_gate() -> Non
         issue["code"] for issue in v5_contract_issues([recap])
     }
     assert all(len(item) <= 64 for item in recap["blocks"][0]["items"])
+    assert not {
+        "recap_item_incomplete",
+        "recap_retrieval_prompt_missing",
+    } & {issue["code"] for issue in v5_contract_issues([recap])}
+
+
+def test_concept_definition_is_promoted_and_generic_label_is_removed() -> None:
+    normalized = _normalize_concept_definition_slide_v5({
+        "unit_id": "state-variable",
+        "scene_kind": "concept",
+        "title": "状态变量是指只依赖于系统当前状态的",
+        "blocks": [
+            {
+                "block_id": "context",
+                "type": "rich_text",
+                "title": "核心概念与背景",
+                "content": "在热力学中，宏观性质通常分为两类物理量。",
+            },
+            {
+                "block_id": "definition-source",
+                "type": "rich_text",
+                "content": "状态变量是指只依赖于系统当前状态的物理量。",
+            },
+        ],
+        "quality": {},
+    })
+    contracted = apply_page_contract_v5(normalized)
+
+    assert contracted["blocks"][0]["title"] == "定义"
+    assert contracted["blocks"][0]["content"] == (
+        "状态变量是指只依赖于系统当前状态的物理量。"
+    )
+    assert contracted["blocks"][0]["metadata"]["semantic_role"] == "definition"
+    assert all(
+        block.get("title") != "核心概念与背景"
+        for block in contracted["blocks"]
+    )
+    assert contracted["title"] == "状态变量只取决于系统当前状态"
+    assert "concept_definition_missing" not in {
+        issue["code"] for issue in v5_contract_issues([contracted])
+    }
+
+
+def test_long_foundation_claim_is_compressed_without_mid_word_truncation() -> None:
+    title = compile_page_title_v5(
+        explicit_title=(
+            "热力学第零定律是热力学四大定律中最基础的一条，"
+            "它是温度这一物理量的定义基础。"
+        ),
+        primary_claim="",
+        body_text="",
+        fallback_context="",
+    )
+
+    assert title == "热力学第零定律奠定温度定义基础"
+    assert not title.endswith("最基")
+
+
+def test_recap_excludes_question_morphology_and_instructional_prompts() -> None:
+    chapter = DeckChapterV5(
+        chapter_id="chapter-declarative",
+        agenda_id="agenda-declarative",
+        position=0,
+        eyebrow="第一章",
+        title="系统分类",
+        driving_question="如何判断系统类型？",
+        learning_objective="能够根据交换关系判断系统类型。",
+    )
+    recap = _chapter_recap_slide(chapter, [
+        {
+            "unit_id": "question-source",
+            "title": "判断系统类型",
+            "takeaway": "水壶盖子关闭时应该归类为什么类型",
+            "blocks": [],
+        },
+        {
+            "unit_id": "instruction-source",
+            "title": "理解检查",
+            "takeaway": "考虑空调制冷的过程",
+            "blocks": [],
+        },
+        {
+            "unit_id": "declarative-source",
+            "title": "封闭系统不交换物质",
+            "takeaway": "封闭系统不与外界交换物质，但可以交换能量。",
+            "blocks": [],
+        },
+    ])
+
+    assert recap["blocks"][0]["items"] == [
+        "封闭系统不与外界交换物质，但可以交换能量。"
+    ]
+
+
+def test_optional_visual_does_not_override_v5_practice_composition() -> None:
+    unit = SlideSpec.model_validate({
+        "unit_id": "practice-with-visual",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice_feedback",
+        "title": "判断系统类型",
+        "blocks": [],
+        "visuals": [{
+            "visual_id": "optional-relation",
+            "kind": "relational_diagram",
+            "purpose": "structure",
+            "alt_text": "可选关系图",
+        }],
+        "quality": {"resolved_layout": "practice-feedback"},
+    })
+
+    assert _uses_visual_directed_renderer(unit, "practice-feedback") is False
+    assert _uses_visual_directed_renderer(unit, "figure-text") is True
 
 
 def test_worked_example_labels_must_be_explicit_or_neutral() -> None:
@@ -239,6 +404,94 @@ def test_prompt_only_practice_fails_the_v5_contract_without_feedback() -> None:
     }
 
 
+def test_generated_practice_answers_are_bound_to_stable_question_ids() -> None:
+    enriched = _enrich_practice_feedback_slides_v5([{
+        "unit_id": "generated-practice",
+        "position": 0,
+        "chapter_id": "chapter-1",
+        "scene_kind": "practice_feedback",
+        "beat_role": "prompt",
+        "title": "判断系统类型",
+        "blocks": [{
+            "block_id": "questions",
+            "type": "exercise",
+            "items": [
+                "水壶盖子关闭时属于哪类系统？",
+                "水壶盖子打开并有蒸汽逸出时呢？",
+            ],
+        }],
+        "quality": {
+            "generated_practice_answers": [
+                {
+                    "question_index": 0,
+                    "answer_text": "属于封闭系统，因为没有物质穿过边界。",
+                    "supporting_fragment_ids": ["definition-closed"],
+                },
+                {
+                    "question_index": 1,
+                    "answer_text": "属于开放系统，因为蒸汽会穿过边界。",
+                    "supporting_fragment_ids": ["definition-open"],
+                },
+            ],
+        },
+    }])
+    practice = apply_page_contract_v5(enriched[0])
+    prompt = practice["blocks"][0]
+    answer = practice["blocks"][1]
+
+    assert practice["quality"]["answer_generation_mode"] == "llm_generated"
+    assert answer["metadata"]["answer_for_question_ids"] == (
+        prompt["metadata"]["question_ids"]
+    )
+    assert answer["metadata"]["source_fragment_ids"] == [
+        "definition-closed",
+        "definition-open",
+    ]
+    assert not {
+        "practice_direct_answer_unbound",
+        "practice_direct_answer_count_mismatch",
+    } & {issue["code"] for issue in v5_contract_issues([practice])}
+
+
+def test_direct_answers_with_missing_question_identity_fail_the_contract() -> None:
+    practice = apply_page_contract_v5({
+        "unit_id": "unbound-practice",
+        "position": 0,
+        "scene_kind": "practice_feedback",
+        "beat_role": "prompt",
+        "title": "判断系统类型",
+        "blocks": [
+            {
+                "block_id": "questions",
+                "type": "exercise",
+                "items": ["问题一？", "问题二？"],
+                "metadata": {
+                    "semantic_role": "prompt",
+                    "question_ids": ["question-1", "question-2"],
+                },
+            },
+            {
+                "block_id": "answers",
+                "type": "callout",
+                "items": ["答案一。", "答案二。"],
+                "metadata": {
+                    "semantic_role": "answer",
+                    "direct_answer": True,
+                    "answer_for_question_ids": ["question-1"],
+                },
+            },
+        ],
+        "quality": {
+            "requested_layout": "practice-feedback",
+            "feedback_mode": "paired",
+        },
+    })
+
+    assert "practice_direct_answer_unbound" in {
+        issue["code"] for issue in v5_contract_issues([practice])
+    }
+
+
 def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
     slides = _assign_heading_modes_v5([
         {
@@ -327,6 +580,52 @@ def test_export_pairs_each_practice_question_with_its_answer() -> None:
             },
         ],
         "quality": {"resolved_layout": "practice-feedback"},
+    })
+
+    _render_practice_feedback(slide, unit, validate_theme("qizhi-classroom"))
+
+    text_shapes = {
+        shape.text: shape
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and shape.text
+    }
+    assert text_shapes["盖子关闭时属于哪类系统？"].top == text_shapes["封闭系统。"].top
+    assert text_shapes["盖子打开时呢？"].top == text_shapes["开放系统。"].top
+
+
+def test_export_pairs_answers_by_identity_even_when_answer_order_differs() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "identity-paired-practice",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice_feedback",
+        "eyebrow": "理解检查",
+        "title": "判断系统类型",
+        "blocks": [
+            {
+                "block_id": "questions",
+                "type": "exercise",
+                "items": ["盖子关闭时属于哪类系统？", "盖子打开时呢？"],
+                "metadata": {
+                    "question_ids": ["closed", "open"],
+                },
+            },
+            {
+                "block_id": "answers",
+                "type": "callout",
+                "items": ["开放系统。", "封闭系统。"],
+                "metadata": {
+                    "semantic_role": "answer",
+                    "answer_for_question_ids": ["open", "closed"],
+                },
+            },
+        ],
+        "quality": {
+            "resolved_layout": "practice-feedback",
+            "feedback_mode": "paired",
+        },
     })
 
     _render_practice_feedback(slide, unit, validate_theme("qizhi-classroom"))

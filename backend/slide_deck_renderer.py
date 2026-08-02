@@ -341,6 +341,26 @@ V5_LAYOUT_RENDERER_NAMES = {
     "course-synthesis": "_render_course_synthesis",
 }
 
+_VISUAL_DIRECTED_V5_LAYOUTS = {
+    "figure-text",
+    "diagram-full",
+    "formula-explanation",
+}
+
+
+def _uses_visual_directed_renderer(
+    unit: SlideSpec,
+    resolved_layout: str,
+) -> bool:
+    if not unit.visuals:
+        return False
+    if resolved_layout in _VISUAL_DIRECTED_V5_LAYOUTS:
+        return True
+    # Legacy decks predate the final V5 layout contract. Preserve their
+    # visual-first behavior while allowing every V5 semantic composition to
+    # remain authoritative over an optional visual anchor.
+    return resolved_layout not in V5_LAYOUT_RENDERER_NAMES
+
 
 def _render_slide(
     slide: Any,
@@ -356,7 +376,9 @@ def _render_slide(
         or unit.quality.get("requested_layout")
         or unit.layout
     )
-    if unit.visuals and resolved_layout not in {
+    if (
+        _uses_visual_directed_renderer(unit, resolved_layout)
+        and resolved_layout not in {
         "cover",
         "cover-minimal",
         "cover-editorial",
@@ -368,7 +390,8 @@ def _render_slide(
         "chapter-recap",
         "course-synthesis",
         "appendix",
-    }:
+        }
+    ):
         _render_visual_directed(slide, unit, theme, asset_repository)
         _footer(slide, unit, page_number, page_count, theme)
         return
@@ -1845,6 +1868,22 @@ def _render_practice_feedback(
         if value
     ]
     checks = checks[:3]
+    prompt_ids = [
+        str(value)
+        for value in (
+            (exercise.metadata if exercise else {}).get("question_ids") or []
+        )
+    ]
+    answers_by_question: dict[str, str] = {}
+    for block in feedback_blocks:
+        answer_ids = [
+            str(value)
+            for value in block.metadata.get("answer_for_question_ids") or []
+        ]
+        answer_values = list(block.items) if block.items else [block.content]
+        for answer_id, answer_value in zip(answer_ids, answer_values):
+            if answer_id and answer_value:
+                answers_by_question[answer_id] = answer_value
     if not prompts:
         prompts = [unit.key_message or unit.takeaway]
     prompts = [value for value in prompts if value]
@@ -1910,7 +1949,11 @@ def _render_practice_feedback(
     row_height = 4.48 / row_count
     for index, prompt in enumerate(prompts):
         y = 1.9 + index * row_height
-        answer = checks[index] if index < len(checks) else ""
+        question_id = prompt_ids[index] if index < len(prompt_ids) else ""
+        answer = (
+            answers_by_question.get(question_id, "")
+            or (checks[index] if index < len(checks) else "")
+        )
         _shape(
             slide,
             0.82,
@@ -2019,24 +2062,27 @@ def _render_chapter_recap(
             for block in unit.blocks
             if block.content
         ]
-    items = items[:5]
+    items = items[:4]
     if not items:
         _render_navigation_statement(slide, unit, theme)
         return
-    _shape(slide, 1.0, 3.1, 11.1, 0.035, theme["chart_bg"], radius=False)
-    count = len(items)
-    width = 10.9 / max(count, 1)
+    # A 2x2 memory grid keeps complete recap claims readable. The previous
+    # single horizontal rail squeezed four or five paragraphs into narrow
+    # columns and visually clipped otherwise complete source text.
     accents = (theme["accent"], theme["green"], theme["amber"])
     for index, item in enumerate(items):
-        x = 1.0 + index * width
+        column = index % 2
+        row = index // 2
+        x = 0.98 + column * 5.78
+        y = 1.82 + row * 1.82
         accent = accents[index % len(accents)]
-        _shape(slide, x, 2.83, 0.56, 0.56, accent, radius=True)
+        _shape(slide, x, y, 0.58, 0.58, accent, radius=True)
         _text(
             slide,
             str(index + 1),
             x,
-            3.0,
-            0.56,
+            y + 0.17,
+            0.58,
             0.18,
             11,
             "FFFFFF",
@@ -2046,22 +2092,22 @@ def _render_chapter_recap(
         _text(
             slide,
             item,
-            x - 0.02,
-            3.68,
-            max(1.65, width - 0.22),
-            1.25,
-            16,
+            x + 0.82,
+            y + 0.03,
+            4.62,
+            1.35,
+            17 if len(item) <= 72 else 16,
             theme["ink"],
             bold=True,
         )
     takeaway = unit.key_message or unit.takeaway
     if takeaway:
-        _shape(slide, 0.98, 5.5, 0.08, 0.72, theme["accent"], radius=False)
+        _shape(slide, 0.98, 5.62, 0.08, 0.62, theme["accent"], radius=False)
         _text(
             slide,
             takeaway,
             1.32,
-            5.58,
+            5.66,
             10.65,
             0.52,
             16,

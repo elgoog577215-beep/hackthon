@@ -492,6 +492,155 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.text()).not.toContain('回答与判断依据')
   })
 
+  it('pairs direct answers by question identity instead of array position', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '判断系统类型',
+          blocks: [
+            {
+              block_id: 'questions',
+              type: 'exercise',
+              items: ['盖子关闭时属于哪类系统？', '盖子打开时呢？'],
+              metadata: {
+                semantic_role: 'prompt',
+                question_ids: ['closed', 'open'],
+              },
+            },
+            {
+              block_id: 'answers',
+              type: 'callout',
+              items: ['开放系统。', '封闭系统。'],
+              metadata: {
+                semantic_role: 'answer',
+                direct_answer: true,
+                answer_for_question_ids: ['open', 'closed'],
+              },
+            },
+          ],
+          quality: {
+            requested_layout: 'practice-feedback',
+            resolved_layout: 'practice-feedback',
+            feedback_mode: 'paired',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: {
+            props: ['content'],
+            template: '<span class="markdown-value">{{ content }}</span>',
+          },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    const pairs = wrapper.findAll('.deck-practice-feedback__pair')
+    expect(pairs[0]!.text()).toContain('盖子关闭时属于哪类系统？')
+    expect(pairs[0]!.text()).toContain('封闭系统。')
+    expect(pairs[0]!.text()).not.toContain('开放系统。')
+    expect(pairs[1]!.text()).toContain('盖子打开时呢？')
+    expect(pairs[1]!.text()).toContain('开放系统。')
+  })
+
+  it('keeps the V5 question-answer composition when an optional visual exists', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '判断系统类型',
+          visuals: [{
+            visual_id: 'optional-relation',
+            kind: 'relational_diagram',
+            purpose: 'structure',
+            alt_text: '可选关系图',
+          }],
+          blocks: [
+            {
+              block_id: 'questions',
+              type: 'exercise',
+              items: ['盖子关闭时属于哪类系统？'],
+              metadata: {
+                semantic_role: 'prompt',
+                question_ids: ['closed'],
+              },
+            },
+            {
+              block_id: 'answers',
+              type: 'callout',
+              items: ['封闭系统。'],
+              metadata: {
+                semantic_role: 'answer',
+                answer_for_question_ids: ['closed'],
+              },
+            },
+          ],
+          quality: {
+            requested_layout: 'practice-feedback',
+            resolved_layout: 'practice-feedback',
+            feedback_mode: 'paired',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: {
+            props: ['content'],
+            template: '<span>{{ content }}</span>',
+          },
+          SlideVisualRenderer: { template: '<span class="visual-renderer" />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-practice-feedback').exists()).toBe(true)
+    expect(wrapper.find('.deck-canvas__story').exists()).toBe(false)
+    expect(wrapper.text()).toContain('封闭系统。')
+  })
+
+  it('caps chapter recap at four complete claims in a two-column grid', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'recap',
+          title: '本章必须带走的关键判断',
+          blocks: [{
+            block_id: 'recap',
+            type: 'process',
+            items: ['结论一。', '结论二。', '结论三。', '结论四。', '不应显示。'],
+          }],
+          quality: {
+            requested_layout: 'chapter-recap',
+            resolved_layout: 'chapter-recap',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: {
+            props: ['content'],
+            template: '<span>{{ content }}</span>',
+          },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.deck-chapter-recap article')).toHaveLength(4)
+    expect(wrapper.text()).not.toContain('不应显示。')
+    expect(slideCanvasSource).toMatch(
+      /\.deck-chapter-recap\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/s,
+    )
+    expect(slideCanvasSource).toMatch(
+      /\.deck-editorial-body__group ul\s*\{[^}]*padding-left:0[^}]*list-style:none/s,
+    )
+  })
+
   it('renders editorial blocks as one flat composition instead of separate cards', () => {
     const wrapper = mount(SlideCanvas, {
       props: {

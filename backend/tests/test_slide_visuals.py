@@ -26,6 +26,7 @@ from slide_visuals import (
     VisualAnchorV1,
     _source_clauses,
     _semantic_relation_spec,
+    _visual_anchor,
     deterministic_visual_plan,
     plan_slide_visuals,
     rebalance_visual_plan_pages,
@@ -594,6 +595,100 @@ def test_visual_integrity_rejects_visible_raw_mermaid() -> None:
     })
 
     assert any(issue["code"] == "raw_mermaid_visible" for issue in issues)
+
+
+def test_hierarchy_diagram_keeps_every_required_source_sibling() -> None:
+    page = SimpleNamespace(
+        page_id="system-classification",
+        narrative_role="concept",
+        layout="concept",
+    )
+    fragments = [
+        SimpleNamespace(
+            fragment_id="heading",
+            kind="heading",
+            text="热力学系统的三种分类",
+            source_kind="text",
+            asset_refs=[],
+        ),
+        SimpleNamespace(
+            fragment_id="isolated",
+            kind="list_item",
+            text="孤立系统（Isolated System）：既不与外界交换物质，也不交换能量。",
+            source_kind="text",
+            asset_refs=[],
+        ),
+        SimpleNamespace(
+            fragment_id="closed",
+            kind="list_item",
+            text="封闭系统（Closed System）：不与外界交换物质，但可以交换能量（如热量）。",
+            source_kind="text",
+            asset_refs=[],
+        ),
+        SimpleNamespace(
+            fragment_id="open",
+            kind="list_item",
+            text="开放系统（Open System）：既可以交换物质，也可以交换能量。",
+            source_kind="text",
+            asset_refs=[],
+        ),
+    ]
+
+    visual = _visual_anchor(page, fragments, 0).model_dump(mode="json")
+    node_source_ids = {
+        source_id
+        for node in visual["nodes"]
+        for source_id in node["source_fragment_ids"]
+    }
+
+    assert visual["kind"] == "relational_diagram"
+    assert {"isolated", "closed", "open"} <= node_source_ids
+    assert set(visual["parameters"]["required_node_fragment_ids"]) == {
+        "heading",
+        "isolated",
+        "closed",
+        "open",
+    }
+    assert any("封闭系统" in node["label"] for node in visual["nodes"])
+
+
+def test_visual_integrity_blocks_a_diagram_that_loses_required_sibling() -> None:
+    issues = visual_integrity_issues({
+        "fragment_manifest": [
+            {"fragment_id": "heading", "kind": "heading", "text": "三类系统"},
+            {"fragment_id": "isolated", "kind": "list_item", "text": "孤立系统"},
+            {"fragment_id": "closed", "kind": "list_item", "text": "封闭系统"},
+            {"fragment_id": "open", "kind": "list_item", "text": "开放系统"},
+        ],
+        "visual_asset_manifest": [],
+        "slides": [{
+            "unit_id": "system-classification",
+            "quality": {
+                "fragment_ids": ["heading", "isolated", "closed", "open"],
+            },
+            "blocks": [],
+            "visuals": [{
+                "kind": "relational_diagram",
+                "source_fragment_ids": ["heading", "isolated", "closed", "open"],
+                "nodes": [
+                    {"label": "三类系统", "source_fragment_ids": ["heading"]},
+                    {"label": "孤立系统", "source_fragment_ids": ["isolated"]},
+                    {"label": "开放系统", "source_fragment_ids": ["open"]},
+                ],
+                "parameters": {
+                    "required_node_fragment_ids": [
+                        "heading", "isolated", "closed", "open",
+                    ],
+                },
+            }],
+        }],
+    })
+
+    missing = next(
+        issue for issue in issues
+        if issue["code"] == "diagram_required_item_missing"
+    )
+    assert missing["missing_fragment_ids"] == ["closed"]
 
 
 @pytest.mark.asyncio
