@@ -50,7 +50,10 @@ export interface TeachingRepresentationBuildEvent {
   event: string
   progress?: number
   stage?: string
+  code?: string
   message?: string
+  action?: string
+  retryable?: boolean
   slide?: Record<string, any>
   quality?: Record<string, any>
   build?: Record<string, any>
@@ -63,32 +66,138 @@ export interface TeachingRepresentationBuildEvent {
   total?: number
 }
 
-function normalizedBuildError(value: unknown, quality?: Record<string, any>) {
-  const error = String(value || '')
-  const normalizedError = error.toLowerCase()
+export interface TeachingRepresentationBuildFailure {
+  code: string
+  message: string
+  action?: string
+  retryable: boolean
+}
+
+export class TeachingRepresentationBuildError extends Error {
+  readonly failure: TeachingRepresentationBuildFailure
+
+  constructor(failure: TeachingRepresentationBuildFailure) {
+    super(failure.message)
+    this.name = 'TeachingRepresentationBuildError'
+    this.failure = failure
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
+const COURSE_LOGIC_FAILURES: Record<string, Omit<TeachingRepresentationBuildFailure, 'code'>> = {
+  course_teaching_plan_not_ready: {
+    message: '当前课程尚未完成正式教学计划，请先补全课程逻辑。',
+    action: 'upgrade_course_logic',
+    retryable: false,
+  },
+  course_knowledge_base_not_ready: {
+    message: '当前课程尚未建立可用的正式知识库，请先补全课程逻辑。',
+    action: 'upgrade_course_logic',
+    retryable: false,
+  },
+  course_coherence_contract_not_ready: {
+    message: '当前课程尚未通过课程连贯性检查，请先补全课程逻辑。',
+    action: 'upgrade_course_logic',
+    retryable: false,
+  },
+  course_teaching_plan_incomplete: {
+    message: '正式教学计划缺少部分章节的教学契约，请重新补全课程逻辑。',
+    action: 'upgrade_course_logic',
+    retryable: false,
+  },
+}
+
+function inferredCourseLogicCode(value: string) {
+  const normalized = value.toLowerCase()
+  if (
+    normalized.includes('completed official course teaching plan')
+    || normalized.includes('course_teaching_plan_not_ready')
+  ) return 'course_teaching_plan_not_ready'
+  if (
+    normalized.includes('active official course knowledge base')
+    || normalized.includes('course_knowledge_base_not_ready')
+  ) return 'course_knowledge_base_not_ready'
+  if (
+    normalized.includes('active course coherence contract')
+    || normalized.includes('course_coherence_contract_not_ready')
+  ) return 'course_coherence_contract_not_ready'
+  if (
+    normalized.includes('teaching plan has no section contract')
+    || normalized.includes('course_teaching_plan_incomplete')
+  ) return 'course_teaching_plan_incomplete'
+  return ''
+}
+
+export function normalizedBuildFailure(
+  value: unknown,
+  quality?: Record<string, any>,
+): TeachingRepresentationBuildFailure {
+  const explicit = value instanceof TeachingRepresentationBuildError
+    ? value.failure
+    : value && typeof value === 'object' && !(value instanceof Error)
+      ? value as Partial<TeachingRepresentationBuildFailure>
+      : {}
+  const rawMessage = String(
+    explicit.message
+    || (value instanceof Error ? value.message : typeof value === 'string' ? value : '')
+    || '',
+  )
   const blockerCodes = (quality?.blockers || []).map(
     (item: Record<string, any>) => String(item?.code || ''),
   )
+  const explicitCode = String(explicit.code || '')
+  const courseLogicCode = (
+    (explicitCode && COURSE_LOGIC_FAILURES[explicitCode] ? explicitCode : '')
+    || blockerCodes.find((code: string) => COURSE_LOGIC_FAILURES[code])
+    || inferredCourseLogicCode(`${explicitCode} ${rawMessage}`)
+  )
+  if (courseLogicCode) {
+    const preset = COURSE_LOGIC_FAILURES[courseLogicCode]!
+    return {
+      code: courseLogicCode,
+      message: explicit.message ? String(explicit.message) : preset.message,
+      action: explicit.action ? String(explicit.action) : preset.action,
+      retryable: explicit.retryable ?? false,
+    }
+  }
+  const normalizedError = `${explicitCode} ${rawMessage}`.toLowerCase()
   if (normalizedError.includes('split_required') || blockerCodes.includes('deck_split_required')) {
-    return 'deck_split_required'
+    return { code: 'deck_split_required', message: rawMessage || '课件需要拆分后生成。', retryable: false }
   }
   if (
     normalizedError.includes('no capacity-safe layout')
     || normalizedError.includes('layout_capacity_failed')
   ) {
-    return 'layout_capacity_failed'
+    return { code: 'layout_capacity_failed', message: rawMessage || '课件内容超过版式容量。', retryable: true }
   }
-  if (normalizedError.includes('quality_gate_failed') || blockerCodes.length) {
-    return 'quality_gate_failed'
+  if (
+    normalizedError.includes('quality_gate_failed')
+    || blockerCodes.length
+    || quality?.passed === false
+  ) {
+    return { code: 'quality_gate_failed', message: rawMessage || '课件未通过质量检查。', retryable: true }
   }
-  return error || 'Teaching representation build failed'
+  const code = explicitCode || 'teaching_representation_build_failed'
+  return {
+    code,
+    message: explicit.message
+      ? String(explicit.message)
+      : '课件生成遇到异常，请稍后重试。',
+    action: explicit.action ? String(explicit.action) : undefined,
+    retryable: explicit.retryable ?? true,
+  }
 }
 
-function terminalPipelineFailureQuality(message: unknown) {
+function terminalPipelineFailureQuality(
+  message: unknown,
+  failure = normalizedBuildFailure(message),
+) {
   const issue = {
     severity: 'critical',
-    code: 'slide_variant_rebuild_failed',
-    message: String(message || 'Slide deck generation failed before final quality validation'),
+    code: failure.code === 'teaching_representation_build_failed'
+      ? 'slide_variant_rebuild_failed'
+      : failure.code,
+    message: failure.message,
   }
   return {
     passed: false,
@@ -102,7 +211,17 @@ export async function consumeTeachingRepresentationStream(
   response: Response,
   onEvent: (event: TeachingRepresentationBuildEvent) => void,
 ) {
-  if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
+  if (!response.ok) {
+    const body = await response.text()
+    let payload: any
+    try {
+      payload = JSON.parse(body)
+    } catch {
+      throw new Error(body || `HTTP ${response.status}`)
+    }
+    const detail = payload?.detail || payload?.error || payload
+    throw new TeachingRepresentationBuildError(normalizedBuildFailure(detail))
+  }
   if (!response.body) throw new Error('Teaching representation stream is unavailable')
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -144,6 +263,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     buildProgress: 0,
     buildStage: '',
     buildError: '',
+    buildFailure: null as TeachingRepresentationBuildFailure | null,
     buildTaskId: '',
     buildPaused: false,
     loading: false,
@@ -184,6 +304,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildProgress = 0
       this.buildStage = ''
       this.buildError = ''
+      this.buildFailure = null
       this.buildTaskId = ''
       this.buildPaused = false
       this.loading = false
@@ -229,6 +350,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.registry = response.data.registry
         this.selectedId = ''
         this.selectedSpec = null
+        this.buildError = ''
+        this.buildFailure = null
       }
       return response.data
     },
@@ -251,6 +374,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildProgress = 0
       this.buildStage = 'planning'
       this.buildError = ''
+      this.buildFailure = null
       this.buildPaused = false
       this.liveSlides = []
       this.draftSlideQuality = null
@@ -326,30 +450,45 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.event === 'render_review') this.buildStage = 'render_review'
           if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
           if (event.event === 'build_blocked') {
+            const failure = normalizedBuildFailure(event, event.quality)
             this.settleFailedSlideDraft(event.quality)
-            this.buildError = normalizedBuildError(
-              event.message || 'quality_gate_failed',
-              event.quality,
-            )
+            this.buildFailure = failure
+            this.buildError = failure.code
           }
           if (event.event === 'build_failed') {
-            const terminalQuality = event.quality || terminalPipelineFailureQuality(event.message)
+            const failure = normalizedBuildFailure(event, event.quality)
+            const terminalQuality = event.quality || terminalPipelineFailureQuality(event.message, failure)
             this.settleFailedSlideDraft(terminalQuality)
-            this.buildError = normalizedBuildError(event.message, terminalQuality)
+            this.buildFailure = failure
+            this.buildError = failure.code
           }
           if (event.event === 'build_complete') completedRef.value = event
           if (
             event.event === 'build_complete'
             && String(event.build?.status || '').startsWith('failed')
           ) {
-            this.settleFailedSlideDraft(event.quality)
-            this.buildError = normalizedBuildError(
-              event.message || 'quality_gate_failed',
-              event.quality,
+            const completionFailure = (
+              event.code
+              || event.message
+              || event.quality
             )
+              ? event
+              : this.buildFailure || {
+                  code: 'quality_gate_failed',
+                  message: '课件未通过质量检查。',
+                }
+            const failure = normalizedBuildFailure(
+              completionFailure,
+              event.quality || this.draftSlideQuality || undefined,
+            )
+            this.settleFailedSlideDraft(event.quality)
+            this.buildFailure = failure
+            this.buildError = failure.code
           }
           if (event.event === 'error') {
-            this.buildError = normalizedBuildError(event.message, event.quality)
+            const failure = normalizedBuildFailure(event, event.quality)
+            this.buildFailure = failure
+            this.buildError = failure.code
           }
           if (event.event === 'paused') this.buildPaused = true
         })
@@ -366,6 +505,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.slideQuality = this.publishedSlideQuality
         this.buildProgress = 100
         this.buildStage = 'complete'
+        this.buildFailure = null
         const available = this.representations
         const requestedVariant = options ? `${options.mode}:${options.theme}` : ''
         const requestedRepresentation = requestedVariant
@@ -386,7 +526,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         return completed
       } catch (error) {
         if (isCurrentAttempt()) {
-          this.buildError = error instanceof Error ? error.message : String(error)
+          const failure = normalizedBuildFailure(error, this.draftSlideQuality || undefined)
+          this.buildFailure = failure
+          this.buildError = failure.code
         }
         throw error
       } finally {
@@ -441,23 +583,29 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
       this.buildStage = String(task.phase || task.current_phase || this.buildStage)
       if (status === 'failed') {
+        const failure = normalizedBuildFailure(
+          task.error_detail || task.error || task.message,
+          task.result?.quality || task.quality,
+        )
         const quality = (
           task.result?.quality
           || task.quality
-          || terminalPipelineFailureQuality(task.message || task.error)
+          || terminalPipelineFailureQuality(task.message || task.error, failure)
         )
         this.settleFailedSlideDraft(quality)
         this.building = false
         this.buildPaused = false
         this.buildProgress = Math.max(this.buildProgress, 100)
         this.buildStage = 'build_blocked'
-        this.buildError = normalizedBuildError(task.error || task.message, quality)
+        this.buildFailure = failure
+        this.buildError = failure.code
       } else if (status === 'completed') {
         this.building = false
         this.buildPaused = false
         this.buildProgress = 100
         this.buildStage = 'complete'
         this.buildError = ''
+        this.buildFailure = null
       } else if (status === 'paused') {
         this.building = false
         this.buildPaused = true
@@ -467,6 +615,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.buildPaused = false
         this.buildStage = 'cancelled'
         this.buildError = ''
+        this.buildFailure = null
       } else if (['pending', 'running'].includes(status)) {
         this.building = true
         this.buildPaused = false
@@ -555,6 +704,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildPaused = false
       this.building = true
       this.buildError = ''
+      this.buildFailure = null
       this.buildStage = 'resuming'
       try {
         for (;;) {
@@ -580,7 +730,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           await new Promise(resolve => window.setTimeout(resolve, 400))
         }
       } catch (error) {
-        this.buildError = error instanceof Error ? error.message : String(error)
+        const failure = normalizedBuildFailure(error, this.draftSlideQuality || undefined)
+        this.buildFailure = failure
+        this.buildError = failure.code
         throw error
       } finally {
         this.building = false
@@ -593,6 +745,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       // and overwrite the intentional cancelled state with a build error.
       this.buildAttemptToken += 1
       this.buildError = ''
+      this.buildFailure = null
       await http.delete(`/api/tasks/${this.buildTaskId}`)
       this.buildTaskId = ''
       this.buildPaused = false

@@ -109,6 +109,37 @@ describe('teaching representation progressive build', () => {
     })
   })
 
+  it('preserves an actionable course-logic blocker from a 409 preflight response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      detail: {
+        code: 'course_teaching_plan_not_ready',
+        message: '当前课程尚未完成正式教学计划，请先补全课程逻辑。',
+        action: 'upgrade_course_logic',
+        retryable: false,
+      },
+    }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+    const store = useTeachingRepresentationsStore()
+
+    await expect(store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      forceRebuild: true,
+    })).rejects.toThrow('当前课程尚未完成正式教学计划')
+
+    expect(store.buildError).toBe('course_teaching_plan_not_ready')
+    expect(store.buildFailure).toEqual({
+      code: 'course_teaching_plan_not_ready',
+      message: '当前课程尚未完成正式教学计划，请先补全课程逻辑。',
+      action: 'upgrade_course_logic',
+      retryable: false,
+    })
+    expect(store.liveSlides).toEqual([])
+    expect(store.slidePreviewSource).toBe('published')
+  })
+
   it('selects the first generated bundle part for the requested mode and theme', async () => {
     const registry = {
       representations: [

@@ -151,6 +151,7 @@ from slide_deck_v4 import (
 )
 from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
 from slide_story_plan import (
+    SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
     compile_slide_story_plan_v2,
     plan_slide_story_v2,
@@ -3376,7 +3377,17 @@ class TaskManager:
                     task_id, exc, task.get("status"),
                 )
             else:
-                await self._update_task_status(task_id, "failed", error=str(exc))
+                error_detail = (
+                    exc.public_detail()
+                    if isinstance(exc, SlideStoryPlanPrerequisiteError)
+                    else None
+                )
+                await self._update_task_status(
+                    task_id,
+                    "failed",
+                    error=str(exc),
+                    error_detail=error_detail,
+                )
                 await self._record_workspace_failure(task_id, str(exc))
         finally:
             self._running_job_tasks.pop(task_id, None)
@@ -5330,6 +5341,7 @@ class TaskManager:
         status: str,
         message: str | None = None,
         error: str | None = None,
+        error_detail: dict[str, Any] | None = None,
         completed_nodes: int | None = None,
         total_nodes: int | None = None,
     ) -> None:
@@ -5343,6 +5355,8 @@ class TaskManager:
                 task["message"] = message
             if error is not None:
                 task["error"] = error
+            if error_detail is not None:
+                task["error_detail"] = deepcopy(error_detail)
             if completed_nodes is not None:
                 task["completed_nodes"] = completed_nodes
             if total_nodes is not None:

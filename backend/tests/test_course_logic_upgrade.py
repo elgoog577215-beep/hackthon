@@ -115,7 +115,14 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
         headers=headers,
     )
     assert before.status_code == 200
-    assert before.json()["registry"]["slide_deck_target_schema"] == "blocked"
+    before_registry = before.json()["registry"]
+    assert before_registry["slide_deck_target_schema"] == "blocked"
+    assert before_registry["slide_deck_v4_blocker_details"] == [{
+        "code": "course_teaching_plan_not_ready",
+        "message": "当前课程尚未完成正式教学计划，请先补全课程逻辑。",
+        "action": "upgrade_course_logic",
+        "retryable": False,
+    }]
 
     response = client.post(
         "/api/courses/course-legacy-logic/"
@@ -150,6 +157,67 @@ def test_upgrade_course_logic_unlocks_v4_without_rewriting_document(
     assert repeated.status_code == 200
     assert repeated.json()["already_ready"] is True
     assert storage.save_count == 1
+
+
+def test_variant_build_returns_actionable_course_logic_blocker_before_starting_task(
+    tmp_path,
+    monkeypatch,
+):
+    from routers import teaching_representations as representation_router
+
+    course = migrated_course_missing_logic()
+    course_repository = CourseDocumentRepository(MemoryStorage(course))
+    representation_repository = TeachingRepresentationRepository(
+        tmp_path / "representations"
+    )
+    task_manager = object()
+
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_document_repository",
+        lambda: course_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: representation_repository,
+    )
+    monkeypatch.setattr(
+        representation_router,
+        "get_task_manager_optional",
+        lambda: task_manager,
+    )
+
+    async def existing_course(course_id: str):
+        return course_repository.load_course_view(course_id)
+
+    monkeypatch.setattr(
+        representation_router,
+        "get_course_or_404",
+        existing_course,
+    )
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/courses/course-legacy-logic/"
+        "teaching-representations/slide-decks/build/stream",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "mode": "teaching",
+            "theme": "qizhi-classroom",
+            "force_rebuild": True,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "course_teaching_plan_not_ready",
+        "message": "当前课程尚未完成正式教学计划，请先补全课程逻辑。",
+        "action": "upgrade_course_logic",
+        "retryable": False,
+    }
 
 
 def test_upgrade_rejects_missing_semantics_without_mutating_input():

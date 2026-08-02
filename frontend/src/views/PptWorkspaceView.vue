@@ -72,6 +72,9 @@
         :progress="store.buildProgress"
         :stage="store.buildStage"
         :error="store.buildError"
+        :build-failure="effectiveBuildFailure"
+        :logic-upgrading="logicUpgrading"
+        :logic-upgrade-error="logicUpgradeError"
         :quality="displayQuality"
         :preview-source="store.slidePreviewSource"
         :mode="selectedMode"
@@ -83,6 +86,7 @@
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
+        @upgrade-course-logic="upgradeCourseLogic"
         @variant-change="selectVariant"
         @bundle-part-change="selectBundlePart"
         @open-materials="openMaterials"
@@ -138,8 +142,16 @@ import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
-import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
-import type { SlideDeckMode, SlideDeckTheme, TeachingRepresentation } from '../stores/teachingRepresentations'
+import {
+  normalizedBuildFailure,
+  useTeachingRepresentationsStore,
+} from '../stores/teachingRepresentations'
+import type {
+  SlideDeckMode,
+  SlideDeckTheme,
+  TeachingRepresentation,
+  TeachingRepresentationBuildFailure,
+} from '../stores/teachingRepresentations'
 import type { CourseDocumentEnvelope } from '../stores/types'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import http from '../utils/http'
@@ -272,8 +284,23 @@ const displayQuality = computed(() => (
     ? store.draftSlideQuality
     : store.slideQuality
 ))
+const registryCourseLogicFailure = computed<TeachingRepresentationBuildFailure | null>(() => {
+  const detail = store.registry?.slide_deck_v4_blocker_details?.[0]
+  if (detail) return normalizedBuildFailure(detail)
+  const legacy = store.registry?.slide_deck_v4_blockers?.[0]
+  if (legacy) return normalizedBuildFailure(legacy)
+  if (slideEngineStatus.value === 'blocked') {
+    return normalizedBuildFailure({ code: 'course_teaching_plan_not_ready' })
+  }
+  return null
+})
+const effectiveBuildFailure = computed(() => (
+  store.buildFailure || registryCourseLogicFailure.value
+))
 const buildErrorLabel = computed(() => (
-  store.buildError === 'deck_split_required'
+  effectiveBuildFailure.value?.action === 'upgrade_course_logic'
+    ? effectiveBuildFailure.value.message
+    : store.buildError === 'deck_split_required'
     ? '课程内容过多，预计超过 300 页。请按章节拆分课程后再生成 PPT。'
     : store.buildError === 'layout_capacity_failed'
       ? '课程内容排版失败，系统未发布不完整课件。请重试；若仍失败，请拆分过长的代码、公式或列表。'
@@ -442,6 +469,10 @@ async function upgradeCourseLogic() {
 
 async function rebuild() {
   if (!courseId.value || store.building) return
+  if (slideEngineStatus.value === 'blocked') {
+    logicUpgradeError.value = effectiveBuildFailure.value?.message || '当前课程逻辑尚未就绪。'
+    return
+  }
   try {
     if (store.buildPaused) await store.resumeBuild()
     else await store.buildSlideDeckVariant(courseId.value, {
@@ -474,6 +505,11 @@ function closeGenerator() {
 
 async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   if (!courseId.value || store.building) return
+  if (slideEngineStatus.value === 'blocked') {
+    generatorOpen.value = false
+    logicUpgradeError.value = effectiveBuildFailure.value?.message || '当前课程逻辑尚未就绪。'
+    return
+  }
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
   generatorOpen.value = false
@@ -498,6 +534,10 @@ async function selectVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   const cached = preferredVariantRepresentation()
   if (cached) {
     await store.select(cached.representation_id)
+    return
+  }
+  if (slideEngineStatus.value === 'blocked') {
+    logicUpgradeError.value = effectiveBuildFailure.value?.message || '当前课程逻辑尚未就绪。'
     return
   }
   forceGeneratorBuild.value = false

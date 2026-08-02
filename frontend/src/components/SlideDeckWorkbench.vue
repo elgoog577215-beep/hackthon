@@ -9,11 +9,11 @@
           <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
           <strong>{{ deckTitle }}</strong>
         </div>
-        <span class="slide-workbench__status" :data-state="error ? 'error' : building ? 'building' : qualityPassed ? 'ready' : 'warning'">
+        <span class="slide-workbench__status" :data-state="generationBlocked ? 'blocked' : error ? 'error' : building ? 'building' : qualityPassed ? 'ready' : 'warning'">
           <LoaderCircle v-if="building" :size="13" class="spinning" />
-          <CircleCheck v-else-if="!error && qualityPassed" :size="13" />
+          <CircleCheck v-else-if="!generationBlocked && !error && qualityPassed" :size="13" />
           <TriangleAlert v-else :size="13" />
-          {{ error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
+          {{ generationBlocked ? t('pptWorkspace.generationBlocked', '生成受阻') : error ? t('teachingRepresentations.slides.buildFailed', '生成失败') : building ? stageLabel : qualityPassed ? t('teachingRepresentations.slides.qualityPassed', '质量检查通过') : t('teachingRepresentations.slides.qualityReview', '需要检查') }}
         </span>
         <small class="slide-workbench__count">{{ deckCountLabel }}</small>
         <small class="slide-workbench__engine-status" :data-state="engineStatus">
@@ -45,26 +45,29 @@
           >{{ part.label }}</option>
         </select>
         <div class="slide-workbench__theme" :aria-label="t('pptWorkspace.themeLabel', '课件模式与风格')">
-          <select :value="mode" :disabled="building" aria-label="内容模式" @change="changeMode">
+          <select :value="mode" :disabled="building || generationBlocked" aria-label="内容模式" @change="changeMode">
             <option value="full">完整</option>
             <option value="teaching">授课</option>
             <option value="concise">精简</option>
           </select>
-          <select :value="theme" :disabled="building" aria-label="视觉风格" @change="changeTheme">
+          <select :value="theme" :disabled="building || generationBlocked" aria-label="视觉风格" @change="changeTheme">
             <option value="qizhi-classroom">启智课堂{{ variantCached(mode, 'qizhi-classroom') ? ' · 已生成' : '' }}</option>
             <option value="academic-editorial">学术编辑{{ variantCached(mode, 'academic-editorial') ? ' · 已生成' : '' }}</option>
             <option value="grid-notebook">网格笔记{{ variantCached(mode, 'grid-notebook') ? ' · 已生成' : '' }}</option>
             <option value="modern-geometric">现代几何{{ variantCached(mode, 'modern-geometric') ? ' · 已生成' : '' }}</option>
             <option value="dark-tech">深色科技{{ variantCached(mode, 'dark-tech') ? ' · 已生成' : '' }}</option>
           </select>
-          <button type="button" :disabled="building" title="查看模式与风格预览" @click="emit('configure')">
+          <button type="button" :disabled="building || generationBlocked" title="查看模式与风格预览" @click="emit('configure')">
             <SlidersHorizontal :size="15" />
           </button>
         </div>
-        <button v-if="standalone" type="button" class="slide-workbench__configure-compact" title="选择模式与风格" @click="emit('configure')">
+        <button v-if="standalone" type="button" class="slide-workbench__configure-compact" :disabled="building || generationBlocked" title="选择模式与风格" @click="emit('configure')">
           <SlidersHorizontal :size="16" />
         </button>
-        <button v-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
+        <button v-if="standalone && generationBlocked" type="button" class="slide-workbench__upgrade-logic" :disabled="logicUpgrading" :title="t('pptWorkspace.completeCourseLogic', '补全课程逻辑')" @click="emit('upgrade-course-logic')">
+          <Sparkles :size="16" /><span>{{ logicUpgrading ? t('pptWorkspace.completingCourseLogic', '正在补全课程逻辑…') : t('pptWorkspace.completeCourseLogic', '补全课程逻辑') }}</span>
+        </button>
+        <button v-else-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
           <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.rebuildCurrent', '重新生成当前组合') }}</span>
         </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
@@ -143,17 +146,21 @@
           </ol>
           <small v-else>{{ t('pptWorkspace.legacyQualityFallback', '后端未返回逐页问题，请检查本次预览后重试。') }}</small>
         </section>
-        <section v-else-if="error && previewSource === 'published'" class="slide-inspector__receipt" data-state="failed_using_last_available">
+        <section v-else-if="(error || generationBlocked) && previewSource === 'published'" class="slide-inspector__receipt" data-state="failed_using_last_available">
           <TriangleAlert :size="15" />
           <div>
-            <strong>{{ t('pptWorkspace.publishedFailureFallback', '本次生成失败，当前展示上一可用版本') }}</strong>
-            <p v-if="failureIssueSummary">{{ failureIssueSummary }}</p>
-            <code v-if="qualityIssues.length">{{ qualityIssues[0]?.code }}</code>
+            <strong>{{ failureReceiptTitle }}</strong>
+            <p v-if="failureReceiptMessage">{{ failureReceiptMessage }}</p>
+            <p v-if="logicUpgradeError" class="slide-inspector__action-error">{{ logicUpgradeError }}</p>
+            <button v-if="generationBlocked" type="button" class="slide-inspector__action" :disabled="logicUpgrading" @click="emit('upgrade-course-logic')">
+              {{ logicUpgrading ? t('pptWorkspace.completingCourseLogic', '正在补全课程逻辑…') : t('pptWorkspace.completeCourseLogic', '补全课程逻辑') }}
+            </button>
+            <code v-else-if="qualityIssues.length">{{ qualityIssues[0]?.code }}</code>
           </div>
         </section>
         <template v-if="activeSlide">
           <section>
-            <header><span>{{ t('teachingRepresentations.slides.pageQuality', '本页质量') }}</span><b :data-passed="slideQualityPassed">{{ slideQualityPassed ? t('teachingRepresentations.slides.passed', '通过') : t('teachingRepresentations.slides.review', '检查') }}</b></header>
+            <header><span>{{ pageQualityLabel }}</span><b :data-passed="slideQualityPassed">{{ slideQualityPassed ? t('teachingRepresentations.slides.passed', '通过') : t('teachingRepresentations.slides.review', '检查') }}</b></header>
             <dl>
               <div><dt>{{ t('teachingRepresentations.slides.layout', '版式') }}</dt><dd>{{ layoutLabel(activeSlide.layout) }}</dd></div>
               <div><dt>{{ t('teachingRepresentations.slides.purpose', '教学作用') }}</dt><dd>{{ purposeLabel(activeSlide.slide_purpose) }}</dd></div>
@@ -357,7 +364,13 @@ import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, CircleCheck, Clipboar
 import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
-import type { SlideDeckMode, SlideDeckPreviewSource, SlideDeckTheme, TeachingRepresentation } from '../stores/teachingRepresentations'
+import type {
+  SlideDeckMode,
+  SlideDeckPreviewSource,
+  SlideDeckTheme,
+  TeachingRepresentation,
+  TeachingRepresentationBuildFailure,
+} from '../stores/teachingRepresentations'
 import type { ChangeProposal, ChangeProposalContent, ChangeProposalItem } from '../types/changeProposal'
 import type { SlideVisual } from '../types/slideVisual'
 import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
@@ -425,6 +438,9 @@ const props = withDefaults(defineProps<{
   progress: number
   stage: string
   error: string
+  buildFailure?: TeachingRepresentationBuildFailure | null
+  logicUpgrading?: boolean
+  logicUpgradeError?: string
   quality?: Record<string, any> | null
   previewSource?: SlideDeckPreviewSource
   standalone?: boolean
@@ -442,11 +458,14 @@ const props = withDefaults(defineProps<{
   bundleParts: () => [],
   activeBundlePartId: '',
   engineStatus: 'unknown',
+  buildFailure: null,
+  logicUpgrading: false,
+  logicUpgradeError: '',
 })
 
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
-  (event: 'back' | 'rebuild' | 'configure' | 'open-materials'): void
+  (event: 'back' | 'rebuild' | 'configure' | 'open-materials' | 'upgrade-course-logic'): void
   (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
   (event: 'bundle-part-change', representationId: string): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
@@ -518,6 +537,10 @@ const engineStatusLabel = computed(() => ({
   unknown: '引擎状态读取中',
 }[props.engineStatus]))
 const qualityPassed = computed(() => props.quality?.passed === true)
+const generationBlocked = computed(() => (
+  props.engineStatus === 'blocked'
+  || props.buildFailure?.action === 'upgrade_course_logic'
+))
 const deckCountLabel = computed(() => {
   const main = Number(props.quality?.main_slide_count || 0)
   const appendix = Number(props.quality?.appendix_slide_count || 0)
@@ -536,6 +559,11 @@ const deckCountLabel = computed(() => {
   return `${props.slides.length} 页`
 })
 const slideQualityPassed = computed(() => activeSlide.value?.quality?.passed === true)
+const pageQualityLabel = computed(() => (
+  (props.error || generationBlocked.value) && previewSource.value === 'published'
+    ? t('pptWorkspace.previousVersionPageQuality', '上一版本本页质量')
+    : t('teachingRepresentations.slides.pageQuality', '本页质量')
+))
 const previewSource = computed<SlideDeckPreviewSource>(() => (
   props.previewSource || (props.error ? 'draft' : 'published')
 ))
@@ -592,6 +620,19 @@ const failureIssueSummary = computed(() => {
   } as Record<string, string>)[firstCode] || '质量检查阻断'
   return `${label} · ${pageCount} 页`
 })
+const failureReceiptTitle = computed(() => (
+  generationBlocked.value
+    ? t('pptWorkspace.generationBlockedTitle', '课件生成受阻：课程逻辑尚未就绪')
+    : t('pptWorkspace.publishedFailureFallback', '本次生成失败，当前展示上一可用版本')
+))
+const failureReceiptMessage = computed(() => (
+  generationBlocked.value
+    ? props.buildFailure?.message || t(
+      'pptWorkspace.courseLogicNotReady',
+      '当前课程尚未完成新版课件所需的课程逻辑，请先补全课程逻辑。',
+    )
+    : failureIssueSummary.value
+))
 const sourceCount = computed(() => {
   const slide = activeSlide.value
   if (!slide) return 0
@@ -1048,6 +1089,7 @@ function classificationLabel(value: string) {
 .slide-workbench__toolbar > div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }.slide-workbench__toolbar strong { overflow:hidden; color:var(--lz-text-strong); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.slide-workbench__toolbar small { flex:none; color:var(--lz-text-muted); font-size:9px; }
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
 .slide-workbench__status[data-state="error"] { color:#b42318; background:#fef3f2; }
+.slide-workbench__status[data-state="blocked"] { color:#9a3412; background:#fff7ed; }
 .slide-workbench__engine-update { padding:4px 7px; border-radius:6px; color:#8a4b08; background:#fff4dc; font-size:9px; font-weight:750; }
 .slide-workbench__engine-status { padding:4px 7px; border:1px solid #bfd1ff; border-radius:999px; color:#2449a8; background:#edf3ff; font-size:9px; font-weight:800; }
 .slide-workbench__engine-status[data-state="slide_deck_v3"] { border-color:#ecd09c; color:#85520a; background:#fff7e6; }
@@ -1092,6 +1134,7 @@ function classificationLabel(value: string) {
 .slide-inspector__analyzing { display:flex; align-items:center; gap:7px; margin-top:9px; padding:9px; border-left:3px solid #2556d8; color:#315486; background:#eef4ff; font-size:8px; line-height:1.45; }
 .slide-inspector__confirmation { margin-top:9px; padding:9px; border-left:3px solid #8b5cf6; background:#f7f3ff; }.slide-inspector__confirmation > strong { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; }.objective-diff { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr); gap:4px; margin-top:7px; color:#64748b; font-size:8px; line-height:1.4; }.objective-diff i { color:#8b5cf6; font-style:normal; }.objective-diff b { color:#4c1d95; }.slide-inspector__confirmation > p { margin:6px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
 .slide-inspector__receipt { display:grid; grid-template-columns:18px minmax(0,1fr); gap:6px; margin-top:9px; padding:9px; border-left:3px solid #10b981; color:#047857; background:#ecfdf5; }.slide-inspector__receipt[data-state="failed_using_last_available"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }.slide-inspector__receipt strong { display:block; font-size:9px; }.slide-inspector__receipt p { margin:3px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
+.slide-inspector__action { min-height:27px; margin-top:8px; padding:0 10px; border:0; border-radius:7px; color:#fff; background:#c2410c; font-size:9px; font-weight:800; cursor:pointer; }.slide-inspector__action:disabled { cursor:wait; opacity:.65; }.slide-inspector__action-error { color:#b42318 !important; }
 .slide-inspector__receipt ul { display:grid; gap:3px; margin:7px 0 0; padding:0; list-style:none; }.slide-inspector__receipt li { display:flex; justify-content:space-between; gap:8px; color:#526174; font-size:8px; }.slide-inspector__receipt li b { color:#047857; }
 .slide-inspector__edit-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }.slide-inspector__edit-actions button { min-height:29px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 8px; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text-secondary); background:#fff; font-size:8px; cursor:pointer; }.slide-inspector__edit-actions button.semantic { color:#fff; border-color:#6366f1; background:#6366f1; }.slide-inspector__edit-actions button:disabled { opacity:.45; cursor:not-allowed; }.slide-inspector output { display:block; margin-top:8px; color:#047857; font-size:8px; }.slide-inspector details { padding:13px 0; color:var(--lz-text-secondary); font-size:9px; }.slide-inspector summary { color:var(--lz-text-strong); font-weight:700; cursor:pointer; }.slide-inspector details p { white-space:pre-line; line-height:1.55; }
 .spinning { animation:slide-spin .8s linear infinite; }@keyframes slide-spin { to { transform:rotate(360deg); } }

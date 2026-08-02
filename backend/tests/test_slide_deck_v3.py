@@ -115,6 +115,24 @@ def multi_chapter_course(chapter_count: int = 4) -> dict:
     }
 
 
+def course_with_ready_slide_story_inputs(course: dict) -> dict:
+    """Promote a legacy fixture without weakening the production preflight."""
+    from course_logic_upgrade import compile_course_logic_upgrade
+
+    promoted = deepcopy(course)
+    for node in promoted.get("nodes") or []:
+        # These legacy fixtures model root-level teaching sections as level one.
+        # The official teaching-plan contract is intentionally section-based.
+        if int(node.get("node_level") or 1) == 1:
+            node["node_level"] = 2
+        node["node_content"] = str(node.get("node_content") or "").strip() or "\n\n".join(
+            str(block.get("content") or "")
+            for block in node.get("content_blocks") or []
+        )
+    promoted.update(compile_course_logic_upgrade(promoted)["updates"])
+    return promoted
+
+
 def narrative_course() -> dict:
     return {
         "course_id": "narrative-course",
@@ -1208,7 +1226,7 @@ def test_v3_export_is_editable_widescreen_and_uses_variant_theme(tmp_path: Path)
 def test_variant_stream_endpoint_builds_only_requested_combination(tmp_path: Path, monkeypatch) -> None:
     from routers import teaching_representations as representation_router
 
-    course = source_course()
+    course = course_with_ready_slide_story_inputs(source_course())
     document = document_from_legacy_course(course)
     canonical = {
         **course,
@@ -1360,7 +1378,7 @@ def test_variant_stream_publishes_and_reuses_an_atomic_bundle(
     import representation_compiler
     from routers import teaching_representations as representation_router
 
-    course = multi_chapter_course()
+    course = course_with_ready_slide_story_inputs(multi_chapter_course())
     document = document_from_legacy_course(course)
     canonical = {
         **course,
