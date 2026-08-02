@@ -1160,6 +1160,89 @@ def test_v5_quality_gate_rejects_incomplete_enumeration_and_section_title() -> N
     }
 
 
+def test_v5_quality_gate_does_not_treat_quantities_as_visible_list_contracts() -> None:
+    slides = [
+        {
+            "unit_id": "two-vector-spaces",
+            "title": "我们从两个向量空间 V 和 W 开始",
+            "blocks": [{
+                "type": "process",
+                "content": "",
+                "items": ["可加性"],
+            }],
+        },
+        {
+            "unit_id": "three-input-vectors",
+            "title": "假设我们有三个线性无关的向量",
+            "blocks": [{
+                "type": "process",
+                "content": "",
+                "items": ["初始化", "第二步"],
+            }],
+        },
+        {
+            "unit_id": "inline-two-classes",
+            "title": "为什么需要 QR 分解",
+            "blocks": [{
+                "type": "statement",
+                "content": (
+                    "把食材分成两类：一类是整齐摆放的原料（Q），"
+                    "另一类是精确用量的调味料（R）。"
+                ),
+                "items": [],
+            }],
+        },
+        {
+            "unit_id": "pixel-count",
+            "title": "应用场景：人脸识别",
+            "blocks": [{
+                "type": "statement",
+                "content": "一张 64x64 像素的灰度图像共有 4096 个像素点。",
+                "items": [],
+            }],
+        },
+    ]
+    for slide in slides:
+        slide["visuals"] = []
+        slide["quality"] = {
+            "resolved_layout": "editorial-body",
+            "major_region_count": 1,
+            "occupied_major_region_count": 1,
+        }
+
+    issues = v5_contract_issues(slides)
+
+    assert not any(
+        issue["code"] == "enumeration_cardinality_mismatch"
+        for issue in issues
+    )
+
+
+def test_v5_quality_gate_keeps_explicit_title_enumerations_strict() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "incomplete-three-types",
+        "title": "热力学系统的三类交换方式",
+        "blocks": [{
+            "type": "bullets",
+            "content": "",
+            "items": ["孤立系统", "封闭系统"],
+        }],
+        "visuals": [],
+        "quality": {
+            "resolved_layout": "editorial-body",
+            "major_region_count": 1,
+            "occupied_major_region_count": 1,
+        },
+    }])
+
+    assert any(
+        issue["code"] == "enumeration_cardinality_mismatch"
+        and issue["expected_count"] == 3
+        and issue["visible_item_count"] == 2
+        for issue in issues
+    )
+
+
 def test_v5_compiler_removes_repeated_lead_claim_but_keeps_supporting_items() -> None:
     slide = apply_page_contract_v5({
         "unit_id": "deduplicated-claim",
