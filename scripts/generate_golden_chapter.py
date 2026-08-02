@@ -30,10 +30,8 @@ from course_document import (  # noqa: E402
 from slide_asset_repository import SlideAssetRepository  # noqa: E402
 from slide_deck_renderer import export_structured_slide_deck  # noqa: E402
 from slide_deck_v3 import fragment_course_document  # noqa: E402
-from slide_deck_v4 import (  # noqa: E402
-    allocation_from_story_plan_v2,
-    compile_slide_deck_v4,
-)
+from slide_deck_v4 import allocation_from_story_plan_v2  # noqa: E402
+from slide_deck_v5 import compile_slide_deck_v5  # noqa: E402
 from slide_story_plan import compile_slide_story_plan_v2  # noqa: E402
 from slide_visuals import deterministic_visual_plan  # noqa: E402
 
@@ -96,7 +94,7 @@ def main() -> int:
 
     asset_root = output_path.parent / ".golden-slide-assets"
     repository = SlideAssetRepository(asset_root)
-    content = compile_slide_deck_v4(
+    content = compile_slide_deck_v5(
         chapter_document,
         chapter_course,
         story_plan=story_plan,

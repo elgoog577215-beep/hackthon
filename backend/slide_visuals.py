@@ -21,7 +21,7 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_source_grounded_rules"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v2"
 
 VisualKind = Literal[
     "source_image",
@@ -1253,6 +1253,25 @@ def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
                         "code": "diagram_label_not_source_bound",
                         "slide_id": slide_id,
                     })
+            required_node_ids = set(
+                (visual.get("parameters") or {}).get(
+                    "required_node_fragment_ids"
+                ) or []
+            )
+            represented_node_ids = {
+                fragment_id
+                for node in visual.get("nodes") or []
+                for fragment_id in node.get("source_fragment_ids") or []
+            }
+            if required_node_ids - represented_node_ids:
+                issues.append({
+                    "severity": "critical",
+                    "code": "diagram_required_item_missing",
+                    "slide_id": slide_id,
+                    "missing_fragment_ids": sorted(
+                        required_node_ids - represented_node_ids
+                    ),
+                })
             if kind == "rule_diagram":
                 parameters = visual.get("parameters") or {}
                 if (
@@ -1563,7 +1582,7 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
 
     clauses = _source_clauses(fragments)
     list_clauses = [
-        (_trim_takeaway(_clean_source_text(item.text), 72), item.fragment_id)
+        (_clean_source_text(item.text), item.fragment_id)
         for item in fragments
         if item.kind == "list_item" and _clean_source_text(item.text)
     ]
@@ -1604,6 +1623,12 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
     relation = _semantic_relation_spec(page, fragments, clauses, list_clauses)
     if relation is not None:
         relation_kind, diagram_type, relation_clauses, evidence = relation
+        concise_clauses = [
+            (_concise_visual_label(label), fragment_id)
+            for label, fragment_id in relation_clauses[:5]
+        ]
+        if any(not label for label, _fragment_id in concise_clauses):
+            return _none_anchor(page.page_id, "structure")
         nodes = [
             VisualNodeV1(
                 node_id=f"n{node_index + 1}",
@@ -1611,7 +1636,7 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
                 source_fragment_ids=[fragment_id],
                 emphasis="primary" if node_index == 0 else "secondary",
             )
-            for node_index, (label, fragment_id) in enumerate(relation_clauses[:5])
+            for node_index, (label, fragment_id) in enumerate(concise_clauses)
         ]
         edges = _relation_edges(nodes, relation_kind, diagram_type)
         source_length = max(
@@ -1625,7 +1650,12 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
             for node in nodes
         )
         duplication_ratio = min(1.0, label_length / source_length)
-        if duplication_ratio >= 0.50:
+        # Hierarchies must repeat the category names to remain complete. Their
+        # labels still add structure when they are concise identities, whereas
+        # causal/process diagrams should retain the stricter anti-duplication
+        # threshold.
+        duplication_limit = 0.68 if diagram_type == "hierarchy" else 0.50
+        if duplication_ratio >= duplication_limit:
             return _none_anchor(page.page_id, "structure")
         score = 0.8 if diagram_type in {"process", "cause-effect", "comparison"} else 0.72
         purpose: VisualPurpose = {
@@ -1654,6 +1684,10 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
                 "direction": "horizontal" if index % 2 == 0 else "vertical",
                 "diagram_type": diagram_type,
                 "relation_evidence": evidence,
+                "required_node_fragment_ids": list(dict.fromkeys(
+                    fragment_id
+                    for _label, fragment_id in concise_clauses
+                )),
                 "source_text_duplication_ratio": round(duplication_ratio, 6),
                 "information_gain_score": round(max(0.0, score), 6),
             },
@@ -1750,6 +1784,39 @@ def _source_formula(fragments: list[Any]) -> str:
     return ""
 
 
+def _concise_visual_label(value: str, maximum: int = 44) -> str:
+    """Shorten a source label at a semantic boundary or fail closed."""
+    clean = _clean_source_text(value).strip(" •·-—")
+    # In classification lists, the text before a colon is the node identity;
+    # the remainder is its explanation and belongs in body copy. Prefer that
+    # identity even when the whole definition technically fits the character
+    # cap so the diagram adds structure instead of duplicating paragraphs.
+    for separator in ("：", ":"):
+        index = clean.find(separator)
+        if 3 <= index <= maximum:
+            candidate = clean[:index].strip(" •·-—，,；;。")
+            if _is_meaningful_visual_label(candidate):
+                return candidate
+    if len(clean) <= maximum and _has_balanced_brackets(clean):
+        return clean
+    for separator in ("；", ";", "。", "，", ","):
+        index = clean.find(separator)
+        if 3 <= index <= maximum:
+            candidate = clean[:index].strip(" •·-—，,；;。")
+            if _is_meaningful_visual_label(candidate):
+                return candidate
+    excerpt = clean[:maximum]
+    opening = max(excerpt.rfind("（"), excerpt.rfind("("), excerpt.rfind("["))
+    closing = max(excerpt.rfind("）"), excerpt.rfind(")"), excerpt.rfind("]"))
+    if opening > closing:
+        excerpt = excerpt[:opening]
+    boundary = excerpt.rfind(" ")
+    if boundary >= maximum // 2:
+        excerpt = excerpt[:boundary]
+    excerpt = excerpt.rstrip(" •·-—，,；;。")
+    return excerpt if _is_meaningful_visual_label(excerpt) else ""
+
+
 def _semantic_relation_spec(
     page: Any,
     fragments: list[Any],
@@ -1786,7 +1853,7 @@ def _semantic_relation_spec(
     ):
         heading = next(
             (
-                (_trim_takeaway(_clean_source_text(item.text), 26), item.fragment_id)
+                (_concise_visual_label(item.text, 30), item.fragment_id)
                 for item in fragments
                 if (
                     item.kind == "heading"
@@ -1851,7 +1918,13 @@ _GENERIC_VISUAL_HEADING_RE = re.compile(
 
 
 def _is_meaningful_visual_label(value: str) -> bool:
-    clean = re.sub(r"^[\W_]+|[\W_]+$", "", str(value or "").strip())
+    # Keep semantic closing brackets while removing only decorative edge
+    # punctuation. A generic ``\W`` trim used to drop the final ``）`` from
+    # labels such as ``封闭系统（Closed System）：...（如热量）。`` and then
+    # reject the required sibling as if its source text were malformed.
+    clean = str(value or "").strip().strip(
+        " \t\r\n•·-—–:：,，;；.。!?！？"
+    )
     if (
         len(clean) < 3
         or _GENERIC_VISUAL_HEADING_RE.fullmatch(clean)

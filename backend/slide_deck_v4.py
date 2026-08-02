@@ -566,6 +566,10 @@ def compile_slide_deck_v4(
             "copy_mode": beat.copy_mode,
             "copy_source_fragment_ids": list(beat.copy_source_fragment_ids),
             "audience_copy_applied": bool(audience_title or audience_summary),
+            "generated_practice_answers": [
+                item.model_dump(mode="json")
+                for item in beat.generated_practice_answers
+            ],
         }
     pedagogical = _pedagogical_quality(resolved_story)
     presentation = _presentation_quality(resolved_story, page_beats)

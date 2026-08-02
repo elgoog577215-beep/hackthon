@@ -53,7 +53,7 @@
       </blockquote>
 
       <div
-        v-if="slide.visuals?.length"
+        v-if="showsVisualStory"
         class="deck-canvas__story"
         :data-composition="resolvedComposition"
         :data-source-empty="sourceBlocks.length === 0"
@@ -61,7 +61,7 @@
         :data-has-message="showsStandaloneMessage"
       >
         <SlideVisualRenderer
-          :visuals="slide.visuals"
+          :visuals="slide.visuals ?? []"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -199,7 +199,7 @@
         class="deck-chapter-recap"
         :data-has-message="showsStandaloneMessage"
       >
-        <article v-for="(item, index) in semanticItems.slice(0, 5)" :key="`${index}-${item}`">
+        <article v-for="(item, index) in semanticItems.slice(0, 4)" :key="`${index}-${item}`">
           <b>{{ String(index + 1).padStart(2, '0') }}</b>
           <MarkdownRenderer :content="item" :enable-code-run="false" />
         </article>
@@ -442,33 +442,72 @@ const questionPromptItems = computed(() => (
     ? semanticItems.value.slice(0, 3)
     : [props.slide.key_message || ''].filter(Boolean)
 ))
-const practicePromptItems = computed(() => {
-  const prompt = (props.slide.blocks || []).find(block => (
+const practicePromptBlock = computed(() => (
+  (props.slide.blocks || []).find(block => (
     block.metadata?.semantic_role === 'prompt'
     || ['exercise', 'question', 'prompt'].includes(block.type)
   ))
-  return blockItems(prompt).slice(0, 3)
+))
+const visualDirectedLayouts = new Set([
+  'figure-text',
+  'diagram-full',
+  'formula-explanation',
+])
+const showsVisualStory = computed(() => Boolean(
+  props.slide.visuals?.length
+  && (
+    visualDirectedLayouts.has(visualLayout.value)
+    || !v5LayoutNames.has(visualLayout.value)
+  )
+))
+const practicePromptEntries = computed(() => {
+  const prompt = practicePromptBlock.value
+  const questionIds = Array.isArray(prompt?.metadata?.question_ids)
+    ? prompt?.metadata?.question_ids.map(String)
+    : []
+  return blockItems(prompt).slice(0, 3).map((text, index) => ({
+    id: questionIds[index] || `question-${index}`,
+    text,
+  }))
 })
-const practiceFeedbackItems = computed(() => {
+const practicePromptItems = computed(() => (
+  practicePromptEntries.value.map(item => item.text)
+))
+const practiceFeedbackBlocks = computed(() => {
   const blocks = props.slide.blocks || []
   const explicit = blocks.filter(block => (
-      block.metadata?.semantic_role === 'feedback'
+      ['answer', 'feedback', 'solution', 'validation'].includes(
+        String(block.metadata?.semantic_role || ''),
+      )
       || ['answer', 'feedback', 'solution', 'validation'].includes(block.type)
   ))
-  const feedback = explicit.length
+  return explicit.length
     ? explicit
     : blocks.filter(block => !(
         block.metadata?.semantic_role === 'prompt'
         || ['exercise', 'question', 'prompt'].includes(block.type)
       ))
-  return feedback
+})
+const practiceFeedbackItems = computed(() => (
+  practiceFeedbackBlocks.value
     .flatMap(block => blockItems(block))
     .slice(0, 4)
-})
-const practiceFeedbackPairs = computed(() => practicePromptItems.value.map(
+))
+const practiceAnswerEntries = computed(() => practiceFeedbackBlocks.value.flatMap((block) => {
+  const answerForIds = Array.isArray(block.metadata?.answer_for_question_ids)
+    ? block.metadata?.answer_for_question_ids.map(String)
+    : []
+  return blockItems(block).map((text, index) => ({
+    questionId: answerForIds[index] || '',
+    text,
+  }))
+}))
+const practiceFeedbackPairs = computed(() => practicePromptEntries.value.map(
   (prompt, index) => ({
-    prompt,
-    feedback: practiceFeedbackItems.value[index] || '',
+    prompt: prompt.text,
+    feedback: practiceAnswerEntries.value.find(
+      answer => answer.questionId === prompt.id,
+    )?.text || practiceAnswerEntries.value[index]?.text || '',
   }),
 ))
 const practiceFeedbackMode = computed<'paired' | 'shared_evidence'>(() => (
@@ -1006,8 +1045,8 @@ function layoutLabel(value: string) {
 }
 .deck-chapter-recap {
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(0,1fr));
-  gap:1.3cqw;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:1.55cqw 2.2cqw;
   align-items:start;
   padding-top:1.9cqw;
   border-top:1px solid var(--deck-line);
@@ -1377,7 +1416,8 @@ function layoutLabel(value: string) {
   display:grid;
   gap:.65cqw;
   margin:0;
-  padding-left:1.25em;
+  padding-left:0;
+  list-style:none;
 }
 .deck-canvas[data-heading-mode="hidden"] .deck-editorial-body { top:18%; }
 .deck-canvas[data-heading-mode="hidden"] .deck-editorial-body[data-has-message="true"] { top:30%; }

@@ -1092,6 +1092,81 @@ def test_ai_story_planner_accepts_grounded_audience_facing_copy() -> None:
     assert planned_target.copy_source_fragment_ids == target.fragment_ids
 
 
+def test_ai_story_planner_generates_answers_only_when_source_answer_is_missing() -> None:
+    course = _course_with_teaching_plan()
+    course["nodes"][0]["content_blocks"] = [
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] != "block-feedback"
+    ]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    support = next(
+        fragment
+        for fragment in fragments
+        if fragment.block_id == "block-method" and fragment.kind != "heading"
+    )
+    captured_prompt: dict = {}
+
+    async def planner(request: dict) -> dict:
+        prompt = next(
+            beat
+            for beat in request["beat_catalog"]
+            if beat["needs_generated_answers"]
+        )
+        captured_prompt.update(prompt)
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": prompt["beat_id"],
+                "layout_id": prompt["current_layout_id"],
+                "generated_practice_answers": [{
+                    "question_index": 0,
+                    "answer_text": (
+                        "不是线性映射，因为线性映射必须同时保持加法与数乘。"
+                    ),
+                    "supporting_fragment_ids": [support.fragment_id],
+                }],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    prompt = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.generated_practice_answers
+    )
+
+    assert captured_prompt["needs_generated_answers"] is True
+    assert captured_prompt["prompt_questions"] == [
+        "判断 S(x,y)=(x+1,y) 是否为线性映射。"
+    ]
+    assert prompt.generated_practice_answers[0].answer_text.startswith(
+        "不是线性映射"
+    )
+    assert prompt.generated_practice_answers[0].supporting_fragment_ids == [
+        support.fragment_id
+    ]
+
+
 def test_ai_story_planner_rejects_unsupported_factual_tokens_in_copy() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
