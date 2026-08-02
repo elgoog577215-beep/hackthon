@@ -1002,6 +1002,7 @@ def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
                     "beat_id": target.beat_id,
                     "headline_fragment_id": headline_fragment_id,
                     "layout_id": target.layout_intent,
+                    "copy_mode": "source_faithful_rewrite",
                 }],
             }],
         }
@@ -1030,6 +1031,7 @@ def test_ai_story_planner_applies_compact_source_bound_directives() -> None:
         for item in fragments
         if item.fragment_id == headline_fragment_id
     )
+    assert planned_target.copy_mode == "source_exact"
 
 
 def test_ai_story_planner_accepts_grounded_audience_facing_copy() -> None:
@@ -1167,7 +1169,100 @@ def test_ai_story_planner_generates_answers_only_when_source_answer_is_missing()
     ]
 
 
-def test_ai_story_planner_rejects_unsupported_factual_tokens_in_copy() -> None:
+def test_generated_answer_may_reuse_numeric_premises_from_its_question() -> None:
+    course = _course_with_teaching_plan()
+    course["nodes"][0]["content_blocks"] = [
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] != "block-feedback"
+    ]
+    prompt_block = next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-practice"
+    )
+    prompt_block["content"] = (
+        "两条路径分别吸收 100 J 和 120 J，哪条路径做功更多？为什么？"
+    )
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    support = next(
+        fragment
+        for fragment in fragments
+        if fragment.block_id == "block-method" and fragment.kind != "heading"
+    )
+
+    async def planner(request: dict) -> dict:
+        prompt = next(
+            beat
+            for beat in request["beat_catalog"]
+            if beat["needs_generated_answers"]
+        )
+        prompt_fragment_id = prompt["headline_candidates"][0]["fragment_id"]
+        assert prompt["prompt_questions"] == [prompt_block["content"]]
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": prompt["beat_id"],
+                "layout_id": prompt["current_layout_id"],
+                "audience_facing_title": "数值题判断",
+                "supporting_fragment_ids": [prompt_fragment_id],
+                "generated_practice_answers": [{
+                    "question_index": 0,
+                    "answer_text": (
+                        "从 A 到 B 时，吸收 120 J 的路径做功更多，"
+                        "因为题干给出的该路径吸热更多。"
+                        + "这一判断依据题干给出的能量信息。" * 10
+                        + "依据：sfg_hidden_1, sfg_hidden_2。"
+                    ),
+                    "supporting_fragment_ids": [support.fragment_id],
+                }],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    generated = [
+        answer
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        for answer in beat.generated_practice_answers
+    ]
+    assert generated, planned.planning_diagnostics
+    generated_beat = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.generated_practice_answers
+    )
+
+    assert planned.planner == "ai"
+    assert len(generated) == 1
+    assert "120 J" in generated[0].answer_text
+    assert "A 到 B" in generated[0].answer_text
+    assert "sfg_" not in generated[0].answer_text
+    assert len(generated[0].answer_text) <= 140
+    assert generated_beat.copy_mode == "source_faithful_rewrite"
+
+
+def test_ai_story_planner_drops_unsafe_optional_copy_without_losing_chapter() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
     fragments = fragment_course_document(document)
@@ -1208,8 +1303,17 @@ def test_ai_story_planner_rejects_unsupported_factual_tokens_in_copy() -> None:
         ai_planner=planner,
     ))
 
-    assert planned.planner == "deterministic_fallback"
-    assert planned.fallback_reason == "invalid_or_failed_ai_story_plan"
+    planned_target = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == target.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_target.copy_mode == "source_exact"
+    assert planned_target.audience_facing_title == ""
 
 
 def test_ai_practice_prompt_layout_compiles_to_a_supported_allocation() -> None:

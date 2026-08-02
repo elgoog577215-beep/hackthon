@@ -500,6 +500,51 @@ def test_generated_practice_answers_are_bound_to_stable_question_ids() -> None:
     } & {issue["code"] for issue in v5_contract_issues([practice])}
 
 
+def test_compound_visible_prompt_coalesces_fragment_level_generated_answers() -> None:
+    enriched = _enrich_practice_feedback_slides_v5([{
+        "unit_id": "compound-generated-practice",
+        "position": 0,
+        "chapter_id": "chapter-1",
+        "scene_kind": "practice_feedback",
+        "beat_role": "prompt",
+        "title": "判断并说明理由",
+        "blocks": [{
+            "block_id": "compound-question",
+            "type": "exercise",
+            "content": "盖子关闭时属于哪类系统？盖子打开时呢？",
+        }],
+        "quality": {
+            "generated_practice_answers": [
+                {
+                    "question_index": 0,
+                    "answer_text": "盖子关闭时属于封闭系统。",
+                    "supporting_fragment_ids": ["definition-closed"],
+                },
+                {
+                    "question_index": 1,
+                    "answer_text": "盖子打开时属于开放系统。",
+                    "supporting_fragment_ids": ["definition-open"],
+                },
+            ],
+        },
+    }])
+    practice = apply_page_contract_v5(enriched[0])
+    prompt = practice["blocks"][0]
+    answer = practice["blocks"][1]
+
+    assert practice["quality"]["answer_generation_mode"] == "llm_generated"
+    assert len(answer["items"]) == 1
+    assert "封闭系统" in answer["items"][0]
+    assert "开放系统" in answer["items"][0]
+    assert answer["metadata"]["answer_for_question_ids"] == (
+        prompt["metadata"]["question_ids"]
+    )
+    assert not {
+        "practice_direct_answer_unbound",
+        "practice_direct_answer_count_mismatch",
+    } & {issue["code"] for issue in v5_contract_issues([practice])}
+
+
 def test_direct_answers_with_missing_question_identity_fail_the_contract() -> None:
     practice = apply_page_contract_v5({
         "unit_id": "unbound-practice",
