@@ -1316,6 +1316,134 @@ def test_ai_story_planner_drops_unsafe_optional_copy_without_losing_chapter() ->
     assert planned_target.audience_facing_title == ""
 
 
+def test_ai_story_planner_drops_incompatible_optional_fields_per_beat() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    target = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.fragment_ids
+    )
+    outside_fragment = next(
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.fragment_id not in target.fragment_ids
+    )
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": target.beat_id,
+                "headline_fragment_id": outside_fragment,
+                "layout_id": "not-a-compatible-layout",
+                "copy_mode": "source_faithful_rewrite",
+                "audience_facing_title": "可选标题",
+                "supporting_fragment_ids": [outside_fragment],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    planned_target = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == target.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_target.primary_claim_source == target.primary_claim_source
+    assert planned_target.layout_intent == target.layout_intent
+    assert planned_target.copy_mode == "source_exact"
+
+
+def test_invalid_generated_answer_does_not_discard_other_chapter_directives() -> None:
+    course = _course_with_teaching_plan()
+    course["nodes"][0]["content_blocks"] = [
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] != "block-feedback"
+    ]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    prompt = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_role == "prompt"
+        and episode.scene_kind == "practice_feedback"
+    )
+    support = next(
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.fragment_id not in prompt.fragment_ids
+    )
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": prompt.beat_id,
+                "layout_id": prompt.layout_intent,
+                "generated_practice_answers": [{
+                    "question_index": 0,
+                    "answer_text": "温度会无依据地提升到 999 K。",
+                    "supporting_fragment_ids": [support],
+                }],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    planned_prompt = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == prompt.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned_prompt.layout_intent == prompt.layout_intent
+    assert planned_prompt.generated_practice_answers == []
+
+
 def test_ai_practice_prompt_layout_compiles_to_a_supported_allocation() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)

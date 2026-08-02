@@ -45,6 +45,12 @@ the chapter. When several source-level questions render as one compound prompt
 row, their generated conclusions are combined into one direct answer bound to
 that row's single stable question ID.
 
+Optional headline, layout, audience-copy, and generated-answer fields fail
+independently. An incompatible optional field cannot invalidate its chapter or
+other chapters. Chapter calls retain bounded concurrency, and the chapter
+timeout matches the provider request window so a healthy slow fallback model
+is not cancelled at half of its configured network timeout.
+
 ### Micro-transitions do not own slides
 
 A transition-only V4 artifact, including a unit ending in `:transition`, is

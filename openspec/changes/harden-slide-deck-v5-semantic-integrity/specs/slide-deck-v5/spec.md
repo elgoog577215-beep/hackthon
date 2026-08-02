@@ -50,6 +50,18 @@ the question it answers.
 - **THEN** their generated conclusions are composed into one direct answer and
   both sides carry the same single stable question ID
 
+#### Scenario: One optional AI field is invalid
+- **WHEN** an otherwise valid chapter response contains an incompatible layout,
+  an out-of-beat headline or copy binding, or one unsafe generated answer
+- **THEN** only that optional field is discarded and valid chapter directives
+  remain eligible for publication
+
+#### Scenario: A fallback model responds slowly but within provider limits
+- **WHEN** a configured fallback model needs longer than the old chapter timeout
+  but remains within the provider request window
+- **THEN** the planner waits for that bounded response instead of cancelling the
+  chapter early
+
 ### Requirement: Transition-Only Pages Are Removed
 The system SHALL not publish a full slide whose only teaching job is announcing
 the immediately following section.
