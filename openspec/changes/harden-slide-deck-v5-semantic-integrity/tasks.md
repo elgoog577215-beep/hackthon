@@ -31,6 +31,6 @@
 - [x] 4.1 Run targeted backend and frontend suites
 - [x] 4.2 Generate and inspect a representative thermodynamics deck/PPTX
 - [x] 4.3 Run full affected quality, build, dependency-audit, and OpenSpec checks
-- [ ] 4.4 Review diff, commit, push, merge to main, and verify production deploy
-- [ ] 4.5 Force-rebuild course `d7689f20-94cf-4aaa-9049-d52ad46257c0`
+- [x] 4.4 Review diff, commit, push, merge to main, and verify production deploy
+- [x] 4.5 Force-rebuild course `d7689f20-94cf-4aaa-9049-d52ad46257c0`
       and verify the published variant
