@@ -53,7 +53,30 @@ StoryCopyModeV2 = Literal[
 
 
 class SlideStoryPlanPrerequisiteError(ValueError):
-    """Raised when a course does not have the official inputs required for v4."""
+    """Typed failure for a missing official course-logic prerequisite."""
+
+    def __init__(
+        self,
+        technical_message: str,
+        *,
+        code: str,
+        user_message: str,
+        action: str = "upgrade_course_logic",
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(technical_message)
+        self.code = code
+        self.user_message = user_message
+        self.action = action
+        self.retryable = retryable
+
+    def public_detail(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.user_message,
+            "action": self.action,
+            "retryable": self.retryable,
+        }
 
 
 class _StrictModel(BaseModel):
@@ -269,7 +292,9 @@ def _course_logic_inputs(
         or not projection.get("sections")
     ):
         raise SlideStoryPlanPrerequisiteError(
-            "slide_deck_v4 requires a completed official course teaching plan"
+            "slide_deck_v4 requires a completed official course teaching plan",
+            code="course_teaching_plan_not_ready",
+            user_message="当前课程尚未完成正式教学计划，请先补全课程逻辑。",
         )
     knowledge_base = course_data.get("course_knowledge_base") or {}
     if (
@@ -278,7 +303,9 @@ def _course_logic_inputs(
         or not knowledge_base.get("revision_id")
     ):
         raise SlideStoryPlanPrerequisiteError(
-            "slide_deck_v4 requires an active official course knowledge base"
+            "slide_deck_v4 requires an active official course knowledge base",
+            code="course_knowledge_base_not_ready",
+            user_message="当前课程尚未建立可用的正式知识库，请先补全课程逻辑。",
         )
     coherence_contract = course_data.get("course_coherence_contract") or {}
     if (
@@ -288,7 +315,9 @@ def _course_logic_inputs(
         or (coherence_contract.get("quality_report") or {}).get("passed") is False
     ):
         raise SlideStoryPlanPrerequisiteError(
-            "slide_deck_v4 requires an active course coherence contract"
+            "slide_deck_v4 requires an active course coherence contract",
+            code="course_coherence_contract_not_ready",
+            user_message="当前课程尚未通过课程连贯性检查，请先补全课程逻辑。",
         )
     revisions = StorySourceRevisionsV2(
         course_document_revision=str(course_data.get("course_revision") or ""),
@@ -320,6 +349,17 @@ def slide_deck_v4_prerequisite_issues(
         _course_logic_inputs(course_data)
     except SlideStoryPlanPrerequisiteError as exc:
         return [str(exc)]
+    return []
+
+
+def slide_deck_v4_prerequisite_details(
+    course_data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return the public, actionable blocker without exposing internal text."""
+    try:
+        _course_logic_inputs(course_data)
+    except SlideStoryPlanPrerequisiteError as exc:
+        return [exc.public_detail()]
     return []
 
 
@@ -754,7 +794,9 @@ def compile_slide_story_plan_v2(
         ]
         if not chapter_plan_sections:
             raise SlideStoryPlanPrerequisiteError(
-                f"Teaching plan has no section contract for chapter {chapter.section_id}"
+                f"Teaching plan has no section contract for chapter {chapter.section_id}",
+                code="course_teaching_plan_incomplete",
+                user_message="正式教学计划缺少部分章节的教学契约，请重新补全课程逻辑。",
             )
         section_plan = _merge_section_plans(chapter_plan_sections)
         first_objective_section = next(

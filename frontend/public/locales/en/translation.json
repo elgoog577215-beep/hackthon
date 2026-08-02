@@ -62,6 +62,12 @@
     "legacyIssueSuggestion": "Review the slide content and layout, then try again.",
     "draftExportDisabled": "Issue drafts cannot be exported. Export is available after a successful sync.",
     "publishedFailureFallback": "This generation failed; the previous available version is shown.",
+    "generationBlocked": "Generation blocked",
+    "generationBlockedTitle": "Deck generation is blocked: course logic is not ready",
+    "courseLogicNotReady": "This course does not yet have the course-logic artifacts required by the new deck engine. Complete the course logic first.",
+    "completeCourseLogic": "Complete course logic",
+    "completingCourseLogic": "Completing course logic…",
+    "previousVersionPageQuality": "Previous version slide quality",
     "build": "Generate full deck",
     "untitledCourse": "Course presentation"
   },

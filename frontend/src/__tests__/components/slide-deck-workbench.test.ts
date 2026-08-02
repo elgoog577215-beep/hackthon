@@ -133,6 +133,46 @@ describe('SlideDeckWorkbench', () => {
     expect(count).not.toContain('74')
   })
 
+  it('shows the concrete course-logic blocker and replaces rebuild with its recovery action', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-legacy',
+        deckTitle: '高等代数',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'build_blocked',
+        error: 'course_teaching_plan_not_ready',
+        buildFailure: {
+          code: 'course_teaching_plan_not_ready',
+          message: '当前课程尚未完成正式教学计划，请先补全课程逻辑。',
+          action: 'upgrade_course_logic',
+          retryable: false,
+        },
+        quality: { passed: true },
+        previewSource: 'published',
+        engineStatus: 'blocked',
+        standalone: true,
+      },
+    })
+
+    expect(wrapper.find('.slide-workbench__status').text()).toContain('生成受阻')
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain(
+      '课件生成受阻：课程逻辑尚未就绪',
+    )
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain(
+      '当前课程尚未完成正式教学计划，请先补全课程逻辑。',
+    )
+    expect(wrapper.find('.slide-inspector').text()).toContain('上一版本本页质量')
+    expect(wrapper.find('.slide-workbench__upgrade-logic').exists()).toBe(true)
+    expect(wrapper.find('.slide-workbench__commands').text()).not.toContain('重新生成当前组合')
+
+    await wrapper.find('.slide-workbench__upgrade-logic').trigger('click')
+    expect(wrapper.emitted('upgrade-course-logic')).toHaveLength(1)
+  })
+
   it('uses the same structured slide spec for thumbnails, canvas, and source inspection', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {

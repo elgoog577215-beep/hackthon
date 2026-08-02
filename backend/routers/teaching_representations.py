@@ -55,9 +55,12 @@ from slide_deck_v4 import (
 )
 from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
 from slide_story_plan import (
+    SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
     compile_slide_story_plan_v2,
     course_supports_slide_deck_v4,
+    resolve_slide_deck_schema,
+    slide_deck_v4_prerequisite_details,
     slide_deck_v4_prerequisite_issues,
 )
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
@@ -168,6 +171,9 @@ def _reconciled_registry(course_id: str) -> dict:
     )
     payload["slide_deck_v4_blockers"] = (
         [] if v4_eligible else slide_deck_v4_prerequisite_issues(course_view)
+    )
+    payload["slide_deck_v4_blocker_details"] = (
+        [] if v4_eligible else slide_deck_v4_prerequisite_details(course_view)
     )
     specs = {
         item["spec_id"]: item
@@ -497,10 +503,19 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     if status != "completed" and not any(
                         str(item.get("event") or "") == "error" for item in history
                     ):
+                        failure_detail = task.get("error_detail") or {}
                         payload = {
                             "event": "error" if status == "failed" else status,
                             "progress": int(task.get("progress") or 0),
-                            "message": str(task.get("error") or task.get("message") or status),
+                            "code": str(failure_detail.get("code") or ""),
+                            "message": str(
+                                failure_detail.get("message")
+                                or task.get("error")
+                                or task.get("message")
+                                or status
+                            ),
+                            "action": str(failure_detail.get("action") or ""),
+                            "retryable": failure_detail.get("retryable"),
                             "task_id": task_id,
                         }
                         yield f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -601,6 +616,14 @@ async def stream_slide_deck_variant_build(
     theme = normalize_slide_deck_theme(body.theme)
     variant_key = slide_deck_variant_key(body.mode, theme)
     document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    try:
+        resolve_slide_deck_schema(
+            course_view,
+            story_engine_enabled=_story_engine_enabled(),
+            v5_enabled=_v5_enabled(),
+        )
+    except SlideStoryPlanPrerequisiteError as exc:
+        raise HTTPException(status_code=409, detail=exc.public_detail()) from exc
     registry = get_teaching_representation_repository().load(course_id)
     cached = next((
         item for item in registry.representations
@@ -761,10 +784,19 @@ async def stream_slide_deck_variant_build(
                     if status != "completed" and not any(
                         str(item.get("event") or "") == "error" for item in history
                     ):
+                        failure_detail = task.get("error_detail") or {}
                         payload = {
                             "event": "error" if status == "failed" else status,
                             "progress": int(task.get("progress") or 0),
-                            "message": str(task.get("error") or task.get("message") or status),
+                            "code": str(failure_detail.get("code") or ""),
+                            "message": str(
+                                failure_detail.get("message")
+                                or task.get("error")
+                                or task.get("message")
+                                or status
+                            ),
+                            "action": str(failure_detail.get("action") or ""),
+                            "retryable": failure_detail.get("retryable"),
                             "task_id": task_id,
                         }
                         yield f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
