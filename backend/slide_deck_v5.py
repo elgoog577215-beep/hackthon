@@ -924,6 +924,18 @@ def _is_numbered_section_title(value: str) -> bool:
     return bool(_NUMBERED_SECTION_TITLE_PATTERN.match(_clean_text(value)))
 
 
+def _strip_numbered_section_prefix(value: str) -> str:
+    cleaned = _clean_text(value)
+    if not _is_numbered_section_title(cleaned):
+        return cleaned
+    return re.sub(
+        r"^\s*\d+(?:\s*[.．]\s*\d+)+\s*",
+        "",
+        cleaned,
+        count=1,
+    ).strip()
+
+
 def _strip_template_lead(value: str) -> str:
     return _TEMPLATE_LEAD_PATTERN.sub("", str(value or ""), count=1)
 
@@ -1148,10 +1160,34 @@ def _is_incomplete_visible_claim(value: str) -> bool:
         return True
     if not _has_balanced_text_brackets(clean):
         return True
+    # A question may be grammatically complete without terminal punctuation.
+    # Do not mistake the final attributive particle in “由什么驱动的” for a
+    # clipped declarative title.
+    if re.search(
+        r"(?:为什么|是什么|什么类型|什么驱动|什么后果|有哪些|如何|"
+        r"是否|能否|哪(?:一)?类|怎么)",
+        clean,
+    ):
+        return False
     return clean.endswith((
-        "的", "与", "和", "及", "或", "在", "由", "为", "是指",
-        "包括", "分为", "属于", "依赖于", "取决于", "如果", "那么",
+        "的", "是指", "包括", "分为", "属于", "依赖于", "取决于",
+        "表达式为", "如果", "那么",
     ))
+
+
+def _is_usable_compiled_title(value: str) -> bool:
+    clean = _clean_text(value)
+    if (
+        not clean
+        or clean == "本页核心判断"
+        or _is_incomplete_visible_claim(clean)
+    ):
+        return False
+    if not re.search(r"[\u4e00-\u9fff]{2,}", clean):
+        return False
+    return not bool(
+        re.fullmatch(r"(?:在|当|从).{0,18}(?:中|下|时|方面)", clean)
+    )
 
 
 _QUESTION_CLAIM_PATTERN = re.compile(
@@ -1300,35 +1336,35 @@ def compile_page_title_v5(
     """Compile one audience-facing title without promoting takeaway at render time."""
     explicit = _title_candidate(explicit_title)
     claim = _title_candidate(primary_claim)
-    if _is_numbered_section_title(explicit):
-        explicit = ""
+    explicit_was_numbered = _is_numbered_section_title(explicit)
+    claim_was_numbered = _is_numbered_section_title(claim)
+    if explicit_was_numbered:
+        explicit = _title_candidate(_strip_numbered_section_prefix(explicit))
     if _is_incomplete_visible_claim(explicit):
         explicit = ""
-    if _is_numbered_section_title(claim):
+    if claim_was_numbered:
+        claim = _title_candidate(_strip_numbered_section_prefix(claim))
+    if _is_incomplete_visible_claim(claim):
         claim = ""
     body_claim = _best_body_title_claim(body_text)
     fallback = _title_candidate(fallback_context)
     if (
-        prefer_body_claim
+        (prefer_body_claim or explicit_was_numbered or claim_was_numbered)
         and body_claim
         and explicit
         and explicit == claim
         and not _is_takeaway_title(explicit)
     ):
-        return _structured_claim_title(body_claim)
-    if explicit:
-        if len(explicit) > 24:
-            return _structured_claim_title(explicit)
-        if explicit not in {claim, body_claim} or len(explicit) <= 24:
-            return _bounded_title(explicit)
-        return _structured_claim_title(explicit)
-    if claim:
-        return _structured_claim_title(claim)
-    if body_claim:
-        return _structured_claim_title(body_claim)
-    if fallback:
-        return _structured_claim_title(fallback)
-    return "课程内容"
+        body_title = _structured_claim_title(body_claim)
+        if _is_usable_compiled_title(body_title):
+            return body_title
+    for candidate in (explicit, claim, body_claim, fallback):
+        if not candidate:
+            continue
+        compiled = _structured_claim_title(candidate)
+        if _is_usable_compiled_title(compiled):
+            return compiled
+    return "本页核心判断"
 
 
 def _remove_repeated_lead_sentence(

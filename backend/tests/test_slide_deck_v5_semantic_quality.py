@@ -250,6 +250,53 @@ def test_long_foundation_claim_is_compressed_without_mid_word_truncation() -> No
     assert not title.endswith("最基")
 
 
+def test_numbered_semantic_heading_recovers_an_incomplete_body_excerpt() -> None:
+    title = compile_page_title_v5(
+        explicit_title="卡诺循环（Carnot",
+        primary_claim="3.2 卡诺定理与最大效率",
+        body_text=(
+            "在热力学中，卡诺循环（Carnot Cycle）是最早提出的一个"
+            "理想化热机模型。"
+        ),
+        fallback_context="热力学第二定律",
+        prefer_body_claim=True,
+    )
+
+    assert title == "卡诺定理与最大效率"
+
+
+def test_incomplete_body_claim_does_not_replace_a_complete_semantic_title() -> None:
+    title = compile_page_title_v5(
+        explicit_title="内能的本质",
+        primary_claim="内能的本质",
+        body_text="从微观角度来看，内能 U 包括：",
+        fallback_context="热力学第一定律",
+        prefer_body_claim=True,
+    )
+
+    assert title == "内能的本质"
+
+
+def test_complete_question_without_terminal_punctuation_is_not_blocked() -> None:
+    title = compile_page_title_v5(
+        explicit_title="从热力学角度看，这是由什么驱动的",
+        primary_claim="思考与挑战",
+        body_text="",
+        fallback_context="溶液热力学",
+    )
+    issues = v5_contract_issues([{
+        "unit_id": "practice-question",
+        "title": title,
+        "blocks": [],
+        "quality": {},
+    }])
+
+    assert title == "从热力学角度看，这是由什么驱动的"
+    assert "incomplete_title_claim" not in {
+        issue["code"] for issue in issues
+    }
+
+
 def test_recap_excludes_question_morphology_and_instructional_prompts() -> None:
     chapter = DeckChapterV5(
         chapter_id="chapter-declarative",
