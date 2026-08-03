@@ -2348,9 +2348,24 @@ class TaskManager:
     ) -> dict[str, Any]:
         quality_report = course_data.get("generation_quality_report") or {}
         asset_quality = course_data.get("asset_quality_report") or {}
+        source_chain = course_data.get("generation_source_chain_report") or {}
+        source_chain_issues = [
+            {
+                **deepcopy(issue),
+                "severity": str(issue.get("severity") or "critical"),
+                "suggestion": str(
+                    issue.get("suggestion")
+                    or "恢复已确认的版本链，重新核对发布输入修订"
+                ),
+                "target_id": str(issue.get("step") or "release"),
+            }
+            for issue in source_chain.get("issues") or []
+            if isinstance(issue, dict)
+        ]
         issues = dedupe_quality_issues([
             *deepcopy(quality_report.get("blocking_issues") or []),
             *deepcopy(asset_quality.get("blocking_issues") or []),
+            *source_chain_issues,
         ])
         blockers: list[dict[str, Any]] = []
         scopes: set[str] = set()

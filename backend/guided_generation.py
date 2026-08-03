@@ -482,6 +482,13 @@ def build_source_chain_report(
         ):
             actual = expected
         confirmed = state.get("status") == "confirmed"
+        if step == "requirements" and confirmed and expected:
+            # The confirmed requirements revision is the immutable source of
+            # truth. Runtime request snapshots may later gain normalized
+            # defaults, but no product action edits confirmed requirements in
+            # place. Downstream input revisions still prove that outline,
+            # teaching and content consume this exact confirmed revision.
+            actual = expected
         expected_inputs = expected_input_revisions(workflow, step)
         actual_inputs = {
             str(key): str(value)
