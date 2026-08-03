@@ -763,6 +763,8 @@ def build_final_course_quality_report(
             "候选增强资产保持隔离，不影响当前正式学习内容",
             str(issue.get("asset_id") or ""),
         ))
+    blocking_issues = dedupe_quality_issues(blocking_issues)
+    quality_warnings = dedupe_quality_issues(quality_warnings)
     final_status = (
         "quality_failed"
         if blocking_issues
@@ -811,6 +813,44 @@ def build_final_course_quality_report(
         },
         "final_status": final_status,
     }
+
+
+def dedupe_quality_issues(
+    issues: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Deduplicate equivalent issues while preserving their richest fields."""
+    result: list[dict[str, Any]] = []
+    positions: dict[tuple[str, str, str], int] = {}
+    for raw in issues:
+        if not isinstance(raw, dict):
+            continue
+        issue = dict(raw)
+        message = str(issue.get("message") or "").strip()
+        target = str(
+            issue.get("node_id")
+            or issue.get("asset_id")
+            or issue.get("target_id")
+            or ""
+        ).strip()
+        identity = message or str(
+            issue.get("code") or issue.get("issue_id") or issue
+        )
+        key = (identity, target, str(issue.get("severity") or ""))
+        existing_index = positions.get(key)
+        if existing_index is None:
+            positions[key] = len(result)
+            result.append(issue)
+            continue
+        existing = result[existing_index]
+        for field, value in issue.items():
+            if value not in (None, "", [], {}) and existing.get(field) in (
+                None,
+                "",
+                [],
+                {},
+            ):
+                existing[field] = value
+    return result
 
 
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
@@ -961,4 +1001,5 @@ __all__ = [
     "evaluate_difficulty_alignment",
     "build_difficulty_alignment_report",
     "build_final_course_quality_report",
+    "dedupe_quality_issues",
 ]

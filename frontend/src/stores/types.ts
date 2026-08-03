@@ -427,6 +427,24 @@ export interface TaskRecovery {
     reason_code: string
     reason: string
     checkpoint: TaskRecoveryCheckpoint
+    quality_failure?: {
+        fingerprint: string
+        repeat_count: number
+        blocker_count: number
+        repair_scopes: Array<'difficulty_contract' | 'learning_assets' | 'manual_review' | string>
+        supported: boolean
+        truncated?: boolean
+        blockers: Array<{
+            code: string
+            severity: string
+            message: string
+            suggestion: string
+            target_id: string
+            target_type: 'asset' | 'node' | 'course' | string
+            gate?: string
+            asset_type?: string
+        }>
+    }
 }
 
 export type GuidedGenerationStepKey = 'requirements' | 'outline' | 'teaching' | 'content' | 'release'

@@ -165,16 +165,24 @@ def test_existing_double_spike_is_repaired_in_course_and_blueprint_contracts():
             "support_actions": [],
         },
     }
+    previous_curve = {
+        "node_id": previous["node_id"],
+        **deepcopy(previous["difficulty_contract"]),
+    }
+    current_curve = {
+        "node_id": current["node_id"],
+        **deepcopy(current["difficulty_contract"]),
+    }
     course = {
         "nodes": [previous, current],
         "course_blueprint": {
             "nodes": [deepcopy(previous), deepcopy(current)],
             "course_difficulty_curve": {
-                "node_contracts": [deepcopy(previous), deepcopy(current)],
+                "node_contracts": [deepcopy(previous_curve), deepcopy(current_curve)],
             },
         },
         "course_difficulty_curve": {
-            "node_contracts": [deepcopy(previous), deepcopy(current)],
+            "node_contracts": [deepcopy(previous_curve), deepcopy(current_curve)],
         },
         "blueprint_validation_report": {"passed": False},
     }

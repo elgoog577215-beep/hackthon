@@ -39,6 +39,7 @@ from course_coherence import (
     evaluate_course_coherence,
 )
 from course_composition import compile_composition_profile
+from course_difficulty import repair_compiled_difficulty_double_spikes
 from course_document import document_from_generation_draft
 from course_generation_budget import (
     CourseGenerationBudget,
@@ -57,7 +58,11 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
 )
 from course_knowledge_map import compile_course_knowledge_map
-from course_quality import build_final_course_quality_report, evaluate_node_content
+from course_quality import (
+    build_final_course_quality_report,
+    dedupe_quality_issues,
+    evaluate_node_content,
+)
 from course_repository import (
     CourseDocumentConflict,
     CourseDocumentNotFound,
@@ -68,6 +73,7 @@ from course_versioning import (
     analyze_blueprint_impact,
     build_blueprint_draft,
     merge_blueprint_draft,
+    stable_hash,
 )
 from course_versions import (
     CourseVersionConflict,
@@ -1876,10 +1882,10 @@ class TaskManager:
                 )
                 or {}
             )
-            release_blockers = [
+            release_blockers = dedupe_quality_issues([
                 *deepcopy(quality_report.get("blocking_issues") or []),
                 *deepcopy(asset_quality.get("blocking_issues") or []),
-            ]
+            ])
             if teaching_stage.get("semantic_status") == "retry_required":
                 release_blockers.append({
                     "code": "teaching_plan:retry_required",
@@ -2271,14 +2277,13 @@ class TaskManager:
             task.get("phase") == "quality_failed"
             or workspace.get("status") == "quality_failed"
         ):
-            return {
-                **base,
-                "state": "quality_blocked",
-                "can_resume": True,
-                "reason_code": "quality_gate_failed",
-                "reason": "正文和教案已经保留；继续后只修复未通过的练习并重新执行发布检查",
-                "checkpoint": checkpoint,
-            }
+            return self._quality_recovery_contract(
+                task,
+                base=base,
+                checkpoint=checkpoint,
+                has_checkpoint=True,
+                course_data=course_data,
+            )
         if status in {"paused", "failed", "completed_with_warnings"}:
             if completed_nodes or draft_node_ids:
                 reason = "已保留完成内容和中断草稿，可以从保存点继续"
@@ -2333,6 +2338,130 @@ class TaskManager:
                 "checkpoint": checkpoint,
             }
         return {**base, "checkpoint": checkpoint}
+
+    @staticmethod
+    def _quality_failure_summary(
+        course_data: dict[str, Any],
+        *,
+        previous: dict[str, Any] | None = None,
+        advance_repeat: bool = False,
+    ) -> dict[str, Any]:
+        quality_report = course_data.get("generation_quality_report") or {}
+        asset_quality = course_data.get("asset_quality_report") or {}
+        issues = dedupe_quality_issues([
+            *deepcopy(quality_report.get("blocking_issues") or []),
+            *deepcopy(asset_quality.get("blocking_issues") or []),
+        ])
+        blockers: list[dict[str, Any]] = []
+        scopes: set[str] = set()
+        supported = bool(issues)
+        for issue in issues:
+            code = str(issue.get("code") or issue.get("issue_id") or "quality:unknown")
+            target_id = str(
+                issue.get("node_id")
+                or issue.get("asset_id")
+                or issue.get("target_id")
+                or ""
+            )
+            is_asset = bool(issue.get("asset_type")) or code.startswith("asset:")
+            if code == "difficulty:double_spike":
+                scopes.add("difficulty_contract")
+            elif is_asset and str(issue.get("asset_type") or "questions") == "questions":
+                scopes.add("learning_assets")
+            else:
+                supported = False
+                scopes.add("manual_review")
+            blockers.append({
+                "code": code,
+                "severity": str(issue.get("severity") or "critical"),
+                "message": str(issue.get("message") or "课程质量检查未通过"),
+                "suggestion": str(issue.get("suggestion") or "按阻断提示局部修复后重新检查"),
+                "target_id": target_id,
+                "target_type": "asset" if is_asset else "node" if target_id else "course",
+                "gate": str(issue.get("gate") or ""),
+                "asset_type": str(issue.get("asset_type") or ""),
+            })
+        fingerprint = stable_hash(
+            [
+                {
+                    "code": item["code"],
+                    "message": item["message"],
+                    "target_id": item["target_id"],
+                }
+                for item in blockers
+            ],
+            prefix="qf_",
+        )
+        previous = previous if isinstance(previous, dict) else {}
+        same_failure = bool(blockers) and previous.get("fingerprint") == fingerprint
+        previous_count = int(previous.get("repeat_count") or 0)
+        repeat_count = (
+            previous_count + 1
+            if same_failure and advance_repeat
+            else previous_count
+            if same_failure
+            else 1
+        )
+        order = ["difficulty_contract", "learning_assets", "manual_review"]
+        return {
+            "fingerprint": fingerprint,
+            "repeat_count": repeat_count,
+            "blocker_count": len(blockers),
+            "repair_scopes": [scope for scope in order if scope in scopes],
+            "supported": supported,
+            "blockers": blockers[:50],
+            "truncated": len(blockers) > 50,
+        }
+
+    def _quality_recovery_contract(
+        self,
+        task: dict[str, Any],
+        *,
+        base: dict[str, Any],
+        checkpoint: dict[str, Any],
+        has_checkpoint: bool,
+        course_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        previous = task.get("quality_failure")
+        quality_failure = (
+            self._quality_failure_summary(
+                course_data,
+                previous=previous if isinstance(previous, dict) else None,
+            )
+            if isinstance(course_data, dict)
+            else deepcopy(previous) if isinstance(previous, dict) else None
+        )
+        if quality_failure:
+            unchanged = int(quality_failure.get("repeat_count") or 0) >= 2
+            supported = bool(quality_failure.get("supported"))
+            can_resume = bool(has_checkpoint and supported and not unchanged)
+            if unchanged:
+                reason_code = "quality_gate_unchanged"
+                reason = "同一批质量阻断项已连续两次未变化，已停止自动重跑；请按下方明细人工处理"
+            elif not supported:
+                reason_code = "quality_gate_manual_action_required"
+                reason = "阻断项超出安全自动修复范围；请按下方明细人工处理后再检查"
+            else:
+                count = int(quality_failure.get("blocker_count") or 0)
+                reason_code = "quality_gate_failed"
+                reason = f"正文和教案已保留；继续后将定向修复 {count} 项阻断并重新执行发布检查"
+        else:
+            # Legacy jobs may not have persisted a bounded summary yet. The
+            # detailed resume endpoint reloads the workspace before mutating.
+            can_resume = bool(has_checkpoint)
+            reason_code = "quality_gate_failed"
+            reason = "正文和教案已保留；继续前将重新读取阻断明细并确认安全修复范围"
+        result = {
+            **base,
+            "state": "quality_blocked",
+            "can_resume": can_resume,
+            "reason_code": reason_code,
+            "reason": reason,
+            "checkpoint": checkpoint,
+        }
+        if quality_failure:
+            result["quality_failure"] = quality_failure
+        return result
 
     def _task_recovery_summary(self, task: dict[str, Any]) -> dict[str, Any]:
         """Build a polling-safe recovery summary without loading course payloads."""
@@ -2474,13 +2603,12 @@ class TaskManager:
         if status == "completed_with_warnings" and (
             phase == "quality_failed" or task.get("publication_allowed") is False
         ):
-            return {
-                **base,
-                "state": "quality_blocked",
-                "can_resume": has_checkpoint,
-                "reason_code": "quality_gate_failed",
-                "reason": "正文和教案已经保留；继续后只修复未通过的练习并重新执行发布检查",
-            }
+            return self._quality_recovery_contract(
+                task,
+                base=base,
+                checkpoint=checkpoint,
+                has_checkpoint=has_checkpoint,
+            )
         if status in {"paused", "failed", "error", "completed_with_warnings"}:
             if not has_checkpoint:
                 return {
@@ -3044,6 +3172,8 @@ class TaskManager:
 
         recovery = self.describe_task_recovery(task_id)
         quality_repair = recovery.get("state") == "quality_blocked"
+        quality_failure = recovery.get("quality_failure") or {}
+        repair_scopes = set(quality_failure.get("repair_scopes") or [])
         if task.get("status") in {"pending", "running"}:
             return {"status": "already_active", "task": self._task_view(task)}
         if recovery.get("state") == "completed":
@@ -3058,15 +3188,18 @@ class TaskManager:
             if task.get("status") in {"pending", "running"}:
                 return {"status": "already_active", "task": self._task_view(task)}
             task["status"] = "pending"
-            task["phase"] = "practice_repair" if quality_repair else "resuming"
+            task["phase"] = "quality_repair" if quality_repair else "resuming"
             task["current_phase"] = task["phase"]
             task["message"] = (
-                "正在保留课程正文并定位未通过的练习"
+                f"正在保留课程正文并准备修复 {int(quality_failure.get('blocker_count') or 0)} 项质量阻断"
                 if quality_repair
                 else "正在确认保存点并恢复任务"
             )
             if quality_repair:
-                task["asset_repair_requested"] = True
+                task["quality_repair_requested"] = True
+                task["quality_repair_scopes"] = sorted(repair_scopes)
+                if "learning_assets" in repair_scopes:
+                    task["asset_repair_requested"] = True
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 
@@ -3083,7 +3216,7 @@ class TaskManager:
                 self._generation_workspace_repository.record_recovery(
                     workspace_id,
                     reason=(
-                        "asset_quality_repair"
+                        "quality_gate_repair"
                         if quality_repair
                         else "manual_resume"
                     ),
@@ -3128,7 +3261,7 @@ class TaskManager:
             or recovery_checkpoint.get("draft_node_ids")
         )
         phase = (
-            "practice_repair"
+            "quality_repair"
             if quality_repair
             else
             "content_generation"
@@ -3153,7 +3286,7 @@ class TaskManager:
             task["progress"] = min(int(task.get("progress") or 0), progress_cap)
             task["phase_progress"] = 0
             task["message"] = (
-                "已保留全部课程内容，等待定向修复练习"
+                "已保留全部课程内容，等待定向修复质量阻断"
                 if quality_repair
                 else "已从保存点恢复，等待继续"
             )
@@ -3162,7 +3295,7 @@ class TaskManager:
             task["current_node_name"] = ""
             task["recovery_count"] = int(task.get("recovery_count") or 0) + 1
             task["last_recovery_reason"] = (
-                "asset_quality_repair"
+                "quality_gate_repair"
                 if quality_repair
                 else "manual_resume"
             )
@@ -6185,7 +6318,10 @@ class TaskManager:
         fresh_course = self._load_task_course(task_id) or course_data
         stage_artifacts = fresh_course.setdefault("generation_stage_artifacts", {})
         prepared = stage_artifacts.get("content_candidate") or {}
-        repair_requested = bool(task.get("asset_repair_requested"))
+        repair_requested = bool(
+            task.get("asset_repair_requested")
+            or task.get("quality_repair_requested")
+        )
         if (
             not repair_requested
             and prepared.get("status") == "completed"
@@ -6214,6 +6350,25 @@ class TaskManager:
                 strict_quality_passed,
                 publication_allowed,
             )
+
+        repaired_difficulty_node_ids: list[str] = []
+        if task.get("quality_repair_requested"):
+            repaired_difficulty_node_ids = repair_compiled_difficulty_double_spikes(
+                fresh_course
+            )
+            if repaired_difficulty_node_ids:
+                await self._update_phase(
+                    task_id,
+                    "quality_repair",
+                    86,
+                    f"已校正 {len(repaired_difficulty_node_ids)} 处难度曲线支架，正在重新检查学习资产",
+                    phase_progress=15,
+                    phase_detail={
+                        "repaired_difficulty_node_ids": repaired_difficulty_node_ids,
+                        "repaired_difficulty_count": len(repaired_difficulty_node_ids),
+                        "repair_scope": "quality_gate",
+                    },
+                )
 
         for node in fresh_course.get("nodes") or []:
             if (
@@ -6433,6 +6588,8 @@ class TaskManager:
                 )
         await self._save_task_course(task_id, fresh_course)
         task.pop("asset_repair_requested", None)
+        task.pop("quality_repair_requested", None)
+        task.pop("quality_repair_scopes", None)
         await self._update_progress(task_id, fresh_course)
         strict_quality_passed = (
             quality_report.get("final_status") == "passed"
@@ -6465,6 +6622,7 @@ class TaskManager:
             isinstance(guided_workflow, dict)
             and guided_step_confirmed(guided_workflow, "content")
             and not task.get("asset_repair_requested")
+            and not task.get("quality_repair_requested")
             and content_stage.get("status") == "completed"
             and isinstance(
                 course_data.get("generation_quality_report"),
@@ -6766,6 +6924,18 @@ class TaskManager:
                     task["course_version_id"] = version_entry.get("version_id")
                 task["quality_status"] = quality_report.get("final_status")
                 task["publication_allowed"] = publication_allowed
+                if publication_allowed:
+                    task.pop("quality_failure", None)
+                else:
+                    task["quality_failure"] = self._quality_failure_summary(
+                        fresh_course,
+                        previous=(
+                            task.get("quality_failure")
+                            if isinstance(task.get("quality_failure"), dict)
+                            else None
+                        ),
+                        advance_repeat=True,
+                    )
                 task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
 

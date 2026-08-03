@@ -130,7 +130,7 @@
               </ol>
             </section>
 
-            <section v-if="selectedTask.status === 'waiting_for_review'" class="generation-review">
+            <section v-if="shouldShowGenerationReview(selectedTask)" class="generation-review">
               <header>
                 <div>
                   <span class="generation-review__step">{{ currentReviewNumber }}</span>
@@ -249,9 +249,22 @@
                     <p>{{ t('courseTasks.review.sourceChain', '目录、全课小节教案、知识库和课程内容已按同一版本链核对。') }}</p>
                   </div>
                 </div>
-                <ul v-if="releaseIssues.length" class="release-issues">
-                  <li v-for="(issue, index) in releaseIssues" :key="`${issue.code || 'issue'}-${index}`">{{ reviewIssueMessage(issue) }}</li>
-                </ul>
+                <section v-if="releaseIssues.length" class="quality-blockers" :aria-labelledby="qualityBlockersId">
+                  <header>
+                    <h5 :id="qualityBlockersId">{{ t('courseTasks.review.blockersTitle', '具体阻断项') }}</h5>
+                    <span>{{ t('courseTasks.review.blockerCount', '共 {count} 项阻断').replace('{count}', String(releaseIssues.length)) }}</span>
+                  </header>
+                  <ol class="quality-blocker-list">
+                    <li v-for="(issue, index) in releaseIssues" :key="qualityIssueKey(issue, index)">
+                      <div class="quality-blocker-list__meta">
+                        <code>{{ issue.code || issue.issue_id || t('courseTasks.review.qualityGate', '质量门禁') }}</code>
+                        <span v-if="reviewIssueTarget(issue)">{{ t('courseTasks.review.target', '目标') }}：{{ reviewIssueTarget(issue) }}</span>
+                      </div>
+                      <strong>{{ reviewIssueMessage(issue) }}</strong>
+                      <p v-if="reviewIssueSuggestion(issue)">{{ t('courseTasks.review.suggestion', '建议动作') }}：{{ reviewIssueSuggestion(issue) }}</p>
+                    </li>
+                  </ol>
+                </section>
               </template>
               <p v-else-if="reviewError" class="blueprint-error">{{ reviewError }}</p>
             </section>
@@ -336,6 +349,7 @@ const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const workspace = useCourseWorkspaceStore()
 const titleId = `course-task-center-${Math.random().toString(36).slice(2)}`
+const qualityBlockersId = `${titleId}-quality-blockers`
 const panelRef = ref<HTMLElement | null>(null)
 const selectedTaskId = ref('')
 const refreshing = ref(false)
@@ -483,10 +497,10 @@ const confirmCurrentStepLabel = computed(() => (
     ? t('courseTasks.review.publish', '确认并发布课程')
     : t('courseTasks.review.confirm', '确认这一步，继续生成')
 ))
-const releaseIssues = computed<any[]>(() => [
+const releaseIssues = computed<any[]>(() => dedupeReviewIssues([
   ...(reviewArtifact.value?.blocking_issues || []),
   ...(reviewArtifact.value?.source_chain?.issues || []),
-])
+]))
 const assetCountEntries = computed(() => (
   Object.entries(reviewArtifact.value?.asset_counts || {})
     .map(([type, count]) => ({ type, count: Number(count || 0) }))
@@ -527,10 +541,11 @@ watch(selectedTaskId, () => { void loadSelectedReview() })
 watch(
   () => [
     selectedTask.value?.status,
+    selectedTask.value?.recovery?.state,
     selectedTask.value?.guidedWorkflow?.review_step,
   ],
-  ([status]) => {
-    if (status === 'waiting_for_review') void loadSelectedReview()
+  () => {
+    if (selectedTask.value && shouldShowGenerationReview(selectedTask.value)) void loadSelectedReview()
   },
 )
 onMounted(() => generationStore.startGlobalMonitor())
@@ -582,7 +597,7 @@ async function loadSelectedReview() {
   blueprintDraft.value = null
   generationReview.value = null
   reviewError.value = ''
-  if (selectedTask.value?.status !== 'waiting_for_review') return
+  if (!selectedTask.value || !shouldShowGenerationReview(selectedTask.value)) return
   try {
     const review = await workspace.loadGenerationReview(selectedTask.value.courseId)
     generationReview.value = review
@@ -798,6 +813,40 @@ function reviewIssueMessage(issue: any) {
   }
   return String(issue?.message || issue || '')
 }
+function reviewIssueTarget(issue: any) {
+  return String(issue?.target_id || issue?.node_id || issue?.asset_id || '')
+}
+function reviewIssueSuggestion(issue: any) {
+  return String(issue?.suggestion || '')
+}
+function qualityIssueKey(issue: any, index: number) {
+  return `${String(issue?.code || issue?.issue_id || 'issue')}-${reviewIssueTarget(issue)}-${index}`
+}
+function dedupeReviewIssues(issues: any[]) {
+  const result: any[] = []
+  const positions = new Map<string, number>()
+  for (const raw of issues) {
+    if (!raw) continue
+    const issue = typeof raw === 'object' ? { ...raw } : { message: String(raw) }
+    const message = reviewIssueMessage(issue).trim()
+    const target = reviewIssueTarget(issue).trim()
+    const key = `${message}\u0000${target}\u0000${String(issue.severity || '')}`
+    const position = positions.get(key)
+    if (position === undefined) {
+      positions.set(key, result.length)
+      result.push(issue)
+      continue
+    }
+    const existing = result[position]
+    for (const [field, value] of Object.entries(issue)) {
+      if (value !== undefined && value !== null && value !== '' && !existing[field]) existing[field] = value
+    }
+  }
+  return result
+}
+function shouldShowGenerationReview(task: TaskView) {
+  return task.status === 'waiting_for_review' || task.recovery?.state === 'quality_blocked'
+}
 function taskStepLabel(task: TaskView) {
   const detail = courseProductionTaskDetail(task).trim()
   const generic = /^(?:正在)?(?:处理|生成|准备)(?:中)?[.。…]*$/
@@ -854,6 +903,7 @@ function phaseLabel(phase: string | undefined, status: Task['status'], taskType?
     content_partial: t('courseTasks.phases.contentPartial', '正文已部分完成，可从保存点继续'),
     content_and_course_graph_generation: t('courseTasks.phases.contentAndCourseGraphGeneration', '恢复旧版正文与图谱并行检查点'),
     learning_assets: t('courseTasks.phases.learningAssets', '生成练习与综合测评'),
+    quality_repair: t('courseTasks.phases.qualityRepair', '定向修复质量阻断'),
     question_bank: t('courseTasks.phases.questionBank', '整理题库、联网补充与风险审核'),
     content_validation: t('courseTasks.phases.contentValidation', '检查结构、引用、答案合同与覆盖'),
     question_analysis: t('courseTasks.phases.questionAnalysis', '编译题目考查与答案合同'),
@@ -955,6 +1005,9 @@ function resumeActionLabel(task: TaskView) {
     return task.recovery?.checkpoint.parsed_ready
       ? t('taskObservability.import.resumeParsed', '从解析结果继续')
       : t('courseTasks.retryStage', '重试当前阶段')
+  }
+  if (task.recovery?.state === 'quality_blocked') {
+    return t('courseTasks.repairAndRecheck', '修复阻断项并复检')
   }
   return restartsCurrentStage(task)
     ? t('courseTasks.retryStage', '重试当前阶段')
@@ -1087,6 +1140,7 @@ function formatDuration(seconds: number) {
 .content-evidence { margin:10px 0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }.content-evidence > div { padding:10px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface-muted); }.content-evidence span,.content-evidence strong { display:block; }.content-evidence span { color:var(--lz-text-muted); font-size:9px; }.content-evidence strong { margin-top:4px; color:var(--lz-text-strong); font-size:13px; }.asset-counts { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }.asset-counts span { padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:8px; font-weight:650; }
 .question-review { margin:14px 0; padding:14px; border:1px solid rgba(14,116,144,.16); border-radius:10px; background:rgba(236,254,255,.42); }.question-review>header { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }.question-review>header strong { color:var(--lz-text-strong); font-size:12px; }.question-review>header p { margin:4px 0 0; max-width:460px; color:var(--lz-text-secondary); font-size:9px; line-height:1.5; }.question-review>header>span { flex:0 0 auto; padding:5px 8px; border-radius:999px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:800; }.question-review>header>span[data-blocked="true"] { color:var(--lz-warning); background:var(--lz-warning-soft); }.question-review__list { margin-top:12px; display:grid; gap:8px; }.question-review__list>article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:10px; border:1px solid rgba(14,116,144,.12); border-radius:8px; background:#fff; }.question-review__list>article[data-status="blocked"] { border-color:rgba(217,119,6,.28); }.question-review__index { color:#0e7490; font-family:ui-monospace,monospace; font-size:9px; font-weight:800; }.question-review__meta { display:flex; justify-content:space-between; gap:8px; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.question-review__meta b { color:#0e7490; }.question-review__list article>div>strong { display:block; color:var(--lz-text-strong); font-size:10px; line-height:1.5; }.question-review dl { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:9px 0; }.question-review dt { color:var(--lz-text-muted); font-size:8px; }.question-review dd { margin:3px 0 0; color:var(--lz-text-secondary); font-size:9px; line-height:1.45; }.question-review__targets { display:flex; flex-wrap:wrap; gap:4px; }.question-review__targets span { padding:3px 6px; border-radius:999px; color:#0e7490; background:#ecfeff; font-size:8px; }.question-review__targets span[data-kind="mistake"] { color:#c2410c; background:#fff7ed; }.question-review ul { margin:8px 0 0; padding-left:16px; color:var(--lz-warning); font-size:9px; line-height:1.5; }
 .release-verdict[data-pass="false"] { border-color:rgba(217,119,6,.2); color:var(--lz-warning); background:var(--lz-warning-soft); }.release-issues { margin:12px 0 0; padding:0 0 0 18px; color:var(--lz-warning); font-size:10px; line-height:1.6; }
+.quality-blockers { margin-top:12px; padding:13px; border:1px solid rgba(217,119,6,.22); border-radius:10px; background:#fffbeb; }.quality-blockers>header { display:flex; align-items:center; justify-content:space-between; gap:12px; }.quality-blockers h5 { margin:0; color:#92400e; font-size:12px; }.quality-blockers>header span { color:#b45309; font-size:9px; font-weight:700; }.quality-blocker-list { margin:10px 0 0; padding:0; display:grid; gap:8px; list-style:none; }.quality-blocker-list>li { padding:10px; border-left:3px solid rgba(217,119,6,.5); color:var(--lz-text-secondary); background:#fff; }.quality-blocker-list__meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px; margin-bottom:5px; }.quality-blocker-list__meta code { color:#92400e; font-family:ui-monospace,monospace; font-size:8px; }.quality-blocker-list__meta span { color:var(--lz-text-muted); font-size:8px; }.quality-blocker-list strong { display:block; color:var(--lz-text-strong); font-size:10px; line-height:1.5; }.quality-blocker-list p { margin:4px 0 0; color:#9a4d13; font-size:9px; line-height:1.5; }
 .task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
