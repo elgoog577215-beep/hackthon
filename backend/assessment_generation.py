@@ -147,6 +147,9 @@ def generate_universal_question_contract(
         "risk_contract": {
             "risk_level": risk_level,
             "requires_teacher_review": risk_level != "low",
+            "risk_flags": deepcopy(
+                resolved_objective.get("risk_flags") or []
+            ),
             "source_sufficiency": resolved_objective.get(
                 "source_sufficiency"
             ),
@@ -178,10 +181,17 @@ def generate_universal_question_contract(
         "question_spec": question_spec,
         "solution_envelope": solution_envelope,
         "solution_validation": validation,
-        "risk_flags": [
-            issue["code"]
-            for issue in validation.get("issues") or []
-        ],
+        "risk_flags": list(dict.fromkeys([
+            *[
+                str(value)
+                for value in resolved_objective.get("risk_flags") or []
+                if str(value).strip()
+            ],
+            *[
+                issue["code"]
+                for issue in validation.get("issues") or []
+            ],
+        ])),
         "review_required": not validation.get(
             "auto_publish_eligible",
             False,

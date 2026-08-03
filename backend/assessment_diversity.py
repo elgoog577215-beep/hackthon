@@ -262,6 +262,10 @@ def compare_diversity_signatures(
         and left.get("reasoning_route")
         == right.get("reasoning_route")
     )
+    same_practice_level = bool(
+        left.get("practice_level")
+        and left.get("practice_level") == right.get("practice_level")
+    )
     anchor_similarity, shared_anchors = _jaccard_with_count(
         left.get("anchors") or [],
         right.get("anchors") or [],
@@ -341,8 +345,9 @@ def compare_diversity_signatures(
         or (
             shared_subject_anchors >= 2
             and subject_anchor_similarity >= 0.5
+            and same_practice_level
         )
-        or shared_subject_anchors >= 3
+        or (shared_subject_anchors >= 3 and same_practice_level)
     )
     solution_match = bool(
         answer_similarity >= 0.82

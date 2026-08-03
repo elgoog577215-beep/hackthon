@@ -352,6 +352,7 @@ def test_anatomy_bank_auto_publishes_valid_items_without_subject_gate():
 
     assert bundle["assessment_profile"]["discipline"]["high_stakes"] is False
     assert any(item["review_tier"] == "auto_publish" for item in practice)
+    assert bundle["coverage"]["status"] == "complete"
     assert all(
         item.get("review_policy_reason") != "high_stakes_course"
         for item in practice

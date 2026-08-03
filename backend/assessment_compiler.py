@@ -416,6 +416,13 @@ def validate_compiled_question_contract(
 
     if not legacy_text_compat:
         solution_spec = answer_spec.get("solution_spec") or {}
+        validated_open_response = bool(
+            (
+                (solution_envelope or {}).get("validator_config")
+                or {}
+            ).get("validated_open_response")
+            and solution_spec.get("response_requirements")
+        )
         if len(str(solution_spec.get("summary") or "").strip()) < 8:
             add(
                 "WORKED_SOLUTION_SUMMARY_MISSING",
@@ -426,7 +433,10 @@ def validate_compiled_question_contract(
                 "WORKED_SOLUTION_STEPS_MISSING",
                 "compiled answer does not contain learner-facing solution steps",
             )
-        if solution_spec.get("final_answer") in (None, "", [], {}):
+        if (
+            solution_spec.get("final_answer") in (None, "", [], {})
+            and not validated_open_response
+        ):
             add(
                 "WORKED_SOLUTION_FINAL_ANSWER_MISSING",
                 "compiled answer does not contain a final answer",
