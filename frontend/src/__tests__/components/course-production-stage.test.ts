@@ -165,10 +165,10 @@ describe('CourseProductionStage', () => {
     expect(summary.text()).toBe('已暂停，当前检查点已保留')
 
     await wrapper.setProps({ task: { ...task, status: 'error' } })
-    expect(summary.text()).toBe('教案与知识库中断，可从保存点继续')
+    expect(summary.text()).toBe('教案确认中断，可从保存点继续')
 
     await wrapper.setProps({ task: { ...task, status: 'waiting_for_review' } })
-    expect(summary.text()).toBe('教案与知识库已完成，等待确认')
+    expect(summary.text()).toBe('教案确认已完成，等待确认')
   })
 
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {

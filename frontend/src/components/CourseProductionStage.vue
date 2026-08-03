@@ -3,7 +3,6 @@
     class="course-production-stage"
     :data-state="stageStatus"
     :aria-label="productionAriaLabel"
-    aria-live="polite"
   >
     <article class="formation-sheet">
       <header class="formation-sheet__header">
@@ -14,7 +13,12 @@
           {{ stageLabel }}
         </span>
         <h1>{{ courseName || t('courseGeneration.production.untitled', '新课程') }}</h1>
-        <p>{{ stageDescription }}</p>
+        <p
+          class="formation-sheet__live-summary"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >{{ liveStatusSummary }}</p>
       </header>
 
       <section class="formation-outline" :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')">
@@ -198,6 +202,7 @@ import type { Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
 import {
   canResumeCourseProduction,
+  courseProductionLiveSummary,
   courseProductionRecoveryDetail,
   courseProductionStageIndex,
   courseProductionStageKey,
@@ -418,22 +423,7 @@ const statusLabels = computed(() => ({
   pending: t('courseGeneration.lifecycle.pending', '未开始'),
 }))
 const stageLabel = computed(() => `${stageLabels.value[stageKey.value]} · ${statusLabels.value[stageStatus.value]}`)
-const descriptions = computed<Record<CourseProductionStageKey, string>>(() => isProjectCourse.value
-  ? {
-      requirements: t('courseGeneration.production.projectRequirementsDescription', '项目目标、交付物、主辅学科和你的暂定起点会被写入同一份项目契约。'),
-      outline: t('courseGeneration.production.projectOutlineDescription', '系统先把交付物拆成项目节点，再按你的已有经验和不确定点形成个人学习路径。'),
-      teaching: t('courseGeneration.production.projectTeachingDescription', '系统正在为每个项目节点匹配必要能力、知识、实践动作与验收证据。'),
-      content: t('courseGeneration.production.projectContentDescription', '课程会沿个人路径展开，让知识学习与项目产出在同一个过程中完成。'),
-      release: t('courseGeneration.production.projectReleaseDescription', '系统正在核对项目节点、学习路径与最终交付物是否完整衔接。'),
-    }
-  : {
-      requirements: t('courseGeneration.production.requirementsDescription', '主题、难度、学科结构与资料边界会被写入同一份生产契约。'),
-      outline: t('courseGeneration.production.outlineDescription', '系统正在把学习需求转成可确认的章节顺序、学习目标与课程范围。'),
-      teaching: t('courseGeneration.production.teachingDescription', '系统先冻结全课知识职责，再按预算生成详细教案，并从同一计划编译课程知识库。'),
-      content: t('courseGeneration.production.contentDescription', '各小节按真实前置关系并行生成，已完成的草稿会立即保存并出现在课程目录中。'),
-      release: t('courseGeneration.production.releaseDescription', '系统正在核对结构、稳定引用与同源版本链；通过后由你确认发布。'),
-    })
-const stageDescription = computed(() => descriptions.value[stageKey.value])
+const liveStatusSummary = computed(() => courseProductionLiveSummary(props.task))
 const outlineTitle = computed(() => {
   if (growthChapters.value.length) {
     if (stageKey.value === 'outline' && growthCompletedSections.value < growthTotalSections.value) {
