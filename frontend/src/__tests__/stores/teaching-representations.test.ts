@@ -755,7 +755,7 @@ describe('teaching representation progressive build', () => {
     expect(store.buildError).toBe('')
   })
 
-  it('caps an unpublished failed draft to a small diagnostic sample', async () => {
+  it('keeps every unpublished failed draft slide available for diagnosis', async () => {
     const draftSlides = Array.from({ length: 12 }, (_, index) => ({
       event: 'slide_upsert',
       progress: 10 + index,
@@ -772,9 +772,9 @@ describe('teaching representation progressive build', () => {
     await expect(store.buildProgressive('course-1')).rejects.toThrow('quality_gate_failed')
 
     expect(store.slidePreviewSource).toBe('draft')
-    expect(store.liveSlides).toHaveLength(5)
+    expect(store.liveSlides).toHaveLength(12)
     expect(store.liveSlides.map(slide => slide.unit_id)).toEqual(
-      Array.from({ length: 5 }, (_, index) => `slide:draft:${index}`),
+      Array.from({ length: 12 }, (_, index) => `slide:draft:${index}`),
     )
   })
 
