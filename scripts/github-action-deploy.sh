@@ -108,14 +108,15 @@ cleanup_incoming() {
 cleanup_releases() {
     local active_path=""
     local directory
+    local keep_count="${1:-$KEEP_RELEASES}"
     local real_path
-    local rollback_slots="$KEEP_RELEASES"
+    local rollback_slots="$keep_count"
     local rollback_kept=0
     local -a ordered_releases=()
 
     active_path="$(current_release)"
     if [[ "$active_path" == "$RELEASES_DIR"/* ]]; then
-        rollback_slots=$((KEEP_RELEASES - 1))
+        rollback_slots=$((keep_count - 1))
     fi
 
     mapfile -t ordered_releases < <(
@@ -149,6 +150,11 @@ ensure_free_space() {
         && [ "$KEEP_BACKUPS" -gt 1 ]; then
         log "磁盘空间低于发布阈值；仅保留最新一份数据备份后重试"
         cleanup_backups 1
+        available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
+    fi
+    if [ -n "$available_kb" ] && [ "$available_kb" -lt "$required_kb" ]; then
+        log "磁盘空间仍低于发布阈值；保留当前活动版本并清理更旧的回滚版本后重试"
+        cleanup_releases 1
         available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
     fi
     if [ -z "$available_kb" ] || [ "$available_kb" -lt "$required_kb" ]; then

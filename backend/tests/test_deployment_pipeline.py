@@ -29,6 +29,16 @@ def test_server_activation_bounds_backup_and_failed_artifact_retention() -> None
     assert 'rm -f -- "$ARTIFACT_PATH" || true' in script[rollback:]
 
 
+def test_server_activation_prunes_only_the_older_rollback_when_space_is_still_low() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    ensure_free_space = script[script.index("ensure_free_space()") : script.index("switch_current()")]
+
+    assert "cleanup_backups 1" in ensure_free_space
+    assert "cleanup_releases 1" in ensure_free_space
+    assert ensure_free_space.index("cleanup_backups 1") < ensure_free_space.index("cleanup_releases 1")
+
+
 def test_server_activation_uses_checkpoint_recovery_for_active_tasks() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
