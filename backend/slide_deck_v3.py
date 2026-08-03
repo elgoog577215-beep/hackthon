@@ -1497,6 +1497,18 @@ def _semantic_fragment_units(
             if index >= len(fragments):
                 units.append(headings)
                 break
+            if (
+                fragments[index].kind == "formula"
+                and index + 1 < len(fragments)
+                and fragments[index + 1].kind in {"paragraph", "list_item"}
+            ):
+                units.append([
+                    *headings,
+                    fragments[index],
+                    fragments[index + 1],
+                ])
+                index += 2
+                continue
             enumeration_end = _enumeration_end(fragments, index)
             if enumeration_end is not None:
                 units.append([*headings, *fragments[index:enumeration_end]])
@@ -1510,6 +1522,14 @@ def _semantic_fragment_units(
         if enumeration_end is not None:
             units.append(fragments[index:enumeration_end])
             index = enumeration_end
+            continue
+        if (
+            fragments[index].kind == "formula"
+            and index + 1 < len(fragments)
+            and fragments[index + 1].kind in {"paragraph", "list_item"}
+        ):
+            units.append([fragments[index], fragments[index + 1]])
+            index += 2
             continue
         units.append([fragments[index]])
         index += 1
