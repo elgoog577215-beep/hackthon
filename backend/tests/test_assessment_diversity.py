@@ -15,6 +15,7 @@ def _question(
     *,
     family: str = "general",
     question_type: str = "structured_application",
+    practice_level: str = "",
 ) -> dict:
     return {
         "question_type": question_type,
@@ -24,6 +25,7 @@ def _question(
         "question_spec": {
             "stimulus": {"rendered_text": material},
             "task": {"rendered_text": task},
+            "practice_level": practice_level,
         },
         "prompt": f"{material}\n{task}",
         "solution_envelope": {
@@ -115,6 +117,32 @@ def test_same_objective_with_new_instance_and_action_is_allowed():
     comparison = compare_diversity_signatures(
         build_diversity_signature(classification),
         build_diversity_signature(design),
+    )
+
+    assert comparison["duplicate"] is False
+
+
+def test_distinct_practice_levels_may_reuse_course_material_for_progression():
+    material = (
+        "颈动脉三角由胸锁乳突肌前缘、肩胛舌骨肌上腹和二腹肌后腹围成，"
+        "颈动脉鞘内包含颈总动脉、颈内静脉和迷走神经。"
+    )
+    concept = _question(
+        material,
+        "辨认三角边界和鞘内结构。",
+        family="life_medical",
+        practice_level="concept_check",
+    )
+    transfer = _question(
+        material,
+        "将这些毗邻关系迁移到未标注示意图并检查定位边界。",
+        family="life_medical",
+        practice_level="mastery_check",
+    )
+
+    comparison = compare_diversity_signatures(
+        build_diversity_signature(concept),
+        build_diversity_signature(transfer),
     )
 
     assert comparison["duplicate"] is False
