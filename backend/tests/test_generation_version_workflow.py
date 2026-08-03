@@ -174,11 +174,61 @@ class BlueprintService:
                 node["knowledge_structure"] = []
                 node["key_points"] = []
                 node["module_plan"] = []
-            return course
+        return course
         return self._attach_teaching(course)
 
     def compile_teaching_plan(self, course):
         return self._attach_teaching(deepcopy(course))
+
+
+@pytest.mark.asyncio
+async def test_process_task_persists_precise_release_quality_handoff(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    storage = MemoryStorage()
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=CourseVersionRepository(tmp_path / "versions"),
+        workspace_repository=GenerationWorkspaceRepository(tmp_path / "workspaces"),
+        document_repository=CourseDocumentRepository(storage),
+    )
+    manager.tasks["release-check"] = {
+        "id": "release-check",
+        "job_id": "release-check",
+        "task_id": "release-check",
+        "course_id": "course-release-check",
+        "type": "course_generation",
+        "status": "pending",
+        "progress": 94,
+        "phase": "content_confirmed",
+        "current_phase": "content_confirmed",
+        "phase_progress": 100,
+        "phase_detail": {},
+        "message": "正在处理...",
+        "current_nodes": [],
+        "logs": [],
+        "guided_workflow": {
+            "schema_version": "guided_course_generation_v3",
+            "current_step": "release",
+            "review_step": None,
+            "steps": [
+                {"number": 1, "key": "requirements", "status": "confirmed"},
+                {"number": 2, "key": "outline", "status": "confirmed"},
+                {"number": 3, "key": "teaching", "status": "confirmed"},
+                {"number": 4, "key": "content", "status": "confirmed"},
+                {"number": 5, "key": "release", "status": "pending"},
+            ],
+        },
+    }
+
+    await manager._process_task("release-check")
+
+    task = manager.tasks["release-check"]
+    assert task["current_phase"] == "publication_quality_check"
+    assert task["message"] == "正在执行发布前质量检查"
 
 
 @pytest.mark.asyncio

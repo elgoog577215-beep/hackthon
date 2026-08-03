@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Task } from '@/stores/types'
 import {
   OBSERVABLE_TASK_STAGE_KEYS,
+  observableTaskPhase,
   observableTaskStages,
   taskDisplayProgress,
   taskHeartbeatState,
@@ -62,6 +63,58 @@ describe('D-05 task observability projection', () => {
     const failed = task({ status: 'error', progress: 100, currentPhase: 'content_validation' })
     expect(taskDisplayProgress(failed)).toBe(99)
     expect(observableTaskStages(failed)[4]?.status).toBe('error')
+  })
+
+  it('发布工作流领先于旧阶段字段时投影为发布前质量检查，并重置未来历史', () => {
+    const releaseTask = task({
+      progress: 94,
+      currentPhase: 'content_confirmed',
+      currentStep: '正在处理...',
+      guidedWorkflow: {
+        schema_version: 'guided_course_generation_v3',
+        current_step: 'release',
+        review_step: null,
+        steps: [
+          { number: 1, key: 'requirements', status: 'confirmed' },
+          { number: 2, key: 'outline', status: 'confirmed' },
+          { number: 3, key: 'teaching', status: 'confirmed' },
+          { number: 4, key: 'content', status: 'confirmed' },
+          { number: 5, key: 'release', status: 'pending' },
+        ],
+      },
+      phaseHistory: [
+        { phase: 'content_validation', status: 'completed' },
+        { phase: 'release_confirmed', status: 'completed' },
+      ],
+    })
+
+    expect(observableTaskPhase(releaseTask)).toBe('publication_quality_check')
+    expect(observableTaskStages(releaseTask).map(stage => stage.status)).toEqual([
+      'completed', 'completed', 'completed', 'completed', 'active', 'pending',
+    ])
+  })
+
+  it('发布质量阻断不把内容完成或百分之百误投影为已经导出', () => {
+    const blocked = task({
+      status: 'completed_with_warnings',
+      progress: 100,
+      currentPhase: 'quality_failed',
+      publicationAllowed: false,
+      recovery: {
+        state: 'quality_blocked',
+        can_resume: true,
+        reason_code: 'quality_gate_failed',
+        reason: 'quality failed',
+        checkpoint: {
+          phase: 'quality_failed', completed_nodes: 18, total_nodes: 18,
+          draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [],
+        },
+      },
+    })
+
+    expect(observableTaskStages(blocked).map(stage => stage.status)).toEqual([
+      'completed', 'completed', 'completed', 'completed', 'blocked', 'pending',
+    ])
   })
 
   it('根据心跳而非动画判断运行任务可能停滞', () => {
