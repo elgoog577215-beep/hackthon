@@ -408,6 +408,17 @@ export interface TaskRecoveryCheckpoint {
     total_knowledge_packages?: number
     workspace_status?: string | null
     updated_at?: string | null
+    source_ready?: boolean
+    parsed_ready?: boolean
+}
+
+export interface TaskPhaseHistoryEntry {
+    phase: string
+    status: 'active' | 'completed' | 'error' | 'paused' | string
+    progress?: number
+    message?: string
+    started_at?: string
+    updated_at?: string
 }
 
 export interface TaskRecovery {
@@ -445,8 +456,12 @@ export interface Task {
     progress: number
     currentStep: string
     currentPhase?: string
+    taskType?: string
     phaseProgress?: number
     phaseDetail?: Record<string, unknown>
+    phaseHistory?: TaskPhaseHistoryEntry[]
+    heartbeatAt?: string
+    updatedAt?: string
     currentNodes?: Array<{
         node_id?: string
         node_name?: string
@@ -464,6 +479,8 @@ export interface Task {
     style?: string
     requirements?: string
     error?: string
+    errorCode?: string
+    errorUserMessage?: string
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string

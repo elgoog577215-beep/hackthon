@@ -133,6 +133,43 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.findComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(false)
   })
 
+  it('Markdown 导入创建后台任务后打开任务中心而不是提前进入空课程', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(courses, 'importMarkdown').mockResolvedValue({
+      job_id: 'import-job-1', course_id: 'course-import-1',
+    } as any)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+    const input = wrapper.get('input[type="file"]')
+    const file = new File(['# 线性代数\n\n向量有大小和方向。'], 'linear.md', { type: 'text/markdown' })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
+
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(courses.importMarkdown).toHaveBeenCalledWith(file)
+    expect(router.currentRoute.value.name).toBe('course-library')
+    const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
+    expect(taskCenter.props('modelValue')).toBe(true)
+    expect(taskCenter.props('courseId')).toBe('course-import-1')
+  })
+
   it('opens a published course directly in the learning workspace', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()

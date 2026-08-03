@@ -5,7 +5,6 @@
         <span>
           <TriangleAlert v-if="currentStatus === 'error' || currentStatus === 'blocked'" :size="14" />
           <CirclePause v-else-if="currentStatus === 'paused'" :size="14" />
-          <Clock3 v-else-if="currentStatus === 'review'" :size="14" />
           <LoaderCircle v-else-if="currentStatus === 'active'" :size="14" />
           <Check v-else :size="14" />
         </span>
@@ -27,7 +26,6 @@
             <Check v-if="stageStatus(index) === 'completed'" :size="11" />
             <TriangleAlert v-else-if="stageStatus(index) === 'error' || stageStatus(index) === 'blocked'" :size="11" />
             <CirclePause v-else-if="stageStatus(index) === 'paused'" :size="11" />
-            <Clock3 v-else-if="stageStatus(index) === 'review'" :size="11" />
             <LoaderCircle v-else-if="stageStatus(index) === 'active'" :size="11" />
             <span v-else>{{ index + 1 }}</span>
           </span>
@@ -45,10 +43,15 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, CirclePause, Clock3, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
+import { Check, CirclePause, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import type { Task } from '../stores/types'
 import { t } from '../shared/i18n'
-import { courseProductionStageIndex, courseProductionStageStatus } from '../utils/course-production'
+import {
+  OBSERVABLE_TASK_STAGE_KEYS,
+  observableTaskStages,
+  taskDisplayProgress,
+  type ObservableTaskStageStatus,
+} from '../utils/task-observability'
 
 const props = withDefaults(defineProps<{
   task?: Task
@@ -56,41 +59,24 @@ const props = withDefaults(defineProps<{
   task: undefined,
 })
 
-const isProjectCourse = computed(() => props.task?.courseType === 'project')
-const stages = computed(() => [
-  {
-    key: 'outline',
-    backendIndex: 1,
-    label: isProjectCourse.value
-      ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
-      : t('courseGeneration.lifecycle.outline', '目录确认'),
-  },
-  {
-    key: 'teaching',
-    backendIndex: 2,
-    label: isProjectCourse.value
-      ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
-      : t('courseGeneration.lifecycle.teaching', '教案确认'),
-  },
-  {
-    key: 'content',
-    backendIndex: 3,
-    label: isProjectCourse.value
-      ? t('courseGeneration.lifecycle.projectContent', '项目课程')
-      : t('courseGeneration.lifecycle.content', '正文生成'),
-  },
-  {
-    key: 'release',
-    backendIndex: 4,
-    label: isProjectCourse.value
-      ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
-      : t('courseGeneration.lifecycle.release', '确认发布'),
-  },
-])
-const backendStageIndex = computed(() => courseProductionStageIndex(props.task))
-const activeIndex = computed(() => Math.max(0, Math.min(stages.value.length - 1, backendStageIndex.value - 1)))
+const emptyLabels = {
+  receive: () => t('taskObservability.receive', '资料接收'),
+  parse: () => t('taskObservability.parse', '解析与分类'),
+  retrieve: () => t('taskObservability.retrieve', '检索证据'),
+  generate: () => t('taskObservability.generate', '内容生成'),
+  validate: () => t('taskObservability.validate', '质量检查'),
+  export: () => t('taskObservability.export', '导出与发布'),
+}
+const stages = computed(() => props.task
+  ? observableTaskStages(props.task)
+  : OBSERVABLE_TASK_STAGE_KEYS.map(key => ({ key, label: emptyLabels[key](), status: 'pending' as const })))
+const activeIndex = computed(() => {
+  const index = stages.value.findIndex(stage => ['active', 'error', 'paused', 'blocked'].includes(stage.status))
+  if (index >= 0) return index
+  return props.task?.status === 'completed' ? stages.value.length - 1 : 0
+})
 const currentStatus = computed(() => stageStatus(activeIndex.value))
-const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
+const progressValue = computed(() => props.task ? taskDisplayProgress(props.task) : 0)
 const currentValue = computed(() => (
   currentStatus.value === 'active' || currentStatus.value === 'completed'
     ? liveCount.value || `${progressValue.value}%`
@@ -100,21 +86,25 @@ const currentValue = computed(() => (
 const liveCount = computed(() => {
   const checkpoint = props.task?.recovery?.checkpoint
   const detail = props.task?.phaseDetail || {}
-  if (activeIndex.value === 1) {
-    const completed = Number(checkpoint?.completed_teaching_plan_sections ?? detail.completed_items ?? 0)
-    const total = Number(checkpoint?.total_teaching_plan_sections ?? detail.total_items ?? 0)
-    return total ? `${completed}/${total}` : ''
-  }
-  if (activeIndex.value === 2) {
-    const completed = Number(props.task?.completedNodes ?? checkpoint?.completed_nodes ?? detail.completed_items ?? 0)
-    const total = Number(props.task?.totalNodes ?? checkpoint?.total_nodes ?? detail.total_items ?? 0)
-    return total ? `${completed}/${total}` : ''
-  }
-  return ''
+  const completed = Number(
+    detail.completed_items
+    ?? props.task?.completedNodes
+    ?? checkpoint?.completed_nodes
+    ?? checkpoint?.completed_teaching_plan_sections
+    ?? 0,
+  )
+  const total = Number(
+    detail.total_items
+    ?? props.task?.totalNodes
+    ?? checkpoint?.total_nodes
+    ?? checkpoint?.total_teaching_plan_sections
+    ?? 0,
+  )
+  return total ? `${completed}/${total}` : ''
 })
 
-function stageStatus(index: number) {
-  return courseProductionStageStatus(props.task, stages.value[index]?.backendIndex ?? index)
+function stageStatus(index: number): ObservableTaskStageStatus {
+  return stages.value[index]?.status || 'pending'
 }
 
 function stageStatusLabel(index: number) {
@@ -123,7 +113,6 @@ function stageStatusLabel(index: number) {
   if (status === 'error') return t('courseGeneration.lifecycle.interrupted', '已中断')
   if (status === 'paused') return t('courseGeneration.lifecycle.paused', '已暂停')
   if (status === 'blocked') return t('courseGeneration.lifecycle.blocked', '需处理')
-  if (status === 'review') return t('courseGeneration.lifecycle.needsConfirmation', '待确认')
   if (status === 'active') return t('courseGeneration.lifecycle.inProgress', '进行中')
   return t('courseGeneration.lifecycle.pending', '未开始')
 }
@@ -203,7 +192,7 @@ function stageStatusLabel(index: number) {
 .generation-lifecycle ol {
   width:100%;
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(6,minmax(0,1fr));
   margin:0;
   padding:0;
   list-style:none;
