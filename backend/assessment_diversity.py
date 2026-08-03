@@ -262,9 +262,9 @@ def compare_diversity_signatures(
         and left.get("reasoning_route")
         == right.get("reasoning_route")
     )
-    same_practice_level = bool(
-        left.get("practice_level")
-        and left.get("practice_level") == right.get("practice_level")
+    same_practice_level = (
+        str(left.get("practice_level") or "")
+        == str(right.get("practice_level") or "")
     )
     anchor_similarity, shared_anchors = _jaccard_with_count(
         left.get("anchors") or [],
