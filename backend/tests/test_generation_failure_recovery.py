@@ -408,6 +408,86 @@ async def test_repeated_unchanged_quality_failure_disables_blind_resume(tmp_path
     assert "连续两次" in repeated["reason"]
 
 
+def test_quality_failure_summary_includes_source_chain_blockers():
+    summary = TaskManager._quality_failure_summary({
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "blocking_issues": [],
+        },
+        "asset_quality_report": {
+            "passed": True,
+            "blocking_issues": [],
+        },
+        "generation_source_chain_report": {
+            "can_publish": False,
+            "issues": [{
+                "code": "requirements_revision_mismatch",
+                "step": "requirements",
+                "message": "requirements no longer matches its confirmed revision",
+            }],
+        },
+    })
+
+    assert summary["blocker_count"] == 1
+    assert summary["repair_scopes"] == ["manual_review"]
+    assert summary["supported"] is False
+    assert summary["blockers"][0]["code"] == "requirements_revision_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_restart_replaces_stale_source_chain_publication_decision_before_completion(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch
+    )
+    course = workspaces.load_course("job-recovery")
+    course.update({
+        "asset_quality_report": {"passed": True, "blocking_issues": []},
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "publication_allowed": False,
+            "blocking_issues": [],
+            "source_chain_passed": False,
+        },
+    })
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "completed_with_warnings",
+        "phase": "quality_failed",
+    })
+    fresh_report = {
+        "final_status": "completed_with_warnings",
+        "publication_allowed": True,
+        "blocking_issues": [],
+        "warnings": [],
+    }
+    monkeypatch.setattr(
+        task_manager_module,
+        "build_final_course_quality_report",
+        lambda _course, job_id=None: {**fresh_report, "job_id": job_id},
+    )
+    captured: dict = {}
+
+    async def capture_complete(task_id: str, course_data: dict) -> None:
+        captured["task_id"] = task_id
+        captured["quality_report"] = deepcopy(
+            course_data.get("generation_quality_report") or {}
+        )
+
+    monkeypatch.setattr(manager, "_complete_task", capture_complete)
+
+    should_queue = await manager._reconcile_task_after_restart("job-recovery")
+
+    assert should_queue is False
+    assert captured["task_id"] == "job-recovery"
+    assert captured["quality_report"]["publication_allowed"] is True
+    assert captured["quality_report"].get("source_chain_passed") is not False
+
+
 @pytest.mark.asyncio
 async def test_release_review_deduplicates_wrapped_asset_and_quality_blockers(
     tmp_path, monkeypatch,

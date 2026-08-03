@@ -2348,9 +2348,24 @@ class TaskManager:
     ) -> dict[str, Any]:
         quality_report = course_data.get("generation_quality_report") or {}
         asset_quality = course_data.get("asset_quality_report") or {}
+        source_chain = course_data.get("generation_source_chain_report") or {}
+        source_chain_issues = [
+            {
+                **deepcopy(issue),
+                "severity": str(issue.get("severity") or "critical"),
+                "suggestion": str(
+                    issue.get("suggestion")
+                    or "恢复已确认的版本链，重新核对发布输入修订"
+                ),
+                "target_id": str(issue.get("step") or "release"),
+            }
+            for issue in source_chain.get("issues") or []
+            if isinstance(issue, dict)
+        ]
         issues = dedupe_quality_issues([
             *deepcopy(quality_report.get("blocking_issues") or []),
             *deepcopy(asset_quality.get("blocking_issues") or []),
+            *source_chain_issues,
         ])
         blockers: list[dict[str, Any]] = []
         scopes: set[str] = set()
@@ -2753,6 +2768,12 @@ class TaskManager:
             quality_report = build_final_course_quality_report(course_data, job_id=task_id)
             if self._quality_allows_publication(course_data, quality_report):
                 logger.info("Re-evaluating publishable quality warning task %s", task_id)
+                # A prior source-chain decision may have set publication_allowed
+                # to false even though the immutable content candidate has no
+                # quality blockers. Replace that derived decision before
+                # completion so _complete_task cannot reuse the stale report.
+                course_data["generation_quality_report"] = quality_report
+                await self._save_task_course(task_id, course_data)
                 await self._complete_task(task_id, course_data)
             return False
         if task.get("status") not in {"pending", "running"}:
