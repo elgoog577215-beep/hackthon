@@ -112,7 +112,7 @@ describe('CourseProductionStage', () => {
     const lifecycle = mount(CourseGenerationLifecycle, { props: { task } })
 
     expect(stage.text()).toContain('个人路径 · 进行中')
-    expect(stage.text()).toContain('系统先把交付物拆成项目节点')
+    expect(stage.text()).toContain('生成轻量课程目录')
     expect(stage.text()).toContain('确认个人路径后')
     expect(lifecycle.text()).toContain('资料接收')
     expect(lifecycle.text()).toContain('解析与分类')
@@ -120,6 +120,55 @@ describe('CourseProductionStage', () => {
     expect(lifecycle.text()).toContain('内容生成')
     expect(lifecycle.text()).toContain('质量检查')
     expect(lifecycle.text()).toContain('导出与发布')
+  })
+
+  it('标题下方用可播报的实时阶段摘要取代静态说明', async () => {
+    const task: Task = {
+      ...interruptedTask,
+      status: 'running',
+      error: undefined,
+      progress: 47,
+      currentPhase: 'course_teaching_plan_batch',
+      currentStep: '正在生成第 18 批详细教案',
+      updatedAt: '2026-08-03T12:17:00+08:00',
+      phaseDetail: {
+        completed_batches: 0,
+        total_batches: 18,
+      },
+      phaseHistory: [
+        { phase: 'course_teaching_plan_batch_validation', status: 'completed' },
+      ],
+      guidedWorkflow: {
+        ...interruptedTask.guidedWorkflow!,
+        current_step: 'teaching',
+        steps: interruptedTask.guidedWorkflow!.steps,
+      },
+      recovery: {
+        ...interruptedTask.recovery!,
+        can_resume: true,
+      },
+    }
+    const wrapper = mount(CourseProductionStage, {
+      props: { task, courseName: '局部解剖学' },
+    })
+    const summary = wrapper.get('.formation-sheet__live-summary')
+
+    expect(summary.attributes('role')).toBe('status')
+    expect(summary.attributes('aria-live')).toBe('polite')
+    expect(summary.attributes('aria-atomic')).toBe('true')
+    expect(summary.text()).toContain('并行生成详细教案批次')
+    expect(summary.text()).toContain('已完成 0/18 批')
+    expect(summary.text()).toContain('最后更新 12:17')
+    expect(wrapper.text()).not.toContain('系统先冻结全课知识职责')
+
+    await wrapper.setProps({ task: { ...task, status: 'paused' } })
+    expect(summary.text()).toBe('已暂停，当前检查点已保留')
+
+    await wrapper.setProps({ task: { ...task, status: 'error' } })
+    expect(summary.text()).toBe('教案与知识库中断，可从保存点继续')
+
+    await wrapper.setProps({ task: { ...task, status: 'waiting_for_review' } })
+    expect(summary.text()).toBe('教案与知识库已完成，等待确认')
   })
 
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {
