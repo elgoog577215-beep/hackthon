@@ -2768,6 +2768,12 @@ class TaskManager:
             quality_report = build_final_course_quality_report(course_data, job_id=task_id)
             if self._quality_allows_publication(course_data, quality_report):
                 logger.info("Re-evaluating publishable quality warning task %s", task_id)
+                # A prior source-chain decision may have set publication_allowed
+                # to false even though the immutable content candidate has no
+                # quality blockers. Replace that derived decision before
+                # completion so _complete_task cannot reuse the stale report.
+                course_data["generation_quality_report"] = quality_report
+                await self._save_task_course(task_id, course_data)
                 await self._complete_task(task_id, course_data)
             return False
         if task.get("status") not in {"pending", "running"}:

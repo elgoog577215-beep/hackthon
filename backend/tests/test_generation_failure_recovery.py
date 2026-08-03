@@ -485,7 +485,7 @@ async def test_restart_replaces_stale_source_chain_publication_decision_before_c
     assert should_queue is False
     assert captured["task_id"] == "job-recovery"
     assert captured["quality_report"]["publication_allowed"] is True
-    assert captured["quality_report"]["source_chain_passed"] is not False
+    assert captured["quality_report"].get("source_chain_passed") is not False
 
 
 @pytest.mark.asyncio
