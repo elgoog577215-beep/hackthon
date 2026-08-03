@@ -463,6 +463,63 @@ describe('CourseTaskCenter', () => {
     ])
   })
 
+  it('质量阻断时读取发布报告并展示去重后的目标和恢复建议', async () => {
+    const generation = useGenerationStore()
+    const workspace = useCourseWorkspaceStore()
+    const workflow = {
+      schema_version: 'guided_course_generation_v2', current_step: 'release', review_step: null,
+      steps: [
+        { number: 1, key: 'requirements', status: 'confirmed' },
+        { number: 2, key: 'outline', status: 'confirmed' },
+        { number: 3, key: 'teaching', status: 'confirmed' },
+        { number: 4, key: 'content', status: 'confirmed' },
+        { number: 5, key: 'release', status: 'needs_regeneration' },
+      ],
+    }
+    generation.globalTasks = [{
+      id: 'task-quality', course_id: 'course-1', course_name: '局部解剖学', status: 'completed_with_warnings',
+      progress: 100, current_phase: 'quality_failed', publication_allowed: false,
+      guided_workflow: workflow,
+      recovery: {
+        state: 'quality_blocked', can_resume: true, reason_code: 'quality_gate_failed', reason: '可定向修复',
+        checkpoint: { phase: 'quality_failed', completed_nodes: 18, total_nodes: 18, draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [] },
+      },
+    }]
+    const loadReview = vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      step: 'release', can_confirm: false, guided_workflow: workflow,
+      artifact: {
+        publication_allowed: false,
+        blocking_issues: [
+          {
+            code: 'difficulty:double_spike', message: 'L2-6-1 同时提高新概念负荷和任务复杂度，且支架不足',
+            suggestion: '提高支架强度', node_id: 'L2-6-1',
+          },
+          {
+            code: 'difficulty:double_spike', message: 'L2-6-1 同时提高新概念负荷和任务复杂度，且支架不足',
+            suggestion: '提高支架强度', node_id: 'L2-6-1',
+          },
+          {
+            code: 'asset:aqi-rubric', message: '理解检查量规与题目焦点不一致',
+            suggestion: '复核答案量规', node_id: 'question-L2-1-1', asset_type: 'questions',
+          },
+        ],
+        source_chain: { issues: [] },
+      },
+    })
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(loadReview).toHaveBeenCalledWith('course-1')
+    expect(wrapper.get('.quality-blockers').attributes('aria-labelledby')).toBeTruthy()
+    expect(wrapper.findAll('.quality-blocker-list > li')).toHaveLength(2)
+    expect(wrapper.text()).toContain('共 2 项阻断')
+    expect(wrapper.text()).toContain('L2-6-1')
+    expect(wrapper.text()).toContain('提高支架强度')
+    expect(wrapper.text()).toContain('question-L2-1-1')
+    expect(wrapper.text()).toContain('复核答案量规')
+  })
+
   it('发布预检使用工作流恢复精确阶段，不显示通用处理中提示', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{

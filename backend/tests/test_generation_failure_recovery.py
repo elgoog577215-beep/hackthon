@@ -316,18 +316,155 @@ async def test_quality_failure_resumes_as_targeted_asset_repair(tmp_path, monkey
         "phase": "quality_failed",
         "progress": 100,
     })
+    course = workspaces.load_course("job-recovery")
+    asset_blocker = {
+        "issue_id": "aqi-rubric",
+        "gate": "semantic",
+        "severity": "critical",
+        "asset_type": "questions",
+        "asset_id": "question-L2-1-1",
+        "message": "理解检查量规与题目焦点不一致",
+    }
+    course["asset_quality_report"] = {
+        "passed": False,
+        "blocking_issues": [asset_blocker],
+    }
+    course["generation_quality_report"] = {
+        "final_status": "quality_failed",
+        "publication_allowed": False,
+        "blocking_issues": [
+            {
+                "code": "difficulty:double_spike",
+                "severity": "critical",
+                "message": "L2-1-2 同时提高新概念负荷和任务复杂度，且支架不足",
+                "suggestion": "提高支架强度",
+                "node_id": "L2-1-2",
+            },
+            {
+                "code": "asset:aqi-rubric",
+                "severity": "critical",
+                "message": asset_blocker["message"],
+                "suggestion": "复核量规",
+                "node_id": asset_blocker["asset_id"],
+            },
+        ],
+    }
+    workspaces.save_course("job-recovery", course)
     workspaces.set_status("job-recovery", "quality_failed", result={"quality": "failed"})
 
     recovery = manager.describe_task_recovery("job-recovery")
 
     assert recovery["state"] == "quality_blocked"
     assert recovery["can_resume"] is True
+    assert recovery["quality_failure"]["blocker_count"] == 2
+    assert recovery["quality_failure"]["repair_scopes"] == [
+        "difficulty_contract",
+        "learning_assets",
+    ]
+    assert recovery["quality_failure"]["blockers"][1]["target_id"] == "question-L2-1-1"
     resumed = await manager.resume_task("job-recovery")
     assert resumed["status"] == "resumed"
     assert manager.tasks["job-recovery"]["asset_repair_requested"] is True
-    assert manager.tasks["job-recovery"]["phase"] == "practice_repair"
+    assert manager.tasks["job-recovery"]["quality_repair_requested"] is True
+    assert manager.tasks["job-recovery"]["phase"] == "quality_repair"
     assert manager._task_queue.qsize() == 1
-    assert workspaces.load("job-recovery")["recovery_history"][-1]["reason"] == "asset_quality_repair"
+    assert workspaces.load("job-recovery")["recovery_history"][-1]["reason"] == "quality_gate_repair"
+
+
+@pytest.mark.asyncio
+async def test_repeated_unchanged_quality_failure_disables_blind_resume(tmp_path, monkeypatch):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch, task_status="failed"
+    )
+    course = workspaces.load_course("job-recovery")
+    course["generation_quality_report"] = {
+        "final_status": "quality_failed",
+        "publication_allowed": False,
+        "blocking_issues": [{
+            "code": "difficulty:double_spike",
+            "severity": "critical",
+            "message": "L2-1-2 同时提高新概念负荷和任务复杂度，且支架不足",
+            "suggestion": "提高支架强度",
+            "node_id": "L2-1-2",
+        }],
+    }
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "completed_with_warnings",
+        "phase": "quality_failed",
+        "publication_allowed": False,
+    })
+
+    first = manager.describe_task_recovery("job-recovery")
+    manager.tasks["job-recovery"]["quality_failure"] = {
+        **first["quality_failure"],
+        "repeat_count": 2,
+    }
+    repeated = manager.describe_task_recovery("job-recovery")
+
+    assert repeated["state"] == "quality_blocked"
+    assert repeated["can_resume"] is False
+    assert repeated["reason_code"] == "quality_gate_unchanged"
+    assert "连续两次" in repeated["reason"]
+
+
+@pytest.mark.asyncio
+async def test_release_review_deduplicates_wrapped_asset_and_quality_blockers(
+    tmp_path, monkeypatch,
+):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch
+    )
+    course = workspaces.load_course("job-recovery")
+    asset_blocker = {
+        "issue_id": "aqi-rubric",
+        "gate": "semantic",
+        "severity": "critical",
+        "asset_type": "questions",
+        "asset_id": "question-L2-1-1",
+        "message": "理解检查量规与题目焦点不一致",
+    }
+    course["asset_quality_report"] = {
+        "passed": False,
+        "blocking_issues": [asset_blocker],
+    }
+    course["generation_quality_report"] = {
+        "final_status": "quality_failed",
+        "publication_allowed": False,
+        "blocking_issues": [
+            {
+                "code": "difficulty:double_spike",
+                "severity": "critical",
+                "message": "L2-1-2 同时提高新概念负荷和任务复杂度，且支架不足",
+                "node_id": "L2-1-2",
+            },
+            {
+                "code": "difficulty:double_spike",
+                "severity": "critical",
+                "message": "L2-1-2 同时提高新概念负荷和任务复杂度，且支架不足",
+                "node_id": "L2-1-2",
+            },
+            {
+                "code": "asset:aqi-rubric",
+                "severity": "critical",
+                "message": asset_blocker["message"],
+                "node_id": asset_blocker["asset_id"],
+            },
+        ],
+    }
+    workspaces.save_course("job-recovery", course)
+    workflow = _release_workflow(course)
+    manager._mark_release_gate_blocked(workflow)
+    manager.tasks["job-recovery"].update({
+        "status": "completed_with_warnings",
+        "phase": "quality_failed",
+        "guided_workflow": workflow,
+    })
+
+    review = manager.get_generation_review("course-recovery")
+
+    assert review is not None
+    assert len(review["artifact"]["blocking_issues"]) == 2
 
 
 @pytest.mark.asyncio

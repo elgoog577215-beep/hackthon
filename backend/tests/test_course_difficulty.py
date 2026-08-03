@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 
 from course_difficulty import (
@@ -8,6 +10,7 @@ from course_difficulty import (
     compile_difficulty_profile,
     decide_adaptation,
     ensure_course_difficulty_contracts,
+    repair_compiled_difficulty_double_spikes,
 )
 from course_pedagogy import PedagogyMode
 from course_quality import (
@@ -101,6 +104,96 @@ def test_curve_is_sawtooth_and_ends_in_integrated_performance():
         ],
     }
     assert validate_difficulty_blueprint(blueprint)["passed"] is True
+
+
+def test_long_curve_never_compiles_an_unsupported_double_spike():
+    profile = compile_difficulty_profile("intermediate", primary_mode="life_science")
+    adaptation = decide_adaptation(assess_readiness(profile))
+    nodes = [
+        {
+            "node_id": f"L2-{((index - 1) // 3) + 1}-{((index - 1) % 3) + 1}",
+            "section_number": f"{((index - 1) // 3) + 1}.{((index - 1) % 3) + 1}",
+        }
+        for index in range(1, 19)
+    ]
+    curve = compile_course_difficulty_curve(
+        profile=profile,
+        nodes=nodes,
+        adaptation=adaptation,
+    ).to_dict()
+    blueprint = {
+        "difficulty_profile": profile.to_dict(),
+        "course_difficulty_curve": curve,
+        "nodes": [
+            {
+                **node,
+                "difficulty_contract": {
+                    key: value
+                    for key, value in contract.items()
+                    if key not in {"node_id", "section_number"}
+                },
+            }
+            for node, contract in zip(nodes, curve["node_contracts"])
+        ],
+    }
+
+    report = validate_difficulty_blueprint(blueprint)
+
+    assert not any(
+        issue["code"] == "difficulty:double_spike"
+        for issue in report["issues"]
+    )
+
+
+def test_existing_double_spike_is_repaired_in_course_and_blueprint_contracts():
+    previous = {
+        "node_id": "L2-5-3",
+        "node_level": 2,
+        "difficulty_contract": {
+            "new_concept_load": 1,
+            "challenge": {"task_complexity": 3},
+            "support": {"scaffold_intensity": 3},
+        },
+    }
+    current = {
+        "node_id": "L2-6-1",
+        "node_level": 2,
+        "difficulty_contract": {
+            "new_concept_load": 2,
+            "challenge": {"task_complexity": 4},
+            "support": {"scaffold_intensity": 2},
+            "support_actions": [],
+        },
+    }
+    previous_curve = {
+        "node_id": previous["node_id"],
+        **deepcopy(previous["difficulty_contract"]),
+    }
+    current_curve = {
+        "node_id": current["node_id"],
+        **deepcopy(current["difficulty_contract"]),
+    }
+    course = {
+        "nodes": [previous, current],
+        "course_blueprint": {
+            "nodes": [deepcopy(previous), deepcopy(current)],
+            "course_difficulty_curve": {
+                "node_contracts": [deepcopy(previous_curve), deepcopy(current_curve)],
+            },
+        },
+        "course_difficulty_curve": {
+            "node_contracts": [deepcopy(previous_curve), deepcopy(current_curve)],
+        },
+        "blueprint_validation_report": {"passed": False},
+    }
+
+    repaired = repair_compiled_difficulty_double_spikes(course)
+
+    assert repaired == ["L2-6-1"]
+    assert course["nodes"][1]["difficulty_contract"]["support"]["scaffold_intensity"] == 3
+    assert course["course_blueprint"]["nodes"][1]["difficulty_contract"]["support"]["scaffold_intensity"] == 3
+    assert course["course_difficulty_curve"]["node_contracts"][1]["support"]["scaffold_intensity"] == 3
+    assert "blueprint_validation_report" not in course
 
 
 def test_plan_compiler_removes_free_complexity_and_attaches_contracts():

@@ -734,7 +734,13 @@ def evaluate_learning_asset_quality(
         if question.get("practice_level") == "concept_check":
             focus = str(next(iter(answer_spec.get("expected_keywords") or []), ""))
             if focus and focus not in criteria_text:
-                issues.append(_asset_issue("semantic", "critical", "questions", "理解检查量规与题目焦点不一致", question))
+                issues.append(_asset_issue(
+                    "semantic",
+                    "warning",
+                    "questions",
+                    "理解检查量规未直接写出首个焦点词，建议人工复核",
+                    question,
+                ))
         if question.get("practice_level") == "objective_practice" and not all(
             marker in criteria_text for marker in ("依据", "过程", "检查")
         ):

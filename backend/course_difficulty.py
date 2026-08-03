@@ -524,6 +524,19 @@ def compile_course_difficulty_curve(
         support = asdict(profile.support_profile)
         for key in ("scaffold_intensity", "pacing_granularity", "feedback_frequency"):
             support[key] = _clamp(int(support[key]) + int(settings["support"]))
+        if contracts:
+            previous = contracts[-1]
+            concept_increases = int(settings["concept"]) > int(
+                previous.get("new_concept_load") or 0
+            )
+            task_increases = int(challenge.get("task_complexity") or 0) > int(
+                (previous.get("challenge") or {}).get("task_complexity") or 0
+            )
+            if concept_increases and task_increases:
+                support["scaffold_intensity"] = max(
+                    3,
+                    int(support.get("scaffold_intensity") or 0),
+                )
 
         required_evidence = _dedupe([
             *profile.mastery_contract.required_evidence,
@@ -580,6 +593,81 @@ def compile_course_difficulty_curve(
         ),
         node_contracts=tuple(contracts),
     )
+
+
+def repair_compiled_difficulty_double_spikes(
+    course_data: dict[str, Any],
+) -> list[str]:
+    """Raise scaffold support for persisted compiler-created double spikes.
+
+    The repair is deterministic and only changes difficulty metadata. Course
+    text, learning objectives, references, and reviewed content stay intact.
+    """
+    nodes = [
+        node
+        for node in course_data.get("nodes") or []
+        if int(node.get("node_level") or 1) == 2
+    ]
+    repaired_node_ids: list[str] = []
+    previous_contract: dict[str, Any] | None = None
+    for node in nodes:
+        contract = node.get("difficulty_contract") or {}
+        if previous_contract:
+            concept_increases = int(contract.get("new_concept_load") or 0) > int(
+                previous_contract.get("new_concept_load") or 0
+            )
+            task_increases = int(
+                (contract.get("challenge") or {}).get("task_complexity") or 0
+            ) > int(
+                (previous_contract.get("challenge") or {}).get("task_complexity") or 0
+            )
+            scaffold = int(
+                (contract.get("support") or {}).get("scaffold_intensity") or 0
+            )
+            if concept_increases and task_increases and scaffold < 3:
+                node_id = str(node.get("node_id") or "")
+                if node_id:
+                    repaired_node_ids.append(node_id)
+        previous_contract = contract
+
+    if not repaired_node_ids:
+        return []
+
+    repaired_set = set(repaired_node_ids)
+
+    def repair_item(item: dict[str, Any]) -> None:
+        node_id = str(item.get("node_id") or "")
+        if node_id not in repaired_set:
+            return
+        contract = item.get("difficulty_contract")
+        if not isinstance(contract, dict):
+            contract = item
+        support = contract.setdefault("support", {})
+        support["scaffold_intensity"] = max(
+            3,
+            int(support.get("scaffold_intensity") or 0),
+        )
+        actions = list(contract.get("support_actions") or [])
+        action = "在概念与任务复杂度同步提升处增加分步支架"
+        if action not in actions:
+            actions.append(action)
+        contract["support_actions"] = actions
+
+    blueprint = course_data.get("course_blueprint") or {}
+    collections = [
+        course_data.get("nodes") or [],
+        blueprint.get("nodes") or [],
+        (course_data.get("course_difficulty_curve") or {}).get("node_contracts") or [],
+        (blueprint.get("course_difficulty_curve") or {}).get("node_contracts") or [],
+    ]
+    for collection in collections:
+        for item in collection:
+            if isinstance(item, dict):
+                repair_item(item)
+
+    course_data.pop("blueprint_validation_report", None)
+    course_data.pop("difficulty_alignment_report", None)
+    return repaired_node_ids
 
 
 def attach_difficulty_contracts_to_plan(
@@ -825,6 +913,7 @@ __all__ = [
     "assess_readiness",
     "decide_adaptation",
     "compile_course_difficulty_curve",
+    "repair_compiled_difficulty_double_spikes",
     "attach_difficulty_contracts_to_plan",
     "ensure_course_difficulty_contracts",
     "format_difficulty_profile",
