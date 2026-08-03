@@ -93,9 +93,9 @@ continuation pages.
 
 ### Requirement: AI Refines the Compact Source-Bound Story
 
-When an AI provider is configured and the explicit planner kill switch is not
-disabled, the system SHALL refine the deterministic V5 compact story with
-chapter-scoped, source-bound directives before page allocation.
+The system SHALL refine the deterministic V5 compact story with chapter-scoped,
+source-bound directives before page allocation when an AI provider is
+configured and the explicit planner kill switch is not disabled.
 
 #### Scenario: A configured provider refines a multi-chapter course
 - **WHEN** V5 has already selected complete semantic groups

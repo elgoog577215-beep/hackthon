@@ -147,4 +147,3 @@ Pass criteria:
 - Text-only fallback reduces visual density, but preserves teaching correctness and avoids misleading output.
 - Semantic grouping may produce fewer slides. This is a desired consequence when previous pages existed only because of artificial fragment boundaries.
 - Domain packs can drift into hidden course-specific logic. They must remain declarative and pass the same generic validation suite.
-

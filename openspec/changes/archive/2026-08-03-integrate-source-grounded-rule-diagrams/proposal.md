@@ -34,4 +34,3 @@ The product does not currently have a dependable image-generation model. The saf
 - Frontend slide visual rendering and its component tests.
 - Course-agnostic behavior for science, engineering, humanities, and other subjects through a generic core plus optional template packs.
 - Existing generated course data is not rewritten automatically; affected decks must be regenerated to receive the new behavior.
-

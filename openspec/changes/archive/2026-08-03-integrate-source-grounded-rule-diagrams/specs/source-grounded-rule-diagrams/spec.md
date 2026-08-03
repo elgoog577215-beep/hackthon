@@ -88,4 +88,3 @@ The system SHALL mark a deck unpublishable when learner-visible output contains 
 #### Scenario: All visual integrity checks pass
 - **WHEN** every rendered visual is valid and source-grounded and no forbidden placeholder or raw source is visible
 - **THEN** visual integrity does not prevent publication
-
