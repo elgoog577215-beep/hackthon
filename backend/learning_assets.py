@@ -164,6 +164,7 @@ def compile_learning_assets(
         "nodes": deepcopy(nodes),
         "subject_pedagogy_profile": profile.to_dict(),
     }
+    question_bank_provided = question_bank_bundle is not None
     if question_bank_bundle is None:
         question_bank_bundle = build_question_bank(
             question_bank_course,
@@ -184,6 +185,20 @@ def compile_learning_assets(
             question_bank_bundle,
             assessment_role="practice",
         )
+    }
+    bank_practice_slots = {
+        (
+            str(item.get("node_id") or ""),
+            str(
+                next(
+                    iter(item.get("practice_levels") or []),
+                    item.get("practice_level") or "",
+                )
+            ),
+        )
+        for item in question_bank_bundle.get("items") or []
+        if question_bank_provided
+        and item.get("assessment_role") == "practice"
     }
 
     questions: list[dict[str, Any]] = []
@@ -232,6 +247,11 @@ def compile_learning_assets(
             ])
             generated_contract: dict[str, Any] | None = None
             if not bank_item:
+                if (node_id, practice_level) in bank_practice_slots:
+                    # The canonical bank already evaluated this slot and kept
+                    # it out of publication. Do not bypass that decision with
+                    # a second, unreviewed learner-facing fallback.
+                    continue
                 scoped_node = {
                     **deepcopy(node),
                     "key_points": (
@@ -377,7 +397,19 @@ def compile_learning_assets(
             node_questions.append(question)
         if "questions" in enabled:
             questions.extend(node_questions)
-        mastery_question = node_questions[-1]
+        mastery_question = next(
+            (
+                item
+                for item in reversed(node_questions)
+                if item.get("practice_level") == "mastery_check"
+            ),
+            node_questions[-1] if node_questions else None,
+        )
+        mastery_bindings = (
+            [mastery_question["revision_id"]]
+            if mastery_question and "questions" in enabled
+            else []
+        )
 
         diagnostic_templates.append(_build_diagnostic_template(
             course_data, course_id, node, objective, key_points, concept_ids, skill_unit_ids,
@@ -410,7 +442,7 @@ def compile_learning_assets(
             "asset_id": criterion_id,
             "criterion_id": criterion_id,
             "node_id": node_id,
-            "learning_objective": mastery_question["learning_objective"],
+            "learning_objective": objective["statement"],
             "objective_id": objective["objective_id"],
             "objective_revision_id": objective["objective_revision_id"],
             "concept_ids": concept_ids,
@@ -424,8 +456,8 @@ def compile_learning_assets(
             "subject_task": question_type,
             "pass_threshold": 70,
             "scaffold_condition": (node.get("difficulty_contract") or {}).get("support") or {},
-            "assessment_bindings": [mastery_question["revision_id"]] if "questions" in enabled else [],
-            "verification_status": "not_started" if "questions" in enabled else "unverified",
+            "assessment_bindings": mastery_bindings,
+            "verification_status": "not_started" if mastery_bindings else "unverified",
         }
         criterion["revision_id"] = _revision_id(criterion, "mcr_")
         if "mastery_criteria" in enabled:
@@ -455,7 +487,7 @@ def compile_learning_assets(
                 "example": raw.get("observable_error_pattern"),
                 "discrimination": raw.get("discrimination"),
                 "repair_strategy": raw.get("repair_strategy"),
-                "assessment_bindings": [mastery_question["revision_id"]] if "questions" in enabled else [],
+                "assessment_bindings": mastery_bindings,
                 "evidence_ids": evidence_ids,
                 "status": "course_common",
                 "order": index,

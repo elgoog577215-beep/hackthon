@@ -3188,11 +3188,13 @@ def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
                         semantic_signals.get("task_similarity")
                         or 0
                     ) >= 0.9
-                    or semantic_signals.get(
-                        "same_cognitive_action"
-                    )
-                    or semantic_signals.get(
-                        "same_reasoning_route"
+                    or (
+                        str(left_signature.get("practice_level") or "")
+                        == str(right_signature.get("practice_level") or "")
+                        and (
+                            semantic_signals.get("same_cognitive_action")
+                            or semantic_signals.get("same_reasoning_route")
+                        )
                     )
                 )
             )
