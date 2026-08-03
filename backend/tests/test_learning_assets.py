@@ -222,6 +222,33 @@ def test_quality_gate_rejects_missing_required_questions():
     assert any(item["asset_type"] == "questions" for item in report["blocking_issues"])
 
 
+def test_concept_check_rubric_does_not_require_literal_first_keyword_match():
+    course = _course()
+    bundle = compile_learning_assets(course)
+    concept_check = next(
+        item
+        for item in bundle["assets"]["questions"]
+        if item["practice_level"] == "concept_check"
+    )
+    focus = concept_check["answer_spec"]["expected_keywords"][0]
+    concept_check["answer_spec"]["criteria"] = [
+        "准确解释题目指定概念，并说明它的作用条件与边界",
+    ]
+    assert focus not in concept_check["answer_spec"]["criteria"][0]
+
+    report = evaluate_learning_asset_quality(
+        course,
+        bundle["plan"],
+        bundle["assets"],
+    )
+
+    assert not any(
+        item.get("asset_id") == concept_check.get("asset_id")
+        and item.get("message") == "理解检查量规与题目焦点不一致"
+        for item in report["blocking_issues"]
+    )
+
+
 def test_unpublished_enhancement_candidates_do_not_block_core_course_release():
     course = _course()
     bundle = compile_learning_assets(course)

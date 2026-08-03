@@ -103,6 +103,45 @@ def test_curve_is_sawtooth_and_ends_in_integrated_performance():
     assert validate_difficulty_blueprint(blueprint)["passed"] is True
 
 
+def test_long_curve_never_compiles_an_unsupported_double_spike():
+    profile = compile_difficulty_profile("intermediate", primary_mode="life_science")
+    adaptation = decide_adaptation(assess_readiness(profile))
+    nodes = [
+        {
+            "node_id": f"L2-{((index - 1) // 3) + 1}-{((index - 1) % 3) + 1}",
+            "section_number": f"{((index - 1) // 3) + 1}.{((index - 1) % 3) + 1}",
+        }
+        for index in range(1, 19)
+    ]
+    curve = compile_course_difficulty_curve(
+        profile=profile,
+        nodes=nodes,
+        adaptation=adaptation,
+    ).to_dict()
+    blueprint = {
+        "difficulty_profile": profile.to_dict(),
+        "course_difficulty_curve": curve,
+        "nodes": [
+            {
+                **node,
+                "difficulty_contract": {
+                    key: value
+                    for key, value in contract.items()
+                    if key not in {"node_id", "section_number"}
+                },
+            }
+            for node, contract in zip(nodes, curve["node_contracts"])
+        ],
+    }
+
+    report = validate_difficulty_blueprint(blueprint)
+
+    assert not any(
+        issue["code"] == "difficulty:double_spike"
+        for issue in report["issues"]
+    )
+
+
 def test_plan_compiler_removes_free_complexity_and_attaches_contracts():
     profile = compile_difficulty_profile("beginner", primary_mode="general")
     plan = {
