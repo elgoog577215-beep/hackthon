@@ -56,7 +56,7 @@
                     <span class="status-chip" :data-status="selectedTask.status">{{ statusLabel(selectedTask.status, selectedTask.recovery, selectedTask.taskType) }}</span>
                   </div>
                   <h3>{{ selectedTask.courseName }}</h3>
-                  <p>{{ taskStepLabel(selectedTask) }}</p>
+                  <p class="task-summary__live-status" role="status" aria-live="polite" aria-atomic="true">{{ taskStepLabel(selectedTask) }}</p>
                 </div>
                 <strong>{{ selectedDisplayProgress }}%</strong>
               </div>
@@ -66,12 +66,12 @@
                 :aria-valuenow="selectedDisplayProgress"
                 aria-valuemin="0"
                 aria-valuemax="100"
-                :aria-valuetext="`${phaseLabel(selectedTask.currentPhase, selectedTask.status, selectedTask.taskType)}，${selectedDisplayProgress}%`"
+                :aria-valuetext="`${taskPhaseLabel(selectedTask)}，${selectedDisplayProgress}%`"
               >
                 <span :style="{ width: `${selectedDisplayProgress}%` }" />
               </div>
               <dl>
-                <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ phaseLabel(selectedTask.currentPhase, selectedTask.status, selectedTask.taskType) }}</dd></div>
+                <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ taskPhaseLabel(selectedTask) }}</dd></div>
                 <div v-if="phaseItemProgress"><dt>{{ phaseItemProgress.label }}</dt><dd>{{ phaseItemProgress.completed }} / {{ phaseItemProgress.total }}</dd></div>
                 <div v-else-if="selectedProgress?.totalNodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedProgress.completedNodes }} / {{ selectedProgress.totalNodes }}</dd></div>
                 <div v-else-if="selectedTask.recovery?.checkpoint.total_nodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedTask.recovery.checkpoint.completed_nodes }} / {{ selectedTask.recovery.checkpoint.total_nodes }}</dd></div>
@@ -80,7 +80,7 @@
               </dl>
             </section>
 
-            <section class="task-observability" :aria-label="t('taskObservability.label', '任务处理阶段')" aria-live="polite">
+            <section class="task-observability" :aria-label="t('taskObservability.label', '任务处理阶段')">
               <ol>
                 <li
                   v-for="stage in selectedObservableStages"
@@ -319,6 +319,7 @@ import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
 import { courseProductionTaskDetail } from '@/utils/course-production'
 import {
+  observableTaskPhase,
   observableTaskStages,
   taskDisplayProgress,
   taskHeartbeatState,
@@ -798,7 +799,12 @@ function reviewIssueMessage(issue: any) {
   return String(issue?.message || issue || '')
 }
 function taskStepLabel(task: TaskView) {
-  return courseProductionTaskDetail(task) || phaseLabel(task.currentPhase, task.status, task.taskType)
+  const detail = courseProductionTaskDetail(task).trim()
+  const generic = /^(?:正在)?(?:处理|生成|准备)(?:中)?[.。…]*$/
+  return (detail && !generic.test(detail)) ? detail : taskPhaseLabel(task)
+}
+function taskPhaseLabel(task: TaskView) {
+  return phaseLabel(observableTaskPhase(task), task.status, task.taskType)
 }
 function phaseLabel(phase: string | undefined, status: Task['status'], taskType?: string) {
   if (phase === 'completed' && taskType === 'course_import') {
@@ -853,6 +859,7 @@ function phaseLabel(phase: string | undefined, status: Task['status'], taskType?
     question_analysis: t('courseTasks.phases.questionAnalysis', '编译题目考查与答案合同'),
     content_ready: t('courseTasks.phases.contentReady', '等待确认课程内容'),
     content_confirmed: t('courseTasks.phases.contentConfirmed', '课程内容已确认'),
+    publication_quality_check: t('courseTasks.phases.publicationQualityCheck', '正在执行发布前质量检查'),
     release_ready: t('courseTasks.phases.releaseReady', '等待确认发布'),
     release_confirmed: t('courseTasks.phases.releaseConfirmed', '正在发布课程'),
     resuming: t('courseTasks.phases.resuming', '从保存点恢复'),

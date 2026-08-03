@@ -242,6 +242,7 @@
       "contentValidation": "Validating structure, references, answer contracts, and coverage",
       "contentReady": "Waiting for course content confirmation",
       "contentConfirmed": "Course content confirmed",
+      "publicationQualityCheck": "Running pre-publication quality checks",
       "releaseReady": "Waiting for publication confirmation",
       "releaseConfirmed": "Publishing course",
       "resuming": "Resuming from checkpoint",
