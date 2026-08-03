@@ -1,14 +1,14 @@
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="task-center-layer" @keydown.esc="close">
+    <div v-if="modelValue" class="task-center-layer" @keydown="handleDialogKeydown">
       <button type="button" class="task-center-backdrop" :aria-label="t('common.cancel', '取消')" @click="close" />
       <section ref="panelRef" class="task-center" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
         <header class="task-center__header">
           <div>
             <span><ListChecks :size="16" /></span>
             <div>
-              <p>{{ t('courseTasks.eyebrow', '后台生成') }}</p>
-              <h2 :id="titleId">{{ t('courseTasks.title', '课程生成任务') }}</h2>
+              <p>{{ t('courseTasks.eyebrow', '后台处理') }}</p>
+              <h2 :id="titleId">{{ t('courseTasks.title', '课程任务中心') }}</h2>
             </div>
           </div>
           <div class="task-center__header-actions">
@@ -38,7 +38,7 @@
               <span class="task-row__copy">
                 <strong>{{ task.courseName }}</strong>
                 <small>
-                  {{ statusLabel(task.status, task.recovery) }} · {{ Math.round(task.progress) }}%
+                  {{ statusLabel(task.status, task.recovery, task.taskType) }} · {{ taskDisplayProgress(task) }}%
                   <template v-if="task.updatedAt"> · {{ formatTaskTime(task.updatedAt) }}</template>
                 </small>
               </span>
@@ -51,14 +51,24 @@
             <section class="task-summary">
               <div class="task-summary__top">
                 <div>
-                  <span class="status-chip" :data-status="selectedTask.status">{{ statusLabel(selectedTask.status, selectedTask.recovery) }}</span>
+                  <div class="task-summary__chips">
+                    <span class="task-kind-chip">{{ taskKindLabel(selectedTask) }}</span>
+                    <span class="status-chip" :data-status="selectedTask.status">{{ statusLabel(selectedTask.status, selectedTask.recovery, selectedTask.taskType) }}</span>
+                  </div>
                   <h3>{{ selectedTask.courseName }}</h3>
                   <p>{{ taskStepLabel(selectedTask) }}</p>
                 </div>
-                <strong>{{ Math.round(selectedTask.progress) }}%</strong>
+                <strong>{{ selectedDisplayProgress }}%</strong>
               </div>
-              <div class="task-progress" role="progressbar" :aria-valuenow="Math.round(selectedTask.progress)" aria-valuemin="0" aria-valuemax="100">
-                <span :style="{ width: `${selectedTask.progress}%` }" />
+              <div
+                class="task-progress"
+                role="progressbar"
+                :aria-valuenow="selectedDisplayProgress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuetext="`${phaseLabel(selectedTask.currentPhase, selectedTask.status)}，${selectedDisplayProgress}%`"
+              >
+                <span :style="{ width: `${selectedDisplayProgress}%` }" />
               </div>
               <dl>
                 <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ phaseLabel(selectedTask.currentPhase, selectedTask.status) }}</dd></div>
@@ -66,7 +76,34 @@
                 <div v-else-if="selectedProgress?.totalNodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedProgress.completedNodes }} / {{ selectedProgress.totalNodes }}</dd></div>
                 <div v-else-if="selectedTask.recovery?.checkpoint.total_nodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedTask.recovery.checkpoint.completed_nodes }} / {{ selectedTask.recovery.checkpoint.total_nodes }}</dd></div>
                 <div v-if="selectedProgress?.estimatedTimeRemaining"><dt>{{ t('courseTasks.remaining', '预计剩余') }}</dt><dd>{{ formatDuration(selectedProgress.estimatedTimeRemaining) }}</dd></div>
+                <div v-if="selectedTask.heartbeatAt"><dt>{{ t('taskObservability.lastHeartbeat', '最后更新') }}</dt><dd>{{ formatTaskTime(selectedTask.heartbeatAt) }}</dd></div>
               </dl>
+            </section>
+
+            <section class="task-observability" :aria-label="t('taskObservability.label', '任务处理阶段')" aria-live="polite">
+              <ol>
+                <li
+                  v-for="stage in selectedObservableStages"
+                  :key="stage.key"
+                  class="task-observability__stage"
+                  :data-status="stage.status"
+                  :aria-current="stage.status === 'active' || stage.status === 'error' || stage.status === 'paused' ? 'step' : undefined"
+                >
+                  <span class="task-observability__marker">
+                    <CircleCheck v-if="stage.status === 'completed'" :size="13" />
+                    <TriangleAlert v-else-if="stage.status === 'error' || stage.status === 'blocked'" :size="13" />
+                    <CirclePause v-else-if="stage.status === 'paused'" :size="13" />
+                    <LoaderCircle v-else-if="stage.status === 'active'" class="spin" :size="13" />
+                    <CircleDashed v-else :size="13" />
+                  </span>
+                  <strong>{{ stage.label }}</strong>
+                  <small>{{ observableStageStatusLabel(stage.status) }}</small>
+                </li>
+              </ol>
+              <p v-if="selectedHeartbeat.state === 'stalled'" class="task-heartbeat-alert" role="status">
+                <Clock3 :size="15" />
+                {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
+              </p>
             </section>
 
             <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
@@ -223,8 +260,8 @@
               <TriangleAlert :size="18" />
               <div>
                 <strong>{{ problemTitle(selectedTask) }}</strong>
-                <p>{{ problemHelp(selectedTask) }}</p>
-                <small v-if="selectedTask.error" class="task-error-detail">{{ t('courseTasks.problem.detail', '具体原因：{error}').replace('{error}', selectedTask.error) }}</small>
+                <p>{{ selectedError.message || problemHelp(selectedTask) }}</p>
+                <small v-if="selectedError.technicalDetail" class="task-error-detail">{{ t('courseTasks.problem.detail', '技术详情：{error}').replace('{error}', selectedError.technicalDetail) }}</small>
                 <small v-if="selectedTask.recovery?.can_resume" class="recovery-checkpoint">{{ recoveryCheckpointLabel(selectedTask) }}</small>
               </div>
             </section>
@@ -281,8 +318,15 @@ import { useGenerationStore } from '@/stores/generation'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
 import { courseProductionTaskDetail } from '@/utils/course-production'
+import {
+  observableTaskStages,
+  taskDisplayProgress,
+  taskHeartbeatState,
+  taskUserError,
+  type ObservableTaskStageStatus,
+} from '@/utils/task-observability'
 
-type TaskView = Task & { updatedAt?: string }
+type TaskView = Task
 
 const props = withDefaults(defineProps<{ modelValue: boolean; courseId?: string }>(), { courseId: '' })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
@@ -298,6 +342,7 @@ const acting = ref(false)
 const blueprintDraft = ref<any>(null)
 const generationReview = ref<any>(null)
 const reviewError = ref('')
+const previousFocus = ref<HTMLElement | null>(null)
 
 const tasks = computed<TaskView[]>(() => {
   const byTaskId = new Map<string, TaskView>()
@@ -308,6 +353,7 @@ const tasks = computed<TaskView[]>(() => {
       id: raw.id,
       courseId: raw.course_id,
       courseName: raw.course_name || matchingLocal?.courseName || t('courseTasks.untitled', '未命名课程'),
+      taskType: String(raw.type || matchingLocal?.taskType || 'course_generation'),
       status: normalizeStatus(raw.status),
       progress: Math.max(0, Math.min(100, Number(raw.progress || 0))),
       currentStep: raw.current_node_name ? String(raw.current_node_name) : String(raw.message || matchingLocal?.currentStep || ''),
@@ -315,6 +361,8 @@ const tasks = computed<TaskView[]>(() => {
       phaseProgress: Number(raw.phase_progress || matchingLocal?.phaseProgress || 0),
       phaseDetail: raw.phase_detail || matchingLocal?.phaseDetail || {},
       error: raw.error ? String(raw.error) : matchingLocal?.error,
+      errorCode: raw.error_code ? String(raw.error_code) : matchingLocal?.errorCode,
+      errorUserMessage: raw.error_user_message ? String(raw.error_user_message) : matchingLocal?.errorUserMessage,
       recovery: raw.recovery || matchingLocal?.recovery,
       publicationAllowed: typeof raw.publication_allowed === 'boolean' ? raw.publication_allowed : matchingLocal?.publicationAllowed,
       qualityStatus: raw.quality_status || matchingLocal?.qualityStatus,
@@ -322,6 +370,8 @@ const tasks = computed<TaskView[]>(() => {
       logs: matchingLocal?.logs || [],
       shouldStop: false,
       updatedAt: raw.updated_at || raw.created_at,
+      heartbeatAt: raw.heartbeat_at || raw.updated_at || raw.created_at,
+      phaseHistory: raw.phase_history || matchingLocal?.phaseHistory || [],
     })
   }
   for (const local of generationStore.tasks.values()) {
@@ -333,6 +383,14 @@ const tasks = computed<TaskView[]>(() => {
   })
 })
 const selectedTask = computed(() => tasks.value.find(task => task.id === selectedTaskId.value) || null)
+const selectedDisplayProgress = computed(() => selectedTask.value ? taskDisplayProgress(selectedTask.value) : 0)
+const selectedObservableStages = computed(() => selectedTask.value ? observableTaskStages(selectedTask.value) : [])
+const selectedHeartbeat = computed(() => selectedTask.value
+  ? taskHeartbeatState(selectedTask.value)
+  : { state: 'unknown' as const, ageSeconds: null })
+const selectedError = computed(() => selectedTask.value
+  ? taskUserError(selectedTask.value)
+  : { message: '', technicalDetail: '' })
 const selectedProgress = computed(() => {
   if (!selectedTask.value) return null
   const current = generationStore.getTask(selectedTask.value.courseId)
@@ -451,6 +509,7 @@ const contentQualityLabel = computed(() => {
 
 watch(() => props.modelValue, async open => {
   if (!open) return
+  previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await refresh()
   if (!tasks.value.some(task => task.id === selectedTaskId.value)) {
     selectedTaskId.value = preferredTaskId(props.courseId)
@@ -479,7 +538,35 @@ function normalizeStatus(status: string): Task['status'] {
   if (['idle', 'running', 'paused', 'completed', 'error', 'pending', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(status)) return status as Task['status']
   return 'pending'
 }
-function close() { emit('update:modelValue', false) }
+function close() {
+  emit('update:modelValue', false)
+  nextTick(() => previousFocus.value?.focus())
+}
+function handleDialogKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    close()
+    return
+  }
+  if (event.key !== 'Tab' || !panelRef.value) return
+  const focusable = [...panelRef.value.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+  )].filter(element => !element.hasAttribute('hidden'))
+  if (!focusable.length) {
+    event.preventDefault()
+    panelRef.value.focus()
+    return
+  }
+  const first = focusable[0]!
+  const last = focusable[focusable.length - 1]!
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 function preferredTaskId(courseId?: string) {
   return tasks.value.find(task => task.courseId === courseId)?.id || tasks.value[0]?.id || ''
 }
@@ -657,6 +744,21 @@ function guidedStepLabel(step: GuidedGenerationStepKey) {
     release: t('courseTasks.workflow.release', '确认发布'),
   }[step]
 }
+function observableStageStatusLabel(status: ObservableTaskStageStatus) {
+  return {
+    completed: t('taskObservability.status.completed', '已完成'),
+    active: t('taskObservability.status.active', '进行中'),
+    pending: t('taskObservability.status.pending', '未开始'),
+    error: t('taskObservability.status.error', '已中断'),
+    paused: t('taskObservability.status.paused', '已暂停'),
+    blocked: t('taskObservability.status.blocked', '需处理'),
+  }[status]
+}
+function taskKindLabel(task: TaskView) {
+  return task.taskType === 'course_import'
+    ? t('taskObservability.kind.import', '课程导入')
+    : t('taskObservability.kind.generation', '课程生成')
+}
 function workflowStatusLabel(status: string) {
   return {
     locked: t('courseTasks.workflow.locked', '未开始'),
@@ -699,6 +801,11 @@ function taskStepLabel(task: TaskView) {
 }
 function phaseLabel(phase: string | undefined, status: Task['status']) {
   const labels: Record<string, string> = {
+    material_receiving: t('taskObservability.receive', '资料接收'),
+    material_parsing: t('taskObservability.parse', '解析与分类'),
+    source_retrieval: t('taskObservability.retrieve', '检索证据'),
+    quality_validation: t('taskObservability.validate', '质量检查'),
+    exporting: t('taskObservability.export', '导出与发布'),
     requirement_analysis: t('courseTasks.phases.requirementAnalysis', '整理课程需求'),
     material_processing: t('courseTasks.phases.materialProcessing', '解析资料与证据'),
     pedagogy_resolution: t('courseTasks.phases.pedagogyResolution', '确定教学结构与难度'),
@@ -760,7 +867,7 @@ function statusIcon(status: Task['status']) {
   if (['error', 'conflict'].includes(status)) return CircleX
   return CircleDashed
 }
-function statusLabel(status: Task['status'], recovery?: Task['recovery']) {
+function statusLabel(status: Task['status'], recovery?: Task['recovery'], taskType?: string) {
   if (recovery?.state === 'auto_resuming') return t('courseTasks.recovery.autoResuming', '正在恢复')
   if (status === 'completed_with_warnings' && recovery?.state === 'completed') {
     return t('courseLibrary.status.readyWithSuggestions', '可以学习，有优化建议')
@@ -772,9 +879,23 @@ function statusLabel(status: Task['status'], recovery?: Task['recovery']) {
     error: t('courseLibrary.status.error', '生成失败'), completed_with_warnings: t('courseLibrary.status.warnings', '生成完成但有警告'),
     completed: t('courseLibrary.status.ready', '可以学习'),
   }
-  return labels[status]
+  const label = labels[status]
+  if (taskType !== 'course_import') return label
+  const importLabels: Partial<Record<Task['status'], string>> = {
+    pending: t('taskObservability.import.pending', '等待导入'),
+    running: t('taskObservability.import.running', '正在导入'),
+    paused: t('taskObservability.import.paused', '导入已暂停'),
+    error: t('taskObservability.import.error', '导入失败'),
+    completed: t('taskObservability.import.completed', '导入完成'),
+  }
+  return importLabels[status] || label
 }
 function problemTitle(task: TaskView) {
+  if (task.taskType === 'course_import' && task.status === 'error') {
+    return task.recovery?.can_resume
+      ? t('taskObservability.import.retryableTitle', '导入中断，可以从保存点继续')
+      : t('taskObservability.import.replaceTitle', '导入文件需要修正')
+  }
   if (task.status === 'completed_with_warnings' && task.recovery?.state === 'completed') {
     return t('courseTasks.problem.publishedWarning', '课程已经发布，仍有优化建议')
   }
@@ -788,6 +909,11 @@ function problemTitle(task: TaskView) {
   return t('courseTasks.problem.warning', '课程已生成，但仍有质量警告')
 }
 function problemHelp(task: TaskView) {
+  if (task.taskType === 'course_import') {
+    return task.recovery?.can_resume
+      ? t('taskObservability.import.retryableHelp', '已解析的结构和源文件均已保留，继续不会创建重复课程。')
+      : t('taskObservability.import.replaceHelp', '请根据错误提示修正或替换源文件，然后重新发起导入。')
+  }
   if (task.status === 'completed_with_warnings' && task.recovery?.state === 'completed') {
     return t('courseTasks.problem.publishedWarningHelp', '课程可以正常学习；这些建议用于后续局部优化，不需要重新生成整门课程。')
   }
@@ -814,6 +940,11 @@ function restartsCurrentStage(task: TaskView) {
     || Boolean(checkpoint && !checkpoint.outline_ready && !checkpoint.total_nodes)
 }
 function resumeActionLabel(task: TaskView) {
+  if (task.taskType === 'course_import') {
+    return task.recovery?.checkpoint.parsed_ready
+      ? t('taskObservability.import.resumeParsed', '从解析结果继续')
+      : t('courseTasks.retryStage', '重试当前阶段')
+  }
   return restartsCurrentStage(task)
     ? t('courseTasks.retryStage', '重试当前阶段')
     : t('courseTasks.resumeCheckpoint', '从保存点继续')
@@ -821,6 +952,11 @@ function resumeActionLabel(task: TaskView) {
 function recoveryCheckpointLabel(task: TaskView) {
   const checkpoint = task.recovery?.checkpoint
   if (!checkpoint) return ''
+  if (task.taskType === 'course_import') {
+    return checkpoint.parsed_ready
+      ? t('taskObservability.import.parsedCheckpoint', '源文件和解析结果已保存，只重试未完成的保存与导出步骤')
+      : t('taskObservability.import.sourceCheckpoint', '源文件已保存，可以重试当前导入阶段')
+  }
   const teachingBatchCompleted = Number(checkpoint.completed_teaching_plan_batches || 0)
   const teachingBatchTotal = Number(checkpoint.total_teaching_plan_batches || 0)
   const teachingSectionCompleted = Number(checkpoint.completed_teaching_plan_sections || 0)
@@ -892,10 +1028,27 @@ function formatDuration(seconds: number) {
 .task-detail__scroll { min-height:0; overflow:auto; padding:26px clamp(20px,4vw,38px) 18px; }
 .task-summary { padding-bottom:24px; border-bottom:1px solid var(--lz-border); }
 .task-summary__top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }.task-summary__top > div { min-width:0; }.task-summary__top > strong { color:var(--lz-brand-strong); font-size:28px; line-height:1; }
+.task-summary__chips { display:flex; align-items:center; gap:7px; }
+.task-kind-chip { display:inline-flex; min-height:24px; align-items:center; padding:0 8px; border:1px solid var(--lz-border); border-radius:999px; color:var(--lz-text-secondary); background:var(--lz-surface-muted); font-size:10px; font-weight:700; }
 .status-chip { display:inline-flex; min-height:24px; align-items:center; padding:0 8px; border-radius:5px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:10px; font-weight:700; }.status-chip[data-status="completed"] { color:var(--lz-success); background:var(--lz-success-soft); }.status-chip[data-status="error"],.status-chip[data-status="conflict"],.status-chip[data-status="completed_with_warnings"] { color:var(--lz-warning); background:var(--lz-warning-soft); }
 .task-summary h3 { margin:11px 0 5px; color:var(--lz-text-strong); font-size:21px; }.task-summary p { margin:0; color:var(--lz-text-secondary); font-size:12px; line-height:1.55; }
 .task-progress { height:6px; margin:20px 0 17px; overflow:hidden; border-radius:3px; background:var(--lz-surface-muted); }.task-progress span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); transition:width .2s ease; }
 .task-summary dl { margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.task-summary dl div { min-width:0; }.task-summary dt { color:var(--lz-text-muted); font-size:10px; }.task-summary dd { margin:4px 0 0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+.task-observability { padding:22px 0; border-bottom:1px solid var(--lz-border); }
+.task-observability ol { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); margin:0; padding:0; list-style:none; }
+.task-observability__stage { position:relative; min-width:0; display:grid; justify-items:center; gap:5px; padding:0 3px; color:var(--lz-text-muted); text-align:center; }
+.task-observability__stage:not(:last-child)::after { content:""; position:absolute; z-index:0; top:12px; left:calc(50% + 15px); right:calc(-50% + 15px); height:1px; background:var(--lz-border); }
+.task-observability__marker { position:relative; z-index:1; width:25px; height:25px; display:grid; place-items:center; border:1px solid var(--lz-border); border-radius:50%; color:var(--lz-text-muted); background:#fff; }
+.task-observability__stage strong { max-width:100%; overflow:hidden; color:var(--lz-text-secondary); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.task-observability__stage small { color:var(--lz-text-muted); font-size:9px; }
+.task-observability__stage[data-status="completed"] .task-observability__marker { border-color:rgba(5,150,105,.35); color:var(--lz-success); background:var(--lz-success-soft); }
+.task-observability__stage[data-status="completed"]:not(:last-child)::after { background:rgba(5,150,105,.35); }
+.task-observability__stage[data-status="active"] .task-observability__marker { border-color:rgba(79,70,229,.35); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.task-observability__stage[data-status="active"] strong { color:var(--lz-text-strong); }
+.task-observability__stage[data-status="error"] .task-observability__marker,.task-observability__stage[data-status="blocked"] .task-observability__marker { border-color:rgba(217,119,6,.35); color:var(--lz-warning); background:var(--lz-warning-soft); }
+.task-observability__stage[data-status="paused"] .task-observability__marker { color:var(--lz-text-secondary); background:var(--lz-surface-muted); }
+.task-heartbeat-alert { display:flex; align-items:flex-start; gap:7px; margin:16px 0 0; padding:10px 12px; border-radius:8px; color:#9a4d13; background:#fff8ed; font-size:11px; line-height:1.5; }
+.task-heartbeat-alert svg { flex:0 0 auto; margin-top:1px; }
 .guided-workflow { padding:22px 0; border-bottom:1px solid var(--lz-border); }
 .guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); list-style:none; }
 .guided-workflow li { position:relative; min-width:0; display:grid; justify-items:center; gap:7px; color:var(--lz-text-muted); text-align:center; }
@@ -927,5 +1080,5 @@ function formatDuration(seconds: number) {
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail__scroll { padding:20px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; }.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:18px; }.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail__scroll { padding:20px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:18px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
 </style>

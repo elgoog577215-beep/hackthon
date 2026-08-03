@@ -3,18 +3,43 @@
 # 上传 Markdown 文件解析为课程节点树
 # =============================================================================
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from pathlib import Path
 from datetime import datetime
 import uuid
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from dependencies import get_course_document_repository
+from dependencies import get_course_document_repository, require_task_manager
 from models import ImportMarkdownResponse
 from markdown_parser import parse_markdown_to_nodes
+from task_manager import TaskManager
 
 router = APIRouter(prefix="/api", tags=["import"])
+
+
+@router.post("/import_markdown/jobs", status_code=status.HTTP_202_ACCEPTED)
+async def create_markdown_import_job(
+    file: UploadFile = File(...),
+    tm: TaskManager = Depends(require_task_manager),
+):
+    """Queue one durable import so progress and recovery remain observable."""
+    content = await file.read()
+    try:
+        return await tm.create_markdown_import_job(
+            filename=file.filename or "import.md",
+            content=content,
+            content_type=file.content_type or "application/octet-stream",
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "为空" in message:
+            code = status.HTTP_400_BAD_REQUEST
+        elif "过大" in message:
+            code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        else:
+            code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+        raise HTTPException(status_code=code, detail=message) from exc
 
 
 @router.post("/import_markdown", response_model=ImportMarkdownResponse)

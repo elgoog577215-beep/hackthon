@@ -8,9 +8,9 @@
       </div>
       <div class="library-actions">
         <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
-        <button type="button" class="secondary-button task-center-button" :title="t('courseLibrary.tasks', '生成任务')" :aria-label="t('courseLibrary.tasks', '生成任务')" @click="openTaskCenter()">
+        <button type="button" class="secondary-button task-center-button" :title="t('courseLibrary.tasks', '课程任务')" :aria-label="t('courseLibrary.tasks', '课程任务')" @click="openTaskCenter()">
           <ListChecks :size="16" />
-          <span class="action-label">{{ t('courseLibrary.tasks', '生成任务') }}</span>
+          <span class="action-label">{{ t('courseLibrary.tasks', '课程任务') }}</span>
           <span v-if="attentionTaskCount" class="action-count">{{ attentionTaskCount }}</span>
         </button>
         <button type="button" class="secondary-button import-button" :title="t('courseLibrary.import', '导入 Markdown')" :aria-label="t('courseLibrary.import', '导入 Markdown')" @click="fileInput?.click()">
@@ -238,9 +238,11 @@ async function importCourse(event: Event) {
   if (!file) return
   try {
     const result = await courseStore.importMarkdown(file)
-    openCourse(result.course_id)
-  } catch {
-    ElMessage.error(t('courseLibrary.importFailed', '课程导入失败'))
+    openTaskCenter(result.course_id)
+    ElMessage.success(t('courseLibrary.importQueued', '导入任务已创建，可以在任务中心查看解析和保存进度'))
+  } catch (error) {
+    const detail = String((error as any)?.response?.data?.detail || '')
+    ElMessage.error(detail || t('courseLibrary.importFailed', '课程导入失败'))
   } finally {
     target.value = ''
   }

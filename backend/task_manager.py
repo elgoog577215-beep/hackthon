@@ -116,6 +116,7 @@ from learning_assets import (
 )
 from material_pipeline import ingest_legacy_material_inputs
 from material_storage import material_repository
+from markdown_parser import parse_markdown_to_nodes
 from models import (
     NodeGenerationConfig,
     NodeStatus,
@@ -541,6 +542,11 @@ class TaskManager:
             self._generation_budget.content_inactivity_timeout_seconds
         )
         self._material_repository = getattr(course_service, "_material_repository", material_repository)
+        storage_data_dir = Path(
+            getattr(storage, "_data_dir", Path(TASKS_FILE).parent)
+        )
+        self._import_sources_dir = storage_data_dir / "course_import_sources"
+        self._import_sources_dir.mkdir(parents=True, exist_ok=True)
         self._version_repository = version_repository or course_version_repository
         self._learning_asset_repository = asset_repository or learning_asset_repository
         self._question_bank_repository = (
@@ -699,6 +705,8 @@ class TaskManager:
             "message": "等待开始...",
             "created_at": now,
             "updated_at": now,
+            "heartbeat_at": now,
+            "phase_history": [],
             "error": None,
             "retry_count": 0,
             "logs": [],
@@ -742,6 +750,78 @@ class TaskManager:
                 raise
         logger.info("Created task %s for course %s", task_id, course_id)
         return task_id
+
+    def import_source_path(self, task_id: str) -> Path:
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))
+        return self._import_sources_dir / f"{safe_id}.md"
+
+    def import_checkpoint_path(self, task_id: str) -> Path:
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))
+        return self._import_sources_dir / f"{safe_id}.parsed.json"
+
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f"{path.suffix}.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+
+    async def create_markdown_import_job(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str,
+        enqueue: bool = True,
+    ) -> dict[str, str]:
+        """Create a durable Markdown import job without exposing source bytes."""
+        if not content:
+            raise ValueError("上传的文件为空")
+        if len(content) > 20 * 1024 * 1024:
+            raise ValueError("文件过大，最大支持 20 MB")
+        allowed_mime = {"text/markdown", "text/plain", "application/octet-stream"}
+        if content_type not in allowed_mime:
+            raise ValueError("不支持的文件类型，请上传 .md 或 .txt 文件")
+
+        task_id = str(uuid.uuid4())
+        course_id = str(uuid.uuid4())
+        safe_filename = Path(filename or "import.md").name
+        await self.create_task(
+            course_id,
+            "course_import",
+            course_name=Path(safe_filename).stem or "待导入课程",
+            request_snapshot={
+                "operation": "import",
+                "filename": safe_filename,
+                "content_type": content_type,
+            },
+            task_id=task_id,
+            enqueue=False,
+        )
+        try:
+            self.import_source_path(task_id).write_bytes(content)
+            await self._update_phase(
+                task_id,
+                "material_receiving",
+                5,
+                "资料已接收，等待解析",
+                phase_progress=100,
+                phase_detail={"filename": safe_filename, "received_bytes": len(content)},
+            )
+            if enqueue:
+                await self._task_queue.put(task_id)
+        except BaseException:
+            async with self._lock:
+                self.tasks.pop(task_id, None)
+                self._task_logs.pop(task_id, None)
+                self._node_retries.pop(task_id, None)
+                self.save_tasks(strict=True)
+            self.import_source_path(task_id).unlink(missing_ok=True)
+            raise
+        return {"job_id": task_id, "course_id": course_id}
 
     async def create_generation_job(
         self, request_snapshot: dict[str, Any]
@@ -1876,6 +1956,52 @@ class TaskManager:
         if not task:
             raise KeyError(task_id)
 
+        if task.get("type") == "course_import":
+            status = str(task.get("status") or "")
+            source_ready = self.import_source_path(task_id).is_file()
+            parsed_ready = self.import_checkpoint_path(task_id).is_file()
+            checkpoint = {
+                "phase": str(task.get("phase") or task.get("current_phase") or "material_receiving"),
+                "completed_nodes": int(task.get("completed_nodes") or 0),
+                "total_nodes": int(task.get("total_nodes") or 0),
+                "draft_node_ids": [],
+                "failed_node_ids": [],
+                "interrupted_node_ids": [],
+                "source_ready": source_ready,
+                "parsed_ready": parsed_ready,
+                "updated_at": task.get("updated_at"),
+            }
+            if status == "completed":
+                return {
+                    "state": "completed",
+                    "can_resume": False,
+                    "reason_code": "already_imported",
+                    "reason": "课程已经完成导入",
+                    "checkpoint": checkpoint,
+                }
+            retryable = bool(task.get("import_retryable")) and source_ready
+            if status in {"failed", "error"} and not retryable:
+                return {
+                    "state": "unavailable",
+                    "can_resume": False,
+                    "reason_code": "replace_source_required",
+                    "reason": "源文件内容需要修正，请替换文件后重新导入",
+                    "checkpoint": checkpoint,
+                }
+            return {
+                "state": "manual_resume" if retryable else "auto_resuming" if status in {"pending", "running"} else "none",
+                "can_resume": retryable,
+                "reason_code": "checkpoint_available" if retryable else "job_active" if status in {"pending", "running"} else "not_needed",
+                "reason": (
+                    "已解析的课程结构会被复用，只重试未完成的保存与导出步骤"
+                    if retryable and parsed_ready
+                    else "原始导入文件已保留，可以重试当前阶段"
+                    if retryable
+                    else "导入任务正在执行"
+                ),
+                "checkpoint": checkpoint,
+            }
+
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             status = str(task.get("status") or "")
             checkpoint = {
@@ -2211,6 +2337,48 @@ class TaskManager:
         """Build a polling-safe recovery summary without loading course payloads."""
         status = str(task.get("status") or "")
         phase = str(task.get("phase") or task.get("current_phase") or "")
+        if task.get("type") == "course_import":
+            task_id = str(task.get("id") or "")
+            source_ready = self.import_source_path(task_id).is_file()
+            parsed_ready = self.import_checkpoint_path(task_id).is_file()
+            checkpoint = {
+                "phase": phase,
+                "completed_nodes": int(task.get("completed_nodes") or 0),
+                "total_nodes": int(task.get("total_nodes") or 0),
+                "draft_node_ids": [],
+                "failed_node_ids": [],
+                "interrupted_node_ids": [],
+                "source_ready": source_ready,
+                "parsed_ready": parsed_ready,
+                "updated_at": task.get("updated_at"),
+            }
+            if status == "completed":
+                return {
+                    "state": "completed", "can_resume": False,
+                    "reason_code": "already_imported", "reason": "课程已经完成导入",
+                    "checkpoint": checkpoint,
+                }
+            retryable = bool(task.get("import_retryable")) and source_ready
+            if status in {"failed", "error"} and not retryable:
+                return {
+                    "state": "unavailable", "can_resume": False,
+                    "reason_code": "replace_source_required",
+                    "reason": "源文件内容需要修正，请替换文件后重新导入",
+                    "checkpoint": checkpoint,
+                }
+            return {
+                "state": "manual_resume" if retryable else "auto_resuming" if status in {"pending", "running"} else "none",
+                "can_resume": retryable,
+                "reason_code": "checkpoint_available" if retryable else "job_active" if status in {"pending", "running"} else "not_needed",
+                "reason": (
+                    "已解析的课程结构会被复用，只重试未完成的保存与导出步骤"
+                    if retryable and parsed_ready
+                    else "原始导入文件已保留，可以重试当前阶段"
+                    if retryable
+                    else "导入任务正在执行"
+                ),
+                "checkpoint": checkpoint,
+            }
         detail = task.get("phase_detail")
         if not isinstance(detail, dict):
             detail = {}
@@ -2408,6 +2576,26 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             return False
+        if task.get("type") == "course_import":
+            if task.get("status") not in {"pending", "running"}:
+                return False
+            if not self.import_source_path(task_id).is_file():
+                task["status"] = "failed"
+                task["phase"] = "recovery_unavailable"
+                task["current_phase"] = "recovery_unavailable"
+                task["error_code"] = "import_source_missing"
+                task["error_user_message"] = "导入源文件已不存在，请重新选择文件"
+                task["message"] = task["error_user_message"]
+                task["updated_at"] = datetime.now().isoformat()
+                task["heartbeat_at"] = task["updated_at"]
+                return False
+            task["status"] = "pending"
+            task["phase"] = "resuming"
+            task["current_phase"] = "resuming"
+            task["message"] = "服务重启后正恢复课程导入"
+            task["updated_at"] = datetime.now().isoformat()
+            task["heartbeat_at"] = task["updated_at"]
+            return True
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             if task.get("status") not in {"pending", "running"}:
                 return False
@@ -2797,6 +2985,37 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task:
             raise KeyError(task_id)
+
+        if task.get("type") == "course_import":
+            recovery = self.describe_task_recovery(task_id)
+            if task.get("status") in {"pending", "running"}:
+                return {"status": "already_active", "task": self._task_view(task)}
+            if task.get("status") == "completed":
+                return {"status": "completed", "task": self._task_view(task)}
+            if not recovery.get("can_resume"):
+                raise TaskRecoveryConflict(
+                    str(recovery.get("reason") or "当前导入任务无法继续"),
+                    recovery=recovery,
+                )
+            async with self._lock:
+                parsed_ready = bool((recovery.get("checkpoint") or {}).get("parsed_ready"))
+                task["status"] = "pending"
+                task["phase"] = "resuming"
+                task["current_phase"] = "resuming"
+                task["progress"] = 20 if parsed_ready else 5
+                task["phase_progress"] = 0
+                task["message"] = "正在从导入保存点继续"
+                task["error"] = None
+                task["error_code"] = None
+                task["error_user_message"] = None
+                task["import_retryable"] = False
+                task["retry_count"] = int(task.get("retry_count") or 0) + 1
+                task["updated_at"] = datetime.now().isoformat()
+                task["heartbeat_at"] = task["updated_at"]
+                self.save_tasks()
+            await self._task_queue.put(task_id)
+            await self._push_progress(task_id)
+            return {"status": "resumed", "task": self._task_view(task)}
 
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             recovery = self.describe_task_recovery(task_id)
@@ -4035,6 +4254,186 @@ class TaskManager:
             self.save_tasks()
         await self._push_progress(task_id)
 
+    async def _fail_course_import(
+        self,
+        task_id: str,
+        *,
+        code: str,
+        message: str,
+        retryable: bool,
+    ) -> None:
+        async with self._lock:
+            task = self.tasks.get(task_id)
+            if not task:
+                return
+            task["error_code"] = code
+            task["error_user_message"] = message
+            task["import_retryable"] = retryable
+            task["message"] = message
+            self.save_tasks()
+        await self._update_task_status(task_id, "failed", message=message, error=code)
+        await self._push_progress(task_id)
+
+    async def _process_course_import_task(self, task_id: str) -> None:
+        task = self.tasks.get(task_id)
+        if not task:
+            return
+        source_path = self.import_source_path(task_id)
+        checkpoint_path = self.import_checkpoint_path(task_id)
+        if not source_path.is_file():
+            await self._fail_course_import(
+                task_id,
+                code="import_source_missing",
+                message="导入源文件已不存在，请重新选择文件",
+                retryable=False,
+            )
+            return
+
+        await self._update_task_status(task_id, "running", message="正在解析导入资料")
+        parsed_checkpoint: dict[str, Any] | None = None
+        if checkpoint_path.is_file():
+            try:
+                parsed_checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                parsed_checkpoint = None
+
+        await self._update_phase(
+            task_id,
+            "material_parsing",
+            20,
+            "已恢复解析结果" if parsed_checkpoint else "正在解析 Markdown 结构",
+            phase_progress=100 if parsed_checkpoint else 35,
+            phase_detail={"checkpoint_reused": bool(parsed_checkpoint)},
+        )
+        if parsed_checkpoint:
+            nodes = list(parsed_checkpoint.get("nodes") or [])
+            course_name = str(parsed_checkpoint.get("course_name") or task.get("course_name") or "待导入课程")
+        else:
+            try:
+                text = source_path.read_bytes().decode("utf-8")
+            except UnicodeDecodeError:
+                await self._fail_course_import(
+                    task_id,
+                    code="markdown_encoding_unsupported",
+                    message="文件编码无法解析，请使用 UTF-8 编码后重新导入",
+                    retryable=False,
+                )
+                return
+            try:
+                nodes, course_name = parse_markdown_to_nodes(
+                    text,
+                    Path(str((task.get("request_snapshot") or {}).get("filename") or "import.md")).stem,
+                )
+            except ValueError:
+                await self._fail_course_import(
+                    task_id,
+                    code="markdown_heading_missing",
+                    message="未检测到 Markdown 标题，请确保文件包含至少一个标题后重新导入",
+                    retryable=False,
+                )
+                return
+            if not any(str(node.get("node_content", "")).strip() for node in nodes):
+                await self._fail_course_import(
+                    task_id,
+                    code="markdown_teachable_body_missing",
+                    message="课程只有标题或层级，请补充至少一段可讲授正文后重新导入",
+                    retryable=False,
+                )
+                return
+            parsed_checkpoint = {"course_name": course_name, "nodes": nodes}
+            self._write_json_atomic(checkpoint_path, parsed_checkpoint)
+
+        async with self._lock:
+            current = self.tasks.get(task_id)
+            if not current:
+                return
+            current["course_name"] = course_name
+            current["completed_nodes"] = len(nodes)
+            current["total_nodes"] = len(nodes)
+            current["import_retryable"] = True
+            self.save_tasks()
+
+        await self._update_phase(
+            task_id,
+            "source_retrieval",
+            35,
+            "本次导入使用本地资料，外部检索已跳过",
+            phase_progress=100,
+            phase_detail={"skipped": True, "reason": "local_import"},
+        )
+        await self._update_phase(
+            task_id,
+            "content_generation",
+            60,
+            "正在将解析结果编译为课程内容",
+            phase_progress=100,
+            phase_detail={"completed_items": len(nodes), "total_items": len(nodes)},
+        )
+        await self._update_phase(
+            task_id,
+            "quality_validation",
+            80,
+            "正在检查课程结构和可讲授正文",
+            phase_progress=100,
+            phase_detail={"checks": ["heading_hierarchy", "teachable_body"]},
+        )
+
+        course_id = str(task["course_id"])
+        course_tree = {
+            "course_id": course_id,
+            "course_name": course_name,
+            "keyword": course_name,
+            "nodes": nodes,
+            "difficulty": "intermediate",
+            "style": "academic",
+            "create_time": datetime.now().isoformat(),
+        }
+        await self._update_phase(
+            task_id,
+            "exporting",
+            95,
+            "正在保存课程并建立正式课程文档",
+            phase_progress=60,
+            phase_detail={"target": "course_document"},
+        )
+        try:
+            await self._course_document_repository.create_imported_course(
+                course_id,
+                imported_course=course_tree,
+            )
+        except Exception:
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if current:
+                    current["error_code"] = "import_persistence_failed"
+                    current["error_user_message"] = "课程保存暂时失败，已保留解析结果，可以从保存点重试"
+                    current["import_retryable"] = True
+                    current["message"] = current["error_user_message"]
+                    self.save_tasks()
+            raise
+
+        await self._update_phase(
+            task_id,
+            "completed",
+            100,
+            "课程导入完成",
+            phase_progress=100,
+            phase_detail={"course_id": course_id},
+        )
+        await self._update_task_status(
+            task_id,
+            "completed",
+            message="课程导入完成",
+            completed_nodes=len(nodes),
+            total_nodes=len(nodes),
+        )
+        try:
+            source_path.unlink(missing_ok=True)
+            checkpoint_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Unable to clean completed import source for %s", task_id)
+        await self._push_progress(task_id)
+
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
 
@@ -4048,6 +4447,9 @@ class TaskManager:
         if task["status"] == "paused":
             return
 
+        if task.get("type") == "course_import":
+            await self._process_course_import_task(task_id)
+            return
         if task.get("type") == "slide_deck_variant_build":
             await self._process_slide_deck_variant_task(task_id)
             return
@@ -5278,6 +5680,53 @@ class TaskManager:
     # Internal helpers
     # -------------------------------------------------------------------------
 
+    @staticmethod
+    def _record_phase_history(
+        task: dict[str, Any],
+        phase: str,
+        status: str,
+        *,
+        progress: int,
+        message: str,
+        timestamp: str,
+    ) -> None:
+        history = list(task.get("phase_history") or [])
+        if history and history[-1].get("phase") == phase:
+            last_status = str(history[-1].get("status") or "")
+            if last_status in {"active", "paused"} or status != "active":
+                history[-1] = {
+                    **history[-1],
+                    "status": status,
+                    "progress": progress,
+                    "message": message,
+                    "updated_at": timestamp,
+                }
+            else:
+                history.append({
+                    "phase": phase,
+                    "status": status,
+                    "progress": progress,
+                    "message": message,
+                    "started_at": timestamp,
+                    "updated_at": timestamp,
+                })
+        else:
+            if history and history[-1].get("status") == "active":
+                history[-1] = {
+                    **history[-1],
+                    "status": "completed",
+                    "updated_at": timestamp,
+                }
+            history.append({
+                "phase": phase,
+                "status": status,
+                "progress": progress,
+                "message": message,
+                "started_at": timestamp,
+                "updated_at": timestamp,
+            })
+        task["phase_history"] = history[-24:]
+
     async def _update_phase(
         self,
         task_id: str,
@@ -5331,7 +5780,17 @@ class TaskManager:
             task["phase_detail"] = next_detail
             task["progress"] = max(int(task.get("progress") or 0), bounded_progress)
             task["message"] = message
-            task["updated_at"] = datetime.now().isoformat()
+            now = datetime.now().isoformat()
+            task["updated_at"] = now
+            task["heartbeat_at"] = now
+            self._record_phase_history(
+                task,
+                phase,
+                "active",
+                progress=bounded_progress,
+                message=message,
+                timestamp=now,
+            )
             self.save_tasks()
         await self._push_progress(task_id)
 
@@ -5361,7 +5820,25 @@ class TaskManager:
                 task["completed_nodes"] = completed_nodes
             if total_nodes is not None:
                 task["total_nodes"] = total_nodes
-            task["updated_at"] = datetime.now().isoformat()
+            now = datetime.now().isoformat()
+            task["updated_at"] = now
+            task["heartbeat_at"] = now
+            phase_status = {
+                "completed": "completed",
+                "completed_with_warnings": "completed",
+                "failed": "error",
+                "error": "error",
+                "paused": "paused",
+            }.get(status)
+            if phase_status:
+                self._record_phase_history(
+                    task,
+                    str(task.get("current_phase") or task.get("phase") or status),
+                    phase_status,
+                    progress=int(task.get("progress") or 0),
+                    message=str(task.get("message") or error or ""),
+                    timestamp=now,
+                )
             self.save_tasks()
 
     async def _update_progress(
@@ -5410,6 +5887,7 @@ class TaskManager:
                 min(progress, 90 if task.get("type") == "course_generation" else 100),
             )
             task["updated_at"] = datetime.now().isoformat()
+            task["heartbeat_at"] = task["updated_at"]
             self.save_tasks()
 
     async def _push_progress(self, task_id: str) -> None:
@@ -5446,12 +5924,17 @@ class TaskManager:
                 "guided_workflow": deepcopy(task.get("guided_workflow")),
                 "message": task.get("message", ""),
                 "error": task.get("error"),
+                "error_code": task.get("error_code"),
+                "error_user_message": task.get("error_user_message"),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
                 "current_nodes": current_nodes,
                 "completed_nodes": completed_nodes,
                 "total_nodes": total_nodes,
                 "estimated_time_remaining": 0,
+                "updated_at": task.get("updated_at"),
+                "heartbeat_at": task.get("heartbeat_at"),
+                "phase_history": deepcopy(task.get("phase_history") or []),
                 "bytes_generated": sum(
                     int(node.get("generated_chars") or 0)
                     for node in current_nodes

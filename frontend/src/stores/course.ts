@@ -182,17 +182,17 @@ export const useCourseStore = defineStore('course', {
         return this.currentCourseId
     },
 
-    async importMarkdown(file: File): Promise<{ course_id: string; course_name: string }> {
+    async importMarkdown(file: File): Promise<{ job_id: string; course_id: string }> {
         const formData = new FormData()
         formData.append('file', file)
         try {
-            const res = await http.post('/api/import_markdown', formData, {
+            const res = await http.post('/api/import_markdown/jobs', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             })
-            const { course_id, course_name } = res.data
-            await this.fetchCourseList()
-            await this.loadCourse(course_id)
-            return { course_id, course_name }
+            const { job_id, course_id } = res.data
+            await this._genStore().fetchGlobalTasks()
+            this._genStore().startGlobalMonitor()
+            return { job_id, course_id }
         } catch (error) { logger.error(error); throw error }
     },
 

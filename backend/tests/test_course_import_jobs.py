@@ -3,8 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from course_repository import CourseDocumentRepository
+from dependencies import require_task_manager
+from routers import markdown_import
 from task_manager import TaskManager
 
 
@@ -32,6 +36,33 @@ def import_manager(tmp_path, monkeypatch) -> tuple[TaskManager, ImportStorage]:
         document_repository=CourseDocumentRepository(storage),
     )
     return manager, storage
+
+
+def test_markdown_import_job_route_returns_accepted_task(tmp_path, monkeypatch):
+    manager, _storage = import_manager(tmp_path, monkeypatch)
+    app = FastAPI()
+    app.include_router(markdown_import.router)
+    app.dependency_overrides[require_task_manager] = lambda: manager
+    client = TestClient(app)
+
+    response = client.post(
+        '/api/import_markdown/jobs',
+        files={
+            'file': (
+                'linear-algebra.md',
+                b'# Linear Algebra\n\nVectors have magnitude and direction.\n',
+                'text/markdown',
+            ),
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload['job_id']
+    assert payload['course_id']
+    summary = manager.get_task_summary(payload['job_id'])
+    assert summary['type'] == 'course_import'
+    assert summary['current_phase'] == 'material_receiving'
 
 
 @pytest.mark.asyncio
