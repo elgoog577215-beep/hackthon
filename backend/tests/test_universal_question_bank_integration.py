@@ -330,6 +330,63 @@ def test_fallback_open_questions_require_independent_review():
     assert bundle["review_policy"]["post_publication_rework"] is True
 
 
+def test_anatomy_bank_auto_publishes_valid_items_without_subject_gate():
+    course = _course(
+        course_id="course-local-anatomy",
+        mode="life_medical",
+        node_name="颈动脉三角的局部解剖",
+        objective="描述颈动脉三角边界及血管神经的相对位置",
+        content=(
+            "颈动脉三角由胸锁乳突肌前缘、肩胛舌骨肌上腹和二腹肌后腹围成。"
+            "本节材料说明颈动脉鞘内外结构及迷走神经的毗邻关系。"
+        ),
+        assessment="标注结构并解释毗邻关系",
+    )
+
+    bundle = build_question_bank(course)
+    practice = [
+        item
+        for item in bundle["items"]
+        if item.get("assessment_role") == "practice"
+    ]
+
+    assert bundle["assessment_profile"]["discipline"]["high_stakes"] is False
+    assert any(item["review_tier"] == "auto_publish" for item in practice)
+    assert all(
+        item.get("review_policy_reason") != "high_stakes_course"
+        for item in practice
+    )
+    assert all("high_stakes_domain" not in item["risk_flags"] for item in practice)
+
+
+def test_actionable_patient_treatment_remains_item_level_mandatory_review():
+    course = _course(
+        course_id="course-patient-treatment",
+        mode="life_medical",
+        node_name="个体诊疗方案",
+        objective="根据患者症状制定诊断结论和具体用药剂量",
+        content=(
+            "案例提供患者症状、既往史、检查指标和当前用药记录。"
+            "学习者需要讨论个体治疗决策及其可能产生的不良反应。"
+        ),
+        assessment="给出面向该患者的治疗方案",
+    )
+
+    bundle = build_question_bank(course)
+    practice = [
+        item
+        for item in bundle["items"]
+        if item.get("assessment_role") == "practice"
+    ]
+
+    assert bundle["assessment_profile"]["discipline"]["high_stakes"] is False
+    assert all(item["review_tier"] == "mandatory_review" for item in practice)
+    assert all(
+        item.get("review_policy_reason") == "risk:high_consequence_action"
+        for item in practice
+    )
+
+
 def test_practice_student_payload_uses_public_allowlist():
     internal = {
         "revision_id": "qr-1",

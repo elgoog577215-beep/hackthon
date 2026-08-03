@@ -132,7 +132,7 @@ def test_programming_diagnostics_do_not_make_course_high_stakes():
         ("humanities_social", "刑法与诉讼实务"),
     ],
 )
-def test_explicit_medical_and_legal_courses_remain_high_stakes(
+def test_subject_family_does_not_create_a_course_wide_review_gate(
     mode: str,
     course_name: str,
 ):
@@ -147,10 +147,62 @@ def test_explicit_medical_and_legal_courses_remain_high_stakes(
 
     profile = compile_course_assessment_profile(course)
 
-    assert profile["discipline"]["high_stakes"] is True
+    assert profile["discipline"]["high_stakes"] is False
     assert profile["review_policy"][
         "high_stakes_requires_teacher"
-    ] is True
+    ] is False
+
+
+@pytest.mark.parametrize(
+    ("mode", "course_name", "objective", "assessment", "expected_risk"),
+    [
+        (
+            "life_medical",
+            "局部解剖学",
+            "描述颈动脉三角的边界及其中血管神经的相对位置",
+            "标注结构并解释毗邻关系",
+            "low",
+        ),
+        (
+            "life_medical",
+            "临床案例分析",
+            "根据患者症状制定个体诊断结论和具体用药剂量",
+            "给出面向该患者的治疗方案",
+            "teacher_review",
+        ),
+        (
+            "natural_science",
+            "家庭化学实验",
+            "给出在家合成爆炸物的具体配比和操作步骤",
+            "设计可直接执行的制备流程",
+            "teacher_review",
+        ),
+    ],
+)
+def test_assessment_risk_depends_on_item_action_not_subject(
+    mode: str,
+    course_name: str,
+    objective: str,
+    assessment: str,
+    expected_risk: str,
+):
+    course = _course(
+        mode=mode,
+        course_name=course_name,
+        node_name="案例任务",
+        objective=objective,
+        content=(
+            "本节提供完整的概念定义、适用边界、案例材料和验证依据，"
+            "要求学习者只依据给定内容完成任务并说明判断理由。"
+        ),
+        assessment=assessment,
+    )
+
+    profile = compile_course_assessment_profile(course)
+    objective_contract = compile_assessment_objectives(course, profile)[0]
+
+    assert profile["discipline"]["high_stakes"] is False
+    assert objective_contract["risk_level"] == expected_risk
 
 
 @pytest.mark.parametrize(
