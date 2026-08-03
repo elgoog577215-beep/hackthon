@@ -622,7 +622,20 @@ def test_v5_compaction_finds_enumeration_members_after_intervening_context() -> 
     )
 
 
-def test_v5_semantic_core_paginates_to_question_renderer_capacity() -> None:
+@pytest.mark.parametrize(
+    ("renderer_layout", "item_count", "page_capacity"),
+    [
+        ("question", 8, 4),
+        # Concept pages may receive a visual after allocation and then resolve
+        # to figure-text, whose hard visible-item capacity is five.
+        ("editorial-body", 6, 5),
+    ],
+)
+def test_v5_semantic_core_paginates_to_final_renderer_capacity(
+    renderer_layout: str,
+    item_count: int,
+    page_capacity: int,
+) -> None:
     document = CourseDocument(
         course_id="course-semantic-pagination",
         title="课堂核对",
@@ -655,13 +668,13 @@ def test_v5_semantic_core_paginates_to_question_renderer_capacity() -> None:
             role="checkpoint",
             source_kind="course_block",
         )
-        for index in range(1, 9)
+        for index in range(1, item_count + 1)
     ]
     story = _story(1)
     concept_beat = _beat(1, "concept").model_copy(update={
         "beat_id": "beat-semantic-question",
         "fragment_ids": [item.fragment_id for item in fragments],
-        "renderer_layout": "question",
+        "renderer_layout": renderer_layout,
         "layout_selection_reason": "v5_semantic_grouping",
     })
     chapter = story.chapters[0]
@@ -684,7 +697,7 @@ def test_v5_semantic_core_paginates_to_question_renderer_capacity() -> None:
     teaching_pages = [page for page in allocation.pages if page.fragment_ids]
 
     assert len(teaching_pages) == 2
-    assert all(len(page.fragment_ids) <= 4 for page in teaching_pages)
+    assert all(len(page.fragment_ids) <= page_capacity for page in teaching_pages)
     assert [
         fragment_id
         for page in teaching_pages
