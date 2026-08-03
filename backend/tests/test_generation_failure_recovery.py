@@ -408,6 +408,32 @@ async def test_repeated_unchanged_quality_failure_disables_blind_resume(tmp_path
     assert "连续两次" in repeated["reason"]
 
 
+def test_quality_failure_summary_includes_source_chain_blockers():
+    summary = TaskManager._quality_failure_summary({
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "blocking_issues": [],
+        },
+        "asset_quality_report": {
+            "passed": True,
+            "blocking_issues": [],
+        },
+        "generation_source_chain_report": {
+            "can_publish": False,
+            "issues": [{
+                "code": "requirements_revision_mismatch",
+                "step": "requirements",
+                "message": "requirements no longer matches its confirmed revision",
+            }],
+        },
+    })
+
+    assert summary["blocker_count"] == 1
+    assert summary["repair_scopes"] == ["manual_review"]
+    assert summary["supported"] is False
+    assert summary["blockers"][0]["code"] == "requirements_revision_mismatch"
+
+
 @pytest.mark.asyncio
 async def test_release_review_deduplicates_wrapped_asset_and_quality_blockers(
     tmp_path, monkeypatch,

@@ -56,6 +56,37 @@ def test_staged_steps_form_one_confirmed_source_chain():
     assert all(item["passed"] for item in report["checks"])
 
 
+def test_confirmed_requirements_revision_survives_runtime_request_defaulting():
+    confirmed_request = {
+        "subject": "线性代数",
+        "difficulty": "intermediate",
+    }
+    normalized_runtime_request = {
+        **confirmed_request,
+        "composition_style": "hierarchical",
+        "asset_preferences": {"questions": True},
+        "material_bindings": [],
+    }
+    course = _course()
+    workflow = create_guided_workflow(confirmed_request)
+    for step in ("outline", "teaching", "content"):
+        revision = artifact_revision(step, course, request=confirmed_request)
+        mark_waiting(workflow, step, revision=revision)
+        confirm_waiting_step(workflow, step, revision=revision)
+
+    report = build_source_chain_report(
+        workflow,
+        course,
+        request=normalized_runtime_request,
+    )
+
+    assert report["can_publish"] is True
+    assert not any(
+        item["code"] == "requirements_revision_mismatch"
+        for item in report["issues"]
+    )
+
+
 def test_content_drift_blocks_release_and_upstream_change_invalidates_downstream():
     request = {"subject": "线性代数", "difficulty": "intermediate"}
     course = _course()
