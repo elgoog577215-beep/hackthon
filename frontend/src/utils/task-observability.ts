@@ -21,11 +21,11 @@ export interface ObservableTaskStage {
 
 const STAGE_PATTERNS: Array<[ObservableTaskStageKey, RegExp]> = [
   ['export', /export|release|publish|finaliz|completed/],
-  ['validate', /quality|validation|check|gate/],
-  ['retrieve', /retriev|source_|question_bank|web_enrichment|knowledge_(mapping|index|graph)|course_(knowledge|relation|graph)/],
+  ['validate', /quality|content_validation|question_analysis|quality_gate/],
+  ['retrieve', /retriev|source_|question_bank|web_enrichment/],
   ['parse', /material|pars|classif|pedagogy|ingest|extract|ocr/],
   ['receive', /queued|receiv|upload|requirement|intake/],
-  ['generate', /outline|blueprint|teaching|content|learning_asset|generation|assembly|skeleton|ready|confirmed|resuming/],
+  ['generate', /outline|blueprint|teaching|content|learning_asset|knowledge|relation|graph|generation|assembly|skeleton|ready|confirmed|resuming|validation/],
 ]
 
 export function observableStageIndex(phase?: string): number {
@@ -55,13 +55,13 @@ export function observableTaskStages(task: Task): ObservableTaskStage[] {
   return OBSERVABLE_TASK_STAGE_KEYS.map((key, index) => {
     let status: ObservableTaskStageStatus = 'pending'
     if (task.status === 'completed') status = 'completed'
-    else if (index < activeIndex || historyIndexes.has(index)) status = 'completed'
     else if (index === activeIndex) {
       status = task.status === 'error' ? 'error'
         : task.status === 'paused' ? 'paused'
           : task.status === 'conflict' ? 'blocked'
             : 'active'
     }
+    else if (index < activeIndex || historyIndexes.has(index)) status = 'completed'
     return { key, label: stageLabel(key), status }
   })
 }

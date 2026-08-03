@@ -1,5 +1,5 @@
 import type { Task } from '@/stores/types'
-import { t } from '@/shared/i18n'
+import { activeLocale, t } from '@/shared/i18n'
 
 export const COURSE_PRODUCTION_STAGE_KEYS = [
   'requirements',
@@ -60,6 +60,109 @@ export function courseProductionStageStatus(task: Task | undefined, index: numbe
   if (task?.status === 'conflict') return 'blocked'
   if (task?.status === 'waiting_for_review') return 'review'
   return 'active'
+}
+
+function courseProductionStageName(task?: Task): string {
+  const isProject = task?.courseType === 'project'
+  const names: Record<CourseProductionStageKey, string> = {
+    requirements: isProject
+      ? t('courseGeneration.lifecycle.projectRequirements', '项目需求')
+      : t('courseGeneration.lifecycle.requirements', '需求'),
+    outline: isProject
+      ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
+      : t('courseGeneration.lifecycle.outline', '目录'),
+    teaching: isProject
+      ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
+      : t('courseGeneration.lifecycle.teaching', '教案与知识库'),
+    content: isProject
+      ? t('courseGeneration.lifecycle.projectContent', '项目课程')
+      : t('courseGeneration.lifecycle.content', '正文生成'),
+    release: isProject
+      ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
+      : t('courseGeneration.lifecycle.release', '确认发布'),
+  }
+  return names[courseProductionStageKey(task)]
+}
+
+function replace(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (result, [key, value]) => result.replace(`{${key}}`, String(value)),
+    template,
+  )
+}
+
+function phaseAction(task: Task): string {
+  const phase = String(task.currentPhase || '')
+  const stage = courseProductionStageName(task)
+  const fallback = activeLocale.value === 'zh' && task.currentStep
+    ? task.currentStep
+    : replace(t('courseGeneration.production.liveStageActive', '{stage}进行中'), { stage })
+  return phase ? t(`courseGeneration.phases.${phase}`, fallback) : fallback
+}
+
+function taskBatchCount(task: Task): { completed: number; total: number } | null {
+  const detail = task.phaseDetail || {}
+  const checkpoint = task.recovery?.checkpoint
+  const canUseTeachingCheckpoint = /course_teaching_plan/.test(String(task.currentPhase || ''))
+  const completed = Number(
+    detail.completed_batches
+    ?? (canUseTeachingCheckpoint ? checkpoint?.completed_teaching_plan_batches : undefined)
+    ?? 0,
+  )
+  const total = Number(
+    detail.total_batches
+    ?? (canUseTeachingCheckpoint ? checkpoint?.total_teaching_plan_batches : undefined)
+    ?? 0,
+  )
+  return Number.isFinite(total) && total > 0
+    ? { completed: Math.max(0, completed), total }
+    : null
+}
+
+function taskUpdatedTime(task: Task): string {
+  const timestamp = Date.parse(String(task.updatedAt || task.heartbeatAt || ''))
+  if (!Number.isFinite(timestamp)) return ''
+  return new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(timestamp)
+}
+
+export function courseProductionLiveSummary(task?: Task): string {
+  if (!task) return t('courseGeneration.production.livePreparing', '正在准备课程生产')
+  const stage = courseProductionStageName(task)
+
+  if (task.status === 'paused') {
+    return t('courseGeneration.production.livePaused', '已暂停，当前检查点已保留')
+  }
+  if (task.status === 'error') {
+    const key = canResumeCourseProduction(task) ? 'liveInterruptedResumable' : 'liveInterrupted'
+    const fallback = canResumeCourseProduction(task)
+      ? '{stage}中断，可从保存点继续'
+      : '{stage}中断，请查看恢复说明'
+    return replace(t(`courseGeneration.production.${key}`, fallback), { stage })
+  }
+  if (task.status === 'conflict') {
+    return replace(t('courseGeneration.production.liveBlocked', '{stage}需要处理，当前检查点已保留'), { stage })
+  }
+  if (task.status === 'waiting_for_review') {
+    return replace(t('courseGeneration.production.liveReview', '{stage}已完成，等待确认'), { stage })
+  }
+  if (task.status === 'completed' || task.status === 'completed_with_warnings') {
+    return t('courseGeneration.production.liveCompleted', '课程生成已完成')
+  }
+
+  const parts = [phaseAction(task)]
+  const batchCount = taskBatchCount(task)
+  if (batchCount) {
+    parts.push(replace(t('courseGeneration.production.liveBatchProgress', '已完成 {completed}/{total} 批'), batchCount))
+  }
+  const updatedTime = taskUpdatedTime(task)
+  if (updatedTime) {
+    parts.push(replace(t('courseGeneration.production.liveLastUpdated', '最后更新 {time}'), { time: updatedTime }))
+  }
+  return parts.join(' · ')
 }
 
 export function canResumeCourseProduction(task?: Task): boolean {

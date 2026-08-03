@@ -40,6 +40,24 @@ describe('D-05 task observability projection', () => {
     expect(observableTaskStages(task({ currentPhase: 'release_confirmed' }))[5]?.status).toBe('active')
   })
 
+  it('教案批次的局部校验仍属于内容生成，且历史校验不会覆盖当前活动阶段', () => {
+    const stages = observableTaskStages(task({
+      currentPhase: 'course_teaching_plan_batch',
+      phaseHistory: [
+        { phase: 'course_teaching_plan_batch_validation', status: 'completed' },
+      ],
+    }))
+    expect(stages.map(stage => stage.status)).toEqual([
+      'completed', 'completed', 'completed', 'active', 'pending', 'pending',
+    ])
+
+    const validation = observableTaskStages(task({
+      currentPhase: 'course_teaching_plan_batch_validation',
+    }))
+    expect(validation[3]?.status).toBe('active')
+    expect(validation[4]?.status).toBe('pending')
+  })
+
   it('失败任务不会伪装成百分之百完成，并把当前阶段标成错误', () => {
     const failed = task({ status: 'error', progress: 100, currentPhase: 'content_validation' })
     expect(taskDisplayProgress(failed)).toBe(99)
