@@ -77,7 +77,7 @@
     "subtitle": "Course generation continues in the background when you leave this page.",
     "import": "Import Markdown",
     "newCourse": "New course",
-    "tasks": "Generation tasks",
+    "tasks": "Course tasks",
     "search": "Search courses",
     "courseUnit": "courses",
     "loading": "Loading courses",
@@ -119,14 +119,61 @@
       "preparing": "Preparing course"
     }
   },
+  "taskObservability": {
+    "label": "Task processing stages",
+    "receive": "Material intake",
+    "parse": "Parse and classify",
+    "retrieve": "Retrieve evidence",
+    "generate": "Generate content",
+    "validate": "Quality validation",
+    "export": "Export and publish",
+    "lastHeartbeat": "Last update",
+    "stalled": "This task has not updated for a while and may be stalled. Refresh its status before pausing or resuming.",
+    "status": {
+      "completed": "Completed",
+      "active": "In progress",
+      "pending": "Not started",
+      "error": "Interrupted",
+      "paused": "Paused",
+      "blocked": "Needs attention"
+    },
+    "kind": {
+      "import": "Course import",
+      "generation": "Course generation"
+    },
+    "import": {
+      "pending": "Waiting to import",
+      "running": "Importing",
+      "paused": "Import paused",
+      "error": "Import failed",
+      "completed": "Import completed",
+      "retryableTitle": "Import interrupted and can resume from its checkpoint",
+      "replaceTitle": "The import file needs to be corrected",
+      "retryableHelp": "The parsed structure and source file are saved. Resuming will not create a duplicate course.",
+      "replaceHelp": "Correct or replace the source file based on the error, then start a new import.",
+      "resumeParsed": "Resume from parsed result",
+      "parsedCheckpoint": "The source and parsed result are saved; only the unfinished save and export steps will run again",
+      "sourceCheckpoint": "The source file is saved and the current import stage can be retried"
+    },
+    "errors": {
+      "quality": "The generated result did not pass quality validation. Review the issue and retry this stage.",
+      "rateLimit": "The service is receiving too many requests. Your progress is saved; try again later.",
+      "providerAuth": "The AI service could not verify its credentials. Check the service configuration and retry.",
+      "heading": "No course title was found. Add a Markdown heading and import the file again.",
+      "encoding": "The file encoding could not be read. Convert it to UTF-8 and import it again.",
+      "body": "The file contains headings but no teachable body. Add lesson content and import it again.",
+      "persistence": "Saving the course failed temporarily. The parsed result is saved and can resume from its checkpoint.",
+      "generic": "The task stopped in the current stage. Completed work has been preserved."
+    }
+  },
   "courseTasks": {
-    "eyebrow": "Background generation",
-    "title": "Course generation tasks",
+    "eyebrow": "Background processing",
+    "title": "Course task center",
     "refresh": "Refresh tasks",
-    "listLabel": "Generation task list",
-    "empty": "No generation tasks",
-    "emptyHelp": "New course generation will appear here.",
-    "select": "Select a task to view generation details.",
+    "listLabel": "Course task list",
+    "empty": "No course tasks",
+    "emptyHelp": "New and imported course processing will appear here.",
+    "select": "Select a task to view processing details.",
     "untitled": "Untitled course",
     "phase": "Current phase",
     "nodes": "Content progress",

@@ -20,11 +20,11 @@
         </header>
 
         <div class="task-center__body">
-          <aside class="task-list" :aria-label="t('courseTasks.listLabel', '生成任务列表')">
+          <aside class="task-list" :aria-label="t('courseTasks.listLabel', '课程任务列表')">
             <div v-if="!tasks.length" class="task-list__empty">
               <Inbox :size="23" />
-              <strong>{{ t('courseTasks.empty', '暂无生成任务') }}</strong>
-              <span>{{ t('courseTasks.emptyHelp', '新建课程后，生成状态会出现在这里。') }}</span>
+              <strong>{{ t('courseTasks.empty', '暂无课程任务') }}</strong>
+              <span>{{ t('courseTasks.emptyHelp', '新建或导入课程后，处理状态会出现在这里。') }}</span>
             </div>
             <button
               v-for="task in tasks"
@@ -66,12 +66,12 @@
                 :aria-valuenow="selectedDisplayProgress"
                 aria-valuemin="0"
                 aria-valuemax="100"
-                :aria-valuetext="`${phaseLabel(selectedTask.currentPhase, selectedTask.status)}，${selectedDisplayProgress}%`"
+                :aria-valuetext="`${phaseLabel(selectedTask.currentPhase, selectedTask.status, selectedTask.taskType)}，${selectedDisplayProgress}%`"
               >
                 <span :style="{ width: `${selectedDisplayProgress}%` }" />
               </div>
               <dl>
-                <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ phaseLabel(selectedTask.currentPhase, selectedTask.status) }}</dd></div>
+                <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ phaseLabel(selectedTask.currentPhase, selectedTask.status, selectedTask.taskType) }}</dd></div>
                 <div v-if="phaseItemProgress"><dt>{{ phaseItemProgress.label }}</dt><dd>{{ phaseItemProgress.completed }} / {{ phaseItemProgress.total }}</dd></div>
                 <div v-else-if="selectedProgress?.totalNodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedProgress.completedNodes }} / {{ selectedProgress.totalNodes }}</dd></div>
                 <div v-else-if="selectedTask.recovery?.checkpoint.total_nodes"><dt>{{ t('courseTasks.nodes', '内容进度') }}</dt><dd>{{ selectedTask.recovery.checkpoint.completed_nodes }} / {{ selectedTask.recovery.checkpoint.total_nodes }}</dd></div>
@@ -295,7 +295,7 @@
 
           <main v-else class="task-detail task-detail--empty">
             <ListChecks :size="28" />
-            <p>{{ t('courseTasks.select', '选择一个任务查看生成详情。') }}</p>
+            <p>{{ t('courseTasks.select', '选择一个任务查看处理详情。') }}</p>
           </main>
         </div>
       </section>
@@ -427,6 +427,7 @@ const currentReviewStep = computed<GuidedGenerationStepKey>(() => (
 ))
 const reviewArtifact = computed(() => generationReview.value?.artifact || null)
 const workflowSteps = computed(() => {
+  if (selectedTask.value?.taskType === 'course_import') return []
   const workflow = selectedTask.value?.guidedWorkflow || generationReview.value?.guided_workflow
   const current = workflow?.current_step
   const sourceSteps = workflow?.steps || []
@@ -797,9 +798,12 @@ function reviewIssueMessage(issue: any) {
   return String(issue?.message || issue || '')
 }
 function taskStepLabel(task: TaskView) {
-  return courseProductionTaskDetail(task) || phaseLabel(task.currentPhase, task.status)
+  return courseProductionTaskDetail(task) || phaseLabel(task.currentPhase, task.status, task.taskType)
 }
-function phaseLabel(phase: string | undefined, status: Task['status']) {
+function phaseLabel(phase: string | undefined, status: Task['status'], taskType?: string) {
+  if (phase === 'completed' && taskType === 'course_import') {
+    return t('taskObservability.import.completed', '导入完成')
+  }
   const labels: Record<string, string> = {
     material_receiving: t('taskObservability.receive', '资料接收'),
     material_parsing: t('taskObservability.parse', '解析与分类'),

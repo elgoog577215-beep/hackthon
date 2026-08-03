@@ -91,6 +91,21 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('长时间没有更新')
   })
 
+  it('导入完成阶段不会误显示为课程生成完成', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-import-done', course_id: 'course-imported', course_name: '导入课程', type: 'course_import', status: 'completed',
+      progress: 100, current_phase: 'completed', message: '导入完成',
+    }]
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('导入完成')
+    expect(wrapper.text()).not.toContain('课程生成完成')
+    expect(wrapper.find('.guided-workflow').exists()).toBe(false)
+  })
+
   it('失败任务不显示 100% 成功，并用用户文案解释内部错误', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{
@@ -416,7 +431,7 @@ describe('CourseTaskCenter', () => {
 
     expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(4)
     expect(wrapper.text()).toContain('Review course content')
-    expect(wrapper.text()).toContain('Course generation')
+    expect(wrapper.text()).toContain('Course task center')
     expect(wrapper.text()).toContain('Confirm publication')
     expect(wrapper.text()).toContain('Some lesson-plan units used the local fallback')
     expect(wrapper.text()).not.toContain('本地确定性保底')
