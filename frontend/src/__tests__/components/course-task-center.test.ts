@@ -69,6 +69,46 @@ describe('CourseTaskCenter', () => {
     expect(router.currentRoute.value.params.courseId).toBe('course-1')
   })
 
+  it('按 D-05 展示六阶段、任务类型和停滞心跳', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-import', course_id: 'course-1', course_name: '线性代数资料', type: 'course_import', status: 'running',
+      progress: 25, current_phase: 'material_parsing', message: '正在解析 Markdown',
+      heartbeat_at: '2026-08-03T00:00:00+08:00', updated_at: '2026-08-03T00:00:00+08:00',
+    }]
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.get('.task-kind-chip').text()).toContain('课程导入')
+    expect(wrapper.findAll('.task-observability__stage')).toHaveLength(6)
+    expect(wrapper.text()).toContain('资料接收')
+    expect(wrapper.text()).toContain('解析与分类')
+    expect(wrapper.text()).toContain('检索证据')
+    expect(wrapper.text()).toContain('内容生成')
+    expect(wrapper.text()).toContain('质量检查')
+    expect(wrapper.text()).toContain('导出与发布')
+    expect(wrapper.text()).toContain('长时间没有更新')
+  })
+
+  it('失败任务不显示 100% 成功，并用用户文案解释内部错误', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-failed-100', course_id: 'course-1', course_name: '线性代数', type: 'course_generation', status: 'failed',
+      progress: 100, current_phase: 'quality_validation', message: 'failed',
+      error: 'slide_deck_variant_quality_gate_failed', error_code: 'slide_deck_variant_quality_gate_failed',
+    }]
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.get('.task-summary__top > strong').text()).toBe('99%')
+    expect(wrapper.get('.task-progress').attributes('aria-valuenow')).toBe('99')
+    expect(wrapper.get('.task-progress').attributes('aria-valuetext')).toContain('质量检查')
+    expect(wrapper.get('.task-notice').text()).toContain('质量检查未通过')
+    expect(wrapper.get('.task-error-detail').text()).toContain('slide_deck_variant_quality_gate_failed')
+  })
+
   it('排队任务同样可以暂停，并明确提供取消删除', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{
