@@ -85,15 +85,17 @@ describe('CourseProductionStage', () => {
     expect(lifecycle.text()).not.toContain('课程生产')
   })
 
-  it('阶段条把当前目录标成中断而不是进行中', () => {
+  it('阶段条把当前解析标成中断，并公开 D-05 六阶段', () => {
     const wrapper = mount(CourseGenerationLifecycle, { props: { task: interruptedTask } })
     const stages = wrapper.findAll('li')
-    expect(stages).toHaveLength(4)
-    expect(stages[0]!.attributes('data-status')).toBe('error')
-    expect(stages[0]!.attributes('aria-label')).toContain('已中断')
-    expect(stages[1]!.attributes('data-status')).toBe('pending')
+    expect(stages).toHaveLength(6)
+    expect(stages[0]!.attributes('data-status')).toBe('completed')
+    expect(stages[1]!.attributes('data-status')).toBe('error')
+    expect(stages[1]!.attributes('aria-label')).toContain('已中断')
     expect(stages[2]!.attributes('data-status')).toBe('pending')
     expect(stages[3]!.attributes('data-status')).toBe('pending')
+    expect(stages[4]!.attributes('data-status')).toBe('pending')
+    expect(stages[5]!.attributes('data-status')).toBe('pending')
   })
 
   it('项目实战使用个人路径与项目交付语义', () => {
@@ -112,11 +114,12 @@ describe('CourseProductionStage', () => {
     expect(stage.text()).toContain('个人路径 · 进行中')
     expect(stage.text()).toContain('系统先把交付物拆成项目节点')
     expect(stage.text()).toContain('确认个人路径后')
-    expect(lifecycle.text()).toContain('个人路径')
-    expect(lifecycle.text()).toContain('能力与知识')
-    expect(lifecycle.text()).toContain('项目课程')
-    expect(lifecycle.text()).toContain('确认课程')
-    expect(lifecycle.text()).not.toContain('正文生成')
+    expect(lifecycle.text()).toContain('资料接收')
+    expect(lifecycle.text()).toContain('解析与分类')
+    expect(lifecycle.text()).toContain('检索证据')
+    expect(lifecycle.text()).toContain('内容生成')
+    expect(lifecycle.text()).toContain('质量检查')
+    expect(lifecycle.text()).toContain('导出与发布')
   })
 
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {
@@ -132,9 +135,9 @@ describe('CourseProductionStage', () => {
     const wrapper = mount(CourseGenerationLifecycle, { props: { task } })
     const stages = wrapper.findAll('li')
 
-    expect(stages[1]!.attributes('data-status')).toBe('completed')
-    expect(stages[2]!.attributes('data-status')).toBe('error')
-    expect(stages[2]!.attributes('aria-label')).toContain('已中断')
+    expect(stages[2]!.attributes('data-status')).toBe('completed')
+    expect(stages[3]!.attributes('data-status')).toBe('error')
+    expect(stages[3]!.attributes('aria-label')).toContain('已中断')
   })
 
   it('把真实目录检查点投影为可展开的生长树', async () => {
