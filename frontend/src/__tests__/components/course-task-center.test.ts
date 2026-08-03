@@ -458,6 +458,49 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.find('.danger-button').text()).toContain('删除任务')
     expect(wrapper.find('.task-actions .primary-button').exists()).toBe(false)
     expect(wrapper.find('.task-actions__open').exists()).toBe(true)
+    expect(wrapper.findAll('.task-observability__stage').map(stage => stage.attributes('data-status'))).toEqual([
+      'completed', 'completed', 'completed', 'completed', 'blocked', 'pending',
+    ])
+  })
+
+  it('发布预检使用工作流恢复精确阶段，不显示通用处理中提示', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = [{
+      id: 'task-release-check', course_id: 'course-1', course_name: '局部解剖学',
+      status: 'running', progress: 94, current_phase: 'content_confirmed', message: '正在处理...',
+      completed_nodes: 18, total_nodes: 18,
+      guided_workflow: {
+        schema_version: 'guided_course_generation_v3',
+        current_step: 'release', review_step: null,
+        steps: [
+          { number: 1, key: 'requirements', status: 'confirmed' },
+          { number: 2, key: 'outline', status: 'confirmed' },
+          { number: 3, key: 'teaching', status: 'confirmed' },
+          { number: 4, key: 'content', status: 'confirmed' },
+          { number: 5, key: 'release', status: 'pending' },
+        ],
+      },
+      phase_history: [
+        { phase: 'content_validation', status: 'completed' },
+        { phase: 'release_confirmed', status: 'completed' },
+      ],
+    }]
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    const liveStatus = wrapper.get('.task-summary__live-status')
+    expect(liveStatus.attributes()).toMatchObject({
+      role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true',
+    })
+    expect(liveStatus.text()).toBe('正在执行发布前质量检查')
+    expect(wrapper.get('.task-summary dl div:first-child dd').text()).toBe('正在执行发布前质量检查')
+    expect(wrapper.get('.task-progress').attributes('aria-valuetext')).toContain('正在执行发布前质量检查')
+    expect(wrapper.findAll('.task-observability__stage').map(stage => stage.attributes('data-status'))).toEqual([
+      'completed', 'completed', 'completed', 'completed', 'active', 'pending',
+    ])
+    expect(wrapper.get('.task-observability').attributes('aria-live')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('正在处理...')
   })
 
   it('只在后端确认有检查点时提供继续，并显示已保留内容', async () => {

@@ -34,6 +34,47 @@ export function observableStageIndex(phase?: string): number {
   return Math.max(0, OBSERVABLE_TASK_STAGE_KEYS.indexOf(match?.[0] || 'receive'))
 }
 
+function workflowStepStatus(task: Task, key: string): string {
+  return String(task.guidedWorkflow?.steps.find(step => step.key === key)?.status || '')
+}
+
+function qualityIsBlocked(task: Task): boolean {
+  return task.recovery?.state === 'quality_blocked'
+    || (task.status === 'completed_with_warnings' && task.publicationAllowed === false)
+}
+
+export function observableTaskPhase(task: Task): string {
+  if (qualityIsBlocked(task)) return 'quality_failed'
+  if (task.status === 'completed') return 'completed'
+
+  const phase = String(task.currentPhase || '').toLowerCase()
+  const workflowStep = task.guidedWorkflow?.review_step || task.guidedWorkflow?.current_step
+  if (workflowStep === 'release') {
+    const releaseStatus = workflowStepStatus(task, 'release')
+    if (releaseStatus === 'needs_regeneration' || releaseStatus === 'failed') return 'quality_failed'
+    if (task.status === 'waiting_for_review') return 'release_ready'
+    if (releaseStatus === 'confirmed' || /release_confirmed|publish|export|completed/.test(phase)) {
+      return phase || 'release_confirmed'
+    }
+    return 'publication_quality_check'
+  }
+
+  if (phase && !/_confirmed$/.test(phase)) return phase
+  const inferredPhase = {
+    requirements: 'requirement_analysis',
+    outline: 'outline_generation',
+    teaching: 'course_teaching_plan',
+    content: 'content_generation',
+  }[String(workflowStep || '')]
+  if (inferredPhase) return inferredPhase
+  if (phase) return phase
+
+  const latestHistory = [...(task.phaseHistory || [])]
+    .reverse()
+    .find(entry => Boolean(entry.phase))
+  return String(latestHistory?.phase || '')
+}
+
 function stageLabel(key: ObservableTaskStageKey): string {
   return {
     receive: t('taskObservability.receive', '资料接收'),
@@ -46,12 +87,15 @@ function stageLabel(key: ObservableTaskStageKey): string {
 }
 
 export function observableTaskStages(task: Task): ObservableTaskStage[] {
-  const activeIndex = observableStageIndex(task.currentPhase)
-  const historyIndexes = new Set(
-    (task.phaseHistory || [])
-      .filter(entry => entry.status === 'completed')
-      .map(entry => observableStageIndex(entry.phase)),
-  )
+  const activeIndex = observableStageIndex(observableTaskPhase(task))
+  if (qualityIsBlocked(task)) {
+    const validateIndex = OBSERVABLE_TASK_STAGE_KEYS.indexOf('validate')
+    return OBSERVABLE_TASK_STAGE_KEYS.map((key, index) => ({
+      key,
+      label: stageLabel(key),
+      status: index < validateIndex ? 'completed' : index === validateIndex ? 'blocked' : 'pending',
+    }))
+  }
   return OBSERVABLE_TASK_STAGE_KEYS.map((key, index) => {
     let status: ObservableTaskStageStatus = 'pending'
     if (task.status === 'completed') status = 'completed'
@@ -61,7 +105,7 @@ export function observableTaskStages(task: Task): ObservableTaskStage[] {
           : task.status === 'conflict' ? 'blocked'
             : 'active'
     }
-    else if (index < activeIndex || historyIndexes.has(index)) status = 'completed'
+    else if (index < activeIndex) status = 'completed'
     return { key, label: stageLabel(key), status }
   })
 }

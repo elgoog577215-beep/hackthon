@@ -1309,6 +1309,7 @@ class TaskManager:
         async with self._lock:
             task["status"] = "pending"
             task["phase"] = f"{step}_confirmed"
+            task["current_phase"] = task["phase"]
             task["phase_progress"] = 100
             task["message"] = {
                 "outline": "课程目录已确认，开始冻结全课知识职责并按预算生成详细教案与正文",
@@ -4434,6 +4435,48 @@ class TaskManager:
             logger.warning("Unable to clean completed import source for %s", task_id)
         await self._push_progress(task_id)
 
+    @staticmethod
+    def _processing_handoff(task: dict[str, Any]) -> tuple[str, str]:
+        """Return the precise phase shown while a queued generation job resumes."""
+        workflow = task.get("guided_workflow")
+        if isinstance(workflow, dict):
+            step = str(
+                workflow.get("review_step")
+                or workflow.get("current_step")
+                or "outline"
+            )
+            step_status = str(
+                next(
+                    (
+                        item.get("status")
+                        for item in workflow.get("steps") or []
+                        if item.get("key") == step
+                    ),
+                    "",
+                )
+                or ""
+            )
+            if step == "release":
+                if step_status == "confirmed":
+                    return "release_confirmed", "确认发布已完成，正在发布课程"
+                if step_status in {"needs_regeneration", "failed"}:
+                    return "quality_failed", "发布前质量检查未通过"
+                return "publication_quality_check", "正在执行发布前质量检查"
+            guided_handoffs = {
+                "requirements": ("requirement_analysis", "正在整理课程需求"),
+                "outline": ("outline_generation", "正在生成课程目录"),
+                "teaching": ("course_teaching_plan", "正在规划并汇编全课小节教案"),
+                "content": ("content_generation", "正在生成课程正文"),
+            }
+            if step in guided_handoffs:
+                return guided_handoffs[step]
+
+        phase = str(task.get("current_phase") or task.get("phase") or "")
+        message = str(task.get("message") or "").strip()
+        if phase and message not in {"", "正在处理...", "正在处理…", "正在生成"}:
+            return phase, message
+        return phase or "requirement_analysis", "正在启动课程生成"
+
     async def _process_task(self, task_id: str) -> None:
         """处理单个任务：分析课程结构并调度节点。
 
@@ -4458,7 +4501,16 @@ class TaskManager:
             return
 
         course_id = task["course_id"]
-        await self._update_task_status(task_id, "running", message="正在处理...")
+        handoff_phase, handoff_message = self._processing_handoff(task)
+        await self._update_task_status(task_id, "running")
+        await self._update_phase(
+            task_id,
+            handoff_phase,
+            int(task.get("progress") or 0),
+            handoff_message,
+            phase_progress=int(task.get("phase_progress") or 0),
+            phase_detail=task.get("phase_detail") or {},
+        )
 
         course_data = self._load_task_course(task_id)
         if not course_data:

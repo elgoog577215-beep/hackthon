@@ -242,6 +242,7 @@
       "contentValidation": "检查结构、引用、答案合同与覆盖",
       "contentReady": "等待确认课程内容",
       "contentConfirmed": "课程内容已确认",
+      "publicationQualityCheck": "正在执行发布前质量检查",
       "releaseReady": "等待确认发布",
       "releaseConfirmed": "正在发布课程",
       "resuming": "从保存点恢复",
