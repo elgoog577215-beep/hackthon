@@ -1416,6 +1416,7 @@ def _paginate_fragments(
     capacity: int,
     *,
     appendix: bool = False,
+    max_visible_items: int | None = None,
 ) -> list[list[ContentFragmentV1]]:
     pages: list[list[ContentFragmentV1]] = []
     current: list[ContentFragmentV1] = []
@@ -1440,6 +1441,13 @@ def _paginate_fragments(
             (first.kind == "heading" and any(item.kind != "heading" for item in current))
             or current_size + size > text_capacity
             or len(candidate) > page_limit
+            or (
+                max_visible_items is not None
+                and sum(
+                    item.kind == "list_item"
+                    for item in candidate
+                ) > max_visible_items
+            )
             or (
                 not appendix
                 and _estimated_materialized_block_count(candidate) > 2

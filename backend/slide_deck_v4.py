@@ -37,6 +37,15 @@ SLIDE_DECK_V4_COMPILER_VERSION = "course_logic_slide_compiler_v4.2"
 SLIDE_LAYOUT_REGISTRY_V2_VERSION = "slide_layout_registry_v2.2"
 SLIDE_RENDER_REVIEW_VERSION = "slide_render_review_v1"
 
+_V5_SEMANTIC_PAGE_CAPACITY = {
+    "question": {"characters": 260, "items": 4},
+    "case-study": {"characters": 320, "items": 4},
+    "process": {"characters": 300, "items": 5},
+    "summary": {"characters": 320, "items": 4},
+    "recap": {"characters": 320, "items": 4},
+}
+_V5_DEFAULT_SEMANTIC_PAGE_CAPACITY = {"characters": 360, "items": 6}
+
 _SCENE_TO_NARRATIVE_ROLE = {
     "chapter_entry": "orientation",
     "prerequisite_activation": "orientation",
@@ -123,15 +132,23 @@ def _beat_pages(
     semantic_core = (
         beat.layout_selection_reason in V5_SEMANTIC_CORE_REASONS
     )
+    semantic_capacity = _V5_SEMANTIC_PAGE_CAPACITY.get(
+        beat.renderer_layout,
+        _V5_DEFAULT_SEMANTIC_PAGE_CAPACITY,
+    )
     text_capacity = (
-        360
+        int(semantic_capacity["characters"])
         if semantic_core
         else STORY_BEAT_TEXT_CAPACITY
     )
-    chunks = (
-        [fragments]
-        if semantic_core
-        else _paginate_fragments(fragments, text_capacity)
+    chunks = _paginate_fragments(
+        fragments,
+        text_capacity,
+        max_visible_items=(
+            int(semantic_capacity["items"])
+            if semantic_core
+            else None
+        ),
     )
     pages: list[PlannedPageV2] = []
     for chunk_index, chunk in enumerate(chunks):
