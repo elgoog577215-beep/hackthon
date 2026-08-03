@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pytest
 
 from course_difficulty import (
@@ -8,6 +10,7 @@ from course_difficulty import (
     compile_difficulty_profile,
     decide_adaptation,
     ensure_course_difficulty_contracts,
+    repair_compiled_difficulty_double_spikes,
 )
 from course_pedagogy import PedagogyMode
 from course_quality import (
@@ -140,6 +143,49 @@ def test_long_curve_never_compiles_an_unsupported_double_spike():
         issue["code"] == "difficulty:double_spike"
         for issue in report["issues"]
     )
+
+
+def test_existing_double_spike_is_repaired_in_course_and_blueprint_contracts():
+    previous = {
+        "node_id": "L2-5-3",
+        "node_level": 2,
+        "difficulty_contract": {
+            "new_concept_load": 1,
+            "challenge": {"task_complexity": 3},
+            "support": {"scaffold_intensity": 3},
+        },
+    }
+    current = {
+        "node_id": "L2-6-1",
+        "node_level": 2,
+        "difficulty_contract": {
+            "new_concept_load": 2,
+            "challenge": {"task_complexity": 4},
+            "support": {"scaffold_intensity": 2},
+            "support_actions": [],
+        },
+    }
+    course = {
+        "nodes": [previous, current],
+        "course_blueprint": {
+            "nodes": [deepcopy(previous), deepcopy(current)],
+            "course_difficulty_curve": {
+                "node_contracts": [deepcopy(previous), deepcopy(current)],
+            },
+        },
+        "course_difficulty_curve": {
+            "node_contracts": [deepcopy(previous), deepcopy(current)],
+        },
+        "blueprint_validation_report": {"passed": False},
+    }
+
+    repaired = repair_compiled_difficulty_double_spikes(course)
+
+    assert repaired == ["L2-6-1"]
+    assert course["nodes"][1]["difficulty_contract"]["support"]["scaffold_intensity"] == 3
+    assert course["course_blueprint"]["nodes"][1]["difficulty_contract"]["support"]["scaffold_intensity"] == 3
+    assert course["course_difficulty_curve"]["node_contracts"][1]["support"]["scaffold_intensity"] == 3
+    assert "blueprint_validation_report" not in course
 
 
 def test_plan_compiler_removes_free_complexity_and_attaches_contracts():
