@@ -120,13 +120,13 @@ def test_atomic_operations_recompile_every_outline_projection_and_remap_ids():
         "L2-2-2",
     ]
     moved, added = adjusted["nodes"][3:]
-    assert moved["node_name"] == "脚本生命周期与执行时机"
+    assert moved["node_name"] == "2.1 脚本生命周期与执行时机"
     assert moved["parent_node_id"] == "L1-2"
     assert moved["prerequisite_node_ids"] == ["L2-1-1"]
     assert added["prerequisite_node_ids"] == ["L2-2-1"]
 
     chapters = adjusted["course_plan"]["chapters"]
-    assert [chapter["title"] for chapter in chapters] == ["基础", "工程实践"]
+    assert [chapter["title"] for chapter in chapters] == ["第1章 基础", "第2章 工程实践"]
     assert [section["node_id"] for section in chapters[1]["sections"]] == [
         "L2-2-1",
         "L2-2-2",
@@ -148,6 +148,91 @@ def test_atomic_operations_recompile_every_outline_projection_and_remap_ids():
     assert adjusted["difficulty_profile"] == draft["difficulty_profile"]
     assert result["id_map"]["L2-1-2"] == "L2-2-1"
     assert result["id_map"]["tmp-component-composition"] == "L2-2-2"
+
+
+def test_recompile_replaces_stale_numeric_prefixes_in_every_projection():
+    draft = _draft()
+    draft["nodes"][0]["node_name"] = "第7章 基础"
+    draft["nodes"][1]["node_name"] = "7.4 场景与对象"
+    draft["nodes"][2]["node_name"] = "1.2 生命周期"
+    draft["nodes"][3]["node_name"] = "第3章 工程实践"
+    draft["nodes"][4]["node_name"] = "3.8 组件组合"
+
+    adjusted = apply_outline_operations(
+        draft,
+        [
+            {
+                "op": "move_node",
+                "node_ref": "L2-1-2",
+                "parent_ref": "L1-2",
+                "after_ref": None,
+            }
+        ],
+    )["draft"]
+
+    expected_names = [
+        "第1章 基础",
+        "1.1 场景与对象",
+        "第2章 工程实践",
+        "2.1 生命周期",
+        "2.2 组件组合",
+    ]
+    assert [node["node_name"] for node in adjusted["nodes"]] == expected_names
+    assert [chapter["title"] for chapter in adjusted["course_plan"]["chapters"]] == [
+        "第1章 基础",
+        "第2章 工程实践",
+    ]
+    assert [
+        section["title"]
+        for chapter in adjusted["course_outline"]["chapters"]
+        for section in chapter["sections"]
+    ] == ["1.1 场景与对象", "2.1 生命周期", "2.2 组件组合"]
+    assert adjusted["course_blueprint"]["nodes"] == adjusted["nodes"]
+
+
+def test_same_chapter_release_and_delivery_duplicate_is_blocked():
+    draft = _draft()
+    draft["nodes"].extend(
+        [
+            {
+                "node_id": "L2-2-2",
+                "parent_node_id": "L1-2",
+                "node_level": 2,
+                "node_name": "6.4 完整游戏循环优化与发布流程",
+                "learning_objective": (
+                    "整合项目各模块，优化用户体验，配置多平台构建设置，"
+                    "执行系统化调试并完成最终交付物生成"
+                ),
+                "prerequisite_node_ids": ["L2-2-1"],
+            },
+            {
+                "node_id": "L2-2-3",
+                "parent_node_id": "L1-2",
+                "node_level": 2,
+                "node_name": "6.2 工程打包、调试验证与交付",
+                "learning_objective": (
+                    "配置 Unity 构建设置，执行多平台打包，并通过系统化调试流程"
+                    "消除致命 Bug，最终生成可独立运行的交付物"
+                ),
+                "prerequisite_node_ids": ["L2-2-2"],
+            },
+        ]
+    )
+
+    with pytest.raises(OutlineAdjustmentError) as error:
+        apply_outline_operations(
+            draft,
+            [
+                {
+                    "op": "update_node",
+                    "node_ref": "L2-2-1",
+                    "learning_objective": "组合组件并衔接完整游戏循环",
+                }
+            ],
+        )
+
+    assert error.value.code == "semantic_duplicate_sections"
+    assert error.value.details["node_refs"] == ["L2-2-2", "L2-2-3"]
 
 
 def test_remove_non_empty_chapter_never_cascades_implicitly():
