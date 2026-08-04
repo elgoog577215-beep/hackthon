@@ -4,10 +4,12 @@
 
 ## 1. 当前正式真源
 
-- [产品总蓝图](./product-blueprint.md)：当前产品语义的最高优先级真源，也是唯一产品实施进度板。
+- [产品总蓝图](./product-blueprint.md)：当前产品语义的最高优先级真源，只维护产品定义、核心关系、边界与完成门。
+- [当前产品状态](./product-status.md)：唯一产品状态板，覆盖更新成熟度、在建项、关键缺口和下一攻坚位置。
 - [课程生成与 AI 老师后端链路](./architecture/course-generation.md)：记录当前生产代码的真实链路；与蓝图冲突时，以蓝图的产品边界为准，以代码和真实验证判断实现状态。
-- [`build-structured-adaptive-course-ai`](../openspec/changes/build-structured-adaptive-course-ai/)：当前仍在实施的结构化课程 OpenSpec。任务完成并通过验证后应归档，不在其他文档维护平行任务表。
-- [`fix-mermaid-rendering-pipeline`](../openspec/changes/fix-mermaid-rendering-pipeline/)：Mermaid 渲染收束项。真实课程页仍存在旧导入标题标记泄漏，且缺少规格所述的导入回归用例，完成视觉门禁与回归补齐前不得归档。
+- [`openspec/changes/`](../openspec/changes/)：当前高影响实施规格。有效任务、验收证据与归档条件只在对应 OpenSpec 维护。
+
+当前活动 OpenSpec 的角色与收束判断统一查看[产品状态板](./product-status.md)，不在本文复制进度。
 
 ## 2. 开发与验收入口
 
@@ -32,8 +34,9 @@
 
 ## 5. 维护规则
 
-1. 当前产品定义和整体进度只更新 `product-blueprint.md`。
-2. 当前实现事实更新对应架构文档；高影响实施更新有效 OpenSpec。
-3. 调研、验收、会议和 Design QA 使用独立专题文档，任务结束后归档。
-4. 新文档必须说明状态、日期、上位真源和适用范围；无法说明职责时，优先修改现有文档。
-5. 不在根目录追加临时报告，不用日期文档覆盖正式真源，不把聊天结论维护成第二份进度表。
+1. 产品定义与稳定边界只更新 `product-blueprint.md`；当前成熟度与下一攻坚位置只更新 `product-status.md`。
+2. 建设依赖只更新整体路线图；任务与验收只更新有效 OpenSpec；当前实现事实更新对应架构文档。
+3. 历史决策及原因进入 `docs/ai-memory/`，时间线交给 Git，不把日期修正堆回正式蓝图。
+4. 调研、验收、会议和 Design QA 使用独立专题文档，任务结束后归档。
+5. 新文档必须说明状态、日期、上位真源和适用范围；无法说明职责时，优先修改现有文档。
+6. 不在根目录追加临时报告，不用日期文档覆盖正式真源，不把聊天结论维护成第二份进度表。
