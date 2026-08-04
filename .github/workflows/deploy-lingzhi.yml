@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      inspect_proxy:
+        description: Inspect the production Caddy route without deploying
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -22,9 +28,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify repository tracking hygiene
+        if: ${{ !inputs.inspect_proxy }}
         run: scripts/check-tracked-ignored.sh
 
       - name: Setup Node.js
+        if: ${{ !inputs.inspect_proxy }}
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -32,6 +40,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Build release artifact on runner
+        if: ${{ !inputs.inspect_proxy }}
         env:
           LINGZHI_TARGET_COMMIT: ${{ github.sha }}
         run: |
@@ -54,7 +63,29 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Inspect production proxy
+        if: ${{ inputs.inspect_proxy }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            'set -eu
+             systemctl show caddy --property=FragmentPath --property=ActiveState --no-pager
+             if [ -r /etc/caddy/Caddyfile ]; then
+               grep -n -C 12 -E "lingzhi(\\.tuotuzju\\.com)?|/lingzhi" /etc/caddy/Caddyfile || true
+             else
+               printf "%s\n" "Caddyfile is not readable at /etc/caddy/Caddyfile"
+             fi'
+
       - name: Upload release artifact
+        if: ${{ !inputs.inspect_proxy }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
@@ -77,6 +108,7 @@ jobs:
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_artifact"
 
       - name: Activate release on server
+        if: ${{ !inputs.inspect_proxy }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
