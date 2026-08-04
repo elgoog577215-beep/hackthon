@@ -21,6 +21,7 @@ from assessment_compiler import (
     normalize_public_options,
 )
 from assessment_contracts import (
+    classify_assessment_risk,
     compile_assessment_objectives,
     compile_course_assessment_profile,
 )
@@ -52,6 +53,13 @@ QUESTION_REVIEW_TIERS = {
     "mandatory_review",
 }
 QUESTION_REVIEW_POLICY_SCHEMA = "exception_driven_question_quality_v1"
+QUESTION_RISK_MIGRATION_SCHEMA = "item_level_question_risk_v1"
+_LEGACY_SUBJECT_RISK_FLAGS = {
+    "high_stakes_domain",
+}
+_LEGACY_SUBJECT_REVIEW_REASONS = {
+    "high_stakes_course",
+}
 _STORAGE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 
 _QUESTION_RE = re.compile(
@@ -540,16 +548,33 @@ def migrate_question_bank_review_policy(
     profile = compile_course_assessment_profile(course_data)
     current_policy = bundle.get("review_policy") or {}
     desired_policy = profile.get("review_policy") or {}
+    current_migration = bundle.get("policy_migration") or {}
+    has_legacy_subject_risk = any(
+        _has_legacy_subject_risk_item(item)
+        for item in bundle.get("items") or []
+    )
     if (
         current_policy.get("schema_version")
         == QUESTION_REVIEW_POLICY_SCHEMA
         and current_policy == desired_policy
+        and (
+            current_migration.get("schema_version")
+            == QUESTION_RISK_MIGRATION_SCHEMA
+            or not has_legacy_subject_risk
+        )
     ):
         return deepcopy(bundle)
     result = deepcopy(bundle)
     result["assessment_profile"] = profile
+    result["assessment_objectives"] = compile_assessment_objectives(
+        course_data,
+        profile,
+    )
     result["review_policy"] = deepcopy(desired_policy)
+    migrated_item_count = 0
     for item in result.get("items") or []:
+        if _migrate_legacy_subject_risk_item(item):
+            migrated_item_count += 1
         validation = (
             item.get("solution_validation")
             or item.get("domain_validation")
@@ -573,12 +598,115 @@ def migrate_question_bank_review_policy(
         profile,
     )
     result["policy_migration"] = {
-        "schema_version": QUESTION_REVIEW_POLICY_SCHEMA,
+        "schema_version": QUESTION_RISK_MIGRATION_SCHEMA,
+        "review_policy_schema_version": QUESTION_REVIEW_POLICY_SCHEMA,
+        "migrated_item_count": migrated_item_count,
         "migrated_at": _now(),
     }
     return recalculate_question_bank_coverage(
         course_data,
         result,
+    )
+
+
+def _migrate_legacy_subject_risk_item(
+    item: dict[str, Any],
+) -> bool:
+    """Replace the former subject gate with a fresh item-level decision."""
+    if not _has_legacy_subject_risk_item(item):
+        return False
+    question_spec = item.get("question_spec") or {}
+    risk_contracts = [
+        contract
+        for contract in (
+            item.get("risk_contract"),
+            question_spec.get("risk_contract"),
+        )
+        if isinstance(contract, dict)
+    ]
+    item_flags = [
+        str(value)
+        for value in item.get("risk_flags") or []
+        if str(value).strip()
+    ]
+    contract_flags = [
+        str(value)
+        for contract in risk_contracts
+        for value in contract.get("risk_flags") or []
+        if str(value).strip()
+    ]
+    task = question_spec.get("task") or {}
+    formal_task = item.get("formal_task") or {}
+    requested_action = [
+        task.get("rendered_text"),
+        task.get("deliverable"),
+    ]
+    if not any(str(value or "").strip() for value in requested_action):
+        requested_action = [
+            formal_task.get("deliverable"),
+            formal_task.get("prompt"),
+            item.get("prompt"),
+        ]
+    item_risk = classify_assessment_risk(
+        *requested_action,
+    )
+    source_requires_review = any(
+        str(contract.get("source_sufficiency") or "")
+        == "insufficient"
+        for contract in risk_contracts
+    )
+    requires_review = bool(
+        item_risk["requires_teacher_review"]
+        or source_requires_review
+    )
+    migrated_flags = [
+        flag
+        for flag in _unique([*item_flags, *contract_flags])
+        if flag not in _LEGACY_SUBJECT_RISK_FLAGS
+        and flag != "independent_solution_required"
+    ]
+    for flag in item_risk["risk_flags"]:
+        if flag not in migrated_flags:
+            migrated_flags.append(flag)
+    item["risk_flags"] = migrated_flags
+    item["risk_level"] = (
+        "teacher_review" if requires_review else "low"
+    )
+    item["review_required"] = requires_review
+    for contract in risk_contracts:
+        contract["risk_flags"] = list(migrated_flags)
+        contract["risk_level"] = item["risk_level"]
+        contract["requires_teacher_review"] = requires_review
+    return True
+
+
+def _has_legacy_subject_risk_item(item: dict[str, Any]) -> bool:
+    question_spec = item.get("question_spec") or {}
+    risk_contracts = [
+        contract
+        for contract in (
+            item.get("risk_contract"),
+            question_spec.get("risk_contract"),
+        )
+        if isinstance(contract, dict)
+    ]
+    flags = [
+        *[
+            str(value)
+            for value in item.get("risk_flags") or []
+            if str(value).strip()
+        ],
+        *[
+            str(value)
+            for contract in risk_contracts
+            for value in contract.get("risk_flags") or []
+            if str(value).strip()
+        ],
+    ]
+    return bool(
+        _LEGACY_SUBJECT_RISK_FLAGS.intersection(flags)
+        or str(item.get("review_policy_reason") or "")
+        in _LEGACY_SUBJECT_REVIEW_REASONS
     )
 
 
