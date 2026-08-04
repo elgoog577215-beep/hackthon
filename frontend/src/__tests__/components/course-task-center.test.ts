@@ -211,7 +211,7 @@ describe('CourseTaskCenter', () => {
     ]
     const pause = vi.spyOn(generation, 'pauseTask').mockResolvedValue(undefined)
     const deleteTask = vi.spyOn(generation, 'deleteTask').mockResolvedValue(undefined)
-    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
     const wrapper = mountCenter()
     await flushPromises()
 
@@ -241,7 +241,7 @@ describe('CourseTaskCenter', () => {
         checkpoint: { phase: 'blueprint_generation', completed_nodes: 0, total_nodes: 4, draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [] },
       },
     }]
-    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
     const deleteTask = vi.spyOn(generation, 'deleteTask').mockResolvedValue(undefined)
     const wrapper = mountCenter()
     await flushPromises()
@@ -264,7 +264,7 @@ describe('CourseTaskCenter', () => {
       id: 'task-completed', course_id: 'course-1', course_name: '线性代数', status: 'completed',
       progress: 100, current_phase: 'completed', message: '课程生成完成',
     }]
-    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
     const deleteTask = vi.spyOn(generation, 'deleteTask').mockResolvedValue(undefined)
     const wrapper = mountCenter()
     await flushPromises()

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from course_document import CourseDocument, stable_hash
 from slide_rule_diagrams import RULE_DIAGRAM_TEMPLATES, parse_mermaid_rule_diagram
+from slide_semantics import presentation_intent_for_module
 from teaching_storyboard import (
     TEACHING_STORYBOARD_POLICY_VERSION,
     build_teaching_storyboard,
@@ -21,7 +22,7 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v2"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v3"
 
 VisualKind = Literal[
     "source_image",
@@ -116,7 +117,7 @@ class VisualAnchorV1(_StrictModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_shape(self) -> "VisualAnchorV1":
+    def validate_shape(self) -> VisualAnchorV1:
         if self.kind not in _VISUAL_KINDS:
             raise ValueError("unknown visual type")
         if self.kind == "none":
@@ -180,6 +181,10 @@ class SlideVisualPlanPageV1(_StrictModel):
     learning_question: str = ""
     beat_role: str = ""
     beat_index: int = Field(default=0, ge=0)
+    planner: Literal["ai", "deterministic_fallback"] = (
+        "deterministic_fallback"
+    )
+    fallback_reason: str = ""
 
 
 class SlideVisualPlanV1(_StrictModel):
@@ -193,7 +198,7 @@ class SlideVisualPlanV1(_StrictModel):
     pages: list[SlideVisualPlanPageV1]
 
     @model_validator(mode="after")
-    def validate_pages(self) -> "SlideVisualPlanV1":
+    def validate_pages(self) -> SlideVisualPlanV1:
         page_ids = [page.page_id for page in self.pages]
         if len(page_ids) != len(set(page_ids)):
             raise ValueError("Visual plan page IDs must be unique")
@@ -681,43 +686,73 @@ def _rebalance_quality_eligible_compositions(
                 break
 
 
-async def plan_slide_visuals(
+def _visual_plan_batches(
+    allocation_plan: Any,
+    page_limit: int,
+) -> list[list[Any]]:
+    """Pack contiguous chapter groups without creating a whole-deck request."""
+    groups: list[list[Any]] = []
+    current_group: list[Any] = []
+    current_key = ""
+    navigation_group = 0
+    for page in allocation_plan.pages:
+        chapter_id = str(getattr(page, "chapter_id", "") or "")
+        if chapter_id:
+            key = f"chapter:{chapter_id}"
+        else:
+            if current_group and current_key.startswith("chapter:"):
+                navigation_group += 1
+            key = f"navigation:{navigation_group}"
+        if current_group and key != current_key:
+            groups.append(current_group)
+            current_group = []
+        current_key = key
+        current_group.append(page)
+    if current_group:
+        groups.append(current_group)
+
+    batches: list[list[Any]] = []
+    current_batch: list[Any] = []
+    for group in groups:
+        if len(group) > page_limit:
+            if current_batch:
+                batches.append(current_batch)
+                current_batch = []
+            batches.extend([
+                group[index:index + page_limit]
+                for index in range(0, len(group), page_limit)
+            ])
+            continue
+        if current_batch and len(current_batch) + len(group) > page_limit:
+            batches.append(current_batch)
+            current_batch = []
+        current_batch.extend(group)
+    if current_batch:
+        batches.append(current_batch)
+    return batches
+
+
+def _visual_plan_request(
     document: CourseDocument,
     allocation_plan: Any,
     fragments: list[Any],
     *,
-    ai_planner: Callable[
-        [dict[str, Any]],
-        Awaitable[dict[str, Any]] | dict[str, Any],
-    ] | None = None,
-    timeout_seconds: float = 12.0,
-) -> SlideVisualPlanV1:
-    """Accept a strict source-bound AI plan or return the deterministic director."""
-    fallback = deterministic_visual_plan(document, allocation_plan, fragments)
-    if ai_planner is None:
-        fallback.deck_brief["planner"] = "deterministic_fallback"
-        fallback.deck_brief["fallback_reason"] = "no_ai_visual_planner"
-        return fallback
-    long_deck_page_limit = max(
-        1,
-        int(os.getenv("AI_VISUAL_PLAN_MAX_PAGES", "24")),
-    )
-    if len(allocation_plan.pages) > long_deck_page_limit:
-        fallback.deck_brief["planner"] = "deterministic_fallback"
-        fallback.deck_brief["fallback_reason"] = (
-            "long_deck_deterministic_visual_policy"
-        )
-        fallback.deck_brief["ai_visual_page_limit"] = long_deck_page_limit
-        return fallback
-    raster_generation_enabled = os.getenv(
-        "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
-        "",
-    ).strip().lower() in {"1", "true", "yes", "on"}
-    allowed_visual_kinds = set(_VISUAL_KINDS)
-    if not raster_generation_enabled:
-        allowed_visual_kinds.discard("generated_illustration")
-    request = {
+    raster_generation_enabled: bool,
+    allowed_visual_kinds: set[str],
+    batch_index: int,
+    batch_count: int,
+) -> dict[str, Any]:
+    page_ids = {page.page_id for page in allocation_plan.pages}
+    return {
         "schema_version": "slide_visual_plan_request_v1",
+        "planning_scope": "chapter_batch",
+        "batch_index": batch_index,
+        "batch_count": batch_count,
+        "chapter_ids": list(dict.fromkeys(
+            str(page.chapter_id or "")
+            for page in allocation_plan.pages
+            if str(page.chapter_id or "")
+        )),
         "source_document_revision": document.document_revision,
         "mode": allocation_plan.mode,
         "theme": allocation_plan.theme,
@@ -747,33 +782,142 @@ async def plan_slide_visuals(
                     {
                         "fragment_id": fragment.fragment_id,
                         "kind": fragment.kind,
-                        "language": str(getattr(fragment, "language", "") or ""),
+                        "language": str(
+                            getattr(fragment, "language", "") or ""
+                        ),
                         "text": fragment.text,
+                        "role": str(getattr(fragment, "role", "") or ""),
+                        "module_id": str(
+                            getattr(fragment, "module_id", "") or ""
+                        ),
+                        "composition_style": str(
+                            getattr(fragment, "composition_style", "") or ""
+                        ),
+                        "objective_refs": list(
+                            getattr(fragment, "objective_refs", []) or []
+                        ),
+                        "concept_refs": list(
+                            getattr(fragment, "concept_refs", []) or []
+                        ),
+                        "evidence_refs": list(
+                            getattr(fragment, "evidence_refs", []) or []
+                        ),
                     }
                     for fragment in fragments
-                    if fragment.fragment_id in page.fragment_ids
+                    if (
+                        fragment.fragment_id in page.fragment_ids
+                        and page.page_id in page_ids
+                    )
                 ],
             }
             for page in allocation_plan.pages
         ],
     }
-    try:
-        if inspect.iscoroutinefunction(ai_planner):
-            raw = await asyncio.wait_for(ai_planner(request), timeout=timeout_seconds)
-        else:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(ai_planner, request),
-                timeout=timeout_seconds,
-            )
-            raw = await result if inspect.isawaitable(result) else result
-        candidate = SlideVisualPlanV1.model_validate(raw)
-        validate_visual_plan(candidate, allocation_plan, fragments)
-        candidate.deck_brief["planner"] = "ai"
-        return candidate
-    except Exception:
+
+
+async def plan_slide_visuals(
+    document: CourseDocument,
+    allocation_plan: Any,
+    fragments: list[Any],
+    *,
+    ai_planner: Callable[
+        [dict[str, Any]],
+        Awaitable[dict[str, Any]] | dict[str, Any],
+    ] | None = None,
+    timeout_seconds: float = 12.0,
+) -> SlideVisualPlanV1:
+    """Plan source-bound visuals in bounded chapter batches."""
+    fallback = deterministic_visual_plan(document, allocation_plan, fragments)
+    if ai_planner is None:
         fallback.deck_brief["planner"] = "deterministic_fallback"
-        fallback.deck_brief["fallback_reason"] = "invalid_or_failed_ai_visual_plan"
+        fallback.deck_brief["fallback_reason"] = "no_ai_visual_planner"
         return fallback
+    long_deck_page_limit = max(
+        1,
+        int(os.getenv("AI_VISUAL_PLAN_MAX_PAGES", "24")),
+    )
+    raster_generation_enabled = os.getenv(
+        "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
+        "",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    allowed_visual_kinds = set(_VISUAL_KINDS)
+    if not raster_generation_enabled:
+        allowed_visual_kinds.discard("generated_illustration")
+    batches = _visual_plan_batches(allocation_plan, long_deck_page_limit)
+    resolved_by_page = {
+        page.page_id: page.model_copy(update={
+            "planner": "deterministic_fallback",
+            "fallback_reason": "ai_visual_batch_not_accepted",
+        })
+        for page in fallback.pages
+    }
+    successful_batches: list[int] = []
+    failed_batches: list[dict[str, Any]] = []
+    for batch_index, batch_pages in enumerate(batches):
+        batch_allocation = allocation_plan.model_copy(update={
+            "pages": list(batch_pages),
+        })
+        request = _visual_plan_request(
+            document,
+            batch_allocation,
+            fragments,
+            raster_generation_enabled=raster_generation_enabled,
+            allowed_visual_kinds=allowed_visual_kinds,
+            batch_index=batch_index,
+            batch_count=len(batches),
+        )
+        try:
+            if inspect.iscoroutinefunction(ai_planner):
+                raw = await asyncio.wait_for(
+                    ai_planner(request),
+                    timeout=timeout_seconds,
+                )
+            else:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(ai_planner, request),
+                    timeout=timeout_seconds,
+                )
+                raw = await result if inspect.isawaitable(result) else result
+            candidate = SlideVisualPlanV1.model_validate(raw)
+            validate_visual_plan(candidate, batch_allocation, fragments)
+            for page in candidate.pages:
+                resolved_by_page[page.page_id] = page.model_copy(update={
+                    "planner": "ai",
+                    "fallback_reason": "",
+                })
+            successful_batches.append(batch_index)
+        except Exception as exc:
+            failed_batches.append({
+                "batch_index": batch_index,
+                "chapter_ids": request["chapter_ids"],
+                "page_ids": [page.page_id for page in batch_pages],
+                "failure_category": type(exc).__name__,
+            })
+
+    fallback.pages = [
+        resolved_by_page[page.page_id]
+        for page in allocation_plan.pages
+    ]
+    fallback.deck_brief.update({
+        "ai_visual_page_limit": long_deck_page_limit,
+        "ai_visual_batches_total": len(batches),
+        "ai_visual_batches_successful": len(successful_batches),
+        "ai_visual_batches_failed": len(failed_batches),
+        "successful_visual_batch_indexes": successful_batches,
+        "failed_visual_batches": failed_batches,
+    })
+    if successful_batches and not failed_batches:
+        fallback.deck_brief["planner"] = "ai"
+        fallback.deck_brief.pop("fallback_reason", None)
+    elif successful_batches:
+        fallback.deck_brief["planner"] = "ai"
+        fallback.deck_brief["fallback_reason"] = "partial_ai_visual_plan"
+    else:
+        fallback.deck_brief["planner"] = "deterministic_fallback"
+        fallback.deck_brief["fallback_reason"] = (
+            "invalid_or_failed_ai_visual_plan"
+        )
+    return fallback
 
 
 def validate_visual_plan(
@@ -1654,7 +1798,16 @@ def _visual_anchor(page: Any, fragments: list[Any], index: int) -> VisualAnchorV
         # labels still add structure when they are concise identities, whereas
         # causal/process diagrams should retain the stricter anti-duplication
         # threshold.
-        duplication_limit = 0.68 if diagram_type == "hierarchy" else 0.50
+        duplication_limit = (
+            1.01
+            if (
+                diagram_type == "hierarchy"
+                and evidence == "subject_profile_hierarchy"
+            )
+            else 0.68
+            if diagram_type == "hierarchy"
+            else 0.50
+        )
         if duplication_ratio >= duplication_limit:
             return _none_anchor(page.page_id, "structure")
         score = 0.8 if diagram_type in {"process", "cause-effect", "comparison"} else 0.72
@@ -1833,6 +1986,48 @@ def _semantic_relation_spec(
         item for item in clauses
         if _is_meaningful_visual_label(item[0])
     ]
+    module_ids = list(dict.fromkeys(
+        str(getattr(item, "module_id", "") or "")
+        for item in fragments
+        if str(getattr(item, "module_id", "") or "")
+    ))
+    presentation_intents = {
+        presentation_intent_for_module(
+            module_id,
+            str(getattr(page, "narrative_role", "") or "concept"),
+        )
+        for module_id in module_ids
+    }
+    if "hierarchy" in presentation_intents and len(meaningful_lists) >= 2:
+        list_fragment_ids = {fragment_id for _label, fragment_id in meaningful_lists}
+        root = next(
+            (
+                clause for clause in meaningful_clauses
+                if clause[1] not in list_fragment_ids
+            ),
+            None,
+        )
+        if root is not None:
+            return (
+                "contains",
+                "hierarchy",
+                [root, *meaningful_lists[:5]],
+                "subject_profile_hierarchy",
+            )
+    if "comparison" in presentation_intents and len(meaningful_lists) >= 2:
+        return (
+            "contrasts",
+            "comparison",
+            meaningful_lists[:5],
+            "subject_profile_comparison",
+        )
+    if "process" in presentation_intents and len(meaningful_lists) >= 2:
+        return (
+            "sequence",
+            "process",
+            meaningful_lists[:5],
+            "subject_profile_process",
+        )
     if role == "method" and len(meaningful_lists) >= 2:
         return (
             "sequence",
@@ -1926,7 +2121,7 @@ def _is_meaningful_visual_label(value: str) -> bool:
         " \t\r\n•·-—–:：,，;；.。!?！？"
     )
     if (
-        len(clean) < 3
+        len(clean) < 2
         or _GENERIC_VISUAL_HEADING_RE.fullmatch(clean)
         or not _has_balanced_brackets(clean)
     ):

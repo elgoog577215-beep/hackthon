@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_teaching_plan_projection import project_course_teaching_plan
 from slide_deck_v3 import (
+    V3_LAYOUTS,
     ContentFragmentV1,
     SlideDeckMode,
     SlideDeckTheme,
-    V3_LAYOUTS,
     _paginate_fragments,
 )
 from slide_layout_registry import (
@@ -25,6 +25,10 @@ from slide_layout_registry import (
     SlideSceneKind,
     registry_summary_v2,
     select_layout_v2,
+)
+from slide_semantics import (
+    compile_ppt_semantic_units,
+    semantic_unit_index,
 )
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
@@ -35,7 +39,7 @@ V5_SEMANTIC_CORE_REASONS = frozenset({
 SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (
     "slide_story_chapter_directives_v2"
 )
-SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.4"
+SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.5"
 STORY_BEAT_TEXT_CAPACITY = 230
 
 ClaimSourceKind = Literal[
@@ -101,6 +105,8 @@ class ClaimSourceV2(_StrictModel):
 
 class GeneratedPracticeAnswerV2(_StrictModel):
     question_index: int = Field(ge=0)
+    question_id: str = ""
+    answer_source: Literal["llm_generated"] = "llm_generated"
     answer_text: str = Field(min_length=2, max_length=140)
     supporting_fragment_ids: list[str] = Field(min_length=1, max_length=8)
 
@@ -111,6 +117,9 @@ class StoryBeatV2(_StrictModel):
     teaching_job: str
     primary_claim_source: ClaimSourceV2
     fragment_ids: list[str] = Field(default_factory=list)
+    semantic_unit_ids: list[str] = Field(default_factory=list)
+    question_ids: list[str] = Field(default_factory=list)
+    answer_for_question_ids: list[str] = Field(default_factory=list)
     transition_from: str = ""
     reveal_index: int = Field(default=0, ge=0)
     evidence_kinds: list[str] = Field(default_factory=list)
@@ -146,7 +155,7 @@ class StoryBeatDirectiveV2(_StrictModel):
     )
 
     @model_validator(mode="after")
-    def validate_copy_contract(self) -> "StoryBeatDirectiveV2":
+    def validate_copy_contract(self) -> StoryBeatDirectiveV2:
         has_copy = bool(
             self.audience_facing_title or self.audience_facing_summary
         )
@@ -175,7 +184,7 @@ class StoryChapterDirectivesV2(_StrictModel):
     )
 
     @model_validator(mode="after")
-    def validate_has_directives(self) -> "StoryChapterDirectivesV2":
+    def validate_has_directives(self) -> StoryChapterDirectivesV2:
         if not self.beat_directives and not self.episode_directives:
             raise ValueError("AI story directives must contain at least one beat")
         return self
@@ -192,7 +201,7 @@ class TeachingEpisodeV2(_StrictModel):
     beats: list[StoryBeatV2] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_reveal_order(self) -> "TeachingEpisodeV2":
+    def validate_reveal_order(self) -> TeachingEpisodeV2:
         if self.scene_kind not in {"worked_example", "practice_feedback"}:
             return self
         roles = [beat.beat_role for beat in self.beats]
@@ -220,7 +229,7 @@ class ChapterStoryV2(_StrictModel):
     episodes: list[TeachingEpisodeV2] = Field(min_length=2)
 
     @model_validator(mode="after")
-    def validate_entry_and_closure(self) -> "ChapterStoryV2":
+    def validate_entry_and_closure(self) -> ChapterStoryV2:
         if self.episodes[0].scene_kind != "chapter_entry":
             raise ValueError("Every chapter story must start with chapter_entry")
         if self.episodes[-1].scene_kind != "chapter_recap":
@@ -613,6 +622,7 @@ def _make_episode(
     blocks: list[CourseBlock],
     fragments: list[ContentFragmentV1],
     fragments_by_block: dict[str, list[ContentFragmentV1]],
+    semantic_by_fragment: dict[str, Any],
     module: dict[str, Any] | None,
     recent_layout_families: list[str],
     theme: SlideDeckTheme,
@@ -695,12 +705,31 @@ def _make_episode(
             "index": index,
             "fragments": [item.fragment_id for item in beat_fragments],
         }, prefix="beat_")
+        semantic_units = list({
+            semantic_by_fragment[fragment.fragment_id].semantic_unit_id:
+                semantic_by_fragment[fragment.fragment_id]
+            for fragment in beat_fragments
+            if fragment.fragment_id in semantic_by_fragment
+        }.values())
         beats.append(StoryBeatV2(
             beat_id=beat_id,
             beat_role=role,
             teaching_job=_teaching_job(scene, role),
             primary_claim_source=claim,
             fragment_ids=[item.fragment_id for item in beat_fragments],
+            semantic_unit_ids=[
+                unit.semantic_unit_id for unit in semantic_units
+            ],
+            question_ids=list(dict.fromkeys(
+                question_id
+                for unit in semantic_units
+                for question_id in unit.question_ids
+            )),
+            answer_for_question_ids=list(dict.fromkeys(
+                question_id
+                for unit in semantic_units
+                for question_id in unit.answer_for_question_ids
+            )),
             transition_from=transition,
             reveal_index=index,
             evidence_kinds=evidence,
@@ -770,6 +799,9 @@ def compile_slide_story_plan_v2(
     fragments_by_block: dict[str, list[ContentFragmentV1]] = defaultdict(list)
     for fragment in sorted(fragments, key=lambda item: item.ordinal):
         fragments_by_block[fragment.block_id].append(fragment)
+    semantic_by_fragment = semantic_unit_index(
+        compile_ppt_semantic_units(document, fragments)
+    )
     plan_by_section = {
         str(section.get("node_id") or ""): section
         for section in projection.get("sections") or []
@@ -887,6 +919,7 @@ def compile_slide_story_plan_v2(
                 blocks=blocks,
                 fragments=scene_fragments,
                 fragments_by_block=fragments_by_block,
+                semantic_by_fragment=semantic_by_fragment,
                 module=scene_modules.get(scene),
                 recent_layout_families=recent_layout_families,
                 theme=theme,
@@ -1148,6 +1181,7 @@ def _apply_chapter_directives_v2(
     chapter: ChapterStoryV2,
     raw: dict[str, Any],
     fragment_catalog: dict[str, ContentFragmentV1],
+    semantic_by_fragment: dict[str, Any],
 ) -> ChapterStoryV2:
     directives = StoryChapterDirectivesV2.model_validate(raw)
     if directives.chapter_id != chapter.chapter_id:
@@ -1295,6 +1329,27 @@ def _apply_chapter_directives_v2(
                         beat,
                         fragment_catalog,
                     )
+                    expected_question_ids = list(beat.question_ids)
+                    if not expected_question_ids:
+                        expected_question_ids = list(dict.fromkeys(
+                            question_id
+                            for fragment_id in beat.fragment_ids
+                            if fragment_id in semantic_by_fragment
+                            for question_id in semantic_by_fragment[
+                                fragment_id
+                            ].question_ids
+                        ))
+                    if len(expected_question_ids) != len(questions):
+                        expected_question_ids = [
+                            stable_hash(
+                                {
+                                    "beat_id": beat.beat_id,
+                                    "question_index": index,
+                                },
+                                prefix="pptq_",
+                            )
+                            for index in range(len(questions))
+                        ]
                     answer_indexes = [
                         item.question_index
                         for item in directive.generated_practice_answers
@@ -1302,6 +1357,15 @@ def _apply_chapter_directives_v2(
                     if answer_indexes == list(range(len(questions))):
                         generated_answers: list[GeneratedPracticeAnswerV2] = []
                         for answer in directive.generated_practice_answers:
+                            expected_question_id = expected_question_ids[
+                                answer.question_index
+                            ]
+                            if (
+                                answer.question_id
+                                and answer.question_id != expected_question_id
+                            ):
+                                generated_answers = []
+                                break
                             supporting_ids = list(dict.fromkeys(
                                 answer.supporting_fragment_ids
                             ))
@@ -1337,6 +1401,7 @@ def _apply_chapter_directives_v2(
                                 generated_answers = []
                                 break
                             generated_answers.append(answer.model_copy(update={
+                                "question_id": expected_question_id,
                                 "answer_text": " ".join(
                                     answer.answer_text.split()
                                 ),
@@ -1536,6 +1601,9 @@ async def plan_slide_story_v2(
         fallback.fallback_reason = "no_ai_story_planner"
         return fallback
     fragment_catalog = {item.fragment_id: item for item in fragments}
+    semantic_by_fragment = semantic_unit_index(
+        compile_ppt_semantic_units(document, fragments)
+    )
     projection = project_course_teaching_plan(course_data)
     chapter_count = len(fallback.chapters)
 
@@ -1635,6 +1703,27 @@ async def plan_slide_story_v2(
                             for candidate in episode.beats
                         )
                     ),
+                    "semantic_unit_ids": list(dict.fromkeys(
+                        semantic_by_fragment[fragment_id].semantic_unit_id
+                        for fragment_id in beat.fragment_ids
+                        if fragment_id in semantic_by_fragment
+                    )),
+                    "question_ids": list(dict.fromkeys(
+                        question_id
+                        for fragment_id in beat.fragment_ids
+                        if fragment_id in semantic_by_fragment
+                        for question_id in semantic_by_fragment[
+                            fragment_id
+                        ].question_ids
+                    )),
+                    "answer_for_question_ids": list(dict.fromkeys(
+                        question_id
+                        for fragment_id in beat.fragment_ids
+                        if fragment_id in semantic_by_fragment
+                        for question_id in semantic_by_fragment[
+                            fragment_id
+                        ].answer_for_question_ids
+                    )),
                 }
                 for episode in chapter.episodes
                 for beat in episode.beats
@@ -1699,6 +1788,28 @@ async def plan_slide_story_v2(
                         "role": item.role,
                         "ordinal": item.ordinal,
                         "source_text": item.text[:400],
+                        "semantic_unit_id": (
+                            semantic_by_fragment[item.fragment_id].semantic_unit_id
+                            if item.fragment_id in semantic_by_fragment
+                            else ""
+                        ),
+                        "presentation_intent": (
+                            semantic_by_fragment[
+                                item.fragment_id
+                            ].presentation_intent
+                            if item.fragment_id in semantic_by_fragment
+                            else "definition"
+                        ),
+                        "module_id": item.module_id,
+                        "module_instance_id": item.module_instance_id,
+                        "lesson_archetype_id": item.lesson_archetype_id,
+                        "composition_style": item.composition_style,
+                        "difficulty_contract": (
+                            item.block_difficulty_contract
+                        ),
+                        "objective_refs": item.objective_refs,
+                        "concept_refs": item.concept_refs,
+                        "evidence_refs": item.evidence_refs,
                     }
                     for item in chapter_fragments
                 ],
@@ -1730,6 +1841,7 @@ async def plan_slide_story_v2(
                         chapter=chapter,
                         raw=normalized_directives,
                         fragment_catalog=fragment_catalog,
+                        semantic_by_fragment=semantic_by_fragment,
                     )
                 else:
                     chapter_candidate = SlideStoryPlanV2.model_validate(raw)

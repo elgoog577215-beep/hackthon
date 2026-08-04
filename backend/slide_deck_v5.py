@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import CourseDocument, stable_hash
 from slide_deck import SlideDeckContent
+from slide_deck_v3 import fragment_course_document
 from slide_deck_v4 import (
     SLIDE_DECK_V4_SCHEMA,
     allocation_from_story_plan_v2,
@@ -19,20 +20,29 @@ from slide_deck_v4 import (
     compile_slide_deck_v4,
     validate_slide_deck_v4,
 )
-from slide_deck_v3 import fragment_course_document
-from slide_visuals import deterministic_visual_plan
+from slide_semantics import (
+    DOMAIN_PRESENTATION_PROFILE_VERSION,
+    PPT_SEMANTIC_COMPILER_VERSION,
+    FinalPageContractV2,
+    TeachingEpisodeContractV2,
+    compile_ppt_semantic_units,
+    semantic_group_kind,
+    semantic_unit_index,
+)
 from slide_story_plan import (
+    V5_SEMANTIC_CORE_REASONS,
     ClaimSourceV2,
     SlideStoryPlanV2,
     StoryBeatV2,
     TeachingEpisodeV2,
-    V5_SEMANTIC_CORE_REASONS,
 )
+from slide_visuals import deterministic_visual_plan
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.12"
-DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.5"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.13"
+DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.6"
+VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.0"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -147,6 +157,9 @@ _V5_REPLACED_V4_QUALITY_CODES = {
     "visual_coverage_below_threshold",
     "raw_source_sentence_as_title",
     "title_body_duplication",
+    "slide_title_too_long",
+    "visible_item_overflow",
+    "enumeration_cardinality_mismatch",
 }
 _T = TypeVar("_T")
 
@@ -155,6 +168,9 @@ def _v5_fragment_groups(fragments: list[Any]) -> list[list[Any]]:
     groups: list[list[Any]] = []
     current: list[Any] = []
     for fragment in sorted(fragments, key=lambda item: item.ordinal):
+        if current and fragment.block_id != current[-1].block_id:
+            groups.append(current)
+            current = []
         if (
             fragment.kind == "heading"
             and current
@@ -168,7 +184,55 @@ def _v5_fragment_groups(fragments: list[Any]) -> list[list[Any]]:
     return groups
 
 
-def _v5_group_kind(group: list[Any]) -> str:
+def _v5_group_kind(
+    group: list[Any],
+    semantic_by_fragment: dict[str, Any] | None = None,
+) -> str:
+    semantic_units = list(dict.fromkeys(
+        semantic_by_fragment[item.fragment_id].semantic_unit_id
+        for item in group
+        if (
+            semantic_by_fragment is not None
+            and item.fragment_id in semantic_by_fragment
+        )
+    ))
+    unit_by_id = {
+        semantic_by_fragment[item.fragment_id].semantic_unit_id:
+        semantic_by_fragment[item.fragment_id]
+        for item in group
+        if (
+            semantic_by_fragment is not None
+            and item.fragment_id in semantic_by_fragment
+        )
+    }
+    explicit_kinds = [
+        semantic_group_kind(unit_by_id[unit_id])
+        for unit_id in semantic_units
+        if (
+            unit_by_id[unit_id].adapter_type == "v16_structured"
+            or unit_by_id[unit_id].primary_role != "concept"
+        )
+    ]
+    if explicit_kinds:
+        return next(
+            (
+                kind
+                for kind in (
+                    "practice",
+                    "feedback",
+                    "worked",
+                    "application",
+                    "misconception",
+                    "method",
+                    "reasoning",
+                    "concept",
+                    "navigation",
+                    "recap",
+                )
+                if kind in explicit_kinds
+            ),
+            explicit_kinds[0],
+        )
     headings = " ".join(
         str(item.text or "")
         for item in group
@@ -184,6 +248,8 @@ def _v5_group_kind(group: list[Any]) -> str:
         return "method"
     if re.search(r"原理|机制|推导|证明|why|reason|derivation", headings, re.I):
         return "reasoning"
+    if semantic_units:
+        return semantic_group_kind(unit_by_id[semantic_units[0]])
     return "concept"
 
 
@@ -307,9 +373,17 @@ def _formula_group_has_source_explanation(group: list[Any]) -> bool:
     )
 
 
-def _v5_fit_group(group: list[Any], *, limit: int = 230) -> list[Any]:
+def _v5_fit_group(
+    group: list[Any],
+    *,
+    limit: int = 230,
+    preserve_all: bool = False,
+) -> list[Any]:
     if not _formula_group_has_source_explanation(group):
         return []
+    if preserve_all:
+        visible = sum(len(str(fragment.text or "")) for fragment in group)
+        return list(group) if len(group) <= 8 and visible <= limit else []
     required_ids = _v5_required_enumeration_fragments(group)
     if required_ids:
         required = [
@@ -448,6 +522,8 @@ def compact_story_plan_v5(
     ):
         return story
     source_fragments = fragments or fragment_course_document(document)
+    semantic_units = compile_ppt_semantic_units(document, source_fragments)
+    semantic_by_fragment = semantic_unit_index(semantic_units)
     fragments_by_section: dict[str, list[Any]] = {}
     for fragment in source_fragments:
         fragments_by_section.setdefault(fragment.section_id, []).append(fragment)
@@ -525,14 +601,23 @@ def compact_story_plan_v5(
             )
             by_kind: dict[str, list[list[Any]]] = {}
             for group in groups:
-                by_kind.setdefault(_v5_group_kind(group), []).append(group)
+                by_kind.setdefault(
+                    _v5_group_kind(group, semantic_by_fragment),
+                    [],
+                ).append(group)
             selected_groups: list[tuple[str, list[Any]]] = []
             if by_kind.get("concept"):
                 selected_groups.append(("concept", by_kind["concept"][0]))
             second = next(
                 (
                     (kind, by_kind[kind][0])
-                    for kind in ("worked", "application", "method", "reasoning")
+                    for kind in (
+                        "worked",
+                        "application",
+                        "method",
+                        "reasoning",
+                        "misconception",
+                    )
                     if by_kind.get(kind)
                 ),
                 None,
@@ -540,7 +625,17 @@ def compact_story_plan_v5(
             if second:
                 selected_groups.append(second)
             if by_kind.get("practice"):
-                selected_groups.append(("practice", by_kind["practice"][0]))
+                practice_group = list(by_kind["practice"][0])
+                if by_kind.get("feedback"):
+                    practice_group.extend(by_kind["feedback"][0])
+                    practice_group = sorted(
+                        {
+                            item.fragment_id: item
+                            for item in practice_group
+                        }.values(),
+                        key=lambda item: item.ordinal,
+                    )
+                selected_groups.append(("practice", practice_group))
             if len(selected_groups) < 3:
                 used_first_ids = {
                     group[0].fragment_id
@@ -550,11 +645,21 @@ def compact_story_plan_v5(
                 for group in groups:
                     if not group or group[0].fragment_id in used_first_ids:
                         continue
-                    selected_groups.append((_v5_group_kind(group), group))
+                    fallback_kind = _v5_group_kind(
+                        group,
+                        semantic_by_fragment,
+                    )
+                    if fallback_kind in {"navigation", "feedback", "recap"}:
+                        continue
+                    selected_groups.append((fallback_kind, group))
                     if len(selected_groups) == 3:
                         break
             for group_index, (kind, raw_group) in enumerate(selected_groups[:3]):
-                group = _v5_fit_group(raw_group)
+                group = _v5_fit_group(
+                    raw_group,
+                    limit=400 if kind == "practice" else 230,
+                    preserve_all=(kind == "practice"),
+                )
                 if not group:
                     continue
                 scene = {
@@ -563,6 +668,7 @@ def compact_story_plan_v5(
                     "practice": "practice_feedback",
                     "method": "method",
                     "reasoning": "reasoning",
+                    "misconception": "misconception",
                 }.get(kind, "concept")
                 role = (
                     "prompt"
@@ -571,6 +677,8 @@ def compact_story_plan_v5(
                     if scene == "method"
                     else "reasoning_step"
                     if scene == "reasoning"
+                    else "misconception"
+                    if scene == "misconception"
                     else "mapping"
                     if scene == "application"
                     else "formal_explanation"
@@ -593,6 +701,11 @@ def compact_story_plan_v5(
                     ),
                     "method": ("process-sequence", "process", "process"),
                     "reasoning": ("process-sequence", "process", "process"),
+                    "misconception": (
+                        "balanced-two-column",
+                        "misconception",
+                        "misconception",
+                    ),
                     "concept": (
                         "editorial-body",
                         "editorial-body",
@@ -610,6 +723,12 @@ def compact_story_plan_v5(
                     "episode_id": episode_id,
                     "fragments": [item.fragment_id for item in group],
                 }, prefix="beatv5_")
+                group_semantic_units = list({
+                    semantic_by_fragment[item.fragment_id].semantic_unit_id:
+                        semantic_by_fragment[item.fragment_id]
+                    for item in group
+                    if item.fragment_id in semantic_by_fragment
+                }.values())
                 beat = StoryBeatV2(
                     beat_id=beat_id,
                     beat_role=role,
@@ -619,6 +738,7 @@ def compact_story_plan_v5(
                         "practice_feedback": "用来源问题检查理解",
                         "method": "把本节知识转化为可执行步骤",
                         "reasoning": "说明结论如何从条件推出",
+                        "misconception": "识别常见误区并说明修正依据",
                         "concept": "建立本节核心概念与边界",
                     }[scene],
                     primary_claim_source=ClaimSourceV2(
@@ -631,6 +751,19 @@ def compact_story_plan_v5(
                         fragment_id=claim_fragment.fragment_id,
                     ),
                     fragment_ids=[item.fragment_id for item in group],
+                    semantic_unit_ids=[
+                        unit.semantic_unit_id for unit in group_semantic_units
+                    ],
+                    question_ids=list(dict.fromkeys(
+                        question_id
+                        for unit in group_semantic_units
+                        for question_id in unit.question_ids
+                    )),
+                    answer_for_question_ids=list(dict.fromkeys(
+                        question_id
+                        for unit in group_semantic_units
+                        for question_id in unit.answer_for_question_ids
+                    )),
                     transition_from=transition,
                     evidence_kinds=sorted({
                         "text"
@@ -728,7 +861,108 @@ def compact_story_plan_v5(
         compact_chapters.append(chapter.model_copy(update={
             "episodes": [entry, *teaching_episodes, recap],
         }))
-    return story.model_copy(update={"chapters": compact_chapters})
+    structured_count = sum(
+        unit.adapter_type == "v16_structured"
+        for unit in semantic_units
+    )
+    role_counts = {
+        role: sum(unit.primary_role == role for unit in semantic_units)
+        for role in sorted({unit.primary_role for unit in semantic_units})
+    }
+    intent_counts = {
+        intent: sum(
+            unit.presentation_intent == intent for unit in semantic_units
+        )
+        for intent in sorted({
+            unit.presentation_intent for unit in semantic_units
+        })
+    }
+    question_ids = {
+        question_id
+        for unit in semantic_units
+        for question_id in unit.question_ids
+    }
+    answered_question_ids = {
+        question_id
+        for unit in semantic_units
+        for question_id in unit.answer_for_question_ids
+    }
+    episode_contracts: list[TeachingEpisodeContractV2] = []
+    for compact_chapter in compact_chapters:
+        for episode in compact_chapter.episodes[1:-1]:
+            episode_fragment_ids = list(dict.fromkeys(
+                fragment_id
+                for beat in episode.beats
+                for fragment_id in beat.fragment_ids
+                if fragment_id in semantic_by_fragment
+            ))
+            episode_units = sorted(
+                {
+                    semantic_by_fragment[fragment_id].semantic_unit_id:
+                    semantic_by_fragment[fragment_id]
+                    for fragment_id in episode_fragment_ids
+                }.values(),
+                key=lambda item: item.source_ordinal,
+            )
+            if not episode_units:
+                continue
+            presentation_intent = (
+                "practice_feedback"
+                if episode.scene_kind == "practice_feedback"
+                else episode_units[0].presentation_intent
+            )
+            episode_contracts.append(TeachingEpisodeContractV2(
+                episode_id=episode.episode_id,
+                section_id=episode_units[0].section_id,
+                presentation_intent=presentation_intent,
+                semantic_unit_ids=[
+                    unit.semantic_unit_id for unit in episode_units
+                ],
+                question_ids=list(dict.fromkeys(
+                    question_id
+                    for unit in episode_units
+                    for question_id in unit.question_ids
+                )),
+                answer_for_question_ids=list(dict.fromkeys(
+                    question_id
+                    for unit in episode_units
+                    for question_id in unit.answer_for_question_ids
+                )),
+                source_fragment_ids=episode_fragment_ids,
+            ))
+    return story.model_copy(update={
+        "chapters": compact_chapters,
+        "planning_diagnostics": {
+            **(story.planning_diagnostics or {}),
+            "semantic_compiler_version": PPT_SEMANTIC_COMPILER_VERSION,
+            "semantic_unit_count": len(semantic_units),
+            "structured_semantic_unit_count": structured_count,
+            "legacy_semantic_unit_count": len(semantic_units) - structured_count,
+            "domain_profile_ids": sorted({
+                unit.domain_profile_id for unit in semantic_units
+            }),
+            "semantic_role_counts": role_counts,
+            "presentation_intent_counts": intent_counts,
+            "balanced_composition_unit_count": sum(
+                unit.composition_style == "balanced"
+                for unit in semantic_units
+            ),
+            "knowledge_binding_unmapped_count": sum(
+                unit.adapter_type == "v16_structured"
+                and unit.knowledge_binding_status not in {"bound", "mapped"}
+                for unit in semantic_units
+            ),
+            "question_answer_binding_coverage": (
+                len(question_ids & answered_question_ids) / len(question_ids)
+                if question_ids
+                else 1.0
+            ),
+            "teaching_episode_contracts": [
+                contract.model_dump(mode="json")
+                for contract in episode_contracts
+            ],
+        },
+    })
 
 
 def slide_deck_v5_enabled() -> bool:
@@ -835,7 +1069,7 @@ def _balanced_groups(values: list[_T], group_count: int) -> list[list[_T]]:
         return []
     group_count = max(1, min(group_count, len(values)))
     base, remainder = divmod(len(values), group_count)
-    result: list[list[T]] = []
+    result: list[list[_T]] = []
     cursor = 0
     for index in range(group_count):
         size = base + (1 if index < remainder else 0)
@@ -2051,6 +2285,66 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     return updated
 
 
+def repair_final_page_contracts_v5(
+    slides: list[dict[str, Any]],
+    *,
+    max_passes: int = 2,
+) -> list[dict[str, Any]]:
+    """Re-resolve final visible contracts after deterministic normalization."""
+    current = [deepcopy(slide) for slide in slides]
+    pass_limit = max(1, min(2, int(max_passes)))
+    completed_passes = 0
+    for pass_index in range(pass_limit):
+        before = stable_hash(current, prefix="repair_before_")
+        current = [apply_page_contract_v5(slide) for slide in current]
+        completed_passes = pass_index + 1
+        after = stable_hash(current, prefix="repair_before_")
+        if after == before:
+            break
+    for slide in current:
+        quality = slide.get("quality") or {}
+        source_fragment_ids = list(dict.fromkeys([
+            str((slide.get("primary_claim_source") or {}).get("fragment_id") or ""),
+            *[
+                str(fragment_id or "")
+                for block in slide.get("blocks") or []
+                for fragment_id in (
+                    (block.get("metadata") or {}).get("source_fragment_ids")
+                    or []
+                )
+            ],
+        ]))
+        source_fragment_ids = [
+            fragment_id for fragment_id in source_fragment_ids if fragment_id
+        ]
+        final_contract = FinalPageContractV2(
+            page_id=str(slide.get("unit_id") or ""),
+            teaching_intent=str(
+                slide.get("teaching_job")
+                or slide.get("scene_kind")
+                or slide.get("slide_purpose")
+                or "teaching"
+            ),
+            requested_layout=str(quality.get("requested_layout") or ""),
+            resolved_layout=str(quality.get("resolved_layout") or ""),
+            occupied_slot_ids=[
+                str(binding.get("slot_id") or "")
+                for binding in quality.get("slot_bindings") or []
+                if str(binding.get("slot_id") or "")
+            ],
+            source_fragment_ids=source_fragment_ids,
+            repair_passes=completed_passes,
+            passed=not v5_contract_issues([slide]),
+        )
+        slide["quality"] = {
+            **quality,
+            "repair_passes": completed_passes,
+            "final_page_contract_version": FINAL_PAGE_CONTRACT_V5_VERSION,
+            "final_page_contract_v2": final_contract.model_dump(mode="json"),
+        }
+    return current
+
+
 def _chapter_entry_slide(chapter: DeckChapterV5) -> dict[str, Any]:
     return {
         "unit_id": f"slide:v5:chapter:{chapter.chapter_id}",
@@ -2634,6 +2928,23 @@ def _practice_block_values(block: dict[str, Any]) -> list[str]:
 
 
 def _practice_question_ids(slide: dict[str, Any], count: int) -> list[str]:
+    quality = slide.get("quality") or {}
+    declared_ids = [
+        _clean_text(question_id)
+        for question_id in quality.get("question_ids") or []
+        if _clean_text(question_id)
+    ]
+    generated_ids = [
+        _clean_text(answer.get("question_id"))
+        for answer in quality.get("generated_practice_answers") or []
+        if (
+            isinstance(answer, dict)
+            and _clean_text(answer.get("question_id"))
+        )
+    ]
+    for candidates in (declared_ids, generated_ids):
+        if len(candidates) == count and len(set(candidates)) == count:
+            return candidates
     unit_id = _clean_text(slide.get("unit_id")) or "practice"
     return [
         stable_hash(
@@ -2700,6 +3011,17 @@ def _enrich_practice_feedback_slides_v5(
         blocks[prompt_index] = prompt
 
         direct_blocks = _feedback_blocks({"blocks": blocks})
+        direct_answer_for_ids = list(dict.fromkeys(
+            _clean_text(question_id)
+            for block in direct_blocks
+            for question_id in (
+                (block.get("metadata") or {}).get(
+                    "answer_for_question_ids"
+                )
+                or []
+            )
+            if _clean_text(question_id)
+        ))
         if not direct_blocks and source_index + 1 < len(slides):
             candidate = slides[source_index + 1]
             same_episode = bool(
@@ -2717,6 +3039,16 @@ def _enrich_practice_feedback_slides_v5(
                     deepcopy(block)
                     for block in candidate.get("blocks") or []
                     if _practice_block_values(block)
+                ]
+                direct_answer_for_ids = [
+                    _clean_text(question_id)
+                    for question_id in (
+                        (candidate.get("quality") or {}).get(
+                            "answer_for_question_ids"
+                        )
+                        or []
+                    )
+                    if _clean_text(question_id)
                 ]
                 skipped_units.add(_clean_text(candidate.get("unit_id")))
 
@@ -2744,6 +3076,8 @@ def _enrich_practice_feedback_slides_v5(
             # finer than the rendered block granularity.
             generated_answers = [{
                 "question_index": 0,
+                "question_id": question_ids[0],
+                "answer_source": "llm_generated",
                 "answer_text": "；".join(
                     _clean_text(item.get("answer_text")).rstrip("。；; ")
                     for item in generated_answers
@@ -2755,14 +3089,23 @@ def _enrich_practice_feedback_slides_v5(
                     if _clean_text(fragment_id)
                 )),
             }]
-        if len(generated_answers) == len(prompt_values) and all(
-            int(item.get("question_index") or 0) == index
-            and _clean_text(item.get("answer_text"))
-            for index, item in enumerate(generated_answers)
+        generated_answer_by_id = {
+            _clean_text(item.get("question_id")): item
+            for item in generated_answers
+            if (
+                _clean_text(item.get("question_id"))
+                and _clean_text(item.get("answer_text"))
+            )
+        }
+        if (
+            len(generated_answer_by_id) == len(prompt_values)
+            and set(generated_answer_by_id) == set(question_ids)
         ):
             direct_answers = [
-                _clean_text(item.get("answer_text"))
-                for item in generated_answers
+                _clean_text(
+                    generated_answer_by_id[question_id].get("answer_text")
+                )
+                for question_id in question_ids
             ]
             source_fragment_ids = list(dict.fromkeys(
                 fragment_id
@@ -2772,6 +3115,24 @@ def _enrich_practice_feedback_slides_v5(
             ))
             answer_mode = "llm_generated"
         else:
+            if len(direct_answers) == len(prompt_values) == 1:
+                direct_answer_for_ids = list(question_ids)
+            if (
+                len(direct_answers) == len(prompt_values)
+                and len(direct_answer_for_ids) == len(direct_answers)
+                and set(direct_answer_for_ids) == set(question_ids)
+            ):
+                source_answer_by_id = dict(zip(
+                    direct_answer_for_ids,
+                    direct_answers,
+                    strict=True,
+                ))
+                direct_answers = [
+                    source_answer_by_id[question_id]
+                    for question_id in question_ids
+                ]
+            else:
+                direct_answers = []
             source_fragment_ids = list(dict.fromkeys(
                 fragment_id
                 for block in direct_blocks
@@ -2973,6 +3334,11 @@ def build_signature_v5(
         "compiler_version": SLIDE_DECK_V5_COMPILER_VERSION,
         "deck_outline_version": DECK_OUTLINE_V5_VERSION,
         "final_page_contract_version": FINAL_PAGE_CONTRACT_V5_VERSION,
+        "semantic_compiler_version": PPT_SEMANTIC_COMPILER_VERSION,
+        "domain_presentation_profile_version": (
+            DOMAIN_PRESENTATION_PROFILE_VERSION
+        ),
+        "visual_planning_batch_version": VISUAL_PLANNING_BATCH_VERSION,
     }
     return {
         **fields,
@@ -3209,7 +3575,7 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for block in slide.get("blocks") or []
             for value in [
                 block.get("content"),
-                *((block.get("items") or [])),
+                *(block.get("items") or []),
             ]
             if _clean_text(value)
         )
@@ -3403,6 +3769,49 @@ def finalize_v5_quality_report(
                 "was available."
             ),
             "suggestion": "Configure the AI provider to enable semantic planning.",
+        })
+    diagnostics = planning_diagnostics or {}
+    role_counts = diagnostics.get("semantic_role_counts") or {}
+    if (
+        int(diagnostics.get("balanced_composition_unit_count") or 0) > 0
+        and not any(
+            int(role_counts.get(role) or 0) > 0
+            for role in ("example", "application", "transfer")
+        )
+    ):
+        planning_issues.append({
+            "severity": "major",
+            "code": "course_input_example_missing",
+            "target": "deck",
+            "responsibility": "course_generation",
+            "message": "均衡型课程输入中缺少有来源依据的示例或应用单元。",
+            "suggestion": "请补生成对应课程小节的示例或应用模块；PPT不会编造专业案例。",
+        })
+    unmapped_count = int(
+        diagnostics.get("knowledge_binding_unmapped_count") or 0
+    )
+    if unmapped_count:
+        planning_issues.append({
+            "severity": "major",
+            "code": "course_input_knowledge_unmapped",
+            "target": "deck",
+            "responsibility": "course_generation",
+            "count": unmapped_count,
+            "message": f"{unmapped_count} 个结构化教学单元尚未绑定正式知识 ID。",
+            "suggestion": "请在下次重建前修复课程块知识绑定；当前版式安全页面仍可发布。",
+        })
+    binding_coverage = float(
+        diagnostics.get("question_answer_binding_coverage", 1.0)
+    )
+    if binding_coverage < 1.0:
+        planning_issues.append({
+            "severity": "major",
+            "code": "course_input_question_answer_gap",
+            "target": "deck",
+            "responsibility": "course_generation",
+            "coverage": binding_coverage,
+            "message": "部分来源问题尚未绑定对应反馈单元。",
+            "suggestion": "请调用受约束的答案生成器补全缺失答案，或修复课程反馈模块。",
         })
 
     final_slide_issues: list[dict[str, Any]] = []
@@ -3626,7 +4035,7 @@ def compile_slide_deck_v5(
         _normalize_concept_definition_slide_v5(slide)
         for slide in slides
     ]
-    slides = [apply_page_contract_v5(slide) for slide in slides]
+    slides = repair_final_page_contracts_v5(slides)
     slides = _assign_heading_modes_v5(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})
     content.update({

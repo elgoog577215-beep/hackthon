@@ -814,6 +814,13 @@ def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() 
         and len(item["source_text"]) <= 400
         for item in captured["fragments"]
     )
+    assert all(item["semantic_unit_id"] for item in captured["fragments"])
+    assert all("presentation_intent" in item for item in captured["fragments"])
+    assert all("evidence_refs" in item for item in captured["fragments"])
+    assert all(
+        "semantic_unit_ids" in beat
+        for beat in captured["beat_catalog"]
+    )
 
 
 def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
@@ -1132,6 +1139,7 @@ def test_ai_story_planner_generates_answers_only_when_source_answer_is_missing()
                 "layout_id": prompt["current_layout_id"],
                 "generated_practice_answers": [{
                     "question_index": 0,
+                    "question_id": prompt["question_ids"][0],
                     "answer_text": (
                         "不是线性映射，因为线性映射必须同时保持加法与数乘。"
                     ),
@@ -1158,9 +1166,14 @@ def test_ai_story_planner_generates_answers_only_when_source_answer_is_missing()
     )
 
     assert captured_prompt["needs_generated_answers"] is True
+    assert len(captured_prompt["question_ids"]) == 1
     assert captured_prompt["prompt_questions"] == [
         "判断 S(x,y)=(x+1,y) 是否为线性映射。"
     ]
+    assert prompt.generated_practice_answers[0].question_id == (
+        captured_prompt["question_ids"][0]
+    )
+    assert prompt.generated_practice_answers[0].answer_source == "llm_generated"
     assert prompt.generated_practice_answers[0].answer_text.startswith(
         "不是线性映射"
     )

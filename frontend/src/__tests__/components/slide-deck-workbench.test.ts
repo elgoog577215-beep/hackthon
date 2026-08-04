@@ -245,6 +245,7 @@ describe('SlideDeckWorkbench', () => {
             code: 'slide_item_overflow',
             slide_id: 'slide:section-a',
             layout: 'concept',
+            responsibility: 'course_generation',
             message: '页面要点数量超过版式容量。',
             suggestion: '将可见要点压缩到版式允许的数量。',
           }],
@@ -256,6 +257,7 @@ describe('SlideDeckWorkbench', () => {
     expect(preview.text()).toContain('未发布问题预览')
     expect(preview.text()).toContain('slide:section-a')
     expect(preview.text()).toContain('概念')
+    expect(preview.text()).toContain('课程内容链路')
     expect(preview.text()).toContain('页面要点数量超过版式容量。')
     expect(preview.text()).toContain('将可见要点压缩到版式允许的数量。')
     expect(wrapper.attributes('data-preview-source')).toBe('draft')
