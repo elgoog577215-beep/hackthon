@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import re
 from collections import Counter, defaultdict
@@ -22,7 +23,7 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v4"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v5"
 
 VisualKind = Literal[
     "source_image",
@@ -821,9 +822,28 @@ def _normalize_visual_plan_batch_payload(
     fields as compiler-owned instead of rejecting every otherwise valid
     chapter batch with a Pydantic validation error.
     """
-    if not isinstance(raw, dict):
-        return raw
-    payload = raw.get(SLIDE_VISUAL_PLAN_SCHEMA, raw)
+    payload = raw
+    for _depth in range(4):
+        if isinstance(payload, str):
+            candidate = payload.strip()
+            if candidate.startswith("```"):
+                candidate = re.sub(
+                    r"^```(?:json)?\s*|\s*```$",
+                    "",
+                    candidate,
+                    flags=re.IGNORECASE,
+                ).strip()
+            try:
+                payload = json.loads(candidate)
+            except (TypeError, ValueError):
+                return raw
+            continue
+        if isinstance(payload, dict) and SLIDE_VISUAL_PLAN_SCHEMA in payload:
+            payload = payload[SLIDE_VISUAL_PLAN_SCHEMA]
+            continue
+        break
+    if isinstance(payload, list):
+        payload = {"pages": payload}
     if not isinstance(payload, dict):
         return raw
     return {
@@ -880,6 +900,8 @@ async def plan_slide_visuals(
     }
     successful_batches: list[int] = []
     failed_batches: list[dict[str, Any]] = []
+    partial_batches: list[dict[str, Any]] = []
+    accepted_page_count = 0
     for batch_index, batch_pages in enumerate(batches):
         batch_allocation = allocation_plan.model_copy(update={
             "pages": list(batch_pages),
@@ -908,11 +930,59 @@ async def plan_slide_visuals(
             candidate = SlideVisualPlanV1.model_validate(
                 _normalize_visual_plan_batch_payload(raw, request)
             )
-            validate_visual_plan(candidate, batch_allocation, fragments)
+            expected_by_id = {
+                page.page_id: page
+                for page in batch_allocation.pages
+            }
+            accepted_pages: list[SlideVisualPlanPageV1] = []
+            rejected_pages: list[dict[str, str]] = []
             for page in candidate.pages:
+                allocated_page = expected_by_id.get(page.page_id)
+                if allocated_page is None:
+                    rejected_pages.append({
+                        "page_id": page.page_id,
+                        "reason": "page_not_requested",
+                    })
+                    continue
+                page_allocation = batch_allocation.model_copy(update={
+                    "pages": [allocated_page],
+                })
+                page_candidate = candidate.model_copy(update={
+                    "pages": [page],
+                })
+                try:
+                    validate_visual_plan(
+                        page_candidate,
+                        page_allocation,
+                        fragments,
+                    )
+                except Exception as page_exc:
+                    rejected_pages.append({
+                        "page_id": page.page_id,
+                        "reason": str(page_exc).strip()[:240],
+                    })
+                    continue
+                accepted_pages.append(page)
+            if not accepted_pages:
+                raise ValueError("Visual batch contained no valid requested pages")
+            accepted_ids = {page.page_id for page in accepted_pages}
+            missing_ids = [
+                page.page_id
+                for page in batch_allocation.pages
+                if page.page_id not in accepted_ids
+            ]
+            for page in accepted_pages:
                 resolved_by_page[page.page_id] = page.model_copy(update={
                     "planner": "ai",
                     "fallback_reason": "",
+                })
+            accepted_page_count += len(accepted_pages)
+            if missing_ids or rejected_pages:
+                partial_batches.append({
+                    "batch_index": batch_index,
+                    "accepted_page_ids": sorted(accepted_ids),
+                    "fallback_page_ids": missing_ids,
+                    "rejected_pages": rejected_pages,
                 })
             successful_batches.append(batch_index)
         except Exception as exc:
@@ -948,11 +1018,19 @@ async def plan_slide_visuals(
         "ai_visual_batches_failed": len(failed_batches),
         "successful_visual_batch_indexes": successful_batches,
         "failed_visual_batches": failed_batches,
+        "partial_visual_batches": partial_batches,
+        "ai_visual_pages_accepted": accepted_page_count,
+        "ai_visual_pages_fallback": (
+            len(allocation_plan.pages) - accepted_page_count
+        ),
     })
-    if successful_batches and not failed_batches:
+    if (
+        accepted_page_count == len(allocation_plan.pages)
+        and not failed_batches
+    ):
         fallback.deck_brief["planner"] = "ai"
         fallback.deck_brief.pop("fallback_reason", None)
-    elif successful_batches:
+    elif accepted_page_count:
         fallback.deck_brief["planner"] = "ai"
         fallback.deck_brief["fallback_reason"] = "partial_ai_visual_plan"
     else:

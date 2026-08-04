@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1057,6 +1058,55 @@ async def test_visual_batch_accepts_pages_only_provider_envelope() -> None:
     assert resolved.deck_brief["planner"] == "ai"
     assert resolved.deck_brief["ai_visual_batches_failed"] == 0
     assert all(page.planner == "ai" for page in resolved.pages)
+
+
+@pytest.mark.asyncio
+async def test_visual_batches_salvage_partial_pages_from_string_envelope() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    async def planner(request: dict) -> dict:
+        requested_ids = [page["page_id"] for page in request["pages"]]
+        batch_allocation = allocation.model_copy(update={
+            "pages": [
+                page for page in allocation.pages
+                if page.page_id == requested_ids[0]
+            ],
+        })
+        first_page = deterministic_visual_plan(
+            document,
+            batch_allocation,
+            fragments,
+        ).model_dump(mode="json")["pages"]
+        return {
+            "slide_visual_plan_v1": json.dumps(
+                {"pages": first_page},
+                ensure_ascii=False,
+            ),
+        }
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    expected_batches = len(_visual_plan_batches(allocation, 12))
+    assert resolved.deck_brief["ai_visual_batches_successful"] == expected_batches
+    assert resolved.deck_brief["ai_visual_batches_failed"] == 0
+    assert resolved.deck_brief["ai_visual_pages_accepted"] == expected_batches
+    assert resolved.deck_brief["ai_visual_pages_fallback"] == (
+        len(allocation.pages) - expected_batches
+    )
+    assert sum(page.planner == "ai" for page in resolved.pages) == expected_batches
 
 
 def test_visual_planning_batches_never_mix_chapters() -> None:

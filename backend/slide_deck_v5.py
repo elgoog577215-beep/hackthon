@@ -39,9 +39,9 @@ from slide_story_plan import (
 from slide_visuals import deterministic_visual_plan
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.15"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.16"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.8"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.9"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -3385,7 +3385,7 @@ def _enrich_practice_feedback_slides_v5(
             block for block in blocks if block not in direct_blocks
         ]
         if len(direct_answers) == len(prompt_values) and prompt_values:
-            non_feedback_blocks.append({
+            answer_block = {
                 "block_id": f"{slide.get('unit_id') or 'practice'}:answers",
                 "type": "callout",
                 "title": "参考答案与判断依据",
@@ -3398,8 +3398,12 @@ def _enrich_practice_feedback_slides_v5(
                     "answer_for_question_ids": question_ids,
                     "source_fragment_ids": source_fragment_ids,
                 },
-            })
-            slide["blocks"] = non_feedback_blocks
+            }
+            # The renderer exposes one prompt column and one answer column.
+            # Any source checklist used to derive those answers is evidence,
+            # not a third visible column. Keeping it here makes the quality
+            # gate count content that the renderer does not display.
+            slide["blocks"] = [prompt, answer_block]
             slide["quality"] = {
                 **(slide.get("quality") or {}),
                 "requested_layout": "practice-feedback",

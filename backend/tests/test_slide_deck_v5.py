@@ -26,6 +26,7 @@ from slide_deck_v3 import (
 from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
     _chapter_recap_slide,
+    _enrich_practice_feedback_slides_v5,
     apply_page_contract_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -1903,6 +1904,53 @@ def test_v5_paired_practice_feedback_counts_aligned_rows_once() -> None:
         },
     })
 
+    assert slide["quality"]["resolved_layout"] == "practice-feedback"
+    assert slide["quality"]["visible_item_count"] == 3
+    assert not any(
+        issue["code"] == "visible_item_overflow"
+        for issue in v5_contract_issues([slide])
+    )
+
+
+def test_v5_paired_practice_discards_non_rendered_source_checklist() -> None:
+    [enriched] = _enrich_practice_feedback_slides_v5([{
+        "unit_id": "practice-production-shape",
+        "layout": "question",
+        "scene_kind": "practice_feedback",
+        "beat_role": "prompt",
+        "title": "Check the three anatomical decisions",
+        "blocks": [
+            {
+                "block_id": "prompts",
+                "type": "question",
+                "items": ["Question A", "Question B", "Question C"],
+                "metadata": {"semantic_role": "prompt"},
+            },
+            {
+                "block_id": "source-checklist",
+                "type": "bullets",
+                "items": ["Check A", "Check B", "Check C"],
+                "metadata": {"semantic_role": "support"},
+            },
+        ],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "question-prompt",
+            "question_ids": ["q-a", "q-b", "q-c"],
+            "generated_practice_answers": [
+                {"question_id": "q-a", "answer_text": "Answer A"},
+                {"question_id": "q-b", "answer_text": "Answer B"},
+                {"question_id": "q-c", "answer_text": "Answer C"},
+            ],
+        },
+    }])
+
+    slide = apply_page_contract_v5(enriched)
+
+    assert [
+        block["metadata"]["semantic_role"]
+        for block in slide["blocks"]
+    ] == ["prompt", "answer"]
     assert slide["quality"]["resolved_layout"] == "practice-feedback"
     assert slide["quality"]["visible_item_count"] == 3
     assert not any(
