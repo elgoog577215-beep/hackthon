@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseOutlineReview from '@/components/CourseOutlineReview.vue'
 import { setLocale } from '@/shared/i18n'
+import { useCourseStore } from '@/stores/course'
 import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
@@ -78,6 +79,18 @@ describe('一句话调整课程目录', () => {
   })
 
   it('先保存手动修改，再生成差异并通过现有草稿接口应用整套方案', async () => {
+    const course = useCourseStore()
+    course.currentCourseId = 'course-1'
+    course.currentCourseProjection = 'generation_preview'
+    course.nodes = currentDraft().nodes.map(node => ({
+      ...node,
+      node_content: '',
+      node_type: 'original' as const,
+      generation_status: 'pending' as const,
+      generated_chars: 0,
+      children: [],
+    }))
+    course.courseTree = course.buildTree(course.nodes)
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)
     const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({
@@ -122,6 +135,11 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.text()).toContain('方案已应用并保存')
     expect(wrapper.findAll('.outline-review__nodes input').map(input => (input.element as HTMLInputElement).value))
       .toContain('组件组合')
+    expect(course.nodes.map(node => node.node_name)).toContain('组件组合')
+    expect(course.courseTree[0]?.children?.map(node => node.node_name)).toEqual([
+      '生命周期',
+      '组件组合',
+    ])
   })
 
   it('取消预览不写入；预览后手动编辑会立即使方案失效', async () => {
