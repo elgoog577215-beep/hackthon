@@ -84,6 +84,22 @@ jobs:
                printf "%s\n" "Caddyfile is not readable at /etc/caddy/Caddyfile"
              fi'
 
+      - name: Validate production proxy repair
+        if: ${{ inputs.inspect_proxy }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "/opt/lingzhi/.venv/bin/python - --check" \
+            < scripts/configure_lingzhi_public_route.py
+
       - name: Upload release artifact
         if: ${{ !inputs.inspect_proxy }}
         env:

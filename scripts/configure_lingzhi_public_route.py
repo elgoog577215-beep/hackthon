@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -129,7 +130,12 @@ def _verify_public_routes() -> None:
         raise RuntimeError("Lingzhi subdomain did not redirect to the canonical /lingzhi/ URL")
 
 
-def configure_public_route(config_path: Path, caddy_binary: str) -> Path | None:
+def configure_public_route(
+    config_path: Path,
+    caddy_binary: str,
+    *,
+    check_only: bool = False,
+) -> Path | None:
     original = config_path.read_text(encoding="utf-8")
     rewritten = rewrite_caddyfile(original)
 
@@ -169,6 +175,10 @@ def configure_public_route(config_path: Path, caddy_binary: str) -> Path | None:
             ]
         )
 
+        if check_only:
+            print("Lingzhi public-route candidate passed Caddy validation")
+            return None
+
         shutil.copy2(config_path, backup_path)
         os.replace(candidate_path, config_path)
         candidate_path = None
@@ -207,11 +217,19 @@ def configure_public_route(config_path: Path, caddy_binary: str) -> Path | None:
 
 
 def main() -> None:
-    config_path = Path(os.getenv("LINGZHI_CADDY_CONFIG", "/etc/caddy/Caddyfile"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--config",
+        default=os.getenv("LINGZHI_CADDY_CONFIG", "/etc/caddy/Caddyfile"),
+    )
+    args = parser.parse_args()
+
+    config_path = Path(args.config)
     caddy_binary = os.getenv("LINGZHI_CADDY_BINARY") or shutil.which("caddy")
     if not caddy_binary:
         raise RuntimeError("caddy executable was not found")
-    configure_public_route(config_path, caddy_binary)
+    configure_public_route(config_path, caddy_binary, check_only=args.check)
 
 
 if __name__ == "__main__":
