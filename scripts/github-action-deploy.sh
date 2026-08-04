@@ -140,6 +140,40 @@ cleanup_releases() {
     done
 }
 
+cleanup_regenerable_caches() {
+    local active_path=""
+    local cache_path
+    local generated_cache
+    local -a cache_paths=(
+        "${XDG_CACHE_HOME:-$HOME/.cache}/pip"
+        "${XDG_CACHE_HOME:-$HOME/.cache}/uv"
+        "$HOME/.npm/_cacache"
+        "$HOME/.cache/node-gyp"
+    )
+
+    for cache_path in "${cache_paths[@]}"; do
+        if [ ! -d "$cache_path" ]; then
+            continue
+        fi
+        log "清理可再生成的构建缓存：$cache_path"
+        rm -rf --one-file-system -- "$cache_path"
+    done
+
+    active_path="$(current_release)"
+    if [[ "$active_path" != "$BASE_DIR"/* ]] || [ ! -d "$active_path" ]; then
+        return 0
+    fi
+
+    while IFS= read -r -d '' generated_cache; do
+        log "清理当前版本的运行时缓存：$generated_cache"
+        rm -rf --one-file-system -- "$generated_cache"
+    done < <(
+        find "$active_path" -xdev -type d \
+            \( -name '__pycache__' -o -name '.pytest_cache' -o -name '.mypy_cache' -o -name '.ruff_cache' \) \
+            -prune -print0
+    )
+}
+
 ensure_free_space() {
     local available_kb
     local required_kb=$((MIN_FREE_MB * 1024))
@@ -155,6 +189,11 @@ ensure_free_space() {
     if [ -n "$available_kb" ] && [ "$available_kb" -lt "$required_kb" ]; then
         log "磁盘空间仍低于发布阈值；保留当前活动版本并清理更旧的回滚版本后重试"
         cleanup_releases 1
+        available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
+    fi
+    if [ -n "$available_kb" ] && [ "$available_kb" -lt "$required_kb" ]; then
+        log "磁盘空间仍低于发布阈值；清理可再生成的构建与运行时缓存后重试"
+        cleanup_regenerable_caches
         available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
     fi
     if [ -z "$available_kb" ] || [ "$available_kb" -lt "$required_kb" ]; then
