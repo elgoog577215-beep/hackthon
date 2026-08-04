@@ -1,9 +1,10 @@
 # 多模态课程生成全景调研与灵知融合方案
 
+> 文档状态：2026-07-15 研究与融合建议快照，不是当前产品或实施真源
 > 日期：2026-07-15
 > 面向对象：灵知产品、算法、后端、前端与技术负责人
 > 文档性质：市场调研、产品判断、技术架构与实施路线的统一交接稿
-> 前置材料：[`AI 教育产品与开源项目全景调研`](ai-education-landscape-and-integration-2026-07-14.md)、[`灵知产品蓝图`](../product-blueprint.md)、[`灵知 AI 课程智能体需求文档`](../requirements/灵知AI课程智能体需求文档.md)
+> 前置材料：[`AI 教育产品与开源项目全景调研`](ai-education-landscape-and-integration-2026-07-14.md)、[`灵知产品蓝图`](../product-blueprint.md)、[`灵知 AI 课程智能体历史交接稿`](../archive/requirements/2026-07-15-ai-course-agent-handoff.md)
 
 ---
 

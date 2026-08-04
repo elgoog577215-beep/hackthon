@@ -1,8 +1,12 @@
 # 课程生成与 AI 老师后端链路
 
+> 文档状态：当前实现地图，不维护产品进度与下一攻坚位置<br>
+> 产品边界：[产品总蓝图](../product-blueprint.md)<br>
+> 当前成熟度：[产品状态板](../product-status.md)
+
 本文记录当前生产后端的真实链路，用于判断新功能应接入哪里，以及旧 AI 文件是否仍可作为入口。
 
-> 产品目标边界：本文描述的是当前实现事实，不是最终产品模型。目标产品以 `docs/product-blueprint.md` 为最高优先级真源。标准课程已经先行迁移为 `CourseDocument + ordered CourseBlock[]`；Markdown 只存在于富文本块载荷、导入导出和旧课程兼容投影中。其余历史课程与新增课程生成仍处于过渡期，不得据此新增平行课程逻辑。
+> 产品目标边界：本文描述的是当前实现事实，不是最终产品模型。正式发布的新课程和标准课程使用 `CourseDocument + ordered CourseBlock[]`；生成工作区可以使用中间节点形状，但不能成为课程真源。Markdown 只存在于富文本块载荷、导入导出和旧课程兼容投影中；其余历史课程与旧写入口仍处于迁移期，不得据此新增平行课程逻辑。
 
 ## 1. 总体原则
 
@@ -314,15 +318,8 @@ LearningEvent + LearningSnapshot + LearningRecord + PracticeAttempt + 诊断
 - 主动帮助：接强证据 `TriggerCandidate`，不得恢复 Tutor suggestion。
 - 不新增平行的 “memory manager”、“agent controller” 或课程 AI 门面。
 
-## 10. 后续升级方向
+## 10. 状态与任务边界
 
-当前仍只是轻量规则版闭环，暂时不能可靠自动化：
+本文只回答当前生产代码怎样运行以及新能力接到哪里，不维护“下一步升级方向”。当前缺口与攻坚顺序统一查看[产品状态板](../product-status.md)，课程知识、证据与课程生长任务查看 [`build-structured-adaptive-course-ai`](../../openspec/changes/build-structured-adaptive-course-ai/)，教案编辑任务查看 [`upgrade-teaching-plan-workbench`](../../openspec/changes/upgrade-teaching-plan-workbench/)。
 
-- 跨课程长期掌握和复习排程仍需基于正式事件与学习者模型扩展，不得恢复导师专属状态。
-- 回答教学策略还没有形成“某种讲法是否有效”的统计评估闭环。
-- 课程内 `CourseKnowledgeBase` 已能生成概念组、原子知识点、六类关系与题目绑定；
-  当前缺口是用多种教学模式的真实生产样本验证关系语义丰富度、提供方 P50/P95、
-  429 和成本曲线，而不是再新增一套平行知识图谱。
-- 复习计划和练习生成已经有正式任务底座，后续需要扩展可执行动作注册表与效果回收。
-
-下一步应扩展正式领域动作注册表，例如打开指定 Attempt、创建复习任务和进入补救流程；每个动作继续经过提案、修订校验、幂等命令、回执和 `LearningRuntime` 刷新。
+新增领域动作仍必须经过提案、修订校验、幂等命令、结构化回执和 `LearningRuntime` 刷新；这条接入边界不会因任务优先级变化而改变。

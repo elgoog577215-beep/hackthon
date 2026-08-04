@@ -1,8 +1,10 @@
 # 外部 PPTX 再导入评估
 
+> 文档状态：带日期的架构评估快照，不是当前实施规格<br>
 > 评估日期：2026-07-19
 > 对应 OpenSpec：`build-same-source-teaching-representations` 任务 4.6
 > 结论：完成方案评估；当前版本不开放任意 `.pptx` 直接回写课程真源。
+> 当前产品状态：[产品状态板](../product-status.md)
 
 ## 1. 评估问题
 

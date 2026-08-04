@@ -1,5 +1,7 @@
 # 2026-07-17 当前练习内容密度 Design QA
 
+> 文档状态：历史 Design QA 快照，路径与结论只对应原验证环境。
+
 - source visual truth path: `C:\Users\Lenovo\AppData\Local\Temp\codex-clipboard-ed5086ed-f8ca-41c7-a8af-58ecc17efc47.png`
 - implementation screenshot path: `C:\Users\Lenovo\AppData\Local\Temp\design-qa-current-practice-expanded.png`
 - viewport: `2086 × 1225`

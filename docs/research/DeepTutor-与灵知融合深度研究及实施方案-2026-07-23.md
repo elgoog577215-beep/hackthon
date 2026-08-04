@@ -1,5 +1,6 @@
 # DeepTutor × 灵知：从 Workflow-first 到课程原生 Agent 的融合研究与实施方案
 
+> 文档状态：2026-07-23 研究与实施建议快照，不是当前产品或实施真源
 > 日期：2026-07-23
 > 面向对象：灵知产品负责人、后端、前端、AI/算法、测试、安全与架构负责人
 > 文档性质：产品判断、源码研究、目标架构、融合决策与实施交接稿
@@ -1784,7 +1785,7 @@ Proposal / Command / Receipt / CourseEvolutionPlan
 
 [25] [灵知产品总蓝图](../product-blueprint.md)
 
-[26] [灵知 AI 课程智能体需求文档](../requirements/灵知AI课程智能体需求文档.md)
+[26] [灵知 AI 课程智能体历史交接稿](../archive/requirements/2026-07-15-ai-course-agent-handoff.md)
 
 [27] [灵知 AIContextPackage v3](../../backend/ai_teacher_context.py)
 
