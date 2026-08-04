@@ -24,6 +24,7 @@ from slide_deck_v3 import (
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
+    _visual_plan_batches,
     _semantic_relation_spec,
     _source_clauses,
     _visual_anchor,
@@ -1017,6 +1018,33 @@ async def test_long_deck_uses_bounded_visual_planning_batches() -> None:
     assert resolved.deck_brief["ai_visual_batches_successful"] == 2
     assert resolved.deck_brief["ai_visual_batches_failed"] == 0
     assert all(page.planner == "ai" for page in resolved.pages)
+
+
+def test_visual_planning_batches_never_mix_chapters() -> None:
+    pages = [
+        SimpleNamespace(page_id="cover", chapter_id=""),
+        *[
+            SimpleNamespace(page_id=f"chapter-1-{index}", chapter_id="chapter-1")
+            for index in range(8)
+        ],
+        *[
+            SimpleNamespace(page_id=f"chapter-2-{index}", chapter_id="chapter-2")
+            for index in range(7)
+        ],
+        *[
+            SimpleNamespace(page_id=f"chapter-3-{index}", chapter_id="chapter-3")
+            for index in range(4)
+        ],
+        SimpleNamespace(page_id="summary", chapter_id=""),
+    ]
+
+    batches = _visual_plan_batches(SimpleNamespace(pages=pages), 12)
+
+    assert max(len(batch) for batch in batches) <= 12
+    assert all(
+        len({page.chapter_id for page in batch if page.chapter_id}) <= 1
+        for batch in batches
+    )
 
 
 @pytest.mark.asyncio

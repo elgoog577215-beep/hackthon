@@ -219,6 +219,76 @@ def test_feedback_binds_to_the_preceding_learner_action() -> None:
     assert feedback.answer_source == "source"
 
 
+def test_rich_activity_feedback_survives_v5_compaction_as_bound_questions() -> None:
+    document = _document(
+        _block(
+            "concept",
+            module_id="life_location_structure",
+            role="concept",
+            content="The mediastinum is divided by anatomical planes and regions.",
+            position=0,
+        ),
+        _block(
+            "activity",
+            module_id="learner_action",
+            role="activity",
+            content=(
+                "Complete the following active-learning tasks.\n\n"
+                "- Identify the first boundary plane.\n"
+                "- Identify the second boundary plane.\n"
+                "- Name the region between the two planes."
+            ),
+            position=1,
+        ),
+        _block(
+            "feedback",
+            module_id="feedback_check",
+            role="feedback",
+            content=(
+                "Use the source evidence to check each response.\n\n"
+                "- The first plane passes through landmark A.\n"
+                "- The second plane passes through landmark B.\n"
+                "- The middle region lies between both planes.\n"
+                "- Check the superior relation.\n"
+                "- Check the anterior relation.\n"
+                "- Check the posterior relation.\n"
+                "- Confirm the named landmark.\n"
+                "- Explain why the boundary matters.\n"
+                "- Record the final judgement."
+            ),
+            position=2,
+        ),
+    )
+    fragments = fragment_course_document(document)
+    units = compile_ppt_semantic_units(document, fragments)
+    activity = next(unit for unit in units if unit.primary_role == "activity")
+    feedback = next(unit for unit in units if unit.primary_role == "feedback")
+
+    assert len(activity.question_ids) == 3
+    assert feedback.answer_for_question_ids == activity.question_ids
+
+    compact = compact_story_plan_v5(document, _story(), fragments)
+    practice = next(
+        episode
+        for episode in compact.chapters[0].episodes
+        if episode.scene_kind == "practice_feedback"
+    )
+    beat = practice.beats[0]
+    selected = {
+        fragment.fragment_id: fragment
+        for fragment in fragments
+        if fragment.fragment_id in beat.fragment_ids
+    }
+
+    assert beat.question_ids == activity.question_ids
+    assert beat.answer_for_question_ids == activity.question_ids
+    assert sum(
+        fragment.kind == "list_item" and fragment.role == "activity"
+        for fragment in selected.values()
+    ) == 3
+    assert any(fragment.role == "feedback" for fragment in selected.values())
+
+
 def test_each_visible_prompt_receives_a_distinct_question_id() -> None:
     document = _document(_block(
         "question-list",

@@ -624,6 +624,71 @@ def test_v5_compaction_finds_enumeration_members_after_intervening_context() -> 
     )
 
 
+def test_v5_compaction_closes_enumeration_across_adjacent_semantic_blocks() -> None:
+    document = CourseDocument(
+        course_id="course-cross-block-enumeration",
+        title="Regional anatomy",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Thorax",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="Mediastinal regions",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    raw = [
+        ("core-heading", "core-block", "heading", "Mediastinal partition"),
+        (
+            "promise",
+            "core-block",
+            "paragraph",
+            "The mediastinum is divided into four regions by two planes.",
+        ),
+        ("plane-one", "core-block", "list_item", "The upper boundary plane."),
+        ("plane-two", "core-block", "list_item", "The lower boundary plane."),
+        ("regions-heading", "regions-block", "heading", "Four regions"),
+        ("superior", "regions-block", "list_item", "Superior region"),
+        ("anterior", "regions-block", "list_item", "Anterior region"),
+        ("middle", "regions-block", "list_item", "Middle region"),
+        ("posterior", "regions-block", "list_item", "Posterior region"),
+    ]
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id=block_id,
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, block_id, kind, text) in enumerate(raw)
+    ]
+
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    concept_beat = next(
+        beat
+        for episode in compact.chapters[0].episodes
+        if episode.scene_kind == "concept" and "promise" in episode.beats[0].fragment_ids
+        for beat in episode.beats
+    )
+
+    assert {"promise", "superior", "anterior", "middle", "posterior"} <= set(
+        concept_beat.fragment_ids
+    )
+
+
 @pytest.mark.parametrize(
     ("renderer_layout", "item_count", "page_capacity"),
     [

@@ -267,6 +267,33 @@ describe('SlideDeckWorkbench', () => {
     expect(download).not.toHaveBeenCalled()
   })
 
+  it('separates release blockers from non-blocking quality advice', () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: 'Quality levels', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'quality', error: 'quality_gate_failed',
+        previewSource: 'draft',
+        quality: {
+          passed: false,
+          blockers: [{
+            severity: 'critical', code: 'enumeration_cardinality_mismatch', page_id: 'slide:section-a',
+            message: 'Four promised items are not visible.', suggestion: 'Keep all four items together.',
+          }],
+          issues: [{
+            severity: 'minor', code: 'knowledge_binding_missing', page_id: 'deck',
+            message: 'Some pages have no formal knowledge id.', suggestion: 'Bind them upstream when available.',
+          }],
+        },
+      },
+    })
+
+    const preview = wrapper.find('.slide-workbench__failed-preview')
+    expect(preview.find('header b').text()).toBe('1')
+    expect(preview.findAll('li[data-severity="critical"]')).toHaveLength(1)
+    expect(preview.findAll('li[data-severity="minor"]')).toHaveLength(1)
+    expect(preview.find('.slide-workbench__failed-preview-advisories').exists()).toBe(true)
+  })
+
   it('restores export when a successful rebuild changes the preview from draft to published', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
