@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ai_base import AIBase, AIProviderRequestError
+from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
 from assessment_orchestrator import AssessmentGenerationOrchestrator
 from content_blocks import set_node_content_blocks
 from course_coherence import (
@@ -61,6 +61,12 @@ from course_repository import (
     CourseDocumentNotFound,
     CourseDocumentRepository,
 )
+from course_outline_adjustments import (
+    OutlineAdjustmentError,
+    apply_outline_operations,
+    compile_outline_draft,
+    describe_outline_diff,
+)
 from course_teaching_plan_projection import project_course_teaching_plan
 from course_type_contracts import (
     compatible_course_purpose,
@@ -71,8 +77,11 @@ from course_type_contracts import (
 )
 from course_versioning import (
     analyze_blueprint_impact,
+    blueprint_draft_revision_id,
+    blueprint_revision_id,
     build_blueprint_draft,
     merge_blueprint_draft,
+    outline_adjustment_proposal_id,
     stable_hash,
 )
 from course_versions import (
@@ -975,7 +984,16 @@ class TaskManager:
         plan: dict[str, Any],
         nodes: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Make the editable outline nodes the canonical outline input."""
+        """Compile a complete plan from the editable ordered tree."""
+        if any(int(node.get("node_level") or 0) == 1 for node in nodes):
+            return compile_outline_draft({
+                "nodes": deepcopy(nodes),
+                "course_plan": deepcopy(plan),
+            })["course_plan"]
+
+        # Compatibility for old flat blueprints created before chapter nodes
+        # became part of the canonical tree. New adjustment proposals never
+        # use this path.
         synced = deepcopy(plan)
         by_id = {
             str(node.get("node_id") or ""): node
@@ -983,19 +1001,6 @@ class TaskManager:
             if isinstance(node, dict)
         }
         for chapter in synced.get("chapters") or []:
-            chapter_number = str(chapter.get("chapter_number") or "")
-            chapter_node = by_id.get(f"L1-{chapter_number}")
-            if chapter_node:
-                chapter_name = str(chapter_node.get("node_name") or "").strip()
-                prefix = f"第{chapter_number}章 "
-                chapter["title"] = (
-                    chapter_name[len(prefix):].strip()
-                    if chapter_name.startswith(prefix)
-                    else chapter_name or chapter.get("title")
-                )
-                for field in ("learning_path_role", "path_reason"):
-                    if field in chapter_node:
-                        chapter[field] = deepcopy(chapter_node[field])
             for section in chapter.get("sections") or []:
                 section_number = str(section.get("section_number") or "")
                 node = by_id.get(f"L2-{section_number.replace('.', '-')}")
@@ -1156,6 +1161,204 @@ class TaskManager:
         }
         return working
 
+    async def preview_outline_adjustment(
+        self,
+        course_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate and validate a non-persistent first-review outline proposal."""
+        started_at = time.monotonic()
+        request_id = str(payload.get("request_id") or "")
+        candidates = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id
+            and task.get("type") == "course_generation"
+            and task.get("status") == "waiting_for_review"
+            and isinstance(task.get("guided_workflow"), dict)
+        ]
+        candidates.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        if not candidates:
+            raise TaskStateConflict(
+                "课程当前不在首次目录确认阶段",
+                status="outline_review_required",
+            )
+        task = candidates[0]
+        workflow = task["guided_workflow"]
+        outline_state = guided_step_state(workflow, "outline")
+        if (
+            str(workflow.get("review_step") or "") != "outline"
+            or str(outline_state.get("status") or "") != "waiting_for_confirmation"
+            or outline_state.get("previous_confirmed_revision")
+        ):
+            raise TaskStateConflict(
+                "一句话调整只支持首次目录确认，确认后不能在这里重构目录",
+                status=str(outline_state.get("status") or "not_available"),
+            )
+        course_data = self._load_task_course(str(task["id"]))
+        if not isinstance(course_data, dict):
+            raise ValueError("Course not found")
+        if self._has_downstream_outline_artifacts(course_data):
+            raise TaskStateConflict(
+                "课程已经生成下游正式产物，不能再调整首次目录",
+                status="downstream_artifacts_exist",
+            )
+
+        current_blueprint_revision = blueprint_revision_id(course_data)
+        expected_base = str(payload.get("base_blueprint_revision_id") or "")
+        if expected_base and expected_base != current_blueprint_revision:
+            raise CourseVersionConflict("课程基础蓝图已变化，请重新载入并生成方案")
+        source_draft = (
+            self._version_repository.load_draft(course_id)
+            or build_blueprint_draft(course_data)
+        )
+        source_draft["draft_revision_id"] = blueprint_draft_revision_id(source_draft)
+        expected_draft = str(payload.get("expected_draft_revision_id") or "")
+        if expected_draft != source_draft["draft_revision_id"]:
+            raise CourseVersionConflict("目录草稿已被其他页面修改，请重新载入并生成方案")
+        if not self.course_service or not hasattr(
+            self.course_service,
+            "propose_outline_adjustment",
+        ):
+            raise AIProviderUnavailable("outline_adjustment_not_configured")
+
+        instruction = str(payload.get("instruction") or "").strip()
+        last_operations: list[dict[str, Any]] = []
+        last_error: OutlineAdjustmentError | None = None
+        result: dict[str, Any] | None = None
+        correction: dict[str, Any] | None = None
+        for attempt in range(2):
+            model_result = await self.course_service.propose_outline_adjustment(
+                draft=source_draft,
+                instruction=instruction,
+                correction=correction,
+            )
+            operations = model_result.get("operations") if isinstance(model_result, dict) else None
+            last_operations = operations if isinstance(operations, list) else []
+            try:
+                if not isinstance(operations, list):
+                    raise OutlineAdjustmentError(
+                        "model_operations_missing",
+                        "AI 没有返回合法的目录操作列表",
+                    )
+                result = apply_outline_operations(source_draft, operations)
+                break
+            except OutlineAdjustmentError as exc:
+                last_error = exc
+                if attempt == 0:
+                    correction = {
+                        "message": "上一版操作未通过确定性校验，请只修正操作列表",
+                        "validation_error": exc.as_issue(),
+                        "previous_operations": last_operations,
+                    }
+
+        proposal_id = outline_adjustment_proposal_id(
+            source_draft["draft_revision_id"],
+            last_operations,
+        )
+        elapsed_ms = round((time.monotonic() - started_at) * 1000)
+        if result is None:
+            issue = (
+                last_error.as_issue()
+                if last_error
+                else {"code": "model_output_invalid", "message": "AI 未能形成合法目录方案"}
+            )
+            logger.warning(
+                "outline_adjustment_preview_invalid request_id=%s proposal_id=%s latency_ms=%s "
+                "operation_count=%s validation_code=%s",
+                request_id,
+                proposal_id,
+                elapsed_ms,
+                len(last_operations),
+                issue.get("code"),
+            )
+            return {
+                "proposal_id": proposal_id,
+                "source_draft_revision_id": source_draft["draft_revision_id"],
+                "operations": last_operations,
+                "summary": "AI 暂时无法把这句话转换为安全的目录调整，请换一种说法后重试。",
+                "diff": {
+                    "added": [],
+                    "removed": [],
+                    "moved": [],
+                    "updated": [],
+                    "before": {},
+                    "after": {},
+                },
+                "draft": source_draft,
+                "impact_report": {},
+                "constraint_report": {"valid": False},
+                "can_apply": False,
+                "blocking_issues": [issue],
+                "warnings": [],
+            }
+
+        proposed_draft = result["draft"]
+        proposed_draft["base_blueprint_revision_id"] = current_blueprint_revision
+        proposed_draft["draft_revision_id"] = blueprint_draft_revision_id(proposed_draft)
+        impact = analyze_blueprint_impact(course_data, proposed_draft)
+        blocking_issues = [
+            {
+                "code": "blueprint_lock_conflict",
+                "message": "调整影响了已锁定的目录节点",
+                "details": deepcopy(item),
+            }
+            for item in impact.get("lock_conflicts") or []
+        ]
+        can_apply = bool(impact.get("can_confirm", False)) and not blocking_issues
+        diff = describe_outline_diff(
+            source_draft,
+            proposed_draft,
+            result.get("id_map") or {},
+        )
+        summary = str(model_result.get("summary") or "").strip()
+        if not summary:
+            summary = (
+                f"目录将从 {diff['before']['chapter_count']} 章"
+                f"{diff['before']['section_count']} 节调整为 "
+                f"{diff['after']['chapter_count']} 章{diff['after']['section_count']} 节。"
+            )
+        logger.info(
+            "outline_adjustment_preview request_id=%s proposal_id=%s latency_ms=%s "
+            "operation_count=%s validation_code=%s",
+            request_id,
+            proposal_id,
+            elapsed_ms,
+            len(last_operations),
+            "ok" if can_apply else "blocked",
+        )
+        return {
+            "proposal_id": proposal_id,
+            "source_draft_revision_id": source_draft["draft_revision_id"],
+            "operations": last_operations,
+            "summary": summary,
+            "diff": diff,
+            "draft": proposed_draft,
+            "impact_report": impact,
+            "constraint_report": result["constraint_report"],
+            "can_apply": can_apply,
+            "blocking_issues": blocking_issues,
+            "warnings": [],
+        }
+
+    @staticmethod
+    def _has_downstream_outline_artifacts(course_data: dict[str, Any]) -> bool:
+        if any(
+            course_data.get(field)
+            for field in (
+                "course_teaching_plan",
+                "course_knowledge_base",
+                "course_knowledge_map",
+                "learning_assets",
+            )
+        ):
+            return True
+        return any(
+            str(node.get("node_content") or "").strip()
+            for node in course_data.get("nodes") or []
+            if isinstance(node, dict)
+        )
+
     async def confirm_generation_step(
         self,
         course_id: str,
@@ -1221,6 +1424,11 @@ class TaskManager:
             if not impact.get("can_confirm", False):
                 raise CourseVersionConflict("Blueprint contains locked conflicts")
             confirmed = merge_blueprint_draft(course_data, draft)
+            if any(
+                int(node.get("node_level") or 0) == 1
+                for node in confirmed.get("nodes") or []
+            ):
+                confirmed = compile_outline_draft(confirmed)
             plan = deepcopy(confirmed.get("course_plan") or confirmed.get("course_outline") or {})
             if isinstance(plan, dict):
                 plan["course_title"] = str(confirmed.get("course_name") or plan.get("course_title") or "")

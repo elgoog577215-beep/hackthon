@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ai_base import AIProviderRequestError, AIProviderUnavailable
+from course_outline_adjustments import (
+    OutlineAdjustmentError,
+    apply_outline_operations,
+    compile_outline_draft,
+)
 
 from course_versioning import (
     analyze_blueprint_impact,
+    blueprint_draft_revision_id,
     blueprint_revision_id,
     build_blueprint_draft,
+    outline_adjustment_proposal_id,
 )
 from course_versions import CourseVersionConflict, CourseVersionRepository, course_version_repository
 from dependencies import get_course_document_repository, get_course_or_404, get_task_manager_optional, require_task_manager
@@ -22,16 +32,50 @@ from task_manager import TaskManager, TaskStateConflict
 
 
 router = APIRouter(prefix="/courses/{course_id}", tags=["course_versions"])
+logger = logging.getLogger(__name__)
 
 
 class BlueprintDraftRequest(BaseModel):
     base_blueprint_revision_id: str | None = None
+    expected_draft_revision_id: str | None = None
+    adjustment_proposal_id: str | None = Field(default=None, max_length=120)
+    adjustment_operations: list[dict[str, Any]] | None = None
     course_name: str | None = Field(default=None, max_length=300)
     course_purpose: Literal["systematic", "exam_sprint", "material_organization", "personalized_remedial"] | None = None
+    course_type: str | None = Field(default=None, max_length=100)
+    course_intent: dict[str, Any] | None = None
+    learner_starting_profile: dict[str, Any] | None = None
     course_blueprint: dict[str, Any] | None = None
     nodes: list[dict[str, Any]] | None = None
     learning_asset_plan: dict[str, Any] | None = None
     blueprint_locks: dict[str, dict[str, bool]] | None = None
+
+
+class BlueprintAdjustmentPreviewRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=120)
+    base_blueprint_revision_id: str = Field(min_length=1, max_length=120)
+    expected_draft_revision_id: str = Field(min_length=1, max_length=120)
+    instruction: str = Field(min_length=1, max_length=3000)
+
+    @field_validator("request_id", "base_blueprint_revision_id", "expected_draft_revision_id", "instruction")
+    @classmethod
+    def value_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
+class BlueprintAdjustmentCancelRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=120)
+
+    @field_validator("request_id")
+    @classmethod
+    def request_id_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
 
 
 class RestoreVersionRequest(BaseModel):
@@ -57,6 +101,8 @@ async def get_blueprint(course_id: str):
     course = await _course_for_blueprint(course_id)
     draft = await run_in_threadpool(course_version_repository.load_draft, course_id)
     current = build_blueprint_draft(course)
+    if isinstance(draft, dict):
+        draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
     return {
         "status": "success",
         "current": current,
@@ -76,16 +122,116 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
             "message": "课程蓝图已更新，请重新载入后再编辑",
             "current_blueprint_revision_id": current_revision,
         })
-    draft = build_blueprint_draft(course)
-    for field, value in request.model_dump(exclude_none=True).items():
-        if field != "base_blueprint_revision_id":
-            draft[field] = deepcopy(value)
+    existing_draft = await run_in_threadpool(course_version_repository.load_draft, course_id)
+    authoritative_draft = existing_draft or build_blueprint_draft(course)
+    authoritative_revision = blueprint_draft_revision_id(authoritative_draft)
+    if (
+        request.expected_draft_revision_id
+        and request.expected_draft_revision_id != authoritative_revision
+    ):
+        raise HTTPException(status_code=409, detail={
+            "code": "draft_revision_conflict",
+            "message": "目录草稿已被其他页面修改，请重新载入后再操作",
+            "current_draft_revision_id": authoritative_revision,
+        })
+    if request.adjustment_proposal_id:
+        operations = request.adjustment_operations
+        if not isinstance(operations, list):
+            raise HTTPException(status_code=422, detail={
+                "code": "adjustment_operations_missing",
+                "message": "应用调整方案时必须提供预览中的原子操作",
+            })
+        expected_proposal_id = outline_adjustment_proposal_id(
+            authoritative_revision,
+            operations,
+        )
+        if request.adjustment_proposal_id != expected_proposal_id:
+            raise HTTPException(status_code=409, detail={
+                "code": "adjustment_proposal_mismatch",
+                "message": "调整方案与预览内容不一致，请重新生成方案",
+            })
+        try:
+            draft = apply_outline_operations(
+                authoritative_draft,
+                operations,
+            )["draft"]
+        except OutlineAdjustmentError as exc:
+            raise HTTPException(status_code=422, detail=exc.as_issue()) from exc
+    else:
+        draft = build_blueprint_draft(course)
+        for field, value in request.model_dump(exclude_none=True).items():
+            if field not in {
+                "base_blueprint_revision_id",
+                "expected_draft_revision_id",
+                "adjustment_proposal_id",
+                "adjustment_operations",
+            }:
+                draft[field] = deepcopy(value)
+        if any(int(node.get("node_level") or 0) == 1 for node in draft.get("nodes") or []):
+            try:
+                draft = compile_outline_draft(draft)
+            except OutlineAdjustmentError as exc:
+                raise HTTPException(status_code=422, detail=exc.as_issue()) from exc
+        else:
+            _validate_blueprint_draft(draft)
     draft["base_blueprint_revision_id"] = current_revision
-    _validate_blueprint_draft(draft)
+    draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
     impact = analyze_blueprint_impact(course, draft)
     draft["impact_report"] = impact
     saved = await run_in_threadpool(course_version_repository.save_draft, course_id, draft)
+    if request.adjustment_proposal_id:
+        logger.info(
+            "outline_adjustment_applied proposal_id=%s draft_revision_id=%s",
+            request.adjustment_proposal_id,
+            draft["draft_revision_id"],
+        )
     return {"status": "success", "draft": saved, "impact_report": impact}
+
+
+@router.post("/blueprint/adjustments/preview")
+async def preview_blueprint_adjustment(
+    course_id: str,
+    request: BlueprintAdjustmentPreviewRequest,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    try:
+        return await tm.preview_outline_adjustment(
+            course_id,
+            request.model_dump(),
+        )
+    except CourseVersionConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "outline_adjustment_revision_conflict",
+            "message": str(exc),
+        }) from exc
+    except TaskStateConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "outline_adjustment_lifecycle_conflict",
+            "message": str(exc),
+            "status": exc.status,
+        }) from exc
+    except OutlineAdjustmentError as exc:
+        raise HTTPException(status_code=422, detail=exc.as_issue()) from exc
+    except (AIProviderUnavailable, AIProviderRequestError) as exc:
+        raise HTTPException(status_code=503, detail={
+            "code": "outline_adjustment_model_unavailable",
+            "message": "AI 调整服务暂时不可用，请稍后重试",
+        }) from exc
+
+
+@router.post("/blueprint/adjustments/{proposal_id}/cancel")
+async def cancel_blueprint_adjustment(
+    course_id: str,
+    request: BlueprintAdjustmentCancelRequest,
+    proposal_id: str = Path(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._-]+$"),
+):
+    logger.info(
+        "outline_adjustment_cancelled course_id=%s request_id=%s proposal_id=%s",
+        course_id,
+        request.request_id,
+        proposal_id,
+    )
+    return {"status": "cancelled", "proposal_id": proposal_id}
 
 
 @router.post("/blueprint/impact")

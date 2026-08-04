@@ -102,7 +102,7 @@ describe('一句话调整课程目录', () => {
       expected_draft_revision_id: 'draft-2',
       instruction: '新增一节组件组合，并把生命周期放在最前面',
     }))
-    expect(save.mock.invocationCallOrder[0]).toBeLessThan(preview.mock.invocationCallOrder[0])
+    expect(save.mock.invocationCallOrder[0]!).toBeLessThan(preview.mock.invocationCallOrder[0]!)
     expect(wrapper.text()).toContain('新增“组件组合”小节')
     expect(wrapper.text()).toContain('第2节')
     expect(wrapper.text()).toContain('第1节')
@@ -114,12 +114,14 @@ describe('一句话调整课程目录', () => {
     expect(save).toHaveBeenCalledTimes(2)
     expect(save).toHaveBeenLastCalledWith('course-1', expect.objectContaining({
       expected_draft_revision_id: 'draft-2',
+      adjustment_operations: [{ op: 'add_node', temp_ref: 'tmp-1' }],
       nodes: expect.arrayContaining([
         expect.objectContaining({ node_name: '组件组合' }),
       ]),
     }))
     expect(wrapper.text()).toContain('方案已应用并保存')
-    expect(wrapper.text()).toContain('组件组合')
+    expect(wrapper.findAll('.outline-review__nodes input').map(input => (input.element as HTMLInputElement).value))
+      .toContain('组件组合')
   })
 
   it('取消预览不写入；预览后手动编辑会立即使方案失效', async () => {
@@ -127,6 +129,7 @@ describe('一句话调整课程目录', () => {
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)
     const save = vi.spyOn(workspace, 'saveBlueprint').mockResolvedValue({} as any)
     vi.spyOn(workspace, 'previewBlueprintAdjustment').mockResolvedValue(proposal() as any)
+    const cancel = vi.spyOn(workspace, 'cancelBlueprintAdjustment').mockResolvedValue({ status: 'cancelled' } as any)
     const wrapper = mount(CourseOutlineReview, {
       props: { courseId: 'course-1', courseName: 'Unity 游戏编程' },
     })
@@ -137,6 +140,7 @@ describe('一句话调整课程目录', () => {
     await flushPromises()
     await wrapper.get('[data-testid="cancel-outline-adjustment"]').trigger('click')
     expect(save).not.toHaveBeenCalled()
+    expect(cancel).toHaveBeenCalledWith('course-1', 'proposal-1', expect.stringContaining('outline-adjustment-'))
     expect(wrapper.find('.outline-review__proposal').exists()).toBe(false)
 
     await wrapper.get('[data-testid="generate-outline-adjustment"]').trigger('click')
