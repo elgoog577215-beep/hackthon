@@ -39,10 +39,10 @@ from slide_story_plan import (
 from slide_visuals import deterministic_visual_plan
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.13"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.14"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.6"
-VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.0"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.7"
+VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -299,6 +299,28 @@ def _enumeration_counts(value: str) -> list[int]:
         ):
             continue
         counts.append(count)
+    english_numbers = {
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9,
+        "ten": 10,
+    }
+    for match in re.finditer(
+        r"\b(?:divided|classified|grouped|organized)\s+into\s+"
+        r"(?P<count>\d+|two|three|four|five|six|seven|eight|nine|ten)\s+"
+        r"(?:regions|types|groups|categories|parts|steps|stages)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        token = match.group("count").lower()
+        count = int(token) if token.isdigit() else english_numbers[token]
+        if count >= 2:
+            counts.append(count)
     return counts
 
 
@@ -341,7 +363,10 @@ def _v5_required_enumeration_fragments(group: list[Any]) -> set[str]:
         current_run: list[Any] = []
         for candidate in group[index + 1 :]:
             if candidate.kind == "heading":
-                break
+                if current_run:
+                    member_runs.append(current_run)
+                    current_run = []
+                continue
             if candidate.kind == "list_item":
                 current_run.append(candidate)
                 continue
@@ -385,6 +410,26 @@ def _v5_fit_group(
         visible = sum(len(str(fragment.text or "")) for fragment in group)
         return list(group) if len(group) <= 8 and visible <= limit else []
     required_ids = _v5_required_enumeration_fragments(group)
+    if not required_ids:
+        unresolved_promise_ids = {
+            fragment.fragment_id
+            for fragment in group
+            if (
+                (counts := _enumeration_counts(str(fragment.text or "")))
+                and _inline_enumeration_member_count(
+                    str(fragment.text or "")
+                ) < max(counts)
+            )
+        }
+        if unresolved_promise_ids:
+            resolved_detail = [
+                fragment
+                for fragment in group
+                if fragment.fragment_id not in unresolved_promise_ids
+            ]
+            if not resolved_detail:
+                return []
+            group = resolved_detail
     if required_ids:
         required = [
             fragment for fragment in group
@@ -438,6 +483,130 @@ def _v5_fit_group(
         if len(selected) == 8:
             break
     return selected if _formula_group_has_source_explanation(selected) else []
+
+
+def _v5_fit_practice_group(
+    group: list[Any],
+    semantic_by_fragment: dict[str, Any],
+    *,
+    limit: int = 400,
+) -> list[Any]:
+    """Keep a compact, identity-safe question/feedback slice from rich blocks."""
+    if not group:
+        return []
+
+    def role(fragment: Any) -> str:
+        unit = semantic_by_fragment.get(fragment.fragment_id)
+        return str(getattr(unit, "primary_role", "") or fragment.role or "")
+
+    prompts = [
+        fragment
+        for fragment in group
+        if (
+            fragment.kind != "heading"
+            and role(fragment) in {"activity", "checkpoint"}
+        )
+    ]
+    if not prompts:
+        return _v5_fit_group(group, limit=limit)
+    explicit_prompts = [
+        fragment
+        for fragment in prompts
+        if any(mark in str(fragment.text or "") for mark in ("?", "\uff1f"))
+    ]
+    list_prompts = [
+        fragment for fragment in prompts if fragment.kind == "list_item"
+    ]
+    prompt_candidates = (explicit_prompts or list_prompts or prompts[:1])[:3]
+
+    feedback = [
+        fragment
+        for fragment in group
+        if fragment.kind != "heading" and role(fragment) == "feedback"
+    ]
+    list_feedback = [
+        fragment for fragment in feedback if fragment.kind == "list_item"
+    ]
+    feedback_candidates = list_feedback or feedback
+    if feedback_candidates:
+        pair_count = min(len(prompt_candidates), len(feedback_candidates), 3)
+        prompt_candidates = prompt_candidates[:pair_count]
+        feedback_candidates = feedback_candidates[:pair_count]
+    else:
+        feedback_candidates = []
+
+    selected: list[Any] = []
+    visible = 0
+    for index, prompt in enumerate(prompt_candidates):
+        pair = [prompt]
+        if index < len(feedback_candidates):
+            pair.append(feedback_candidates[index])
+        pair_size = sum(len(str(fragment.text or "")) for fragment in pair)
+        if selected and visible + pair_size > limit:
+            break
+        if not selected and pair_size > limit:
+            continue
+        selected.extend(pair)
+        visible += pair_size
+    return sorted(
+        {fragment.fragment_id: fragment for fragment in selected}.values(),
+        key=lambda item: item.ordinal,
+    )
+
+
+def _v5_bound_question_ids(
+    group: list[Any],
+    semantic_by_fragment: dict[str, Any],
+    fragment_catalog: dict[str, Any],
+) -> tuple[list[str], list[str]]:
+    selected_ids = {fragment.fragment_id for fragment in group}
+    units = list({
+        semantic_by_fragment[fragment.fragment_id].semantic_unit_id:
+            semantic_by_fragment[fragment.fragment_id]
+        for fragment in group
+        if fragment.fragment_id in semantic_by_fragment
+    }.values())
+    question_ids: list[str] = []
+    has_feedback = False
+    for unit in units:
+        if unit.primary_role in {"activity", "checkpoint"}:
+            candidates = [
+                fragment_catalog[fragment_id]
+                for fragment_id in unit.fragment_ids
+                if (
+                    fragment_id in fragment_catalog
+                    and fragment_catalog[fragment_id].kind != "heading"
+                )
+            ]
+            explicit = [
+                fragment
+                for fragment in candidates
+                if any(
+                    mark in str(fragment.text or "")
+                    for mark in ("?", "\uff1f")
+                )
+            ]
+            listed = [
+                fragment for fragment in candidates
+                if fragment.kind == "list_item"
+            ]
+            question_fragments = explicit or listed or candidates[:1]
+            question_by_fragment = dict(zip(
+                [fragment.fragment_id for fragment in question_fragments],
+                unit.question_ids,
+            ))
+            question_ids.extend(
+                question_by_fragment[fragment.fragment_id]
+                for fragment in question_fragments
+                if (
+                    fragment.fragment_id in selected_ids
+                    and fragment.fragment_id in question_by_fragment
+                )
+            )
+        elif unit.primary_role == "feedback":
+            has_feedback = True
+    question_ids = list(dict.fromkeys(question_ids))
+    return question_ids, list(question_ids) if has_feedback else []
 
 
 def _compact_existing_episodes_v5(
@@ -607,7 +776,23 @@ def compact_story_plan_v5(
                 ).append(group)
             selected_groups: list[tuple[str, list[Any]]] = []
             if by_kind.get("concept"):
-                selected_groups.append(("concept", by_kind["concept"][0]))
+                concept_group = list(by_kind["concept"][0])
+                if (
+                    any(_enumeration_counts(str(item.text or "")) for item in concept_group)
+                    and not _v5_required_enumeration_fragments(concept_group)
+                ):
+                    for sibling_group in by_kind["concept"][1:]:
+                        merged = sorted(
+                            {
+                                item.fragment_id: item
+                                for item in [*concept_group, *sibling_group]
+                            }.values(),
+                            key=lambda item: item.ordinal,
+                        )
+                        if _v5_required_enumeration_fragments(merged):
+                            concept_group = merged
+                            break
+                selected_groups.append(("concept", concept_group))
             second = next(
                 (
                     (kind, by_kind[kind][0])
@@ -637,13 +822,19 @@ def compact_story_plan_v5(
                     )
                 selected_groups.append(("practice", practice_group))
             if len(selected_groups) < 3:
-                used_first_ids = {
-                    group[0].fragment_id
+                used_fragment_ids = {
+                    item.fragment_id
                     for _kind, group in selected_groups
-                    if group
+                    for item in group
                 }
                 for group in groups:
-                    if not group or group[0].fragment_id in used_first_ids:
+                    if (
+                        not group
+                        or any(
+                            item.fragment_id in used_fragment_ids
+                            for item in group
+                        )
+                    ):
                         continue
                     fallback_kind = _v5_group_kind(
                         group,
@@ -655,10 +846,14 @@ def compact_story_plan_v5(
                     if len(selected_groups) == 3:
                         break
             for group_index, (kind, raw_group) in enumerate(selected_groups[:3]):
-                group = _v5_fit_group(
-                    raw_group,
-                    limit=400 if kind == "practice" else 230,
-                    preserve_all=(kind == "practice"),
+                group = (
+                    _v5_fit_practice_group(
+                        raw_group,
+                        semantic_by_fragment,
+                        limit=400,
+                    )
+                    if kind == "practice"
+                    else _v5_fit_group(raw_group, limit=230)
                 )
                 if not group:
                     continue
@@ -729,6 +924,15 @@ def compact_story_plan_v5(
                     for item in group
                     if item.fragment_id in semantic_by_fragment
                 }.values())
+                bound_question_ids, bound_answer_ids = (
+                    _v5_bound_question_ids(
+                        group,
+                        semantic_by_fragment,
+                        fragment_catalog,
+                    )
+                    if scene == "practice_feedback"
+                    else ([], [])
+                )
                 beat = StoryBeatV2(
                     beat_id=beat_id,
                     beat_role=role,
@@ -754,16 +958,24 @@ def compact_story_plan_v5(
                     semantic_unit_ids=[
                         unit.semantic_unit_id for unit in group_semantic_units
                     ],
-                    question_ids=list(dict.fromkeys(
-                        question_id
-                        for unit in group_semantic_units
-                        for question_id in unit.question_ids
-                    )),
-                    answer_for_question_ids=list(dict.fromkeys(
-                        question_id
-                        for unit in group_semantic_units
-                        for question_id in unit.answer_for_question_ids
-                    )),
+                    question_ids=(
+                        bound_question_ids
+                        if scene == "practice_feedback"
+                        else list(dict.fromkeys(
+                            question_id
+                            for unit in group_semantic_units
+                            for question_id in unit.question_ids
+                        ))
+                    ),
+                    answer_for_question_ids=(
+                        bound_answer_ids
+                        if scene == "practice_feedback"
+                        else list(dict.fromkeys(
+                            question_id
+                            for unit in group_semantic_units
+                            for question_id in unit.answer_for_question_ids
+                        ))
+                    ),
                     transition_from=transition,
                     evidence_kinds=sorted({
                         "text"

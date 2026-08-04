@@ -130,11 +130,14 @@
         <section v-if="error && previewSource === 'draft' && slides.length" class="slide-workbench__failed-preview">
           <header>
             <span><TriangleAlert :size="14" />{{ t('pptWorkspace.failedPreview', '未发布问题预览') }}</span>
-            <b>{{ qualityIssues.length }}</b>
+            <b>{{ blockingQualityIssues.length }}</b>
           </header>
           <p>{{ t('pptWorkspace.failedPreviewHelp', '这是本次构建的未发布页面；修复以下问题后再同步课程。') }}</p>
-          <ol v-if="qualityIssues.length">
-            <li v-for="issue in qualityIssues" :key="issue.key" :data-severity="issue.severity">
+          <p v-if="qualityIssues.length" class="slide-workbench__failed-preview-counts">
+            {{ blockingQualityIssues.length }} 个发布阻断 · {{ advisoryQualityIssues.length }} 条优化建议
+          </p>
+          <ol v-if="blockingQualityIssues.length">
+            <li v-for="issue in blockingQualityIssues" :key="issue.key" :data-severity="issue.severity">
               <div>
                 <span>{{ issue.slide }}</span>
                 <i>{{ layoutLabel(issue.layout) }} · {{ responsibilityLabel(issue.responsibility) }}</i>
@@ -144,7 +147,21 @@
               <small>{{ issue.suggestion }}</small>
             </li>
           </ol>
-          <small v-else>{{ t('pptWorkspace.legacyQualityFallback', '后端未返回逐页问题，请检查本次预览后重试。') }}</small>
+          <details v-if="advisoryQualityIssues.length" open class="slide-workbench__failed-preview-advisories">
+            <summary>{{ advisoryQualityIssues.length }} 条非阻断优化建议</summary>
+            <ol>
+              <li v-for="issue in advisoryQualityIssues" :key="issue.key" :data-severity="issue.severity">
+                <div>
+                  <span>{{ issue.slide }}</span>
+                  <i>{{ layoutLabel(issue.layout) }} · {{ responsibilityLabel(issue.responsibility) }}</i>
+                  <code>{{ issue.code }}</code>
+                </div>
+                <strong>{{ issue.message }}</strong>
+                <small>{{ issue.suggestion }}</small>
+              </li>
+            </ol>
+          </details>
+          <small v-if="!qualityIssues.length">{{ t('pptWorkspace.legacyQualityFallback', '后端未返回逐页问题，请检查本次预览后重试。') }}</small>
         </section>
         <section v-else-if="(error || generationBlocked) && previewSource === 'published'" class="slide-inspector__receipt" data-state="failed_using_last_available">
           <TriangleAlert :size="15" />
@@ -606,8 +623,14 @@ const qualityIssues = computed(() => {
     return [issue]
   })
 })
+const blockingQualityIssues = computed(() => (
+  qualityIssues.value.filter(issue => issue.severity === 'critical')
+))
+const advisoryQualityIssues = computed(() => (
+  qualityIssues.value.filter(issue => issue.severity !== 'critical')
+))
 const failureIssueSummary = computed(() => {
-  const issues = qualityIssues.value.filter(issue => issue.severity === 'critical')
+  const issues = blockingQualityIssues.value
   if (!issues.length) return ''
   const firstCode = issues[0]?.code
   if (!firstCode) return ''
@@ -1128,9 +1151,13 @@ function classificationLabel(value: string) {
 .slide-workbench__failed-preview { margin-bottom:16px; padding:14px !important; border:1px solid #f2c6bd; border-radius:10px; background:#fff8f6; }
 .slide-workbench__failed-preview > header span { display:flex; align-items:center; gap:6px; color:#a83b2f; }
 .slide-workbench__failed-preview > p { margin:0 0 10px; color:#7a4a43; font-size:10px; line-height:1.55; }
-.slide-workbench__failed-preview > ol { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+.slide-workbench__failed-preview > ol,.slide-workbench__failed-preview-advisories > ol { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
 .slide-workbench__failed-preview li { padding:10px; border-left:3px solid #d14c3e; border-radius:0 7px 7px 0; background:#fff; }
 .slide-workbench__failed-preview li[data-severity="major"] { border-left-color:#d28a28; }
+.slide-workbench__failed-preview li[data-severity="minor"] { border-left-color:#4f7fc7; background:#f8fbff; }
+.slide-workbench__failed-preview-counts { color:#5d6573 !important; font-weight:750; }
+.slide-workbench__failed-preview-advisories { margin-top:10px; padding:0 !important; border:0 !important; }
+.slide-workbench__failed-preview-advisories > summary { margin-bottom:8px; color:#596579; font-size:9px; font-weight:750; cursor:pointer; }
 .slide-workbench__failed-preview li > div { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
 .slide-workbench__failed-preview li span,.slide-workbench__failed-preview li i,.slide-workbench__failed-preview li code { padding:2px 5px; border-radius:4px; color:#75534f; background:#f9ece9; font-size:8px; font-style:normal; }
 .slide-workbench__failed-preview li strong { display:block; margin-top:7px; color:#532f2b; font-size:10px; line-height:1.45; }

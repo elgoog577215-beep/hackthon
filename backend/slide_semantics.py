@@ -462,6 +462,15 @@ def compile_ppt_semantic_units(
                     )
                 ]
                 if not question_fragment_ids:
+                    question_fragment_ids = [
+                        fragment_id
+                        for fragment_id in unit.fragment_ids
+                        if (
+                            fragment_id in fragments_by_id
+                            and fragments_by_id[fragment_id].kind == "list_item"
+                        )
+                    ]
+                if not question_fragment_ids:
                     question_fragment_ids = next((
                         [fragment_id]
                         for fragment_id in unit.fragment_ids

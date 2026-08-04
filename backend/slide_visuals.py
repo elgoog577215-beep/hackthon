@@ -712,23 +712,18 @@ def _visual_plan_batches(
         groups.append(current_group)
 
     batches: list[list[Any]] = []
-    current_batch: list[Any] = []
     for group in groups:
         if len(group) > page_limit:
-            if current_batch:
-                batches.append(current_batch)
-                current_batch = []
             batches.extend([
                 group[index:index + page_limit]
                 for index in range(0, len(group), page_limit)
             ])
             continue
-        if current_batch and len(current_batch) + len(group) > page_limit:
-            batches.append(current_batch)
-            current_batch = []
-        current_batch.extend(group)
-    if current_batch:
-        batches.append(current_batch)
+        # A chapter is the semantic and failure-isolation boundary. Packing a
+        # second chapter merely because there is spare token room recreates a
+        # whole-deck request at smaller scale and was the main timeout source
+        # on long V16 courses.
+        batches.append(group)
     return batches
 
 
@@ -824,7 +819,7 @@ async def plan_slide_visuals(
         [dict[str, Any]],
         Awaitable[dict[str, Any]] | dict[str, Any],
     ] | None = None,
-    timeout_seconds: float = 12.0,
+    timeout_seconds: float = 30.0,
 ) -> SlideVisualPlanV1:
     """Plan source-bound visuals in bounded chapter batches."""
     fallback = deterministic_visual_plan(document, allocation_plan, fragments)
@@ -834,7 +829,7 @@ async def plan_slide_visuals(
         return fallback
     long_deck_page_limit = max(
         1,
-        int(os.getenv("AI_VISUAL_PLAN_MAX_PAGES", "24")),
+        int(os.getenv("AI_VISUAL_PLAN_MAX_PAGES", "12")),
     )
     raster_generation_enabled = os.getenv(
         "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
