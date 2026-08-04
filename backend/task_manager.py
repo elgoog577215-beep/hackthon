@@ -46,13 +46,6 @@ from course_generation_budget import (
     CourseGenerationDeadlineExceeded,
 )
 from course_generation_workflow import PIPELINE_VERSION
-from course_type_contracts import (
-    compatible_course_purpose,
-    course_purpose_for_type,
-    default_composition_style,
-    ensure_course_type_enabled,
-    resolve_course_type,
-)
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
@@ -69,6 +62,13 @@ from course_repository import (
     CourseDocumentRepository,
 )
 from course_teaching_plan_projection import project_course_teaching_plan
+from course_type_contracts import (
+    compatible_course_purpose,
+    course_purpose_for_type,
+    default_composition_style,
+    ensure_course_type_enabled,
+    resolve_course_type,
+)
 from course_versioning import (
     analyze_blueprint_impact,
     build_blueprint_draft,
@@ -120,9 +120,9 @@ from learning_assets import (
     compile_learning_assets,
     evaluate_learning_asset_quality,
 )
+from markdown_parser import parse_markdown_to_nodes
 from material_pipeline import ingest_legacy_material_inputs
 from material_storage import material_repository
-from markdown_parser import parse_markdown_to_nodes
 from models import (
     NodeGenerationConfig,
     NodeStatus,
@@ -141,6 +141,7 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_deck import SlideDeckPlanV1, plan_slide_deck
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
@@ -164,7 +165,6 @@ from slide_story_plan import (
     plan_slide_story_v2,
     resolve_slide_deck_schema,
 )
-from slide_ai_runtime import ai_slide_planning_enabled
 from slide_theme import slide_theme_version
 from slide_visuals import (
     SlideVisualPlanV1,
@@ -266,7 +266,8 @@ def _source_first_story_ai_worker() -> (
                 "facts, numbers, formulas, units, named entities, or conclusions. "
                 "When a beat has needs_generated_answers=true, return exactly one "
                 "generated_practice_answers entry for every supplied prompt question, "
-                "in question_index order. Keep each answer within 140 Chinese characters. "
+                "in question_index order and bind it to the exact supplied question_id. "
+                "Keep each answer within 140 Chinese characters. "
                 "Start with a direct conclusion, then give one concise teaching reason. "
                 "Bind every answer to exact chapter "
                 "fragment IDs that support the conclusion. Omit generated answers for "
@@ -287,6 +288,7 @@ def _source_first_story_ai_worker() -> (
                 "\"audience_facing_summary\":\"<optional>\","
                 "\"supporting_fragment_ids\":[\"<exact fragment_id>\"],"
                 "\"generated_practice_answers\":[{\"question_index\":0,"
+                "\"question_id\":\"<exact supplied question_id>\","
                 "\"answer_text\":\"<direct answer and concise reason>\","
                 "\"supporting_fragment_ids\":[\"<exact chapter fragment_id>\"]}]}]}. "
                 "Never wrap this "

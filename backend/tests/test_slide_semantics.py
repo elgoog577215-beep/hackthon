@@ -219,6 +219,54 @@ def test_feedback_binds_to_the_preceding_learner_action() -> None:
     assert feedback.answer_source == "source"
 
 
+def test_each_visible_prompt_receives_a_distinct_question_id() -> None:
+    document = _document(_block(
+        "question-list",
+        module_id="learner_action",
+        role="activity",
+        content="- Which layer is superficial?\n- Which layer is deep?",
+        position=0,
+    ))
+
+    unit = compile_ppt_semantic_units(
+        document,
+        fragment_course_document(document),
+    )[0]
+
+    assert len(unit.question_ids) == 2
+    assert len(set(unit.question_ids)) == 2
+
+
+def test_legacy_course_uses_low_confidence_heading_fallback() -> None:
+    document = CourseDocument(
+        course_id="legacy-course",
+        title="旧课程",
+        document_revision="legacy-v1",
+        sections=[CourseSection(
+            section_id="legacy-section",
+            title="基本概念",
+            position=0,
+            level=1,
+        )],
+        blocks=[CourseBlock(
+            block_id="legacy-block",
+            section_id="legacy-section",
+            position=0,
+            role="concept",
+            payload={"markdown": "这是旧课程的概念说明。"},
+        )],
+    )
+
+    unit = compile_ppt_semantic_units(
+        document,
+        fragment_course_document(document),
+    )[0]
+
+    assert unit.adapter_type == "legacy_compatible"
+    assert unit.classification_source == "legacy_heading_fallback"
+    assert unit.classification_confidence == 0.45
+
+
 def test_v5_compaction_uses_roles_and_pairs_practice_with_feedback() -> None:
     document = _document(
         _block(
@@ -266,3 +314,21 @@ def test_v5_compaction_uses_roles_and_pairs_practice_with_feedback() -> None:
         for fragment_id in episodes[-1].beats[0].fragment_ids
     }
     assert practice_blocks == {"question", "answer"}
+    assert episodes[-1].beats[0].question_ids
+    assert episodes[-1].beats[0].answer_for_question_ids == (
+        episodes[-1].beats[0].question_ids
+    )
+    diagnostics = compacted.planning_diagnostics
+    assert diagnostics["semantic_role_counts"] == {
+        "activity": 1,
+        "concept": 1,
+        "example": 1,
+        "feedback": 1,
+    }
+    assert diagnostics["balanced_composition_unit_count"] == 4
+    assert diagnostics["knowledge_binding_unmapped_count"] == 0
+    assert diagnostics["question_answer_binding_coverage"] == 1.0
+    assert [
+        contract["presentation_intent"]
+        for contract in diagnostics["teaching_episode_contracts"]
+    ] == ["definition", "worked_example", "practice_feedback"]

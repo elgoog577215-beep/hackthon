@@ -137,7 +137,7 @@
             <li v-for="issue in qualityIssues" :key="issue.key" :data-severity="issue.severity">
               <div>
                 <span>{{ issue.slide }}</span>
-                <i>{{ layoutLabel(issue.layout) }}</i>
+                <i>{{ layoutLabel(issue.layout) }} · {{ responsibilityLabel(issue.responsibility) }}</i>
                 <code>{{ issue.code }}</code>
               </div>
               <strong>{{ issue.message }}</strong>
@@ -599,6 +599,7 @@ const qualityIssues = computed(() => {
       suggestion: String(raw.suggestion || t('pptWorkspace.legacyIssueSuggestion', '请检查该页内容与版式后重试。')),
       slide,
       layout: String(raw.layout || matchingSlide?.layout || 'deck'),
+      responsibility: String(raw.responsibility || 'ppt_compiler'),
     }
     if (seen.has(issue.key)) return []
     seen.add(issue.key)
@@ -1031,6 +1032,15 @@ function layoutLabel(value: string) {
   return t(`teachingRepresentations.slides.layouts.${value}`, ({
     cover: '封面', roadmap: '路线', chapter: '章节', objective: '目标', concept: '概念', comparison: '对比', process: '过程', code: '代码', misconception: '易错', practice: '练习', recap: '小结', appendix: '附录',
   } as Record<string, string>)[value] || value)
+}
+
+function responsibilityLabel(value: string) {
+  return ({
+    course_generation: '课程内容链路',
+    ppt_compiler: 'PPT 编译链路',
+    visual_planner: '视觉规划链路',
+    renderer: '页面渲染链路',
+  } as Record<string, string>)[value] || 'PPT 编译链路'
 }
 
 function effectiveSlideLayout(slide: Slide) {

@@ -9,23 +9,23 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from course_document import document_from_legacy_course
-from slide_deck import SlideSpec, _plain_math_text
 from slide_asset_repository import SlideAssetRepository, finalize_visual_assets
-from slide_deck_v3 import (
-    compile_slide_deck_v3,
-    deterministic_slide_allocation,
-    fragment_course_document,
-)
+from slide_deck import SlideSpec, _plain_math_text
 from slide_deck_renderer import (
     _display_heading,
     _format_formula_text,
     export_structured_slide_deck,
 )
+from slide_deck_v3 import (
+    compile_slide_deck_v3,
+    deterministic_slide_allocation,
+    fragment_course_document,
+)
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
-    _source_clauses,
     _semantic_relation_spec,
+    _source_clauses,
     _visual_anchor,
     deterministic_visual_plan,
     plan_slide_visuals,
@@ -168,6 +168,58 @@ def test_classification_page_does_not_use_next_heading_as_diagram_root() -> None
     assert "深度原理/底层机制" not in classification_text
     assert visual_page.visual_anchor.kind == "none"
     assert visual_page.composition == "statement"
+
+
+def test_subject_profile_drives_a_source_bound_hierarchy_without_heading_guessing() -> None:
+    course = visual_course()
+    course["nodes"][0]["content_blocks"] = [{
+        "block_id": "anatomy-layers",
+        "title": "课程内容",
+        "content": (
+            "人体局部结构按照由浅入深的空间关系组织，观察时需要逐层确认边界。\n\n"
+            "- 皮肤\n"
+            "- 浅筋膜\n"
+            "- 深筋膜"
+        ),
+        "metadata": {
+            "role": "concept",
+            "module_id": "life_location_structure",
+            "module_instance_id": "life-location-1",
+            "composition_style": "balanced",
+        },
+    }]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="full",
+        theme="qizhi-classroom",
+    )
+
+    plan = deterministic_visual_plan(document, allocation, fragments)
+    page = next(
+        item
+        for item in plan.pages
+        if any(
+            fragment.text == "浅筋膜"
+            for fragment in fragments
+            if fragment.fragment_id
+            in next(
+                allocation_page.fragment_ids
+                for allocation_page in allocation.pages
+                if allocation_page.page_id == item.page_id
+            )
+        )
+    )
+
+    assert page.visual_anchor.kind == "relational_diagram"
+    assert page.visual_anchor.parameters["diagram_type"] == "hierarchy"
+    assert [node.label for node in page.visual_anchor.nodes][1:] == [
+        "皮肤",
+        "浅筋膜",
+        "深筋膜",
+    ]
 
 
 def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None:

@@ -8,36 +8,36 @@ from unittest.mock import Mock, patch
 import pytest
 from pptx import Presentation
 
+import slide_deck_renderer
 from course_document import CourseDocument, CourseSection
 from slide_deck import SlideDeckContent, validate_slide_deck
+from slide_deck_renderer import (
+    V5_LAYOUT_RENDERER_NAMES,
+    _render_editorial_body,
+    _render_slide,
+    export_structured_slide_deck,
+)
 from slide_deck_v3 import (
     ContentFragmentV1,
     PlannedPageV2,
     SlideAllocationPlanV2,
     slide_deck_variant_key,
 )
-from slide_deck_renderer import (
-    _render_editorial_body,
-    _render_slide,
-    export_structured_slide_deck,
-)
-from slide_deck_renderer import V5_LAYOUT_RENDERER_NAMES
-import slide_deck_renderer
 from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
     _chapter_recap_slide,
     apply_page_contract_v5,
+    build_signature_v5,
     compact_story_plan_v5,
-    compile_slide_deck_v5,
     compile_deck_outline_v5,
     compile_page_title_v5,
+    compile_slide_deck_v5,
     finalize_v5_quality_report,
-    resolve_page_contract_v5,
     repair_final_page_contracts_v5,
+    resolve_page_contract_v5,
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
-from slide_visuals import deterministic_visual_plan, validate_visual_plan
 from slide_story_plan import (
     ChapterStoryV2,
     ClaimSourceV2,
@@ -47,6 +47,7 @@ from slide_story_plan import (
     StorySourceRevisionsV2,
     TeachingEpisodeV2,
 )
+from slide_visuals import deterministic_visual_plan, validate_visual_plan
 
 
 def _beat(chapter_index: int, scene: str) -> StoryBeatV2:
@@ -626,7 +627,7 @@ def test_v5_compaction_finds_enumeration_members_after_intervening_context() -> 
 @pytest.mark.parametrize(
     ("renderer_layout", "item_count", "page_capacity"),
     [
-        ("question", 8, 4),
+        ("question", 8, 5),
         # Concept pages may receive a visual after allocation and then resolve
         # to figure-text, whose hard visible-item capacity is five.
         ("editorial-body", 6, 5),
@@ -1896,11 +1897,57 @@ def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
     )
 
     assert report["passed"] is True
+    assert slides[0]["quality"]["final_page_contract_v2"]["passed"] is True
+    assert (
+        slides[0]["quality"]["final_page_contract_v2"]["resolved_layout"]
+        == "classification-3"
+    )
     assert not {
         "visible_item_overflow",
         "enumeration_cardinality_mismatch",
         "slide_title_too_long",
     } & {issue["code"] for issue in report["issues"]}
+
+
+def test_v5_reports_course_input_semantic_gaps_without_blocking_safe_pages() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "safe-concept",
+        "layout": "concept",
+        "title": "结构关系决定判断顺序",
+        "blocks": [{
+            "block_id": "concept",
+            "type": "rich_text",
+            "content": "先确认位置关系，再检查相邻结构。",
+        }],
+        "quality": {"requested_layout": "editorial-body"},
+    })
+
+    report = finalize_v5_quality_report(
+        previous_quality={"passed": True, "issues": []},
+        slides=[slide],
+        planner="ai",
+        fallback_reason="",
+        planning_diagnostics={
+            "structured_semantic_unit_count": 7,
+            "balanced_composition_unit_count": 7,
+            "semantic_role_counts": {
+                "concept": 5,
+                "activity": 1,
+                "feedback": 1,
+            },
+            "knowledge_binding_unmapped_count": 7,
+            "question_answer_binding_coverage": 1.0,
+        },
+    )
+
+    assert report["passed"] is True
+    issues = {issue["code"]: issue for issue in report["issues"]}
+    assert issues["course_input_example_missing"]["responsibility"] == (
+        "course_generation"
+    )
+    assert issues["course_input_knowledge_unmapped"]["responsibility"] == (
+        "course_generation"
+    )
 
 
 def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> None:
@@ -1930,6 +1977,25 @@ def test_v5_cover_splits_a_long_course_name_into_title_and_subtitle() -> None:
     assert outline.cover.title == "热力学与统计物理"
     assert outline.cover.subtitle == "原理、方法与应用"
     assert cover_contract.resolved_layout == "cover-editorial"
+
+
+def test_v5_build_signature_invalidates_all_teaching_semantic_policies() -> None:
+    signature = build_signature_v5(
+        document=_document(1),
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    assert signature["semantic_compiler_version"].startswith(
+        "ppt_teaching_semantics_v2"
+    )
+    assert signature["domain_presentation_profile_version"].startswith(
+        "domain_presentation_profiles_v1"
+    )
+    assert signature["visual_planning_batch_version"].startswith(
+        "chapter_visual_batches_v2"
+    )
 
 
 def test_v5_promotes_long_title_detail_into_supporting_copy() -> None:

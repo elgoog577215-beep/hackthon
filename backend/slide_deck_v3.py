@@ -24,17 +24,17 @@ from course_document import (
     refresh_document_revision,
     stable_hash,
 )
+from slide_asset_repository import (
+    SlideAssetRepository,
+    finalize_visual_assets,
+    resolve_visual_plan_assets,
+)
 from slide_deck import (
     SlideBlockSpec,
     SlideSpec,
     _plain_text,
     slide_quality,
     validate_slide_deck,
-)
-from slide_asset_repository import (
-    SlideAssetRepository,
-    finalize_visual_assets,
-    resolve_visual_plan_assets,
 )
 from slide_theme import slide_theme_version
 from slide_visuals import (
@@ -163,6 +163,14 @@ class ContentFragmentV1(_StrictModel):
     asset_refs: list[str] = Field(default_factory=list)
     objective_refs: list[str] = Field(default_factory=list)
     concept_refs: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    module_id: str = ""
+    module_instance_id: str = ""
+    lesson_archetype_id: str = ""
+    composition_source: str = ""
+    composition_style: str = ""
+    block_difficulty_contract: dict[str, Any] = Field(default_factory=dict)
+    knowledge_binding_status: str = ""
 
 
 class DerivedTextV1(_StrictModel):
@@ -223,7 +231,7 @@ class SlideAllocationPlanV2(_StrictModel):
     review: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_variant(self) -> "SlideAllocationPlanV2":
+    def validate_variant(self) -> SlideAllocationPlanV2:
         expected = slide_deck_variant_key(self.mode, self.theme)
         if self.variant_key != expected:
             raise ValueError("Slide allocation variant key does not match mode and theme")
@@ -551,6 +559,15 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
     )):
         if block.status == "retired":
             continue
+        payload = block.payload or {}
+        section = sections.get(block.section_id)
+        lesson_archetype = (
+            (section.attributes or {}).get("lesson_archetype")
+            if section is not None
+            else {}
+        )
+        if not isinstance(lesson_archetype, dict):
+            lesson_archetype = {}
         units = _fragment_block(block)
         if not units and block.asset_refs and block.kind in {"image", "diagram"}:
             payload = block.payload or {}
@@ -588,6 +605,34 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
                 asset_refs=list(block.asset_refs),
                 objective_refs=list(block.objective_refs),
                 concept_refs=list(block.concept_refs),
+                evidence_refs=list(block.evidence_refs),
+                module_id=str(payload.get("module_id") or ""),
+                module_instance_id=str(
+                    payload.get("module_instance_id") or ""
+                ),
+                lesson_archetype_id=str(
+                    payload.get("lesson_archetype_id")
+                    or lesson_archetype.get("archetype_id")
+                    or lesson_archetype.get("id")
+                    or ""
+                ),
+                composition_source=str(
+                    payload.get("composition_source") or ""
+                ),
+                composition_style=str(
+                    payload.get("composition_style") or ""
+                ),
+                block_difficulty_contract=(
+                    dict(payload.get("block_difficulty_contract") or {})
+                    if isinstance(
+                        payload.get("block_difficulty_contract") or {},
+                        dict,
+                    )
+                    else {}
+                ),
+                knowledge_binding_status=str(
+                    payload.get("knowledge_binding_status") or ""
+                ),
             ))
             ordinal += 1
     return fragments

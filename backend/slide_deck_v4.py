@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Any
 
 from course_document import CourseDocument, stable_hash
 from slide_deck_v3 import (
@@ -25,10 +26,10 @@ from slide_layout_registry import SLIDE_LAYOUT_REGISTRY_V2, SlideSceneKind
 from slide_story_plan import (
     SLIDE_STORY_ENGINE_V2_VERSION,
     STORY_BEAT_TEXT_CAPACITY,
+    V5_SEMANTIC_CORE_REASONS,
     ChapterStoryV2,
     SlideStoryPlanV2,
     StoryBeatV2,
-    V5_SEMANTIC_CORE_REASONS,
 )
 from slide_theme import slide_theme_version
 
@@ -38,7 +39,7 @@ SLIDE_LAYOUT_REGISTRY_V2_VERSION = "slide_layout_registry_v2.2"
 SLIDE_RENDER_REVIEW_VERSION = "slide_render_review_v1"
 
 _V5_SEMANTIC_PAGE_CAPACITY = {
-    "question": {"characters": 260, "items": 4},
+    "question": {"characters": 260, "items": 5},
     "case-study": {"characters": 320, "items": 4},
     "process": {"characters": 300, "items": 5},
     "summary": {"characters": 320, "items": 4},
@@ -583,6 +584,9 @@ def compile_slide_deck_v4(
             "copy_mode": beat.copy_mode,
             "copy_source_fragment_ids": list(beat.copy_source_fragment_ids),
             "audience_copy_applied": bool(audience_title or audience_summary),
+            "semantic_unit_ids": list(beat.semantic_unit_ids),
+            "question_ids": list(beat.question_ids),
+            "answer_for_question_ids": list(beat.answer_for_question_ids),
             "generated_practice_answers": [
                 item.model_dump(mode="json")
                 for item in beat.generated_practice_answers

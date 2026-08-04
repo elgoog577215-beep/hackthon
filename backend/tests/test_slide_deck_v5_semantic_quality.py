@@ -468,14 +468,19 @@ def test_generated_practice_answers_are_bound_to_stable_question_ids() -> None:
             ],
         }],
         "quality": {
+            "question_ids": ["pptq_closed", "pptq_open"],
             "generated_practice_answers": [
                 {
                     "question_index": 0,
+                    "question_id": "pptq_closed",
+                    "answer_source": "llm_generated",
                     "answer_text": "属于封闭系统，因为没有物质穿过边界。",
                     "supporting_fragment_ids": ["definition-closed"],
                 },
                 {
                     "question_index": 1,
+                    "question_id": "pptq_open",
+                    "answer_source": "llm_generated",
                     "answer_text": "属于开放系统，因为蒸汽会穿过边界。",
                     "supporting_fragment_ids": ["definition-open"],
                 },
