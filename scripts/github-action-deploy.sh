@@ -421,6 +421,9 @@ if ! wait_for_health; then
     false
 fi
 
+log "确保 Lingzhi 保留在主域名 /lingzhi/ 路径"
+"$VENV/bin/python" "$release_path/scripts/configure_lingzhi_public_route.py"
+
 service_stopped=0
 trap - ERR
 log "部署完成：$TARGET_COMMIT"

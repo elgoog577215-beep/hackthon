@@ -1,5 +1,7 @@
 import importlib.util
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,3 +78,108 @@ def test_rewrite_rejects_an_unknown_route_shape() -> None:
 
     with pytest.raises(ValueError, match="Lingzhi"):
         module.rewrite_caddyfile("tuotuzju.com { respond \"main\" }\n")
+
+
+def test_verify_public_routes_checks_health_and_canonical_redirect(monkeypatch) -> None:
+    module = load_route_module()
+    commands = []
+
+    def fake_run(command, *, capture_output=False):
+        commands.append((command, capture_output))
+        if capture_output:
+            return SimpleNamespace(
+                stdout="HTTP/2 308\r\nlocation: https://tuotuzju.com/lingzhi/\r\n"
+            )
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(module, "_run", fake_run)
+
+    module._verify_public_routes()
+
+    assert commands[0][0][-1] == "https://tuotuzju.com/lingzhi/api/health"
+    assert commands[1][0][-1] == "https://lingzhi.tuotuzju.com/"
+    assert commands[1][1] is True
+
+
+def test_verify_public_routes_rejects_wrong_subdomain_target(monkeypatch) -> None:
+    module = load_route_module()
+
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda command, *, capture_output=False: SimpleNamespace(
+            stdout="HTTP/2 200\r\n" if capture_output else ""
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="canonical"):
+        module._verify_public_routes()
+
+
+def test_configure_public_route_validates_backs_up_and_reloads(tmp_path, monkeypatch) -> None:
+    module = load_route_module()
+    config_path = tmp_path / "Caddyfile"
+    config_path.write_text(LEGACY_CADDYFILE, encoding="utf-8")
+    commands = []
+
+    monkeypatch.setattr(module.os, "chown", lambda *args: None, raising=False)
+    monkeypatch.setattr(module, "_verify_public_routes", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda command, *, capture_output=False: commands.append(command)
+        or SimpleNamespace(stdout=""),
+    )
+
+    backup_path = module.configure_public_route(config_path, "/usr/bin/caddy")
+
+    assert backup_path is not None
+    assert backup_path.read_text(encoding="utf-8") == LEGACY_CADDYFILE
+    assert module.MAIN_DOMAIN_ROUTE in config_path.read_text(encoding="utf-8")
+    assert commands[0][1] == "validate"
+    assert commands[1][1] == "reload"
+
+
+def test_configure_public_route_is_a_verified_noop_when_already_current(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    module = load_route_module()
+    config_path = tmp_path / "Caddyfile"
+    current = module.rewrite_caddyfile(LEGACY_CADDYFILE)
+    config_path.write_text(current, encoding="utf-8")
+    verifications = []
+
+    monkeypatch.setattr(module, "_verify_public_routes", lambda: verifications.append(True))
+
+    assert module.configure_public_route(config_path, "/usr/bin/caddy") is None
+    assert verifications == [True]
+    assert config_path.read_text(encoding="utf-8") == current
+
+
+def test_configure_public_route_restores_backup_when_reload_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    module = load_route_module()
+    config_path = tmp_path / "Caddyfile"
+    config_path.write_text(LEGACY_CADDYFILE, encoding="utf-8")
+    reload_attempts = 0
+
+    def fake_run(command, *, capture_output=False):
+        nonlocal reload_attempts
+        if command[1] == "reload":
+            reload_attempts += 1
+            if reload_attempts == 1:
+                raise subprocess.CalledProcessError(1, command)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(module.os, "chown", lambda *args: None, raising=False)
+    monkeypatch.setattr(module, "_run", fake_run)
+    monkeypatch.setattr(module, "_verify_public_routes", lambda: None)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        module.configure_public_route(config_path, "/usr/bin/caddy")
+
+    assert reload_attempts == 2
+    assert config_path.read_text(encoding="utf-8") == LEGACY_CADDYFILE
