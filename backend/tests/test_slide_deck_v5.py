@@ -1959,6 +1959,65 @@ def test_v5_paired_practice_discards_non_rendered_source_checklist() -> None:
     )
 
 
+def test_v5_shared_feedback_matches_the_six_item_renderer_contract() -> None:
+    enriched = _enrich_practice_feedback_slides_v5([
+        {
+            "unit_id": "concept-source",
+            "chapter_id": "chapter-1",
+            "scene_kind": "concept",
+            "knowledge_refs": ["knowledge-1"],
+            "blocks": [{
+                "block_id": "concept-evidence",
+                "type": "bullets",
+                "items": [
+                    "Evidence A explains the first decision.",
+                    "Evidence B explains the second decision.",
+                    "Evidence C explains the third decision.",
+                ],
+            }],
+        },
+        {
+            "unit_id": "practice-shared-evidence",
+            "layout": "question",
+            "chapter_id": "chapter-1",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "knowledge_refs": ["knowledge-1"],
+            "title": "Check the three decisions",
+            "blocks": [
+                {
+                    "block_id": "prompts",
+                    "type": "question",
+                    "items": ["Question A", "Question B", "Question C"],
+                    "metadata": {"semantic_role": "prompt"},
+                },
+                {
+                    "block_id": "source-checklist",
+                    "type": "bullets",
+                    "items": ["Check A", "Check B", "Check C"],
+                    "metadata": {"semantic_role": "support"},
+                },
+            ],
+            "visuals": [],
+            "quality": {"requested_layout": "question-prompt"},
+        },
+    ])
+
+    slide = apply_page_contract_v5(enriched[-1])
+
+    assert [
+        block["metadata"]["semantic_role"]
+        for block in slide["blocks"]
+    ] == ["prompt", "feedback"]
+    assert slide["quality"]["feedback_mode"] == "shared_evidence"
+    assert slide["quality"]["visible_item_count"] == 6
+    assert slide["quality"]["visible_item_budget"] == 6
+    assert not any(
+        issue["code"] == "visible_item_overflow"
+        for issue in v5_contract_issues([slide])
+    )
+
+
 def test_v5_promotes_feedback_group_labels_instead_of_counting_them_as_items() -> None:
     slide = apply_page_contract_v5({
         "unit_id": "practice-feedback-groups",

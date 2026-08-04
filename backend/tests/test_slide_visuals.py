@@ -29,6 +29,7 @@ from slide_visuals import (
     _source_clauses,
     _visual_anchor,
     _visual_plan_batches,
+    _visual_plan_request,
     deterministic_visual_plan,
     plan_slide_visuals,
     rebalance_visual_plan_pages,
@@ -964,6 +965,71 @@ async def test_ai_visual_plan_with_rewritten_body_falls_back() -> None:
 
     assert resolved.deck_brief["planner"] == "deterministic_fallback"
     assert resolved.deck_brief["fallback_reason"] == "invalid_or_failed_ai_visual_plan"
+
+
+@pytest.mark.asyncio
+async def test_visual_planner_cannot_replace_compiler_owned_page_copy() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    valid = deterministic_visual_plan(document, allocation, fragments)
+    raw = valid.model_dump(mode="json")
+    raw["pages"][0]["takeaway"] = "Provider-authored ungrounded body copy"
+
+    async def planner(_request):
+        return raw
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    assert resolved.deck_brief["ai_visual_batches_failed"] == 0
+    assert resolved.pages[0].takeaway == valid.pages[0].takeaway
+    assert resolved.pages[0].planner == "ai"
+
+
+def test_visual_request_declares_the_exact_response_contract() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    request = _visual_plan_request(
+        document,
+        allocation.model_copy(update={"pages": allocation.pages[:2]}),
+        fragments,
+        raster_generation_enabled=False,
+        allowed_visual_kinds={"none", "relational_diagram"},
+        batch_index=0,
+        batch_count=1,
+    )
+
+    assert request["rules"]["return_every_requested_page"] is True
+    assert request["response_contract"]["root"] == "slide_visual_plan_v1"
+    assert request["response_contract"]["pages_item_required"] == [
+        "page_id",
+        "teaching_job",
+        "takeaway",
+        "takeaway_source_fragment_ids",
+        "transition_from",
+        "composition",
+        "visual_anchor",
+        "role_layout_variant",
+    ]
 
 
 @pytest.mark.asyncio
