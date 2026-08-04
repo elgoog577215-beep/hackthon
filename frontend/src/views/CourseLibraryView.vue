@@ -7,6 +7,7 @@
         <span>{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
       </div>
       <div class="library-actions">
+        <button type="button" class="secondary-button" @click="router.push('/teacher-course-space')">教师文件空间</button>
         <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
         <button type="button" class="secondary-button task-center-button" :title="t('courseLibrary.tasks', '课程任务')" :aria-label="t('courseLibrary.tasks', '课程任务')" @click="openTaskCenter()">
           <ListChecks :size="16" />

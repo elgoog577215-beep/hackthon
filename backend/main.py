@@ -58,6 +58,7 @@ from routers import (
     course_acceptance, block_regeneration, learner_model, change_proposals,
     knowledge_libraries, teaching_representations, course_evolution,
     teaching_plan_workbench,
+    teacher_course_space,
 )
 
 @asynccontextmanager
@@ -173,6 +174,7 @@ app.include_router(teaching_representations.router, prefix="/api")
 app.include_router(course_evolution.router, prefix="/api")
 app.include_router(course_evolution.personal_router, prefix="/api")
 app.include_router(teaching_plan_workbench.router, prefix="/api")
+app.include_router(teacher_course_space.router, prefix="/api")
 
 
 # ============================================================================
