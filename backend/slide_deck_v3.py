@@ -1416,6 +1416,7 @@ def _paginate_fragments(
     capacity: int,
     *,
     appendix: bool = False,
+    max_visible_items: int | None = None,
 ) -> list[list[ContentFragmentV1]]:
     pages: list[list[ContentFragmentV1]] = []
     current: list[ContentFragmentV1] = []
@@ -1440,6 +1441,13 @@ def _paginate_fragments(
             (first.kind == "heading" and any(item.kind != "heading" for item in current))
             or current_size + size > text_capacity
             or len(candidate) > page_limit
+            or (
+                max_visible_items is not None
+                and sum(
+                    item.kind == "list_item"
+                    for item in candidate
+                ) > max_visible_items
+            )
             or (
                 not appendix
                 and _estimated_materialized_block_count(candidate) > 2
@@ -1489,6 +1497,18 @@ def _semantic_fragment_units(
             if index >= len(fragments):
                 units.append(headings)
                 break
+            if (
+                fragments[index].kind == "formula"
+                and index + 1 < len(fragments)
+                and fragments[index + 1].kind in {"paragraph", "list_item"}
+            ):
+                units.append([
+                    *headings,
+                    fragments[index],
+                    fragments[index + 1],
+                ])
+                index += 2
+                continue
             enumeration_end = _enumeration_end(fragments, index)
             if enumeration_end is not None:
                 units.append([*headings, *fragments[index:enumeration_end]])
@@ -1502,6 +1522,14 @@ def _semantic_fragment_units(
         if enumeration_end is not None:
             units.append(fragments[index:enumeration_end])
             index = enumeration_end
+            continue
+        if (
+            fragments[index].kind == "formula"
+            and index + 1 < len(fragments)
+            and fragments[index + 1].kind in {"paragraph", "list_item"}
+        ):
+            units.append([fragments[index], fragments[index + 1]])
+            index += 2
             continue
         units.append([fragments[index]])
         index += 1

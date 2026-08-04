@@ -30,9 +30,9 @@ from slide_story_plan import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.11"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.12"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.0"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.4"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.5"
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -271,17 +271,24 @@ def _v5_required_enumeration_fragments(group: list[Any]) -> set[str]:
         if not counts:
             continue
         expected = counts[0]
-        members: list[Any] = []
+        member_runs: list[list[Any]] = []
+        current_run: list[Any] = []
         for candidate in group[index + 1 :]:
             if candidate.kind == "heading":
                 break
             if candidate.kind == "list_item":
-                members.append(candidate)
-                if len(members) == expected:
-                    break
-            elif members:
-                break
-        if len(members) == expected:
+                current_run.append(candidate)
+                continue
+            if current_run:
+                member_runs.append(current_run)
+                current_run = []
+        if current_run:
+            member_runs.append(current_run)
+        members = next(
+            (run for run in member_runs if len(run) == expected),
+            [],
+        )
+        if members:
             return {
                 fragment.fragment_id,
                 *(item.fragment_id for item in members),
@@ -327,6 +334,11 @@ def _v5_fit_group(group: list[Any], *, limit: int = 230) -> list[Any]:
 
         for fragment in group:
             if fragment.fragment_id in selected_ids:
+                continue
+            # Optional sibling list items would change the visible cardinality
+            # of the source promise. Keep only the exact member run selected
+            # above; surrounding prose may still be retained when it fits.
+            if fragment.kind == "list_item":
                 continue
             size = len(str(fragment.text or ""))
             if len(selected_ids) >= 8 or (size and visible + size > limit):
@@ -1106,27 +1118,52 @@ def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
     if not suppress_body:
         body_values.append(_clean_text(slide.get("key_message")))
         for block in slide.get("blocks") or []:
+            metadata = block.get("metadata") or {}
+            comparison_rows = (
+                metadata.get("rows")
+                if str(block.get("type") or "") == "comparison"
+                else None
+            )
             body_values.extend([
                 _clean_text(block.get("title")),
                 _clean_text(block.get("content")),
-                *[
+            ])
+            if isinstance(comparison_rows, list) and comparison_rows:
+                body_values.extend(
+                    _clean_text(cell)
+                    for row in comparison_rows
+                    if isinstance(row, list)
+                    for cell in row
+                )
+            else:
+                body_values.extend(
                     _clean_text(item)
                     for item in block.get("items") or []
-                ],
-            ])
+                )
     body_character_count = sum(
         len(value)
         for value in body_values
         if value
     )
-    item_count = sum(
-        len([
+    item_count = 0
+    for block in slide.get("blocks") or []:
+        metadata = block.get("metadata") or {}
+        comparison_rows = (
+            metadata.get("rows")
+            if str(block.get("type") or "") == "comparison"
+            else None
+        )
+        if isinstance(comparison_rows, list) and comparison_rows:
+            item_count += len([
+                row for row in comparison_rows
+                if isinstance(row, list) and any(_clean_text(cell) for cell in row)
+            ])
+            continue
+        item_count += len([
             item
             for item in block.get("items") or []
             if _clean_text(item)
         ])
-        for block in slide.get("blocks") or []
-    )
     character_budget = int(budget["characters"])
     ratio = (
         body_character_count / character_budget
@@ -1453,6 +1490,9 @@ def _remove_repeated_lead_sentence(
 _VISIBLE_BULLET_LINE = re.compile(
     r"^\s*(?:[•●▪◦*\-]|\d+[.)、])\s*(\S.*)$"
 )
+_ITEM_GROUP_LABEL = re.compile(
+    r"^\s*\*\*(?P<label>[^*\n]{1,40}?)\*\*\s*[:：]?\s*$"
+)
 
 
 def _structure_visible_enumerations(
@@ -1479,6 +1519,60 @@ def _structure_visible_enumerations(
         if str(block.get("type") or "") == "statement":
             block["type"] = "bullets"
     return updated
+
+
+def _promote_item_group_labels(
+    blocks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Turn markdown-only list labels into real semantic block headings."""
+    promoted: list[dict[str, Any]] = []
+    for source_block in blocks:
+        items = list(source_block.get("items") or [])
+        labels = [
+            (index, _clean_text(match.group("label")))
+            for index, item in enumerate(items)
+            if (match := _ITEM_GROUP_LABEL.match(str(item or ""))) is not None
+        ]
+        if not labels:
+            promoted.append(source_block)
+            continue
+
+        first_label_index = labels[0][0]
+        prefix_items = items[:first_label_index]
+        if prefix_items:
+            prefix = deepcopy(source_block)
+            prefix["items"] = prefix_items
+            promoted.append(prefix)
+
+        for label_index, (item_index, label) in enumerate(labels):
+            next_index = (
+                labels[label_index + 1][0]
+                if label_index + 1 < len(labels)
+                else len(items)
+            )
+            group_items = [
+                item for item in items[item_index + 1 : next_index]
+                if _clean_text(item)
+            ]
+            if not group_items:
+                continue
+            group = deepcopy(source_block)
+            group["block_id"] = (
+                f"{source_block.get('block_id') or 'block'}:group:{label_index + 1}"
+            )
+            group["title"] = label
+            group["content"] = (
+                source_block.get("content")
+                if label_index == 0 and not prefix_items
+                else ""
+            )
+            group["items"] = group_items
+            group["metadata"] = {
+                **(source_block.get("metadata") or {}),
+                "source_group_label": label,
+            }
+            promoted.append(group)
+    return promoted
 
 
 _DEFINITION_RELATION_PATTERN = re.compile(
@@ -1757,16 +1851,24 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         resolved_composition = "diagram-full"
         major_regions = 1
     elif has_visual:
-        resolved_layout = (
-            requested_layout
-            if requested_layout in _VISUAL_REQUIRED_LAYOUTS
-            else "figure-text"
-        )
-        resolved_composition = (
-            requested_composition
-            if requested_composition in _VISUAL_COMPOSITIONS
-            else "split-visual"
-        )
+        if (
+            requested_layout == "diagram-full"
+            or requested_composition == "diagram-full"
+        ):
+            resolved_layout = "figure-text"
+            resolved_composition = "split-visual"
+            fallback_reason = "diagram_full_with_source_text"
+        else:
+            resolved_layout = (
+                requested_layout
+                if requested_layout in _VISUAL_REQUIRED_LAYOUTS
+                else "figure-text"
+            )
+            resolved_composition = (
+                requested_composition
+                if requested_composition in _VISUAL_COMPOSITIONS
+                else "split-visual"
+            )
         major_regions = 2
     elif any(item.semantic_role == "process_step" for item in non_visual):
         resolved_layout = "process-sequence"
@@ -1806,8 +1908,10 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
 
 def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     updated = deepcopy(slide)
-    updated["blocks"] = _structure_visible_enumerations(
-        list(updated.get("blocks") or [])
+    updated["blocks"] = _promote_item_group_labels(
+        _structure_visible_enumerations(
+            list(updated.get("blocks") or [])
+        )
     )
     contract = resolve_page_contract_v5(updated)
     quality = deepcopy(updated.get("quality") or {})

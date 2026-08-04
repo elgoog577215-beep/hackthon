@@ -558,6 +558,153 @@ def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -
     assert "background" not in concept_beat.fragment_ids
 
 
+def test_v5_compaction_finds_enumeration_members_after_intervening_context() -> None:
+    document = CourseDocument(
+        course_id="course-deferred-enumeration",
+        title="局部解剖学",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="第一章 胸部",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 纵隔分区",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    raw = [
+        ("heading", "heading", "纵隔四分法"),
+        (
+            "promise",
+            "paragraph",
+            "纵隔四分法将纵隔划分为四个区域，划分依赖两个关键平面。",
+        ),
+        ("plane-one", "list_item", "第一平面经过胸骨角与第四胸椎下缘。"),
+        ("plane-two", "list_item", "第二平面沿心包前缘界定前方区域。"),
+        ("member-label", "paragraph", "**纵隔四分法的具体构成**"),
+        ("superior", "list_item", "上纵隔：位于横断面以上。"),
+        ("anterior", "list_item", "前纵隔：位于心包与胸骨之间。"),
+        ("middle", "list_item", "中纵隔：主要容纳心包和心脏。"),
+        ("posterior", "list_item", "后纵隔：位于心包后方。"),
+    ]
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate(raw)
+    ]
+
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    concept_beat = next(
+        beat
+        for episode in compact.chapters[0].episodes
+        if episode.scene_kind == "concept"
+        for beat in episode.beats
+    )
+
+    assert {"promise", "superior", "anterior", "middle", "posterior"} <= set(
+        concept_beat.fragment_ids
+    )
+
+
+@pytest.mark.parametrize(
+    ("renderer_layout", "item_count", "page_capacity"),
+    [
+        ("question", 8, 4),
+        # Concept pages may receive a visual after allocation and then resolve
+        # to figure-text, whose hard visible-item capacity is five.
+        ("editorial-body", 6, 5),
+    ],
+)
+def test_v5_semantic_core_paginates_to_final_renderer_capacity(
+    renderer_layout: str,
+    item_count: int,
+    page_capacity: int,
+) -> None:
+    document = CourseDocument(
+        course_id="course-semantic-pagination",
+        title="课堂核对",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="第一章",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 核对练习",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=f"question-{index}",
+            section_id="section-1",
+            block_id="practice-block",
+            kind="list_item",
+            text=f"核对问题 {index}",
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="checkpoint",
+            source_kind="course_block",
+        )
+        for index in range(1, item_count + 1)
+    ]
+    story = _story(1)
+    concept_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-semantic-question",
+        "fragment_ids": [item.fragment_id for item in fragments],
+        "renderer_layout": renderer_layout,
+        "layout_selection_reason": "v5_semantic_grouping",
+    })
+    chapter = story.chapters[0]
+    story = story.model_copy(update={
+        "chapters": [chapter.model_copy(update={
+            "episodes": [
+                chapter.episodes[0],
+                TeachingEpisodeV2(
+                    episode_id="episode-semantic-question",
+                    scene_kind="concept",
+                    teaching_job="完成问题核对",
+                    beats=[concept_beat],
+                ),
+                chapter.episodes[-1],
+            ],
+        })],
+    })
+
+    allocation, _ = allocation_from_story_plan_v2(document, fragments, story)
+    teaching_pages = [page for page in allocation.pages if page.fragment_ids]
+
+    assert len(teaching_pages) == 2
+    assert all(len(page.fragment_ids) <= page_capacity for page in teaching_pages)
+    assert [
+        fragment_id
+        for page in teaching_pages
+        for fragment_id in page.fragment_ids
+    ] == [item.fragment_id for item in fragments]
+
+
 def test_one_text_group_cannot_keep_a_two_column_layout() -> None:
     contract = resolve_page_contract_v5({
         "layout": "concept",
@@ -578,6 +725,25 @@ def test_one_text_group_cannot_keep_a_two_column_layout() -> None:
     assert contract.resolved_composition == "statement"
     assert contract.occupied_major_region_count == 1
     assert contract.layout_fallback_reason == "single_group_two_column"
+
+
+def test_diagram_full_with_source_text_resolves_to_figure_text() -> None:
+    contract = resolve_page_contract_v5({
+        "layout": "concept",
+        "composition": "diagram-full",
+        "visuals": [{"visual_id": "anatomy-diagram"}],
+        "blocks": [{
+            "block_id": "explanation",
+            "type": "rich_text",
+            "content": "图解旁必须保留这段来源解释。",
+            "items": [],
+        }],
+        "quality": {"requested_layout": "diagram-full"},
+    })
+
+    assert contract.resolved_layout == "figure-text"
+    assert contract.resolved_composition == "split-visual"
+    assert contract.layout_fallback_reason == "diagram_full_with_source_text"
 
 
 def test_one_prompt_block_cannot_fabricate_a_practice_feedback_region() -> None:
@@ -1524,6 +1690,82 @@ def test_v5_title_and_item_budgets_are_hard_quality_gates() -> None:
         "slide_title_overflow",
         "visible_item_overflow",
     }
+
+
+def test_v5_comparison_density_counts_rendered_rows_not_flattened_cells() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "comparison-table",
+        "layout": "concept",
+        "title": "浅筋膜与深筋膜",
+        "blocks": [{
+            "block_id": "comparison",
+            "type": "comparison",
+            "items": [
+                "疏松结缔组织",
+                "致密不规则结缔组织",
+                "脂肪细胞",
+                "胶原纤维",
+                "易分离",
+                "难分离",
+                "出血少",
+                "张力大",
+            ],
+            "metadata": {
+                "headers": ["维度", "浅筋膜", "深筋膜"],
+                "rows": [
+                    ["组织学", "疏松", "致密"],
+                    ["成分", "脂肪", "胶原"],
+                    ["分离", "容易", "困难"],
+                    ["临床", "出血少", "张力大"],
+                ],
+            },
+        }],
+        "visuals": [],
+        "quality": {
+            "resolved_layout": "figure-text",
+            "major_region_count": 1,
+            "occupied_major_region_count": 1,
+        },
+    }])
+
+    assert not any(
+        issue["code"] == "visible_item_overflow"
+        for issue in issues
+    )
+
+
+def test_v5_promotes_feedback_group_labels_instead_of_counting_them_as_items() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "practice-feedback-groups",
+        "layout": "practice",
+        "title": "任务一：绘图练习核对",
+        "blocks": [{
+            "block_id": "feedback",
+            "type": "bullets",
+            "items": [
+                "**核对标准**：",
+                "标出结构边界",
+                "核对层次关系",
+                "说明临床意义",
+                "**典型错误**：",
+                "遗漏关键结构",
+                "混淆相邻层次",
+            ],
+        }],
+        "visuals": [],
+        "quality": {"requested_layout": "practice-feedback"},
+    })
+
+    assert slide["quality"]["resolved_layout"] == "practice-feedback"
+    assert [block["title"] for block in slide["blocks"]] == [
+        "核对标准",
+        "典型错误",
+    ]
+    assert sum(len(block["items"]) for block in slide["blocks"]) == 5
+    assert not any(
+        issue["code"] == "visible_item_overflow"
+        for issue in v5_contract_issues([slide])
+    )
 
 
 @pytest.mark.parametrize(

@@ -681,7 +681,6 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         )
         return
       }
-      this.liveSlides = this.liveSlides.slice(0, 5)
       if (this.liveSlides.length) {
         this.slidePreviewSource = 'draft'
         this.slideQuality = this.draftSlideQuality
