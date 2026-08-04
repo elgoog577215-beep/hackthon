@@ -1457,6 +1457,76 @@ def test_invalid_generated_answer_does_not_discard_other_chapter_directives() ->
     assert planned_prompt.generated_practice_answers == []
 
 
+def test_surplus_optional_answers_do_not_discard_the_ai_chapter() -> None:
+    course = _course_with_teaching_plan()
+    course["nodes"][0]["content_blocks"] = [
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] != "block-feedback"
+    ]
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    fallback = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    prompt = next(
+        beat
+        for chapter in fallback.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_role == "prompt"
+        and episode.scene_kind == "practice_feedback"
+    )
+    support = next(
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.fragment_id not in prompt.fragment_ids
+    )
+
+    async def planner(request: dict) -> dict:
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": prompt.beat_id,
+                "layout_id": prompt.layout_intent,
+                "generated_practice_answers": [
+                    {
+                        "question_index": index,
+                        "answer_text": f"Optional answer {index}",
+                        "supporting_fragment_ids": [support],
+                    }
+                    for index in range(6)
+                ],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=fallback,
+        ai_planner=planner,
+    ))
+    planned_prompt = next(
+        beat
+        for chapter in planned.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        if beat.beat_id == prompt.beat_id
+    )
+
+    assert planned.planner == "ai"
+    assert planned.fallback_reason == ""
+    assert planned_prompt.generated_practice_answers == []
+
+
 def test_ai_practice_prompt_layout_compiles_to_a_supported_allocation() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)

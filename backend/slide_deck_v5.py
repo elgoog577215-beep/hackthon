@@ -39,9 +39,9 @@ from slide_story_plan import (
 from slide_visuals import deterministic_visual_plan
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.14"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.15"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.7"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.8"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -1592,6 +1592,13 @@ def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
         if value
     )
     item_count = 0
+    paired_prompt_items = 0
+    paired_feedback_items = 0
+    paired_other_items = 0
+    count_paired_rows = bool(
+        resolved_layout == "practice-feedback"
+        and str(quality.get("feedback_mode") or "") == "paired"
+    )
     for block in slide.get("blocks") or []:
         metadata = block.get("metadata") or {}
         comparison_rows = (
@@ -1600,16 +1607,34 @@ def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
             else None
         )
         if isinstance(comparison_rows, list) and comparison_rows:
-            item_count += len([
+            block_item_count = len([
                 row for row in comparison_rows
                 if isinstance(row, list) and any(_clean_text(cell) for cell in row)
             ])
+        else:
+            block_item_count = len([
+                item
+                for item in block.get("items") or []
+                if _clean_text(item)
+            ])
+        if not count_paired_rows:
+            item_count += block_item_count
             continue
-        item_count += len([
-            item
-            for item in block.get("items") or []
-            if _clean_text(item)
-        ])
+        semantic_role = str(metadata.get("semantic_role") or "")
+        if semantic_role == "prompt":
+            paired_prompt_items += block_item_count
+        elif semantic_role in {"answer", "feedback", "solution", "validation"}:
+            paired_feedback_items += block_item_count
+        else:
+            paired_other_items += block_item_count
+    if count_paired_rows:
+        # Prompt and answer columns share one vertical row per bound question.
+        # Counting both columns independently rejects a three-row page as six
+        # visible items even though the renderer lays them out side by side.
+        item_count = (
+            max(paired_prompt_items, paired_feedback_items)
+            + paired_other_items
+        )
     character_budget = int(budget["characters"])
     ratio = (
         body_character_count / character_budget

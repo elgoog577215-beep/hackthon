@@ -297,7 +297,7 @@ def _source_first_story_ai_worker() -> (
             use_fast_model=True,
             retry_count=1,
             enable_thinking=False,
-            max_tokens=4096,
+            max_tokens=6144,
             reject_truncated=True,
             raise_on_failure=True,
             json_mode=True,
