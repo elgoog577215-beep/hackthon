@@ -108,3 +108,14 @@ def test_workflow_builds_before_uploading_release() -> None:
 
     assert build_step < upload_step < activate_step
     assert "scripts/build-deploy-artifact.sh" in workflow
+
+
+def test_production_frontend_builds_for_subdomain_root() -> None:
+    for relative_path in (
+        "scripts/build-deploy-artifact.sh",
+        "scripts/deploy-production.sh",
+    ):
+        script = (ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert "VITE_BASE_PATH=/ npm run build" in script
+        assert "VITE_BASE_PATH=/lingzhi/" not in script
