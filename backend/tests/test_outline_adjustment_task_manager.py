@@ -195,12 +195,12 @@ async def test_confirmed_adjustment_is_the_plan_read_by_followup_generation(tmp_
     await manager.confirm_generation_step("course-outline", "outline")
 
     assert [node["node_name"] for node in storage.course["nodes"]] == [
-        "基础",
-        "生命周期",
-        "组件组合",
+        "第1章 基础",
+        "1.1 生命周期",
+        "1.2 组件组合",
     ]
     sections = storage.course["course_plan"]["chapters"][0]["sections"]
-    assert [section["title"] for section in sections] == ["生命周期", "组件组合"]
+    assert [section["title"] for section in sections] == ["1.1 生命周期", "1.2 组件组合"]
     assert [section["node_id"] for section in sections] == ["L2-1-1", "L2-1-2"]
     assert versions.load_draft("course-outline") is None
 
