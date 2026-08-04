@@ -76,7 +76,7 @@ def test_server_activation_cache_cleanup_is_scoped_to_regenerable_data() -> None
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
     cleanup = script[
-        script.index("cleanup_regenerable_caches()") : script.index("ensure_free_space()")
+        script.index("cleanup_regenerable_caches()") : script.index("required_deploy_free_kb()")
     ]
 
     assert '"${XDG_CACHE_HOME:-$HOME/.cache}/pip"' in cleanup

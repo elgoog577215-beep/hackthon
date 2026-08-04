@@ -18,7 +18,8 @@ SERVICE_NAME="${LINGZHI_SERVICE_NAME:-lingzhi}"
 LOCK_FILE="${LINGZHI_DEPLOY_LOCK:-/var/lock/lingzhi-deploy.lock}"
 KEEP_RELEASES="${LINGZHI_KEEP_RELEASES:-2}"
 KEEP_BACKUPS="${LINGZHI_KEEP_BACKUPS:-2}"
-MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-2048}"
+MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-}"
+DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-512}"
 HEALTH_ATTEMPTS="${LINGZHI_HEALTH_ATTEMPTS:-60}"
 HEALTH_INTERVAL_SECONDS="${LINGZHI_HEALTH_INTERVAL_SECONDS:-2}"
 
@@ -40,8 +41,14 @@ validate_settings() {
         log "LINGZHI_KEEP_BACKUPS 必须是正整数"
         exit 1
     fi
-    if ! [[ "$MIN_FREE_MB" =~ ^[0-9]+$ ]] || [ "$MIN_FREE_MB" -lt 1 ]; then
+    if [ -n "$MIN_FREE_MB" ] \
+        && { ! [[ "$MIN_FREE_MB" =~ ^[0-9]+$ ]] || [ "$MIN_FREE_MB" -lt 1 ]; }; then
         log "LINGZHI_MIN_FREE_MB 必须是正整数"
+        exit 1
+    fi
+    if ! [[ "$DEPLOY_SAFETY_RESERVE_MB" =~ ^[0-9]+$ ]] \
+        || [ "$DEPLOY_SAFETY_RESERVE_MB" -lt 1 ]; then
+        log "LINGZHI_DEPLOY_SAFETY_RESERVE_MB 必须是正整数"
         exit 1
     fi
     if ! [[ "$HEALTH_ATTEMPTS" =~ ^[0-9]+$ ]] || [ "$HEALTH_ATTEMPTS" -lt 1 ]; then
@@ -174,9 +181,56 @@ cleanup_regenerable_caches() {
     )
 }
 
+required_deploy_free_kb() {
+    local artifact_uncompressed_bytes=""
+    local artifact_required_kb=0
+    local backup_required_kb=0
+    local explicit_required_kb=0
+    local latest_backup=""
+    local required_kb=0
+
+    artifact_uncompressed_bytes="$(gzip -l "$ARTIFACT_PATH" | awk 'NR == 2 {print $2}')"
+    if ! [[ "$artifact_uncompressed_bytes" =~ ^[0-9]+$ ]]; then
+        log "无法计算发布包解压体积：$ARTIFACT_PATH" >&2
+        return 1
+    fi
+    artifact_required_kb=$(((artifact_uncompressed_bytes + 1023) / 1024))
+
+    latest_backup="$({
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name 'data-*.tgz' -printf '%T@ %p\n' 2>/dev/null \
+            | LC_ALL=C sort -nr \
+            | head -n 1 \
+            | cut -d' ' -f2-
+    } || true)"
+    if [ -n "$latest_backup" ] && [ -f "$latest_backup" ]; then
+        backup_required_kb="$(du -k "$latest_backup" | awk 'NR == 1 {print $1}')"
+    elif [ -d "$STATE_DIR/backend-data" ]; then
+        backup_required_kb="$(du -sk "$STATE_DIR/backend-data" | awk 'NR == 1 {print $1}')"
+    fi
+    if ! [[ "$backup_required_kb" =~ ^[0-9]+$ ]]; then
+        backup_required_kb=0
+    fi
+
+    required_kb=$((
+        DEPLOY_SAFETY_RESERVE_MB * 1024
+        + artifact_required_kb
+        + backup_required_kb * 5 / 4
+    ))
+    if [ -n "$MIN_FREE_MB" ]; then
+        explicit_required_kb=$((MIN_FREE_MB * 1024))
+        if [ "$explicit_required_kb" -gt "$required_kb" ]; then
+            required_kb="$explicit_required_kb"
+        fi
+    fi
+
+    printf '%s\n' "$required_kb"
+}
+
 ensure_free_space() {
     local available_kb
-    local required_kb=$((MIN_FREE_MB * 1024))
+    local required_kb
+
+    required_kb="$(required_deploy_free_kb)"
 
     available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
     if [ -n "$available_kb" ] \
@@ -197,7 +251,7 @@ ensure_free_space() {
         available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
     fi
     if [ -z "$available_kb" ] || [ "$available_kb" -lt "$required_kb" ]; then
-        log "可用磁盘不足：需要至少 ${MIN_FREE_MB}MB"
+        log "可用磁盘不足：本次发布至少需要 $(((required_kb + 1023) / 1024))MB"
         df -h "$BASE_DIR"
         exit 1
     fi
