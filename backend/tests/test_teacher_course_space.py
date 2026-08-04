@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from material_storage import MaterialStorageError
-from teacher_course_space import TeacherCourseSpaceRepository, normalize_relative_path
+from teacher_course_space import TeacherCourseSpaceRepository, normalize_relative_path, package_folder_paths
 
 
 class FakeUpload:
@@ -86,6 +86,10 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(created_folders), 4)
         self.assertTrue((root / created["package_id"] / "content" / "整课资料" / "第一讲" / "空目录").is_dir())
         self.assertTrue((root / created["package_id"] / "content" / "整课资料" / "第二讲").is_dir())
+        self.assertEqual(
+            package_folder_paths(package),
+            ["整课资料", "整课资料/第一讲", "整课资料/第二讲", "整课资料/第一讲/空目录"],
+        )
 
     async def test_delete_asset_removes_source_and_materialized_copy(self):
         root = Path(tempfile.mkdtemp())
