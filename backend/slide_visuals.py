@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from course_document import CourseDocument, stable_hash
 from slide_rule_diagrams import RULE_DIAGRAM_TEMPLATES, parse_mermaid_rule_diagram
@@ -22,7 +22,7 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v3"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v4"
 
 VisualKind = Literal[
     "source_image",
@@ -810,6 +810,38 @@ def _visual_plan_request(
     }
 
 
+def _normalize_visual_plan_batch_payload(
+    raw: Any,
+    request: dict[str, Any],
+) -> Any:
+    """Fill deterministic batch metadata around provider page decisions.
+
+    Providers reliably return the requested ``pages`` array but often omit
+    deck-level fields that are already fixed by the request. Treat those
+    fields as compiler-owned instead of rejecting every otherwise valid
+    chapter batch with a Pydantic validation error.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    payload = raw.get(SLIDE_VISUAL_PLAN_SCHEMA, raw)
+    if not isinstance(payload, dict):
+        return raw
+    return {
+        "schema_version": SLIDE_VISUAL_PLAN_SCHEMA,
+        "policy_version": SLIDE_VISUAL_POLICY_VERSION,
+        "source_document_revision": request["source_document_revision"],
+        "mode": request["mode"],
+        "theme": request["theme"],
+        "variant_key": request["variant_key"],
+        "deck_brief": (
+            payload.get("deck_brief")
+            if isinstance(payload.get("deck_brief"), dict)
+            else {}
+        ),
+        "pages": payload.get("pages") or [],
+    }
+
+
 async def plan_slide_visuals(
     document: CourseDocument,
     allocation_plan: Any,
@@ -873,7 +905,9 @@ async def plan_slide_visuals(
                     timeout=timeout_seconds,
                 )
                 raw = await result if inspect.isawaitable(result) else result
-            candidate = SlideVisualPlanV1.model_validate(raw)
+            candidate = SlideVisualPlanV1.model_validate(
+                _normalize_visual_plan_batch_payload(raw, request)
+            )
             validate_visual_plan(candidate, batch_allocation, fragments)
             for page in candidate.pages:
                 resolved_by_page[page.page_id] = page.model_copy(update={
@@ -882,12 +916,26 @@ async def plan_slide_visuals(
                 })
             successful_batches.append(batch_index)
         except Exception as exc:
-            failed_batches.append({
+            failure: dict[str, Any] = {
                 "batch_index": batch_index,
                 "chapter_ids": request["chapter_ids"],
                 "page_ids": [page.page_id for page in batch_pages],
                 "failure_category": type(exc).__name__,
-            })
+            }
+            if isinstance(exc, ValidationError):
+                failure["validation_errors"] = [
+                    {
+                        "location": ".".join(
+                            str(part) for part in item.get("loc") or []
+                        ),
+                        "type": str(item.get("type") or ""),
+                        "message": str(item.get("msg") or "")[:240],
+                    }
+                    for item in exc.errors(include_url=False)[:6]
+                ]
+            elif str(exc).strip():
+                failure["message"] = str(exc).strip()[:300]
+            failed_batches.append(failure)
 
     fallback.pages = [
         resolved_by_page[page.page_id]

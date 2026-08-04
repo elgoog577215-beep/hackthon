@@ -151,7 +151,7 @@ class StoryBeatDirectiveV2(_StrictModel):
     supporting_fragment_ids: list[str] = Field(default_factory=list, max_length=8)
     generated_practice_answers: list[GeneratedPracticeAnswerV2] = Field(
         default_factory=list,
-        max_length=4,
+        max_length=8,
     )
 
     @model_validator(mode="after")
