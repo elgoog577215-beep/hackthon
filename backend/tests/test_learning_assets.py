@@ -463,6 +463,39 @@ def test_missing_approved_bank_item_uses_concrete_question_contract():
     assert mastery["question_spec"]["task"]["deliverable"]
 
 
+def test_rejected_bank_slot_is_not_replaced_by_an_unreviewed_fallback():
+    course = _course()
+    initial = compile_learning_assets(course)
+    bank = initial["question_bank_bundle"]
+    rejected = next(
+        item
+        for item in bank["items"]
+        if item["assessment_role"] == "practice"
+        and item["practice_levels"] == ["concept_check"]
+    )
+    rejected.update({
+        "review_tier": "mandatory_review",
+        "review_required": True,
+        "lifecycle_status": "needs_review",
+        "review_status": "needs_review",
+        "generation_status": "waiting_review",
+    })
+
+    questions = compile_learning_assets(
+        course,
+        question_bank_bundle=bank,
+    )["assets"]["questions"]
+
+    assert all(
+        item["practice_level"] != "concept_check"
+        for item in questions
+    )
+    assert all(
+        item.get("question_bank_item_revision_id")
+        for item in questions
+    )
+
+
 def test_compilation_uses_the_reviewed_question_bank_revision_as_source_of_truth():
     course = _course()
     initial = compile_learning_assets(course)

@@ -156,7 +156,6 @@ def compile_course_assessment_profile(
     family = pedagogy.primary_mode.value
     locked = bool(persisted.get("user_locked"))
     course_text = _course_text(course_data)
-    high_stakes = _is_high_stakes_course(course_data, family)
     classification_confidence = (
         0.95
         if locked
@@ -168,7 +167,9 @@ def compile_course_assessment_profile(
         "discipline": {
             "family": family,
             "label": pedagogy.primary_mode.value,
-            "high_stakes": high_stakes,
+            # Kept for schema compatibility. Review risk is intentionally
+            # assessed per item instead of inferred from a subject family.
+            "high_stakes": False,
         },
         "classification": {
             "method": (
@@ -210,7 +211,8 @@ def compile_course_assessment_profile(
         },
         "review_policy": {
             "schema_version": "exception_driven_question_quality_v1",
-            "high_stakes_requires_teacher": high_stakes,
+            "high_stakes_requires_teacher": False,
+            "risk_scope": "item",
             "low_confidence_requires_teacher": True,
             "comprehensive_requires_teacher": True,
             "deterministic_pass_auto_publish": True,
@@ -226,64 +228,46 @@ def compile_course_assessment_profile(
     return profile
 
 
-def _is_high_stakes_course(
-    course_data: dict[str, Any],
-    family: str,
-) -> bool:
-    """Classify course-level safety risk from identity, not incidental lesson words.
-
-    Terms such as “诊断” are common in programming and engineering courses.
-    Scanning every lesson body therefore creates broad false positives (for
-    example, “内存泄漏诊断”).  High-stakes review is reserved for an explicitly
-    medical family or a clearly medical/legal course identity.
-    """
-    if family == "life_medical":
-        return True
-
-    request = course_data.get("generation_request") or {}
-    identity_text = " ".join(
-        str(value or "")
-        for value in (
-            course_data.get("course_name"),
-            course_data.get("course_purpose"),
-            course_data.get("description"),
-            request.get("course_name"),
-            request.get("topic"),
-            request.get("description"),
-            request.get("requirements"),
-        )
-    ).lower()
-    explicit_high_stakes_markers = (
-        "临床",
-        "患者",
-        "处方",
-        "用药",
-        "手术",
-        "诊疗",
-        "治疗方案",
-        "刑法",
-        "诉讼",
-        "法律实务",
-        "司法考试",
+def classify_assessment_risk(*values: Any) -> dict[str, Any]:
+    """Classify actionable, high-consequence work without using subject labels."""
+    text = " ".join(
+        str(value or "").strip().lower()
+        for value in values
+        if str(value or "").strip()
     )
-    if any(
-        marker in identity_text
-        for marker in explicit_high_stakes_markers
-    ):
-        return True
-
-    medical_context = any(
-        marker in identity_text
-        for marker in ("医学", "疾病", "病理", "药理", "护理")
+    actionable = _contains_any(text, (
+        "制定", "给出", "推荐", "开具", "调整", "计算", "选择",
+        "执行", "操作", "制备", "合成", "配比", "绕过", "入侵",
+        "buy", "sell", "prescribe", "diagnose", "treat", "dosage",
+        "execute", "synthesize", "bypass", "exploit",
+    ))
+    personalized = _contains_any(text, (
+        "患者", "病人", "该患者", "个人", "个体", "客户", "当事人",
+        "patient", "personalized", "individual", "client",
+    ))
+    high_consequence = _contains_any(text, (
+        "诊断结论", "治疗方案", "处方", "用药", "剂量", "手术方案",
+        "医疗建议", "投资建议", "买卖建议", "法律意见", "诉讼策略",
+        "爆炸物", "武器", "有毒气体", "危险化学品", "窃取凭证",
+        "恶意代码", "dosage", "prescription", "treatment plan",
+        "investment advice", "legal advice", "explosive", "weapon",
+        "credential theft", "malware",
+    ))
+    inherently_operational = _contains_any(text, (
+        "爆炸物", "武器", "有毒气体", "窃取凭证", "恶意代码",
+        "explosive", "weapon", "credential theft", "malware",
+    ))
+    requires_review = bool(
+        inherently_operational
+        or (high_consequence and (actionable or personalized))
     )
-    legal_context = family == "humanities_social" and any(
-        marker in identity_text
-        for marker in ("法律", "法学", "司法", "合规")
-    )
-    return bool(
-        (medical_context and "诊断" in identity_text)
-        or legal_context
-    )
+    return {
+        "risk_level": "teacher_review" if requires_review else "low",
+        "requires_teacher_review": requires_review,
+        "risk_flags": (
+            ["high_consequence_action"] if requires_review else []
+        ),
+    }
 
 
 def compile_assessment_objectives(
@@ -335,14 +319,14 @@ def compile_assessment_objectives(
         confidence = "high" if len(grounded_text) >= 120 else (
             "medium" if sufficient else "low"
         )
+        item_risk = classify_assessment_risk(
+            objective_text,
+            node_name,
+            *skills,
+        )
         risk_level = (
             "teacher_review"
-            if (
-                not sufficient
-                or (
-                    resolved_profile.get("discipline") or {}
-                ).get("high_stakes")
-            )
+            if not sufficient or item_risk["requires_teacher_review"]
             else "low"
         )
         modalities = _answer_modalities(
@@ -397,6 +381,7 @@ def compile_assessment_objectives(
             ),
             "confidence": confidence,
             "risk_level": risk_level,
+            "risk_flags": list(item_risk["risk_flags"]),
             "generation_status": (
                 "ready" if sufficient else "candidate_only"
             ),
@@ -694,6 +679,10 @@ def _strip_number(value: str) -> str:
     return re.sub(r"^\s*\d+(?:\.\d+)*\s*", "", value).strip()
 
 
+def _contains_any(text: str, markers: Iterable[str]) -> bool:
+    return any(marker in text for marker in markers)
+
+
 def _tokens(value: str) -> list[str]:
     english = re.findall(r"[a-z][a-z0-9_+#-]{1,30}", value.lower())
     chinese = re.findall(r"[\u4e00-\u9fff]{2,12}", value)
@@ -723,6 +712,7 @@ __all__ = [
     "PUBLIC_QUESTION_FIELDS",
     "QUESTION_SPEC_V2_SCHEMA",
     "SOLUTION_ENVELOPE_SCHEMA",
+    "classify_assessment_risk",
     "compile_assessment_objectives",
     "compile_course_assessment_profile",
     "project_public_question",

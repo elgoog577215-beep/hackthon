@@ -262,6 +262,10 @@ def compare_diversity_signatures(
         and left.get("reasoning_route")
         == right.get("reasoning_route")
     )
+    same_practice_level = (
+        str(left.get("practice_level") or "")
+        == str(right.get("practice_level") or "")
+    )
     anchor_similarity, shared_anchors = _jaccard_with_count(
         left.get("anchors") or [],
         right.get("anchors") or [],
@@ -307,6 +311,7 @@ def compare_diversity_signatures(
             task_similarity >= 0.9
             or (
                 task_similarity >= 0.45
+                and same_practice_level
                 and (
                     same_cognitive_action
                     or same_reasoning_route
@@ -325,6 +330,7 @@ def compare_diversity_signatures(
         (
             shared_anchors >= 1
             and anchor_similarity >= 0.8
+            and same_practice_level
             and any(
                 len(value) >= 12
                 and not value.startswith("number:")
@@ -341,8 +347,9 @@ def compare_diversity_signatures(
         or (
             shared_subject_anchors >= 2
             and subject_anchor_similarity >= 0.5
+            and same_practice_level
         )
-        or shared_subject_anchors >= 3
+        or (shared_subject_anchors >= 3 and same_practice_level)
     )
     solution_match = bool(
         answer_similarity >= 0.82
@@ -369,12 +376,12 @@ def compare_diversity_signatures(
         material_task_similarity,
         (
             anchor_similarity * (0.6 + 0.4 * task_similarity)
-            if shared_anchors >= 2
+            if shared_anchors >= 2 and same_practice_level
             else 0.0
         ),
         (
             subject_anchor_similarity
-            if shared_subject_anchors >= 2
+            if shared_subject_anchors >= 2 and same_practice_level
             else 0.0
         ),
         (

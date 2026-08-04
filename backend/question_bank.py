@@ -2140,7 +2140,6 @@ def _apply_validation_plugin(
     plugin_requires_review = bool(
         plugin_contract.get("review_required")
         or not plugin_validation.get("passed")
-        or not deterministic
     )
     objective_risk = str(
         (
@@ -2200,6 +2199,12 @@ def _apply_validation_plugin(
         **deepcopy(solution.get("validator_config") or {}),
         "adapter_id": adapter_id,
         "capability_id": plugin_spec.get("capability_id"),
+        "validated_open_response": bool(
+            not deterministic
+            and plugin_validation.get("passed")
+            and rubric
+            and plugin_contract.get("open_response_attested")
+        ),
     }
     reasoning_path = plugin_spec.get("reasoning_path") or {}
     if reasoning_path.get("steps"):
@@ -2234,7 +2239,7 @@ def _apply_validation_plugin(
     validation_issues = deepcopy(
         plugin_validation.get("issues") or []
     )
-    if not deterministic:
+    if not deterministic and requires_review:
         validation_issues.append({
             "code": "independent_solution_required",
             "severity": "major",
@@ -3183,11 +3188,13 @@ def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
                         semantic_signals.get("task_similarity")
                         or 0
                     ) >= 0.9
-                    or semantic_signals.get(
-                        "same_cognitive_action"
-                    )
-                    or semantic_signals.get(
-                        "same_reasoning_route"
+                    or (
+                        str(left_signature.get("practice_level") or "")
+                        == str(right_signature.get("practice_level") or "")
+                        and (
+                            semantic_signals.get("same_cognitive_action")
+                            or semantic_signals.get("same_reasoning_route")
+                        )
                     )
                 )
             )
@@ -3735,14 +3742,8 @@ def _apply_tiered_review_policy(
     profile: dict[str, Any],
 ) -> None:
     """Publish validated questions by default and quarantine hard blockers."""
-    high_stakes = bool(
-        (profile.get("discipline") or {}).get("high_stakes")
-    )
     for item in items:
-        mandatory_reason = _mandatory_review_reason(
-            item,
-            high_stakes,
-        )
+        mandatory_reason = _mandatory_review_reason(item)
         latest_decision = next(
             (
                 str(entry.get("decision") or "")
@@ -3799,12 +3800,16 @@ def _apply_tiered_review_policy(
 
 def _mandatory_review_reason(
     item: dict[str, Any],
-    high_stakes: bool,
 ) -> str:
-    if high_stakes:
-        return "high_stakes_course"
     if item.get("assessment_role") in FINAL_ASSESSMENT_ROLES:
         return "comprehensive_assessment"
+    risk_flags = [
+        str(value)
+        for value in item.get("risk_flags") or []
+        if str(value).strip()
+    ]
+    if item.get("review_required") and "high_consequence_action" in risk_flags:
+        return "risk:high_consequence_action"
     quality = item.get("quality_report") or {}
     if not quality.get("passed"):
         return "quality_validation_failed"
@@ -3816,11 +3821,6 @@ def _mandatory_review_reason(
     if validation and not validation.get("passed"):
         return "solution_validation_failed"
     if item.get("review_required"):
-        risk_flags = [
-            str(value)
-            for value in item.get("risk_flags") or []
-            if str(value).strip()
-        ]
         return (
             f"risk:{risk_flags[0]}"
             if risk_flags

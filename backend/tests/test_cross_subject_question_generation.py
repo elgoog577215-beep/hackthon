@@ -301,11 +301,25 @@ def test_supported_subject_families_emit_validated_structured_specs(
         == "solution_spec_v1"
         for item in generated
     )
-    if mode == "life_medical":
-        assert all(item["lifecycle_status"] == "needs_review" for item in generated)
-        assert all("high_stakes_domain" in item["risk_flags"] for item in generated)
-    else:
-        assert all(item["lifecycle_status"] == "approved" for item in generated)
+    assert all(item["lifecycle_status"] == "approved" for item in generated)
+    assert all("high_stakes_domain" not in item["risk_flags"] for item in generated)
+
+
+def test_local_anatomy_questions_are_grounded_and_not_blanket_reviewed():
+    course = _course_for(
+        mode="life_medical",
+        topic="颈动脉三角的局部解剖",
+        objective="描述颈动脉三角的边界及其中血管神经的相对位置",
+        key_points=["颈动脉三角", "颈动脉鞘", "迷走神经"],
+        assessment="标注结构并解释毗邻关系",
+    )
+
+    generated = _practice_items(course)
+
+    assert all("颈动脉三角" in item["prompt"] for item in generated)
+    assert all("血糖" not in item["prompt"] for item in generated)
+    assert all(item["lifecycle_status"] == "approved" for item in generated)
+    assert all("high_stakes_domain" not in item["risk_flags"] for item in generated)
 
 
 def test_legacy_linear_algebra_course_without_profile_infers_math_adapter():

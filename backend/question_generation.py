@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 import re
 from typing import Any, Callable
 
+from assessment_contracts import classify_assessment_risk
 from course_pedagogy import coerce_persisted_profile
 from reasoning_paths import (
     compile_reasoning_support,
@@ -206,11 +207,18 @@ def generate_question_contract(
         course_data,
         str(node.get("node_id") or ""),
     )
-    risk_flags = list(payload.get("risk_flags") or [])
+    item_risk = classify_assessment_risk(
+        context.objective,
+        *context.assessments,
+        (payload.get("task") or {}).get("rendered_text"),
+        *list(payload.get("constraints") or []),
+    )
+    risk_flags = [
+        *list(payload.get("risk_flags") or []),
+        *list(item_risk.get("risk_flags") or []),
+    ]
     if adapter_id == "fallback.teacher_review":
         risk_flags.append("adapter_unavailable")
-    if context.subject_family == "life_medical":
-        risk_flags.append("high_stakes_domain")
     risk_flags = _unique(risk_flags)
 
     question_spec = {
@@ -245,10 +253,11 @@ def generate_question_contract(
         },
         "risk": {
             "flags": risk_flags,
+            "risk_level": item_risk["risk_level"],
             "requires_review": bool(
                 payload.get("review_required")
                 or adapter_id == "fallback.teacher_review"
-                or context.subject_family == "life_medical"
+                or item_risk["requires_teacher_review"]
             ),
         },
     }
@@ -279,6 +288,9 @@ def generate_question_contract(
         "review_required": bool(
             question_spec["risk"]["requires_review"]
             or validation["status"] != "passed"
+        ),
+        "open_response_attested": bool(
+            payload.get("open_response_attested")
         ),
         "source_records": source_records,
     }
@@ -3119,43 +3131,67 @@ def _build_science_spec(context: AdapterContext) -> dict[str, Any]:
 
 
 def _build_life_science_spec(context: AdapterContext) -> dict[str, Any]:
+    course_excerpt = " ".join(
+        str(context.node.get("node_content") or "").split()
+    )[:800]
+    focus = _join(context.key_points)
     input_text = (
-        "教学案例：受试对象进食后血糖短时升高，随后逐步回落至基线附近；"
-        "题目只讨论正常生理调节机制，不用于个人诊断或治疗建议。"
+        f"课程材料：{course_excerpt}"
+        if course_excerpt
+        else (
+            f"课程任务聚焦“{context.objective}”；"
+            f"可使用的核心概念包括{focus}。"
+        )
     )
+    task_by_level = {
+        "concept_check": (
+            f"从材料中辨认与“{context.objective}”直接相关的结构或机制，"
+            "逐项说明它们之间的基本关系"
+        ),
+        "objective_practice": (
+            f"围绕“{context.objective}”建立一条可复核的结构、层次或机制关系链，"
+            "并为每个关键关系标注材料依据"
+        ),
+        "mastery_check": (
+            f"将{focus}迁移到一个未标注的同类情境，提出关系判断、检查边界，"
+            "并指出最容易混淆的一处关系"
+        ),
+    }
     return {
         "archetype_id": "bounded_mechanism_explanation",
         "stimulus": {
             "kind": "mechanism_case",
             "data": {
-                "observations": ["进食后升高", "随后回落"],
-                "scope": "normal_physiology_education",
-                "excluded_use": ["diagnosis", "treatment"],
+                "course_objective": context.objective,
+                "knowledge_points": context.key_points,
+                "scope": "course_content_education",
             },
             "rendered_text": input_text,
         },
         "task": {
             "action": "explain_mechanism",
-            "rendered_text": f"使用{_join(context.key_points)}解释观察到的变化并标明反馈环节",
-            "deliverable": "刺激、调节信号、靶作用和反馈结果的机制链",
+            "rendered_text": task_by_level.get(
+                context.practice_level,
+                task_by_level["objective_practice"],
+            ),
+            "deliverable": "关系说明、判断依据和适用边界",
         },
-        "constraints": ["不得给出诊断或治疗建议", "不得推断案例未提供的信息"],
+        "constraints": ["仅依据课程材料作答", "不得推断材料未提供的信息"],
         "response_contract": {
             "format": "mechanism_chain",
-            "required_parts": ["stimulus", "signal", "target", "effect", "feedback"],
+            "required_parts": ["entities", "relationships", "evidence", "boundary"],
         },
         "answer_spec": _base_answer_spec(
             context,
             [
-                "机制链条与正常生理过程一致",
-                "明确说明负反馈如何恢复稳态",
-                "没有越界形成诊断或治疗建议",
+                "核心结构、层次或机制关系与课程材料一致",
+                "判断依据能够对应题面给定信息",
+                "结论没有超出课程材料边界",
             ],
             validation_mode="rubric_with_expert_review",
         ),
-        "result_checks": ["机制各环节因果方向一致", "结论保持在教学案例范围内"],
-        "review_required": True,
-        "risk_flags": ["high_stakes_domain"],
+        "result_checks": ["关系方向与课程内容一致", "结论保持在材料范围内"],
+        "open_response_attested": True,
     }
 
 
