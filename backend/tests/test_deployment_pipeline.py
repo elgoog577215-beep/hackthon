@@ -36,7 +36,29 @@ def test_server_activation_prunes_only_the_older_rollback_when_space_is_still_lo
 
     assert "cleanup_backups 1" in ensure_free_space
     assert "cleanup_releases 1" in ensure_free_space
+    assert "cleanup_regenerable_caches" in ensure_free_space
     assert ensure_free_space.index("cleanup_backups 1") < ensure_free_space.index("cleanup_releases 1")
+    assert ensure_free_space.index("cleanup_releases 1") < ensure_free_space.index(
+        "cleanup_regenerable_caches"
+    )
+
+
+def test_server_activation_cache_cleanup_is_scoped_to_regenerable_data() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    cleanup = script[
+        script.index("cleanup_regenerable_caches()") : script.index("ensure_free_space()")
+    ]
+
+    assert '"${XDG_CACHE_HOME:-$HOME/.cache}/pip"' in cleanup
+    assert '"${XDG_CACHE_HOME:-$HOME/.cache}/uv"' in cleanup
+    assert '"$HOME/.npm/_cacache"' in cleanup
+    assert '"$HOME/.cache/node-gyp"' in cleanup
+    assert 'active_path="$(current_release)"' in cleanup
+    assert "__pycache__" in cleanup
+    assert ".pytest_cache" in cleanup
+    assert "STATE_DIR" not in cleanup
+    assert "BACKUP_DIR" not in cleanup
 
 
 def test_server_activation_uses_checkpoint_recovery_for_active_tasks() -> None:
