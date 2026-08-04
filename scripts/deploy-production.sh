@@ -10,7 +10,7 @@ fi
 
 cd "$ROOT/frontend"
 npm ci
-VITE_BASE_PATH=/ npm run build
+VITE_BASE_PATH=/lingzhi/ npm run build
 
 rm -rf "$ROOT/backend/static"
 mkdir -p "$ROOT/backend/static"
