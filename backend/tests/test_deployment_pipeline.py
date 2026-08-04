@@ -43,11 +43,40 @@ def test_server_activation_prunes_only_the_older_rollback_when_space_is_still_lo
     )
 
 
+def test_server_activation_sizes_free_space_from_release_backup_and_reserve() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    capacity = script[
+        script.index("required_deploy_free_kb()") : script.index("ensure_free_space()")
+    ]
+
+    assert 'DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-512}"' in script
+    assert 'MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-}"' in script
+    assert 'gzip -l "$ARTIFACT_PATH"' in capacity
+    assert 'find "$BACKUP_DIR"' in capacity
+    assert 'du -sk "$STATE_DIR/backend-data"' in capacity
+    assert "backup_required_kb * 5 / 4" in capacity
+    assert "DEPLOY_SAFETY_RESERVE_MB * 1024" in capacity
+    assert 'required_kb="$(required_deploy_free_kb)"' in script
+
+
+def test_server_activation_keeps_explicit_free_space_override_as_a_floor() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    capacity = script[
+        script.index("required_deploy_free_kb()") : script.index("ensure_free_space()")
+    ]
+
+    assert 'if [ -n "$MIN_FREE_MB" ]' in capacity
+    assert "explicit_required_kb=$((MIN_FREE_MB * 1024))" in capacity
+    assert 'if [ "$explicit_required_kb" -gt "$required_kb" ]' in capacity
+
+
 def test_server_activation_cache_cleanup_is_scoped_to_regenerable_data() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 
     cleanup = script[
-        script.index("cleanup_regenerable_caches()") : script.index("ensure_free_space()")
+        script.index("cleanup_regenerable_caches()") : script.index("required_deploy_free_kb()")
     ]
 
     assert '"${XDG_CACHE_HOME:-$HOME/.cache}/pip"' in cleanup
