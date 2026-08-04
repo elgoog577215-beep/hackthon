@@ -180,8 +180,8 @@ def test_apply_rejects_stale_draft_and_recompiles_instead_of_trusting_client_pla
     assert applied.status_code == 200
     saved = repository.saved[0]
     assert [section["title"] for section in saved["course_plan"]["chapters"][0]["sections"]] == [
-        "生命周期",
-        "组件组合",
+        "1.1 生命周期",
+        "1.2 组件组合",
     ]
     assert saved["course_blueprint"]["sections"] == saved["course_plan"]["chapters"]
 
@@ -227,9 +227,9 @@ def test_adjustment_apply_is_bound_to_previewed_operations_and_ignores_tampered_
 
     assert applied.status_code == 200
     assert [node["node_name"] for node in repository.saved[0]["nodes"]] == [
-        "基础",
-        "生命周期",
-        "组件组合",
+        "第1章 基础",
+        "1.1 生命周期",
+        "1.2 组件组合",
     ]
 
     repository.draft = existing

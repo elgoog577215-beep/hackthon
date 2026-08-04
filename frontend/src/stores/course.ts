@@ -371,6 +371,45 @@ export const useCourseStore = defineStore('course', {
         this.currentGenerationPreviewUpdatedAt = ''
     },
 
+    applyGenerationOutlineDraft(rawNodes: Array<Record<string, any>>) {
+        const previousById = new Map(this.nodes.map(node => [node.node_id, node]))
+        const currentNodeId = this.currentNode?.node_id
+        const nodes = (rawNodes || []).map((raw): Node => {
+            const nodeId = String(raw.node_id || '')
+            const previous = previousById.get(nodeId)
+            const nodeContent = String(raw.node_content ?? previous?.node_content ?? '')
+            return {
+                node_id: nodeId,
+                parent_node_id: String(raw.parent_node_id || 'root'),
+                node_name: String(raw.node_name || ''),
+                node_level: Number(raw.node_level || 1),
+                node_content: nodeContent,
+                learning_objective: String(raw.learning_objective || ''),
+                learning_path_role: raw.learning_path_role,
+                path_reason: raw.path_reason,
+                objective_id: raw.objective_id,
+                objective_revision_id: raw.objective_revision_id,
+                node_type: raw.node_type || previous?.node_type || 'original',
+                generation_status: raw.generation_status || previous?.generation_status || 'pending',
+                content_state: raw.content_state || previous?.content_state,
+                generated_chars: Number(raw.generated_chars ?? previous?.generated_chars ?? nodeContent.length),
+                error_summary: raw.error_summary || previous?.error_summary,
+                difficulty_contract: raw.difficulty_contract || previous?.difficulty_contract,
+                content_blocks: raw.content_blocks || previous?.content_blocks || [],
+                children: [],
+            }
+        })
+        this.nodes = nodes
+        this.courseTree = this.buildTree(nodes)
+        this.currentNode = (
+            (currentNodeId && nodes.find(node => node.node_id === currentNodeId))
+            || nodes[0]
+            || null
+        )
+        this.currentCourseProjection = 'generation_preview'
+        this.currentCourseSourceFormat = 'canonical'
+    },
+
     async refreshGenerationPreview(courseId: string): Promise<boolean> {
         if (this.currentCourseId !== courseId || this.generationPreviewLoading) {
             return this.currentCourseProjection === 'generation_preview'

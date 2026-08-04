@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any, Iterable
 
 
 ALLOWED_OPERATIONS = {"add_node", "remove_node", "move_node", "update_node"}
+
+_CHAPTER_NUMBER_PREFIX = re.compile(
+    r"^\s*第\s*[0-9一二三四五六七八九十百零〇两]+\s*章\s*[:：、.．\-]?\s*"
+)
+_SECTION_NUMBER_PREFIX = re.compile(
+    r"^\s*\d+\s*[.．]\s*\d+\s*[:：、.．\-]?\s*"
+)
+_SEMANTIC_PUNCTUATION = re.compile(r"[\W_]+", re.UNICODE)
+_RESPONSIBILITY_CONCEPTS = {
+    "release": ("打包", "构建设置", "多平台", "发布", "构建发布"),
+    "verification": ("调试", "测试验证", "验证流程", "缺陷修复", "消除致命bug"),
+    "delivery": ("交付", "交付物", "可独立运行", "最终产物"),
+}
 
 
 class OutlineAdjustmentError(ValueError):
@@ -373,7 +388,63 @@ def _validate_final_state(state: _OutlineState) -> list[str]:
                     f"节点“{state.nodes[ref].get('node_name') or ref}”不能依赖后序节点",
                     details={"node_ref": ref, "dependency_ref": dependency},
                 )
+    _validate_sibling_semantic_duplicates(state)
     return ordered
+
+
+def _validate_sibling_semantic_duplicates(state: _OutlineState) -> None:
+    for chapter_ref in state.chapters:
+        section_refs = state.sections.get(chapter_ref) or []
+        for index, left_ref in enumerate(section_refs):
+            for right_ref in section_refs[index + 1:]:
+                left = state.nodes[left_ref]
+                right = state.nodes[right_ref]
+                if not _sections_semantically_duplicate(left, right):
+                    continue
+                left_name = str(left.get("node_name") or left_ref)
+                right_name = str(right.get("node_name") or right_ref)
+                raise OutlineAdjustmentError(
+                    "semantic_duplicate_sections",
+                    f"同一章节中的“{left_name}”与“{right_name}”职责重复，请合并或删除其一",
+                    details={
+                        "chapter_ref": chapter_ref,
+                        "node_refs": [left_ref, right_ref],
+                        "node_names": [left_name, right_name],
+                    },
+                )
+
+
+def _sections_semantically_duplicate(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_title = _normalize_semantic_text(str(left.get("node_name") or ""), level=2)
+    right_title = _normalize_semantic_text(str(right.get("node_name") or ""), level=2)
+    left_objective = _normalize_semantic_text(str(left.get("learning_objective") or ""))
+    right_objective = _normalize_semantic_text(str(right.get("learning_objective") or ""))
+    if left_title and left_title == right_title:
+        return True
+    if min(len(left_objective), len(right_objective)) >= 12:
+        if SequenceMatcher(None, left_objective, right_objective).ratio() >= 0.82:
+            return True
+    left_concepts = _responsibility_concepts(f"{left_title}{left_objective}")
+    right_concepts = _responsibility_concepts(f"{right_title}{right_objective}")
+    return len(left_concepts & right_concepts) >= 3
+
+
+def _normalize_semantic_text(value: str, *, level: int | None = None) -> str:
+    text = value.strip().lower()
+    if level == 1:
+        text = _CHAPTER_NUMBER_PREFIX.sub("", text, count=1)
+    elif level == 2:
+        text = _SECTION_NUMBER_PREFIX.sub("", text, count=1)
+    return _SEMANTIC_PUNCTUATION.sub("", text)
+
+
+def _responsibility_concepts(value: str) -> set[str]:
+    normalized = value.lower()
+    return {
+        concept
+        for concept, markers in _RESPONSIBILITY_CONCEPTS.items()
+        if any(marker in normalized for marker in markers)
+    }
 
 
 def _ensure_dependency_acyclic(graph: dict[str, list[str]]) -> None:
@@ -415,11 +486,13 @@ def _compile_draft(
 ) -> tuple[dict[str, Any], dict[str, str]]:
     id_map: dict[str, str] = {}
     chapter_numbers: dict[str, int] = {}
+    section_numbers: dict[str, tuple[int, int]] = {}
     for chapter_index, chapter_ref in enumerate(state.chapters, start=1):
         chapter_numbers[chapter_ref] = chapter_index
         id_map[chapter_ref] = f"L1-{chapter_index}"
         for section_index, section_ref in enumerate(state.sections[chapter_ref], start=1):
             id_map[section_ref] = f"L2-{chapter_index}-{section_index}"
+            section_numbers[section_ref] = (chapter_index, section_index)
 
     compiled_nodes: list[dict[str, Any]] = []
     for ref in ordered_refs:
@@ -432,6 +505,20 @@ def _compile_draft(
         }
         node["node_id"] = id_map[ref]
         node["node_level"] = level
+        if level == 1:
+            node["node_name"] = _canonical_node_name(
+                str(raw.get("node_name") or ""),
+                level=1,
+                chapter_number=chapter_numbers[ref],
+            )
+        else:
+            chapter_number, section_number = section_numbers[ref]
+            node["node_name"] = _canonical_node_name(
+                str(raw.get("node_name") or ""),
+                level=2,
+                chapter_number=chapter_number,
+                section_number=section_number,
+            )
         node["parent_node_id"] = (
             "root" if level == 1 else id_map[str(raw.get("parent_node_id") or "")]
         )
@@ -496,6 +583,20 @@ def _compile_draft(
         if ref in id_map
     }
     return compiled, id_map
+
+
+def _canonical_node_name(
+    value: str,
+    *,
+    level: int,
+    chapter_number: int,
+    section_number: int | None = None,
+) -> str:
+    if level == 1:
+        title = _CHAPTER_NUMBER_PREFIX.sub("", value.strip(), count=1).strip()
+        return f"第{chapter_number}章 {title}".strip()
+    title = _SECTION_NUMBER_PREFIX.sub("", value.strip(), count=1).strip()
+    return f"{chapter_number}.{section_number or 1} {title}".strip()
 
 
 def _constraint_report(draft: dict[str, Any]) -> dict[str, Any]:

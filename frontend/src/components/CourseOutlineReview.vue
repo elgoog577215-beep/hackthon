@@ -546,6 +546,7 @@ async function applyAdjustmentProposal() {
     )
     adjustmentProposal.value = null
     blueprintDraft.value = clone(result?.draft || candidate)
+    courseStore.applyGenerationOutlineDraft(blueprintNodes.value)
     baseline.value = draftSignature.value
     proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
     liveStatus.value = proposalNotice.value
