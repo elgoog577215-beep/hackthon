@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from learner_context import require_user_id
 from material_storage import MaterialStorageError
-from teacher_course_space import CATEGORIES, teacher_course_space_repository as repository
+from teacher_course_space import CATEGORIES, package_folder_paths, teacher_course_space_repository as repository
 
 router = APIRouter(prefix="/teacher-course-spaces", tags=["teacher_course_spaces"])
 class PackageCreate(BaseModel): course_name: str; academic_year: str; term: str; template: str = "blank"
@@ -83,6 +83,10 @@ def export_package(package_id: str, request: Request):
         package = repository.load_owned(package_id, owner(request)); buffer=io.BytesIO()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
             manifest=[]
+            for folder_path in package_folder_paths(package):
+                directory = zipfile.ZipInfo(f"{folder_path.rstrip('/')}/")
+                directory.external_attr = (0o40775 << 16) | 0x10
+                archive.writestr(directory, b"")
             for asset in package.get("assets", []):
                 _, path = repository.source_file(package, asset["asset_id"])
                 archive.write(path, asset['relative_path']); manifest.append({k:v for k,v in asset.items() if k != 'stored_name'})

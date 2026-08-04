@@ -69,6 +69,17 @@ def classify_path(relative_path: str) -> tuple[str, str]:
                 return category, f"文件名或路径包含“{word}”"
     return "uncategorized", "未命中预设分类规则"
 
+def package_folder_paths(package: dict[str, Any]) -> list[str]:
+    folders: set[str] = set()
+    for entry in package.get("entries", []):
+        if entry.get("kind") == "folder":
+            folders.add(normalize_relative_path(str(entry.get("path") or entry.get("name") or "")))
+    for asset in package.get("assets", []):
+        parts = PurePosixPath(normalize_relative_path(str(asset.get("relative_path", "")))).parts[:-1]
+        for index in range(1, len(parts) + 1):
+            folders.add(str(PurePosixPath(*parts[:index])))
+    return sorted(folders, key=lambda value: (len(PurePosixPath(value).parts), value))
+
 class TeacherCourseSpaceRepository:
     def __init__(self, root: Path | str = COURSE_SPACE_DIR) -> None:
         self.root = Path(root)
