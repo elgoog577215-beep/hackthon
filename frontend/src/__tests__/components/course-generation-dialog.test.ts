@@ -65,7 +65,46 @@ describe('CourseGenerationDialog', () => {
         requirements: '保留完整推导，并提供独立练习',
         material_bindings: [],
         web_question_enrichment: { enabled: true },
+        teacher_course_brief: expect.objectContaining({
+          schema_version: 'teacher_course_brief_v1',
+          target_audience: '大学生',
+          total_class_hours: 16,
+          lesson_duration_minutes: 45,
+          teaching_context: 'classroom',
+          additional_requirements: '保留完整推导，并提供独立练习',
+        }),
       }),
+    })
+  })
+
+  it('把课堂约束写入生成请求，并阻止不合理的章节规模', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    await wrapper.get('#course-subject').setValue('一次函数')
+    await wrapper.get('#teacher-target-audience').setValue('初中二年级学生')
+    await wrapper.get('#teacher-total-hours').setValue('12')
+    await wrapper.get('#teacher-lesson-minutes').setValue('40')
+    await wrapper.get('#teacher-context').setValue('blended')
+    await wrapper.get('#teacher-chapter-count').setValue('6')
+    await wrapper.get('#teacher-section-count').setValue('4')
+    expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#teacher-section-count').setValue('18')
+    await wrapper.get('#teacher-class-profile').setValue('有基础差异，需要分层讨论')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief).toMatchObject({
+      target_audience: '初中二年级学生',
+      total_class_hours: 12,
+      lesson_duration_minutes: 40,
+      teaching_context: 'blended',
+      chapter_count: 6,
+      section_count: 18,
+      class_profile: '有基础差异，需要分层讨论',
     })
   })
 

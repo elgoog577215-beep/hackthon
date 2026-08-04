@@ -152,3 +152,40 @@ def test_repair_is_deterministic_across_runs():
 
     assert first["revision_id"] == second["revision_id"]
     assert first == second
+
+
+def test_batch_normalization_preserves_structured_classroom_execution_fields():
+    batch = normalize_teaching_plan_batch_v3(
+        {
+            "sections": [{
+                "node_id": "L2-1-1",
+                "knowledge_details": [_detail()],
+                "teaching_modules": [{
+                    "module_id": "core_explanation",
+                    "teaching_purpose": "建立斜率直觉",
+                    "knowledge_keys": ["K1"],
+                    "teaching_guidance": "先比较两段变化，再归纳公式。",
+                    "planned_minutes": 15,
+                    "teacher_activity": "展示对比图并追问",
+                    "student_activity": "标注变化并说明理由",
+                }],
+                "planned_minutes": 45,
+                "key_difficulties": ["区分变化量与斜率"],
+                "teacher_activities": ["展示图像"],
+                "student_activities": ["小组比较"],
+                "resource_refs": ["resource-1"],
+                "in_class_checks": ["出口题"],
+                "homework": ["完成两题练习"],
+                "teaching_notes": ["预留讨论时间"],
+            }],
+        },
+        batch_id="TP-B01",
+        skeleton_revision_id="skeleton_test",
+    )
+
+    section = batch["sections"][0]
+    assert section["planned_minutes"] == 45
+    assert section["teacher_activities"] == ["展示图像"]
+    assert section["resource_refs"] == ["resource-1"]
+    assert section["teaching_modules"][0]["planned_minutes"] == 15
+    assert section["teaching_modules"][0]["teacher_activity"] == "展示对比图并追问"

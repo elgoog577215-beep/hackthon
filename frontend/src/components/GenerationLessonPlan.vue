@@ -459,6 +459,125 @@
         </section>
       </div>
 
+      <section class="generation-lesson-plan__overview-section generation-lesson-plan__classroom-section">
+        <header>
+          <span>
+            <small>{{ t('courseGeneration.lessonPlan.classroomEyebrow', '课堂交付') }}</small>
+            <strong>{{ t('courseGeneration.lessonPlan.classroomTitle', '这门课按什么课堂条件实施') }}</strong>
+          </span>
+          <p>{{ t('courseGeneration.lessonPlan.classroomHelp', '总课时、单次时长和课堂活动共同约束教学安排；修改后会在审阅中说明需要重建的内容。') }}</p>
+        </header>
+        <div class="generation-lesson-plan__classroom-grid">
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.academicTermLabel', '开课学期') }}</span>
+            <input
+              v-if="editing"
+              class="generation-lesson-plan__inline-input"
+              :value="draftText('overall/academic_term', classroomPlan.academic_term)"
+              :aria-label="t('courseGeneration.lessonPlan.academicTermLabel', '开课学期')"
+              @input="queueTextPatch('overall/academic_term', classroomPlan.academic_term, $event)"
+            />
+            <strong v-else>{{ classroomPlan.academic_term || t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</strong>
+          </label>
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.totalClassHoursLabel', '总课时') }}</span>
+            <input
+              v-if="editing"
+              class="generation-lesson-plan__inline-input"
+              type="number"
+              min="1"
+              :value="draftNumber('overall/total_class_hours', classroomPlan.total_class_hours)"
+              :aria-label="t('courseGeneration.lessonPlan.totalClassHoursLabel', '总课时')"
+              @input="queueNumberPatch('overall/total_class_hours', classroomPlan.total_class_hours, $event)"
+            />
+            <strong v-else>{{ classroomPlan.total_class_hours || t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</strong>
+          </label>
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.lessonDurationLabel', '每次课时长') }}</span>
+            <input
+              v-if="editing"
+              class="generation-lesson-plan__inline-input"
+              type="number"
+              min="20"
+              :value="draftNumber('overall/lesson_duration_minutes', classroomPlan.lesson_duration_minutes)"
+              :aria-label="t('courseGeneration.lessonPlan.lessonDurationLabel', '每次课时长')"
+              @input="queueNumberPatch('overall/lesson_duration_minutes', classroomPlan.lesson_duration_minutes, $event)"
+            />
+            <strong v-else>{{ classroomPlan.lesson_duration_minutes ? `${classroomPlan.lesson_duration_minutes} ${t('courseGeneration.lessonPlan.minutesUnit', '分钟')}` : t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</strong>
+          </label>
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.teachingContextLabel', '授课场景') }}</span>
+            <select
+              v-if="editing"
+              class="generation-lesson-plan__inline-input"
+              :value="draftText('overall/teaching_context', classroomPlan.teaching_context)"
+              :aria-label="t('courseGeneration.lessonPlan.teachingContextLabel', '授课场景')"
+              @change="queueTextPatch('overall/teaching_context', classroomPlan.teaching_context, $event)"
+            >
+              <option value="classroom">{{ t('courseGeneration.lessonPlan.contextClassroom', '线下课堂') }}</option>
+              <option value="online">{{ t('courseGeneration.lessonPlan.contextOnline', '在线授课') }}</option>
+              <option value="blended">{{ t('courseGeneration.lessonPlan.contextBlended', '混合式授课') }}</option>
+              <option value="self_study">{{ t('courseGeneration.lessonPlan.contextSelfStudy', '自主学习') }}</option>
+            </select>
+            <strong v-else>{{ teachingContextLabel(classroomPlan.teaching_context) }}</strong>
+          </label>
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.classSizeLabel', '班级人数') }}</span>
+            <input
+              v-if="editing"
+              class="generation-lesson-plan__inline-input"
+              type="number"
+              min="1"
+              :value="draftNumber('overall/class_size', classroomPlan.class_size)"
+              :aria-label="t('courseGeneration.lessonPlan.classSizeLabel', '班级人数')"
+              @input="queueNumberPatch('overall/class_size', classroomPlan.class_size, $event, true)"
+            />
+            <strong v-else>{{ classroomPlan.class_size || t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</strong>
+          </label>
+        </div>
+        <div class="generation-lesson-plan__classroom-notes">
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.classProfileLabel', '班级与学情特点') }}</span>
+            <textarea
+              v-if="editing"
+              class="generation-lesson-plan__inline-editor"
+              :value="draftText('overall/class_profile', classroomPlan.class_profile)"
+              :aria-label="t('courseGeneration.lessonPlan.classProfileLabel', '班级与学情特点')"
+              @input="queueTextPatch('overall/class_profile', classroomPlan.class_profile, $event)"
+            />
+            <p v-else>{{ classroomPlan.class_profile || t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</p>
+          </label>
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.teachingPreparationLabel', '课前准备') }}</span>
+            <textarea
+              v-if="editing"
+              class="generation-lesson-plan__inline-editor"
+              :value="draftListText('overall/teaching_preparation', classroomPlan.teaching_preparation || [])"
+              :aria-label="t('courseGeneration.lessonPlan.teachingPreparationLabel', '课前准备')"
+              @input="queueListPatch('overall/teaching_preparation', classroomPlan.teaching_preparation || [], $event)"
+            />
+            <ul v-else-if="classroomPlan.teaching_preparation?.length" class="generation-lesson-plan__plain-list">
+              <li v-for="item in classroomPlan.teaching_preparation" :key="item">{{ item }}</li>
+            </ul>
+            <p v-else>{{ t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</p>
+          </label>
+          <label>
+            <span>{{ t('courseGeneration.lessonPlan.courseAssessmentPlanLabel', '课程评价安排') }}</span>
+            <textarea
+              v-if="editing"
+              class="generation-lesson-plan__inline-editor"
+              :value="draftListText('overall/course_assessment_plan', classroomPlan.course_assessment_plan || [])"
+              :aria-label="t('courseGeneration.lessonPlan.courseAssessmentPlanLabel', '课程评价安排')"
+              @input="queueListPatch('overall/course_assessment_plan', classroomPlan.course_assessment_plan || [], $event)"
+            />
+            <ul v-else-if="classroomPlan.course_assessment_plan?.length" class="generation-lesson-plan__plain-list">
+              <li v-for="item in classroomPlan.course_assessment_plan" :key="item">{{ item }}</li>
+            </ul>
+            <p v-else>{{ t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</p>
+          </label>
+        </div>
+      </section>
+
       <section class="generation-lesson-plan__overview-section">
         <header>
           <span>
@@ -578,6 +697,106 @@
                 @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'key_points'), selectedSection.plan.key_points || [], $event)"
               />
             </label>
+            <div class="generation-lesson-plan__section-execution-editor">
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.plannedMinutesLabel', '本节计划时长（分钟）') }}</span>
+                <input
+                  class="generation-lesson-plan__inline-input"
+                  type="number"
+                  min="1"
+                  max="240"
+                  :value="draftNumber(sectionPath(selectedSection.node.node_id, 'planned_minutes'), selectedSection.plan.planned_minutes)"
+                  :aria-label="t('courseGeneration.lessonPlan.plannedMinutesLabel', '本节计划时长（分钟）')"
+                  @input="queueNumberPatch(sectionPath(selectedSection.node.node_id, 'planned_minutes'), selectedSection.plan.planned_minutes, $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.keyDifficultiesLabel', '重点与难点') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'key_difficulties'), selectedSection.plan.key_difficulties || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.keyDifficultiesLabel', '重点与难点')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'key_difficulties'), selectedSection.plan.key_difficulties || [], $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.teacherActivitiesLabel', '教师活动') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'teacher_activities'), selectedSection.plan.teacher_activities || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.teacherActivitiesLabel', '教师活动')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'teacher_activities'), selectedSection.plan.teacher_activities || [], $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.studentActivitiesLabel', '学生活动') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'student_activities'), selectedSection.plan.student_activities || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.studentActivitiesLabel', '学生活动')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'student_activities'), selectedSection.plan.student_activities || [], $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.resourceRefsLabel', '教学资源') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'resource_refs'), selectedSection.plan.resource_refs || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.resourceRefsLabel', '教学资源')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'resource_refs'), selectedSection.plan.resource_refs || [], $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.inClassChecksLabel', '课堂检查') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'in_class_checks'), selectedSection.plan.in_class_checks || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.inClassChecksLabel', '课堂检查')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'in_class_checks'), selectedSection.plan.in_class_checks || [], $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.homeworkLabel', '课后作业') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'homework'), selectedSection.plan.homework || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.homeworkLabel', '课后作业')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'homework'), selectedSection.plan.homework || [], $event)"
+                />
+              </label>
+              <label>
+                <span>{{ t('courseGeneration.lessonPlan.teachingNotesLabel', '教学备注') }}</span>
+                <textarea
+                  :value="draftListText(sectionPath(selectedSection.node.node_id, 'teaching_notes'), selectedSection.plan.teaching_notes || [])"
+                  :aria-label="t('courseGeneration.lessonPlan.teachingNotesLabel', '教学备注')"
+                  @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'teaching_notes'), selectedSection.plan.teaching_notes || [], $event)"
+                />
+              </label>
+            </div>
+          </section>
+          <section
+            v-if="selectedSection.plan.planned_minutes || selectedSection.plan.key_difficulties?.length || selectedSection.plan.teacher_activities?.length || selectedSection.plan.student_activities?.length || selectedSection.plan.in_class_checks?.length || selectedSection.plan.homework?.length"
+            class="generation-lesson-plan__block generation-lesson-plan__execution"
+          >
+            <div class="generation-lesson-plan__block-heading">
+              <div><Target :size="19" /></div>
+              <span>
+                <small>{{ t('courseGeneration.lessonPlan.executionEyebrow', '课堂执行') }}</small>
+                <strong>{{ t('courseGeneration.lessonPlan.executionTitle', '这一节如何落到课堂') }}</strong>
+              </span>
+            </div>
+            <div class="generation-lesson-plan__execution-grid">
+              <section v-if="selectedSection.plan.planned_minutes">
+                <span>{{ t('courseGeneration.lessonPlan.plannedMinutesLabel', '本节计划时长（分钟）') }}</span>
+                <strong>{{ selectedSection.plan.planned_minutes }} {{ t('courseGeneration.lessonPlan.minutesUnit', '分钟') }}</strong>
+              </section>
+              <template v-for="item in [
+                { label: t('courseGeneration.lessonPlan.keyDifficultiesLabel', '重点与难点'), values: selectedSection.plan.key_difficulties },
+                { label: t('courseGeneration.lessonPlan.teacherActivitiesLabel', '教师活动'), values: selectedSection.plan.teacher_activities },
+                { label: t('courseGeneration.lessonPlan.studentActivitiesLabel', '学生活动'), values: selectedSection.plan.student_activities },
+                { label: t('courseGeneration.lessonPlan.inClassChecksLabel', '课堂检查'), values: selectedSection.plan.in_class_checks },
+                { label: t('courseGeneration.lessonPlan.homeworkLabel', '课后作业'), values: selectedSection.plan.homework },
+              ]" :key="item.label">
+                <section v-if="item.values?.length">
+                  <span>{{ item.label }}</span>
+                  <ul><li v-for="value in item.values" :key="value">{{ value }}</li></ul>
+                </section>
+              </template>
+            </div>
           </section>
           <section class="generation-lesson-plan__block generation-lesson-plan__flow">
             <div class="generation-lesson-plan__block-heading">
@@ -615,6 +834,43 @@
                     @input="queueTextPatch(modulePath(selectedSection.node.node_id, module.module_id, 'teaching_guidance'), module.teaching_guidance, $event)"
                   />
                   <p v-else-if="module.teaching_guidance">{{ module.teaching_guidance }}</p>
+                  <div v-if="editing && module.module_id" class="generation-lesson-plan__module-execution-editor">
+                    <label>
+                      <span>{{ t('courseGeneration.lessonPlan.moduleMinutesLabel', '环节时长（分钟）') }}</span>
+                      <input
+                        class="generation-lesson-plan__inline-input"
+                        type="number"
+                        min="1"
+                        max="240"
+                        :value="draftNumber(modulePath(selectedSection.node.node_id, module.module_id, 'planned_minutes'), module.planned_minutes)"
+                        :aria-label="t('courseGeneration.lessonPlan.moduleMinutesLabel', '环节时长（分钟）')"
+                        @input="queueNumberPatch(modulePath(selectedSection.node.node_id, module.module_id, 'planned_minutes'), module.planned_minutes, $event)"
+                      />
+                    </label>
+                    <label>
+                      <span>{{ t('courseGeneration.lessonPlan.moduleTeacherActivityLabel', '教师动作') }}</span>
+                      <textarea
+                        class="generation-lesson-plan__inline-editor is-compact"
+                        :value="draftText(modulePath(selectedSection.node.node_id, module.module_id, 'teacher_activity'), module.teacher_activity)"
+                        :aria-label="t('courseGeneration.lessonPlan.moduleTeacherActivityLabel', '教师动作')"
+                        @input="queueTextPatch(modulePath(selectedSection.node.node_id, module.module_id, 'teacher_activity'), module.teacher_activity, $event)"
+                      />
+                    </label>
+                    <label>
+                      <span>{{ t('courseGeneration.lessonPlan.moduleStudentActivityLabel', '学生活动') }}</span>
+                      <textarea
+                        class="generation-lesson-plan__inline-editor is-compact"
+                        :value="draftText(modulePath(selectedSection.node.node_id, module.module_id, 'student_activity'), module.student_activity)"
+                        :aria-label="t('courseGeneration.lessonPlan.moduleStudentActivityLabel', '学生活动')"
+                        @input="queueTextPatch(modulePath(selectedSection.node.node_id, module.module_id, 'student_activity'), module.student_activity, $event)"
+                      />
+                    </label>
+                  </div>
+                  <div v-else-if="module.planned_minutes || module.teacher_activity || module.student_activity" class="generation-lesson-plan__module-execution">
+                    <span v-if="module.planned_minutes">{{ module.planned_minutes }} {{ t('courseGeneration.lessonPlan.minutesUnit', '分钟') }}</span>
+                    <p v-if="module.teacher_activity"><strong>{{ t('courseGeneration.lessonPlan.moduleTeacherActivityLabel', '教师动作') }}</strong>{{ module.teacher_activity }}</p>
+                    <p v-if="module.student_activity"><strong>{{ t('courseGeneration.lessonPlan.moduleStudentActivityLabel', '学生活动') }}</strong>{{ module.student_activity }}</p>
+                  </div>
                   <div v-if="module.knowledge_names?.length">
                     <span v-for="name in module.knowledge_names" :key="name">{{ name }}</span>
                   </div>
@@ -885,6 +1141,7 @@ const selectedIndex = computed(() => {
 })
 const selectedSection = computed(() => sections.value[selectedIndex.value])
 const overallPlan = computed(() => props.plan?.overall)
+const classroomPlan = computed(() => overallPlan.value?.classroom || {})
 const previousSection = computed(() => selectedIndex.value > 0 ? sections.value[selectedIndex.value - 1] : undefined)
 const nextSection = computed(() => selectedIndex.value < sections.value.length - 1 ? sections.value[selectedIndex.value + 1] : undefined)
 const planReady = computed(() => props.plan?.status === 'completed' && Boolean(props.plan.sections?.length))
@@ -972,13 +1229,7 @@ const aiPaths = computed(() => {
     const prefix = `sections/${selectedSection.value.node.node_id}/`
     return [...allowed].filter(path => path.startsWith(prefix))
   }
-  return [
-    'overall/positioning',
-    'overall/target_audience',
-    'overall/learning_objectives',
-    'overall/prerequisites',
-    'overall/teaching_strategy/rationale',
-  ].filter(path => allowed.has(path))
+  return [...allowed].filter(path => path.startsWith('overall/'))
 })
 const activeAiCandidate = computed(() => {
   const draftId = workbenchStore.draft?.draft_id
@@ -1014,16 +1265,28 @@ function draftText(path: string, fallback: unknown): string {
   return String(draftValue(path, fallback || '') || '')
 }
 
+function draftNumber(path: string, fallback: unknown): number | '' {
+  const value = draftValue(path, fallback)
+  return typeof value === 'number' && Number.isFinite(value) ? value : ''
+}
+
 function draftListText(path: string, fallback: unknown): string {
   const value = draftValue(path, fallback)
   return Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean).join('\n') : ''
 }
 
-function sectionPath(sectionId: string, field: 'learning_objective' | 'key_points'): string {
+function sectionPath(
+  sectionId: string,
+  field: 'learning_objective' | 'key_points' | 'planned_minutes' | 'key_difficulties' | 'teacher_activities' | 'student_activities' | 'resource_refs' | 'in_class_checks' | 'homework' | 'teaching_notes',
+): string {
   return `sections/${sectionId}/${field}`
 }
 
-function modulePath(sectionId: string, moduleId: string, field: 'teaching_purpose' | 'teaching_guidance'): string {
+function modulePath(
+  sectionId: string,
+  moduleId: string,
+  field: 'teaching_purpose' | 'teaching_guidance' | 'planned_minutes' | 'teacher_activity' | 'student_activity',
+): string {
   return `sections/${sectionId}/teaching_modules/${moduleId}/${field}`
 }
 
@@ -1054,6 +1317,16 @@ function queuePatch(path: string, fallback: unknown, next: unknown) {
 
 function queueTextPatch(path: string, fallback: unknown, event: Event) {
   queuePatch(path, fallback, (event.target as HTMLInputElement | HTMLTextAreaElement).value)
+}
+
+function queueNumberPatch(path: string, fallback: unknown, event: Event, allowNull = false) {
+  const raw = (event.target as HTMLInputElement).value.trim()
+  if (!raw && allowNull) {
+    queuePatch(path, fallback, null)
+    return
+  }
+  const value = Number(raw)
+  if (Number.isInteger(value) && value >= 0) queuePatch(path, fallback, value)
 }
 
 function queueListPatch(path: string, fallback: unknown, event: Event) {
@@ -1290,6 +1563,16 @@ function teachingModeLabel(value: string): string {
   return labels[value] || value.replace(/_/g, ' ')
 }
 
+function teachingContextLabel(value?: string): string {
+  const labels: Record<string, string> = {
+    classroom: t('courseGeneration.lessonPlan.contextClassroom', '线下课堂'),
+    online: t('courseGeneration.lessonPlan.contextOnline', '在线授课'),
+    blended: t('courseGeneration.lessonPlan.contextBlended', '混合式授课'),
+    self_study: t('courseGeneration.lessonPlan.contextSelfStudy', '自主学习'),
+  }
+  return value ? (labels[value] || value) : t('courseGeneration.lessonPlan.classroomUnset', '待补充')
+}
+
 function openKnowledge(knowledgeId: string): void {
   if (!knowledgeId) return
   emit('open-knowledge', knowledgeId)
@@ -1378,6 +1661,13 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__overview-section > header small { color:#8e96a4; font-size:11px; font-weight:750; letter-spacing:.07em; }
 .generation-lesson-plan__overview-section > header strong { color:#303b4d; font-size:16px; }
 .generation-lesson-plan__overview-section > header p { max-width:570px; margin:0; color:#7a8393; font-size:12px; line-height:1.6; text-align:right; }
+.generation-lesson-plan__classroom-section { background:#f9fbff; }
+.generation-lesson-plan__classroom-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; }
+.generation-lesson-plan__classroom-grid > label,.generation-lesson-plan__classroom-notes > label { min-width:0; display:grid; gap:6px; padding:12px; border:1px solid #e1e5ee; border-radius:8px; background:#fff; }
+.generation-lesson-plan__classroom-grid span,.generation-lesson-plan__classroom-notes span { color:#788398; font-size:11px; font-weight:800; }
+.generation-lesson-plan__classroom-grid strong { min-height:20px; color:#39465c; font-size:13px; line-height:1.45; }
+.generation-lesson-plan__classroom-notes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:9px; }
+.generation-lesson-plan__classroom-notes p { margin:0; color:#657085; font-size:12px; line-height:1.6; }
 .generation-lesson-plan__chapter-path { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; padding:0; list-style:none; counter-reset:chapters; }
 .generation-lesson-plan__chapter-path li { position:relative; min-width:0; display:grid; grid-template-columns:34px minmax(0,1fr); gap:10px; padding:16px; border:1px solid #e0e3e9; border-radius:12px; background:#fff; }
 .generation-lesson-plan__chapter-path li > span { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:#575eb7; background:#f0f1fb; font:700 11px/1 ui-monospace,SFMono-Regular,monospace; }
@@ -1434,6 +1724,19 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__module-copy > p { margin:5px 0 9px; color:#667185; font-size:13px; line-height:1.65; }
 .generation-lesson-plan__module-copy > div { display:flex; flex-wrap:wrap; gap:6px; }
 .generation-lesson-plan__module-copy > div span { padding:4px 8px; border:1px solid #e0e3f6; border-radius:6px; color:#555cb8; background:#f8f8ff; font-size:12px; line-height:1.35; }
+.generation-lesson-plan__module-execution-editor { display:grid !important; grid-template-columns:150px repeat(2,minmax(0,1fr)); gap:8px !important; margin:9px 0; padding:10px; border:1px solid #e2e5ee; border-radius:8px; background:#fafbff; }
+.generation-lesson-plan__module-execution-editor label { display:grid; gap:5px; min-width:0; color:#748097; font-size:11px; font-weight:750; }
+.generation-lesson-plan__module-execution { display:grid !important; gap:7px !important; margin:9px 0; padding:10px; border:1px solid #e7e9ef; border-radius:8px; background:#fafbfc; }
+.generation-lesson-plan__module-execution > span { width:max-content; }
+.generation-lesson-plan__module-execution p { margin:0; color:#657085; font-size:12px; line-height:1.55; }
+.generation-lesson-plan__module-execution p strong { margin-right:6px; color:#4a5770; font-size:11px; }
+.generation-lesson-plan__execution { background:#fbfcff; }
+.generation-lesson-plan__execution-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.generation-lesson-plan__execution-grid section { min-width:0; padding:11px; border:1px solid #e2e6ef; border-radius:8px; background:#fff; }
+.generation-lesson-plan__execution-grid section > span { color:#748096; font-size:11px; font-weight:800; }
+.generation-lesson-plan__execution-grid section > strong { display:block; margin-top:6px; color:#415069; font-size:13px; }
+.generation-lesson-plan__execution-grid ul { display:grid; gap:5px; margin:7px 0 0; padding:0; list-style:none; }
+.generation-lesson-plan__execution-grid li { color:#667288; font-size:12px; line-height:1.5; }
 .generation-lesson-plan__knowledge { background:#fcfcfb; }
 .generation-lesson-plan__section-knowledge-tags { display:grid; grid-template-columns:140px minmax(0,1fr); align-items:start; gap:14px; margin:-3px 0 22px; padding:14px 15px; border:1px solid #e1e4ec; border-radius:12px; background:linear-gradient(110deg,#f7f7fc,#fff); }
 .generation-lesson-plan__section-knowledge-tags > span { padding-top:6px; color:#727a8d; font-size:12px; font-weight:800; }
@@ -1568,6 +1871,8 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__section-editor label { display:grid; gap:7px; color:#5d6780; font-size:12px; font-weight:750; }
 .generation-lesson-plan__section-editor textarea { box-sizing:border-box; width:100%; min-height:58px; padding:8px 10px; border:1px solid #cfd4e9; border-radius:8px; color:#3e4a5d; background:#fff; font:inherit; line-height:1.55; resize:vertical; }
 .generation-lesson-plan__section-editor textarea:focus { border-color:#757ed1; outline:none; box-shadow:0 0 0 3px rgba(94,104,197,.12); }
+.generation-lesson-plan__section-execution-editor { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding-top:3px; }
+.generation-lesson-plan__section-execution-editor label:first-child { grid-column:1 / -1; max-width:220px; }
 @keyframes lesson-plan-spin { to { transform:rotate(360deg); } }
 @keyframes lesson-plan-shimmer { to { background-position:-220% 0; } }
 @media (max-width:900px) {
@@ -1577,11 +1882,15 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__overview-hero { grid-template-columns:1fr; gap:20px; }
   .generation-lesson-plan__overview-hero aside { max-width:520px; }
   .generation-lesson-plan__chapter-path { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .generation-lesson-plan__classroom-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .generation-lesson-plan__classroom-notes { grid-template-columns:1fr; }
   .generation-lesson-plan__sheet-header { grid-template-columns:58px minmax(0,1fr); }
   .generation-lesson-plan__readiness { grid-column:2; justify-self:start; }
   .generation-lesson-plan__block-heading { grid-template-columns:38px minmax(0,1fr); }
   .generation-lesson-plan__block-heading > p { grid-column:2; justify-self:start; text-align:left; }
   .generation-lesson-plan__knowledge-detail { grid-template-columns:1fr; }
+  .generation-lesson-plan__execution-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .generation-lesson-plan__module-execution-editor { grid-template-columns:1fr; }
   .generation-lesson-plan__review-grid { grid-template-columns:1fr; }
   .generation-lesson-plan__ai-request { grid-template-columns:1fr; }
 }
@@ -1611,6 +1920,7 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__overview-section { padding:25px 20px 27px; }
   .generation-lesson-plan__overview-section > header { display:grid; gap:8px; }
   .generation-lesson-plan__overview-section > header p { text-align:left; }
+  .generation-lesson-plan__classroom-grid,.generation-lesson-plan__classroom-notes { grid-template-columns:1fr; }
   .generation-lesson-plan__chapter-path { grid-template-columns:1fr; }
   .generation-lesson-plan__pager { grid-template-columns:1fr auto 1fr; gap:5px; }
   .generation-lesson-plan__pager > button { padding:7px 3px; }
@@ -1623,6 +1933,7 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__readiness { grid-column:1 / -1; margin:0; }
   .generation-lesson-plan__block { padding:24px 16px 27px; }
   .generation-lesson-plan__section-editor { padding:16px; }
+  .generation-lesson-plan__section-execution-editor,.generation-lesson-plan__execution-grid { grid-template-columns:1fr; }
   .generation-lesson-plan__block-heading { align-items:start; gap:10px 11px; margin-bottom:18px; }
   .generation-lesson-plan__block-heading > p { grid-column:1 / -1; }
   .generation-lesson-plan__section-knowledge-tags { grid-template-columns:1fr; gap:8px; }

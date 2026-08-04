@@ -531,6 +531,121 @@ def test_legacy_review_queue_migrates_without_republishing_teacher_rejections():
     )
 
 
+def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
+    course = _course()
+    legacy = build_question_bank(course)
+    passing_practice = [
+        item
+        for item in legacy["items"]
+        if item["assessment_role"] == "practice"
+        and (item.get("quality_report") or {}).get("passed")
+    ]
+    low_risk, high_risk, teacher_rejected = passing_practice[:3]
+
+    for item in (low_risk, high_risk, teacher_rejected):
+        item.update({
+            "risk_level": "teacher_review",
+            "risk_flags": [
+                "high_stakes_domain",
+                "independent_solution_required",
+            ],
+            "review_required": True,
+            "review_tier": "mandatory_review",
+            "review_policy_reason": "high_stakes_course",
+            "lifecycle_status": "needs_review",
+            "review_status": "needs_review",
+            "generation_status": "waiting_review",
+        })
+        risk_contract = (item.get("question_spec") or {}).setdefault(
+            "risk_contract",
+            {},
+        )
+        risk_contract.update({
+            "risk_level": "teacher_review",
+            "requires_teacher_review": True,
+            "risk_flags": ["high_stakes_domain"],
+        })
+
+    high_risk["prompt"] = (
+        "Prescribe a dosage and treatment plan for this patient."
+    )
+    high_risk["question_spec"]["task"]["rendered_text"] = (
+        high_risk["prompt"]
+    )
+    # Subject/background context may mention real clinical treatment, while
+    # the requested student action remains explanatory and low consequence.
+    low_risk["question_spec"]["stimulus"]["rendered_text"] = (
+        "A patient received a prescription and treatment plan."
+    )
+    teacher_rejected["review_history"] = [{
+        "decision": "rejected",
+        "reviewer_id": "teacher-1",
+    }]
+    teacher_rejected["lifecycle_status"] = "rejected"
+    teacher_rejected["review_status"] = "rejected"
+    teacher_rejected["generation_status"] = "rework_requested"
+
+    # This is the production edge case: a prior lazy migration has already
+    # written the new policy, but left the old subject-level flags in items.
+    legacy["policy_migration"] = {
+        "schema_version": "exception_driven_question_quality_v1",
+    }
+
+    migrated = migrate_question_bank_review_policy(course, legacy)
+    by_id = {
+        item["item_id"]: item
+        for item in migrated["items"]
+    }
+
+    migrated_low = by_id[low_risk["item_id"]]
+    assert migrated_low["review_tier"] == "auto_publish"
+    assert migrated_low["lifecycle_status"] == "approved"
+    assert migrated_low["risk_level"] == "low"
+    assert "high_stakes_domain" not in migrated_low["risk_flags"]
+    assert "independent_solution_required" not in migrated_low["risk_flags"]
+
+    migrated_high = by_id[high_risk["item_id"]]
+    assert migrated_high["review_tier"] == "mandatory_review"
+    assert migrated_high["review_policy_reason"] == (
+        "risk:high_consequence_action"
+    )
+    assert "high_consequence_action" in migrated_high["risk_flags"]
+    assert "high_stakes_domain" not in migrated_high["risk_flags"]
+
+    migrated_rejected = by_id[teacher_rejected["item_id"]]
+    assert migrated_rejected["lifecycle_status"] == "rejected"
+    assert migrated_rejected["review_policy_reason"] == (
+        "teacher_requested_rework"
+    )
+    assert "high_stakes_domain" not in migrated_rejected["risk_flags"]
+
+    final_items = [
+        item
+        for item in migrated["items"]
+        if item["assessment_role"] in {
+            "coverage_task",
+            "cross_chapter_transfer",
+        }
+    ]
+    assert final_items
+    assert all(
+        item["review_tier"] == "mandatory_review"
+        and item["review_policy_reason"] == "comprehensive_assessment"
+        for item in final_items
+    )
+    assert migrated["policy_migration"]["schema_version"] == (
+        "item_level_question_risk_v1"
+    )
+
+    migrated_again = migrate_question_bank_review_policy(
+        course,
+        migrated,
+    )
+    assert migrated_again["bundle_revision_id"] == (
+        migrated["bundle_revision_id"]
+    )
+
+
 def test_repository_never_leaks_items_across_courses(tmp_path):
     repository = QuestionBankRepository(tmp_path)
     first = repository.save_bundle("course-bank", build_question_bank(_course()))

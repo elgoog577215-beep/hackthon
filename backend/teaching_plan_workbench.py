@@ -190,6 +190,34 @@ def _plan_section(snapshot: dict[str, Any], section_id: str) -> dict[str, Any]:
     return section
 
 
+def _classroom(snapshot: dict[str, Any], *, create: bool = False) -> dict[str, Any]:
+    plan = snapshot.get("course_teaching_plan")
+    if not isinstance(plan, dict):
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_missing",
+            "当前课程还没有可编辑的结构化教案",
+        )
+    classroom = plan.get("classroom")
+    if isinstance(classroom, dict):
+        return classroom
+    if not create:
+        return {}
+    classroom = {}
+    plan["classroom"] = classroom
+    return classroom
+
+
+def _classroom_value(snapshot: dict[str, Any], field: str, default: Any = "") -> Any:
+    classroom = _classroom(snapshot)
+    if field in classroom:
+        return classroom[field]
+    request = snapshot.get("generation_request")
+    teacher_brief = request.get("teacher_course_brief") if isinstance(request, dict) else {}
+    if isinstance(teacher_brief, dict) and field in teacher_brief:
+        return teacher_brief[field]
+    return default
+
+
 def _outline_section(snapshot: dict[str, Any], section_id: str) -> dict[str, Any]:
     section = next(
         (
@@ -256,8 +284,27 @@ _OVERALL_FIELDS = {
     "overall/learning_objectives",
     "overall/prerequisites",
     "overall/teaching_strategy/rationale",
+    "overall/academic_term",
+    "overall/total_class_hours",
+    "overall/lesson_duration_minutes",
+    "overall/teaching_context",
+    "overall/class_size",
+    "overall/class_profile",
+    "overall/teaching_preparation",
+    "overall/course_assessment_plan",
 }
 _TEXT_LIMIT = 2000
+_CLASSROOM_TEXT_FIELDS = {"academic_term", "class_profile"}
+_CLASSROOM_LIST_FIELDS = {"teaching_preparation", "course_assessment_plan"}
+_SECTION_CLASSROOM_LIST_FIELDS = {
+    "key_difficulties",
+    "teacher_activities",
+    "student_activities",
+    "resource_refs",
+    "in_class_checks",
+    "homework",
+    "teaching_notes",
+}
 
 
 def field_permission(path: str) -> dict[str, str]:
@@ -271,6 +318,15 @@ def field_permission(path: str) -> dict[str, str]:
             "reason": "该字段由课程、知识库或来源修订自动维护。",
         }
     if normalized in _OVERALL_FIELDS:
+        if normalized in {
+            "overall/total_class_hours",
+            "overall/lesson_duration_minutes",
+            "overall/teaching_context",
+        }:
+            return {
+                "state": "requires_impact_review",
+                "reason": "课堂时间或场景变化会影响教案执行与下游教学表达。",
+            }
         return {"state": "editable", "reason": "可先保存为教案草稿。"}
     if re.fullmatch(r"sections/[^/]+/learning_objective", normalized):
         return {
@@ -283,7 +339,15 @@ def field_permission(path: str) -> dict[str, str]:
             "reason": "知识范围变化会影响绑定与下游教学表达。",
         }
     if re.fullmatch(
-        r"sections/[^/]+/teaching_modules/[^/]+/(teaching_purpose|teaching_guidance)",
+        r"sections/[^/]+/(planned_minutes|key_difficulties|teacher_activities|student_activities|resource_refs|in_class_checks|homework|teaching_notes)",
+        normalized,
+    ):
+        return {
+            "state": "requires_impact_review",
+            "reason": "课堂执行字段变化需要检查该小节的教学表达与课时安排。",
+        }
+    if re.fullmatch(
+        r"sections/[^/]+/teaching_modules/[^/]+/(teaching_purpose|teaching_guidance|planned_minutes|teacher_activity|student_activity)",
         normalized,
     ):
         return {
@@ -319,13 +383,24 @@ def _read_path(snapshot: dict[str, Any], path: str) -> Any:
         return (snapshot.get("course_plan") or {}).get("prerequisites", [])
     if parts == ["overall", "teaching_strategy", "rationale"]:
         return (snapshot.get("subject_pedagogy_profile") or {}).get("rationale", "")
+    if len(parts) == 2 and parts[0] == "overall" and parts[1] in _CLASSROOM_TEXT_FIELDS | _CLASSROOM_LIST_FIELDS | {
+        "total_class_hours", "lesson_duration_minutes", "teaching_context", "class_size",
+    }:
+        default = [] if parts[1] in _CLASSROOM_LIST_FIELDS else ""
+        return _classroom_value(snapshot, parts[1], default)
     if len(parts) == 3 and parts[0] == "sections" and parts[2] == "learning_objective":
         return _outline_section(snapshot, parts[1]).get("learning_objective", "")
     if len(parts) == 3 and parts[0] == "sections" and parts[2] == "key_points":
         return _plan_section(snapshot, parts[1]).get("key_points", [])
+    if len(parts) == 3 and parts[0] == "sections" and parts[2] == "planned_minutes":
+        return _plan_section(snapshot, parts[1]).get("planned_minutes")
+    if len(parts) == 3 and parts[0] == "sections" and parts[2] in _SECTION_CLASSROOM_LIST_FIELDS:
+        return _plan_section(snapshot, parts[1]).get(parts[2], [])
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "teaching_modules":
-        if parts[4] in {"teaching_purpose", "teaching_guidance"}:
+        if parts[4] in {"teaching_purpose", "teaching_guidance", "teacher_activity", "student_activity"}:
             return _module(snapshot, parts[1], parts[3]).get(parts[4], "")
+        if parts[4] == "planned_minutes":
+            return _module(snapshot, parts[1], parts[3]).get(parts[4])
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "knowledge":
         if parts[4] in {"statement", "capability"}:
             return _knowledge_point(snapshot, parts[1], parts[3]).get(parts[4], "")
@@ -356,6 +431,7 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
         if not text or len(text) > 500:
             raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "教学对象不能为空且不能过长")
         snapshot.setdefault("generation_request", {})["target_audience"] = text
+        snapshot["generation_request"].setdefault("teacher_course_brief", {})["target_audience"] = text
         return text
     if parts == ["overall", "learning_objectives"]:
         values = _strings(value, maximum=8)
@@ -373,6 +449,36 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
             raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "教学策略说明不能为空且不能过长")
         snapshot.setdefault("subject_pedagogy_profile", {})["rationale"] = text
         return text
+    if len(parts) == 2 and parts[0] == "overall" and parts[1] in _CLASSROOM_TEXT_FIELDS:
+        text = _text(value)
+        maximum = 100 if parts[1] == "academic_term" else _TEXT_LIMIT
+        if len(text) > maximum:
+            raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "课堂字段内容过长")
+        _classroom(snapshot, create=True)[parts[1]] = text
+        return text
+    if len(parts) == 2 and parts[0] == "overall" and parts[1] in _CLASSROOM_LIST_FIELDS:
+        values = _strings(value, maximum=12)
+        _classroom(snapshot, create=True)[parts[1]] = values
+        return values
+    if parts == ["overall", "teaching_context"]:
+        context = _text(value)
+        if context not in {"classroom", "online", "blended", "self_study"}:
+            raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "教学场景不合法")
+        _classroom(snapshot, create=True)["teaching_context"] = context
+        return context
+    if len(parts) == 2 and parts[0] == "overall" and parts[1] in {
+        "total_class_hours", "lesson_duration_minutes", "class_size",
+    }:
+        if parts[1] == "class_size" and value is None:
+            _classroom(snapshot, create=True).pop("class_size", None)
+            return None
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "课堂人数与课时必须为整数")
+        lower, upper = (1, 1000) if parts[1] != "lesson_duration_minutes" else (20, 240)
+        if value < lower or value > upper:
+            raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "课堂人数或课时超出允许范围")
+        _classroom(snapshot, create=True)[parts[1]] = value
+        return value
     if len(parts) == 3 and parts[0] == "sections" and parts[2] == "learning_objective":
         text = _text(value)
         if not text or len(text) > _TEXT_LIMIT:
@@ -385,13 +491,27 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
             raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "小节至少保留一个知识要点")
         _plan_section(snapshot, parts[1])["key_points"] = values
         return values
+    if len(parts) == 3 and parts[0] == "sections" and parts[2] == "planned_minutes":
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1 or value > 240:
+            raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "小节计划时长必须在 1 到 240 分钟之间")
+        _plan_section(snapshot, parts[1])["planned_minutes"] = value
+        return value
+    if len(parts) == 3 and parts[0] == "sections" and parts[2] in _SECTION_CLASSROOM_LIST_FIELDS:
+        values = _strings(value, maximum=30 if parts[2] == "resource_refs" else 16)
+        _plan_section(snapshot, parts[1])[parts[2]] = values
+        return values
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "teaching_modules":
-        if parts[4] in {"teaching_purpose", "teaching_guidance"}:
+        if parts[4] in {"teaching_purpose", "teaching_guidance", "teacher_activity", "student_activity"}:
             text = _text(value)
             if not text or len(text) > _TEXT_LIMIT:
                 raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "教学环节说明不能为空且不能过长")
             _module(snapshot, parts[1], parts[3])[parts[4]] = text
             return text
+        if parts[4] == "planned_minutes":
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1 or value > 240:
+                raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "教学环节时长必须在 1 到 240 分钟之间")
+            _module(snapshot, parts[1], parts[3])[parts[4]] = value
+            return value
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "knowledge":
         if parts[4] in {"statement", "capability"}:
             text = _text(value)
@@ -424,11 +544,39 @@ def _validate(snapshot: dict[str, Any]) -> dict[str, Any]:
         sections=_course_sections(snapshot),
         expected_outline_revision_id=_text(plan.get("source_outline_revision_id")) or None,
     )
+    issues = list(report.get("issues") or [])
+    classroom = _classroom(snapshot)
+    total_hours = classroom.get("total_class_hours")
+    planned_minutes = [
+        value
+        for section in plan.get("sections") or []
+        if isinstance(section, dict)
+        if isinstance((value := section.get("planned_minutes")), int) and not isinstance(value, bool)
+    ]
+    blocking = False
+    if isinstance(total_hours, int) and not isinstance(total_hours, bool) and planned_minutes:
+        planned_total = sum(planned_minutes)
+        capacity = total_hours * 60
+        if planned_total > capacity:
+            issues.append({
+                "code": "teaching_plan_class_hours_exceeded",
+                "message": "各小节计划时长超过课程总课时。",
+                "blocking": True,
+            })
+            blocking = True
+        elif planned_total != capacity:
+            issues.append({
+                "code": "teaching_plan_class_hours_incomplete",
+                "message": "各小节计划时长尚未与课程总课时对齐。",
+                "blocking": False,
+            })
     return {
         **report,
+        "passed": bool(report.get("passed")) and not blocking,
+        "issues": issues,
         "schema_version": "teaching_plan_workbench_validation_v1",
-        "status": "blocked" if not report.get("passed") else (
-            "warning" if report.get("issues") else "valid"
+        "status": "blocked" if not report.get("passed") or blocking else (
+            "warning" if issues else "valid"
         ),
     }
 
@@ -446,9 +594,29 @@ def _impact_for_operation(operation: dict[str, Any], snapshot: dict[str, Any]) -
             "reason": reason,
         })
 
-    if path in {"overall/positioning", "overall/target_audience", "overall/teaching_strategy/rationale"}:
+    if path in {
+        "overall/positioning",
+        "overall/target_audience",
+        "overall/teaching_strategy/rationale",
+        "overall/academic_term",
+        "overall/class_size",
+        "overall/class_profile",
+        "overall/teaching_preparation",
+        "overall/course_assessment_plan",
+    }:
         add("changed", "teaching_plan", "overall", "总体教学设计已更新")
         add("changed", "teacher_projection", "overall", "教师阅读投影需要同步")
+        return outcome
+    if path in {
+        "overall/total_class_hours",
+        "overall/lesson_duration_minutes",
+        "overall/teaching_context",
+    }:
+        add("changed", "teaching_plan", "overall", "课堂执行约束已更新")
+        for section in _course_sections(snapshot):
+            section_id = _text(section.get("node_id"))
+            if section_id:
+                add("needs_regeneration", "teaching_representation", section_id, "课堂时间或场景变化")
         return outcome
     if path in {"overall/learning_objectives", "overall/prerequisites"}:
         add("changed", "teaching_plan", "overall", "总体教学设计已更新")
@@ -470,6 +638,12 @@ def _impact_for_operation(operation: dict[str, Any], snapshot: dict[str, Any]) -
         elif len(parts) >= 3 and parts[2] == "teaching_modules":
             for item_type in ("section_content", "lecture", "slide_deck"):
                 add("needs_regeneration", item_type, section_id, "教学环节职责变化")
+        elif len(parts) == 3 and parts[2] == "planned_minutes":
+            for item_type in ("lecture", "slide_deck"):
+                add("needs_regeneration", item_type, section_id, "小节课堂时长变化")
+        elif len(parts) == 3 and parts[2] in _SECTION_CLASSROOM_LIST_FIELDS:
+            for item_type in ("lecture", "slide_deck"):
+                add("needs_regeneration", item_type, section_id, "小节课堂执行安排变化")
         elif len(parts) >= 3 and parts[2] == "knowledge":
             add("needs_regeneration", "knowledge_binding", section_id, "知识语义变化")
             for item_type in ("section_content", "practice", "slide_deck"):
@@ -521,6 +695,14 @@ def _diff_between(
             "overall/learning_objectives",
             "overall/prerequisites",
             "overall/teaching_strategy/rationale",
+            "overall/academic_term",
+            "overall/total_class_hours",
+            "overall/lesson_duration_minutes",
+            "overall/teaching_context",
+            "overall/class_size",
+            "overall/class_profile",
+            "overall/teaching_preparation",
+            "overall/course_assessment_plan",
         ]
         before_sections = {item.get("node_id") for item in _course_sections(before)}
         after_sections = {item.get("node_id") for item in _course_sections(after)}
@@ -528,6 +710,11 @@ def _diff_between(
             fields.extend([
                 f"sections/{section_id}/learning_objective",
                 f"sections/{section_id}/key_points",
+                f"sections/{section_id}/planned_minutes",
+                *[
+                    f"sections/{section_id}/{field}"
+                    for field in sorted(_SECTION_CLASSROOM_LIST_FIELDS)
+                ],
             ])
         for path in fields:
             try:
@@ -592,6 +779,9 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         for suffix in ("learning_objective", "key_points"):
             path = f"sections/{section_id}/{suffix}"
             fields.append({"path": path, **field_permission(path)})
+        for suffix in ("planned_minutes", *sorted(_SECTION_CLASSROOM_LIST_FIELDS)):
+            path = f"sections/{section_id}/{suffix}"
+            fields.append({"path": path, **field_permission(path)})
         try:
             teaching_section = _plan_section(snapshot, section_id)
         except TeachingPlanWorkbenchError:
@@ -600,7 +790,13 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             module_id = _text((module or {}).get("module_id"))
             if not module_id:
                 continue
-            for suffix in ("teaching_purpose", "teaching_guidance"):
+            for suffix in (
+                "teaching_purpose",
+                "teaching_guidance",
+                "planned_minutes",
+                "teacher_activity",
+                "student_activity",
+            ):
                 path = f"sections/{section_id}/teaching_modules/{module_id}/{suffix}"
                 fields.append({"path": path, **field_permission(path)})
         for group in teaching_section.get("knowledge_structure") or []:
@@ -637,8 +833,9 @@ def _candidate_prompt(
 1. 只能修改以上 path，不能增删章节、课程块、知识 ID、模块 ID、修订号或知识绑定。
 2. 目标是提升教学清晰度、可教性和可评价性；不得编造事实、来源、题目、年份或外部数据。
 3. 数组字段必须是短文本数组，不要返回 Markdown。
-4. 每个字段至多一项操作；没有必要修改的字段不要输出。
-5. 这只是候选，教师之后会逐项审阅和确认。
+4. 课时、人数和时长字段必须返回合法整数；教学场景只能是 classroom、online、blended 或 self_study。
+5. 每个字段至多一项操作；没有必要修改的字段不要输出。
+6. 这只是候选，教师之后会逐项审阅和确认。
 
 只输出一个 JSON 对象：
 {{

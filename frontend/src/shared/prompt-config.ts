@@ -265,6 +265,28 @@ export interface CourseMaterialDraft extends Omit<CourseMaterialBindingInput, 'a
   upload_error?: string;
 }
 
+export interface TeacherResourceRef {
+  resource_id: string;
+  resource_version_id?: string;
+  label?: string;
+  parse_status?: 'ready' | 'pending' | 'unavailable' | 'failed';
+}
+
+export interface TeacherCourseBriefV1 {
+  schema_version: 'teacher_course_brief_v1';
+  academic_term?: string;
+  target_audience: string;
+  total_class_hours: number;
+  lesson_duration_minutes: number;
+  teaching_context: 'classroom' | 'online' | 'blended' | 'self_study';
+  class_size?: number;
+  class_profile?: string;
+  chapter_count?: number;
+  section_count?: number;
+  additional_requirements?: string;
+  material_refs?: TeacherResourceRef[];
+}
+
 export interface GenerateCourseParams {
   subject: string;
   request_id?: string;
@@ -272,6 +294,7 @@ export interface GenerateCourseParams {
   composition_style: CourseCompositionStyle;
   style?: TeachingStyle;
   target_audience?: string;
+  teacher_course_brief?: TeacherCourseBriefV1;
   requirements?: string;
   materials?: CourseMaterialInput[];
   material_bindings?: CourseMaterialBindingInput[];
@@ -391,6 +414,17 @@ export function validateGenerateCourseParams(
 
   if (params.course_type && params.course_intent && params.course_intent.type !== params.course_type) {
     errors.push('course_intent.type must match course_type');
+  }
+
+  const teacherBrief = params.teacher_course_brief;
+  if (teacherBrief) {
+    if (!teacherBrief.target_audience.trim()) errors.push('teacher_course_brief.target_audience is required');
+    if (!Number.isInteger(teacherBrief.total_class_hours) || teacherBrief.total_class_hours < 1 || teacherBrief.total_class_hours > 1000) {
+      errors.push('teacher_course_brief.total_class_hours must be an integer between 1 and 1000');
+    }
+    if (!Number.isInteger(teacherBrief.lesson_duration_minutes) || teacherBrief.lesson_duration_minutes < 20 || teacherBrief.lesson_duration_minutes > 240) {
+      errors.push('teacher_course_brief.lesson_duration_minutes must be an integer between 20 and 240');
+    }
   }
   
   return {

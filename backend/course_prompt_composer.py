@@ -550,6 +550,8 @@ class CoursePromptComposer:
    评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
 6. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
+7. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
+   课堂检查、作业或备注；这些字段必须与教学场景和总课时相容，未知内容可以省略，不能编造资料来源。
 
 ## JSON Schema
 {{
@@ -598,8 +600,19 @@ class CoursePromptComposer:
         "module_id": "core_explanation",
         "teaching_purpose": "本节具体教学职责",
         "knowledge_keys": ["K001"],
-        "teaching_guidance": "正文必须体现的讲法或学习者行动"
-      }}]
+        "teaching_guidance": "正文必须体现的讲法或学习者行动",
+        "planned_minutes": 15,
+        "teacher_activity": "教师演示或追问的具体动作",
+        "student_activity": "学生完成的可观察动作"
+      }}],
+      "planned_minutes": 45,
+      "key_difficulties": ["需要重点突破的概念或操作"],
+      "teacher_activities": ["教师组织的关键活动"],
+      "student_activities": ["学生完成的关键活动"],
+      "resource_refs": ["已给定资源的名称或标识"],
+      "in_class_checks": ["可观察的课堂检查"],
+      "homework": ["课后练习或迁移任务"],
+      "teaching_notes": ["实施提醒"]
     }}
   ]
 }}""".strip()

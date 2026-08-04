@@ -55,6 +55,16 @@ describe('课程教案阅读尺度', () => {
           rationale: '先建立图像直觉，再进入代数表达。',
         },
         assessment_methods: ['出口题'],
+        classroom: {
+          academic_term: '2026-2027 学年第一学期',
+          total_class_hours: 16,
+          lesson_duration_minutes: 45,
+          teaching_context: 'classroom',
+          class_size: 36,
+          class_profile: '学生已完成坐标系先修学习。',
+          teaching_preparation: ['准备坐标纸'],
+          course_assessment_plan: ['出口题与单元任务'],
+        },
         chapters: [{
           chapter_id: 'chapter-1',
           chapter_number: '1',
@@ -100,6 +110,9 @@ describe('课程教案阅读尺度', () => {
     expect(wrapper.text()).toContain('从变化率出发理解一次函数')
     expect(wrapper.text()).toContain('建立斜率的几何与情境直觉')
     expect(wrapper.text()).toContain('一次函数斜率')
+    expect(wrapper.text()).toContain('这门课按什么课堂条件实施')
+    expect(wrapper.text()).toContain('2026-2027 学年第一学期')
+    expect(wrapper.text()).toContain('准备坐标纸')
 
     const knowledgeTag = wrapper.get('.generation-lesson-plan__knowledge-tags button')
     await knowledgeTag.trigger('click')
@@ -169,6 +182,11 @@ describe('课程教案阅读尺度', () => {
           teaching_guidance: '先让学生拖动系数，再归纳代数表达。',
           knowledge_names: ['线性组合'],
         }],
+        planned_minutes: 45,
+        teacher_activities: ['展示向量缩放与相加'],
+        student_activities: ['拖动系数并解释变化'],
+        in_class_checks: ['用出口题判断表达是否正确'],
+        homework: ['完成两个向量分解练习'],
         knowledge_structure: [{
           concept_group: '核心机制',
           description: '从运算过程过渡到生成关系',
@@ -211,6 +229,8 @@ describe('课程教案阅读尺度', () => {
     expect(wrapper.text()).toContain('把系数当作向量分量')
     expect(wrapper.text()).toContain('向量加法')
     expect(wrapper.text()).toContain('线性组合')
+    expect(wrapper.text()).toContain('这一节如何落到课堂')
+    expect(wrapper.text()).toContain('展示向量缩放与相加')
 
     await wrapper.get('.generation-lesson-plan__pager > button:last-child').trigger('click')
     expect(wrapper.emitted('select')?.[0]?.[0]).toMatchObject({ node_id: 'section-2' })

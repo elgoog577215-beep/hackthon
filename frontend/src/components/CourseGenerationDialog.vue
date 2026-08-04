@@ -213,6 +213,59 @@
             </div>
           </section>
 
+          <section class="form-section teacher-brief-section" data-testid="teacher-course-brief-form">
+            <div class="teacher-brief-section__heading">
+              <div>
+                <strong>{{ t('courseGeneration.teacherBrief.title', '课堂交付约束') }}</strong>
+                <span>{{ t('courseGeneration.teacherBrief.help', '这些信息会写入课程生成契约，并成为全课教案的可审阅字段。') }}</span>
+              </div>
+              <Target :size="18" />
+            </div>
+            <div class="compact-grid">
+              <label for="teacher-target-audience">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
+                <input id="teacher-target-audience" v-model="form.targetAudience" class="text-input" type="text" maxlength="500" :disabled="busy" />
+              </label>
+              <label for="teacher-academic-term">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
+                <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
+              </label>
+              <label for="teacher-total-hours">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
+                <input id="teacher-total-hours" v-model.number="form.totalClassHours" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
+              </label>
+              <label for="teacher-lesson-minutes">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
+                <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
+              </label>
+              <label for="teacher-context">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.context', '授课场景') }}</span>
+                <select id="teacher-context" v-model="form.teachingContext" class="select-input" :disabled="busy">
+                  <option value="classroom">{{ t('courseGeneration.teacherBrief.contextClassroom', '线下课堂') }}</option>
+                  <option value="online">{{ t('courseGeneration.teacherBrief.contextOnline', '在线授课') }}</option>
+                  <option value="blended">{{ t('courseGeneration.teacherBrief.contextBlended', '混合式授课') }}</option>
+                  <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
+                </select>
+              </label>
+              <label for="teacher-class-size">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span>
+                <input id="teacher-class-size" v-model.number="form.classSize" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
+              </label>
+              <label for="teacher-chapter-count">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span>
+                <input id="teacher-chapter-count" v-model.number="form.chapterCount" class="text-input" type="number" min="1" max="100" step="1" :disabled="busy" />
+              </label>
+              <label for="teacher-section-count">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.sectionCount', '预计小节数') }}</span>
+                <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+              </label>
+            </div>
+            <label class="teacher-brief-section__profile" for="teacher-class-profile">
+              <span class="field-label">{{ t('courseGeneration.teacherBrief.classProfile', '班级与学情特点') }}</span>
+              <textarea id="teacher-class-profile" v-model="form.classProfile" class="textarea-input textarea-input--compact" maxlength="2000" :placeholder="t('courseGeneration.teacherBrief.classProfilePlaceholder', '例如：多数学生已完成先修课，但概念迁移和小组讨论经验有限')" :disabled="busy" />
+            </label>
+          </section>
+
           <section class="form-section guided-intro">
             <div class="guided-intro__heading">
               <strong>{{ guidedTitle }}</strong>
@@ -337,6 +390,15 @@ const form = reactive({
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   webQuestionEnrichment: true,
   requirements: '',
+  targetAudience: '大学生',
+  academicTerm: '',
+  totalClassHours: 16,
+  lessonDurationMinutes: 45,
+  teachingContext: 'classroom' as 'classroom' | 'online' | 'blended' | 'self_study',
+  classSize: undefined as number | undefined,
+  classProfile: '',
+  chapterCount: undefined as number | undefined,
+  sectionCount: undefined as number | undefined,
 })
 
 const difficultyOptions = computed(() => ([
@@ -391,7 +453,11 @@ const canSubmit = computed(() => !busy.value && (
   form.courseType === 'systematic'
     ? Boolean(activeSubject.value)
     : projectIntentComplete.value
-))
+) && Boolean(form.targetAudience.trim())
+  && Number.isInteger(form.totalClassHours) && form.totalClassHours >= 1 && form.totalClassHours <= 1000
+  && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
+  && (!form.chapterCount || !form.sectionCount || form.sectionCount >= form.chapterCount)
+)
 const guidedTitle = computed(() => form.courseType === 'project'
   ? t('courseGeneration.guided.projectTitle', '提交项目后，四步形成个人课程')
   : t('courseGeneration.guided.title', '提交需求后，四步完成课程'))
@@ -473,6 +539,25 @@ async function submit() {
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
       web_question_enrichment: { enabled: form.webQuestionEnrichment },
+      target_audience: form.targetAudience.trim(),
+      teacher_course_brief: {
+        schema_version: 'teacher_course_brief_v1',
+        academic_term: form.academicTerm.trim(),
+        target_audience: form.targetAudience.trim(),
+        total_class_hours: form.totalClassHours,
+        lesson_duration_minutes: form.lessonDurationMinutes,
+        teaching_context: form.teachingContext,
+        ...(form.classSize ? { class_size: form.classSize } : {}),
+        ...(form.classProfile.trim() ? { class_profile: form.classProfile.trim() } : {}),
+        ...(form.chapterCount ? { chapter_count: form.chapterCount } : {}),
+        ...(form.sectionCount ? { section_count: form.sectionCount } : {}),
+        additional_requirements: form.requirements.trim(),
+        material_refs: (materialBindings || []).map(binding => ({
+          resource_id: binding.asset_id,
+          label: binding.source_label || binding.asset_id,
+          parse_status: 'ready',
+        })),
+      },
     }
     const identity = JSON.stringify({ subject, options })
     if (!submissionRequestId.value || submissionIdentity.value !== identity) {
@@ -580,6 +665,12 @@ async function submit() {
 .strategy-settings__heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 11px; }
 .strategy-settings__heading strong { color: var(--lz-text); font-size: 12px; }
 .strategy-settings__heading span { color: var(--lz-text-muted); font-size: 10px; }
+.teacher-brief-section { display:grid; gap:14px; }
+.teacher-brief-section__heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; color:var(--lz-brand-strong); }
+.teacher-brief-section__heading > div { min-width:0; display:grid; gap:4px; }
+.teacher-brief-section__heading strong { color:var(--lz-text); font-size:13px; }
+.teacher-brief-section__heading span { color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
+.teacher-brief-section__profile { display:grid; gap:0; }
 .compact-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .field-label { display: block; margin-bottom: 8px; color: var(--lz-text); font-size: 12px; font-weight: 700; }
 .compact-grid .field-label { display: flex; align-items: center; gap: 6px; color: var(--lz-text-secondary); font-size: 10px; }

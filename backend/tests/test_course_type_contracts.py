@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from course_generation_workflow import (
+    apply_teacher_classroom_contract,
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
     normalize_course_outline_contract,
@@ -73,6 +74,95 @@ def test_non_default_legacy_purpose_still_has_priority():
 
     assert request.course_type == "exam"
     assert request.course_purpose == "exam_sprint"
+
+
+def test_teacher_course_brief_becomes_the_generation_and_audience_contract():
+    request = CourseGenerationRequest.model_validate({
+        "subject": "一次函数",
+        "target_audience": "旧默认对象",
+        "teacher_course_brief": {
+            "academic_term": "2026-2027 学年第一学期",
+            "target_audience": "初中二年级学生",
+            "total_class_hours": 16,
+            "lesson_duration_minutes": 45,
+            "teaching_context": "classroom",
+            "chapter_count": 4,
+            "section_count": 12,
+        },
+    })
+    artifacts = build_course_generation_artifacts(
+        course_id="course-brief-1",
+        topic=request.subject,
+        difficulty="intermediate",
+        style="balanced",
+        target_audience=request.target_audience or "大学生",
+        teacher_course_brief=request.teacher_course_brief.model_dump(mode="json"),
+    )
+
+    brief = artifacts["course_generation_brief"]
+    assert request.target_audience == "初中二年级学生"
+    assert brief["audience"] == "初中二年级学生"
+    assert brief["course_shape_constraints"]["chapter_count"] == 4
+    assert brief["course_shape_constraints"]["section_count"] == 12
+    assert brief["teacher_course_brief"]["total_class_hours"] == 16
+
+
+def test_teacher_course_brief_rejects_an_invalid_course_shape():
+    with pytest.raises(ValidationError, match="section_count"):
+        CourseGenerationRequest.model_validate({
+            "subject": "一次函数",
+            "teacher_course_brief": {
+                "target_audience": "初中二年级学生",
+                "total_class_hours": 16,
+                "lesson_duration_minutes": 45,
+                "teaching_context": "classroom",
+                "chapter_count": 8,
+                "section_count": 4,
+            },
+        })
+
+
+def test_teacher_classroom_contract_is_seeded_into_the_official_teaching_plan():
+    teaching_plan = apply_teacher_classroom_contract(
+        {
+            "schema_version": "course_teaching_plan_v3",
+            "source_outline_revision_id": "outline-1",
+            "sections": [{
+                "node_id": "section-1",
+                "key_points": ["斜率"],
+                "teaching_modules": [{
+                    "module_id": "core",
+                    "teaching_purpose": "建立变化率直觉",
+                    "knowledge_names": ["斜率"],
+                    "teaching_guidance": "比较图像变化。",
+                    "planned_minutes": 15,
+                    "teacher_activity": "展示两段变化",
+                    "student_activity": "比较变化率",
+                }],
+                "planned_minutes": 45,
+                "teacher_activities": ["展示图像"],
+                "in_class_checks": ["出口题"],
+            }],
+        },
+        {
+            "academic_term": "2026-2027 学年第一学期",
+            "target_audience": "初中二年级学生",
+            "total_class_hours": 16,
+            "lesson_duration_minutes": 45,
+            "teaching_context": "classroom",
+        },
+    )
+
+    assert teaching_plan["classroom"] == {
+        "academic_term": "2026-2027 学年第一学期",
+        "total_class_hours": 16,
+        "lesson_duration_minutes": 45,
+        "teaching_context": "classroom",
+    }
+    section = teaching_plan["sections"][0]
+    assert section["planned_minutes"] == 45
+    assert section["in_class_checks"] == ["出口题"]
+    assert section["teaching_modules"][0]["teacher_activity"] == "展示两段变化"
 
 
 @pytest.mark.asyncio
