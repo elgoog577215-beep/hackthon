@@ -689,6 +689,75 @@ def test_v5_compaction_closes_enumeration_across_adjacent_semantic_blocks() -> N
     )
 
 
+def test_v5_compaction_does_not_publish_an_unresolved_enumeration_promise() -> None:
+    document = CourseDocument(
+        course_id="course-unresolved-enumeration",
+        title="Regional anatomy",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Abdomen",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="Abdominal regions",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id="promise",
+            section_id="section-1",
+            block_id="regions",
+            kind="paragraph",
+            text="The abdomen is divided into nine regions.",
+            ordinal=0,
+            source_hash="promise",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="plane-definition",
+            section_id="section-1",
+            block_id="regions",
+            kind="paragraph",
+            text="The subcostal plane is one of the reference planes.",
+            ordinal=1,
+            source_hash="definition",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="plane-landmark",
+            section_id="section-1",
+            block_id="regions",
+            kind="list_item",
+            text="It passes through the inferior border of the tenth costal cartilage.",
+            ordinal=2,
+            source_hash="landmark",
+            role="concept",
+            source_kind="course_block",
+        ),
+    ]
+
+    compact = compact_story_plan_v5(document, _story(1), fragments)
+    selected_ids = {
+        fragment_id
+        for episode in compact.chapters[0].episodes
+        for beat in episode.beats
+        for fragment_id in beat.fragment_ids
+    }
+
+    assert "promise" not in selected_ids
+    assert {"plane-definition", "plane-landmark"} <= selected_ids
+
+
 @pytest.mark.parametrize(
     ("renderer_layout", "item_count", "page_capacity"),
     [
