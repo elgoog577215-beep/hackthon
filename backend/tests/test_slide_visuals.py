@@ -1020,6 +1020,45 @@ async def test_long_deck_uses_bounded_visual_planning_batches() -> None:
     assert all(page.planner == "ai" for page in resolved.pages)
 
 
+@pytest.mark.asyncio
+async def test_visual_batch_accepts_pages_only_provider_envelope() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    async def planner(request: dict) -> dict:
+        page_ids = {page["page_id"] for page in request["pages"]}
+        batch_allocation = allocation.model_copy(update={
+            "pages": [
+                page for page in allocation.pages
+                if page.page_id in page_ids
+            ],
+        })
+        full = deterministic_visual_plan(
+            document,
+            batch_allocation,
+            fragments,
+        ).model_dump(mode="json")
+        return {"pages": full["pages"]}
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    assert resolved.deck_brief["planner"] == "ai"
+    assert resolved.deck_brief["ai_visual_batches_failed"] == 0
+    assert all(page.planner == "ai" for page in resolved.pages)
+
+
 def test_visual_planning_batches_never_mix_chapters() -> None:
     pages = [
         SimpleNamespace(page_id="cover", chapter_id=""),

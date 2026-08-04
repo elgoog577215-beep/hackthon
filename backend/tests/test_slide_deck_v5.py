@@ -1870,6 +1870,47 @@ def test_v5_comparison_density_counts_rendered_rows_not_flattened_cells() -> Non
     )
 
 
+def test_v5_paired_practice_feedback_counts_aligned_rows_once() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "practice-three-pairs",
+        "layout": "practice",
+        "title": "Check the three clinical decisions",
+        "blocks": [
+            {
+                "block_id": "prompts",
+                "type": "question",
+                "items": ["Question A", "Question B", "Question C"],
+                "metadata": {
+                    "semantic_role": "prompt",
+                    "question_ids": ["q-a", "q-b", "q-c"],
+                },
+            },
+            {
+                "block_id": "answers",
+                "type": "callout",
+                "items": ["Answer A", "Answer B", "Answer C"],
+                "metadata": {
+                    "semantic_role": "answer",
+                    "answer_for_question_ids": ["q-a", "q-b", "q-c"],
+                },
+            },
+        ],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "practice-feedback",
+            "feedback_mode": "paired",
+            "feedback_pair_count": 3,
+        },
+    })
+
+    assert slide["quality"]["resolved_layout"] == "practice-feedback"
+    assert slide["quality"]["visible_item_count"] == 3
+    assert not any(
+        issue["code"] == "visible_item_overflow"
+        for issue in v5_contract_issues([slide])
+    )
+
+
 def test_v5_promotes_feedback_group_labels_instead_of_counting_them_as_items() -> None:
     slide = apply_page_contract_v5({
         "unit_id": "practice-feedback-groups",
