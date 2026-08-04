@@ -1,11 +1,16 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it } from 'vitest'
 import GenerationLessonPlan from '@/components/GenerationLessonPlan.vue'
 import type { Node } from '@/stores/types'
 
 describe('课程教案阅读尺度', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
   it('桌面端教案正文不再使用 8 至 10 像素的微缩字号', () => {
     const component = readFileSync(
       resolve(process.cwd(), 'src/components/GenerationLessonPlan.vue'),

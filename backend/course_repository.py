@@ -17,9 +17,14 @@ from course_document import (
     legacy_source_checksum,
     repair_document_block_semantics,
     refresh_document_revision,
+    stable_hash,
 )
 from course_feedback import project_feedback_structures
-from course_revisions import revision_event_for_documents, revision_vector_for_document
+from course_revisions import (
+    revision_event_for_documents,
+    revision_vector_for_course,
+    revision_vector_for_document,
+)
 from course_teaching_plan_projection import project_course_teaching_plan
 
 _GENERATED_METADATA_EXCLUDES = {
@@ -217,6 +222,102 @@ class CourseDocumentRepository:
                 raw[key] = deepcopy(value)
             await self._save_raw(course_id, raw)
             return raw
+
+    async def apply_metadata_command(
+        self,
+        course_id: str,
+        *,
+        expected_document_revision: str,
+        operation: dict[str, Any],
+        mutation: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        """Atomically commit domain metadata without mutating ``CourseDocument``.
+
+        Teaching-plan revisions, knowledge administration and derived-state
+        commands need the same idempotency, locking and revision receipt as
+        document commands, while keeping the canonical document untouched.
+        """
+        async with self._command_lock(course_id):
+            raw = self.load_raw(course_id)
+            if not self.is_canonical(raw):
+                raise CourseDocumentConflict(
+                    "Course must be migrated before metadata commands",
+                )
+            command_id = str(operation.get("command_id") or "")
+            existing = next(
+                (
+                    item
+                    for item in raw.get("course_operation_log") or []
+                    if item.get("command_id") == command_id
+                ),
+                None,
+            )
+            if command_id and existing:
+                return deepcopy(existing.get("receipt") or {})
+
+            document = CourseDocument.model_validate(raw["course_document"])
+            if document.document_revision != expected_document_revision:
+                raise CourseDocumentConflict("Course document revision changed")
+            document_snapshot = document.model_dump(mode="json")
+            previous = revision_vector_for_course(document, raw)
+
+            mutation(raw)
+            if raw.get("course_document") != document_snapshot:
+                raise CourseDocumentConflict(
+                    "Metadata command cannot mutate CourseDocument",
+                )
+
+            current = revision_vector_for_course(document, raw)
+            previous_keys = set(previous.revisions)
+            current_keys = set(current.revisions)
+            changed = sorted(
+                key
+                for key in previous_keys & current_keys
+                if previous.revisions[key] != current.revisions[key]
+            )
+            created_at = datetime.now(timezone.utc).isoformat()
+            revision_change = {
+                "schema_version": "course_revision_event_v1",
+                "course_id": course_id,
+                "command_id": command_id,
+                "operation": str(operation.get("operation") or "update_metadata"),
+                "previous": previous.model_dump(mode="json"),
+                "current": current.model_dump(mode="json"),
+                "changed_source_keys": changed,
+                "added_source_keys": sorted(current_keys - previous_keys),
+                "removed_source_keys": sorted(previous_keys - current_keys),
+                "affected_block_ids": sorted({
+                    str(item)
+                    for item in operation.get("affected_block_ids") or []
+                    if item
+                }),
+                "created_at": created_at,
+            }
+            revision_change["event_id"] = stable_hash(
+                revision_change,
+                prefix="cre_",
+            )
+            receipt = {
+                "command_id": command_id,
+                "operation": revision_change["operation"],
+                "document_revision": document.document_revision,
+                "affected_block_ids": revision_change["affected_block_ids"],
+                "committed_at": created_at,
+                "revision_change": revision_change,
+            }
+            operation_log = list(raw.get("course_operation_log") or [])
+            operation_log.append({
+                "command_id": command_id,
+                "operation": receipt["operation"],
+                "reason": str(operation.get("reason") or ""),
+                "actor": str(operation.get("actor") or "system"),
+                "receipt": receipt,
+            })
+            raw["course_operation_log"] = operation_log[-200:]
+            raw["course_revision_vector"] = current.model_dump(mode="json")
+            await self._save_raw(course_id, raw)
+            _publish_course_revision(course_id, receipt)
+            return receipt
 
     async def publish_generated_course(
         self,

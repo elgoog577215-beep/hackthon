@@ -16,6 +16,70 @@
       </div>
 
       <div class="generation-lesson-plan__summary">
+        <div v-if="showWorkbenchControls" class="generation-lesson-plan__workbench-controls">
+          <span v-if="workbenchStore.isSaving" class="generation-lesson-plan__draft-state" role="status">
+            <LoaderCircle :size="14" />
+            {{ t('courseGeneration.lessonPlan.editSaving', '正在保存草稿') }}
+          </span>
+          <span v-else-if="editing" class="generation-lesson-plan__draft-state" role="status">
+            <CircleCheck :size="14" />
+            {{ t('courseGeneration.lessonPlan.editDraft', '草稿已保存') }}
+          </span>
+          <button
+            v-if="workbenchAvailable"
+            type="button"
+            class="generation-lesson-plan__tool-button"
+            :disabled="actionBusy"
+            :title="t('courseGeneration.lessonPlan.openHistory', '查看修订历史')"
+            :aria-label="t('courseGeneration.lessonPlan.openHistory', '查看修订历史')"
+            @click="historyOpen = !historyOpen"
+          >
+            <History :size="16" />
+          </button>
+          <button
+            v-if="!editing"
+            type="button"
+            class="generation-lesson-plan__tool-button"
+            :disabled="workbenchStore.loading || !workbenchAvailable"
+            :title="t('courseGeneration.lessonPlan.startEditing', '编辑教案')"
+            :aria-label="t('courseGeneration.lessonPlan.startEditing', '编辑教案')"
+            @click="beginEditing"
+          >
+            <Pencil :size="16" />
+          </button>
+          <template v-else>
+            <button
+              type="button"
+              class="generation-lesson-plan__tool-button"
+              :disabled="workbenchStore.isSaving || actionBusy"
+              :title="t('courseGeneration.lessonPlan.openAiAssistant', '生成 AI 建议')"
+              :aria-label="t('courseGeneration.lessonPlan.openAiAssistant', '生成 AI 建议')"
+              @click="aiOpen = !aiOpen"
+            >
+              <Sparkles :size="16" />
+            </button>
+            <button
+              type="button"
+              class="generation-lesson-plan__tool-button"
+              :disabled="workbenchStore.isSaving"
+              :title="t('courseGeneration.lessonPlan.reviewChanges', '审阅变更')"
+              :aria-label="t('courseGeneration.lessonPlan.reviewChanges', '审阅变更')"
+              @click="openReview"
+            >
+              <GitCompare :size="16" />
+            </button>
+            <button
+              type="button"
+              class="generation-lesson-plan__tool-button is-danger"
+              :disabled="workbenchStore.isSaving"
+              :title="t('courseGeneration.lessonPlan.discardDraft', '放弃草稿')"
+              :aria-label="t('courseGeneration.lessonPlan.discardDraft', '放弃草稿')"
+              @click="discardDraft"
+            >
+              <X :size="16" />
+            </button>
+          </template>
+        </div>
         <div v-if="live && !planReady" class="generation-lesson-plan__progress" role="status">
           <div>
             <span>{{ t('courseGeneration.lessonPlan.generating', '正在规划') }}</span>
@@ -41,6 +105,207 @@
         </dl>
       </div>
     </header>
+
+    <aside
+      v-if="showWorkbenchControls && !workbenchAvailable && workbenchStore.workbench"
+      class="generation-lesson-plan__workbench-notice"
+      role="status"
+    >
+      <CircleDashed :size="17" />
+      <p>{{ workbenchStore.workbench.enabled
+        ? t('courseGeneration.lessonPlan.readOnlyLegacy', '这门课程仍可阅读；迁移为结构化课程后才能创建可审阅的教案草稿。')
+        : t('courseGeneration.lessonPlan.readOnlyDisabled', '教案工作台当前未启用；正式教案和历史记录保持可读。') }}</p>
+    </aside>
+
+    <p v-if="showWorkbenchControls && workbenchStore.errorCode" class="generation-lesson-plan__workbench-error" role="alert">
+      <TriangleAlert :size="16" />
+      {{ workbenchErrorMessage }}
+    </p>
+
+    <section v-if="reviewOpen && workbenchStore.review" class="generation-lesson-plan__review" aria-live="polite">
+      <header>
+        <div>
+          <span>{{ t('courseGeneration.lessonPlan.reviewEyebrow', '教案修订审阅') }}</span>
+          <h3>{{ t('courseGeneration.lessonPlan.reviewTitle', '确认前先检查差异与影响') }}</h3>
+        </div>
+        <button
+          type="button"
+          class="generation-lesson-plan__tool-button"
+          :title="t('courseGeneration.lessonPlan.closeReview', '关闭审阅')"
+          :aria-label="t('courseGeneration.lessonPlan.closeReview', '关闭审阅')"
+          @click="reviewOpen = false"
+        >
+          <X :size="16" />
+        </button>
+      </header>
+      <p v-if="!workbenchStore.review.validation.passed" class="generation-lesson-plan__review-blocked">
+        <TriangleAlert :size="16" />
+        {{ t('courseGeneration.lessonPlan.reviewBlocked', '结构校验尚未通过，请先修复草稿中的问题。') }}
+      </p>
+      <div class="generation-lesson-plan__review-grid">
+        <section>
+          <strong>{{ t('courseGeneration.lessonPlan.reviewDiff', '本次修改') }}</strong>
+          <ol>
+            <li v-for="operation in workbenchStore.review.diff.operations" :key="operation.operation_id">
+              <code>{{ operation.path }}</code>
+            </li>
+          </ol>
+        </section>
+        <section>
+          <strong>{{ t('courseGeneration.lessonPlan.reviewImpact', '需要后续重建') }}</strong>
+          <ol>
+            <li v-for="item in workbenchStore.review.impact_report.needs_regeneration" :key="`${item.type}-${item.id}`">
+              <span>{{ item.reason }}</span>
+            </li>
+            <li v-if="!workbenchStore.review.impact_report.needs_regeneration.length" class="is-muted">
+              {{ t('courseGeneration.lessonPlan.reviewNoRebuild', '本次修改不会要求重建课程内容。') }}
+            </li>
+          </ol>
+        </section>
+      </div>
+      <footer>
+        <span>{{ workbenchStore.review.diff.operations.length }} {{ t('courseGeneration.lessonPlan.reviewChangesCount', '项字段修改') }}</span>
+        <button
+          v-if="!activeChangeSet"
+          type="button"
+          class="generation-lesson-plan__review-button"
+          :disabled="!workbenchStore.review.validation.passed || workbenchStore.isSaving"
+          @click="prepareApplication"
+        >
+          <GitCompare :size="16" />
+          {{ t('courseGeneration.lessonPlan.prepareApplication', '生成可应用变更集') }}
+        </button>
+        <button
+          v-else
+          type="button"
+          class="generation-lesson-plan__review-button is-primary"
+          :disabled="activeChangeSet.status !== 'ready' || workbenchStore.isSaving"
+          @click="applyChanges"
+        >
+          <BadgeCheck :size="16" />
+          {{ t('courseGeneration.lessonPlan.applyChanges', '确认应用为新修订') }}
+        </button>
+      </footer>
+    </section>
+
+    <section v-if="aiOpen && editing" class="generation-lesson-plan__ai-panel" aria-live="polite">
+      <header>
+        <div>
+          <span>{{ t('courseGeneration.lessonPlan.aiEyebrow', 'AI 只生成候选') }}</span>
+          <h3>{{ t('courseGeneration.lessonPlan.aiTitle', '让 AI 针对当前草稿提出修改') }}</h3>
+        </div>
+        <button
+          type="button"
+          class="generation-lesson-plan__tool-button"
+          :title="t('courseGeneration.lessonPlan.closeAiAssistant', '关闭 AI 建议')"
+          :aria-label="t('courseGeneration.lessonPlan.closeAiAssistant', '关闭 AI 建议')"
+          @click="aiOpen = false"
+        >
+          <X :size="16" />
+        </button>
+      </header>
+      <div v-if="!activeAiCandidate" class="generation-lesson-plan__ai-request">
+        <label>
+          <span>{{ t('courseGeneration.lessonPlan.aiScope', '建议范围') }}</span>
+          <select v-model="aiScope">
+            <option value="overall">{{ t('courseGeneration.lessonPlan.aiScopeOverall', '全课教学设计') }}</option>
+            <option value="section" :disabled="!selectedSection?.plan">{{ t('courseGeneration.lessonPlan.aiScopeSection', '当前小节') }}</option>
+          </select>
+        </label>
+        <label>
+          <span>{{ t('courseGeneration.lessonPlan.aiInstruction', '希望怎样优化') }}</span>
+          <textarea v-model="aiInstruction" :placeholder="t('courseGeneration.lessonPlan.aiInstructionPlaceholder', '例如：让目标更可观察，并避免把教学策略写得过于抽象')" />
+        </label>
+        <button
+          type="button"
+          class="generation-lesson-plan__review-button is-primary"
+          :disabled="!aiInstruction.trim() || actionBusy"
+          @click="requestAiCandidate"
+        >
+          <Sparkles :size="16" />
+          {{ t('courseGeneration.lessonPlan.requestAiCandidate', '生成候选') }}
+        </button>
+      </div>
+      <div v-else class="generation-lesson-plan__ai-candidate">
+        <p>{{ activeAiCandidate.rationale || t('courseGeneration.lessonPlan.aiCandidateFallback', 'AI 已根据当前草稿生成结构化建议。') }}</p>
+        <label v-for="operation in activeAiCandidate.operations" :key="operation.operation_id">
+          <input v-model="selectedAiOperationIds" type="checkbox" :value="operation.operation_id" />
+          <code>{{ operation.path }}</code>
+        </label>
+        <footer>
+          <button
+            type="button"
+            class="generation-lesson-plan__tool-button is-danger"
+            :disabled="actionBusy"
+            :title="t('courseGeneration.lessonPlan.rejectAiCandidate', '拒绝候选')"
+            :aria-label="t('courseGeneration.lessonPlan.rejectAiCandidate', '拒绝候选')"
+            @click="rejectAiCandidate"
+          >
+            <X :size="16" />
+          </button>
+          <button
+            type="button"
+            class="generation-lesson-plan__review-button"
+            :disabled="!selectedAiOperationIds.length || actionBusy"
+            @click="acceptAiCandidate"
+          >
+            <BadgeCheck :size="16" />
+            {{ t('courseGeneration.lessonPlan.acceptAiCandidate', '接受所选建议') }}
+          </button>
+        </footer>
+      </div>
+    </section>
+
+    <section v-if="historyOpen && workbenchStore.workbench" class="generation-lesson-plan__history" aria-live="polite">
+      <header>
+        <div>
+          <span>{{ t('courseGeneration.lessonPlan.historyEyebrow', '正式教案修订') }}</span>
+          <h3>{{ t('courseGeneration.lessonPlan.historyTitle', '回看差异，必要时恢复为新修订') }}</h3>
+        </div>
+        <button
+          type="button"
+          class="generation-lesson-plan__tool-button"
+          :title="t('courseGeneration.lessonPlan.closeHistory', '关闭修订历史')"
+          :aria-label="t('courseGeneration.lessonPlan.closeHistory', '关闭修订历史')"
+          @click="historyOpen = false"
+        >
+          <X :size="16" />
+        </button>
+      </header>
+      <ol v-if="workbenchStore.workbench.revisions.length" class="generation-lesson-plan__history-list">
+        <li v-for="revision in workbenchStore.workbench.revisions" :key="revision.revision_id">
+          <div>
+            <strong>#{{ revision.revision_number }}</strong>
+            <span>{{ revision.created_at || revision.revision_id }}</span>
+          </div>
+          <div>
+            <button
+              type="button"
+              class="generation-lesson-plan__tool-button"
+              :disabled="revision.revision_id === workbenchStore.workbench.current_plan_revision_id || actionBusy"
+              :title="t('courseGeneration.lessonPlan.compareRevision', '与当前修订比较')"
+              :aria-label="t('courseGeneration.lessonPlan.compareRevision', '与当前修订比较')"
+              @click="compareRevision(revision.revision_id)"
+            >
+              <GitCompare :size="15" />
+            </button>
+            <button
+              type="button"
+              class="generation-lesson-plan__history-restore"
+              :disabled="revision.revision_id === workbenchStore.workbench.current_plan_revision_id || actionBusy"
+              @click="restoreRevision(revision.revision_id)"
+            >
+              {{ t('courseGeneration.lessonPlan.restoreRevision', '恢复为新修订') }}
+            </button>
+          </div>
+        </li>
+      </ol>
+      <p v-else class="generation-lesson-plan__history-empty">{{ t('courseGeneration.lessonPlan.historyEmpty', '创建第一份草稿后，系统会保留当前正式教案作为可对比的基线。') }}</p>
+      <div v-if="workbenchStore.revisionDiff" class="generation-lesson-plan__history-diff">
+        <strong>{{ t('courseGeneration.lessonPlan.historyDiff', '与当前修订的字段差异') }}</strong>
+        <code v-for="operation in workbenchStore.revisionDiff.diff.operations" :key="operation.operation_id">{{ operation.path }}</code>
+      </div>
+    </section>
 
     <div
       v-if="overallPlan || selectedSection"
@@ -85,12 +350,26 @@
         <div>
           <span>{{ t('courseGeneration.lessonPlan.overallEyebrow', '全课教学设计') }}</span>
           <h3>{{ overallPlan.course_title || t('courseGeneration.lessonPlan.untitledCourse', '未命名课程') }}</h3>
-          <p>{{ overallPlan.positioning || t('courseGeneration.lessonPlan.positioningPending', '课程定位将在目录确认后形成。') }}</p>
+          <textarea
+            v-if="editing"
+            class="generation-lesson-plan__inline-editor"
+            :value="draftText('overall/positioning', overallPlan.positioning)"
+            :aria-label="t('courseGeneration.lessonPlan.positioningLabel', '课程定位')"
+            @input="queueTextPatch('overall/positioning', overallPlan.positioning, $event)"
+          />
+          <p v-else>{{ overallPlan.positioning || t('courseGeneration.lessonPlan.positioningPending', '课程定位将在目录确认后形成。') }}</p>
         </div>
         <aside>
           <UsersRound :size="18" />
           <span>{{ t('courseGeneration.lessonPlan.targetAudience', '教学对象') }}</span>
-          <strong>{{ overallPlan.target_audience || t('courseGeneration.lessonPlan.audiencePending', '按课程需求确定') }}</strong>
+          <input
+            v-if="editing"
+            class="generation-lesson-plan__inline-input"
+            :value="draftText('overall/target_audience', overallPlan.target_audience)"
+            :aria-label="t('courseGeneration.lessonPlan.targetAudience', '教学对象')"
+            @input="queueTextPatch('overall/target_audience', overallPlan.target_audience, $event)"
+          />
+          <strong v-else>{{ overallPlan.target_audience || t('courseGeneration.lessonPlan.audiencePending', '按课程需求确定') }}</strong>
         </aside>
       </header>
 
@@ -103,7 +382,14 @@
               <strong>{{ t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够') }}</strong>
             </span>
           </header>
-          <ol v-if="overallPlan.learning_objectives.length">
+          <textarea
+            v-if="editing"
+            class="generation-lesson-plan__inline-editor"
+            :value="draftListText('overall/learning_objectives', overallPlan.learning_objectives)"
+            :aria-label="t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够')"
+            @input="queueListPatch('overall/learning_objectives', overallPlan.learning_objectives, $event)"
+          />
+          <ol v-else-if="overallPlan.learning_objectives.length">
             <li v-for="(objective, index) in overallPlan.learning_objectives" :key="objective">
               <span>{{ String(index + 1).padStart(2, '0') }}</span>
               <p>{{ objective }}</p>
@@ -120,7 +406,14 @@
               <strong>{{ t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备') }}</strong>
             </span>
           </header>
-          <ul v-if="overallPlan.prerequisites.length" class="generation-lesson-plan__plain-list">
+          <textarea
+            v-if="editing"
+            class="generation-lesson-plan__inline-editor"
+            :value="draftListText('overall/prerequisites', overallPlan.prerequisites)"
+            :aria-label="t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备')"
+            @input="queueListPatch('overall/prerequisites', overallPlan.prerequisites, $event)"
+          />
+          <ul v-else-if="overallPlan.prerequisites.length" class="generation-lesson-plan__plain-list">
             <li v-for="item in overallPlan.prerequisites" :key="item">{{ item }}</li>
           </ul>
           <p v-else class="generation-lesson-plan__card-empty">{{ t('courseGeneration.lessonPlan.noPrerequisites', '没有额外前置要求。') }}</p>
@@ -134,7 +427,14 @@
               <strong>{{ t('courseGeneration.lessonPlan.strategyTitle', '这门课准备怎样教') }}</strong>
             </span>
           </header>
-          <p class="generation-lesson-plan__strategy-copy">
+          <textarea
+            v-if="editing"
+            class="generation-lesson-plan__inline-editor"
+            :value="draftText('overall/teaching_strategy/rationale', overallPlan.teaching_strategy.rationale)"
+            :aria-label="t('courseGeneration.lessonPlan.strategyTitle', '这门课准备怎样教')"
+            @input="queueTextPatch('overall/teaching_strategy/rationale', overallPlan.teaching_strategy.rationale, $event)"
+          />
+          <p v-else class="generation-lesson-plan__strategy-copy">
             {{ overallPlan.teaching_strategy.rationale || teachingModeSummary }}
           </p>
           <div v-if="teachingModeTags.length" class="generation-lesson-plan__strategy-tags">
@@ -247,7 +547,14 @@
           <div class="generation-lesson-plan__section-title">
             <span>{{ t('courseGeneration.lessonPlan.currentSection', '当前小节') }}</span>
             <h3>{{ selectedSection.node.node_name }}</h3>
-            <p>{{ selectedSection.node.learning_objective || t('courseGeneration.lessonPlan.objectivePending', '学习目标随目录确认') }}</p>
+            <textarea
+              v-if="editing && selectedSection.plan"
+              class="generation-lesson-plan__inline-editor"
+              :value="draftText(sectionPath(selectedSection.node.node_id, 'learning_objective'), selectedSection.node.learning_objective)"
+              :aria-label="t('courseGeneration.lessonPlan.sectionObjectiveLabel', '本节学习目标')"
+              @input="queueTextPatch(sectionPath(selectedSection.node.node_id, 'learning_objective'), selectedSection.node.learning_objective, $event)"
+            />
+            <p v-else>{{ selectedSection.node.learning_objective || t('courseGeneration.lessonPlan.objectivePending', '学习目标随目录确认') }}</p>
           </div>
           <div class="generation-lesson-plan__readiness" :data-ready="Boolean(selectedSection.plan)">
             <CircleCheck v-if="selectedSection.plan" :size="17" />
@@ -262,6 +569,16 @@
         </header>
 
         <template v-if="selectedSection.plan">
+          <section v-if="editing" class="generation-lesson-plan__section-editor">
+            <label>
+              <span>{{ t('courseGeneration.lessonPlan.keyPointsLabel', '本节知识要点') }}</span>
+              <textarea
+                :value="draftListText(sectionPath(selectedSection.node.node_id, 'key_points'), selectedSection.plan.key_points || [])"
+                :aria-label="t('courseGeneration.lessonPlan.keyPointsLabel', '本节知识要点')"
+                @input="queueListPatch(sectionPath(selectedSection.node.node_id, 'key_points'), selectedSection.plan.key_points || [], $event)"
+              />
+            </label>
+          </section>
           <section class="generation-lesson-plan__block generation-lesson-plan__flow">
             <div class="generation-lesson-plan__block-heading">
               <div><Route :size="19" /></div>
@@ -282,8 +599,22 @@
                   <i aria-hidden="true" />
                 </div>
                 <div class="generation-lesson-plan__module-copy">
-                  <strong>{{ module.teaching_purpose || module.module_id }}</strong>
-                  <p v-if="module.teaching_guidance">{{ module.teaching_guidance }}</p>
+                  <textarea
+                    v-if="editing && module.module_id"
+                    class="generation-lesson-plan__inline-editor is-compact"
+                    :value="draftText(modulePath(selectedSection.node.node_id, module.module_id, 'teaching_purpose'), module.teaching_purpose)"
+                    :aria-label="t('courseGeneration.lessonPlan.modulePurposeLabel', '教学环节目的')"
+                    @input="queueTextPatch(modulePath(selectedSection.node.node_id, module.module_id, 'teaching_purpose'), module.teaching_purpose, $event)"
+                  />
+                  <strong v-else>{{ module.teaching_purpose || module.module_id }}</strong>
+                  <textarea
+                    v-if="editing && module.module_id"
+                    class="generation-lesson-plan__inline-editor is-compact"
+                    :value="draftText(modulePath(selectedSection.node.node_id, module.module_id, 'teaching_guidance'), module.teaching_guidance)"
+                    :aria-label="t('courseGeneration.lessonPlan.moduleGuidanceLabel', '教学环节指导')"
+                    @input="queueTextPatch(modulePath(selectedSection.node.node_id, module.module_id, 'teaching_guidance'), module.teaching_guidance, $event)"
+                  />
+                  <p v-else-if="module.teaching_guidance">{{ module.teaching_guidance }}</p>
                   <div v-if="module.knowledge_names?.length">
                     <span v-for="name in module.knowledge_names" :key="name">{{ name }}</span>
                   </div>
@@ -351,14 +682,28 @@
                       <span>{{ point.name }}</span>
                       <small v-if="point.knowledge_type">{{ knowledgeTypeLabel(point.knowledge_type) }}</small>
                     </div>
-                    <p>{{ point.statement || point.description }}</p>
+                    <textarea
+                      v-if="editing"
+                      class="generation-lesson-plan__inline-editor is-compact"
+                      :value="draftText(knowledgePath(selectedSection.node.node_id, point.name || '', 'statement'), point.statement || point.description)"
+                      :aria-label="t('courseGeneration.lessonPlan.knowledgeStatementLabel', '知识说明')"
+                      @input="queueTextPatch(knowledgePath(selectedSection.node.node_id, point.name || '', 'statement'), point.statement || point.description, $event)"
+                    />
+                    <p v-else>{{ point.statement || point.description }}</p>
                     <ChevronDown :size="17" aria-hidden="true" />
                   </summary>
 
                   <div class="generation-lesson-plan__knowledge-detail">
                     <section>
                       <header><Target :size="16" />{{ t('courseGeneration.lessonPlan.observableAbility', '可观察能力') }}</header>
-                      <ul v-if="capabilityItems(point).length">
+                      <textarea
+                        v-if="editing"
+                        class="generation-lesson-plan__inline-editor is-compact"
+                        :value="draftText(knowledgePath(selectedSection.node.node_id, point.name || '', 'capability'), point.capability)"
+                        :aria-label="t('courseGeneration.lessonPlan.observableAbility', '可观察能力')"
+                        @input="queueTextPatch(knowledgePath(selectedSection.node.node_id, point.name || '', 'capability'), point.capability, $event)"
+                      />
+                      <ul v-else-if="capabilityItems(point).length">
                         <li v-for="(item, itemIndex) in capabilityItems(point)" :key="itemIndex">{{ item }}</li>
                       </ul>
                       <p v-else>{{ t('courseGeneration.lessonPlan.notSpecified', '待补充') }}</p>
@@ -454,7 +799,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ArrowRight,
   ArrowUpRight,
@@ -466,7 +811,9 @@ import {
   ChevronRight,
   CircleCheck,
   CircleDashed,
+  GitCompare,
   GitBranch,
+  History,
   ListTree,
   LoaderCircle,
   Route,
@@ -474,6 +821,8 @@ import {
   Target,
   TriangleAlert,
   UsersRound,
+  Pencil,
+  X,
 } from 'lucide-vue-next'
 import type {
   CourseTeachingPlanProjection,
@@ -481,6 +830,7 @@ import type {
   Node,
   Task,
 } from '../stores/types'
+import { useTeachingPlanWorkbenchStore } from '../stores/teachingPlanWorkbench'
 import { t } from '../shared/i18n'
 
 type KnowledgePoint = NonNullable<CourseTeachingPlanSection['knowledge_structure'][number]['knowledge_points']>[number]
@@ -490,12 +840,14 @@ const props = withDefaults(defineProps<{
   plan?: CourseTeachingPlanProjection | null
   nodes?: Node[]
   activeNodeId?: string
+  courseId?: string
   live?: boolean
   task?: Task
 }>(), {
   plan: null,
   nodes: () => [],
   activeNodeId: '',
+  courseId: '',
   live: false,
   task: undefined,
 })
@@ -503,9 +855,20 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'select', node: Node): void
   (event: 'open-knowledge', knowledgeId: string): void
+  (event: 'applied'): void
 }>()
 
+const workbenchStore = useTeachingPlanWorkbenchStore()
 const viewMode = ref<'overall' | 'sections'>('overall')
+const reviewOpen = ref(false)
+const aiOpen = ref(false)
+const historyOpen = ref(false)
+const aiScope = ref<'overall' | 'section'>('overall')
+const aiInstruction = ref('')
+const selectedAiOperationIds = ref<string[]>([])
+const actionBusy = ref(false)
+const pendingValues = ref<Record<string, unknown>>({})
+const patchTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const planByNode = computed(() => new Map(
   (props.plan?.sections || []).map(section => [section.node_id, section]),
 ))
@@ -587,6 +950,271 @@ const planStatusLabel = computed(() => (
       ? t('courseGeneration.lessonPlan.planBuilding', '生成进行中')
       : t('courseGeneration.lessonPlan.planPreview', '教案预览')
 ))
+const showWorkbenchControls = computed(() => (
+  Boolean(props.courseId) && planReady.value && !props.live
+))
+const workbenchAvailable = computed(() => Boolean(workbenchStore.workbench?.available))
+const editing = computed(() => Boolean(workbenchStore.draft))
+const activeChangeSet = computed(() => {
+  const draftId = workbenchStore.draft?.draft_id
+  if (!draftId) return undefined
+  return workbenchStore.workbench?.change_sets.find(changeSet => (
+    changeSet.draft_id === draftId && ['ready', 'blocked', 'stale'].includes(changeSet.status)
+  ))
+})
+const aiPaths = computed(() => {
+  const allowed = new Set(
+    workbenchStore.workbench?.editable_fields
+      .filter(field => field.state !== 'readonly')
+      .map(field => field.path) || [],
+  )
+  if (aiScope.value === 'section' && selectedSection.value?.plan) {
+    const prefix = `sections/${selectedSection.value.node.node_id}/`
+    return [...allowed].filter(path => path.startsWith(prefix))
+  }
+  return [
+    'overall/positioning',
+    'overall/target_audience',
+    'overall/learning_objectives',
+    'overall/prerequisites',
+    'overall/teaching_strategy/rationale',
+  ].filter(path => allowed.has(path))
+})
+const activeAiCandidate = computed(() => {
+  const draftId = workbenchStore.draft?.draft_id
+  return workbenchStore.workbench?.ai_candidates.find(candidate => (
+    candidate.draft_id === draftId && candidate.status === 'ready'
+  ))
+})
+const workbenchErrorMessage = computed(() => {
+  const messages: Record<string, string> = {
+    teaching_plan_base_conflict: t('courseGeneration.lessonPlan.errorConflict', '正式教案已更新，请重新载入后再编辑。'),
+    course_document_base_conflict: t('courseGeneration.lessonPlan.errorConflict', '正式教案已更新，请重新载入后再编辑。'),
+    teaching_plan_field_conflict: t('courseGeneration.lessonPlan.errorFieldConflict', '该字段已在草稿中变化，请确认后重试。'),
+    teaching_plan_quality_blocked: t('courseGeneration.lessonPlan.errorQuality', '教案尚未通过结构校验，不能应用。'),
+    teaching_plan_readonly_legacy: t('courseGeneration.lessonPlan.errorLegacy', '这门课程需要先迁移为结构化课程。'),
+  }
+  return messages[workbenchStore.errorCode]
+    || t('courseGeneration.lessonPlan.errorRequest', '教案操作未完成，请稍后重试。')
+})
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function draftValue<T>(path: string, fallback: T): T {
+  if (Object.prototype.hasOwnProperty.call(pendingValues.value, path)) {
+    return pendingValues.value[path] as T
+  }
+  const operation = workbenchStore.draft?.operations.find(item => item.path === path)
+  return (operation?.after as T | undefined) ?? fallback
+}
+
+function draftText(path: string, fallback: unknown): string {
+  return String(draftValue(path, fallback || '') || '')
+}
+
+function draftListText(path: string, fallback: unknown): string {
+  const value = draftValue(path, fallback)
+  return Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean).join('\n') : ''
+}
+
+function sectionPath(sectionId: string, field: 'learning_objective' | 'key_points'): string {
+  return `sections/${sectionId}/${field}`
+}
+
+function modulePath(sectionId: string, moduleId: string, field: 'teaching_purpose' | 'teaching_guidance'): string {
+  return `sections/${sectionId}/teaching_modules/${moduleId}/${field}`
+}
+
+function knowledgePath(sectionId: string, name: string, field: 'statement' | 'capability'): string {
+  return `sections/${sectionId}/knowledge/${name}/${field}`
+}
+
+function queuePatch(path: string, fallback: unknown, next: unknown) {
+  if (!editing.value || sameValue(draftValue(path, fallback), next)) return
+  pendingValues.value = { ...pendingValues.value, [path]: next }
+  const timer = patchTimers.get(path)
+  if (timer) clearTimeout(timer)
+  patchTimers.set(path, setTimeout(async () => {
+    const value = pendingValues.value[path]
+    try {
+      await workbenchStore.patchDraft(path, value)
+      if (sameValue(pendingValues.value[path], value)) {
+        const { [path]: _saved, ...rest } = pendingValues.value
+        pendingValues.value = rest
+      }
+    } catch {
+      // Keep the typed value in place so the teacher can resolve the conflict.
+    } finally {
+      patchTimers.delete(path)
+    }
+  }, 650))
+}
+
+function queueTextPatch(path: string, fallback: unknown, event: Event) {
+  queuePatch(path, fallback, (event.target as HTMLInputElement | HTMLTextAreaElement).value)
+}
+
+function queueListPatch(path: string, fallback: unknown, event: Event) {
+  const values = (event.target as HTMLTextAreaElement).value
+    .split('\n')
+    .map(value => value.trim())
+    .filter(Boolean)
+  queuePatch(path, fallback, values)
+}
+
+async function ensureWorkbench() {
+  if (!showWorkbenchControls.value) return
+  if (workbenchStore.courseId === props.courseId && workbenchStore.workbench) return
+  try {
+    await workbenchStore.load(props.courseId)
+  } catch {
+    // The compact status area renders a localized retry-safe state instead.
+  }
+}
+
+async function beginEditing() {
+  actionBusy.value = true
+  try {
+    await workbenchStore.beginDraft()
+  } catch {
+    // The error code remains available for the localized status UI.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function discardDraft() {
+  actionBusy.value = true
+  try {
+    await workbenchStore.discardDraft()
+    reviewOpen.value = false
+    pendingValues.value = {}
+  } catch {
+    // Keep the draft editable when the discard command conflicts.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function openReview() {
+  actionBusy.value = true
+  try {
+    await workbenchStore.reviewDraft()
+    reviewOpen.value = Boolean(workbenchStore.review)
+  } catch {
+    reviewOpen.value = false
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function prepareApplication() {
+  actionBusy.value = true
+  try {
+    await workbenchStore.createChangeSet()
+  } catch {
+    // Keep the review visible with its last valid report.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function requestAiCandidate() {
+  if (!aiPaths.value.length) return
+  actionBusy.value = true
+  try {
+    await workbenchStore.createAiCandidate(aiPaths.value, aiInstruction.value.trim())
+  } catch {
+    // Keep the instruction in place so the teacher can refine it and retry.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function acceptAiCandidate() {
+  if (!activeAiCandidate.value) return
+  actionBusy.value = true
+  try {
+    await workbenchStore.acceptAiCandidate(
+      activeAiCandidate.value.candidate_id,
+      selectedAiOperationIds.value,
+    )
+    selectedAiOperationIds.value = []
+  } catch {
+    // Candidate remains separate from the draft until the command succeeds.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function rejectAiCandidate() {
+  if (!activeAiCandidate.value) return
+  actionBusy.value = true
+  try {
+    await workbenchStore.rejectAiCandidate(activeAiCandidate.value.candidate_id)
+    selectedAiOperationIds.value = []
+  } catch {
+    // Preserve the candidate when rejection fails.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function applyChanges() {
+  if (!activeChangeSet.value) return
+  actionBusy.value = true
+  try {
+    await workbenchStore.applyChangeSet(activeChangeSet.value.change_set_id)
+    reviewOpen.value = false
+    pendingValues.value = {}
+    emit('applied')
+  } catch {
+    // The server leaves the pending change set intact for another review.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function compareRevision(revisionId: string) {
+  actionBusy.value = true
+  try {
+    await workbenchStore.loadRevisionDiff(revisionId)
+  } catch {
+    // Keep the history list open so the teacher can choose another revision.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function restoreRevision(revisionId: string) {
+  actionBusy.value = true
+  try {
+    await workbenchStore.restoreRevision(revisionId)
+    historyOpen.value = false
+    emit('applied')
+  } catch {
+    // The original revision remains available when the restore command conflicts.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+watch(
+  () => [props.courseId, props.live, planReady.value],
+  () => { void ensureWorkbench() },
+  { immediate: true },
+)
+
+watch(activeAiCandidate, candidate => {
+  selectedAiOperationIds.value = candidate?.operations.map(operation => operation.operation_id) || []
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  for (const timer of patchTimers.values()) clearTimeout(timer)
+  patchTimers.clear()
+})
 
 function textFromRecord(value: unknown, keys: string[]): string {
   if (typeof value === 'string') return value.trim()
@@ -868,6 +1496,78 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__legacy strong,.generation-lesson-plan__empty strong { margin-top:12px; color:#384356; font-size:16px; }
 .generation-lesson-plan__legacy p,.generation-lesson-plan__empty p { margin:6px 0 0; font-size:13px; line-height:1.6; }
 .generation-lesson-plan__empty svg { animation:lesson-plan-spin .9s linear infinite; }
+.generation-lesson-plan__workbench-controls { display:flex; align-items:center; justify-content:flex-end; gap:7px; min-height:32px; }
+.generation-lesson-plan__draft-state { display:inline-flex; align-items:center; gap:5px; color:#14735b; font-size:12px; font-weight:750; white-space:nowrap; }
+.generation-lesson-plan__draft-state svg { animation:lesson-plan-spin .9s linear infinite; }
+.generation-lesson-plan__draft-state svg:not(.lucide-loader-circle) { animation:none; }
+.generation-lesson-plan__tool-button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid #d9dde7; border-radius:8px; color:#535db4; background:#fff; cursor:pointer; }
+.generation-lesson-plan__tool-button:hover:not(:disabled) { border-color:#adb4db; color:#424ba1; background:#f5f6ff; }
+.generation-lesson-plan__tool-button.is-danger { color:#a05252; }
+.generation-lesson-plan__tool-button.is-danger:hover:not(:disabled) { border-color:#e6c9c9; color:#923f3f; background:#fff7f7; }
+.generation-lesson-plan__tool-button:disabled { opacity:.5; cursor:wait; }
+.generation-lesson-plan__workbench-notice,.generation-lesson-plan__workbench-error { width:min(1180px,100%); display:flex; align-items:flex-start; gap:8px; margin:0 auto 14px; padding:10px 12px; border:1px solid #dce0e8; border-radius:8px; color:#6c7586; background:#fafbfc; font-size:12px; line-height:1.55; }
+.generation-lesson-plan__workbench-notice svg,.generation-lesson-plan__workbench-error svg { flex:none; margin-top:1px; }
+.generation-lesson-plan__workbench-notice p,.generation-lesson-plan__workbench-error { margin-top:0; margin-bottom:0; }
+.generation-lesson-plan__workbench-error { border-color:#ecd7c4; color:#9b6333; background:#fffaf5; }
+.generation-lesson-plan__review { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #cfd4e9; border-radius:8px; background:#fdfdff; box-shadow:0 12px 30px rgba(48,55,90,.07); }
+.generation-lesson-plan__review > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
+.generation-lesson-plan__review > header span { color:#5b64b8; font-size:11px; font-weight:800; letter-spacing:.06em; }
+.generation-lesson-plan__review h3 { margin:4px 0 0; color:#263145; font-size:17px; line-height:1.4; }
+.generation-lesson-plan__review-blocked { display:flex; align-items:center; gap:7px; margin:14px 0 0; color:#a25e26; font-size:13px; line-height:1.55; }
+.generation-lesson-plan__review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:17px; }
+.generation-lesson-plan__review-grid > section { min-width:0; padding:13px 14px; border:1px solid #e1e4eb; border-radius:8px; background:#fff; }
+.generation-lesson-plan__review-grid strong { color:#4b566a; font-size:12px; }
+.generation-lesson-plan__review-grid ol { display:grid; gap:7px; margin:10px 0 0; padding:0; list-style:none; }
+.generation-lesson-plan__review-grid li { color:#697386; font-size:12px; line-height:1.5; }
+.generation-lesson-plan__review-grid li.is-muted { color:#9299a5; }
+.generation-lesson-plan__review-grid code { display:block; overflow:hidden; color:#5962af; font:11px/1.5 ui-monospace,SFMono-Regular,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.generation-lesson-plan__review > footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:15px; color:#7b8494; font-size:12px; }
+.generation-lesson-plan__review-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:34px; padding:0 11px; border:1px solid #cfd4e8; border-radius:8px; color:#505ab0; background:#fff; font-size:12px; font-weight:750; cursor:pointer; }
+.generation-lesson-plan__review-button:hover:not(:disabled) { border-color:#aab2dc; background:#f4f5ff; }
+.generation-lesson-plan__review-button.is-primary { border-color:#555fb7; color:#fff; background:#555fb7; }
+.generation-lesson-plan__review-button:disabled { opacity:.5; cursor:not-allowed; }
+.generation-lesson-plan__ai-panel { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d7d2eb; border-radius:8px; background:#fbfbff; }
+.generation-lesson-plan__ai-panel > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
+.generation-lesson-plan__ai-panel > header span { color:#665db2; font-size:11px; font-weight:800; letter-spacing:.06em; }
+.generation-lesson-plan__ai-panel h3 { margin:4px 0 0; color:#293146; font-size:17px; line-height:1.4; }
+.generation-lesson-plan__ai-request { display:grid; grid-template-columns:minmax(180px,.35fr) minmax(0,1fr) auto; align-items:end; gap:12px; margin-top:16px; }
+.generation-lesson-plan__ai-request label { display:grid; gap:7px; color:#626b80; font-size:12px; font-weight:750; }
+.generation-lesson-plan__ai-request select,.generation-lesson-plan__ai-request textarea { box-sizing:border-box; width:100%; border:1px solid #d1d2e6; border-radius:8px; color:#3c465a; background:#fff; font:inherit; outline:none; }
+.generation-lesson-plan__ai-request select { min-height:36px; padding:0 8px; }
+.generation-lesson-plan__ai-request textarea { min-height:72px; padding:8px 10px; line-height:1.5; resize:vertical; }
+.generation-lesson-plan__ai-request select:focus,.generation-lesson-plan__ai-request textarea:focus { border-color:#7d76ca; box-shadow:0 0 0 3px rgba(110,101,190,.12); }
+.generation-lesson-plan__ai-candidate { display:grid; gap:10px; margin-top:16px; }
+.generation-lesson-plan__ai-candidate > p { margin:0; color:#58637a; font-size:13px; line-height:1.65; }
+.generation-lesson-plan__ai-candidate > label { display:flex; align-items:center; gap:8px; min-height:34px; padding:7px 9px; border:1px solid #e0e1ea; border-radius:8px; background:#fff; cursor:pointer; }
+.generation-lesson-plan__ai-candidate input { width:15px; height:15px; accent-color:#625cb3; }
+.generation-lesson-plan__ai-candidate code { overflow:hidden; color:#5961ae; font:11px/1.5 ui-monospace,SFMono-Regular,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.generation-lesson-plan__ai-candidate footer { display:flex; justify-content:flex-end; gap:8px; }
+.generation-lesson-plan__history { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d9dce5; border-radius:8px; background:#fff; }
+.generation-lesson-plan__history > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
+.generation-lesson-plan__history > header span { color:#68728a; font-size:11px; font-weight:800; letter-spacing:.06em; }
+.generation-lesson-plan__history h3 { margin:4px 0 0; color:#293346; font-size:17px; line-height:1.4; }
+.generation-lesson-plan__history-list { display:grid; gap:7px; margin:16px 0 0; padding:0; list-style:none; }
+.generation-lesson-plan__history-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 10px; border:1px solid #e3e5eb; border-radius:8px; background:#fcfcfd; }
+.generation-lesson-plan__history-list li > div:first-child { display:flex; align-items:baseline; min-width:0; gap:9px; }
+.generation-lesson-plan__history-list strong { flex:none; color:#5660b3; font:750 12px/1 ui-monospace,SFMono-Regular,monospace; }
+.generation-lesson-plan__history-list span { overflow:hidden; color:#7c8493; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.generation-lesson-plan__history-list li > div:last-child { display:flex; gap:7px; }
+.generation-lesson-plan__history-restore { min-height:32px; padding:0 9px; border:1px solid #d5d9e8; border-radius:8px; color:#4d57aa; background:#fff; font-size:12px; font-weight:750; cursor:pointer; }
+.generation-lesson-plan__history-restore:hover:not(:disabled) { border-color:#adb5db; background:#f4f5ff; }
+.generation-lesson-plan__history-restore:disabled { opacity:.5; cursor:not-allowed; }
+.generation-lesson-plan__history-empty { margin:15px 0 0; color:#89909d; font-size:13px; line-height:1.6; }
+.generation-lesson-plan__history-diff { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:14px; padding-top:14px; border-top:1px solid #e8e9ed; }
+.generation-lesson-plan__history-diff strong { margin-right:3px; color:#596477; font-size:12px; }
+.generation-lesson-plan__history-diff code { padding:4px 6px; border-radius:5px; color:#5961ad; background:#f2f3fb; font:11px/1.35 ui-monospace,SFMono-Regular,monospace; }
+.generation-lesson-plan__inline-editor,.generation-lesson-plan__inline-input { box-sizing:border-box; width:100%; border:1px solid #cbd1e7; border-radius:8px; color:#39465a; background:#fff; font:inherit; line-height:1.6; outline:none; resize:vertical; }
+.generation-lesson-plan__inline-editor { min-height:72px; padding:8px 10px; }
+.generation-lesson-plan__inline-editor.is-compact { min-height:48px; margin:0 0 8px; font-size:13px; }
+.generation-lesson-plan__inline-input { min-height:34px; padding:5px 7px; font-size:13px; }
+.generation-lesson-plan__inline-editor:focus,.generation-lesson-plan__inline-input:focus { border-color:#757ed1; box-shadow:0 0 0 3px rgba(94,104,197,.12); }
+.generation-lesson-plan__section-editor { display:grid; gap:10px; padding:18px 34px; border-bottom:1px solid #e4e7ec; background:#f8f8fd; }
+.generation-lesson-plan__section-editor label { display:grid; gap:7px; color:#5d6780; font-size:12px; font-weight:750; }
+.generation-lesson-plan__section-editor textarea { box-sizing:border-box; width:100%; min-height:58px; padding:8px 10px; border:1px solid #cfd4e9; border-radius:8px; color:#3e4a5d; background:#fff; font:inherit; line-height:1.55; resize:vertical; }
+.generation-lesson-plan__section-editor textarea:focus { border-color:#757ed1; outline:none; box-shadow:0 0 0 3px rgba(94,104,197,.12); }
 @keyframes lesson-plan-spin { to { transform:rotate(360deg); } }
 @keyframes lesson-plan-shimmer { to { background-position:-220% 0; } }
 @media (max-width:900px) {
@@ -882,12 +1582,22 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__block-heading { grid-template-columns:38px minmax(0,1fr); }
   .generation-lesson-plan__block-heading > p { grid-column:2; justify-self:start; text-align:left; }
   .generation-lesson-plan__knowledge-detail { grid-template-columns:1fr; }
+  .generation-lesson-plan__review-grid { grid-template-columns:1fr; }
+  .generation-lesson-plan__ai-request { grid-template-columns:1fr; }
 }
 @media (max-width:767px) {
   .generation-lesson-plan { padding:22px 10px 86px; background-size:100% 28px,auto,auto; }
   .generation-lesson-plan__header { margin-bottom:14px; padding:0 6px 20px; }
   .generation-lesson-plan__header h2 { font-size:29px; }
   .generation-lesson-plan__summary dl div { padding:3px 10px; }
+  .generation-lesson-plan__workbench-controls { justify-content:flex-start; }
+  .generation-lesson-plan__review { padding:16px; }
+  .generation-lesson-plan__ai-panel { padding:16px; }
+  .generation-lesson-plan__history { padding:16px; }
+  .generation-lesson-plan__review > footer { align-items:stretch; flex-direction:column; }
+  .generation-lesson-plan__review-button { width:100%; }
+  .generation-lesson-plan__history-list li { align-items:flex-start; flex-direction:column; }
+  .generation-lesson-plan__history-list li > div:last-child { width:100%; justify-content:flex-end; }
   .generation-lesson-plan__view-switch { width:calc(100% - 4px); }
   .generation-lesson-plan__view-switch button { flex:1; padding:9px 10px; }
   .generation-lesson-plan__view-switch button small { display:none; }
@@ -912,6 +1622,7 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__section-title h3 { font-size:20px; }
   .generation-lesson-plan__readiness { grid-column:1 / -1; margin:0; }
   .generation-lesson-plan__block { padding:24px 16px 27px; }
+  .generation-lesson-plan__section-editor { padding:16px; }
   .generation-lesson-plan__block-heading { align-items:start; gap:10px 11px; margin-bottom:18px; }
   .generation-lesson-plan__block-heading > p { grid-column:1 / -1; }
   .generation-lesson-plan__section-knowledge-tags { grid-template-columns:1fr; gap:8px; }

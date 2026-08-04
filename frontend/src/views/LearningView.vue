@@ -73,10 +73,12 @@
         :plan="courseStore.currentTeachingPlan"
         :nodes="courseStore.nodes"
         :active-node-id="courseStore.currentNode?.node_id"
+        :course-id="courseStore.currentCourseId"
         :live="isGenerationPreview"
         :task="generationTask"
         @select="selectNode"
         @open-knowledge="openKnowledgeFromLessonPlan"
+        @applied="handleTeachingPlanApplied"
       />
       <CourseOutlineReview
         v-else-if="showOutlineReview"
@@ -729,6 +731,13 @@ async function resumeGenerationTask() {
 function handleGenerationGateConfirmed(_step?: 'outline' | 'teaching' | 'content' | 'release') {
   autoFollowGeneration.value = true
   activeWorkspaceItem.value = 'course'
+}
+
+async function handleTeachingPlanApplied() {
+  const courseId = courseStore.currentCourseId
+  if (!courseId) return
+  await courseStore.refreshCourseData(courseId)
+  ElMessage.success(t('courseGeneration.lessonPlan.appliedMessage', '教案修订已应用，相关内容已标记为待重建'))
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
