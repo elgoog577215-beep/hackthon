@@ -125,6 +125,7 @@ def test_workflow_can_inspect_proxy_without_deploying() -> None:
 
     assert "inspect_proxy:" in workflow
     assert "Inspect production proxy" in workflow
+    assert "Validate production proxy repair" in workflow
     assert "if: ${{ inputs.inspect_proxy }}" in workflow
     assert workflow.count("if: ${{ !inputs.inspect_proxy }}") >= 5
 

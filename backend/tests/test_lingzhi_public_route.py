@@ -157,6 +157,33 @@ def test_configure_public_route_is_a_verified_noop_when_already_current(
     assert config_path.read_text(encoding="utf-8") == current
 
 
+def test_configure_public_route_check_only_validates_without_writing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    module = load_route_module()
+    config_path = tmp_path / "Caddyfile"
+    config_path.write_text(LEGACY_CADDYFILE, encoding="utf-8")
+    commands = []
+
+    monkeypatch.setattr(module.os, "chown", lambda *args: None, raising=False)
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda command, *, capture_output=False: commands.append(command)
+        or SimpleNamespace(stdout=""),
+    )
+
+    assert module.configure_public_route(
+        config_path,
+        "/usr/bin/caddy",
+        check_only=True,
+    ) is None
+    assert config_path.read_text(encoding="utf-8") == LEGACY_CADDYFILE
+    assert list(tmp_path.glob("Caddyfile.backup-lingzhi-*")) == []
+    assert [command[1] for command in commands] == ["validate"]
+
+
 def test_configure_public_route_restores_backup_when_reload_fails(
     tmp_path,
     monkeypatch,
