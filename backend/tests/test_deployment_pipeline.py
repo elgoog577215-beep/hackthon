@@ -76,7 +76,7 @@ def test_server_activation_uses_checkpoint_recovery_for_active_tasks() -> None:
 
 
 def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
-    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text(encoding="utf-8")
 
     activation = script.index("\nvalidate_settings\n")
     preflight = script.index("\npreflight_release_runtime\n", activation)
@@ -90,6 +90,16 @@ def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
     assert preflight < stop_service
     assert diagnostics < fail_activation
     assert 'systemctl reset-failed "$SERVICE_NAME" || true' in script[rollback:]
+
+
+def test_server_activation_repairs_public_route_before_completion() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text(encoding="utf-8")
+
+    health_check = script.index("if ! wait_for_health")
+    route_repair = script.index("configure_lingzhi_public_route.py")
+    deployment_complete = script.index('log "部署完成：$TARGET_COMMIT"')
+
+    assert health_check < route_repair < deployment_complete
 
 
 def test_server_activation_script_has_valid_bash_syntax() -> None:
