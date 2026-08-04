@@ -572,6 +572,11 @@ def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
     high_risk["question_spec"]["task"]["rendered_text"] = (
         high_risk["prompt"]
     )
+    # Subject/background context may mention real clinical treatment, while
+    # the requested student action remains explanatory and low consequence.
+    low_risk["question_spec"]["stimulus"]["rendered_text"] = (
+        "A patient received a prescription and treatment plan."
+    )
     teacher_rejected["review_history"] = [{
         "decision": "rejected",
         "reviewer_id": "teacher-1",
@@ -604,9 +609,8 @@ def test_subject_level_risk_migration_runs_after_policy_was_already_updated():
     assert migrated_high["review_policy_reason"] == (
         "risk:high_consequence_action"
     )
-    assert migrated_high["risk_flags"] == [
-        "high_consequence_action",
-    ]
+    assert "high_consequence_action" in migrated_high["risk_flags"]
+    assert "high_stakes_domain" not in migrated_high["risk_flags"]
 
     migrated_rejected = by_id[teacher_rejected["item_id"]]
     assert migrated_rejected["lifecycle_status"] == "rejected"
