@@ -195,6 +195,112 @@ async def test_draft_patch_review_and_apply_creates_new_official_revision() -> N
 
 
 @pytest.mark.asyncio
+async def test_classroom_constraints_validate_and_apply_from_the_same_plan_revision() -> None:
+    course = _course()
+    course["generation_request"]["teacher_course_brief"] = {
+        "schema_version": "teacher_course_brief_v1",
+        "academic_term": "2026-2027 学年第一学期",
+        "target_audience": "初中二年级学生",
+        "total_class_hours": 2,
+        "lesson_duration_minutes": 45,
+        "teaching_context": "classroom",
+    }
+    storage = MemoryStorage(course)
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    initial = service.view("course-1", actor="teacher-1")
+    assert "overall/total_class_hours" in {
+        item["path"] for item in initial["editable_fields"]
+    }
+
+    created = await service.create_draft(
+        "course-1",
+        actor="teacher-1",
+        idempotency_key="create-classroom",
+        base_plan_revision_id=initial["current_plan_revision_id"],
+        base_course_document_revision=initial["course_document_revision"],
+    )
+    draft_id = created["draft"]["draft_id"]
+    base_revision = initial["current_plan_revision_id"]
+
+    await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="overall/total_class_hours",
+        value=1,
+        expected_value_hash="",
+        base_plan_revision_id=base_revision,
+        idempotency_key="classroom-hours",
+    )
+    await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="sections/section-1/planned_minutes",
+        value=90,
+        expected_value_hash="",
+        base_plan_revision_id=base_revision,
+        idempotency_key="section-over-capacity",
+    )
+    blocked = service.review_draft("course-1", actor="teacher-1", draft_id=draft_id)
+    assert blocked["validation"]["passed"] is False
+    assert "teaching_plan_class_hours_exceeded" in {
+        item["code"] for item in blocked["validation"]["issues"]
+    }
+
+    patched = await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="sections/section-1/planned_minutes",
+        value=45,
+        expected_value_hash="",
+        base_plan_revision_id=base_revision,
+        idempotency_key="section-within-capacity",
+    )
+    await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="sections/section-1/teacher_activities",
+        value=["展示两段路径变化，引导学生比较"],
+        expected_value_hash="",
+        base_plan_revision_id=base_revision,
+        idempotency_key="section-teacher-activity",
+    )
+    review = service.review_draft("course-1", actor="teacher-1", draft_id=draft_id)
+    assert review["validation"]["passed"] is True
+    assert any(
+        item["type"] == "lecture"
+        for item in review["impact_report"]["needs_regeneration"]
+    )
+
+    prepared = await service.create_change_set(
+        "course-1",
+        actor="teacher-1",
+        draft_id=patched["draft"]["draft_id"],
+        idempotency_key="prepare-classroom-change",
+    )
+    change_set = next(item for item in prepared["change_sets"] if item["status"] == "ready")
+    applied = await service.apply_change_set(
+        "course-1",
+        actor="teacher-1",
+        change_set_id=change_set["change_set_id"],
+        idempotency_key="apply-classroom-change",
+    )
+    assert storage.course["course_teaching_plan"]["classroom"]["total_class_hours"] == 1
+    assert storage.course["course_teaching_plan"]["sections"][0]["planned_minutes"] == 45
+    assert storage.course["course_teaching_plan"]["sections"][0]["teacher_activities"] == [
+        "展示两段路径变化，引导学生比较"
+    ]
+    applied_change_set = next(
+        item for item in applied["workbench"]["change_sets"]
+        if item["change_set_id"] == change_set["change_set_id"]
+    )
+    assert applied_change_set["impact_report"]["needs_regeneration"]
+
+
+@pytest.mark.asyncio
 async def test_patch_rejects_readonly_identifier_and_stale_base() -> None:
     storage = MemoryStorage(_course())
     service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))

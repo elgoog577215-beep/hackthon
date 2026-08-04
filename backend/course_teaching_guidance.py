@@ -137,6 +137,15 @@ def compile_overall_teaching_guidance(
     pedagogy = pedagogy if isinstance(pedagogy, dict) else {}
     brief = course_data.get("course_generation_brief")
     brief = brief if isinstance(brief, dict) else {}
+    teacher_brief = course_data.get("teacher_course_brief")
+    teacher_brief = teacher_brief if isinstance(teacher_brief, dict) else {}
+    if not teacher_brief:
+        teacher_brief = request.get("teacher_course_brief")
+        teacher_brief = teacher_brief if isinstance(teacher_brief, dict) else {}
+    teaching_plan = course_data.get("course_teaching_plan")
+    teaching_plan = teaching_plan if isinstance(teaching_plan, dict) else {}
+    classroom = teaching_plan.get("classroom")
+    classroom = classroom if isinstance(classroom, dict) else {}
     positioning = _text(
         plan.get("positioning")
         or brief.get("goal")
@@ -150,9 +159,20 @@ def compile_overall_teaching_guidance(
         ),
         "positioning": positioning,
         "target_audience": _text(
-            request.get("target_audience")
+            teacher_brief.get("target_audience")
+            or request.get("target_audience")
             or course_data.get("target_audience")
         ),
+        "classroom": {
+            "academic_term": _text(classroom.get("academic_term") or teacher_brief.get("academic_term")),
+            "total_class_hours": classroom.get("total_class_hours", teacher_brief.get("total_class_hours")),
+            "lesson_duration_minutes": classroom.get("lesson_duration_minutes", teacher_brief.get("lesson_duration_minutes")),
+            "teaching_context": _text(classroom.get("teaching_context") or teacher_brief.get("teaching_context")),
+            "class_size": classroom.get("class_size", teacher_brief.get("class_size")),
+            "class_profile": _text(classroom.get("class_profile") or teacher_brief.get("class_profile")),
+            "teaching_preparation": _strings(classroom.get("teaching_preparation"), limit=12),
+            "course_assessment_plan": _strings(classroom.get("course_assessment_plan"), limit=12),
+        },
         "learning_objectives": _strings(
             plan.get("learning_objectives"),
             limit=8,

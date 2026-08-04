@@ -76,6 +76,8 @@ from course_type_contracts import apply_course_type_brief, resolve_course_type
 from course_generation_workflow import (
     PIPELINE_VERSION,
     _resolve_course_shape_constraints,
+    apply_teacher_classroom_contract,
+    apply_teacher_course_brief,
     apply_course_teaching_plan,
     apply_course_learning_path_contract,
     attach_difficulty_artifacts,
@@ -364,6 +366,7 @@ class CourseService(AIBase):
         course_type: str | None = None,
         course_intent: dict[str, Any] | None = None,
         learner_starting_profile: dict[str, Any] | None = None,
+        teacher_course_brief: dict[str, Any] | None = None,
         current_readiness: str | None = None,
         adaptation_preference: str = "preserve_target_extend",
         pedagogy_mode: str = "auto",
@@ -380,6 +383,8 @@ class CourseService(AIBase):
     ) -> dict[str, Any]:
         """Build and validate the persisted course blueprint for one GenerationJob."""
         difficulty = self._parse_difficulty(depth)
+        if isinstance(teacher_course_brief, dict) and teacher_course_brief.get("target_audience"):
+            target_audience = str(teacher_course_brief["target_audience"])
         audience = self._parse_audience(target_audience)
         material_inputs = materials or []
         existing = existing_course_data or {}
@@ -441,6 +446,7 @@ class CourseService(AIBase):
                 course_purpose=course_purpose,
                 composition_style=composition_profile["style"],
             )
+            apply_teacher_course_brief(refreshed_brief, teacher_course_brief)
             artifacts = {
                 "pipeline_version": PIPELINE_VERSION,
                 "material_cards": existing.get("material_cards") or [],
@@ -506,6 +512,7 @@ class CourseService(AIBase):
                 course_type=resolved_course_type,
                 course_intent=course_intent,
                 learner_starting_profile=learner_starting_profile,
+                teacher_course_brief=teacher_course_brief,
                 prepared_materials=prepared_materials,
                 grounding_strategy=grounding_strategy,
                 course_purpose=course_purpose,
@@ -760,6 +767,7 @@ class CourseService(AIBase):
                 "web_question_enrichment": deepcopy(
                     web_question_enrichment or {"enabled": False}
                 ),
+                "teacher_course_brief": deepcopy(teacher_course_brief or {}),
                 "material_bindings": artifacts.get("material_bindings", []),
                 "grounding_strategy": grounding_strategy,
             },
@@ -797,6 +805,9 @@ class CourseService(AIBase):
             "knowledge_relations": deepcopy(existing.get("knowledge_relations") or []),
             "material_cards": artifacts["material_cards"],
             "course_generation_brief": artifacts["course_generation_brief"],
+            "teacher_course_brief": deepcopy(
+                artifacts["course_generation_brief"].get("teacher_course_brief") or {}
+            ),
             "material_assets": artifacts.get("material_assets", []),
             "material_bindings": artifacts.get("material_bindings", []),
             "parsed_documents": artifacts.get("parsed_documents", []),
@@ -1221,6 +1232,13 @@ class CourseService(AIBase):
             official_plan = compile_course_teaching_plan_modules(
                 official_plan,
                 sections=sections,
+            )
+            official_plan = apply_teacher_classroom_contract(
+                official_plan,
+                course_data.get("teacher_course_brief")
+                or (course_data.get("generation_request") or {}).get(
+                    "teacher_course_brief"
+                ),
             )
             official_report = validate_course_teaching_plan(
                 official_plan,
@@ -2298,6 +2316,13 @@ class CourseService(AIBase):
             assembled,
             sections=sections,
         )
+        course_teaching_plan = apply_teacher_classroom_contract(
+            course_teaching_plan,
+            course_data.get("teacher_course_brief")
+            or (course_data.get("generation_request") or {}).get(
+                "teacher_course_brief"
+            ),
+        )
         report = validate_course_teaching_plan(
             course_teaching_plan,
             sections=sections,
@@ -2630,6 +2655,13 @@ class CourseService(AIBase):
         course_teaching_plan = compile_course_teaching_plan_modules(
             assembled,
             sections=sections,
+        )
+        course_teaching_plan = apply_teacher_classroom_contract(
+            course_teaching_plan,
+            course_data.get("teacher_course_brief")
+            or (course_data.get("generation_request") or {}).get(
+                "teacher_course_brief"
+            ),
         )
         report = validate_course_teaching_plan(
             course_teaching_plan,
@@ -2977,6 +3009,7 @@ class CourseService(AIBase):
             course_type=kwargs.get("course_type"),
             course_intent=kwargs.get("course_intent"),
             learner_starting_profile=kwargs.get("learner_starting_profile"),
+            teacher_course_brief=kwargs.get("teacher_course_brief"),
             current_readiness=kwargs.get("current_readiness"),
             adaptation_preference=str(
                 kwargs.get("adaptation_preference") or "preserve_target_extend"

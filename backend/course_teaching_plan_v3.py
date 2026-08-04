@@ -14,6 +14,35 @@ def _unique(values: list[Any]) -> list[str]:
     ))
 
 
+def _optional_int(value: Any, *, lower: int = 1, upper: int = 240) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and lower <= value <= upper:
+        return value
+    return None
+
+
+def _section_execution(raw: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "planned_minutes": _optional_int(raw.get("planned_minutes")),
+        "key_difficulties": _unique(list(raw.get("key_difficulties") or [])),
+        "teacher_activities": _unique(list(raw.get("teacher_activities") or [])),
+        "student_activities": _unique(list(raw.get("student_activities") or [])),
+        "resource_refs": _unique(list(raw.get("resource_refs") or [])),
+        "in_class_checks": _unique(list(raw.get("in_class_checks") or [])),
+        "homework": _unique(list(raw.get("homework") or [])),
+        "teaching_notes": _unique(list(raw.get("teaching_notes") or [])),
+    }
+    return {key: value for key, value in fields.items() if value not in (None, [])}
+
+
+def _module_execution(raw: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "planned_minutes": _optional_int(raw.get("planned_minutes")),
+        "teacher_activity": str(raw.get("teacher_activity") or "").strip(),
+        "student_activity": str(raw.get("student_activity") or "").strip(),
+    }
+    return {key: value for key, value in fields.items() if value not in (None, "")}
+
+
 def _issue(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message, "severity": "blocking"}
 
@@ -393,12 +422,14 @@ def normalize_teaching_plan_batch_v3(
                     "teaching_purpose": str(raw.get("teaching_purpose") or "").strip(),
                     "knowledge_keys": _unique(list(raw.get("knowledge_keys") or [])),
                     "teaching_guidance": str(raw.get("teaching_guidance") or "").strip(),
+                    **_module_execution(raw),
                 })
         sections.append({
             "node_id": str(raw_section.get("node_id") or "").strip(),
             "knowledge_details": details,
             "knowledge_relations": relations,
             "teaching_modules": modules,
+            **_section_execution(raw_section),
         })
     normalized = {
         "schema_version": "course_teaching_plan_batch_v3",
@@ -587,6 +618,7 @@ def assemble_course_teaching_plan_v3(
                     for item in module.get("knowledge_keys") or []
                 ],
                 "teaching_guidance": str(module.get("teaching_guidance") or ""),
+                **_module_execution(module),
             })
         planned_sections.append({
             "node_id": node_id,
@@ -601,6 +633,7 @@ def assemble_course_teaching_plan_v3(
             ],
             "knowledge_relations": relations,
             "teaching_modules": modules,
+            **_section_execution(expanded),
         })
     assembled = {
         "schema_version": "course_teaching_plan_v3",

@@ -4738,6 +4738,7 @@ class TaskManager:
                 course_type=request.get("course_type"),
                 course_intent=request.get("course_intent") or {},
                 learner_starting_profile=request.get("learner_starting_profile") or {},
+                teacher_course_brief=request.get("teacher_course_brief") or {},
                 current_readiness=request.get("current_readiness"),
                 adaptation_preference=str(
                     request.get("adaptation_preference") or "preserve_target_extend"

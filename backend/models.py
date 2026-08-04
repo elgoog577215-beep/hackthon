@@ -83,6 +83,61 @@ class CourseMaterialBindingInput(BaseModel):
     purpose: Literal["content_source", "style_reference", "question_source", "supplement", "weak_context"] = "content_source"
     priority: Literal["core", "supporting", "weak"] = "core"
     authority: Literal["primary", "secondary", "context_only"] = "primary"
+
+
+class TeacherResourceRef(BaseModel):
+    """Stable reference to a resource owned by the file/material system.
+
+    The course authoring domain intentionally records only the reference and
+    its last known resolution state. File paths, permissions and binary
+    lifecycle remain owned by the material system.
+    """
+
+    resource_id: str = Field(..., min_length=1, max_length=200)
+    resource_version_id: str = Field(default="", max_length=200)
+    label: str = Field(default="", max_length=500)
+    parse_status: Literal["ready", "pending", "unavailable", "failed"] = "ready"
+
+    @field_validator("resource_id", "resource_version_id", "label", mode="before")
+    @classmethod
+    def normalize_text(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+
+class TeacherCourseBriefV1(BaseModel):
+    """Teacher-owned, versioned classroom constraints for course generation."""
+
+    schema_version: Literal["teacher_course_brief_v1"] = "teacher_course_brief_v1"
+    academic_term: str = Field(default="", max_length=100)
+    target_audience: str = Field(..., min_length=1, max_length=500)
+    total_class_hours: int = Field(..., ge=1, le=1000)
+    lesson_duration_minutes: int = Field(..., ge=20, le=240)
+    teaching_context: Literal["classroom", "online", "blended", "self_study"] = "classroom"
+    class_size: Optional[int] = Field(default=None, ge=1, le=1000)
+    class_profile: str = Field(default="", max_length=2000)
+    chapter_count: Optional[int] = Field(default=None, ge=1, le=100)
+    section_count: Optional[int] = Field(default=None, ge=1, le=1000)
+    additional_requirements: str = Field(default="", max_length=10000)
+    material_refs: List[TeacherResourceRef] = Field(default_factory=list, max_length=30)
+
+    @field_validator(
+        "academic_term",
+        "target_audience",
+        "class_profile",
+        "additional_requirements",
+        mode="before",
+    )
+    @classmethod
+    def normalize_teacher_text(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_classroom_shape(self) -> "TeacherCourseBriefV1":
+        if self.chapter_count and self.section_count and self.section_count < self.chapter_count:
+            raise ValueError("section_count 不能小于 chapter_count")
+        if self.lesson_duration_minutes > self.total_class_hours * 60:
+            raise ValueError("单课时长不能超过课程总时长")
+        return self
     usage_policy: Literal["must_use", "prefer", "optional", "style_only"] = "prefer"
     reuse_policy: Literal["verbatim_allowed", "reference_only", "original_generation"] = "verbatim_allowed"
     rights_basis: Literal["teacher_asserted", "open_license", "license_unknown", "platform_owned"] = "teacher_asserted"
@@ -181,6 +236,7 @@ class CourseGenerationRequest(BaseModel):
     request_id: Optional[str] = Field(default=None, min_length=8, max_length=200)
     subject: str = Field(..., min_length=1, max_length=200)
     target_audience: Optional[str] = Field(default="大学生", max_length=500)
+    teacher_course_brief: Optional[TeacherCourseBriefV1] = None
     difficulty: Optional[DifficultyLevel] = "intermediate"
     course_type: CourseType = "systematic"
     course_intent: Optional[CourseIntent] = None
@@ -284,6 +340,10 @@ class CourseGenerationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_course_intent_type(self) -> "CourseGenerationRequest":
+        if self.teacher_course_brief:
+            # The teacher brief is the structured source for classroom audience.
+            # Keep the legacy field synchronized for existing generation stages.
+            self.target_audience = self.teacher_course_brief.target_audience
         if self.course_intent and self.course_intent.type != self.course_type:
             raise ValueError("course_intent.type 必须与 course_type 一致")
         if self.course_type == "project":

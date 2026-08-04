@@ -94,6 +94,9 @@ export interface CourseTeachingPlanModule {
   teaching_purpose: string
   knowledge_names: string[]
   teaching_guidance?: string
+  planned_minutes?: number | null
+  teacher_activity?: string
+  student_activity?: string
 }
 
 export interface CourseTeachingPlanSection {
@@ -123,6 +126,14 @@ export interface CourseTeachingPlanSection {
   reused_knowledge_names: string[]
   knowledge_relations: Array<Record<string, unknown>>
   teaching_modules: CourseTeachingPlanModule[]
+  planned_minutes?: number | null
+  key_difficulties?: string[]
+  teacher_activities?: string[]
+  student_activities?: string[]
+  resource_refs?: string[]
+  in_class_checks?: string[]
+  homework?: string[]
+  teaching_notes?: string[]
 }
 
 export interface CourseTeachingPlanOverall {
@@ -137,6 +148,16 @@ export interface CourseTeachingPlanOverall {
     rationale: string
   }
   assessment_methods: string[]
+  classroom?: {
+    academic_term?: string
+    total_class_hours?: number | null
+    lesson_duration_minutes?: number | null
+    teaching_context?: string
+    class_size?: number | null
+    class_profile?: string
+    teaching_preparation?: string[]
+    course_assessment_plan?: string[]
+  }
   chapters: Array<{
     chapter_id: string
     chapter_number: string

@@ -162,6 +162,9 @@ def _project_teaching_modules(value: Any) -> list[dict[str, Any]]:
             "teaching_guidance": str(
                 raw.get("teaching_guidance") or ""
             ).strip(),
+            "planned_minutes": raw.get("planned_minutes") if isinstance(raw.get("planned_minutes"), int) else None,
+            "teacher_activity": str(raw.get("teacher_activity") or "").strip(),
+            "student_activity": str(raw.get("student_activity") or "").strip(),
         })
     return modules
 
@@ -259,6 +262,14 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
                 "teaching_modules": _project_teaching_modules(
                     raw.get("teaching_modules")
                 ),
+                "planned_minutes": raw.get("planned_minutes") if isinstance(raw.get("planned_minutes"), int) else None,
+                "key_difficulties": _strings(raw.get("key_difficulties")),
+                "teacher_activities": _strings(raw.get("teacher_activities")),
+                "student_activities": _strings(raw.get("student_activities")),
+                "resource_refs": _strings(raw.get("resource_refs")),
+                "in_class_checks": _strings(raw.get("in_class_checks")),
+                "homework": _strings(raw.get("homework")),
+                "teaching_notes": _strings(raw.get("teaching_notes")),
             })
 
     status = str(stage.get("status") or "")

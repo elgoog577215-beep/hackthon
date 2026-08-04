@@ -67,6 +67,7 @@ def build_course_generation_artifacts(
     course_type: str | None = None,
     course_intent: Any = None,
     learner_starting_profile: Any = None,
+    teacher_course_brief: dict[str, Any] | None = None,
     prepared_materials: dict[str, Any] | None = None,
     grounding_strategy: str = "material_first",
     course_purpose: str = "systematic",
@@ -88,6 +89,7 @@ def build_course_generation_artifacts(
         course_type=course_type,
         course_intent=course_intent,
         learner_starting_profile=learner_starting_profile,
+        teacher_course_brief=teacher_course_brief,
         composition_style=composition_style or style,
     )
     artifacts = {
@@ -110,6 +112,37 @@ def build_course_generation_artifacts(
         "artifact_created_at": _utc_now(),
     }
     return artifacts
+
+
+def apply_teacher_course_brief(
+    brief: dict[str, Any],
+    teacher_course_brief: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Attach classroom constraints without creating a parallel course brief."""
+    teacher = deepcopy(teacher_course_brief or {})
+    if not teacher:
+        return brief
+    teacher.setdefault("schema_version", "teacher_course_brief_v1")
+    shape = deepcopy(brief.get("course_shape_constraints") or {})
+    for key in ("chapter_count", "section_count"):
+        value = teacher.get(key)
+        if isinstance(value, int) and value > 0:
+            shape[key] = value
+    brief["course_shape_constraints"] = shape
+    brief["teacher_course_brief"] = teacher
+    brief["audience"] = str(teacher.get("target_audience") or brief.get("audience") or "").strip()
+    for constraint in (
+        f"课程总课时为 {teacher.get('total_class_hours')} 学时",
+        f"单课时长为 {teacher.get('lesson_duration_minutes')} 分钟",
+        f"教学场景为 {teacher.get('teaching_context')}",
+    ):
+        if constraint not in brief.setdefault("hard_constraints", []):
+            brief["hard_constraints"].append(constraint)
+    if teacher.get("academic_term"):
+        brief["hard_constraints"].append(f"教学学期为 {teacher['academic_term']}")
+    if teacher.get("additional_requirements"):
+        brief["hard_constraints"].append("遵守教师补充要求")
+    return brief
 
 
 def attach_pedagogy_profile(
@@ -582,6 +615,54 @@ def validate_course_knowledge_skeleton(
     )
 
 
+def _bounded_optional_integer(
+    value: Any,
+    *,
+    lower: int = 1,
+    upper: int = 1000,
+) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and lower <= value <= upper:
+        return value
+    return None
+
+
+def _classroom_payload(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    classroom: dict[str, Any] = {
+        "academic_term": str(raw.get("academic_term") or "").strip(),
+        "total_class_hours": _bounded_optional_integer(raw.get("total_class_hours")),
+        "lesson_duration_minutes": _bounded_optional_integer(
+            raw.get("lesson_duration_minutes"), lower=20, upper=240,
+        ),
+        "teaching_context": str(raw.get("teaching_context") or "").strip(),
+        "class_size": _bounded_optional_integer(raw.get("class_size")),
+        "class_profile": str(raw.get("class_profile") or "").strip(),
+        "teaching_preparation": _unique_strings(list(raw.get("teaching_preparation") or [])),
+        "course_assessment_plan": _unique_strings(list(raw.get("course_assessment_plan") or [])),
+    }
+    return {
+        key: value
+        for key, value in classroom.items()
+        if value not in (None, "", [])
+    }
+
+
+def _section_execution_payload(value: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "planned_minutes": _bounded_optional_integer(
+            value.get("planned_minutes"), lower=1, upper=240,
+        ),
+        "key_difficulties": _unique_strings(list(value.get("key_difficulties") or [])),
+        "teacher_activities": _unique_strings(list(value.get("teacher_activities") or [])),
+        "student_activities": _unique_strings(list(value.get("student_activities") or [])),
+        "resource_refs": _unique_strings(list(value.get("resource_refs") or [])),
+        "in_class_checks": _unique_strings(list(value.get("in_class_checks") or [])),
+        "homework": _unique_strings(list(value.get("homework") or [])),
+        "teaching_notes": _unique_strings(list(value.get("teaching_notes") or [])),
+    }
+    return {key: item for key, item in payload.items() if item not in (None, [])}
+
+
 def normalize_course_teaching_plan(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
@@ -623,6 +704,17 @@ def normalize_course_teaching_plan(
                     or raw_module.get("guidance")
                     or ""
                 ).strip(),
+                **{
+                    key: value
+                    for key, value in {
+                        "planned_minutes": _bounded_optional_integer(
+                            raw_module.get("planned_minutes"), lower=1, upper=240,
+                        ),
+                        "teacher_activity": str(raw_module.get("teacher_activity") or "").strip(),
+                        "student_activity": str(raw_module.get("student_activity") or "").strip(),
+                    }.items()
+                    if value not in (None, "")
+                },
             })
         normalized_sections.append({
             "node_id": str(raw_section.get("node_id") or "").strip(),
@@ -640,6 +732,7 @@ def normalize_course_teaching_plan(
                 package.get("knowledge_relations") or []
             ),
             "teaching_modules": teaching_modules,
+            **_section_execution_payload(raw_section),
         })
     schema_version = str(payload.get("schema_version") or "")
     if schema_version not in {"course_teaching_plan_v2", "course_teaching_plan_v3"}:
@@ -657,8 +750,35 @@ def normalize_course_teaching_plan(
         normalized["skeleton_revision_id"] = str(
             payload.get("skeleton_revision_id") or ""
         )
+    classroom = _classroom_payload(payload.get("classroom"))
+    if classroom:
+        normalized["classroom"] = classroom
     normalized["revision_id"] = stable_hash(
         normalized,
+        prefix="teaching_",
+    )
+    return normalized
+
+
+def apply_teacher_classroom_contract(
+    teaching_plan: dict[str, Any],
+    teacher_course_brief: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Seed the official plan with teacher-owned classroom constraints."""
+    if not teacher_course_brief:
+        return normalize_course_teaching_plan(teaching_plan)
+    normalized = normalize_course_teaching_plan(teaching_plan)
+    defaults = _classroom_payload(teacher_course_brief)
+    current = _classroom_payload(normalized.get("classroom"))
+    if not defaults and not current:
+        return normalized
+    normalized["classroom"] = {**defaults, **current}
+    normalized["revision_id"] = stable_hash(
+        {
+            key: value
+            for key, value in normalized.items()
+            if key != "revision_id"
+        },
         prefix="teaching_",
     )
     return normalized
@@ -731,6 +851,9 @@ def compile_course_teaching_plan_modules(
                 "teaching_purpose": "",
                 "knowledge_names": [],
                 "teaching_guidance": "",
+                "planned_minutes": None,
+                "teacher_activity": "",
+                "student_activity": "",
             })
             if not selected["teaching_purpose"]:
                 selected["teaching_purpose"] = str(
@@ -750,6 +873,18 @@ def compile_course_teaching_plan_modules(
                     ) in canonical_names
                 ],
             ])
+            if selected["planned_minutes"] is None:
+                selected["planned_minutes"] = _bounded_optional_integer(
+                    intent.get("planned_minutes"), lower=1, upper=240,
+                )
+            if not selected["teacher_activity"]:
+                selected["teacher_activity"] = str(
+                    intent.get("teacher_activity") or ""
+                ).strip()
+            if not selected["student_activity"]:
+                selected["student_activity"] = str(
+                    intent.get("student_activity") or ""
+                ).strip()
 
         compiled_modules: list[dict[str, Any]] = []
         for baseline in baseline_modules:
@@ -776,7 +911,7 @@ def compile_course_teaching_plan_modules(
             )
             if not knowledge_names:
                 knowledge_names = list(local_names or reused_names)
-            compiled_modules.append({
+            compiled_module = {
                 "module_id": module_id,
                 "teaching_purpose": str(
                     (intent or {}).get("teaching_purpose")
@@ -789,7 +924,12 @@ def compile_course_teaching_plan_modules(
                     or output_contract
                     or fallback_purpose
                 ).strip(),
-            })
+            }
+            for key in ("planned_minutes", "teacher_activity", "student_activity"):
+                value = (intent or {}).get(key)
+                if value not in (None, ""):
+                    compiled_module[key] = value
+            compiled_modules.append(compiled_module)
 
         covered_names = {
             _normalize_knowledge_name(name)
@@ -841,6 +981,7 @@ def compile_course_teaching_plan_modules(
         "source_outline_revision_id": teaching_plan.get(
             "source_outline_revision_id"
         ),
+        "classroom": teaching_plan.get("classroom"),
         "sections": compiled_sections,
     })
 
@@ -1053,8 +1194,18 @@ def apply_course_teaching_plan(
                     module["teaching_guidance"] = str(
                         intent.get("teaching_guidance") or ""
                     )
+                    for key in (
+                        "planned_minutes",
+                        "teacher_activity",
+                        "student_activity",
+                    ):
+                        if intent.get(key) not in (None, ""):
+                            module[key] = deepcopy(intent[key])
                 selected_modules.append(module)
             section["module_plan"] = selected_modules
+            execution = _section_execution_payload(planned)
+            if execution:
+                section["classroom_execution"] = execution
             section["teaching_intent"] = {
                 "schema_version": "section_teaching_intent_v1",
                 "module_ids": [
@@ -2566,6 +2717,7 @@ def _build_brief(
     course_type: str | None = None,
     course_intent: Any = None,
     learner_starting_profile: Any = None,
+    teacher_course_brief: dict[str, Any] | None = None,
     composition_style: Any = None,
 ) -> dict[str, Any]:
     lowered = requirements.lower()
@@ -2630,7 +2782,7 @@ def _build_brief(
         "dominant_learning_actions": _extract_learning_actions(requirements),
         "expected_deliverables": _extract_deliverables(requirements),
     }
-    return apply_course_type_brief(
+    brief = apply_course_type_brief(
         brief,
         course_type=course_type,
         course_intent=course_intent,
@@ -2641,6 +2793,7 @@ def _build_brief(
         course_purpose=course_purpose,
         composition_style=composition_style,
     )
+    return apply_teacher_course_brief(brief, teacher_course_brief)
 
 
 def _extract_desired_outcomes(requirements: str, topic: str) -> list[str]:
@@ -2754,6 +2907,7 @@ def _parse_count(value: str) -> int | None:
 
 def _format_brief(brief: dict[str, Any]) -> str:
     shape = brief.get("course_shape_constraints") or {}
+    classroom = brief.get("teacher_course_brief") or {}
     shape_text = "；".join(
         item for item in (
             f"章数：{shape.get('chapter_count')}" if shape.get("chapter_count") else "",
@@ -2771,6 +2925,8 @@ def _format_brief(brief: dict[str, Any]) -> str:
         f"- 必须避免：{'；'.join(brief.get('avoid_styles', []))}",
         f"- 用户原始备注：{brief.get('raw_requirement', '') or '无'}",
         f"- 用户明确课程形状：{shape_text}",
+        f"- 课堂交付：学期={classroom.get('academic_term') or '未指定'}；总课时={classroom.get('total_class_hours') or '未指定'}；单课时长={classroom.get('lesson_duration_minutes') or '未指定'} 分钟；场景={classroom.get('teaching_context') or '未指定'}；班级人数={classroom.get('class_size') or '未指定'}",
+        f"- 班级与学情：{classroom.get('class_profile') or '未指定'}",
         f"- 期望学习成果：{'；'.join(brief.get('desired_outcomes', [])) or '理解并应用课程主题'}",
         f"- 主要学习行为：{'；'.join(brief.get('dominant_learning_actions', [])) or '由教学画像决定'}",
         f"- 预期交付物：{'；'.join(brief.get('expected_deliverables', [])) or '课程综合任务'}",
