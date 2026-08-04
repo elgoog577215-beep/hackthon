@@ -110,6 +110,15 @@ def test_workflow_builds_before_uploading_release() -> None:
     assert "scripts/build-deploy-artifact.sh" in workflow
 
 
+def test_workflow_can_inspect_proxy_without_deploying() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "deploy-lingzhi.yml").read_text()
+
+    assert "inspect_proxy:" in workflow
+    assert "Inspect production proxy" in workflow
+    assert "if: ${{ inputs.inspect_proxy }}" in workflow
+    assert workflow.count("if: ${{ !inputs.inspect_proxy }}") >= 5
+
+
 def test_production_frontend_builds_for_lingzhi_subpath() -> None:
     for relative_path in (
         "scripts/build-deploy-artifact.sh",
