@@ -24,10 +24,10 @@ from slide_deck_v3 import (
 from slide_visuals import (
     SlideVisualPlanV1,
     VisualAnchorV1,
-    _visual_plan_batches,
     _semantic_relation_spec,
     _source_clauses,
     _visual_anchor,
+    _visual_plan_batches,
     deterministic_visual_plan,
     plan_slide_visuals,
     rebalance_visual_plan_pages,
@@ -1011,11 +1011,11 @@ async def test_long_deck_uses_bounded_visual_planning_batches() -> None:
         ai_planner=planner,
     )
 
-    assert calls == 2
-    assert max(batch_sizes) <= 24
+    assert calls == resolved.deck_brief["ai_visual_batches_total"]
+    assert max(batch_sizes) <= 12
     assert resolved.deck_brief["planner"] == "ai"
-    assert resolved.deck_brief["ai_visual_batches_total"] == 2
-    assert resolved.deck_brief["ai_visual_batches_successful"] == 2
+    assert resolved.deck_brief["ai_visual_batches_total"] >= 2
+    assert resolved.deck_brief["ai_visual_batches_successful"] == calls
     assert resolved.deck_brief["ai_visual_batches_failed"] == 0
     assert all(page.planner == "ai" for page in resolved.pages)
 
@@ -1091,7 +1091,7 @@ async def test_long_deck_visual_batch_failure_preserves_successful_batches() -> 
 
     assert resolved.deck_brief["planner"] == "ai"
     assert resolved.deck_brief["fallback_reason"] == "partial_ai_visual_plan"
-    assert resolved.deck_brief["ai_visual_batches_successful"] == 1
+    assert resolved.deck_brief["ai_visual_batches_successful"] == calls - 1
     assert resolved.deck_brief["ai_visual_batches_failed"] == 1
     assert {page.planner for page in resolved.pages} == {
         "ai",
