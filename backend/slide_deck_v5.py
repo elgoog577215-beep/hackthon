@@ -39,9 +39,9 @@ from slide_story_plan import (
 from slide_visuals import deterministic_visual_plan
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.17"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.18"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.10"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.11"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -3448,6 +3448,92 @@ def _enrich_practice_feedback_slides_v5(
     return result
 
 
+def _split_practice_feedback_capacity_v5(
+    slides: list[dict[str, Any]],
+    *,
+    maximum_questions: int = 3,
+) -> list[dict[str, Any]]:
+    """Paginate practice rows to the exact capacity used by the renderer."""
+    limit = max(1, int(maximum_questions))
+    result: list[dict[str, Any]] = []
+    for source in slides:
+        quality = source.get("quality") or {}
+        if str(quality.get("requested_layout") or "") != "practice-feedback":
+            result.append(source)
+            continue
+        blocks = list(source.get("blocks") or [])
+        prompt_index = next((
+            index
+            for index, block in enumerate(blocks)
+            if str((block.get("metadata") or {}).get("semantic_role") or "")
+            == "prompt"
+        ), -1)
+        if prompt_index < 0:
+            result.append(source)
+            continue
+        prompt_values = _practice_block_values(blocks[prompt_index])
+        if len(prompt_values) <= limit:
+            result.append(source)
+            continue
+        prompt_ids = [
+            _clean_text(value)
+            for value in (
+                (blocks[prompt_index].get("metadata") or {}).get("question_ids")
+                or []
+            )
+            if _clean_text(value)
+        ]
+        if len(prompt_ids) != len(prompt_values):
+            prompt_ids = _practice_question_ids(source, len(prompt_values))
+        feedback_mode = str(quality.get("feedback_mode") or "")
+        page_count = (len(prompt_values) + limit - 1) // limit
+        for page_index, start in enumerate(range(0, len(prompt_values), limit)):
+            end = min(start + limit, len(prompt_values))
+            page = deepcopy(source)
+            if page_index:
+                page["unit_id"] = (
+                    f"{source.get('unit_id') or 'practice'}:practice:{page_index + 1}"
+                )
+            page_blocks = list(page.get("blocks") or [])
+            prompt_block = page_blocks[prompt_index]
+            prompt_block["content"] = ""
+            prompt_block["items"] = prompt_values[start:end]
+            prompt_block["metadata"] = {
+                **(prompt_block.get("metadata") or {}),
+                "question_ids": prompt_ids[start:end],
+            }
+            for block_index, block in enumerate(page_blocks):
+                if block_index == prompt_index:
+                    continue
+                metadata = block.get("metadata") or {}
+                role = str(metadata.get("semantic_role") or "")
+                if role not in {"answer", "feedback", "solution", "validation"}:
+                    continue
+                values = _practice_block_values(block)
+                if feedback_mode == "paired" and len(values) == len(prompt_values):
+                    block["content"] = ""
+                    block["items"] = values[start:end]
+                    block["metadata"] = {
+                        **metadata,
+                        "answer_for_question_ids": prompt_ids[start:end],
+                    }
+                elif feedback_mode == "shared_evidence":
+                    block["content"] = ""
+                    block["items"] = values[:limit]
+            page["quality"] = {
+                **quality,
+                "question_ids": prompt_ids[start:end],
+                "feedback_pair_count": (
+                    end - start if feedback_mode == "paired" else 0
+                ),
+                "practice_page_index": page_index + 1,
+                "practice_page_count": page_count,
+                "practice_capacity_split": True,
+            }
+            result.append(page)
+    return result
+
+
 def _materialize_v5_structure(
     slides: list[dict[str, Any]],
     outline: DeckOutlineV5,
@@ -4275,6 +4361,7 @@ def compile_slide_deck_v5(
                 "requested_layout": scene_layout,
             }
     slides = _enrich_practice_feedback_slides_v5(slides)
+    slides = _split_practice_feedback_capacity_v5(slides)
     slides = [
         _normalize_concept_definition_slide_v5(slide)
         for slide in slides

@@ -27,6 +27,7 @@ from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
+    _split_practice_feedback_capacity_v5,
     apply_page_contract_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -2015,6 +2016,58 @@ def test_v5_shared_feedback_matches_the_six_item_renderer_contract() -> None:
     assert not any(
         issue["code"] == "visible_item_overflow"
         for issue in v5_contract_issues([slide])
+    )
+
+
+def test_v5_paginates_every_practice_question_instead_of_hiding_overflow() -> None:
+    questions = [f"Question {index}" for index in range(1, 6)]
+    pages = _split_practice_feedback_capacity_v5([{
+        "unit_id": "practice-five-questions",
+        "layout": "practice",
+        "title": "Check all five decisions",
+        "blocks": [
+            {
+                "block_id": "prompts",
+                "type": "question",
+                "items": questions,
+                "metadata": {
+                    "semantic_role": "prompt",
+                    "question_ids": [f"q-{index}" for index in range(1, 6)],
+                },
+            },
+            {
+                "block_id": "feedback",
+                "type": "callout",
+                "items": ["Evidence A", "Evidence B", "Evidence C"],
+                "metadata": {"semantic_role": "feedback"},
+            },
+        ],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "practice-feedback",
+            "feedback_mode": "shared_evidence",
+        },
+    }])
+    resolved = [apply_page_contract_v5(page) for page in pages]
+
+    assert len(resolved) == 2
+    assert resolved[0]["unit_id"] == "practice-five-questions"
+    assert resolved[1]["unit_id"] == "practice-five-questions:practice:2"
+    assert [
+        question
+        for page in resolved
+        for block in page["blocks"]
+        if block["metadata"]["semantic_role"] == "prompt"
+        for question in block["items"]
+    ] == questions
+    assert all(
+        page["quality"]["visible_item_count"]
+        <= page["quality"]["visible_item_budget"]
+        for page in resolved
+    )
+    assert not any(
+        issue["code"] == "visible_item_overflow"
+        for issue in v5_contract_issues(resolved)
     )
 
 
