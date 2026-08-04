@@ -394,6 +394,11 @@ function seedNodesFromCourse() {
     }))
 }
 
+function syncNavigationFromDraft() {
+  if (courseStore.currentCourseId !== props.courseId || !blueprintNodes.value.length) return
+  courseStore.applyGenerationOutlineDraft(blueprintNodes.value)
+}
+
 async function loadBlueprint() {
   if (!props.courseId || loading.value) return
   loading.value = true
@@ -404,6 +409,7 @@ async function loadBlueprint() {
     blueprintDraft.value = clone(data.draft || data.current || data || {})
     seedNodesFromCourse()
     if (!blueprintDraft.value.course_name) blueprintDraft.value.course_name = props.courseName
+    syncNavigationFromDraft()
     baseline.value = draftSignature.value
     adjustmentProposal.value = null
     proposalNotice.value = ''
@@ -442,6 +448,7 @@ async function persistDraft(showMessage = true) {
   if (!blueprintNodes.value.length) return
   const result = await workspace.saveBlueprint(props.courseId, draftPayload())
   if (result?.draft) blueprintDraft.value = clone(result.draft)
+  syncNavigationFromDraft()
   baseline.value = draftSignature.value
   if (showMessage) ElMessage.success(t('courseGeneration.outlineReview.savedMessage', '目录修改已保存'))
 }
@@ -546,7 +553,7 @@ async function applyAdjustmentProposal() {
     )
     adjustmentProposal.value = null
     blueprintDraft.value = clone(result?.draft || candidate)
-    courseStore.applyGenerationOutlineDraft(blueprintNodes.value)
+    syncNavigationFromDraft()
     baseline.value = draftSignature.value
     proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
     liveStatus.value = proposalNotice.value
