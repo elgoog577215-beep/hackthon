@@ -1042,7 +1042,7 @@ Code 平台知识库设计的精髓可以压缩为六句话：
 | 标准库成长候选 | `src/main/java/com/onlinejudge/learning/standardlibrary/application/AiStandardLibraryGrowthAgentService.java` |
 | 临时节点与治理 | `openspec/specs/standard-library-provisional-growth/spec.md`、`standard-library-review-workflow/spec.md`、`standard-library-governance-quality/spec.md` |
 | 教师端正式库与治理台 | `frontend/src/features/teacher/TeacherManagementPage.tsx` |
-| 历史决策与当前真源 | `docs/ai-memory/项目决策.md` |
+| 历史决策与当前真源 | 历史查看 `docs/归档/项目决策记录.md`；当前事实查看产品蓝图、产品状态和系统架构 |
 
 ### 核验记录
 

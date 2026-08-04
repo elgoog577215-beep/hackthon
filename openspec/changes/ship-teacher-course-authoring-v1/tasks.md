@@ -165,7 +165,7 @@
 - [ ] 13.1 将实际交付状态、能力边界和后续事项回写现有产品蓝图或正式项目状态载体，不创建第二份产品全景
 - [ ] 13.2 更新教师端操作、质量规则、开关、告警、回滚和故障处理文档
 - [ ] 13.3 记录真实模型基准、教师试点结论、已接受风险和发布决策
-- [ ] 13.4 将重复踩坑、关键架构选择和可复用验收方法沉淀到 `docs/ai-memory/` 对应文件
+- [ ] 13.4 将仍有效的产品结论更新到 `docs/产品蓝图.md`，代码边界更新到 `docs/系统架构.md`，高代价重复错误更新到 `docs/开发禁区.md` 并增加自动化保护
 - [ ] 13.5 对照本 spec 的全部场景完成最终验收并关闭所有未解释差异
 - [ ] 13.6 运行 `openspec validate ship-teacher-course-authoring-v1 --strict` 与 `openspec validate --all`
 - [ ] 13.7 在实现、验证和发布均完成后执行 `openspec archive ship-teacher-course-authoring-v1`
