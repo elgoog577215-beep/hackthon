@@ -13,6 +13,11 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('../views/CourseLibraryView.vue')
   },
   {
+    path: '/teacher-course-space',
+    name: 'teacher-course-space',
+    component: () => import('../views/TeacherCourseSpaceView.vue')
+  },
+  {
     path: '/course/:courseId',
     redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
   },
