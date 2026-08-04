@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 import pytest
 
 from course_outline_adjustments import apply_outline_operations
+from course_service import CourseService
 from course_versioning import blueprint_draft_revision_id, build_blueprint_draft
 from course_versions import CourseVersionRepository
 from guided_generation import create_guided_workflow, mark_waiting
@@ -201,3 +203,27 @@ async def test_confirmed_adjustment_is_the_plan_read_by_followup_generation(tmp_
     assert [section["title"] for section in sections] == ["生命周期", "组件组合"]
     assert [section["node_id"] for section in sections] == ["L2-1-1", "L2-1-2"]
     assert versions.load_draft("course-outline") is None
+
+
+@pytest.mark.asyncio
+async def test_course_service_serializes_the_real_outline_adjustment_request(monkeypatch):
+    service = CourseService.__new__(CourseService)
+    captured = {}
+
+    async def fake_call(prompt, system_prompt, **kwargs):
+        captured["prompt"] = prompt
+        captured["system_prompt"] = system_prompt
+        captured["kwargs"] = kwargs
+        return '{"operations": [], "summary": "无需调整"}'
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+
+    result = await service.propose_outline_adjustment(
+        draft=build_blueprint_draft(_course()),
+        instruction="给第六章增加一个经典案例",
+    )
+
+    request = json.loads(captured["prompt"])
+    assert request["instruction"] == "给第六章增加一个经典案例"
+    assert request["outline"][0]["node_id"] == "L1-1"
+    assert result == {"operations": [], "summary": "无需调整"}
