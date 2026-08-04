@@ -23,7 +23,7 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v5"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v6"
 
 VisualKind = Literal[
     "source_image",
@@ -764,6 +764,39 @@ def _visual_plan_request(
             "raster_generation_default": (
                 "enabled" if raster_generation_enabled else "disabled"
             ),
+            "return_every_requested_page": True,
+        },
+        "response_contract": {
+            "root": SLIDE_VISUAL_PLAN_SCHEMA,
+            "pages_item_required": [
+                "page_id",
+                "teaching_job",
+                "takeaway",
+                "takeaway_source_fragment_ids",
+                "transition_from",
+                "composition",
+                "visual_anchor",
+                "role_layout_variant",
+            ],
+            "visual_anchor_required": [
+                "visual_id",
+                "kind",
+                "purpose",
+                "source_fragment_ids",
+                "alt_text",
+                "asset_id",
+                "nodes",
+                "edges",
+                "parameters",
+            ],
+            "page_id_policy": "copy every requested page_id exactly once",
+            "compiler_owned_copy": [
+                "teaching_job",
+                "takeaway",
+                "takeaway_source_fragment_ids",
+                "transition_from",
+            ],
+            "forbidden_compact_fields": ["fragment_id", "visual_kind"],
         },
         "allowed_visual_kinds": sorted(allowed_visual_kinds),
         "allowed_rule_diagram_templates": sorted(RULE_DIAGRAM_TEMPLATES),
@@ -871,7 +904,7 @@ async def plan_slide_visuals(
         [dict[str, Any]],
         Awaitable[dict[str, Any]] | dict[str, Any],
     ] | None = None,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 45.0,
 ) -> SlideVisualPlanV1:
     """Plan source-bound visuals in bounded chapter batches."""
     fallback = deterministic_visual_plan(document, allocation_plan, fragments)
@@ -944,11 +977,16 @@ async def plan_slide_visuals(
                         "reason": "page_not_requested",
                     })
                     continue
+                compiler_page = resolved_by_page[page.page_id].model_copy(update={
+                    "composition": page.composition,
+                    "visual_anchor": page.visual_anchor,
+                    "role_layout_variant": page.role_layout_variant,
+                })
                 page_allocation = batch_allocation.model_copy(update={
                     "pages": [allocated_page],
                 })
                 page_candidate = candidate.model_copy(update={
-                    "pages": [page],
+                    "pages": [compiler_page],
                 })
                 try:
                     validate_visual_plan(
@@ -962,7 +1000,7 @@ async def plan_slide_visuals(
                         "reason": str(page_exc).strip()[:240],
                     })
                     continue
-                accepted_pages.append(page)
+                accepted_pages.append(compiler_page)
             if not accepted_pages:
                 raise ValueError("Visual batch contained no valid requested pages")
             accepted_ids = {page.page_id for page in accepted_pages}

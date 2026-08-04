@@ -39,9 +39,9 @@ from slide_story_plan import (
 from slide_visuals import deterministic_visual_plan
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.16"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.17"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.9"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.10"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -133,7 +133,7 @@ _V5_DENSITY_BUDGETS = {
     "figure-text": {"characters": 320, "items": 5, "title": 18},
     "diagram-full": {"characters": 0, "items": 0, "title": 18},
     "worked-example": {"characters": 360, "items": 3, "title": 18},
-    "practice-feedback": {"characters": 400, "items": 5, "title": 18},
+    "practice-feedback": {"characters": 400, "items": 6, "title": 18},
     "chapter-recap": {"characters": 320, "items": 4, "title": 18},
     "course-synthesis": {"characters": 340, "items": 6, "title": 18},
 }
@@ -3418,7 +3418,7 @@ def _enrich_practice_feedback_slides_v5(
         evidence, source_ids = _grounded_feedback_evidence(slide, result)
         if evidence:
             paired_evidence = evidence[:len(prompt_values)] if prompt_values else evidence[:1]
-            non_feedback_blocks.append({
+            feedback_block = {
                 "block_id": f"{slide.get('unit_id') or 'practice'}:feedback",
                 "type": "callout",
                 "title": "判断依据",
@@ -3430,8 +3430,11 @@ def _enrich_practice_feedback_slides_v5(
                     "direct_answer": False,
                     "source_slide_ids": source_ids,
                 },
-            })
-            slide["blocks"] = non_feedback_blocks
+            }
+            # Shared evidence is the second visible region. Supporting source
+            # checklists remain provenance only and must not become a hidden
+            # third region that disagrees with the renderer's 3+3 contract.
+            slide["blocks"] = [prompt, feedback_block]
             slide["quality"] = {
                 **(slide.get("quality") or {}),
                 "requested_layout": "practice-feedback",

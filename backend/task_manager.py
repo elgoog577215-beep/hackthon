@@ -321,6 +321,10 @@ def _source_first_slide_visual_ai_worker() -> (
             json.dumps(request, ensure_ascii=False),
             system_prompt=(
                 "Return only one slide_visual_plan_v1 JSON object. "
+                "Follow response_contract exactly and return every requested "
+                "page_id once. Never return the compact fragment_id/visual_kind "
+                "shape. The compiler owns page copy; only choose composition, "
+                "role_layout_variant, and visual_anchor. "
                 "Use only the provided page_id and fragment_id values. "
                 "Takeaways and diagram labels must be short excerpts of their bound source text. "
                 "Do not emit slide body copy or add facts, numbers, claims, or chart data. "
@@ -334,7 +338,10 @@ def _source_first_slide_visual_ai_worker() -> (
             use_fast_model=True,
             retry_count=1,
             enable_thinking=False,
+            max_tokens=6144,
+            reject_truncated=True,
             raise_on_failure=True,
+            json_mode=True,
         )
         return provider._extract_json(response or "") or {}
 
