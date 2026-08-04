@@ -21,7 +21,7 @@ printf '[%s] 在构建机生成前端产物：%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%
 (
     cd "$ROOT_DIR/frontend"
     npm ci
-    VITE_BASE_PATH=/lingzhi/ npm run build
+    VITE_BASE_PATH=/ npm run build
 )
 
 git -C "$ROOT_DIR" archive "$TARGET_COMMIT" | tar -x -C "$STAGING_DIR"
