@@ -108,6 +108,22 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
+  it('将非必填的课堂信息收进渐进展开区', () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    const core = wrapper.get('.teacher-brief-section__core')
+    const advanced = wrapper.get('.teacher-brief-section__advanced')
+
+    expect(core.findAll('input, select')).toHaveLength(4)
+    expect(advanced.attributes('open')).toBeUndefined()
+    expect(advanced.text()).toContain('更多课堂设置')
+    expect(advanced.find('#teacher-chapter-count').exists()).toBe(true)
+    expect(advanced.find('#teacher-class-profile').exists()).toBe(true)
+  })
+
   it('同一份失败重试参数沿用请求号，参数变化后才创建新请求号', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
@@ -246,8 +262,10 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.text()).toContain('Inquiry learning')
     expect(wrapper.text()).toContain('Exam sprint')
     expect(wrapper.text()).toContain('Coming soon')
+    expect(wrapper.text()).toContain('More classroom settings')
     expect(wrapper.text()).not.toContain('courseGeneration.')
     expect(wrapper.text()).not.toContain('课程类型')
+    expect(wrapper.text()).not.toContain('更多课堂设置')
   })
 
   it('生成过程中禁止关闭和重复提交', async () => {

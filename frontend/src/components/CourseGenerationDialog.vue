@@ -221,14 +221,10 @@
               </div>
               <Target :size="18" />
             </div>
-            <div class="compact-grid">
+            <div class="teacher-brief-section__core">
               <label for="teacher-target-audience">
                 <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
                 <input id="teacher-target-audience" v-model="form.targetAudience" class="text-input" type="text" maxlength="500" :disabled="busy" />
-              </label>
-              <label for="teacher-academic-term">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
-                <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
               </label>
               <label for="teacher-total-hours">
                 <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
@@ -247,23 +243,34 @@
                   <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
                 </select>
               </label>
-              <label for="teacher-class-size">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span>
-                <input id="teacher-class-size" v-model.number="form.classSize" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
-              </label>
-              <label for="teacher-chapter-count">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span>
-                <input id="teacher-chapter-count" v-model.number="form.chapterCount" class="text-input" type="number" min="1" max="100" step="1" :disabled="busy" />
-              </label>
-              <label for="teacher-section-count">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.sectionCount', '预计小节数') }}</span>
-                <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
-              </label>
             </div>
-            <label class="teacher-brief-section__profile" for="teacher-class-profile">
-              <span class="field-label">{{ t('courseGeneration.teacherBrief.classProfile', '班级与学情特点') }}</span>
-              <textarea id="teacher-class-profile" v-model="form.classProfile" class="textarea-input textarea-input--compact" maxlength="2000" :placeholder="t('courseGeneration.teacherBrief.classProfilePlaceholder', '例如：多数学生已完成先修课，但概念迁移和小组讨论经验有限')" :disabled="busy" />
-            </label>
+            <details class="teacher-brief-section__advanced">
+              <summary>{{ t('courseGeneration.teacherBrief.advancedSettings', '更多课堂设置') }}</summary>
+              <div class="teacher-brief-section__advanced-body">
+                <div class="teacher-brief-section__advanced-grid">
+                  <label for="teacher-academic-term">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
+                    <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
+                  </label>
+                  <label for="teacher-class-size">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span>
+                    <input id="teacher-class-size" v-model.number="form.classSize" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
+                  </label>
+                  <label for="teacher-chapter-count">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span>
+                    <input id="teacher-chapter-count" v-model.number="form.chapterCount" class="text-input" type="number" min="1" max="100" step="1" :disabled="busy" />
+                  </label>
+                  <label for="teacher-section-count">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.sectionCount', '预计小节数') }}</span>
+                    <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+                  </label>
+                </div>
+                <label class="teacher-brief-section__profile" for="teacher-class-profile">
+                  <span class="field-label">{{ t('courseGeneration.teacherBrief.classProfile', '班级与学情特点') }}</span>
+                  <textarea id="teacher-class-profile" v-model="form.classProfile" class="textarea-input textarea-input--compact" maxlength="2000" :placeholder="t('courseGeneration.teacherBrief.classProfilePlaceholder', '例如：多数学生已完成先修课，但概念迁移和小组讨论经验有限')" :disabled="busy" />
+                </label>
+              </div>
+            </details>
           </section>
 
           <section class="form-section guided-intro">
@@ -670,6 +677,11 @@ async function submit() {
 .teacher-brief-section__heading > div { min-width:0; display:grid; gap:4px; }
 .teacher-brief-section__heading strong { color:var(--lz-text); font-size:13px; }
 .teacher-brief-section__heading span { color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
+.teacher-brief-section__core,.teacher-brief-section__advanced-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.teacher-brief-section__advanced { min-width:0; padding-top:12px; border-top:1px solid rgba(226,232,240,.78); }
+.teacher-brief-section__advanced summary { color:var(--lz-text-secondary); font-size:12px; font-weight:700; cursor:pointer; }
+.teacher-brief-section__advanced[open] summary { margin-bottom:14px; color:var(--lz-brand-strong); }
+.teacher-brief-section__advanced-body { display:grid; gap:12px; }
 .teacher-brief-section__profile { display:grid; gap:0; }
 .compact-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .field-label { display: block; margin-bottom: 8px; color: var(--lz-text); font-size: 12px; font-weight: 700; }
@@ -709,6 +721,7 @@ async function submit() {
   .teaching-settings__core { grid-template-columns: 1fr; gap: 22px; }
   .course-type-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .compact-grid { grid-template-columns: 1fr 1fr; }
+  .teacher-brief-section__core,.teacher-brief-section__advanced-grid { grid-template-columns:1fr; }
   .generation-dialog__footer { align-items: stretch; flex-direction: column; padding: 10px 16px 14px; }
   .footer-actions,.footer-actions button { width: 100%; }
   .footer-actions button { flex: 1; }

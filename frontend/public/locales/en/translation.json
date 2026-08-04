@@ -1185,7 +1185,8 @@
       "classProfile": "Class profile and learning context",
       "classProfilePlaceholder": "For example: most learners completed prerequisites but have limited experience transferring concepts or working in groups",
       "chapterCount": "Expected chapters",
-      "sectionCount": "Expected sections"
+      "sectionCount": "Expected sections",
+      "advancedSettings": "More classroom settings"
     },
     "workspace": {
       "label": "Course production",
@@ -1449,6 +1450,8 @@
       "teachingPreparationLabel": "Preparation",
       "courseAssessmentPlanLabel": "Course assessment plan",
       "classroomUnset": "To be completed",
+      "classroomDetailsTitle": "Additional classroom information",
+      "classroomDetailsHelp": "Class size, learner context, preparation, and assessment",
       "overallObjectivesEyebrow": "Course outcomes",
       "overallObjectives": "By the end of this course, learners can",
       "objectivesPending": "Course-level learning objectives are being prepared.",

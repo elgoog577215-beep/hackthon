@@ -1185,7 +1185,8 @@
       "classProfile": "班级与学情特点",
       "classProfilePlaceholder": "例如：多数学生已完成先修课，但概念迁移和小组讨论经验有限",
       "chapterCount": "预计章节数",
-      "sectionCount": "预计小节数"
+      "sectionCount": "预计小节数",
+      "advancedSettings": "更多课堂设置"
     },
     "workspace": {
       "label": "课程生产",
@@ -1449,6 +1450,8 @@
       "teachingPreparationLabel": "课前准备",
       "courseAssessmentPlanLabel": "课程评价安排",
       "classroomUnset": "待补充",
+      "classroomDetailsTitle": "补充课堂信息",
+      "classroomDetailsHelp": "班级规模、学情、准备与评价",
       "overallObjectivesEyebrow": "总体目标",
       "overallObjectives": "学完这门课，学生能够",
       "objectivesPending": "总体教学目标正在形成。",
