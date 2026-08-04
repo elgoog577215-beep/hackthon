@@ -169,4 +169,38 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('[data-testid="apply-outline-adjustment"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('目录已被手动修改，请重新生成方案')
   })
+
+  it('刷新恢复未确认草稿时同步更新导航树，而不是继续显示生成预览旧目录', async () => {
+    const course = useCourseStore()
+    course.currentCourseId = 'course-1'
+    course.currentCourseProjection = 'generation_preview'
+    course.nodes = currentDraft().nodes.map(node => ({
+      ...node,
+      node_content: '',
+      node_type: 'original' as const,
+      generation_status: 'pending' as const,
+      generated_chars: 0,
+      children: [],
+    }))
+    course.courseTree = course.buildTree(course.nodes)
+
+    const savedDraft = proposal().draft
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: currentDraft(),
+      draft: savedDraft,
+      has_unconfirmed_draft: true,
+    } as any)
+
+    mount(CourseOutlineReview, {
+      props: { courseId: 'course-1', courseName: 'Unity 游戏编程' },
+    })
+    await flushPromises()
+
+    expect(course.nodes.map(node => node.node_name)).toContain('组件组合')
+    expect(course.courseTree[0]?.children?.map(node => node.node_name)).toEqual([
+      '生命周期',
+      '组件组合',
+    ])
+  })
 })
