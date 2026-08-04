@@ -179,7 +179,12 @@ def test_deleted_dependency_is_a_blocker_instead_of_being_silently_dropped():
                     "op": "update_node",
                     "node_ref": "L2-1-1",
                     "prerequisite_refs": ["L2-1-2"],
-                }
+                },
+                {
+                    "op": "update_node",
+                    "node_ref": "L2-1-2",
+                    "prerequisite_refs": [],
+                },
             ],
             "dependency_points_forward",
         ),

@@ -89,3 +89,158 @@ def test_preview_instruction_contract_rejects_blank_and_oversized_input():
     assert blank.status_code == 422
     assert oversized.status_code == 422
     assert manager.calls == []
+
+
+class DraftRepository:
+    def __init__(self, draft):
+        self.draft = draft
+        self.saved = []
+
+    def load_draft(self, _course_id):
+        return self.draft
+
+    def save_draft(self, _course_id, draft):
+        self.saved.append(draft)
+        self.draft = draft
+        return draft
+
+
+def _canonical_course():
+    return {
+        "course_id": "course-1",
+        "course_name": "Unity",
+        "course_type": "systematic",
+        "course_purpose": "systematic",
+        "nodes": [
+            {
+                "node_id": "L1-1",
+                "parent_node_id": "root",
+                "node_level": 1,
+                "node_name": "基础",
+                "learning_objective": "建立基础",
+                "prerequisite_node_ids": [],
+            },
+            {
+                "node_id": "L2-1-1",
+                "parent_node_id": "L1-1",
+                "node_level": 2,
+                "node_name": "生命周期",
+                "learning_objective": "选择生命周期入口",
+                "prerequisite_node_ids": [],
+            },
+        ],
+    }
+
+
+def test_apply_rejects_stale_draft_and_recompiles_instead_of_trusting_client_plan(monkeypatch):
+    from course_versioning import build_blueprint_draft
+
+    course = _canonical_course()
+    existing = build_blueprint_draft(course)
+    repository = DraftRepository(existing)
+
+    async def load_course(_course_id):
+        return course
+
+    monkeypatch.setattr(course_versions, "_course_for_blueprint", load_course)
+    monkeypatch.setattr(course_versions, "course_version_repository", repository)
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    client = TestClient(app)
+
+    stale = client.put(
+        "/api/courses/course-1/blueprint/draft",
+        json={
+            "base_blueprint_revision_id": existing["base_blueprint_revision_id"],
+            "expected_draft_revision_id": "draft-stale",
+            "nodes": existing["nodes"],
+        },
+    )
+    assert stale.status_code == 409
+    assert repository.saved == []
+
+    nodes = existing["nodes"] + [{
+        "node_id": "L2-1-2",
+        "parent_node_id": "L1-1",
+        "node_level": 2,
+        "node_name": "组件组合",
+        "learning_objective": "组合组件",
+        "prerequisite_node_ids": ["L2-1-1"],
+    }]
+    applied = client.put(
+        "/api/courses/course-1/blueprint/draft",
+        json={
+            "base_blueprint_revision_id": existing["base_blueprint_revision_id"],
+            "expected_draft_revision_id": existing["draft_revision_id"],
+            "course_blueprint": {"sections": [{"title": "客户端伪造结构"}]},
+            "nodes": nodes,
+        },
+    )
+
+    assert applied.status_code == 200
+    saved = repository.saved[0]
+    assert [section["title"] for section in saved["course_plan"]["chapters"][0]["sections"]] == [
+        "生命周期",
+        "组件组合",
+    ]
+    assert saved["course_blueprint"]["sections"] == saved["course_plan"]["chapters"]
+
+
+def test_adjustment_apply_is_bound_to_previewed_operations_and_ignores_tampered_nodes(monkeypatch):
+    from course_versioning import build_blueprint_draft, outline_adjustment_proposal_id
+
+    course = _canonical_course()
+    existing = build_blueprint_draft(course)
+    repository = DraftRepository(existing)
+
+    async def load_course(_course_id):
+        return course
+
+    monkeypatch.setattr(course_versions, "_course_for_blueprint", load_course)
+    monkeypatch.setattr(course_versions, "course_version_repository", repository)
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    client = TestClient(app)
+    operations = [{
+        "op": "add_node",
+        "temp_ref": "tmp-components",
+        "node_level": 2,
+        "parent_ref": "L1-1",
+        "after_ref": "L2-1-1",
+        "node_name": "组件组合",
+        "learning_objective": "组合组件",
+        "prerequisite_refs": ["L2-1-1"],
+    }]
+    proposal_id = outline_adjustment_proposal_id(existing["draft_revision_id"], operations)
+
+    applied = client.put(
+        "/api/courses/course-1/blueprint/draft",
+        json={
+            "base_blueprint_revision_id": existing["base_blueprint_revision_id"],
+            "expected_draft_revision_id": existing["draft_revision_id"],
+            "adjustment_proposal_id": proposal_id,
+            "adjustment_operations": operations,
+            "nodes": [{"node_id": "tampered", "node_name": "被篡改"}],
+            "blueprint_locks": {},
+        },
+    )
+
+    assert applied.status_code == 200
+    assert [node["node_name"] for node in repository.saved[0]["nodes"]] == [
+        "基础",
+        "生命周期",
+        "组件组合",
+    ]
+
+    repository.draft = existing
+    rejected = client.put(
+        "/api/courses/course-1/blueprint/draft",
+        json={
+            "base_blueprint_revision_id": existing["base_blueprint_revision_id"],
+            "expected_draft_revision_id": existing["draft_revision_id"],
+            "adjustment_proposal_id": "proposal-tampered",
+            "adjustment_operations": operations,
+        },
+    )
+    assert rejected.status_code == 409
+    assert len(repository.saved) == 1

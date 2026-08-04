@@ -260,6 +260,76 @@ class CourseService(AIBase):
         }
         return mapping.get(audience, audience.strip() or "undergraduate")
 
+    async def propose_outline_adjustment(
+        self,
+        *,
+        draft: dict[str, Any],
+        instruction: str,
+        correction: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Ask the primary planner for atomic outline operations only."""
+        request = {
+            "instruction": instruction,
+            "outline": [
+                {
+                    key: deepcopy(node.get(key))
+                    for key in (
+                        "node_id",
+                        "parent_node_id",
+                        "node_level",
+                        "node_name",
+                        "learning_objective",
+                        "prerequisite_node_ids",
+                    )
+                }
+                for node in draft.get("nodes") or []
+            ],
+            "immutable_course_contract": {
+                "course_type": draft.get("course_type") or "systematic",
+                "course_purpose": draft.get("course_purpose") or "systematic",
+                "course_intent": deepcopy(draft.get("course_intent") or {}),
+                "difficulty_profile": deepcopy(draft.get("difficulty_profile") or {}),
+                "material_scope": deepcopy(
+                    (draft.get("course_generation_brief") or {}).get("material_scope") or {}
+                ),
+                "blueprint_locks": deepcopy(draft.get("blueprint_locks") or {}),
+            },
+        }
+        if correction:
+            request["correction"] = deepcopy(correction)
+        system_prompt = """
+你是课程目录结构调整器。只返回一个 JSON 对象，不要返回 Markdown 或解释。
+根对象只能包含 operations 和 summary。operations 只能使用以下四种原子操作：
+1. add_node: {"op":"add_node","temp_ref":"tmp-唯一值","node_level":1|2,
+   "parent_ref":"root|现有章节或临时章节引用","after_ref":"同级引用或null",
+   "node_name":"名称","learning_objective":"可观察目标","prerequisite_refs":[]}
+2. remove_node: {"op":"remove_node","node_ref":"现有引用"}
+3. move_node: {"op":"move_node","node_ref":"现有引用","parent_ref":"root|章节引用",
+   "after_ref":"同级引用或null"}
+4. update_node: {"op":"update_node","node_ref":"现有引用","node_name":"可选",
+   "learning_objective":"可选","prerequisite_refs":["可选"]}
+拆章、并章必须组合上述操作。只允许 L1 章节和 L2 小节；每章最终至少一个小节。
+删除非空章节前必须显式移动或删除其小节。不要直接指定最终 L1/L2 ID。
+所有前置依赖必须指向最终顺序中的前序小节，不能删除仍被依赖的节点，不能成环。
+不得改变 immutable_course_contract 中的课程类型、用途、难度、材料边界或锁定规则。
+不要生成课程正文、教案、course_plan、course_outline 或 course_blueprint。
+""".strip()
+        response = await self._call_llm(
+            json.dumps(request, ensure_ascii=False),
+            system_prompt,
+            retry_count=1,
+            max_attempts=1,
+            enable_thinking=True,
+            max_tokens=8192,
+            max_input_tokens=24000,
+            reject_truncated=True,
+            raise_on_failure=True,
+            json_mode=True,
+            model_role="smart",
+        )
+        parsed = self._extract_json(response or "")
+        return parsed if isinstance(parsed, dict) else {}
+
     def register_course_generation_metadata(self, course_id: str, course_data: dict[str, Any]) -> None:
         """从已保存课程恢复资料增强生成上下文。
 
