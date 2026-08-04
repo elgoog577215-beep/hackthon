@@ -937,7 +937,7 @@ def test_visual_plan_takeaway_cannot_add_an_unbound_number() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_visual_plan_with_rewritten_body_falls_back() -> None:
+async def test_ai_visual_plan_discards_rewritten_body_without_losing_visual() -> None:
     course = visual_course()
     document = document_from_legacy_course(course)
     fragments = fragment_course_document(document)
@@ -950,6 +950,10 @@ async def test_ai_visual_plan_with_rewritten_body_falls_back() -> None:
     valid = deterministic_visual_plan(document, allocation, fragments)
     raw = valid.model_dump(mode="json")
     page = next(item for item in raw["pages"] if item["takeaway_source_fragment_ids"])
+    page_id = page["page_id"]
+    expected_takeaway = next(
+        item.takeaway for item in valid.pages if item.page_id == page_id
+    )
     page["takeaway"] = "模型擅自改写出的新结论"
     page["body"] = "不允许出现的正文"
 
@@ -963,8 +967,10 @@ async def test_ai_visual_plan_with_rewritten_body_falls_back() -> None:
         ai_planner=invalid_planner,
     )
 
-    assert resolved.deck_brief["planner"] == "deterministic_fallback"
-    assert resolved.deck_brief["fallback_reason"] == "invalid_or_failed_ai_visual_plan"
+    assert resolved.deck_brief["planner"] == "ai"
+    resolved_page = next(item for item in resolved.pages if item.page_id == page_id)
+    assert resolved_page.takeaway == expected_takeaway
+    assert resolved_page.planner == "ai"
 
 
 @pytest.mark.asyncio

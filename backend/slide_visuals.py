@@ -23,7 +23,7 @@ from teaching_storyboard import (
 )
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
-SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v6"
+SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v7"
 
 VisualKind = Literal[
     "source_image",
@@ -797,6 +797,30 @@ def _visual_plan_request(
                 "transition_from",
             ],
             "forbidden_compact_fields": ["fragment_id", "visual_kind"],
+            "allowed_compositions": [
+                "statement",
+                "figure-first",
+                "split-visual",
+                "diagram-full",
+                "comparison",
+                "process",
+                "exercise",
+                "appendix",
+            ],
+            "allowed_visual_purposes": [
+                "structure",
+                "process",
+                "comparison",
+                "evidence",
+                "application",
+                "context",
+                "exercise",
+            ],
+            "allowed_role_layout_variants": [
+                "primary",
+                "alternate",
+                "dense",
+            ],
         },
         "allowed_visual_kinds": sorted(allowed_visual_kinds),
         "allowed_rule_diagram_templates": sorted(RULE_DIAGRAM_TEMPLATES),
@@ -847,6 +871,7 @@ def _visual_plan_request(
 def _normalize_visual_plan_batch_payload(
     raw: Any,
     request: dict[str, Any],
+    compiler_pages: dict[str, SlideVisualPlanPageV1] | None = None,
 ) -> Any:
     """Fill deterministic batch metadata around provider page decisions.
 
@@ -879,6 +904,64 @@ def _normalize_visual_plan_batch_payload(
         payload = {"pages": payload}
     if not isinstance(payload, dict):
         return raw
+    pages = payload.get("pages") or []
+    if compiler_pages is not None and isinstance(pages, list):
+        sanitized_pages: list[dict[str, Any]] = []
+        allowed_compositions = {
+            "statement",
+            "figure-first",
+            "split-visual",
+            "diagram-full",
+            "comparison",
+            "process",
+            "exercise",
+            "appendix",
+        }
+        allowed_variants = {"primary", "alternate", "dense"}
+        allowed_purposes = {
+            "structure",
+            "process",
+            "comparison",
+            "evidence",
+            "application",
+            "context",
+            "exercise",
+        }
+        for decision in pages:
+            if not isinstance(decision, dict):
+                continue
+            page_id = str(decision.get("page_id") or "")
+            compiler_page = compiler_pages.get(page_id)
+            if compiler_page is None:
+                continue
+            page = compiler_page.model_dump(mode="json")
+            composition = str(decision.get("composition") or "")
+            if composition in allowed_compositions:
+                page["composition"] = composition
+            variant = str(decision.get("role_layout_variant") or "")
+            if variant in allowed_variants:
+                page["role_layout_variant"] = variant
+            raw_anchor = decision.get("visual_anchor")
+            if isinstance(raw_anchor, dict):
+                anchor = dict(raw_anchor)
+                anchor.setdefault("visual_id", page["visual_anchor"]["visual_id"])
+                anchor["asset_id"] = str(anchor.get("asset_id") or "")
+                anchor["alt_text"] = str(anchor.get("alt_text") or "")
+                anchor["nodes"] = anchor.get("nodes") or []
+                anchor["edges"] = anchor.get("edges") or []
+                anchor["parameters"] = anchor.get("parameters") or {}
+                if str(anchor.get("purpose") or "") not in allowed_purposes:
+                    anchor["purpose"] = page["visual_anchor"]["purpose"]
+                try:
+                    page["visual_anchor"] = VisualAnchorV1.model_validate(
+                        anchor
+                    ).model_dump(mode="json")
+                except (TypeError, ValueError, ValidationError):
+                    # Invalid provider structure cannot contaminate the page;
+                    # retain the deterministic source-bound visual instead.
+                    pass
+            sanitized_pages.append(page)
+        pages = sanitized_pages
     return {
         "schema_version": SLIDE_VISUAL_PLAN_SCHEMA,
         "policy_version": SLIDE_VISUAL_POLICY_VERSION,
@@ -891,7 +974,7 @@ def _normalize_visual_plan_batch_payload(
             if isinstance(payload.get("deck_brief"), dict)
             else {}
         ),
-        "pages": payload.get("pages") or [],
+        "pages": pages,
     }
 
 
@@ -961,7 +1044,14 @@ async def plan_slide_visuals(
                 )
                 raw = await result if inspect.isawaitable(result) else result
             candidate = SlideVisualPlanV1.model_validate(
-                _normalize_visual_plan_batch_payload(raw, request)
+                _normalize_visual_plan_batch_payload(
+                    raw,
+                    request,
+                    compiler_pages={
+                        page.page_id: resolved_by_page[page.page_id]
+                        for page in batch_allocation.pages
+                    },
+                )
             )
             expected_by_id = {
                 page.page_id: page
