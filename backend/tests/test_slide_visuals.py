@@ -913,7 +913,7 @@ async def test_ai_visual_plan_with_rewritten_body_falls_back() -> None:
 
 
 @pytest.mark.asyncio
-async def test_long_deck_skips_single_shot_ai_visual_planning() -> None:
+async def test_long_deck_uses_bounded_visual_planning_batches() -> None:
     course = visual_course()
     document = document_from_legacy_course(course)
     fragments = fragment_course_document(document)
@@ -932,10 +932,24 @@ async def test_long_deck_skips_single_shot_ai_visual_planning() -> None:
     long_allocation = allocation.model_copy(update={"pages": pages})
     calls = 0
 
-    async def planner(_request: dict) -> dict:
+    batch_sizes: list[int] = []
+
+    async def planner(request: dict) -> dict:
         nonlocal calls
         calls += 1
-        raise AssertionError("long decks must not use one giant visual request")
+        page_ids = [page["page_id"] for page in request["pages"]]
+        batch_sizes.append(len(page_ids))
+        batch_allocation = long_allocation.model_copy(update={
+            "pages": [
+                page for page in long_allocation.pages
+                if page.page_id in set(page_ids)
+            ],
+        })
+        return deterministic_visual_plan(
+            document,
+            batch_allocation,
+            fragments,
+        ).model_dump(mode="json")
 
     resolved = await plan_slide_visuals(
         document,
@@ -944,11 +958,65 @@ async def test_long_deck_skips_single_shot_ai_visual_planning() -> None:
         ai_planner=planner,
     )
 
-    assert calls == 0
-    assert resolved.deck_brief["planner"] == "deterministic_fallback"
-    assert resolved.deck_brief["fallback_reason"] == (
-        "long_deck_deterministic_visual_policy"
+    assert calls == 2
+    assert max(batch_sizes) <= 24
+    assert resolved.deck_brief["planner"] == "ai"
+    assert resolved.deck_brief["ai_visual_batches_total"] == 2
+    assert resolved.deck_brief["ai_visual_batches_successful"] == 2
+    assert resolved.deck_brief["ai_visual_batches_failed"] == 0
+    assert all(page.planner == "ai" for page in resolved.pages)
+
+
+@pytest.mark.asyncio
+async def test_long_deck_visual_batch_failure_preserves_successful_batches() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
     )
+    pages = list(allocation.pages)
+    source_page = next(page for page in reversed(pages) if page.fragment_ids)
+    while len(pages) < 30:
+        pages.append(source_page.model_copy(update={
+            "page_id": f"slide:partial:{len(pages):04d}",
+        }))
+    long_allocation = allocation.model_copy(update={"pages": pages})
+    calls = 0
+
+    async def planner(request: dict) -> dict:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("provider unavailable for this batch")
+        page_ids = {page["page_id"] for page in request["pages"]}
+        batch_allocation = long_allocation.model_copy(update={
+            "pages": [page for page in pages if page.page_id in page_ids],
+        })
+        return deterministic_visual_plan(
+            document,
+            batch_allocation,
+            fragments,
+        ).model_dump(mode="json")
+
+    resolved = await plan_slide_visuals(
+        document,
+        long_allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    assert resolved.deck_brief["planner"] == "ai"
+    assert resolved.deck_brief["fallback_reason"] == "partial_ai_visual_plan"
+    assert resolved.deck_brief["ai_visual_batches_successful"] == 1
+    assert resolved.deck_brief["ai_visual_batches_failed"] == 1
+    assert {page.planner for page in resolved.pages} == {
+        "ai",
+        "deterministic_fallback",
+    }
 
 
 def test_asset_repository_validates_and_promotes_content_addressed_images(

@@ -33,6 +33,7 @@ from slide_deck_v5 import (
     compile_page_title_v5,
     finalize_v5_quality_report,
     resolve_page_contract_v5,
+    repair_final_page_contracts_v5,
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
@@ -1854,6 +1855,52 @@ def test_v5_structural_evaluation_across_course_types(
     assert slide["quality"]["resolved_layout"] == expected_layout
     assert slide["quality"]["density_band"] != "overflow"
     assert not v5_contract_issues([slide])
+
+
+def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
+    slides = repair_final_page_contracts_v5([{
+        "unit_id": "repaired-page",
+        "layout": "concept",
+        "title": "三种系统具有不同交换边界",
+        "blocks": [{
+            "block_id": "classification",
+            "type": "bullets",
+            "items": ["孤立系统", "封闭系统", "开放系统"],
+        }],
+        "quality": {"requested_layout": "classification-3"},
+    }])
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": False,
+            "blockers": [
+                {
+                    "severity": "critical",
+                    "code": "visible_item_overflow",
+                    "target": "repaired-page",
+                },
+                {
+                    "severity": "critical",
+                    "code": "enumeration_cardinality_mismatch",
+                    "target": "repaired-page",
+                },
+            ],
+            "semantic": {"issues": [{
+                "severity": "major",
+                "code": "slide_title_too_long",
+                "target": "repaired-page",
+            }]},
+        },
+        slides=slides,
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is True
+    assert not {
+        "visible_item_overflow",
+        "enumeration_cardinality_mismatch",
+        "slide_title_too_long",
+    } & {issue["code"] for issue in report["issues"]}
 
 
 def test_title_compiler_keeps_explicit_title_and_never_promotes_takeaway() -> None:
