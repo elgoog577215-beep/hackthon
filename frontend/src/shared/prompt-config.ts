@@ -314,6 +314,14 @@ export interface GenerateCourseParams {
     mode?: 'auto_on_gap' | 'off' | 'always';
     enabled?: boolean;
   };
+  /** 联网检索公开资料。默认关闭，需教师显式开启。 */
+  web_material_search?: {
+    enabled?: boolean;
+    max_results?: number;
+    allowed_domains?: string[];
+    blocked_domains?: string[];
+    excluded_urls?: string[];
+  };
 }
 
 export type CourseGenerationOptions = Partial<Omit<GenerateCourseParams, 'subject'>>;

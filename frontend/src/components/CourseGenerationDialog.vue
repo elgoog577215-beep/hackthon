@@ -301,6 +301,21 @@
             </label>
           </section>
 
+          <section class="form-section web-enrichment-setting">
+            <label class="web-enrichment-setting__control">
+              <input
+                v-model="form.webMaterialSearch"
+                data-testid="web-material-search"
+                type="checkbox"
+                :disabled="busy"
+              />
+              <span>
+                <strong>{{ t('courseGeneration.materials.webSearch.enable', '本次生成允许联网检索') }}</strong>
+                <small>{{ t('courseGeneration.materials.webSearch.disabledHint', '默认不联网。开启后仅检索公开网页，不绕过付费墙或登录。') }}</small>
+              </span>
+            </label>
+          </section>
+
           <section class="form-section">
             <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
             <textarea
@@ -396,6 +411,7 @@ const form = reactive({
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   webQuestionEnrichment: true,
+  webMaterialSearch: false,
   requirements: '',
   targetAudience: '大学生',
   academicTerm: '',
@@ -546,6 +562,7 @@ async function submit() {
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
       web_question_enrichment: { enabled: form.webQuestionEnrichment },
+      web_material_search: { enabled: form.webMaterialSearch },
       target_audience: form.targetAudience.trim(),
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1',
