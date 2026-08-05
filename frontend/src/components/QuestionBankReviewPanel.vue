@@ -107,6 +107,9 @@
           <span>{{ t('questionBank.webSources', '联网补充') }}</span>
           <strong>{{ webStatusLabel }}</strong>
           <small>{{ t('questionBank.sourceCount', '{count} 个来源').replace('{count}', String(webEnrichment.source_count || 0)) }}</small>
+          <small v-if="webRetrievalError" data-testid="question-bank-retrieval-error">
+            {{ webRetrievalError }}
+          </small>
         </article>
         <article data-testid="question-diversity-monitor">
           <span>{{ t('questionBank.diversity', '题组多样性') }}</span>
@@ -685,6 +688,7 @@ import {
 } from 'lucide-vue-next'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
+import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
 import {
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
@@ -1026,6 +1030,10 @@ const webStatusLabel = computed(() => {
     failed_fallback_local: t('questionBank.web.fallback', '已回退本地'),
   }
   return labels[status] || t('questionBank.web.notStarted', '未启用')
+})
+const webRetrievalError = computed(() => {
+  const key = retrievalErrorTranslationKey(webEnrichment.value)
+  return key ? t(key, '') : ''
 })
 
 onMounted(() => {

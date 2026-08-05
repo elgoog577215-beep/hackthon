@@ -1,0 +1,43 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - bing
+      - baidu
+      - wikipedia
+      - arxiv
+      - pubmed
+      - openalex
+      - crossref
+
+general:
+  debug: false
+  instance_name: "Lingzhi Retrieval"
+
+search:
+  safe_search: 2
+  autocomplete: ""
+  formats:
+      - json
+
+server:
+  secret_key: "overridden-by-SEARXNG_SECRET"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "POST"
+
+ui:
+  query_in_title: false
+
+engines:
+  - name: bing
+    disabled: false
+  - name: baidu
+    disabled: false
+  - name: wikipedia
+    display_type: ["infobox", "list"]
+  - name: openalex
+    disabled: false
+  - name: crossref
+    disabled: false

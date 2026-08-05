@@ -129,11 +129,18 @@ describe('课程生产内联确认', () => {
 
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValueOnce({
       current: draft,
-      retrieval: { status: 'failed', notice: '联网核验未完成，可重试或离线继续' },
+      retrieval: {
+        status: 'failed',
+        notice: '联网核验未完成，可重试或离线继续',
+        package: {
+          receipt: { error_codes: ['not_configured'] },
+        },
+      },
     } as any)
     await (wrapper.vm as any).loadBlueprint()
     await flushPromises()
     expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('联网核验未完成')
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('联网服务尚未配置')
     expect(wrapper.findAll('.outline-review__nodes li')).toHaveLength(1)
   })
 

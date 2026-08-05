@@ -1190,7 +1190,14 @@
     },
     "retrieval": {
       "label": "Web research",
-      "help": "Use one source package to verify the new outline, lesson content, and question bank. Off by default; learner profiles, answers, and personal records are never sent."
+      "help": "Use one source package to verify the new outline, lesson content, and question bank. Off by default; learner profiles, answers, and personal records are never sent.",
+      "errors": {
+        "not_configured": "The web retrieval service is not configured",
+        "timeout": "Web search timed out",
+        "provider_error": "The web retrieval service is temporarily unavailable",
+        "no_sources": "No sources meeting the publication standard were found",
+        "privacy_blocked": "The query contained too much private information and was blocked"
+      }
     },
     "workspace": {
       "label": "Course production",

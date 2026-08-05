@@ -13,7 +13,11 @@ from question_bank import (
     review_question_bank_item,
     revise_question_bank_item,
 )
-from question_search import enrich_question_bank_with_web
+from question_search import (
+    ConfiguredQuestionSearch,
+    ExaQuestionSearch,
+    enrich_question_bank_with_web,
+)
 
 
 def test_hint_contract_accepts_llm_list_solution_graph():
@@ -103,6 +107,33 @@ def _course() -> dict:
             "difficulty_contract": {"target_level": "intermediate"},
         }],
     }
+
+
+def test_question_bank_preserves_retrieval_failure_receipt_for_user_feedback():
+    course = _course()
+    course["_question_reference_package"] = {
+        "retrieval_mode": "always",
+        "web": {
+            "status": "failed_fallback_local",
+            "query_count": 2,
+            "source_count": 0,
+            "error_codes": ["timeout"],
+            "receipt": {
+                "status": "failed_fallback_local",
+                "error_codes": ["timeout"],
+                "package_revision": 2,
+            },
+        },
+    }
+
+    bundle = build_question_bank(course)
+
+    assert bundle["web_enrichment"]["error_codes"] == ["timeout"]
+    assert bundle["web_enrichment"]["receipt"]["package_revision"] == 2
+
+
+def test_legacy_exa_question_search_name_is_a_provider_neutral_alias():
+    assert ExaQuestionSearch is ConfiguredQuestionSearch
 
 
 def _internal_task(

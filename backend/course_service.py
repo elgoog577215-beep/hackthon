@@ -16,6 +16,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
