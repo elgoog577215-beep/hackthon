@@ -306,3 +306,91 @@ async def test_expired_draft_rejects_every_command_family() -> None:
                 idempotency_key=f"expired-{index}",
             )
         assert error.value.code == "teaching_plan_draft_expired", path
+
+
+@pytest.mark.asyncio
+async def test_warning_status_passes_but_surfaces_issues() -> None:
+    """2.7「警告」：不阻断应用，但必须把问题带出来给教师看。
+
+    警告与阻断的区别是产品判断，不是实现细节：课时对不上要提醒，
+    但不该拦住教师保存；结构缺失才拦。两者混同会让教师要么被无谓拦下、
+    要么把真问题带进正式修订。
+    """
+    storage = MemoryStorage(_course())
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    draft_id = await _open_draft(service)
+
+    # 总课时远超各小节计划时长之和：可疑但不致命。
+    await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="overall/total_class_hours",
+        value=40,
+        expected_value_hash="",
+        base_plan_revision_id="",
+        idempotency_key="warning-hours",
+    )
+
+    review = service.review_draft("course-1", actor="teacher-1", draft_id=draft_id)
+    validation = review["validation"]
+    assert validation["status"] == "warning"
+    assert validation["passed"] is True, "警告不得阻断应用"
+    assert any(not issue.get("blocking") for issue in validation["issues"])
+
+    # 带警告的草稿仍然可以生成 ready 变更集并应用。
+    reviewed = await service.create_change_set(
+        "course-1", actor="teacher-1", draft_id=draft_id, idempotency_key="warning-review",
+    )
+    change_set = next(item for item in reviewed["change_sets"] if item["status"] == "ready")
+    await service.apply_change_set(
+        "course-1", actor="teacher-1",
+        change_set_id=change_set["change_set_id"], idempotency_key="warning-apply",
+    )
+    assert storage.course["course_teaching_plan"]["revision_id"] != "teaching-initial"
+
+
+@pytest.mark.asyncio
+async def test_lock_conflict_surfaces_as_a_structured_conflict_not_a_crash() -> None:
+    """2.7「锁定冲突」：底层写冲突要变成结构化冲突，不能漏成 500。
+
+    course_repository 在并发写同一课程时抛 CourseDocumentConflict。
+    工作台自己不吞这个异常——它必须一路冒到 HTTP 边界并映射为 409，
+    否则教师看到的是「服务器错误」而不是「有人同时在改，请重试」。
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from course_repository import CourseDocumentConflict
+    from routers import teaching_plan_workbench as workbench_router
+
+    storage = MemoryStorage(_course())
+    repository = CourseDocumentRepository(storage)
+    app = FastAPI()
+    app.include_router(workbench_router.router, prefix="/api")
+    app.dependency_overrides[workbench_router.get_course_document_repository] = lambda: repository
+    client = TestClient(app, raise_server_exceptions=False)
+    headers = {"X-User-Id": "teacher-lock"}
+    base_path = "/api/courses/course-1/teaching-plan"
+
+    workbench = client.get(f"{base_path}/workbench", headers=headers).json()["workbench"]
+    draft = client.post(f"{base_path}/drafts", headers=headers, json={
+        "base_plan_revision_id": workbench["current_plan_revision_id"],
+        "base_course_document_revision": workbench["course_document_revision"],
+        "idempotency_key": "lock-create",
+    }).json()["workbench"]["draft"]
+
+    async def conflicting_command(*_args, **_kwargs):
+        raise CourseDocumentConflict("course is locked by another writer")
+
+    repository.apply_metadata_command = conflicting_command
+
+    response = client.patch(f"{base_path}/drafts/{draft['draft_id']}", headers=headers, json={
+        "path": "overall/positioning",
+        "value": "并发写入时的定位",
+        "base_plan_revision_id": draft["base_plan_revision_id"],
+        "idempotency_key": "lock-patch",
+    })
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "course_document_conflict"
