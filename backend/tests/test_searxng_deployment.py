@@ -38,6 +38,8 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "public_instance: false" in settings
     assert "limiter: false" in settings
     assert "image_proxy: false" in settings
+    assert "request_timeout: 3.0" in settings
+    assert "max_request_timeout: 4.0" in settings
     for engine in expected:
         assert f"- {engine}" in settings
     assert "google" not in settings.lower()
@@ -53,6 +55,8 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert 'docker pull "$SEARXNG_IMAGE"' in workflow
     assert "docker image save" in workflow
     assert "searxng-image.tar.gz" in workflow
+    assert "docker image inspect '$SEARXNG_ARCHIVE_TAG'" in workflow
+    assert "steps.remote_image.outputs.present != 'true'" in workflow
     assert "docker compose" in script
     assert "sha256sum --check" in script
     assert "docker image load" in script
@@ -62,6 +66,8 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "http://127.0.0.1:8080/config" in script
     assert "http://127.0.0.1:8080/search" in script
     assert "format=json" in script
+    assert "--force-recreate" in script
+    assert "for attempt in $(seq 1 3)" in script
 
 
 def test_provisioning_can_activate_retrieval_and_verify_application_health() -> None:

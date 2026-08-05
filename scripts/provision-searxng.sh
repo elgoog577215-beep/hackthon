@@ -66,8 +66,6 @@ fi
 
 require_file "$SOURCE_DIR/compose.yml"
 require_file "$SOURCE_DIR/settings.yml"
-require_file "$IMAGE_ARCHIVE"
-require_file "$IMAGE_CHECKSUM"
 require_file "$APP_ENV_FILE"
 
 if [ "$RETRIEVAL_MODE" != "off" ] \
@@ -98,12 +96,18 @@ else
     chmod 600 "$ENV_FILE"
 fi
 
-log "校验并加载 GitHub Runner 传输的固定摘要镜像"
-(
-    cd "$SOURCE_DIR"
-    sha256sum --check --strict "$(basename "$IMAGE_CHECKSUM")"
-)
-gzip --decompress --stdout "$IMAGE_ARCHIVE" | docker image load
+if docker image inspect "$ARCHIVE_IMAGE_TAG" >/dev/null 2>&1; then
+    log "复用服务器已校验加载的固定摘要镜像"
+else
+    require_file "$IMAGE_ARCHIVE"
+    require_file "$IMAGE_CHECKSUM"
+    log "校验并加载 GitHub Runner 传输的固定摘要镜像"
+    (
+        cd "$SOURCE_DIR"
+        sha256sum --check --strict "$(basename "$IMAGE_CHECKSUM")"
+    )
+    gzip --decompress --stdout "$IMAGE_ARCHIVE" | docker image load
+fi
 image_id="$(docker image inspect --format '{{.Id}}' "$ARCHIVE_IMAGE_TAG")"
 if ! [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
     log "无法确认已加载的 SearXNG 镜像"
@@ -115,7 +119,7 @@ log "校验 SearXNG Compose 配置"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet
 
 log "从本地镜像启动固定版本的 SearXNG"
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans --pull never
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans --force-recreate --pull never
 
 log "等待 SearXNG 本机健康检查"
 ready=0
@@ -134,15 +138,28 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 log "执行 JSON 搜索冒烟"
-curl --fail --silent --show-error --max-time 12 \
-    --request POST \
-    --data 'q=Lingzhi retrieval smoke test' \
-    --data 'format=json' \
-    --data 'categories=general,science' \
-    --data 'safesearch=2' \
-    --data 'language=en' \
-    http://127.0.0.1:8080/search \
-    | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list)'
+smoke_ready=0
+for attempt in $(seq 1 3); do
+    if curl --fail --silent --show-error --max-time 12 \
+        --request POST \
+        --data 'q=Lingzhi retrieval smoke test' \
+        --data 'format=json' \
+        --data 'categories=general,science' \
+        --data 'safesearch=2' \
+        --data 'language=en' \
+        http://127.0.0.1:8080/search \
+        | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list)'; then
+        smoke_ready=1
+        break
+    fi
+    log "JSON 搜索冒烟第 $attempt 次未通过"
+    sleep 3
+done
+if [ "$smoke_ready" -ne 1 ]; then
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=120
+    log "SearXNG JSON 搜索冒烟未通过"
+    exit 1
+fi
 
 log "写入应用联网配置并重启服务"
 app_env_backup="$(mktemp "${APP_ENV_FILE}.backup.XXXXXX")"
