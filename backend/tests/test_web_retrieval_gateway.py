@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 from web_retrieval import (
-    ExaSearchProvider,
     POLICY_VERSION,
+    ExaSearchProvider,
     RetrievalGateway,
     RetrievalProviderError,
     RetrievalRequest,
@@ -17,8 +17,8 @@ from web_retrieval import (
     configured_retrieval_gateway,
     create_search_provider,
     redact_outbound_query,
-    retrieval_feature_state,
     resolve_retrieval_policy,
+    retrieval_feature_state,
 )
 
 
@@ -261,6 +261,90 @@ async def test_searxng_failure_never_falls_back_to_exa(monkeypatch):
     assert package["receipt"]["error_codes"] == ["provider_error"]
 
 
+@pytest.mark.asyncio
+async def test_searxng_timeout_and_empty_results_keep_normalized_errors():
+    async def timeout_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(timeout_handler)
+    ) as client:
+        timeout_package = await RetrievalGateway(
+            provider=SearXNGSearchProvider(
+                base_url="http://127.0.0.1:8080",
+                client=client,
+            ),
+            cache_ttl_seconds=0,
+        ).retrieve(
+            RetrievalRequest(
+                purpose="ai_teacher",
+                enabled=True,
+                queries=["linear algebra course"],
+            )
+        )
+
+    async def empty_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": []})
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(empty_handler)
+    ) as client:
+        empty_package = await RetrievalGateway(
+            provider=SearXNGSearchProvider(
+                base_url="http://127.0.0.1:8080",
+                client=client,
+            ),
+            cache_ttl_seconds=0,
+        ).retrieve(
+            RetrievalRequest(
+                purpose="ai_teacher",
+                enabled=True,
+                queries=["linear algebra course"],
+            )
+        )
+
+    assert timeout_package["receipt"]["error_codes"] == ["timeout"]
+    assert empty_package["receipt"]["error_codes"] == ["no_sources"]
+
+
+@pytest.mark.asyncio
+async def test_searxng_raw_score_cannot_bypass_local_relevance_threshold():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [{
+                    "url": "https://example.edu/unrelated",
+                    "title": "Unrelated reference",
+                    "content": "A recipe for baking sourdough bread.",
+                    "score": 999.0,
+                    "engines": ["bing"],
+                }]
+            },
+        )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)
+    ) as client:
+        package = await RetrievalGateway(
+            provider=SearXNGSearchProvider(
+                base_url="http://127.0.0.1:8080",
+                client=client,
+            ),
+            cache_ttl_seconds=0,
+        ).retrieve(
+            RetrievalRequest(
+                purpose="course",
+                enabled=True,
+                queries=["linear algebra eigenvalue course"],
+            )
+        )
+
+    assert package["receipt"]["error_codes"] == ["no_sources"]
+    assert package["rejected_sources"][0]["relevance"] < 0.55
+    assert package["rejected_sources"][0]["provider_metadata"]["raw_score"] == 999.0
+
+
 def test_retrieval_policy_version_records_provider_upgrade():
     assert POLICY_VERSION == "web_retrieval_v2.1"
 
@@ -379,6 +463,36 @@ async def test_exa_staging_smoke_returns_public_sources():
     assert package["receipt"]["admitted_source_count"] > 0
     assert all(
         source["provider"] == "exa"
+        and source["url"].startswith("https://")
+        for source in package["sources"]
+    )
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_SEARXNG_STAGING_SMOKE") != "1"
+    or not os.getenv("SEARXNG_BASE_URL", "").strip(),
+    reason="requires an explicit staging opt-in and self-hosted SearXNG",
+)
+@pytest.mark.asyncio
+async def test_searxng_staging_smoke_returns_public_sources():
+    package = await RetrievalGateway(
+        provider=SearXNGSearchProvider(),
+        cache_namespace="searxng-staging-smoke",
+        cache_ttl_seconds=0,
+    ).retrieve(
+        RetrievalRequest(
+            purpose="ai_teacher",
+            enabled=True,
+            queries=["OpenStax linear algebra matrices course material"],
+            request_fingerprint="searxng_staging_smoke_v1",
+        )
+    )
+
+    assert package["status"] == "completed"
+    assert package["sources"]
+    assert package["receipt"]["admitted_source_count"] > 0
+    assert all(
+        source["provider"] == "searxng"
         and source["url"].startswith("https://")
         for source in package["sources"]
     )

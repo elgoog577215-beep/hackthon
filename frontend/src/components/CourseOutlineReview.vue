@@ -90,14 +90,14 @@
           </section>
 
           <section
-            v-else-if="retrievalNotice"
+            v-else-if="retrievalNotice || retrievalErrorKey"
             class="outline-retrieval outline-retrieval--notice"
             data-testid="retrieval-outline-notice"
             role="status"
           >
             <div>
               <strong>{{ t('courseGeneration.outlineReview.retrievalIncomplete', '联网核验未完成') }}</strong>
-              <p>{{ retrievalNotice }}</p>
+              <p>{{ retrievalFailureDetail }}</p>
             </div>
             <button type="button" :disabled="retryingRetrieval" @click="retryRetrieval">
               <LoaderCircle v-if="retryingRetrieval" :size="14" />
@@ -337,6 +337,7 @@ import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { t } from '../shared/i18n'
+import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -379,6 +380,12 @@ const retrievalProposal = computed<Record<string, any> | null>(() => (
   retrievalArtifact.value?.proposal || null
 ))
 const retrievalNotice = computed(() => String(retrievalArtifact.value?.notice || '').trim())
+const retrievalErrorKey = computed(() => retrievalErrorTranslationKey(retrievalArtifact.value))
+const retrievalFailureDetail = computed(() => {
+  return retrievalErrorKey.value
+    ? t(retrievalErrorKey.value, retrievalNotice.value)
+    : retrievalNotice.value
+})
 const retrievalDiffGroups = computed(() => {
   const diff = retrievalProposal.value?.diff || {}
   return [

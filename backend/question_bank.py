@@ -251,6 +251,18 @@ def build_question_bank(
                 )
                 or 0
             ),
+            "error_codes": deepcopy(
+                (reference_package.get("web") or {}).get(
+                    "error_codes"
+                )
+                or []
+            ),
+            "receipt": deepcopy(
+                (reference_package.get("web") or {}).get(
+                    "receipt"
+                )
+                or {}
+            ),
             "query_limit": 12,
             "source_limit": 24,
         },

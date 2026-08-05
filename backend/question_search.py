@@ -1,14 +1,15 @@
-"""Optional Exa-backed enrichment for question-bank coverage gaps."""
+"""Legacy-compatible provider-backed question-bank enrichment."""
 
 from __future__ import annotations
 
 import hashlib
 import html
 import re
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-from typing import Any, Awaitable, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 from assessment_contracts import (
@@ -17,7 +18,6 @@ from assessment_contracts import (
 )
 from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
-from question_generation import generate_question_contract, validate_question_spec
 from question_bank import (
     QUESTION_ITEM_SCHEMA,
     evaluate_question_item_quality,
@@ -25,6 +25,7 @@ from question_bank import (
     formal_task_from_question_bank_item,
     refresh_question_bank_bundle,
 )
+from question_generation import generate_question_contract, validate_question_spec
 from web_retrieval import (
     EXA_SEARCH_ENDPOINT,
     create_search_provider,
@@ -46,13 +47,13 @@ _UNTRUSTED_INSTRUCTION_PATTERNS = (
 )
 
 
-class ExaQuestionSearch:
+class ConfiguredQuestionSearch:
     def __init__(
         self,
         *,
         api_key: str | None = None,
         endpoint: str | None = None,
-        timeout_seconds: float = 12.0,
+        timeout_seconds: float | None = None,
         client: Any = None,
     ) -> None:
         self._provider = create_search_provider(
@@ -102,7 +103,7 @@ async def enrich_question_bank_with_web(
         }
         return refresh_question_bank_bundle(result)
 
-    provider = ExaQuestionSearch()
+    provider = ConfiguredQuestionSearch()
     search_fn = search or provider.search
     if search is None and not provider.configured:
         result["web_enrichment"] = {
@@ -111,7 +112,7 @@ async def enrich_question_bank_with_web(
             "status": "unavailable_fallback_local",
             "query_count": 0,
             "source_count": 0,
-            "error_code": "exa_not_configured",
+            "error_code": "not_configured",
         }
         return refresh_question_bank_bundle(result)
 
@@ -792,6 +793,7 @@ def _now() -> str:
 
 __all__ = [
     "EXA_SEARCH_ENDPOINT",
+    "ConfiguredQuestionSearch",
     "ExaQuestionSearch",
     "MAX_COURSE_QUERIES",
     "MAX_COURSE_SOURCES",
@@ -799,3 +801,7 @@ __all__ = [
     "enrich_question_bank_with_web",
     "sanitize_web_reference",
 ]
+
+
+# Read compatibility for older imports; all new work uses the provider-neutral name.
+ExaQuestionSearch = ConfiguredQuestionSearch

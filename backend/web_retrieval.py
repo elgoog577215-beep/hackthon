@@ -1,8 +1,8 @@
 """Shared, policy-enforcing web retrieval for course AI workflows.
 
-Business modules depend on :class:`RetrievalGateway`, never on Exa directly.
-The gateway deliberately returns a receipt for every outcome so callers cannot
-silently replace failed retrieval with model knowledge.
+Business modules depend on :class:`RetrievalGateway`, never on a concrete
+search provider. The gateway deliberately returns a receipt for every outcome
+so callers cannot silently replace failed retrieval with model knowledge.
 """
 
 from __future__ import annotations
@@ -23,9 +23,8 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
-
 EXA_SEARCH_ENDPOINT = "https://api.exa.ai/search"
-POLICY_VERSION = "web_retrieval_v2"
+POLICY_VERSION = "web_retrieval_v2.1"
 ERROR_CODES = {
     "not_configured",
     "timeout",
@@ -150,6 +149,125 @@ class ExaSearchProvider:
         return [item for item in results if isinstance(item, dict)]
 
 
+class SearXNGSearchProvider:
+    """Loopback-only SearXNG adapter returning provider-neutral snippets."""
+
+    name = "searxng"
+
+    def __init__(
+        self,
+        *,
+        base_url: str | None = None,
+        timeout_seconds: float | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        configured_url = (
+            base_url
+            if base_url is not None
+            else os.getenv("SEARXNG_BASE_URL", "")
+        )
+        self.base_url = _loopback_base_url(str(configured_url or ""))
+        configured_timeout = timeout_seconds
+        if configured_timeout is None:
+            try:
+                configured_timeout = float(
+                    os.getenv("SEARXNG_REQUEST_TIMEOUT_SECONDS", "6")
+                )
+            except ValueError:
+                configured_timeout = 6.0
+        self.timeout_seconds = max(0.5, min(20.0, float(configured_timeout)))
+        self._client = client
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.base_url)
+
+    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+        if not self.configured:
+            raise RetrievalProviderError("not_configured")
+        form = {
+            "q": _clip(query, 1000),
+            "format": "json",
+            "categories": "general,science",
+            "safesearch": "2",
+            "language": "zh-CN" if _contains_cjk(query) else "en",
+            "pageno": "1",
+        }
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(
+            timeout=self.timeout_seconds,
+            trust_env=False,
+        )
+        try:
+            try:
+                response = await client.post(
+                    f"{self.base_url}/search",
+                    data=form,
+                )
+                response.raise_for_status()
+                data = response.json()
+            except httpx.TimeoutException:
+                raise
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                raise RetrievalProviderError("provider_error") from exc
+        finally:
+            if owns_client:
+                await client.aclose()
+
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list):
+            raise RetrievalProviderError("provider_error")
+        normalized: list[dict[str, Any]] = []
+        for raw in results:
+            if not isinstance(raw, dict):
+                continue
+            engines = raw.get("engines")
+            if isinstance(engines, str):
+                engines = [engines]
+            normalized_engines = [
+                str(value).strip()
+                for value in (engines or [])
+                if str(value).strip()
+            ] if isinstance(engines, list) else []
+            metadata: dict[str, Any] = {}
+            if normalized_engines:
+                metadata["engines"] = normalized_engines
+            raw_score = raw.get("score")
+            if isinstance(raw_score, (int, float)):
+                metadata["raw_score"] = raw_score
+            item = {
+                "url": raw.get("url"),
+                "title": raw.get("title"),
+                "content": raw.get("content") or raw.get("text"),
+                "publishedDate": (
+                    raw.get("publishedDate")
+                    or raw.get("published_date")
+                    or raw.get("pubdate")
+                ),
+            }
+            if metadata:
+                item["provider_metadata"] = metadata
+            normalized.append(item)
+            if len(normalized) >= max(1, min(24, int(limit))):
+                break
+        return normalized
+
+
+class DisabledSearchProvider:
+    """Non-networking provider used when rollout authorization denies access."""
+
+    def __init__(self, name: str) -> None:
+        self.name = str(name or "searxng")
+
+    @property
+    def configured(self) -> bool:
+        return False
+
+    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+        del query, limit
+        raise RetrievalProviderError("not_configured")
+
+
 class RetrievalProviderError(RuntimeError):
     def __init__(self, error_code: str) -> None:
         super().__init__(error_code)
@@ -179,7 +297,7 @@ class RetrievalGateway:
         cache_namespace: str | None = None,
         cache_ttl_seconds: float | None = None,
     ) -> None:
-        self.provider = provider or ExaSearchProvider()
+        self.provider = provider or create_search_provider()
         configured_domains = [
             value.strip().lower()
             for value in os.getenv("WEB_RETRIEVAL_TIER_A_DOMAINS", "").split(",")
@@ -405,6 +523,7 @@ class RetrievalGateway:
             "schema_version": "retrieval_package_v1",
             "request_fingerprint": fingerprint,
             "policy_version": POLICY_VERSION,
+            "provider": self.provider.name,
             "purpose": request.purpose,
             "status": status,
             "queries": queries,
@@ -529,8 +648,21 @@ def classify_source(
         rejection_reasons.append("missing_date_for_current_query")
 
     content_hash = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+    raw_provider_metadata = raw.get("provider_metadata")
+    provider_metadata: dict[str, Any] = {}
+    if isinstance(raw_provider_metadata, dict):
+        engines = raw_provider_metadata.get("engines")
+        if isinstance(engines, list):
+            provider_metadata["engines"] = [
+                str(value).strip()[:100]
+                for value in engines
+                if str(value).strip()
+            ][:12]
+        raw_score = raw_provider_metadata.get("raw_score")
+        if isinstance(raw_score, (int, float)):
+            provider_metadata["raw_score"] = float(raw_score)
     source_id = "src_" + hashlib.sha256(
-        f"{canonical_url}\n{content_hash}".encode("utf-8")
+        f"{canonical_url}\n{content_hash}".encode()
     ).hexdigest()[:24]
     return {
         "schema_version": "retrieval_source_v1",
@@ -544,6 +676,7 @@ def classify_source(
         "retrieved_at": retrieved_at or _now(),
         "content_hash": content_hash,
         "provider": provider,
+        "provider_metadata": provider_metadata,
         "relevance": round(relevance, 4),
         "trust_tier": trust_tier,
         "license": license_name or None,
@@ -567,12 +700,21 @@ def retrieval_feature_state(user_id: str | None = None) -> dict[str, Any]:
     enabled_for_user = mode == "on" or (
         mode == "allowlist" and bool(user_id) and str(user_id) in allowlist
     )
+    selected_provider = str(
+        os.getenv("WEB_RETRIEVAL_PROVIDER", "searxng")
+    ).strip().lower() or "searxng"
+    try:
+        provider_configured = create_search_provider(
+            provider_name=selected_provider
+        ).configured
+    except RetrievalProviderError:
+        provider_configured = False
     return {
         "mode": mode,
         "enabled": mode != "off",
         "enabled_for_user": enabled_for_user,
-        "provider": "exa",
-        "provider_configured": bool(os.getenv("EXA_API_KEY", "").strip()),
+        "provider": selected_provider,
+        "provider_configured": provider_configured,
     }
 
 
@@ -581,25 +723,30 @@ def create_search_provider(
     provider_name: str | None = None,
     api_key: str | None = None,
     endpoint: str | None = None,
-    timeout_seconds: float = 12.0,
+    timeout_seconds: float | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> SearchProvider:
     """Create the configured provider behind the replaceable domain interface."""
 
     selected = str(
-        provider_name or os.getenv("WEB_RETRIEVAL_PROVIDER", "exa")
+        provider_name or os.getenv("WEB_RETRIEVAL_PROVIDER", "searxng")
     ).strip().lower()
-    if selected != "exa":
-        raise RetrievalProviderError(
-            "not_configured",
-            f"Unsupported retrieval provider: {selected or 'empty'}",
+    if selected == "searxng":
+        return SearXNGSearchProvider(
+            base_url=endpoint,
+            timeout_seconds=timeout_seconds,
+            client=client,
         )
-    return ExaSearchProvider(
-        api_key=api_key,
-        endpoint=endpoint,
-        timeout_seconds=timeout_seconds,
-        client=client,
-    )
+    if selected == "exa":
+        return ExaSearchProvider(
+            api_key=api_key,
+            endpoint=endpoint,
+            timeout_seconds=(
+                12.0 if timeout_seconds is None else timeout_seconds
+            ),
+            client=client,
+        )
+    raise RetrievalProviderError("not_configured")
 
 
 def configured_retrieval_gateway(
@@ -608,8 +755,10 @@ def configured_retrieval_gateway(
     """Return a rollout-aware gateway without leaking provider choice to callers."""
 
     feature = retrieval_feature_state(user_id)
-    provider = create_search_provider(
-        api_key=None if feature.get("enabled_for_user") else ""
+    provider = (
+        create_search_provider(provider_name=str(feature["provider"]))
+        if feature.get("enabled_for_user")
+        else DisabledSearchProvider(str(feature["provider"]))
     )
     return RetrievalGateway(provider=provider), feature
 
@@ -631,6 +780,38 @@ def admitted_sources(
             and source.get("source_id") in accepted
         )
     ]
+
+
+def _loopback_base_url(value: str) -> str:
+    try:
+        parsed = urlparse(str(value or "").strip())
+        host = (parsed.hostname or "").rstrip(".").lower()
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not host
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            return ""
+        if host not in {"localhost", "localhost.localdomain"}:
+            try:
+                if not ipaddress.ip_address(host).is_loopback:
+                    return ""
+            except ValueError:
+                return ""
+        port = parsed.port
+        rendered_host = f"[{host}]" if ":" in host else host
+        netloc = rendered_host if port is None else f"{rendered_host}:{port}"
+        return urlunparse((parsed.scheme.lower(), netloc, "", "", "", ""))
+    except (ValueError, UnicodeError):
+        return ""
+
+
+def _contains_cjk(value: str) -> bool:
+    return bool(re.search(r"[\u3400-\u9fff]", str(value or "")))
 
 
 def _canonical_public_https_url(url: str) -> tuple[str, str, bool]:
@@ -708,12 +889,15 @@ def _now() -> str:
 __all__ = [
     "ERROR_CODES",
     "EXA_SEARCH_ENDPOINT",
+    "DisabledSearchProvider",
     "ExaSearchProvider",
+    "POLICY_VERSION",
     "PURPOSE_LIMITS",
     "RetrievalGateway",
     "RetrievalProviderError",
     "RetrievalRequest",
     "SearchProvider",
+    "SearXNGSearchProvider",
     "admitted_sources",
     "classify_source",
     "configured_retrieval_gateway",

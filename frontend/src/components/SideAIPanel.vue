@@ -513,7 +513,7 @@
                 v-if="message.retrieval_status"
                 :class="['message-retrieval-status', `is-${message.retrieval_status}`]"
               >
-                {{ retrievalStatusLabel(message.retrieval_status) }}
+                {{ retrievalStatusLabel(message.retrieval_status, message) }}
               </p>
 
               <div v-if="message.sources?.length" class="message-sources">
@@ -683,6 +683,7 @@ import type {
   PersonalizationDirection,
 } from '../types/changeProposal'
 import logger from '../utils/logger'
+import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 
 const props = defineProps<{
   visible: boolean
@@ -1421,17 +1422,20 @@ async function toggleRetrieval(event: Event) {
   }
 }
 
-function retrievalStatusLabel(status: AIMessage['retrieval_status']) {
+function retrievalStatusLabel(status: AIMessage['retrieval_status'], message?: AIMessage) {
   if (status === 'started') {
     return t('courseWorkspace.aiTeacher.retrievalStarted', '正在联网检索')
   }
   if (status === 'completed') {
     return t('courseWorkspace.aiTeacher.retrievalCompleted', '联网核验完成')
   }
-  return t(
+  const fallback = t(
     'courseWorkspace.aiTeacher.retrievalFailed',
     '联网检索失败，本回答未完成外部核验',
   )
+  const key = retrievalErrorTranslationKey(message)
+  const detail = key ? t(key, '') : ''
+  return detail ? `${detail} · ${fallback}` : fallback
 }
 
 function handleKeydown(event: KeyboardEvent) {
