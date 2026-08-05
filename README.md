@@ -121,6 +121,20 @@ AI_SLIDE_PLANNER_ENABLED=true
 # AI_MODEL_FAST_CANDIDATES=deepseek-ai/DeepSeek-V4-Flash,Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B
 ```
 
+## 联网检索配置
+
+课程生成、题库和 AI 老师共用 `backend/web_retrieval.py` 检索网关。默认 Provider 是与应用同机部署、仅监听 `127.0.0.1:8080` 的 SearXNG，不需要商业搜索 API 密钥；所有用户开关仍默认关闭，PPT 链路不使用联网检索。
+
+```dotenv
+WEB_RETRIEVAL_PROVIDER=searxng
+SEARXNG_BASE_URL=http://127.0.0.1:8080
+SEARXNG_REQUEST_TIMEOUT_SECONDS=6
+WEB_RETRIEVAL_V2_MODE=off
+# WEB_RETRIEVAL_V2_USER_IDS=teacher_user_id
+```
+
+生产环境通过 GitHub Actions 的 `Provision Lingzhi SearXNG` 手动工作流首次安装或显式升级固定镜像。常规应用发布不会更新 SearXNG；当检索模式为 `allowlist` 或 `on` 时，会在停止当前应用前检查 `/config` 和一次 JSON 搜索，失败即终止发布。Exa 只保留显式兼容适配器，不会成为自动兜底。
+
 ## 测试与检查
 
 当前两套后端测试目录存在同名 `conftest` 收集边界，需要分别运行：
@@ -178,6 +192,7 @@ openspec/        正式规格和变更任务
 - 发布包构建：`scripts/build-deploy-artifact.sh`。
 - 生产部署：`scripts/deploy-production.sh`。
 - GitHub Actions 部署：`.github/workflows/deploy-lingzhi.yml`。
+- SearXNG 手动部署：`.github/workflows/provision-searxng.yml`；固定配置位于 `deploy/searxng/`。
 
 生产发布必须完成构建、健康检查、活动任务恢复和回滚验证；不要用一次本地启动代替生产验收。
 

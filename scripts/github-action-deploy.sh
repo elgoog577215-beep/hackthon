@@ -309,6 +309,83 @@ log_generation_task_recovery_plan() {
     log "未检测到正在生成的任务；继续切换版本"
 }
 
+deployment_env_value() {
+    local key="$1"
+    local env_file="$STATE_DIR/.env"
+    if [ ! -f "$env_file" ]; then
+        env_file="$CURRENT_LINK/.env"
+    fi
+    if [ ! -f "$env_file" ]; then
+        return 0
+    fi
+    awk -v key="$key" '
+        index($0, key "=") == 1 {
+            value = substr($0, length(key) + 2)
+            sub(/\r$/, "", value)
+            if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
+                value = substr(value, 2, length(value) - 2)
+            }
+            print value
+            exit
+        }
+    ' "$env_file"
+}
+
+preflight_retrieval_runtime() {
+    local mode
+    local provider
+    local base_url
+
+    mode="$(deployment_env_value WEB_RETRIEVAL_V2_MODE)"
+    mode="${mode:-off}"
+    if [ "$mode" = "off" ]; then
+        log "联网检索处于关闭状态，跳过 SearXNG 预检"
+        return 0
+    fi
+    if [ "$mode" != "allowlist" ] && [ "$mode" != "on" ]; then
+        log "WEB_RETRIEVAL_V2_MODE 配置非法：$mode"
+        return 1
+    fi
+
+    provider="$(deployment_env_value WEB_RETRIEVAL_PROVIDER)"
+    provider="${provider:-searxng}"
+    if [ "$provider" = "exa" ]; then
+        log "联网检索使用兼容 Provider exa，不执行 SearXNG 预检"
+        return 0
+    fi
+    if [ "$provider" != "searxng" ]; then
+        log "WEB_RETRIEVAL_PROVIDER 配置非法：$provider"
+        return 1
+    fi
+
+    base_url="$(deployment_env_value SEARXNG_BASE_URL)"
+    base_url="${base_url%/}"
+    if [ "$base_url" != "http://127.0.0.1:8080" ]; then
+        log "SEARXNG_BASE_URL 必须为本机回环地址 http://127.0.0.1:8080"
+        return 1
+    fi
+
+    log "在停止应用前预检 SearXNG"
+    curl --fail --silent --show-error --max-time 6 \
+        "$base_url/config" >/dev/null
+    curl --fail --silent --show-error --max-time 10 \
+        --request POST \
+        --data 'q=Lingzhi deployment retrieval smoke test' \
+        --data 'format=json' \
+        --data 'categories=general,science' \
+        --data 'safesearch=2' \
+        --data 'language=en' \
+        "$base_url/search" \
+        | "$VENV/bin/python" -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+if not isinstance(payload.get("results"), list):
+    raise SystemExit("SearXNG response must contain a results array")
+'
+}
+
 preflight_release_runtime() {
     log "预检新版本后端运行时导入：$TARGET_COMMIT"
     (
@@ -426,6 +503,8 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
 fi
 
 preflight_release_runtime
+
+preflight_retrieval_runtime
 
 if systemctl is-active --quiet "$SERVICE_NAME"; then
     log_generation_task_recovery_plan

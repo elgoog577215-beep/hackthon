@@ -87,6 +87,77 @@ describe('课程生产内联确认', () => {
     expect(wrapper.emitted('confirmed')).toHaveLength(1)
   })
 
+  it('shows source-backed outline changes and retrieval failure without hiding the local blueprint', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const draft = {
+      base_blueprint_revision_id: 'bp-web',
+      course_name: 'Current web standards',
+      nodes: [{
+        node_id: 'n1', parent_node_id: '', node_level: 2,
+        node_name: 'Current baseline', learning_objective: 'Verify the current baseline',
+      }],
+    }
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      draft,
+      retrieval: {
+        status: 'waiting_for_confirmation',
+        proposal: {
+          reason: 'A current standard adds a required verification step.',
+          retrieval_package_revision: 3,
+          diff: {
+            before: { chapter_count: 1, section_count: 1 },
+            after: { chapter_count: 1, section_count: 2 },
+            added: [{ node_id: 'n2', node_name: 'Verification', new_position: '2' }],
+          },
+          sources: [{
+            source_id: 'src-1', title: 'Official standard',
+            url: 'https://standards.example.edu/current', domain: 'standards.example.edu',
+            trust_tier: 'tier_a', published_date: '2026-08-01',
+          }],
+        },
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: { courseId: 'course-web', courseName: 'Current web standards' },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="retrieval-outline-proposal"]').text()).toContain('A current standard adds a required verification step.')
+    expect(wrapper.get('[data-testid="retrieval-outline-proposal"]').text()).toContain('Verification')
+    expect(wrapper.get('.outline-retrieval__source').attributes('href')).toBe('https://standards.example.edu/current')
+
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValueOnce({
+      current: draft,
+      retrieval: {
+        status: 'failed',
+        notice: '联网核验未完成，可重试或离线继续',
+        package: {
+          rejected_sources: Array.from({ length: 20 }, (_, index) => ({
+            source_id: `rejected-${index}`,
+            trust_tier: 'tier_c',
+            rejection_reasons: ['low_relevance'],
+          })),
+          receipt: {
+            error_codes: ['no_sources'],
+            source_count: 0,
+            admitted_count: 0,
+            tier_distribution: { tier_c: 20 },
+          },
+        },
+      },
+    } as any)
+    await (wrapper.vm as any).loadBlueprint()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('联网核验未完成')
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain(
+      zhMessages.courseGeneration.retrieval.errors.no_sources,
+    )
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('20')
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('0')
+    expect(wrapper.findAll('.outline-review__nodes li')).toHaveLength(1)
+  })
+
   it('发布确认显示必要就绪信息并占据工作区底栏', async () => {
     const workspace = useCourseWorkspaceStore()
     const generation = useGenerationStore()

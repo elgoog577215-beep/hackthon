@@ -16,11 +16,20 @@ RUN npm run build
 FROM python:3.10-slim
 WORKDIR /app
 
+# Use the same CJK font family for capacity checks and render every PPT page for OCR QA.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        fonts-noto-cjk \
+        libreoffice-impress \
+        poppler-utils && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create a non-root user for security (ModelScope standard)
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH \
+    SLIDE_LIBREOFFICE_AUDIT_ENABLED=true
 
 # Copy requirements first to leverage Docker cache
 COPY --chown=user backend/requirements.txt /app/backend/requirements.txt

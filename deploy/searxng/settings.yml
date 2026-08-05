@@ -1,0 +1,65 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - bing
+      - baidu
+      - brave
+      - startpage
+      - qwant
+      - yahoo
+      - sogou
+      - quark
+      - wikipedia
+      - arxiv
+      - pubmed
+      - openalex
+      - crossref
+
+general:
+  debug: false
+  instance_name: "Lingzhi Retrieval"
+
+search:
+  safe_search: 2
+  autocomplete: ""
+  formats:
+      - json
+
+server:
+  secret_key: "overridden-by-SEARXNG_SECRET"
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "POST"
+
+outgoing:
+  request_timeout: 3.0
+  max_request_timeout: 4.0
+
+ui:
+  query_in_title: false
+
+engines:
+  - name: bing
+    disabled: false
+  - name: baidu
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: sogou
+    disabled: false
+  - name: quark
+    disabled: false
+  - name: wikipedia
+    display_type: ["infobox", "list"]
+  - name: openalex
+    disabled: false
+  - name: crossref
+    disabled: false

@@ -11,6 +11,8 @@ vi.mock('@/utils/http', () => ({
 
 import {
   consumeTeachingRepresentationStream,
+  preferredRepresentationForType,
+  type TeachingRepresentation,
   useTeachingRepresentationsStore,
 } from '@/stores/teachingRepresentations'
 
@@ -54,7 +56,73 @@ beforeEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('preferredRepresentationForType', () => {
+  it('selects the registry target schema instead of a retained legacy PPT', () => {
+    const legacy: TeachingRepresentation = {
+      representation_id: 'legacy-v2', representation_type: 'slide_deck', spec_id: 'spec-v2',
+      status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: '2026-08-03',
+    }
+    const current: TeachingRepresentation = {
+      representation_id: 'current-v5', representation_type: 'slide_deck', spec_id: 'spec-v5',
+      variant_key: 'teaching:qizhi-classroom', status: 'ready', stale_unit_ids: [], stale_reasons: [],
+      revision: 'r2', updated_at: '2026-08-05',
+    }
+    const registry = {
+      slide_deck_target_schema: 'slide_deck_v5',
+      specs: [
+        { spec_id: 'spec-v2', payload: { content: { schema_version: 'slide_deck_v2' } } },
+        { spec_id: 'spec-v5', payload: { content: { schema_version: 'slide_deck_v5' } } },
+      ],
+    }
+
+    expect(preferredRepresentationForType(
+      [legacy, current],
+      'slide_deck',
+      registry,
+    )?.representation_id).toBe('current-v5')
+  })
+
+  it('does not surface a legacy PPT when the current slide engine is blocked', () => {
+    const legacy: TeachingRepresentation = {
+      representation_id: 'legacy-v2', representation_type: 'slide_deck', spec_id: 'spec-v2',
+      status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: '2026-08-03',
+    }
+
+    expect(preferredRepresentationForType(
+      [legacy],
+      'slide_deck',
+      { slide_deck_target_schema: 'blocked' },
+    )).toBeUndefined()
+  })
+})
+
 describe('teaching representation progressive build', () => {
+  it('rebuilds the material suite and then regenerates PPT through the scoped V5 route', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(streamResponse([{
+        event: 'build_complete', progress: 100,
+        registry: { representations: [], specs: [] }, quality: { passed: true },
+      }]))
+      .mockResolvedValueOnce(streamResponse([{
+        event: 'build_complete', progress: 100,
+        registry: { representations: [], specs: [] }, quality: { passed: true },
+      }]))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useTeachingRepresentationsStore()
+
+    await store.rebuildCurrentRepresentations('course-1')
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/courses/course-1/teaching-representations/build/stream',
+      '/api/courses/course-1/teaching-representations/slide-decks/build/stream',
+    ])
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      force_rebuild: true,
+    })
+  })
+
   it('replaces intermediate quality when the final V5 payload fails schema validation', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
       {
@@ -97,6 +165,11 @@ describe('teaching representation progressive build', () => {
       mode: 'teaching',
       theme: 'grid-notebook',
       forceRebuild: true,
+      webImageRetrieval: {
+        enabled: true,
+        mode: 'wide_safe',
+        targetCount: 7,
+      },
     })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -106,6 +179,11 @@ describe('teaching representation progressive build', () => {
       mode: 'teaching',
       theme: 'grid-notebook',
       force_rebuild: true,
+      web_image_retrieval: {
+        enabled: true,
+        mode: 'wide_safe',
+        target_count: 7,
+      },
     })
   })
 

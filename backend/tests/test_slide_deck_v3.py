@@ -27,8 +27,8 @@ from slide_deck_v3 import (
     deterministic_slide_allocation,
     fragment_course_document,
     plan_slide_deck_v3,
-    split_slide_deck_plan_by_chapter,
     slide_deck_preflight_quality,
+    split_slide_deck_plan_by_chapter,
 )
 from teaching_representations import TeachingRepresentationRepository
 
@@ -1371,11 +1371,10 @@ def test_variant_stream_rebuilds_cached_v5_after_compiler_reliability_upgrade(
     assert "event: slide_upsert" in upgraded_stream
 
 
-def test_variant_stream_publishes_and_reuses_an_atomic_bundle(
+def test_variant_stream_publishes_and_reuses_an_atomic_v5_variant(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    import representation_compiler
     from routers import teaching_representations as representation_router
 
     course = course_with_ready_slide_story_inputs(multi_chapter_course())
@@ -1400,17 +1399,6 @@ def test_variant_stream_publishes_and_reuses_an_atomic_bundle(
         lambda: representation_repository,
     )
     monkeypatch.setattr(representation_router, "get_task_manager_optional", lambda: None)
-    monkeypatch.setattr(
-        representation_compiler,
-        "slide_deck_preflight_quality",
-        lambda _plan: {
-            "passed": False,
-            "score": 0,
-            "issues": [],
-            "blockers": [],
-            "warnings": [],
-        },
-    )
 
     async def existing_course(_course_id: str):
         return course_repository.load_course_view(document.course_id)
@@ -1438,13 +1426,13 @@ def test_variant_stream_publishes_and_reuses_an_atomic_bundle(
         first_stream = "".join(response.iter_text())
 
     assert response.status_code == 200
-    assert "event: bundle_plan" in first_stream
+    assert "event: bundle_plan" not in first_stream
     assert "event: build_complete" in first_stream
     registry = representation_repository.load(document.course_id)
     assert [
         item.variant_key
         for item in registry.representations
-    ] == ["teaching:qizhi-classroom:part:01"]
+    ] == ["teaching:qizhi-classroom"]
 
     with client.stream(
         "POST",

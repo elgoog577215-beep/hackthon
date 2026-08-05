@@ -167,6 +167,12 @@ class WebQuestionEnrichmentInput(BaseModel):
         return normalized
 
 
+class RetrievalInput(BaseModel):
+    """Explicit authorization for course-level web research."""
+
+    enabled: bool = False
+
+
 CourseType = Literal["systematic", "project", "inquiry", "exam"]
 
 
@@ -289,6 +295,7 @@ class CourseGenerationRequest(BaseModel):
         "personalized_remedial",
     ] = "systematic"
     asset_preferences: Dict[str, bool] = Field(default_factory=dict)
+    retrieval: RetrievalInput = Field(default_factory=RetrievalInput)
     web_question_enrichment: WebQuestionEnrichmentInput = Field(
         default_factory=WebQuestionEnrichmentInput
     )

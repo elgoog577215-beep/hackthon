@@ -55,6 +55,28 @@ beforeEach(() => {
 })
 
 describe('CourseBlockStream', () => {
+  it('renders clickable source cards beneath a cited course section', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      content_blocks: [{
+        block_id: 'cited', type: 'concept', title: 'Current fact',
+        content: 'The current figure is externally verified. 〔S1〕', order: 0,
+        metadata: { citations: { S1: 'src-1' }, source_ids: ['src-1'] },
+      }],
+      citation_map: { S1: 'src-1' },
+      source_cards: [{
+        source_id: 'src-1', title: 'Official data', url: 'https://data.example.edu/current',
+        domain: 'data.example.edu', trust_tier: 'tier_a', published_date: '2026-08-01',
+      }],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.get('.chapter-source-card').attributes('href')).toBe('https://data.example.edu/current')
+    expect(wrapper.get('.chapter-source-card').text()).toContain('〔S1〕')
+    expect(wrapper.get('.chapter-source-card').text()).toContain('Official data')
+  })
+
   it('优先渲染正式课程文档块，而不是旧内容块副本', () => {
     const node: CourseNode = {
       ...baseNode,

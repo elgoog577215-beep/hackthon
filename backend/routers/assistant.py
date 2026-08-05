@@ -9,6 +9,11 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from ai_teacher_actions import execute_proposal, propose_action
 from ai_teacher_context import build_ai_teacher_context, context_public_summary
+from ai_teacher_retrieval import (
+    merge_ai_teacher_retrieval,
+    retrieve_ai_teacher_sources,
+    should_retrieve_for_message,
+)
 from ai_teacher_state import ai_teacher_repository
 from course_evolution_intake import (
     CourseEvolutionRequest,
@@ -115,15 +120,85 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
     public_context = context_public_summary(context_package)
     assistant_message_id = f"aim_{os.urandom(16).hex()}"
     direct_action = _direct_action(req.question)
+    retrieval_requested = should_retrieve_for_message(
+        conversation,
+        direct_action=direct_action,
+    )
 
     async def event_stream_with_event():
+        answer_context = context_package
+        answer_public = public_context
+        retrieval_package: dict = {}
+        retrieval_receipt: dict = {}
+        fallback_notice = ""
         yield _qa_event("context", {
             "conversation_id": conversation_id,
             "user_message_id": user_message.get("message_id"),
             "assistant_message_id": assistant_message_id,
             **public_context,
         })
-        yield _qa_event("sources", {"sources": public_context.get("sources") or []})
+        if retrieval_requested:
+            yield _qa_event("retrieval", {"status": "started"})
+            try:
+                retrieval_package = await retrieve_ai_teacher_sources(
+                    course,
+                    question=req.question,
+                    node_id=req.node_id,
+                    user_id=user_id,
+                )
+            except Exception:
+                retrieval_package = {
+                    "schema_version": "retrieval_package_v1",
+                    "status": "failed_fallback_local",
+                    "revision": 1,
+                    "sources": [],
+                    "receipt": {
+                        "schema_version": "retrieval_receipt_v1",
+                        "status": "failed_fallback_local",
+                        "error_codes": ["provider_error"],
+                        "query_count": 0,
+                        "source_count": 0,
+                    },
+                }
+            answer_context = merge_ai_teacher_retrieval(
+                context_package,
+                retrieval_package,
+            )
+            answer_public = context_public_summary(answer_context)
+            web_source_count = int(
+                (answer_context.get("web_retrieval") or {}).get(
+                    "source_count"
+                )
+                or 0
+            )
+            retrieval_receipt = dict(
+                retrieval_package.get("receipt") or {}
+            )
+            if (
+                retrieval_package.get("status") == "completed"
+                and web_source_count > 0
+            ):
+                retrieval_event_status = "completed"
+            else:
+                retrieval_event_status = "failed_fallback_local"
+                retrieval_receipt["status"] = retrieval_event_status
+                error_codes = list(
+                    retrieval_receipt.get("error_codes") or []
+                )
+                if not error_codes:
+                    error_codes.append("no_sources")
+                retrieval_receipt["error_codes"] = error_codes
+                fallback_notice = (
+                    "联网检索失败，本回答未完成外部核验。\n\n"
+                )
+            yield _qa_event("retrieval", {
+                "status": retrieval_event_status,
+                "receipt": retrieval_receipt,
+            })
+        yield _qa_event(
+            "sources",
+            {"sources": answer_public.get("sources") or []},
+        )
 
         if direct_action:
             payload = _direct_action_payload(
@@ -193,7 +268,7 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             return
 
         if _assistant_demo_mode(req.course_id):
-            answer = _demo_teacher_answer(req.question)
+            answer = fallback_notice + _demo_teacher_answer(req.question)
             await run_in_threadpool(
                 ai_teacher_repository.append_message,
                 user_id,
@@ -205,7 +280,8 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                     "content": answer,
                     "context_ref": public_context.get("scene") or {},
                     "task_ref": req.task_ref,
-                    "sources": public_context.get("sources") or [],
+                    "sources": answer_public.get("sources") or [],
+                    "retrieval_receipt": retrieval_receipt,
                 },
             )
             record_learning_event(
@@ -222,7 +298,7 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                     "conversation_id": conversation_id,
                     "source_ids": [
                         item.get("source_id")
-                        for item in public_context.get("sources") or []
+                        for item in answer_public.get("sources") or []
                     ],
                 },
                 result={
@@ -243,10 +319,12 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             return
 
         full_text = ""
+        if fallback_notice:
+            yield _qa_event("answer", {"chunk": fallback_notice})
         try:
             async for chunk in ai_service.answer_question_events(
                 question=req.question,
-                context_package=context_package,
+                context_package=answer_context,
             ):
                 full_text += chunk
                 yield chunk
@@ -262,13 +340,15 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                     "role": "assistant",
                     "content": error_message,
                     "context_ref": public_context.get("scene") or {},
+                    "sources": answer_public.get("sources") or [],
+                    "retrieval_receipt": retrieval_receipt,
                     "status": "failed",
                 },
             )
             yield _qa_event("error", {"code": "model_unavailable", "message": error_message})
             yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
             return
-        answer = _extract_sse_answer(full_text)
+        answer = fallback_notice + _extract_sse_answer(full_text)
         await run_in_threadpool(
             ai_teacher_repository.append_message,
             user_id,
@@ -280,7 +360,8 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                 "content": answer,
                 "context_ref": public_context.get("scene") or {},
                 "task_ref": req.task_ref,
-                "sources": public_context.get("sources") or [],
+                "sources": answer_public.get("sources") or [],
+                "retrieval_receipt": retrieval_receipt,
             },
         )
         record_learning_event(
@@ -295,7 +376,7 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             evidence={
                 "question": summarize_text(req.question),
                 "conversation_id": conversation_id,
-                "source_ids": [item.get("source_id") for item in public_context.get("sources") or []],
+                "source_ids": [item.get("source_id") for item in answer_public.get("sources") or []],
             },
             result={
                 "answer_summary": summarize_text(answer),
@@ -303,6 +384,10 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                 "metadata_emitted": True,
             },
         )
+        yield _qa_event("final_answer", {
+            "answer": answer,
+            "message_id": assistant_message_id,
+        })
         yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
 
     return StreamingResponse(

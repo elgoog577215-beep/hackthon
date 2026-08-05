@@ -262,7 +262,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ClipboardList, Clock3, GitBranch, Layers3, ListTree, LoaderCircle, Network, PencilLine, RefreshCw, ScanSearch, X } from 'lucide-vue-next'
-import { useTeachingRepresentationsStore, type RepresentationType, type TeachingRepresentation } from '../stores/teachingRepresentations'
+import {
+  preferredRepresentationForType,
+  useTeachingRepresentationsStore,
+  type RepresentationType,
+  type TeachingRepresentation,
+} from '../stores/teachingRepresentations'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import type { ChangeProposal, ChangeProposalItem } from '../types/changeProposal'
 import { t } from '../shared/i18n'
@@ -338,14 +343,13 @@ const displayType = computed<RepresentationType>(() => selected.value?.represent
 /** 类型切换条：已生成（非归档）的表征，按固定顺序展示，保证渲染稳定。 */
 const TYPE_ORDER: RepresentationType[] = ['outline', 'lesson_plan', 'handout', 'practice_sheet', 'slide_deck', 'diagram']
 const selectableTypes = computed<TeachingRepresentation[]>(() => (
-  store.representations
-    .filter(item => item.status !== 'archived')
-    .slice()
-    .sort((a, b) => TYPE_ORDER.indexOf(a.representation_type) - TYPE_ORDER.indexOf(b.representation_type))
+  TYPE_ORDER
+    .map(type => preferredRepresentationForType(store.representations, type, store.registry))
+    .filter((item): item is TeachingRepresentation => Boolean(item))
 ))
 
 async function selectType(type: RepresentationType) {
-  const target = store.representations.find(item => item.representation_type === type)
+  const target = preferredRepresentationForType(store.representations, type, store.registry)
   if (target && target.representation_id !== store.selectedId) await store.select(target.representation_id)
 }
 
@@ -488,12 +492,16 @@ function closeImpactDialog() {
 }
 
 async function selectActiveType() {
-  const target = store.representations.find(item => item.representation_type === props.activeType)
+  const target = preferredRepresentationForType(
+    store.representations,
+    props.activeType,
+    store.registry,
+  )
   if (target && target.representation_id !== store.selectedId) await store.select(target.representation_id)
 }
 
 async function rebuild() {
-  await store.buildProgressive(props.courseId).catch(() => undefined)
+  await store.rebuildCurrentRepresentations(props.courseId).catch(() => undefined)
   await selectActiveType()
 }
 

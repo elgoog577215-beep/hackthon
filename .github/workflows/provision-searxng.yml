@@ -1,0 +1,120 @@
+name: Provision Lingzhi SearXNG
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollout_mode:
+        description: "Rollout mode: off, allowlist, or on"
+        required: true
+        default: "allowlist"
+        type: choice
+        options:
+          - "off"
+          - "allowlist"
+          - "on"
+      user_ids:
+        description: "Comma-separated user IDs used when rollout_mode=allowlist"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lingzhi-searxng-provisioning
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SEARXNG_IMAGE: ghcr.io/searxng/searxng@sha256:f4c8e59de166ed71f6380c0847c312ca51f0d41996e31d0559163b6b09ecde52
+      SEARXNG_ARCHIVE_TAG: lingzhi/searxng:f4c8e59de166
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure deployment SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
+          chmod 600 ~/.ssh/lingzhi_deploy
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Check for pinned image on production server
+        id: remote_image
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          if ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "docker image inspect '$SEARXNG_ARCHIVE_TAG' >/dev/null 2>&1"; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare pinned SearXNG image on runner
+        if: steps.remote_image.outputs.present != 'true'
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/searxng-image.tar.gz"
+          timeout 8m docker pull "$SEARXNG_IMAGE"
+          docker image inspect "$SEARXNG_IMAGE" >/dev/null
+          docker image tag "$SEARXNG_IMAGE" "$SEARXNG_ARCHIVE_TAG"
+          docker image save "$SEARXNG_ARCHIVE_TAG" | gzip -1 > "$archive"
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum searxng-image.tar.gz > searxng-image.tar.gz.sha256
+          )
+
+      - name: Upload pinned SearXNG configuration
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_REMOTE_IMAGE_PRESENT: ${{ steps.remote_image.outputs.present }}
+        run: |
+          set -euo pipefail
+          remote_dir="/opt/lingzhi/incoming/searxng-${GITHUB_SHA}"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "install -d -m 700 '$remote_dir'"
+          scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            deploy/searxng/compose.yml deploy/searxng/settings.yml scripts/provision-searxng.sh \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/"
+          if [ "$LINGZHI_REMOTE_IMAGE_PRESENT" != "true" ]; then
+            scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$RUNNER_TEMP/searxng-image.tar.gz" "$RUNNER_TEMP/searxng-image.tar.gz.sha256" \
+              "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/"
+          fi
+
+      - name: Provision on production server
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_WEB_RETRIEVAL_MODE: ${{ inputs.rollout_mode }}
+          LINGZHI_WEB_RETRIEVAL_USER_IDS: ${{ inputs.user_ids }}
+        run: |
+          set -euo pipefail
+          remote_dir="/opt/lingzhi/incoming/searxng-${GITHUB_SHA}"
+          printf -v remote_command \
+            'LINGZHI_SEARXNG_SOURCE_DIR=%q LINGZHI_WEB_RETRIEVAL_MODE=%q LINGZHI_WEB_RETRIEVAL_USER_IDS=%q bash %q && rm -rf -- %q' \
+            "$remote_dir" "$LINGZHI_WEB_RETRIEVAL_MODE" "$LINGZHI_WEB_RETRIEVAL_USER_IDS" \
+            "$remote_dir/provision-searxng.sh" "$remote_dir"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "$remote_command"

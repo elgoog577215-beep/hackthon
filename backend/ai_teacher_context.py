@@ -139,6 +139,18 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
         f"- [{item.get('source_id')}] {item.get('title') or '课程片段'}：{item.get('content')}"
         for item in sources
     ] or ["- 无可用课程片段。"]
+    source_lines = [
+        (
+            f"- [{item.get('citation_id')}] "
+            f"{item.get('title') or 'Web source'}: {item.get('content')}"
+            if item.get("type") == "web"
+            else (
+                f"- [{item.get('source_id')}] "
+                f"{item.get('title') or 'Course source'}: {item.get('content')}"
+            )
+        )
+        for item in sources
+    ] or ["- No available course sources."]
     evidence_lines = [
         f"- {item.get('type')}（{item.get('status')}）：{item.get('summary')}"
         for item in evidence
@@ -219,6 +231,12 @@ def context_public_summary(package: dict[str, Any]) -> dict[str, Any]:
                 "title": item.get("title"),
                 "node_id": item.get("node_id"),
                 "block_revision_id": item.get("block_revision_id"),
+                "citation_id": item.get("citation_id"),
+                "url": item.get("url"),
+                "domain": item.get("domain"),
+                "published_date": item.get("published_date"),
+                "retrieved_at": item.get("retrieved_at"),
+                "trust_tier": item.get("trust_tier"),
             }
             for item in package.get("sources") or []
         ],

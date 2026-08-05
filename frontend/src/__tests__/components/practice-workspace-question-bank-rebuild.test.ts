@@ -54,6 +54,7 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
     httpMock.post.mockReset()
     httpMock.patch.mockReset()
     rebuildMock.mockReset()
+    vi.stubGlobal('confirm', vi.fn(() => true))
     rebuildMock.mockImplementation(async (
       _courseId: string,
       _request: unknown,
@@ -134,10 +135,12 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
         scope: 'nodes',
         node_ids: ['node-1'],
         mode: 'incremental',
+        retrieval_enabled: true,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
     expect(wrapper.text()).toContain(rebuiltQuestion.prompt)
     expect(wrapper.find('[data-testid="rebuild-question-bank"]').exists()).toBe(false)
+    expect(window.confirm).toHaveBeenCalledTimes(1)
   })
 })

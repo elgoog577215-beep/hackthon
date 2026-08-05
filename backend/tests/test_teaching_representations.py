@@ -1051,6 +1051,28 @@ def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
     assert current.registry_revision != before.registry_revision
 
 
+def test_core_compiler_can_rebuild_non_slide_materials_without_legacy_ppt(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+
+    compile_core_representations(
+        document,
+        course_data_with_practice(),
+        repository,
+        include_slide_deck=False,
+    )
+
+    registry = repository.load(document.course_id)
+    assert {
+        item.representation_type for item in registry.representations
+    } == set(CORE_TYPES) - {"slide_deck"}
+    quality = validate_compiled_representations(
+        registry.specs,
+        required_types=set(CORE_TYPES) - {"slide_deck"},
+    )
+    assert quality["passed"] is True
+
+
 def test_safe_rebuild_failure_keeps_last_available_registry(tmp_path, monkeypatch):
     import representation_compiler
 
@@ -1282,9 +1304,11 @@ async def test_durable_representation_task_builds_and_recovers_after_restart(tmp
 
     completed = manager.get_task(task_id)
     assert completed["status"] == "completed"
-    assert set(completed["completed_representation_types"]) == set(CORE_TYPES)
+    assert set(completed["completed_representation_types"]) == (
+        set(CORE_TYPES) - {"slide_deck"}
+    )
     assert completed["recovery"]["state"] == "completed"
-    assert any(item["event"] == "slide_upsert" for item in completed["event_history"])
+    assert not any(item["event"] == "slide_upsert" for item in completed["event_history"])
 
     interrupted_id = await manager.create_task(
         "course-1", "teaching_representation_build", enqueue=False,
@@ -1308,7 +1332,7 @@ async def test_durable_representation_task_builds_and_recovers_after_restart(tmp
 
 
 @pytest.mark.asyncio
-async def test_representation_restart_reuses_persisted_plan_and_slide_savepoint(tmp_path, monkeypatch):
+async def test_representation_restart_discards_legacy_ppt_plan_and_savepoint(tmp_path, monkeypatch):
     import task_manager as task_manager_module
     from task_manager import TaskManager
 
@@ -1336,7 +1360,6 @@ async def test_representation_restart_reuses_persisted_plan_and_slide_savepoint(
     task_id = await manager.create_task(
         "course-1", "teaching_representation_build", enqueue=False,
     )
-    plan = await task_manager_module.plan_slide_deck(document, storage.load_course("course-1"))
     saved_slide = {
         "unit_id": "slide:title",
         "position": 0,
@@ -1347,7 +1370,7 @@ async def test_representation_restart_reuses_persisted_plan_and_slide_savepoint(
     manager.tasks[task_id].update({
         "status": "running",
         "representation_source_document_revision": document.document_revision,
-        "representation_deck_plan": plan.model_dump(mode="json"),
+        "representation_deck_plan": {"schema_version": "slide_deck_plan_v1"},
         "event_history": [{"event": "slide_upsert", "sequence": 1, "slide": saved_slide}],
         "event_sequence": 1,
     })
@@ -1361,22 +1384,20 @@ async def test_representation_restart_reuses_persisted_plan_and_slide_savepoint(
     )
     await restarted._reconcile_task_after_restart(task_id)
 
-    async def unexpected_plan(*_args, **_kwargs):
-        raise AssertionError("resume must not plan the deck again")
-
     captured: dict[str, object] = {}
 
     def successful_resume(*_args, **kwargs):
         captured.update(kwargs)
         return {"status": "synchronized", "quality": {"passed": True, "issues": []}}
 
-    monkeypatch.setattr(task_manager_module, "plan_slide_deck", unexpected_plan)
     monkeypatch.setattr(task_manager_module, "rebuild_core_representations_safely", successful_resume)
 
     await restarted._process_task(task_id)
 
-    assert captured["deck_plan"].model_dump(mode="json") == plan.model_dump(mode="json")
-    assert captured["resume_slides"] == [saved_slide]
+    assert captured["include_slide_deck"] is False
+    assert "deck_plan" not in captured
+    assert "resume_slides" not in captured
+    assert "representation_deck_plan" not in restarted.tasks[task_id]
     assert restarted.tasks[task_id]["status"] == "completed"
 
 
@@ -1386,7 +1407,7 @@ async def test_cancelled_build_is_not_overwritten_as_failed_by_the_late_worker(
 ):
     """Cancelling a running build must survive the worker's own late exception.
 
-    Cancellation makes the in-flight progress callback raise an ordinary
+    Cancellation makes the in-flight material progress callback raise an ordinary
     ``RuntimeError``. ``_run_job``'s generic exception handler used to write
     ``failed`` unconditionally, so a user's deliberate cancel was reported back
     to them as a build error.
@@ -1421,24 +1442,24 @@ async def test_cancelled_build_is_not_overwritten_as_failed_by_the_late_worker(
         "course-1", "teaching_representation_build", enqueue=False,
     )
 
-    # Cancel the task the moment the first page is emitted, exactly as a user
+    # Cancel the task the moment the first material stage is emitted, exactly as a user
     # pressing cancel mid-build would.
     original_record = manager._record_representation_event
     cancelled_at: list[str] = []
 
-    async def cancel_on_first_slide(inner_task_id: str, payload: dict) -> None:
+    async def cancel_on_first_material_stage(inner_task_id: str, payload: dict) -> None:
         await original_record(inner_task_id, payload)
-        if payload.get("event") == "slide_upsert" and not cancelled_at:
+        if payload.get("event") == "representation_stage" and not cancelled_at:
             cancelled_at.append(str(payload.get("event")))
             manager.tasks[inner_task_id]["status"] = "cancelled"
             manager.tasks[inner_task_id]["message"] = "任务已取消，正在清理生成状态"
 
-    monkeypatch.setattr(manager, "_record_representation_event", cancel_on_first_slide)
+    monkeypatch.setattr(manager, "_record_representation_event", cancel_on_first_material_stage)
 
     await manager._run_job(task_id)
 
     task = manager.get_task(task_id)
-    assert cancelled_at, "the build never reached a slide_upsert event"
+    assert cancelled_at, "the build never reached a material stage event"
     assert task["status"] == "cancelled"
     assert task["status"] != "failed"
     assert not task.get("error")

@@ -92,6 +92,21 @@
             :title="t('courseWorkspace.aiTeacher.evidenceReady', '已加载学习证据')"
           >{{ modelEvidenceLabel }}</small>
         </div>
+        <label v-if="!props.blockTarget" class="retrieval-setting">
+          <span>
+            <strong>{{ t('courseWorkspace.aiTeacher.retrieval', '联网检索') }}</strong>
+            <small>{{ aiStore.currentConversation?.retrieval_enabled
+              ? t('courseWorkspace.aiTeacher.retrievalOn', '当前会话已开启')
+              : t('courseWorkspace.aiTeacher.retrievalOff', '当前会话已关闭') }}</small>
+          </span>
+          <input
+            data-testid="ai-teacher-retrieval-toggle"
+            type="checkbox"
+            :checked="Boolean(aiStore.currentConversation?.retrieval_enabled)"
+            :disabled="aiStore.loadingConversations || aiStore.retrievalUpdating || !aiStore.currentConversation"
+            @change="toggleRetrieval"
+          />
+        </label>
         <div v-if="props.blockTarget" class="block-target-line">
           <WandSparkles :size="14" />
           <span>{{ t('courseWorkspace.blockRegeneration.target', '改进正文块') }}</span>
@@ -494,16 +509,33 @@
                 </div>
               </div>
 
+              <p
+                v-if="message.retrieval_status"
+                :class="['message-retrieval-status', `is-${message.retrieval_status}`]"
+              >
+                {{ retrievalStatusLabel(message.retrieval_status, message) }}
+              </p>
+
               <div v-if="message.sources?.length" class="message-sources">
                 <span>{{ t('courseWorkspace.aiTeacher.basedOn', '依据') }}</span>
-                <button
-                  v-for="source in message.sources"
+                <a
+                  v-for="source in message.sources.filter(item => item.url)"
                   :key="source.source_id"
-                  type="button"
+                  :href="source.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :title="`${source.source_id} · ${source.domain || source.url}`"
+                >
+                  {{ source.title || t('courseWorkspace.aiTeacher.webSource', '网页来源') }}
+                </a>
+                <span
+                  v-for="source in message.sources.filter(item => !item.url)"
+                  :key="source.source_id"
+                  class="message-source-label"
                   :title="source.source_id"
                 >
                   {{ source.title || t('courseWorkspace.aiTeacher.courseSource', '课程内容') }}
-                </button>
+                </span>
               </div>
 
               <div v-if="message.proposal && message.proposal.status === 'presented'" class="action-proposal">
@@ -651,6 +683,7 @@ import type {
   PersonalizationDirection,
 } from '../types/changeProposal'
 import logger from '../utils/logger'
+import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 
 const props = defineProps<{
   visible: boolean
@@ -1380,6 +1413,31 @@ async function deleteConversation() {
   conversationOpen.value = false
 }
 
+async function toggleRetrieval(event: Event) {
+  const enabled = Boolean((event.target as HTMLInputElement).checked)
+  try {
+    await aiStore.updateRetrievalEnabled(enabled)
+  } catch (error) {
+    logger.warn('Failed to update AI teacher retrieval setting', error)
+  }
+}
+
+function retrievalStatusLabel(status: AIMessage['retrieval_status'], message?: AIMessage) {
+  if (status === 'started') {
+    return t('courseWorkspace.aiTeacher.retrievalStarted', '正在联网检索')
+  }
+  if (status === 'completed') {
+    return t('courseWorkspace.aiTeacher.retrievalCompleted', '联网核验完成')
+  }
+  const fallback = t(
+    'courseWorkspace.aiTeacher.retrievalFailed',
+    '联网检索失败，本回答未完成外部核验',
+  )
+  const key = retrievalErrorTranslationKey(message)
+  const detail = key ? t(key, '') : ''
+  return detail ? `${detail} · ${fallback}` : fallback
+}
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
@@ -1485,6 +1543,11 @@ onUnmounted(() => {
 .conversation-reveal-enter-from,.conversation-reveal-leave-to { opacity: 0; transform: translateY(-4px); }
 
 .context-panel { flex: 0 0 auto; margin: 0 12px 10px; padding: 10px 11px; border-left: 3px solid #818cf8; border-radius: 0 10px 10px 0; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
+.retrieval-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(129,140,248,.2); cursor:pointer; }
+.retrieval-setting > span { min-width:0; display:flex; flex-direction:column; gap:1px; }
+.retrieval-setting strong { color:#3730a3; font-size:11px; }
+.retrieval-setting small { color:var(--lz-text-muted); font-size:9px; }
+.retrieval-setting input { width:16px; height:16px; accent-color:#4f46e5; }
 .context-line { min-width: 0; display: grid; grid-template-columns: 15px auto minmax(0,1fr) auto; align-items: center; gap: 6px; color: var(--lz-brand); }
 .context-line span { color: var(--lz-text-muted); font-size: 9px; }
 .context-line strong { min-width: 0; overflow: hidden; color: var(--lz-text-secondary); font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
@@ -1644,7 +1707,12 @@ onUnmounted(() => {
 .thinking-line i:nth-child(3) { animation-delay: .32s; }
 .message-sources,.message-commands { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: var(--lz-text-muted); font-size: 9px; }
 .message-sources > span { margin-right: 1px; }
-.message-sources button { max-width: 180px; overflow: hidden; border: 0; border-radius: 5px; padding: 3px 6px; color: var(--lz-text-secondary); background: var(--lz-surface-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.message-sources a,.message-source-label { max-width: 180px; overflow: hidden; border: 0; border-radius: 5px; padding: 3px 6px; color: var(--lz-text-secondary); background: var(--lz-surface-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.message-sources a { color:#4338ca; text-decoration:none; }
+.message-sources a:hover { text-decoration:underline; }
+.message-retrieval-status { width:max-content; max-width:100%; margin:0; border-radius:999px; padding:3px 7px; color:#475569; background:#f1f5f9; font-size:9px; }
+.message-retrieval-status.is-completed { color:#166534; background:#dcfce7; }
+.message-retrieval-status.is-failed_fallback_local { color:#9a3412; background:#ffedd5; }
 .message-commands button { min-height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid #e0e7ff; border-radius: 7px; color: var(--lz-brand-strong); background: #fff; font-size: 9px; cursor: pointer; }
 .message-commands button:hover { background: #f5f3ff; }
 
