@@ -18,6 +18,7 @@ const conversation = (): AIConversation => ({
   course_id: 'course-1',
   title: '线性空间答疑',
   revision: 1,
+  retrieval_enabled: false,
   created_at: '2026-07-13T00:00:00Z',
   updated_at: '2026-07-13T00:00:00Z',
   messages: [],
@@ -117,7 +118,8 @@ describe('SideAIPanel', () => {
         role: 'assistant',
         content: '因为可以让零向量对应的系数非零，其余系数为零。',
         status: 'complete',
-        sources: [{ source_id: 'block-1', title: '线性相关的定义' }],
+        retrieval_status: 'completed',
+        sources: [{ source_id: 'src-web-1', title: '线性相关的定义', url: 'https://example.edu/linear-dependence', trust_tier: 'tier_a' }],
         proposal: {
           proposal_id: 'proposal-1',
           action_type: 'create_note',
@@ -150,8 +152,22 @@ describe('SideAIPanel', () => {
     expect(wrapper.find('.user-message-bubble').text()).toContain('零向量组')
     expect(wrapper.findAll('.assistant-answer')).toHaveLength(2)
     expect(wrapper.find('.message-sources').text()).toContain('线性相关的定义')
+    expect(wrapper.get('.message-sources a').attributes('href')).toBe('https://example.edu/linear-dependence')
+    expect(wrapper.get('.message-retrieval-status').text()).toContain('联网核验完成')
     expect(wrapper.find('.action-proposal').text()).toContain('保存为学习笔记')
     expect(wrapper.find('.action-receipt').text()).toContain('已保存到当前章节')
+  })
+
+  it('keeps the current conversation retrieval setting visible and persists changes', async () => {
+    const wrapper = mountPanel()
+    const aiStore = useAITeacherStore()
+    const update = vi.spyOn(aiStore, 'updateRetrievalEnabled').mockResolvedValue()
+
+    const toggle = wrapper.get('[data-testid="ai-teacher-retrieval-toggle"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(false)
+    await toggle.setValue(true)
+
+    expect(update).toHaveBeenCalledWith(true)
   })
 
   it('AI 提问写入事实后立即刷新统一课程生长状态', async () => {

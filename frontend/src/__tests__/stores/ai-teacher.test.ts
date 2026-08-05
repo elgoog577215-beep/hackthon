@@ -5,6 +5,7 @@ import { isReactive } from 'vue'
 const httpMock = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
+  patch: vi.fn(),
   delete: vi.fn(),
 }))
 
@@ -22,6 +23,7 @@ const emptyConversation = {
   course_version_id: 'cv-1',
   title: '新对话',
   revision: 1,
+  retrieval_enabled: false,
   messages: [],
   created_at: '2026-07-12T00:00:00Z',
   updated_at: '2026-07-12T00:00:00Z',
@@ -33,6 +35,7 @@ beforeEach(() => {
   vi.restoreAllMocks()
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  httpMock.patch.mockReset()
   httpMock.delete.mockReset()
 })
 
@@ -57,7 +60,9 @@ describe('AI teacher store', () => {
     httpMock.post.mockResolvedValue({ data: { ...emptyConversation } })
     const sse = [
       'event: context\ndata: {"conversation_id":"aic-1","user_message_id":"user-1","assistant_message_id":"assistant-1"}\n\n',
-      'event: sources\ndata: {"sources":[{"source_id":"block-rev-1","title":"变量定义"}]}\n\n',
+      'event: retrieval\ndata: {"status":"started"}\n\n',
+      'event: retrieval\ndata: {"status":"completed","receipt":{"status":"completed","source_count":1}}\n\n',
+      'event: sources\ndata: {"sources":[{"source_id":"src-web-1","title":"变量定义","url":"https://example.edu/variables"}]}\n\n',
       'event: answer\ndata: {"chunk":"变量用于保存"}\n\n',
       'event: final_answer\ndata: {"answer":"变量用于保存可变化的值。","message_id":"assistant-1"}\n\n',
       'event: done\ndata: {"conversation_id":"aic-1"}\n\n',
@@ -105,7 +110,31 @@ describe('AI teacher store', () => {
     expect(contentWhenQuestionRecorded).toBe('')
     expect(observedAssistantMessage?.status).toBe('complete')
     expect(store.messages.at(-1)?.content).toBe('变量用于保存可变化的值。')
-    expect(store.messages.at(-1)?.sources?.[0]?.source_id).toBe('block-rev-1')
+    expect(store.messages.at(-1)?.sources?.[0]?.source_id).toBe('src-web-1')
+    expect(store.messages.at(-1)?.retrieval_status).toBe('completed')
+    expect(store.messages.at(-1)?.retrieval_receipt).toMatchObject({ source_count: 1 })
+  })
+
+  it('persists retrieval per conversation with optimistic revision control', async () => {
+    const updated = { ...emptyConversation, revision: 2, retrieval_enabled: true }
+    httpMock.patch.mockResolvedValue({ data: updated })
+    const store = useAITeacherStore()
+    store.courseId = 'course-1'
+    store.conversations = [{ ...emptyConversation }]
+    store.currentConversationId = 'aic-1'
+
+    await store.updateRetrievalEnabled(true)
+
+    expect(httpMock.patch).toHaveBeenCalledWith(
+      '/api/ai-teacher/conversations/aic-1/settings',
+      {
+        course_id: 'course-1',
+        retrieval_enabled: true,
+        expected_revision: 1,
+      },
+    )
+    expect(store.currentConversation?.retrieval_enabled).toBe(true)
+    expect(store.currentConversation?.revision).toBe(2)
   })
 
   it('把块级回答效果反馈提交到所属会话消息', async () => {
