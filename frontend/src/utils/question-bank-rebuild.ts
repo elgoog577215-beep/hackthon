@@ -14,6 +14,7 @@ export interface QuestionBankRebuildRequest {
   revision_ids?: string[]
   mode: 'incremental' | 'full'
   resume_existing?: boolean
+  retrieval_enabled?: boolean
 }
 
 export interface QuestionBankRebuildJob {
@@ -76,7 +77,10 @@ export async function runQuestionBankRebuild(
 ): Promise<QuestionBankRebuildJob> {
   const created = await http.post(
     `/api/courses/${courseId}/question-bank/rebuild`,
-    request,
+    {
+      ...request,
+      retrieval_enabled: Boolean(request.retrieval_enabled),
+    },
   )
   return pollQuestionBankRebuild(
     normalizeJob(created.data),

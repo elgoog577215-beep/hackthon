@@ -142,6 +142,7 @@ async def delete_course(
 @router.post("/course-generation/generate", status_code=202)
 async def create_course_generation_job(
     req: CourseGenerationRequest,
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
 ):
     """Create the sole persisted generation job and return immediately."""
@@ -155,6 +156,9 @@ async def create_course_generation_job(
             },
         )
     request_snapshot = req.model_dump(mode="json")
+    request_snapshot["_retrieval_actor_id"] = resolve_user_id(
+        request.headers.get("X-User-Id")
+    )
     return await tm.create_generation_job(request_snapshot)
 
 

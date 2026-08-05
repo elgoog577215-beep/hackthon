@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import re
 import tempfile
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any
 
-from course_document import CourseBlock, CourseDocument, stable_hash
+from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from diagram_spec import DIAGRAM_COMPILER_VERSION, compile_diagram_spec, validate_diagram_spec
 from slide_deck import (
@@ -46,6 +46,7 @@ from slide_deck_v5 import (
     slide_deck_v5_enabled,
     validate_slide_deck_v5,
 )
+from slide_quality_v5 import repair_render_slides_v5
 from slide_story_plan import SlideStoryPlanV2
 from slide_theme import slide_theme_version
 from slide_visuals import SlideVisualPlanV1, build_signature
@@ -61,6 +62,11 @@ from teaching_representations import (
 REPRESENTATION_COMPILER_VERSION = "same_source_compiler_v4"
 HANDOUT_COMPILER_VERSION = "block_units_v1"
 CORE_TYPES = ("outline", "lesson_plan", "handout", "practice_sheet", "slide_deck", "diagram")
+NON_SLIDE_CORE_TYPES = tuple(
+    representation_type
+    for representation_type in CORE_TYPES
+    if representation_type != "slide_deck"
+)
 
 
 def compile_core_representations(
@@ -73,6 +79,7 @@ def compile_core_representations(
     baseline_registry: Any | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
+    include_slide_deck: bool = True,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     vector = revision_vector_for_document(document).revisions
@@ -90,16 +97,17 @@ def compile_core_representations(
         for item in baseline.representations
         if not item.variant_key
     }
+    requested_types = CORE_TYPES if include_slide_deck else NON_SLIDE_CORE_TYPES
     plan = RepresentationPlan(
         plan_id=stable_hash({
             "course_id": document.course_id,
             "revision": document.document_revision,
-            "types": CORE_TYPES,
+            "types": requested_types,
         }, prefix="rpl_"),
         course_id=document.course_id,
         source_revision_vector=vector,
         target_scope={"kind": "course"},
-        requested_representations=list(CORE_TYPES),
+        requested_representations=list(requested_types),
         knowledge_refs=_course_knowledge_refs(document, course_data),
         pedagogical_reasons=[
             "为学习者、课程维护者和课堂展示提供同一课程语义的不同用途表达",
@@ -120,16 +128,17 @@ def compile_core_representations(
         "lesson_plan": _lesson_plan_spec(document, course_data),
         "handout": _handout_spec(document),
         "practice_sheet": _practice_sheet_spec(document, course_data),
-        "slide_deck": compile_slide_deck(
+    }
+    if include_slide_deck:
+        payloads["slide_deck"] = compile_slide_deck(
             document,
             course_data,
             progress_callback=progress_callback,
             presentation_overrides=presentation_overrides,
             deck_plan=deck_plan,
             resume_slides=resume_slides,
-        ),
-        "diagram": compile_diagram_spec(document),
-    }
+        )
+    payloads["diagram"] = compile_diagram_spec(document)
     built: list[dict[str, Any]] = []
     for representation_type, payload in payloads.items():
         existing = existing_by_type.get(representation_type)
@@ -284,6 +293,7 @@ def rebuild_core_representations_safely(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     deck_plan: SlideDeckPlanV1 | dict[str, Any] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
+    include_slide_deck: bool = True,
 ) -> dict[str, Any]:
     """Compile in isolation and publish only a complete, quality-passing set.
 
@@ -317,6 +327,7 @@ def rebuild_core_representations_safely(
                 baseline_registry=previous,
                 deck_plan=deck_plan,
                 resume_slides=resume_slides,
+                include_slide_deck=include_slide_deck,
             )
             candidate = shadow.load(document.course_id)
             # PPT v3 variants are independently cached.  A legacy all-core
@@ -353,9 +364,19 @@ def rebuild_core_representations_safely(
             candidate.derivation_graph.edges = list(merged_edges.values())
             current_spec_ids = {item.spec_id for item in candidate.representations}
             current_specs = [
-                item for item in candidate.specs if item.spec_id in current_spec_ids
+                item for item in candidate.specs
+                if item.spec_id in current_spec_ids
+                and (
+                    include_slide_deck
+                    or item.representation_type != "slide_deck"
+                )
             ]
-            quality = validate_compiled_representations(current_specs)
+            quality = validate_compiled_representations(
+                current_specs,
+                required_types=set(
+                    CORE_TYPES if include_slide_deck else NON_SLIDE_CORE_TYPES
+                ),
+            )
             if not quality["passed"]:
                 if progress_callback:
                     progress_callback({"event": "build_blocked", "progress": 100, "quality": quality})
@@ -527,18 +548,50 @@ def compile_slide_deck_variant(
             progress_callback=progress_callback,
             resume_slides=resume_slides,
         )
+        render_repair_history: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-render-review-") as review_dir:
             review_path = Path(review_dir) / "candidate.pptx"
-            export_structured_slide_deck(
-                content,
-                review_path,
-                require_quality=False,
-                theme=normalized_theme,
+            render_review: dict[str, Any] = {}
+            for render_attempt in range(3):
+                export_structured_slide_deck(
+                    content,
+                    review_path,
+                    require_quality=False,
+                    theme=normalized_theme,
+                )
+                render_review = audit_exported_pptx(
+                    review_path,
+                    expected_slide_count=len(content.get("slides") or []),
+                )
+                render_review["repair_attempts"] = render_attempt
+                if render_review.get("passed") or not use_v5 or render_attempt >= 2:
+                    break
+                repaired_slides, round_history = repair_render_slides_v5(
+                    list(content.get("slides") or []),
+                    render_review,
+                    round_index=render_attempt + 1,
+                )
+                if not round_history:
+                    break
+                content["slides"] = repaired_slides
+                render_repair_history.extend(round_history)
+                if progress_callback:
+                    progress_callback({
+                        "event": "render_repair",
+                        "progress": min(99, 97 + render_attempt),
+                        "stage": "render_repair",
+                        "repair_attempt": render_attempt + 1,
+                        "repair_history": deepcopy(round_history),
+                    })
+            content["render_review"] = render_review
+        if use_v5:
+            existing_history = list(
+                (content.get("quality_report") or {}).get("repair_history") or []
             )
-            content["render_review"] = audit_exported_pptx(
-                review_path,
-                expected_slide_count=len(content.get("slides") or []),
-            )
+            content.setdefault("quality_report", {})["repair_history"] = [
+                *existing_history,
+                *render_repair_history,
+            ]
         if progress_callback:
             progress_callback({
                 "event": "render_review",
@@ -555,7 +608,9 @@ def compile_slide_deck_variant(
                     if content["render_review"].get("passed")
                     else "blocked_after_export_audit"
                 ),
-                "repair_attempts": 0,
+                "repair_attempts": int(
+                    (content.get("render_review") or {}).get("repair_attempts") or 0
+                ),
             })
         quality = (
             validate_slide_deck_v5(content, course_data=course_data)
@@ -563,7 +618,7 @@ def compile_slide_deck_variant(
             else validate_slide_deck_v4(content, course_data=course_data)
         )
         render_blockers = list((content.get("render_review") or {}).get("blockers") or [])
-        if render_blockers:
+        if render_blockers and not use_v5:
             quality["passed"] = False
             quality["blockers"] = [
                 *(quality.get("blockers") or []),
@@ -716,7 +771,10 @@ def rebuild_slide_deck_variant_safely(
         None,
     )
     try:
-        if allocation_plan is not None:
+        if (
+            allocation_plan is not None
+            and not (story_plan is not None and slide_deck_v5_enabled())
+        ):
             preflight = slide_deck_preflight_quality(allocation_plan)
             if not preflight["passed"]:
                 parts = split_slide_deck_plan_by_chapter(
@@ -766,6 +824,33 @@ def rebuild_slide_deck_variant_safely(
                     ),
                 }
             candidate = shadow.load(document.course_id)
+            published_variant = next((
+                item for item in candidate.representations
+                if item.representation_type == "slide_deck"
+                and item.variant_key == variant_key
+            ), None)
+            published_spec = next((
+                item for item in candidate.specs
+                if published_variant is not None
+                and item.spec_id == published_variant.spec_id
+            ), None)
+            if (
+                published_spec is not None
+                and str(
+                    (published_spec.payload.get("content") or {}).get(
+                        "schema_version"
+                    ) or ""
+                ) == "slide_deck_v5"
+            ):
+                archived_at = datetime.now(timezone.utc).isoformat()
+                for item in candidate.representations:
+                    if (
+                        item.representation_type == "slide_deck"
+                        and not item.variant_key
+                        and item.status != "archived"
+                    ):
+                        item.status = "archived"
+                        item.updated_at = archived_at
             committed = repository.save(candidate)
             if progress_callback:
                 progress_callback({
@@ -1155,9 +1240,13 @@ def _slide_bundle_quality(
     }
 
 
-def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -> dict[str, Any]:
+def validate_compiled_representations(
+    specs: list[TeachingRepresentationSpec],
+    *,
+    required_types: set[str] | None = None,
+) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
-    required = set(CORE_TYPES)
+    required = set(CORE_TYPES) if required_types is None else set(required_types)
     present = {spec.representation_type for spec in specs}
     for missing in sorted(required - present):
         issues.append({"severity": "critical", "code": "missing_representation", "target": missing})
@@ -1179,7 +1268,16 @@ def validate_compiled_representations(specs: list[TeachingRepresentationSpec]) -
                     "target": unit_id or spec.representation_type,
                 })
         if spec.representation_type == "slide_deck":
-            slide_report = validate_slide_deck(content)
+            schema_version = str(content.get("schema_version") or "")
+            slide_report = (
+                validate_slide_deck_v5(content)
+                if schema_version == "slide_deck_v5"
+                else validate_slide_deck_v4(content)
+                if schema_version == "slide_deck_v4"
+                else validate_slide_deck_v3(content)
+                if schema_version == "slide_deck_v3"
+                else validate_slide_deck(content)
+            )
             issues.extend({**issue, "representation_type": "slide_deck"} for issue in slide_report["issues"])
         if spec.representation_type == "diagram":
             diagram_report = validate_diagram_spec(content)
@@ -1800,7 +1898,7 @@ def _blocks_by_section(document: CourseDocument) -> dict[str, list[CourseBlock]]
     return result
 
 
-def _learning_sections(document: CourseDocument):
+def _learning_sections(document: CourseDocument) -> list[CourseSection]:
     active_section_ids = {
         block.section_id for block in document.blocks if block.status != "retired"
     }

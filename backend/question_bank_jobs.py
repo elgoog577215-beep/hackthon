@@ -53,6 +53,7 @@ class QuestionBankRebuildJobRepository:
         actor_id: str,
         revision_ids: list[str] | None = None,
         worker_id: str = "",
+        retrieval_enabled: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
@@ -93,6 +94,7 @@ class QuestionBankRebuildJobRepository:
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
+                "retrieval_enabled": bool(retrieval_enabled),
             },
             prefix="qbr_",
         )
@@ -108,6 +110,7 @@ class QuestionBankRebuildJobRepository:
                         revision_ids=normalized_revisions,
                         mode=normalized_mode,
                         actor_id=normalized_actor_id,
+                        retrieval_enabled=bool(retrieval_enabled),
                     ):
                         continue
                     active_worker_id = str(
@@ -135,6 +138,7 @@ class QuestionBankRebuildJobRepository:
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
+                "retrieval_enabled": bool(retrieval_enabled),
                 "actor_id": normalized_actor_id,
                 "worker_id": normalized_worker_id,
                 "status": "queued",
@@ -371,6 +375,27 @@ class QuestionBankRebuildJobRepository:
             self._write(path, job)
             return deepcopy(job)
 
+    def freeze_retrieval_package(
+        self,
+        job_id: str,
+        package: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist the first package and return it on every later attempt."""
+
+        with self._lock:
+            path, job = self._load_by_job_id(job_id)
+            existing = job.get("reference_package")
+            if isinstance(existing, dict) and existing:
+                return deepcopy(existing)
+            frozen = deepcopy(package)
+            job["reference_package"] = frozen
+            job["retrieval_package_revision_id"] = str(
+                frozen.get("package_revision_id") or ""
+            )
+            job["updated_at"] = _now()
+            self._write(path, job)
+            return deepcopy(frozen)
+
     def fail(
         self,
         job_id: str,
@@ -440,6 +465,7 @@ def _same_active_scope(
     revision_ids: list[str],
     mode: str,
     actor_id: str,
+    retrieval_enabled: bool,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
@@ -452,6 +478,7 @@ def _same_active_scope(
         ) == revision_ids
         and str(job.get("mode") or "") == mode
         and str(job.get("actor_id") or "") == actor_id
+        and bool(job.get("retrieval_enabled")) is retrieval_enabled
     )
 
 

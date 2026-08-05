@@ -26,6 +26,18 @@ class AIQAService(AIBase):
             for item in recent
         )
         system_prompt = format_ai_teacher_context_prompt(context_package)
+        web_sources = [
+            item
+            for item in context_package.get("sources") or []
+            if item.get("type") == "web"
+        ]
+        if web_sources:
+            system_prompt += (
+                "\n\nWeb citation contract: every fact derived from a web summary "
+                "must end with its exact citation marker such as [S1]. "
+                "Never cite a source that is not present above and never "
+                "claim current information without a cited dated source."
+            )
         prompt = f"""最近对话：
 {history_text or '无'}
 

@@ -59,6 +59,39 @@ def test_rebuild_job_freezes_item_revision_scope(tmp_path):
     assert job["revision_ids"] == ["revision-1", "revision-2"]
 
 
+def test_rebuild_job_freezes_one_retrieval_package_across_resume(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    job, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-retrieval-package",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+        retrieval_enabled=True,
+    )
+    first = {
+        "schema_version": "question_reference_package_v2",
+        "package_revision_id": "qrp_first",
+        "retrieval_package": {
+            "schema_version": "retrieval_package_v1",
+            "revision": 1,
+        },
+    }
+    replacement = {
+        **first,
+        "package_revision_id": "qrp_changed",
+    }
+
+    frozen = repository.freeze_retrieval_package(job["job_id"], first)
+    reused = repository.freeze_retrieval_package(job["job_id"], replacement)
+
+    assert frozen["package_revision_id"] == "qrp_first"
+    assert reused == frozen
+    loaded = repository.load("course-jobs", job["job_id"])
+    assert loaded["reference_package"] == frozen
+
+
 def test_rebuild_job_reports_monotonic_fixed_stage_progress(tmp_path):
     repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
     job, _ = repository.create_job(

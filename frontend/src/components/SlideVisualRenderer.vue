@@ -149,7 +149,7 @@ const props = withDefaults(defineProps<{
 
 const visual = computed(() => props.visuals?.[0])
 const imageUrl = ref('')
-const isImage = computed(() => ['source_image', 'generated_illustration'].includes(visual.value?.kind || ''))
+const isImage = computed(() => ['source_image', 'retrieved_image', 'generated_illustration'].includes(visual.value?.kind || ''))
 const purposeLabel = computed(() => ({
   structure: '概念结构',
   process: '步骤关系',

@@ -721,6 +721,9 @@ const stageLabel = computed(() => ({
   quality: t('teachingRepresentations.slides.stages.quality', '正在检查质量'),
   visual_quality: '正在检查视觉质量',
   render_review: '正在渲染复核成品',
+  semantic_repair: '正在修复内容完整性与分页',
+  image_search: '正在检索并核验教学图片',
+  render_repair: '正在修复导出版式问题',
   repair_progress: '正在定向修复问题页面',
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))

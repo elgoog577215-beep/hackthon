@@ -314,6 +314,9 @@ export interface GenerateCourseParams {
     mode?: 'auto_on_gap' | 'off' | 'always';
     enabled?: boolean;
   };
+  retrieval?: {
+    enabled: boolean;
+  };
 }
 
 export type CourseGenerationOptions = Partial<Omit<GenerateCourseParams, 'subject'>>;

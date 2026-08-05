@@ -786,6 +786,10 @@ async def test_ai_visual_request_exposes_only_safe_rule_diagram_controls() -> No
     assert captured["rules"]["arbitrary_drawing_code_forbidden"] is True
     assert captured["rules"]["uncertain_visual_must_be_none"] is True
     assert captured["rules"]["raster_generation_default"] == "disabled"
+    retrieval_schema = captured["optional_visual_search_output"]
+    assert retrieval_schema["location"] == "deck_brief.visual_search_requests"
+    assert retrieval_schema["maximum_queries_per_page"] == 2
+    assert "spatial_relation" in retrieval_schema["visual_intents"]
 
 
 def test_rebalance_breaks_visual_kind_runs_longer_than_quality_gate_limit() -> None:

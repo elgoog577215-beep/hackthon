@@ -13,7 +13,13 @@ from typing import Any, Awaitable, Callable
 
 from assessment_blueprint import REFERENCE_PACKAGE_SCHEMA
 from course_versioning import stable_hash
-from question_search import ExaQuestionSearch, sanitize_web_reference
+from web_retrieval import (
+    RetrievalGateway,
+    RetrievalRequest,
+    admitted_sources,
+    configured_retrieval_gateway,
+    resolve_retrieval_policy,
+)
 
 
 MAX_REFERENCE_EXCERPT = 1200
@@ -21,6 +27,24 @@ MAX_REFERENCE_PATTERNS = 24
 MAX_WEB_QUERIES = 12
 
 SearchCallable = Callable[..., Awaitable[list[dict[str, Any]]]]
+
+
+class _CallableSearchProvider:
+    """Compatibility adapter for deterministic test/injected search callables."""
+
+    name = "test"
+    configured = True
+
+    def __init__(self, search: SearchCallable) -> None:
+        self._search = search
+
+    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+        results = await self._search(query, num_results=limit)
+        return [
+            {**item, "score": item.get("score", 1.0)}
+            for item in results or []
+            if isinstance(item, dict)
+        ]
 
 
 def compile_local_reference_package(
@@ -158,6 +182,8 @@ async def enrich_reference_package_with_web(
     *,
     objectives: list[dict[str, Any]],
     search: SearchCallable | None = None,
+    retrieval_package: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Fill uncovered objective references before question generation."""
     result = deepcopy(package)
@@ -178,16 +204,6 @@ async def enrich_reference_package_with_web(
         }
         return _finalize(result, objectives)
 
-    provider = ExaQuestionSearch()
-    if search is None and not provider.configured:
-        result["web"] = {
-            "status": "unavailable_fallback_local",
-            "query_count": 0,
-            "source_count": 0,
-            "error_code": "exa_not_configured",
-        }
-        return _finalize(result, objectives)
-    search_fn = search or provider.search
     targets = (
         objectives
         if mode == "always"
@@ -205,56 +221,109 @@ async def enrich_reference_package_with_web(
         targets,
         package=result,
     )[:MAX_WEB_QUERIES]
-    seen_urls: set[str] = set()
-    errors = 0
+    if retrieval_package:
+        retrieval_package = deepcopy(retrieval_package)
+    else:
+        gateway = (
+            RetrievalGateway(
+                provider=_CallableSearchProvider(search),
+                cache_ttl_seconds=0,
+            )
+            if search is not None
+            else configured_retrieval_gateway(user_id)[0]
+        )
+        retrieval_package = await gateway.retrieve(
+            RetrievalRequest(
+                purpose="assessment",
+                enabled=True,
+                queries=[query for query, _objective in queries],
+                request_fingerprint=stable_hash(
+                    {
+                        "course_id": course_data.get("course_id"),
+                        "blueprint_revision_id": result.get(
+                            "blueprint_revision_id"
+                        ),
+                        "queries": [query for query, _objective in queries],
+                    },
+                    prefix="rrq_",
+                ),
+            )
+        )
+    result["retrieval_package"] = deepcopy(retrieval_package)
     source_count = 0
-    for query, objective in queries:
+    accepted_ids = set(
+        (course_data.get("retrieval_acceptance") or {}).get(
+            "accepted_source_ids"
+        )
+        or []
+    )
+    objective_by_query = {
+        query: objective
+        for query, objective in queries
+    }
+    for source in admitted_sources(
+        retrieval_package,
+        accepted_source_ids=accepted_ids,
+    ):
         if len(result.get("authoring_patterns") or []) >= MAX_REFERENCE_PATTERNS:
             break
-        try:
-            raw_results = await search_fn(query, num_results=2)
-        except Exception:
-            errors += 1
+        objective = objective_by_query.get(
+            str(source.get("matched_query") or "")
+        ) or _best_objective(
+            f"{source.get('title') or ''} {source.get('excerpt') or ''}",
+            targets,
+        )
+        if objective is None:
             continue
-        for raw in raw_results or []:
-            sanitized = sanitize_web_reference(raw)
-            url = str(sanitized.get("url") or "")
-            text = str(sanitized.get("reference_text") or "")
-            if not url or not text or url in seen_urls:
-                continue
-            seen_urls.add(url)
-            reference = _reference_record(
-                text=text,
-                source_type="trusted_web_reference",
-                objective=objective,
-                source_record=sanitized,
-                rights_basis=(
-                    "open_license"
-                    if sanitized.get("open_license")
-                    else "license_unknown"
-                ),
-                reuse_policy="reference_only",
-                evidence_role="authoring_pattern",
-            )
-            result.setdefault("authoring_patterns", []).append(
-                deepcopy(reference)
-            )
-            result.setdefault("content_evidence", []).append({
-                **deepcopy(reference),
-                "evidence_role": "content_evidence",
-            })
-            source_count += 1
-            if len(result["authoring_patterns"]) >= MAX_REFERENCE_PATTERNS:
-                break
+        reference = _reference_record(
+            text=str(source.get("excerpt") or ""),
+            source_type="trusted_web_reference",
+            objective=objective,
+            source_record=source,
+            rights_basis=(
+                "open_license"
+                if source.get("reuse_policy") == "verbatim_allowed"
+                else "license_unknown"
+            ),
+            reuse_policy="reference_only",
+            evidence_role="authoring_pattern",
+        )
+        result.setdefault("authoring_patterns", []).append(
+            deepcopy(reference)
+        )
+        result.setdefault("content_evidence", []).append({
+            **deepcopy(reference),
+            "evidence_role": "content_evidence",
+        })
+        source_count += 1
     result["web"] = {
         "status": (
             "completed"
             if source_count
-            else ("failed_fallback_local" if errors else "no_sources")
+            else (
+                "failed_fallback_local"
+                if retrieval_package.get("status")
+                == "failed_fallback_local"
+                else "review_required"
+            )
         ),
-        "query_count": len(queries),
+        "query_count": int(
+            (retrieval_package.get("receipt") or {}).get(
+                "query_count"
+            )
+            or 0
+        ),
         "source_count": source_count,
-        "error_count": errors,
+        "candidate_source_count": len(
+            retrieval_package.get("sources") or []
+        ),
+        "error_codes": deepcopy(
+            (retrieval_package.get("receipt") or {}).get(
+                "error_codes"
+            )
+            or []
+        ),
+        "receipt": deepcopy(retrieval_package.get("receipt") or {}),
     }
     return _finalize(result, objectives)
 
@@ -407,13 +476,16 @@ def _finalize(
 
 
 def _retrieval_mode(course_data: dict[str, Any]) -> str:
-    config = (
-        (course_data.get("generation_request") or {}).get(
-            "web_question_enrichment"
-        )
-        or course_data.get("web_question_enrichment")
-        or {}
+    generation_request = course_data.get("generation_request") or {}
+    policy_payload = (
+        generation_request
+        if isinstance(generation_request, dict)
+        else {}
     )
+    policy = resolve_retrieval_policy(policy_payload)
+    if "assessment" not in policy.get("scopes", []):
+        return "off"
+    config = policy_payload.get("web_question_enrichment") or {}
     mode = str(config.get("mode") or "").strip()
     if mode in {"auto_on_gap", "off", "always"}:
         return mode
@@ -421,8 +493,8 @@ def _retrieval_mode(course_data: dict[str, Any]) -> str:
         return "auto_on_gap"
     if config.get("enabled") is False:
         return "off"
-    # The v2 product default is automatic gap filling.  Teachers can opt out
-    # explicitly with mode=off.
+    if policy.get("source") == "retrieval_v2":
+        return "auto_on_gap"
     return "auto_on_gap"
 
 
@@ -645,6 +717,15 @@ def _reference_record(
             "content_hash",
             "license",
             "published_date",
+            "source_id",
+            "domain",
+            "excerpt",
+            "retrieved_at",
+            "provider",
+            "relevance",
+            "trust_tier",
+            "reuse_policy",
+            "accepted_for_generation",
         )
         if source_record.get(key) is not None
     }

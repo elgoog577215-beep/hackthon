@@ -17,6 +17,11 @@ export interface SlideDeckBuildOptions {
   mode: SlideDeckMode
   theme: Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
   forceRebuild?: boolean
+  webImageRetrieval?: {
+    enabled: boolean
+    mode?: 'wide_safe'
+    targetCount?: number
+  }
 }
 
 export interface TeachingRepresentation {
@@ -44,6 +49,38 @@ export interface TeachingRepresentationSpec {
   }
   unit_bindings: Record<string, Array<Record<string, any>>>
   revision: string
+}
+
+export function preferredRepresentationForType(
+  representations: TeachingRepresentation[],
+  type: RepresentationType,
+  registry?: Record<string, any> | null,
+): TeachingRepresentation | undefined {
+  const candidates = representations.filter(item => (
+    item.representation_type === type && item.status !== 'archived'
+  ))
+  if (!candidates.length) return undefined
+  let eligible = candidates
+  if (type === 'slide_deck') {
+    const targetSchema = String(registry?.slide_deck_target_schema || '')
+    if (targetSchema === 'blocked') return undefined
+    if (['slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(targetSchema)) {
+      const specsById = new Map<string, TeachingRepresentationSpec>(
+        (registry?.specs || []).map((spec: TeachingRepresentationSpec) => [spec.spec_id, spec]),
+      )
+      eligible = candidates.filter(item => (
+        specsById.get(item.spec_id)?.payload?.content?.schema_version === targetSchema
+      ))
+      if (!eligible.length) return undefined
+    }
+  }
+  return eligible.slice().sort((left, right) => {
+    const readyDelta = Number(right.status === 'ready') - Number(left.status === 'ready')
+    if (readyDelta) return readyDelta
+    const variantDelta = Number(Boolean(right.variant_key)) - Number(Boolean(left.variant_key))
+    if (variantDelta) return variantDelta
+    return String(right.updated_at || '').localeCompare(String(left.updated_at || ''))
+  })[0]
 }
 
 export interface TeachingRepresentationBuildEvent {
@@ -397,6 +434,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
                 mode: options.mode,
                 theme: options.theme,
                 force_rebuild: options.forceRebuild === true,
+                ...(options.webImageRetrieval ? {
+                  web_image_retrieval: {
+                    enabled: options.webImageRetrieval.enabled,
+                    mode: options.webImageRetrieval.mode || 'wide_safe',
+                    ...(options.webImageRetrieval.targetCount == null
+                      ? {}
+                      : { target_count: options.webImageRetrieval.targetCount }),
+                  },
+                } : {}),
               }),
             } : {}),
           },
@@ -448,6 +494,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             }
           }
           if (event.event === 'render_review') this.buildStage = 'render_review'
+          if (event.event === 'semantic_repair') this.buildStage = 'semantic_repair'
+          if (event.event === 'image_search') this.buildStage = 'image_search'
+          if (event.event === 'render_repair') this.buildStage = 'render_repair'
           if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
           if (event.event === 'build_blocked') {
             const failure = normalizedBuildFailure(event, event.quality)
@@ -648,6 +697,14 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async buildSlideDeckVariant(courseId: string, options: SlideDeckBuildOptions) {
       return this.buildProgressive(courseId, options)
+    },
+    async rebuildCurrentRepresentations(courseId: string) {
+      await this.buildProgressive(courseId)
+      return this.buildSlideDeckVariant(courseId, {
+        mode: 'teaching',
+        theme: 'qizhi-classroom',
+        forceRebuild: true,
+      })
     },
     settleCompletedSlideBuild(quality?: Record<string, any>) {
       const publishedContent = this.selectedSpec?.payload?.content
