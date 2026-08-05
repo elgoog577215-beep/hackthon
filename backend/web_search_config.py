@@ -153,6 +153,13 @@ class WebSearchPolicy:
     respect_robots: bool = DEFAULT_RESPECT_ROBOTS
     allow_domains: tuple[str, ...] = ()
     deny_domains: tuple[str, ...] = field(default=DEFAULT_DENY_DOMAINS)
+    # 教师逐条剔除的具体 URL。域名级黑名单太粗，教师常常只想去掉某一条。
+    excluded_urls: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        # 无论从环境、请求还是直接构造进来，剔除名单都按同一套归一化存放，
+        # 否则末尾斜杠或大小写差异会让教师点掉的那条又回到候选里。
+        object.__setattr__(self, "excluded_urls", _coerce_urls(self.excluded_urls))
 
     @classmethod
     def from_env(cls) -> "WebSearchPolicy":
@@ -193,6 +200,8 @@ class WebSearchPolicy:
         host = normalize_domain(parsed.netloc)
         if not host or "." not in host:
             return False, "invalid_host"
+        if self.excluded_urls and _canonical_url(url) in self.excluded_urls:
+            return False, "excluded_by_teacher"
         for pattern in self.deny_domains:
             if domain_matches(host, pattern):
                 return False, "denied_domain"
@@ -230,11 +239,40 @@ class WebSearchPolicy:
             "respect_robots": self.respect_robots,
             "allow_domains": list(self.allow_domains),
             "deny_domains": list(self.deny_domains),
+            "excluded_urls": list(self.excluded_urls),
         }
 
 
 def load_web_search_policy() -> WebSearchPolicy:
     return WebSearchPolicy.from_env()
+
+
+def _canonical_url(value: Any) -> str:
+    """URL 归一化：去空白、去片段、小写 scheme/host，便于逐条剔除时稳定比对。"""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if not parsed.scheme:
+        return raw.rstrip("/").lower()
+    host = normalize_domain(parsed.netloc)
+    path = parsed.path.rstrip("/")
+    canonical = f"{parsed.scheme.lower()}://{host}{path}"
+    if parsed.query:
+        canonical = f"{canonical}?{parsed.query}"
+    return canonical
+
+
+def _coerce_urls(value: Any) -> tuple[str, ...]:
+    if not value:
+        return ()
+    raw = value.split(",") if isinstance(value, str) else list(value)
+    out: list[str] = []
+    for item in raw:
+        canonical = _canonical_url(item)
+        if canonical and canonical not in out:
+            out.append(canonical)
+    return tuple(out)
 
 
 def _coerce_domains(value: Any) -> tuple[str, ...]:
@@ -267,9 +305,11 @@ def resolve_web_search_policy(settings: Any | None) -> WebSearchPolicy:
             for key in (
                 "enabled",
                 "max_queries",
+                "max_results",
                 "max_sources",
                 "allowed_domains",
                 "blocked_domains",
+                "excluded_urls",
             )
             if hasattr(settings, key)
         }
@@ -288,14 +328,22 @@ def resolve_web_search_policy(settings: Any | None) -> WebSearchPolicy:
 
     allow = _coerce_domains(settings.get("allowed_domains")) or base.allow_domains
     deny = tuple(dict.fromkeys(base.deny_domains + _coerce_domains(settings.get("blocked_domains"))))
+    excluded = tuple(
+        dict.fromkeys(base.excluded_urls + _coerce_urls(settings.get("excluded_urls")))
+    )
+
+    # max_results 是教师侧的用词，对应策略里的来源上限。
+    max_sources = _tighten("max_sources", base.max_sources)
+    max_sources = _tighten("max_results", max_sources)
 
     return replace(
         base,
         enabled=enabled,
         max_queries=_tighten("max_queries", base.max_queries),
-        max_sources=_tighten("max_sources", base.max_sources),
+        max_sources=max_sources,
         allow_domains=allow,
         deny_domains=deny,
+        excluded_urls=excluded,
     )
 
 

@@ -175,6 +175,8 @@ class WebMaterialSearchInput(BaseModel):
     allowed_domains: List[str] = Field(default_factory=list)
     blocked_domains: List[str] = Field(default_factory=list)
     require_open_license: Optional[bool] = None
+    # 教师审阅后逐条剔除的 URL。
+    excluded_urls: List[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -182,7 +184,7 @@ class WebMaterialSearchInput(BaseModel):
         if not isinstance(value, dict):
             return value
         normalized = dict(value)
-        for key in ("allowed_domains", "blocked_domains"):
+        for key in ("allowed_domains", "blocked_domains", "excluded_urls"):
             raw = normalized.get(key)
             if isinstance(raw, str):
                 normalized[key] = [item.strip() for item in raw.split(",") if item.strip()]
