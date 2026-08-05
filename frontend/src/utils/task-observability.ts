@@ -141,7 +141,9 @@ export function taskUserError(task: Pick<Task, 'error' | 'errorCode' | 'errorUse
   const known: Array<[RegExp, string]> = [
     [/slide_deck_variant_quality_gate_failed|quality_gate_failed/, t('taskObservability.errors.quality', '生成结果质量检查未通过，请查看问题后重试当前阶段。')],
     [/rate.?limit|too_many_requests|429/, t('taskObservability.errors.rateLimit', '服务请求过于频繁，系统已保留当前进度，请稍后重试。')],
-    [/authentication|not_configured/, t('taskObservability.errors.providerAuth', 'AI 服务暂时无法完成身份校验，请检查服务配置后重试。')],
+    [/authentication|credential|api[_ -]?key|not_configured/, t('taskObservability.errors.providerAuth', 'AI 服务暂时无法完成身份校验，请检查服务配置后重试。')],
+    [/timeout|timed out/, t('taskObservability.errors.timeout', 'AI 服务响应超时，当前阶段尚未完成；已保存的内容不会重做。')],
+    [/unavailable|connection|network/, t('taskObservability.errors.unavailable', 'AI 服务暂时不可用，当前阶段尚未完成；可在服务恢复后从保存点继续。')],
     [/markdown_heading_missing/, t('taskObservability.errors.heading', '没有识别到课程标题，请补充 Markdown 标题后重新导入。')],
     [/markdown_encoding_unsupported/, t('taskObservability.errors.encoding', '文件编码无法解析，请转为 UTF-8 后重新导入。')],
     [/markdown_teachable_body_missing/, t('taskObservability.errors.body', '文件只有标题或层级，请补充可讲授正文后重新导入。')],

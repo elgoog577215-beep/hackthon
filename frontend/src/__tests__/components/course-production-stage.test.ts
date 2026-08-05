@@ -171,8 +171,32 @@ describe('CourseProductionStage', () => {
     expect(summary.text()).toBe('教案确认已完成，等待确认')
   })
 
-  it('教案确认后启动正文失败时按正文阶段显示中断', () => {
+  it('后端给出可读原因时直接展示它，并保留技术细节可展开', async () => {
     const task: Task = {
+      ...interruptedTask,
+      error: 'ProviderTimeout: batch 7 timed out after 120s',
+      errorCode: 'provider_timeout',
+      errorUserMessage: '教案第 7 批超时；已完成批次不会重做，继续即可从该批恢复。',
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+
+    expect(wrapper.text()).toContain('教案第 7 批超时')
+    expect(wrapper.get('.formation-recovery code').text()).toBe('ProviderTimeout: batch 7 timed out after 120s')
+  })
+
+  it('后端未给可读原因时由稳定基座按错误类型解释超时', async () => {
+    const task: Task = {
+      ...interruptedTask,
+      error: 'ProviderTimeout: request timed out',
+      errorCode: undefined,
+      errorUserMessage: undefined,
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+
+    expect(wrapper.text()).toContain('响应超时')
+  })
+
+  it('教案确认后启动正文失败时按正文阶段显示中断', () => {    const task: Task = {
       ...interruptedTask,
       currentPhase: 'teaching_plan_ready',
       guidedWorkflow: {

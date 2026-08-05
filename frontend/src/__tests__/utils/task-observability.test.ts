@@ -133,4 +133,30 @@ describe('D-05 task observability projection', () => {
     expect(detail.message).toContain('质量检查未通过')
     expect(detail.technicalDetail).toBe('slide_deck_variant_quality_gate_failed')
   })
+
+  it('识别模型超时与网络中断，给出各自的下一步动作', () => {
+    const timeout = taskUserError(task({
+      status: 'error',
+      error: 'ProviderTimeout: request timed out after 120s',
+    }))
+    expect(timeout.message).toContain('超时')
+    expect(timeout.technicalDetail).toBe('ProviderTimeout: request timed out after 120s')
+
+    const network = taskUserError(task({
+      status: 'error',
+      error: 'ServiceUnavailable: upstream connection reset',
+    }))
+    expect(network.message).toContain('暂时不可用')
+  })
+
+  it('后端给出的可读原因优先于本地正则推断', () => {
+    const detail = taskUserError(task({
+      status: 'error',
+      error: 'ProviderTimeout: request timed out',
+      errorCode: 'provider_timeout',
+      errorUserMessage: '教案批次超时，已完成批次不会重做。',
+    }))
+    expect(detail.message).toBe('教案批次超时，已完成批次不会重做。')
+    expect(detail.technicalDetail).toBe('ProviderTimeout: request timed out')
+  })
 })

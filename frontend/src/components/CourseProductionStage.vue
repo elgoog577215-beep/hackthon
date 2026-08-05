@@ -209,6 +209,7 @@ import {
   courseProductionStageStatus,
   type CourseProductionStageKey,
 } from '../utils/course-production'
+import { taskUserError } from '../utils/task-observability'
 
 const props = withDefaults(defineProps<{
   task?: Task
@@ -489,26 +490,21 @@ const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => isP
     })
 const footerHint = computed(() => nextDetails.value[stageKey.value])
 const recoveryDetail = computed(() => courseProductionRecoveryDetail(props.task))
-const technicalError = computed(() => String(props.task?.error || '').trim())
+const userError = computed(() => taskUserError({
+  error: props.task?.error,
+  errorCode: props.task?.errorCode,
+  errorUserMessage: props.task?.errorUserMessage,
+}))
+const technicalError = computed(() => userError.value.technicalDetail)
 const terminalTitle = computed(() => {
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
   if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedTitle', '课程生产需要处理冲突')
   return t('courseGeneration.production.interruptedTitle', '课程生产暂时中断')
 })
 const friendlyError = computed(() => {
-  const error = technicalError.value.toLowerCase()
-  if (/authentication|credential|api[_ -]?key/.test(error)) {
-    return t('courseGeneration.production.authError', 'AI 服务暂时无法完成身份校验。')
-  }
-  if (/timeout|timed out/.test(error)) {
-    return t('courseGeneration.production.timeoutError', 'AI 服务响应超时，本阶段尚未完成。')
-  }
-  if (/unavailable|connection|network/.test(error)) {
-    return t('courseGeneration.production.unavailableError', 'AI 服务暂时不可用，本阶段尚未完成。')
-  }
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedDescription', '当前模型调用已经停止。')
   if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedDescription', '当前产物与课程真源存在冲突。')
-  return t('courseGeneration.production.genericError', '本阶段尚未完成。')
+  return userError.value.message || t('courseGeneration.production.genericError', '本阶段尚未完成。')
 })
 const resumeLabel = computed(() => props.task?.status === 'paused'
   ? t('courseGeneration.production.continueAction', '继续课程生产')

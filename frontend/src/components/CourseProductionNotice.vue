@@ -30,6 +30,7 @@ import { CirclePause, GitCompareArrows, LoaderCircle, RotateCw, TriangleAlert } 
 import type { Task } from '../stores/types'
 import { t } from '../shared/i18n'
 import { canResumeCourseProduction, courseProductionRecoveryDetail } from '../utils/course-production'
+import { taskUserError } from '../utils/task-observability'
 
 const props = withDefaults(defineProps<{
   task?: Task
@@ -46,7 +47,12 @@ const emit = defineEmits<{
 const status = computed(() => String(props.task?.status || 'error'))
 const canResume = computed(() => canResumeCourseProduction(props.task))
 const recoveryDetail = computed(() => courseProductionRecoveryDetail(props.task))
-const technicalError = computed(() => String(props.task?.error || '').trim())
+const userError = computed(() => taskUserError({
+  error: props.task?.error,
+  errorCode: props.task?.errorCode,
+  errorUserMessage: props.task?.errorUserMessage,
+}))
+const technicalError = computed(() => userError.value.technicalDetail)
 const title = computed(() => {
   if (status.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
   if (status.value === 'conflict') return t('courseGeneration.production.blockedTitle', '课程生产需要处理冲突')
@@ -54,20 +60,10 @@ const title = computed(() => {
   return t('courseGeneration.production.interruptedTitle', '课程生产暂时中断')
 })
 const friendlyError = computed(() => {
-  const error = technicalError.value.toLowerCase()
-  if (/authentication|credential|api[_ -]?key/.test(error)) {
-    return t('courseGeneration.production.authError', 'AI 服务暂时无法完成身份校验。')
-  }
-  if (/timeout|timed out/.test(error)) {
-    return t('courseGeneration.production.timeoutError', 'AI 服务响应超时，本阶段尚未完成。')
-  }
-  if (/unavailable|connection|network/.test(error)) {
-    return t('courseGeneration.production.unavailableError', 'AI 服务暂时不可用，本阶段尚未完成。')
-  }
   if (status.value === 'paused') return t('courseGeneration.production.pausedDescription', '当前模型调用已经停止。')
   if (status.value === 'conflict') return t('courseGeneration.production.blockedDescription', '当前产物与课程真源存在冲突。')
   if (props.task?.publicationAllowed === false) return t('courseGeneration.production.qualityBlockedDescription', '课程正文已经生成，系统只会重做未通过的练习。')
-  return t('courseGeneration.production.genericError', '本阶段尚未完成。')
+  return userError.value.message || t('courseGeneration.production.genericError', '本阶段尚未完成。')
 })
 const resumeLabel = computed(() => {
   if (props.task?.publicationAllowed === false) return t('courseGeneration.production.repairPracticeAction', '修复练习并重新检查')
