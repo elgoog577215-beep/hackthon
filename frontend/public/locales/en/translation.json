@@ -1403,6 +1403,7 @@
       "retrievalRetrying": "Retrying",
       "retrievalRetryFailed": "Web verification failed again. The local outline is still available.",
       "retrievalOffline": "You can also confirm the current local outline and continue offline.",
+      "retrievalStats": "Checked {total} candidate sources; {admitted} met the admission standard.",
       "sectionCount": "Outline nodes · {count}",
       "loading": "Loading the editable outline",
       "loadErrorHelp": "Generated work remains saved. Reloading will not create a duplicate course.",

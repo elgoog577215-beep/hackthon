@@ -98,6 +98,9 @@
             <div>
               <strong>{{ t('courseGeneration.outlineReview.retrievalIncomplete', '联网核验未完成') }}</strong>
               <p>{{ retrievalFailureDetail }}</p>
+              <p v-if="retrievalFailureStats" class="outline-retrieval__stats">
+                {{ retrievalFailureStats }}
+              </p>
             </div>
             <button type="button" :disabled="retryingRetrieval" @click="retryRetrieval">
               <LoaderCircle v-if="retryingRetrieval" :size="14" />
@@ -385,6 +388,30 @@ const retrievalFailureDetail = computed(() => {
   return retrievalErrorKey.value
     ? t(retrievalErrorKey.value, retrievalNotice.value)
     : retrievalNotice.value
+})
+const retrievalPackage = computed<Record<string, any>>(() => (
+  retrievalArtifact.value?.package
+  || retrievalArtifact.value?.retrieval_package
+  || retrievalArtifact.value
+  || {}
+))
+const retrievalFailureStats = computed(() => {
+  const receipt = retrievalPackage.value?.receipt || {}
+  const admittedValue = Number(receipt.admitted_count ?? receipt.source_count ?? 0)
+  const admitted = Number.isFinite(admittedValue) ? Math.max(0, admittedValue) : 0
+  const rejectedSources = retrievalPackage.value?.rejected_sources
+  const rejectedValue = Array.isArray(rejectedSources)
+    ? rejectedSources.length
+    : Number(receipt.tier_distribution?.tier_c ?? 0)
+  const rejected = Number.isFinite(rejectedValue) ? Math.max(0, rejectedValue) : 0
+  const total = admitted + rejected
+  if (total <= 0) return ''
+  return t(
+    'courseGeneration.outlineReview.retrievalStats',
+    '已检查 {total} 个候选来源，其中 {admitted} 个符合准入标准。',
+  )
+    .replace('{total}', String(total))
+    .replace('{admitted}', String(admitted))
 })
 const retrievalDiffGroups = computed(() => {
   const diff = retrievalProposal.value?.diff || {}
@@ -947,6 +974,7 @@ async function confirmOutline() {
 .outline-retrieval--notice { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; border-color:#fed7aa; background:#fff7ed; }
 .outline-retrieval--notice strong { color:#9a3412; font-size:12px; }
 .outline-retrieval--notice p { margin:2px 0 0; color:#9a3412; font-size:10px; }
+.outline-retrieval--notice .outline-retrieval__stats { color:#7c2d12; font-size:9px; }
 .outline-retrieval--notice button { border:1px solid #fdba74; border-radius:8px; padding:6px 9px; color:#9a3412; background:#fff; font-size:10px; cursor:pointer; }
 .outline-retrieval--notice > small { grid-column:1/-1; color:#7c2d12; font-size:9px; }
 .outline-review__adjustment {

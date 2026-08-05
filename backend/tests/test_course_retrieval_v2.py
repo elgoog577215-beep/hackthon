@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from content_blocks import set_node_content_blocks
 from course_retrieval import (
-    build_course_source_context,
     build_course_retrieval_queries,
+    build_course_source_context,
     build_outline_research_instruction,
     build_outline_research_proposal,
 )
-from content_blocks import set_node_content_blocks
 from course_versioning import build_blueprint_draft
 
 
