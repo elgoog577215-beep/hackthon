@@ -56,9 +56,12 @@ def build_course_retrieval_queries(
     )
     if overview:
         queries.append(overview)
-    for node in course.get("nodes") or []:
-        if int(node.get("node_level") or 0) != 2:
-            continue
+    sections = [
+        node
+        for node in (course.get("nodes") or [])
+        if int(node.get("node_level") or 0) == 2
+    ]
+    for node in _sample_outline_sections(sections, limit=3):
         objective = _safe_term(str(node.get("learning_objective") or ""))
         node_name = _safe_term(str(node.get("node_name") or ""))
         query = _join_query(
@@ -69,9 +72,7 @@ def build_course_retrieval_queries(
         )
         if query and query not in queries:
             queries.append(query)
-        if len(queries) >= 12:
-            break
-    return queries[:12]
+    return queries[:4]
 
 
 def build_outline_research_instruction(
@@ -279,6 +280,22 @@ def _query_focus(value: str) -> str:
 
 def _contains_cjk(value: str) -> bool:
     return any("\u3400" <= character <= "\u9fff" for character in value)
+
+
+def _sample_outline_sections(
+    sections: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Choose evenly spaced sections so one course does not exhaust an engine."""
+
+    if len(sections) <= limit:
+        return sections
+    last_index = len(sections) - 1
+    return [
+        sections[round(slot * last_index / (limit - 1))]
+        for slot in range(limit)
+    ]
 
 
 def _single_line(value: str, limit: int) -> str:
