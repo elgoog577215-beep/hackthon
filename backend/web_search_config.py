@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urlparse
 
@@ -237,6 +237,68 @@ def load_web_search_policy() -> WebSearchPolicy:
     return WebSearchPolicy.from_env()
 
 
+def _coerce_domains(value: Any) -> tuple[str, ...]:
+    if not value:
+        return ()
+    if isinstance(value, str):
+        raw = value.split(",")
+    else:
+        raw = list(value)
+    out: list[str] = []
+    for item in raw:
+        normalized = normalize_domain(str(item))
+        if normalized and normalized not in out:
+            out.append(normalized)
+    return tuple(out)
+
+
+def resolve_web_search_policy(settings: Any | None) -> WebSearchPolicy:
+    """把一次请求的联网设置叠加到环境基线上。
+
+    请求只能在环境允许的范围内收紧：环境未开启时请求无法开启，
+    数值上限一律取两者较小值，拒绝域名做并集。
+    """
+    base = WebSearchPolicy.from_env()
+    if settings is None:
+        return base
+    if not isinstance(settings, dict):
+        settings = {
+            key: getattr(settings, key)
+            for key in (
+                "enabled",
+                "max_queries",
+                "max_sources",
+                "allowed_domains",
+                "blocked_domains",
+            )
+            if hasattr(settings, key)
+        }
+
+    requested_enabled = settings.get("enabled")
+    enabled = base.enabled and bool(requested_enabled)
+
+    def _tighten(key: str, current: int) -> int:
+        value = settings.get(key)
+        if value is None:
+            return current
+        try:
+            return max(1, min(int(value), current))
+        except (TypeError, ValueError):
+            return current
+
+    allow = _coerce_domains(settings.get("allowed_domains")) or base.allow_domains
+    deny = tuple(dict.fromkeys(base.deny_domains + _coerce_domains(settings.get("blocked_domains"))))
+
+    return replace(
+        base,
+        enabled=enabled,
+        max_queries=_tighten("max_queries", base.max_queries),
+        max_sources=_tighten("max_sources", base.max_sources),
+        allow_domains=allow,
+        deny_domains=deny,
+    )
+
+
 __all__ = [
     "DEFAULT_DENY_DOMAINS",
     "DEFAULT_ENABLED",
@@ -247,4 +309,5 @@ __all__ = [
     "domain_matches",
     "load_web_search_policy",
     "normalize_domain",
+    "resolve_web_search_policy",
 ]

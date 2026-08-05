@@ -100,6 +100,7 @@ def build_course_generation_artifacts(
         "material_bindings": prepared.get("material_bindings") or [],
         "parsed_documents": prepared.get("parsed_documents") or [],
         "evidence_catalog": prepared.get("evidence_catalog") or [],
+        "web_material_search": prepared.get("web_search") or {"enabled": False},
         "evidence_coverage_plan": {
             "plan_version": "evidence_coverage_v1",
             "strategy": grounding_strategy,

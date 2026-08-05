@@ -167,6 +167,28 @@ class WebQuestionEnrichmentInput(BaseModel):
         return normalized
 
 
+class WebMaterialSearchInput(BaseModel):
+    """教师侧联网检索开关。默认关闭，必须显式开启。"""
+
+    enabled: bool = False
+    max_results: Optional[int] = None
+    allowed_domains: List[str] = Field(default_factory=list)
+    blocked_domains: List[str] = Field(default_factory=list)
+    require_open_license: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        for key in ("allowed_domains", "blocked_domains"):
+            raw = normalized.get(key)
+            if isinstance(raw, str):
+                normalized[key] = [item.strip() for item in raw.split(",") if item.strip()]
+        return normalized
+
+
 CourseType = Literal["systematic", "project", "inquiry", "exam"]
 
 
@@ -291,6 +313,9 @@ class CourseGenerationRequest(BaseModel):
     asset_preferences: Dict[str, bool] = Field(default_factory=dict)
     web_question_enrichment: WebQuestionEnrichmentInput = Field(
         default_factory=WebQuestionEnrichmentInput
+    )
+    web_material_search: WebMaterialSearchInput = Field(
+        default_factory=WebMaterialSearchInput
     )
 
     @model_validator(mode="before")
