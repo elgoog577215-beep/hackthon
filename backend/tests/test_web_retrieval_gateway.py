@@ -205,21 +205,42 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
 
 
 @pytest.mark.asyncio
-async def test_searxng_programming_query_uses_general_engines_only():
-    captured: dict = {}
+async def test_searxng_programming_query_retries_broadly_only_after_empty_result():
+    captured: list[dict[str, list[str]]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        captured["form"] = parse_qs(request.content.decode("utf-8"))
-        return httpx.Response(200, json={"results": []})
+        captured.append(parse_qs(request.content.decode("utf-8")))
+        if len(captured) == 1:
+            return httpx.Response(200, json={"results": []})
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "url": "https://docs.unity.cn/cn/current/Manual/index.html",
+                        "title": "Unity Manual",
+                        "content": "Unity GameObject and MonoBehaviour documentation.",
+                    }
+                ]
+            },
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = SearXNGSearchProvider(
             base_url="http://127.0.0.1:8080",
             client=client,
         )
-        await provider.search("Unity C# MonoBehaviour GameObject tutorial", limit=2)
+        results = await provider.search(
+            "Unity 游戏 C# MonoBehaviour GameObject 教程",
+            limit=2,
+        )
 
-    assert captured["form"]["categories"] == ["general"]
+    assert len(captured) == 2
+    assert captured[0]["categories"] == ["general"]
+    assert captured[0]["language"] == ["zh-CN"]
+    assert captured[1]["categories"] == ["general,science"]
+    assert captured[1]["language"] == ["all"]
+    assert results[0]["url"].startswith("https://docs.unity.cn/")
 
 
 @pytest.mark.asyncio
