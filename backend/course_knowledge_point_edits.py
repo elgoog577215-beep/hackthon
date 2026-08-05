@@ -97,6 +97,20 @@ def apply_point_edit(
             "编辑内容与当前内容相同，无需修订",
         )
 
+    if field == "name":
+        # A rename must keep the old name resolvable. Teaching-plan edit paths
+        # address knowledge by name (`sections/<id>/knowledge/<name>/<field>`)
+        # and the plan projection binds plan points to knowledge IDs by name,
+        # falling back to aliases. Dropping the old name would silently break
+        # both — the knowledge_id survives, but every name-keyed reference to
+        # it stops resolving. Retiring a name is a migration, not a side effect
+        # of typing a new one.
+        aliases = [_text(item) for item in target.get("aliases") or [] if _text(item)]
+        old_name = _text(target.get(field))
+        if old_name and old_name not in aliases:
+            aliases.append(old_name)
+        target["aliases"] = aliases
+
     target[field] = new_value
     target["revision_id"] = stable_hash(
         {key: item for key, item in target.items() if key != "revision_id"},

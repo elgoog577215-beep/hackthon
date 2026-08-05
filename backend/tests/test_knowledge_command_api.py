@@ -618,3 +618,48 @@ def test_point_edit_rejects_no_op_edit() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "knowledge_point_edit_no_change"
+
+
+def test_rename_keeps_the_old_name_resolvable_as_alias() -> None:
+    """改名必须保留旧名可解析。
+
+    教案侧按名字寻址知识（sections/<id>/knowledge/<name>/<field>），教案投影
+    也按名字（含别名）把教案知识点绑到稳定 ID。改名若丢掉旧名，knowledge_id
+    还在，但所有按名字的引用都会静默失效——这正是与 lz-lesson-plan 分支的
+    真实交叉点。
+    """
+    course = _canonical_course()
+    client, _ = _client(course)
+    target = next(
+        item for item in course["course_knowledge_base"]["knowledge_points"]
+        if item["name"] == "容量耗尽判定"
+    )
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/preview-edit",
+        json={
+            "knowledge_id": target["knowledge_id"],
+            "operation": "rename_knowledge_point",
+            "value": "容量上限判定",
+            "reason": "与教材统一用词",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["candidate"]["confirmable"] is True
+
+    # 直接验证行为：改名后的知识库里，新旧名都能反查到同一个稳定 ID。
+    from course_knowledge_point_edits import apply_point_edit
+    from teaching_plan_impact import KnowledgeReferenceIndex
+
+    proposed = apply_point_edit(
+        course["course_knowledge_base"],
+        knowledge_id=target["knowledge_id"],
+        operation="rename_knowledge_point",
+        value="容量上限判定",
+    )
+    index = KnowledgeReferenceIndex(proposed)
+    assert index.resolve("section-1", "容量上限判定") == target["knowledge_id"]
+    assert index.resolve("section-1", "容量耗尽判定") == target["knowledge_id"]
+    # 原有别名不能被顶掉。
+    assert index.resolve("section-1", "满容量判定") == target["knowledge_id"]
