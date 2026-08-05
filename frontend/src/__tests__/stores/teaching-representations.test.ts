@@ -11,6 +11,7 @@ vi.mock('@/utils/http', () => ({
 
 import {
   consumeTeachingRepresentationStream,
+  preferredRepresentationForType,
   useTeachingRepresentationsStore,
 } from '@/stores/teachingRepresentations'
 
@@ -52,6 +53,33 @@ beforeEach(() => {
   httpMock.post.mockReset()
   httpMock.delete.mockReset()
   vi.unstubAllGlobals()
+})
+
+describe('preferredRepresentationForType', () => {
+  it('selects the registry target schema instead of a retained legacy PPT', () => {
+    const legacy = {
+      representation_id: 'legacy-v2', representation_type: 'slide_deck', spec_id: 'spec-v2',
+      status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: '2026-08-03',
+    } as const
+    const current = {
+      representation_id: 'current-v5', representation_type: 'slide_deck', spec_id: 'spec-v5',
+      variant_key: 'teaching:qizhi-classroom', status: 'ready', stale_unit_ids: [], stale_reasons: [],
+      revision: 'r2', updated_at: '2026-08-05',
+    } as const
+    const registry = {
+      slide_deck_target_schema: 'slide_deck_v5',
+      specs: [
+        { spec_id: 'spec-v2', payload: { content: { schema_version: 'slide_deck_v2' } } },
+        { spec_id: 'spec-v5', payload: { content: { schema_version: 'slide_deck_v5' } } },
+      ],
+    }
+
+    expect(preferredRepresentationForType(
+      [legacy, current],
+      'slide_deck',
+      registry,
+    )?.representation_id).toBe('current-v5')
+  })
 })
 
 describe('teaching representation progressive build', () => {

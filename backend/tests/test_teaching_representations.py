@@ -1051,6 +1051,28 @@ def test_safe_rebuild_publishes_only_after_quality_passes(tmp_path):
     assert current.registry_revision != before.registry_revision
 
 
+def test_core_compiler_can_rebuild_non_slide_materials_without_legacy_ppt(tmp_path):
+    document = document_from_legacy_course(legacy_course())
+    repository = TeachingRepresentationRepository(tmp_path)
+
+    compile_core_representations(
+        document,
+        course_data_with_practice(),
+        repository,
+        include_slide_deck=False,
+    )
+
+    registry = repository.load(document.course_id)
+    assert {
+        item.representation_type for item in registry.representations
+    } == set(CORE_TYPES) - {"slide_deck"}
+    quality = validate_compiled_representations(
+        registry.specs,
+        required_types=set(CORE_TYPES) - {"slide_deck"},
+    )
+    assert quality["passed"] is True
+
+
 def test_safe_rebuild_failure_keeps_last_available_registry(tmp_path, monkeypatch):
     import representation_compiler
 
@@ -1282,9 +1304,11 @@ async def test_durable_representation_task_builds_and_recovers_after_restart(tmp
 
     completed = manager.get_task(task_id)
     assert completed["status"] == "completed"
-    assert set(completed["completed_representation_types"]) == set(CORE_TYPES)
+    assert set(completed["completed_representation_types"]) == (
+        set(CORE_TYPES) - {"slide_deck"}
+    )
     assert completed["recovery"]["state"] == "completed"
-    assert any(item["event"] == "slide_upsert" for item in completed["event_history"])
+    assert not any(item["event"] == "slide_upsert" for item in completed["event_history"])
 
     interrupted_id = await manager.create_task(
         "course-1", "teaching_representation_build", enqueue=False,

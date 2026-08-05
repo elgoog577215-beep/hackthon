@@ -1686,6 +1686,78 @@ def test_v5_quality_cannot_publish_when_a_retained_nested_gate_is_critical() -> 
     } == {"official_source_revision_mismatch"}
 
 
+def test_v5_quality_retains_non_superseded_presentation_blockers() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": True,
+            "score": 95,
+            "slide_count": 1,
+            "presentation": {
+                "passed": False,
+                "score": 80,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "rendered_text_clipped",
+                    "target": "slide:v4:0001",
+                }],
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "rendered_text_clipped",
+                    "target": "slide:v4:0001",
+                }],
+            },
+            "blockers": [],
+        },
+        slides=[],
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is False
+    assert report["presentation"]["passed"] is False
+    assert {
+        issue["code"] for issue in report["blockers"]
+    } == {"rendered_text_clipped"}
+
+
+def test_v5_quality_recomputes_stale_presentation_and_final_slide_count() -> None:
+    slides = [
+        {"unit_id": "slide:v4:0001", "quality": {"passed": True}},
+        {"unit_id": "slide:v4:0002", "quality": {"passed": True}},
+    ]
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": False,
+            "score": 80,
+            "slide_count": 1,
+            "presentation": {
+                "passed": False,
+                "score": 80,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "layout_family_repeated_more_than_twice",
+                    "target": "deck",
+                }],
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "layout_family_repeated_more_than_twice",
+                    "target": "deck",
+                }],
+            },
+            "blockers": [],
+        },
+        slides=slides,
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is True
+    assert report["slide_count"] == len(slides)
+    assert report["presentation"]["passed"] is True
+    assert report["presentation"]["issues"] == []
+    assert report["presentation"]["blockers"] == []
+
+
 def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
     report = finalize_v5_quality_report(
         previous_quality={
