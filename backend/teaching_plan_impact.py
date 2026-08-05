@@ -501,6 +501,41 @@ def _representation_items(registry: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _objective_revisions(course_data: dict[str, Any]) -> dict[str, str]:
+    """Current objective_id -> objective_revision_id for the course's sections.
+
+    Reuses the canonical `learning_objective_identity` so the expected revision
+    is computed exactly the way the asset pipeline computed the recorded one.
+    """
+    # Imported locally: learning_progress pulls in the learning-event and
+    # practice-attempt repositories, which this read-only analysis never needs.
+    from learning_progress import learning_objective_identity
+
+    course_id = _text(course_data.get("course_id"))
+    revisions: dict[str, str] = {}
+    nodes = [
+        node for node in course_data.get("nodes") or []
+        if isinstance(node, dict)
+    ]
+    if not nodes:
+        # Canonical courses keep sections on the document rather than `nodes`.
+        document = course_data.get("course_document")
+        if isinstance(document, dict):
+            nodes = [
+                {
+                    "node_id": section.get("section_id"),
+                    "node_name": section.get("title"),
+                    "learning_objective": section.get("learning_objective"),
+                }
+                for section in document.get("sections") or []
+                if isinstance(section, dict)
+            ]
+    for node in nodes:
+        identity = learning_objective_identity(course_id, node)
+        revisions[identity["objective_id"]] = identity["objective_revision_id"]
+    return revisions
+
+
 def downstream_source_check(
     *,
     plan_revision_id: str,
@@ -553,25 +588,39 @@ def downstream_source_check(
 
     assets = course.get("learning_assets")
     if isinstance(assets, dict):
+        # 练习没有"来源教案修订"字段，但每道题都记了它所服务目标的
+        # objective_revision_id，而该值是目标陈述的稳定 hash。教师改小节目标
+        # 后当前目标身份会变，旧题记录的修订就对不上 —— 这是练习真实可用的
+        # 失效信号，比读一个没有生产者写入的字段可靠。
+        current_objective_revisions = _objective_revisions(course)
         for question in (assets.get("assets") or {}).get("questions") or []:
             if not isinstance(question, dict):
                 continue
             question_id = _text(question.get("question_id") or question.get("asset_id"))
             if not question_id:
                 continue
+            recorded_objective = _text(question.get("objective_revision_id"))
+            expected_objective = current_objective_revisions.get(
+                _text(question.get("objective_id")),
+            )
+            if not recorded_objective or expected_objective is None:
+                # 无法证明新鲜度时保守判为 stale，并说明原因。
+                source_state = "stale"
+                basis = "objective_revision_unavailable"
+            elif recorded_objective == expected_objective:
+                source_state = "current"
+                basis = "objective_revision"
+            else:
+                source_state = "stale"
+                basis = "objective_revision"
             rows.append({
                 "type": "practice",
                 "id": question_id,
                 "section_id": _text(question.get("node_id")),
-                "revision": _text(question.get("revision_id")),
-                "recorded_plan_revision_id": _text(
-                    question.get("source_plan_revision_id"),
-                ),
-                "source_state": (
-                    "current"
-                    if _text(question.get("source_plan_revision_id")) == plan_revision_id
-                    else "stale"
-                ),
+                "revision": recorded_objective,
+                "recorded_plan_revision_id": "",
+                "source_state": source_state,
+                "source_basis": basis,
                 "readable": True,
             })
 

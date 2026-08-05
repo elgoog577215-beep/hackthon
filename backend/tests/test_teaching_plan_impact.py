@@ -306,6 +306,31 @@ def _course(*, with_knowledge_base: bool = False) -> dict:
     return course
 
 
+def _question_for_section(course: dict, section_id: str, question_id: str) -> dict:
+    """一道服务于该小节当前学习目标的正式练习。
+
+    使用真实的 learning_objective_identity，这样"目标被改写后练习过期"
+    走的是生产代码同一条路径，而不是测试自己造的假修订号。
+    """
+    from learning_progress import learning_objective_identity
+
+    section = next(
+        item for item in course["course_document"]["sections"]
+        if item["section_id"] == section_id
+    )
+    identity = learning_objective_identity(course["course_id"], {
+        "node_id": section["section_id"],
+        "node_name": section["title"],
+        "learning_objective": section["learning_objective"],
+    })
+    return {
+        "question_id": question_id,
+        "node_id": section_id,
+        "objective_id": identity["objective_id"],
+        "objective_revision_id": identity["objective_revision_id"],
+    }
+
+
 def _operations(*paths: str) -> list[dict]:
     return [{"operation_id": f"op-{index}", "path": path}
             for index, path in enumerate(paths)]
@@ -401,12 +426,9 @@ def test_downstream_source_check_covers_document_blocks_practice_and_representat
         "revisions": {"course_teaching_plan": "teaching-initial"},
     }
     course["learning_assets"] = {
-        "assets": {"questions": [{
-            "question_id": "q-1",
-            "node_id": "section-1",
-            "revision_id": "qr-1",
-            "source_plan_revision_id": "teaching-initial",
-        }]},
+        "assets": {"questions": [
+            _question_for_section(course, "section-1", "q-1"),
+        ]},
     }
     now = datetime.now(timezone.utc).isoformat()
     binding = SourceBinding(
@@ -438,15 +460,98 @@ def test_downstream_source_check_covers_document_blocks_practice_and_representat
     assert {"course_document", "section_content", "practice", "slide_deck"} <= by_type
     assert all(row["source_state"] == "current" for row in rows)
 
-    # 教案修订前进后，同一批下游对象必须整体转为 stale。
+    # 教案修订前进后，按教案修订绑定的对象转为 stale。
     moved = downstream_source_check(
         plan_revision_id="teaching-next",
         course_data=course,
         registry=repository.load("course-1"),
     )
-    assert all(row["source_state"] == "stale" for row in moved)
+    by_id = {row["id"]: row for row in moved}
+    assert by_id["block-1"]["source_state"] == "stale"
+    assert by_id["deck-1"]["source_state"] == "stale"
+    # 练习按它服务的学习目标判定：目标没被改写，练习就不该被误判为过期。
+    assert by_id["q-1"]["source_state"] == "current"
+    assert by_id["q-1"]["source_basis"] == "objective_revision"
     # 但 stale 不等于不可读。
     assert all(row["readable"] for row in moved)
+
+
+def test_objective_revisions_match_across_legacy_and_canonical_course_shapes() -> None:
+    """新旧课程形态必须算出同一组目标身份，否则历史课程会被整体误判过期。"""
+    from teaching_plan_impact import _objective_revisions
+
+    legacy = {
+        "course_id": "course-1",
+        "nodes": [{
+            "node_id": "section-1",
+            "node_name": "线性表与动态数组",
+            "learning_objective": "能够实现动态数组扩容并分析摊还复杂度",
+        }],
+    }
+    canonical = {
+        "course_id": "course-1",
+        "course_document": {"sections": [{
+            "section_id": "section-1",
+            "title": "线性表与动态数组",
+            "learning_objective": "能够实现动态数组扩容并分析摊还复杂度",
+        }]},
+    }
+    assert _objective_revisions(legacy) == _objective_revisions(canonical)
+    assert _objective_revisions(legacy)
+    # 没有小节的课程不应炸，只返回空映射。
+    assert _objective_revisions({"course_id": "course-1"}) == {}
+
+
+def test_practice_goes_stale_only_when_its_own_objective_is_rewritten() -> None:
+    """练习的失效信号来自它服务的学习目标，而不是一个没有生产者写入的字段。"""
+    course = _course()
+    course["learning_assets"] = {
+        "assets": {"questions": [
+            _question_for_section(course, "section-1", "q-1"),
+            _question_for_section(course, "section-2", "q-2"),
+        ]},
+    }
+    fresh = {
+        row["id"]: row for row in downstream_source_check(
+            plan_revision_id="teaching-initial", course_data=course,
+        )
+    }
+    assert fresh["q-1"]["source_state"] == "current"
+    assert fresh["q-2"]["source_state"] == "current"
+
+    # 只改写 section-1 的目标：只有服务该目标的练习过期。
+    rewritten = deepcopy(course)
+    section = next(
+        item for item in rewritten["course_document"]["sections"]
+        if item["section_id"] == "section-1"
+    )
+    section["learning_objective"] = "能够实现倍增扩容并用复制次数解释摊还复杂度"
+    moved = {
+        row["id"]: row for row in downstream_source_check(
+            plan_revision_id="teaching-initial", course_data=rewritten,
+        )
+    }
+    assert moved["q-1"]["source_state"] == "stale"
+    assert moved["q-2"]["source_state"] == "current"
+    # 过期不等于不可读：旧练习必须继续可用。
+    assert moved["q-1"]["readable"] is True
+
+
+def test_practice_without_objective_identity_is_reported_as_unverifiable() -> None:
+    """无法证明新鲜度时保守判 stale，并说明依据，不假装验证过。"""
+    course = _course()
+    course["learning_assets"] = {
+        "assets": {"questions": [{"question_id": "q-legacy", "node_id": "section-1"}]},
+    }
+    row = next(
+        item for item in downstream_source_check(
+            plan_revision_id="teaching-initial", course_data=course,
+        )
+        if item["id"] == "q-legacy"
+    )
+    assert row["source_state"] == "stale"
+    assert row["source_basis"] == "objective_revision_unavailable"
+    assert row["readable"] is True
 
 
 def test_failed_representation_is_stale_but_still_readable(tmp_path) -> None:
