@@ -8,6 +8,7 @@ from course_retrieval import (
     build_outline_research_proposal,
 )
 from course_versioning import build_blueprint_draft
+from web_retrieval import PURPOSE_LIMITS
 
 
 def _course() -> dict:
@@ -123,6 +124,32 @@ def test_programming_course_queries_are_concise_and_do_not_add_academic_boilerpl
     assert max(map(len, queries)) <= 120
     assert all("course prerequisite learning objective open education" not in query for query in queries)
     assert any("MonoBehaviour" in query or "GameObject" in query for query in queries)
+
+
+def test_course_research_samples_the_outline_without_bursting_upstream_engines():
+    course = {
+        "course_name": "Unity systems",
+        "course_intent": {"learning_goal": "Build a complete game"},
+        "nodes": [
+            {
+                "node_level": 2,
+                "node_name": f"Topic {index}",
+                "learning_objective": f"Practice API{index}",
+            }
+            for index in range(9)
+        ],
+    }
+
+    queries = build_course_retrieval_queries(
+        course,
+        {"subject": "Unity systems", "course_intent": course["course_intent"]},
+    )
+
+    assert len(queries) == 4
+    assert "Topic 0" in " ".join(queries)
+    assert "Topic 4" in " ".join(queries)
+    assert "Topic 8" in " ".join(queries)
+    assert PURPOSE_LIMITS["course"]["concurrency"] == 2
 
 
 def test_research_instruction_labels_sources_and_does_not_copy_full_pages():
