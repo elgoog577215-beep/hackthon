@@ -286,3 +286,48 @@ def test_router_maps_redirect_to_409_with_the_outline_revision() -> None:
     assert detail["code"] == "redirect_to_outline_edit"
     assert detail["outline_revision_id"] == workbench["course_document_revision"]
     assert detail["course_id"] == "course-1"
+
+
+def test_redirect_points_at_the_real_outline_editor_endpoint() -> None:
+    """重定向要能真的把教师送到目录编辑器，不只是说一句「去目录改」。
+
+    团队在 main 上新增了 /blueprint 目录编辑器（course_outline_adjustments）。
+    这里钉住两件事：
+    1. 重定向给出可跳转的 endpoint，而不是让前端自己猜；
+    2. 明确 outline_revision_id 与蓝图自己的 blueprint_revision_id 是**两个
+       不同的标识**——教案侧给的是 course_document_revision（cdr_…），
+       蓝图编辑器用的是 bp_…。前端若把前者当蓝图修订回传，会被
+       blueprint_base_conflict 挡下。所以只暴露该去哪读，不暴露一个会被误用的值。
+    """
+    from routers import teaching_plan_workbench as workbench_router
+
+    storage = MemoryStorage(_course())
+    repository = CourseDocumentRepository(storage)
+    app = FastAPI()
+    app.include_router(workbench_router.router, prefix="/api")
+    app.dependency_overrides[workbench_router.get_course_document_repository] = lambda: repository
+    client = TestClient(app)
+    headers = {"X-User-Id": "teacher-redirect"}
+    base_path = "/api/courses/course-1/teaching-plan"
+
+    workbench = client.get(f"{base_path}/workbench", headers=headers).json()["workbench"]
+    draft = client.post(f"{base_path}/drafts", headers=headers, json={
+        "base_plan_revision_id": workbench["current_plan_revision_id"],
+        "base_course_document_revision": workbench["course_document_revision"],
+        "idempotency_key": "redirect-endpoint-create",
+    }).json()["workbench"]["draft"]
+
+    response = client.patch(f"{base_path}/drafts/{draft['draft_id']}", headers=headers, json={
+        "path": "course_plan/chapters",
+        "value": "不应写入教案",
+        "base_plan_revision_id": draft["base_plan_revision_id"],
+        "idempotency_key": "redirect-endpoint-patch",
+    })
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    editor = detail["outline_editor"]
+    assert editor["endpoint"] == "/api/courses/course-1/blueprint"
+    assert editor["revision_field"] == "current_blueprint_revision_id"
+    # 教案侧的目录修订仍然给出，但它不是蓝图修订。
+    assert detail["outline_revision_id"] == workbench["course_document_revision"]
+    assert not detail["outline_revision_id"].startswith("bp_")

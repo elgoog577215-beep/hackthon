@@ -1300,7 +1300,16 @@ class TeachingPlanWorkbenchService:
                     details={
                         "path": path,
                         "course_id": course_id,
+                        # 教案侧看到的目录修订（course_document_revision，cdr_…）。
+                        # 注意它与目录编辑器自己的 blueprint_revision_id（bp_…）
+                        # 不是同一个标识：前端跳过去后应重新读 GET /blueprint
+                        # 取当前蓝图修订，不要把这里的值当作蓝图修订回传，
+                        # 否则会被 blueprint_base_conflict 挡下。
                         "outline_revision_id": document_revision,
+                        "outline_editor": {
+                            "endpoint": f"/api/courses/{course_id}/blueprint",
+                            "revision_field": "current_blueprint_revision_id",
+                        },
                     },
                 )
             if permission["state"] == "readonly":
