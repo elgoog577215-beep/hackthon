@@ -1,26 +1,44 @@
-"""Knowledge-library rebuild, review, and migration APIs."""
+"""Knowledge-library rebuild, review, migration, and knowledge-command APIs."""
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
+from course_knowledge_commands import (
+    KNOWLEDGE_COMMANDS,
+    CourseKnowledgeCommandService,
+    KnowledgeCommandRejected,
+    build_knowledge_candidate,
+)
+from course_knowledge_impact import knowledge_coverage_check
 from course_knowledge_rebuild import (
     CourseKnowledgeRebuildError,
     CourseKnowledgeRebuildService,
 )
 from course_repository import (
     CourseDocumentConflict,
+    CourseDocumentNotFound,
     CourseDocumentRepository,
 )
 from dependencies import get_course_document_repository
+from learner_context import resolve_user_id
 
 router = APIRouter(tags=["knowledge_libraries"])
 logger = logging.getLogger(__name__)
+
+# Rejections that mean "someone else moved first", not "your request is wrong".
+# The teacher's correct response is to refresh and recompute, so these must not
+# be reported as 400 — the client cannot fix them by editing the payload.
+_CONFLICT_CODES = {
+    "knowledge_base_revision_changed",
+    "course_document_revision_changed",
+    "course_revision_conflict",
+}
 
 
 class RebuildRequest(BaseModel):
@@ -33,10 +51,45 @@ class ReviewRequest(BaseModel):
     note: str = ""
 
 
+class KnowledgeCandidateRequest(BaseModel):
+    operation: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=2000)
+    proposed_knowledge_base: dict[str, Any]
+    identity_map: dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeConfirmRequest(BaseModel):
+    command_id: str = Field(min_length=1, max_length=200)
+    candidate: dict[str, Any]
+    proposed_knowledge_base: dict[str, Any]
+
+
+class KnowledgeCoverageRequest(BaseModel):
+    changed_block_ids: list[str] = Field(min_length=1, max_length=200)
+
+
 def get_course_knowledge_rebuild_service(
     course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
 ) -> CourseKnowledgeRebuildService:
     return CourseKnowledgeRebuildService(course_repository)
+
+
+def get_course_knowledge_command_service(
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> CourseKnowledgeCommandService:
+    return CourseKnowledgeCommandService(course_repository)
+
+
+def _actor(request: Request) -> str:
+    return resolve_user_id(request.headers.get("X-User-Id"))
+
+
+def _command_error(exc: KnowledgeCommandRejected) -> HTTPException:
+    status_code = 409 if exc.code in _CONFLICT_CODES else 400
+    detail: dict[str, Any] = {"code": exc.code, "message": exc.message}
+    if exc.detail is not None:
+        detail["detail"] = exc.detail
+    return HTTPException(status_code=status_code, detail=detail)
 
 
 @router.post("/courses/{course_id}/knowledge-library/rebuild")
@@ -113,3 +166,113 @@ async def review_course_library(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/courses/{course_id}/knowledge-library/candidates")
+async def preview_knowledge_candidate(
+    course_id: str,
+    body: KnowledgeCandidateRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Validate a proposed knowledge change and return it as a candidate.
+
+    Read-only on purpose: the teacher sees the quality report, the identity
+    check and the full downstream impact *before* deciding. The active
+    knowledge base is not touched until `/confirm`.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+        candidate = build_knowledge_candidate(
+            course,
+            operation=body.operation,
+            proposed_knowledge_base=body.proposed_knowledge_base,
+            reason=body.reason,
+            identity_map=body.identity_map,
+            actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "success", "candidate": candidate}
+
+
+@router.post("/courses/{course_id}/knowledge-library/candidates/confirm")
+async def confirm_knowledge_candidate(
+    course_id: str,
+    body: KnowledgeConfirmRequest,
+    request: Request,
+    service: CourseKnowledgeCommandService = Depends(get_course_knowledge_command_service),
+) -> dict:
+    """Apply a confirmed candidate atomically with the course revision.
+
+    `command_id` is the idempotency key: replaying it returns the original
+    receipt instead of applying twice, so a retry after a lost response is safe.
+    """
+    try:
+        receipt = await service.confirm_knowledge_candidate(
+            course_id,
+            command_id=body.command_id,
+            candidate=body.candidate,
+            proposed_knowledge_base=body.proposed_knowledge_base,
+            actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "course_document_conflict", "message": str(exc),
+        }) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "success", "receipt": receipt}
+
+
+@router.get("/courses/{course_id}/knowledge-library/revisions")
+async def list_knowledge_revisions(
+    course_id: str,
+    service: CourseKnowledgeCommandService = Depends(get_course_knowledge_command_service),
+) -> dict:
+    """Confirmed knowledge revisions for this course, oldest first."""
+    try:
+        entries = service.knowledge_revision_log(course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "success",
+        "course_id": course_id,
+        "whitelisted_operations": sorted(KNOWLEDGE_COMMANDS),
+        "revisions": entries,
+    }
+
+
+@router.post("/courses/{course_id}/knowledge-library/coverage-check")
+async def check_knowledge_coverage(
+    course_id: str,
+    body: KnowledgeCoverageRequest,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Reverse direction: do changed body blocks still have knowledge coverage?
+
+    Reports gaps so a knowledge maintenance candidate can be raised. It never
+    writes knowledge — that path stays behind the whitelist commands.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "success",
+        "coverage": knowledge_coverage_check(
+            course, changed_block_ids=body.changed_block_ids,
+        ),
+    }
