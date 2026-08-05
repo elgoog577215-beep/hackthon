@@ -585,6 +585,88 @@ def test_failed_representation_is_stale_but_still_readable(tmp_path) -> None:
     assert deck["readable"] is True
 
 
+# --- 反查规模与复杂度保护 --------------------------------------------------
+
+
+def _synthetic_knowledge_base(n_sections: int, points_per_section: int) -> dict:
+    """合成大课程知识库：n 小节 x m 知识点，含 block/question/criterion 绑定。"""
+    points, bindings = [], []
+    for section_index in range(n_sections):
+        section_id = f"section-{section_index}"
+        for point_index in range(points_per_section):
+            knowledge_id = f"ckp_{section_index}_{point_index}"
+            points.append({
+                "knowledge_id": knowledge_id,
+                "name": f"知识点{section_index}-{point_index}",
+                "aliases": [f"别名{section_index}-{point_index}"],
+                "section_refs": [section_id],
+            })
+            for target_type, target_id in (
+                ("section", section_id),
+                ("course_block", f"block-{section_index}-{point_index}"),
+                ("question", f"q-{section_index}-{point_index}"),
+                ("criterion", f"c-{section_index}-{point_index}"),
+            ):
+                bindings.append({
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "knowledge_ids": [knowledge_id],
+                    "status": "active",
+                })
+    return {"knowledge_points": points, "bindings": bindings}
+
+
+def test_reverse_lookup_stays_local_on_a_large_course() -> None:
+    """大课程上单个知识点的影响面必须仍然是局部的，不随课程规模膨胀。"""
+    knowledge_base = _synthetic_knowledge_base(200, 12)
+    index = KnowledgeReferenceIndex(knowledge_base)
+    assert index.available is True
+    assert len(knowledge_base["knowledge_points"]) == 2400
+
+    targets = index.referencing_targets("ckp_0_0")
+    # 2400 个知识点的课程里，改一个知识点只触及它自己的 4 类绑定对象。
+    assert len(targets) == 4
+    assert ("section_content", "block-0-0") in targets
+    assert ("practice", "q-0-0") in targets
+    # 邻居知识点的对象不得进入影响面。
+    assert all("0-1" not in target_id for _, target_id in targets)
+
+
+def test_impact_report_builds_the_knowledge_index_once_per_report() -> None:
+    """复杂度保护：索引每份报告只建一次，不随 operation 数量重复构造。
+
+    这里数的是构造次数而不是耗时——耗时断言在共享 CI 上会 flaky，
+    而"把建索引挪进 operation 循环"正是真正会让大课程退化的改法。
+    """
+    course = _course(with_knowledge_base=True)
+    constructions = 0
+    original_init = KnowledgeReferenceIndex.__init__
+
+    def counting_init(self, knowledge_base):
+        nonlocal constructions
+        constructions += 1
+        original_init(self, knowledge_base)
+
+    snapshot = {
+        "course_plan": course["course_plan"],
+        "generation_request": course["generation_request"],
+        "subject_pedagogy_profile": course["subject_pedagogy_profile"],
+        "course_teaching_plan": course["course_teaching_plan"],
+    }
+    operations = _operations(
+        "sections/section-1/knowledge/容量耗尽判定/statement",
+        "sections/section-1/knowledge/动态数组扩容/statement",
+        "sections/section-1/learning_objective",
+        "overall/positioning",
+    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(KnowledgeReferenceIndex, "__init__", counting_init)
+        report = build_impact_report(operations, snapshot, course_data=course)
+
+    assert constructions == 1
+    assert report["knowledge_index_available"] is True
+
+
 # --- 3.5 六类变更影响矩阵快照 ----------------------------------------------
 
 
