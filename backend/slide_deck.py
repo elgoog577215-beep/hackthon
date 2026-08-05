@@ -152,6 +152,7 @@ class SlideDeckContent(_StrictModel):
     visual_plan: dict[str, Any] = Field(default_factory=dict)
     visual_asset_manifest: list[dict[str, Any]] = Field(default_factory=list)
     build_signature: dict[str, Any] = Field(default_factory=dict)
+    generation_provenance: dict[str, Any] = Field(default_factory=dict)
     visual_quality_report: dict[str, Any] = Field(default_factory=dict)
     story_plan: dict[str, Any] = Field(default_factory=dict)
     deck_outline: dict[str, Any] = Field(default_factory=dict)

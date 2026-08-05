@@ -4051,12 +4051,19 @@ def finalize_v5_quality_report(
     planner: str,
     fallback_reason: str,
     planning_diagnostics: dict[str, Any] | None = None,
+    visual_planning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Replace stale V3/V4 gates with one internally consistent V5 report."""
+    previous_presentation = previous_quality.get("presentation") or {}
+    previous_presentation_candidates = [
+        *(previous_presentation.get("blockers") or []),
+        *(previous_presentation.get("issues") or []),
+    ]
     previous_candidates = [
         *(previous_quality.get("blockers") or []),
         *((previous_quality.get("semantic") or {}).get("issues") or []),
         *((previous_quality.get("visual") or {}).get("issues") or []),
+        *previous_presentation_candidates,
     ]
     retained = [
         deepcopy(issue)
@@ -4144,6 +4151,31 @@ def finalize_v5_quality_report(
             "suggestion": "请调用受约束的答案生成器补全缺失答案，或修复课程反馈模块。",
         })
 
+    visual_planning_details = deepcopy(visual_planning or {})
+    visual_fallback_reason = str(
+        visual_planning_details.get("fallback_reason") or ""
+    )
+    visual_planning_issues: list[dict[str, Any]] = []
+    if visual_fallback_reason == "partial_ai_visual_plan":
+        visual_planning_issues.append({
+            "severity": "major",
+            "code": "ai_visual_planner_partial_fallback",
+            "target": "deck",
+            "message": "部分页面的 AI 视觉规划失败，已使用确定性视觉方案。",
+            "suggestion": "可重试失败的视觉批次；当前页面仍保持来源绑定。",
+        })
+    elif visual_fallback_reason in {
+        "invalid_or_failed_ai_visual_plan",
+        "no_ai_visual_planner",
+    }:
+        visual_planning_issues.append({
+            "severity": "major",
+            "code": "ai_visual_planner_fallback",
+            "target": "deck",
+            "message": "AI 视觉规划不可用，整套课件使用了确定性视觉方案。",
+            "suggestion": "检查视觉规划模型后重试生成。",
+        })
+
     final_slide_issues: list[dict[str, Any]] = []
     for slide in slides:
         quality = slide.get("quality") or {}
@@ -4177,6 +4209,7 @@ def finalize_v5_quality_report(
         *v5_contract_issues(slides),
         *final_slide_issues,
         *planning_issues,
+        *visual_planning_issues,
     ]
     issues: list[dict[str, Any]] = []
     seen: set[tuple[str, ...]] = set()
@@ -4199,10 +4232,35 @@ def finalize_v5_quality_report(
         issue for issue in issues
         if _v5_semantic_issue(issue)
     ]
+    retained_presentation_identities = {
+        _v5_issue_identity(issue)
+        for issue in previous_presentation_candidates
+        if str(issue.get("code") or "") not in _V5_REPLACED_V4_QUALITY_CODES
+    }
+    presentation_issues = [
+        issue for issue in issues
+        if _v5_issue_identity(issue) in retained_presentation_identities
+    ]
     visual_issues = [
         issue for issue in issues
         if issue not in semantic_issues
+        and _v5_issue_identity(issue) not in retained_presentation_identities
     ]
+    presentation_blockers = [
+        issue for issue in presentation_issues
+        if str(issue.get("severity") or "") == "critical"
+    ]
+    presentation_score = max(
+        0,
+        100 - sum(
+            {
+                "critical": 20,
+                "major": 6,
+                "minor": 1,
+            }.get(str(issue.get("severity") or ""), 1)
+            for issue in presentation_issues
+        ),
+    )
     score = max(
         0,
         100 - sum(
@@ -4225,6 +4283,8 @@ def finalize_v5_quality_report(
             "warnings",
             "semantic",
             "visual",
+            "presentation",
+            "slide_count",
             "v5_composition",
         }
     }
@@ -4233,6 +4293,7 @@ def finalize_v5_quality_report(
         **passthrough,
         "passed": not blockers,
         "score": score,
+        "slide_count": len(slides),
         "issues": issues,
         "blockers": blockers,
         "warnings": warnings,
@@ -4250,6 +4311,12 @@ def finalize_v5_quality_report(
             ),
             "issues": visual_issues,
         },
+        "presentation": {
+            "passed": not presentation_blockers,
+            "score": presentation_score,
+            "issues": presentation_issues,
+            "blockers": presentation_blockers,
+        },
         "planning": {
             "planner": planner,
             "fallback_reason": fallback_reason,
@@ -4259,6 +4326,15 @@ def finalize_v5_quality_report(
                 for issue in planning_issues
             ),
             "issues": planning_issues,
+        },
+        "visual_planning": {
+            **visual_planning_details,
+            "degraded": bool(visual_planning_issues),
+            "passed": not any(
+                str(issue.get("severity") or "") == "critical"
+                for issue in visual_planning_issues
+            ),
+            "issues": visual_planning_issues,
         },
         "v5_composition": {
             "passed": not contract_issues,
@@ -4402,12 +4478,39 @@ def compile_slide_deck_v5(
             ],
         },
     })
+    visual_plan_payload = (
+        visual_plan.model_dump(mode="json")
+        if hasattr(visual_plan, "model_dump")
+        else deepcopy(visual_plan)
+        if isinstance(visual_plan, dict)
+        else deepcopy(content.get("visual_plan") or {})
+    )
+    visual_brief = dict((visual_plan_payload or {}).get("deck_brief") or {})
+    visual_policy_version = str(
+        (visual_plan_payload or {}).get("policy_version") or ""
+    )
+    content["generation_provenance"] = {
+        "schema_version": "slide_generation_provenance_v1",
+        "compiler_version": SLIDE_DECK_V5_COMPILER_VERSION,
+        "story": {
+            "planner": str(story.planner or "deterministic_fallback"),
+            "fallback_reason": str(story.fallback_reason or ""),
+            "prompt_contract_version": "slide_story_chapter_directives_v2",
+        },
+        "visual": {
+            "planner": str(visual_brief.get("planner") or "deterministic_fallback"),
+            "fallback_reason": str(visual_brief.get("fallback_reason") or ""),
+            "prompt_contract_version": "slide_visual_plan_v1",
+            "policy_version": visual_policy_version,
+        },
+    }
     content["quality_report"] = finalize_v5_quality_report(
         previous_quality=previous_quality,
         slides=slides,
         planner=outline.planner,
         fallback_reason=outline.fallback_reason,
         planning_diagnostics=outline.planning_diagnostics,
+        visual_planning=visual_brief,
     )
     content["quality_summary"] = {
         **(content.get("quality_summary") or {}),
@@ -4433,6 +4536,9 @@ def validate_slide_deck_v5(
     compatibility["schema_version"] = SLIDE_DECK_V4_SCHEMA
     base = validate_slide_deck_v4(compatibility, course_data=course_data)
     outline = content.get("deck_outline") or {}
+    visual_brief = dict(
+        (content.get("visual_plan") or {}).get("deck_brief") or {}
+    )
     return finalize_v5_quality_report(
         previous_quality=base,
         slides=list(content.get("slides") or []),
@@ -4441,4 +4547,5 @@ def validate_slide_deck_v5(
         planning_diagnostics=dict(
             outline.get("planning_diagnostics") or {}
         ),
+        visual_planning=visual_brief,
     )
