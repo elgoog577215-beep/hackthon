@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import QuestionBankReviewPanel from '@/components/QuestionBankReviewPanel.vue'
+import { setLocale } from '@/shared/i18n'
+import zhMessages from '@/../public/locales/zh/translation.json'
 
 const { get, post } = vi.hoisted(() => ({
   get: vi.fn(),
@@ -20,7 +22,12 @@ vi.mock('@/utils/question-bank-rebuild', () => ({
 }))
 
 describe('QuestionBankReviewPanel', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => zhMessages,
+    })))
+    await setLocale('zh')
     vi.stubGlobal('confirm', vi.fn(() => false))
     get.mockReset()
     post.mockReset()
@@ -147,6 +154,34 @@ describe('QuestionBankReviewPanel', () => {
       })
       return { status: 'completed', progress: 100 }
     })
+  })
+
+  it('shows why web retrieval fell back to local question sources', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        bundle_revision_id: 'qbb-timeout',
+        coverage: {},
+        review_queue: {},
+        generation_summary: {},
+        assessment_profile: {},
+        assessment_objectives: [],
+        chapter_rebuild: {},
+        items: [],
+        web_enrichment: {
+          status: 'failed_fallback_local',
+          source_count: 0,
+          error_codes: ['timeout'],
+        },
+      },
+    })
+
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-timeout' },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="question-bank-retrieval-error"]').text())
+      .toContain('联网搜索超时')
   })
 
   it('展示覆盖矩阵并允许浏览全部题目', async () => {
