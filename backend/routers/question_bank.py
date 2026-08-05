@@ -75,6 +75,7 @@ class QuestionBankRebuildRequest(BaseModel):
     )
     mode: Literal["incremental", "full"] = "incremental"
     resume_existing: bool = True
+    retrieval_enabled: bool = False
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -595,6 +596,7 @@ async def rebuild_question_bank(
                     "question-bank-worker",
                 )
             ),
+            retrieval_enabled=payload.retrieval_enabled,
         )
     )
     if created:

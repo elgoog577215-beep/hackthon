@@ -53,6 +53,7 @@ class QuestionBankRebuildJobRepository:
         actor_id: str,
         revision_ids: list[str] | None = None,
         worker_id: str = "",
+        retrieval_enabled: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
@@ -93,6 +94,7 @@ class QuestionBankRebuildJobRepository:
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
+                "retrieval_enabled": bool(retrieval_enabled),
             },
             prefix="qbr_",
         )
@@ -108,6 +110,7 @@ class QuestionBankRebuildJobRepository:
                         revision_ids=normalized_revisions,
                         mode=normalized_mode,
                         actor_id=normalized_actor_id,
+                        retrieval_enabled=bool(retrieval_enabled),
                     ):
                         continue
                     active_worker_id = str(
@@ -135,6 +138,7 @@ class QuestionBankRebuildJobRepository:
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
+                "retrieval_enabled": bool(retrieval_enabled),
                 "actor_id": normalized_actor_id,
                 "worker_id": normalized_worker_id,
                 "status": "queued",
@@ -440,6 +444,7 @@ def _same_active_scope(
     revision_ids: list[str],
     mode: str,
     actor_id: str,
+    retrieval_enabled: bool,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
@@ -452,6 +457,7 @@ def _same_active_scope(
         ) == revision_ids
         and str(job.get("mode") or "") == mode
         and str(job.get("actor_id") or "") == actor_id
+        and bool(job.get("retrieval_enabled")) is retrieval_enabled
     )
 
 
