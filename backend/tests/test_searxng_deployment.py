@@ -70,6 +70,8 @@ def test_provisioning_can_activate_retrieval_and_verify_application_health() -> 
 
     assert "rollout_mode:" in workflow
     assert "off, allowlist, or on" in workflow
+    assert '- "off"' in workflow
+    assert '- "on"' in workflow
     assert "LINGZHI_WEB_RETRIEVAL_MODE" in workflow
     assert "WEB_RETRIEVAL_PROVIDER" in script
     assert "SEARXNG_BASE_URL" in script

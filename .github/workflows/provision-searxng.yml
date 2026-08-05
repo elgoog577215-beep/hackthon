@@ -6,12 +6,12 @@ on:
       rollout_mode:
         description: "Rollout mode: off, allowlist, or on"
         required: true
-        default: allowlist
+        default: "allowlist"
         type: choice
         options:
-          - off
-          - allowlist
-          - on
+          - "off"
+          - "allowlist"
+          - "on"
       user_ids:
         description: "Comma-separated user IDs used when rollout_mode=allowlist"
         required: false
