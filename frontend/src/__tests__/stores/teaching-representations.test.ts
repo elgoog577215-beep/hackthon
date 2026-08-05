@@ -83,6 +83,32 @@ describe('preferredRepresentationForType', () => {
 })
 
 describe('teaching representation progressive build', () => {
+  it('rebuilds the material suite and then regenerates PPT through the scoped V5 route', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(streamResponse([{
+        event: 'build_complete', progress: 100,
+        registry: { representations: [], specs: [] }, quality: { passed: true },
+      }]))
+      .mockResolvedValueOnce(streamResponse([{
+        event: 'build_complete', progress: 100,
+        registry: { representations: [], specs: [] }, quality: { passed: true },
+      }]))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useTeachingRepresentationsStore()
+
+    await store.rebuildCurrentRepresentations('course-1')
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/courses/course-1/teaching-representations/build/stream',
+      '/api/courses/course-1/teaching-representations/slide-decks/build/stream',
+    ])
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      force_rebuild: true,
+    })
+  })
+
   it('replaces intermediate quality when the final V5 payload fails schema validation', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
       {
