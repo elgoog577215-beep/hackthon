@@ -322,7 +322,7 @@
       >
         <BookOpenCheck :size="16" />
         <span>
-          <strong>{{ t('courseGeneration.lessonPlan.overallTab', '总体教案') }}</strong>
+          <strong>{{ t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
           <small>{{ t('courseGeneration.lessonPlan.overallTabHelp', '看整门课怎样设计') }}</small>
         </span>
       </button>
@@ -335,7 +335,7 @@
       >
         <ListTree :size="16" />
         <span>
-          <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '分小节教案') }}</strong>
+          <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
           <small>{{ t('courseGeneration.lessonPlan.sectionsTabHelp', '看每一节如何落地') }}</small>
         </span>
       </button>
@@ -378,7 +378,7 @@
           <header>
             <Target :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.overallObjectivesEyebrow', '总体目标') }}</small>
+              <small>{{ t('courseGeneration.lessonPlan.overallObjectivesEyebrow', '教学目标') }}</small>
               <strong>{{ t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够') }}</strong>
             </span>
           </header>
@@ -402,7 +402,7 @@
           <header>
             <Route :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.entryEyebrow', '学习起点') }}</small>
+              <small>{{ t('courseGeneration.lessonPlan.entryEyebrow', '学情分析') }}</small>
               <strong>{{ t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备') }}</strong>
             </span>
           </header>
@@ -588,7 +588,7 @@
             <small>{{ t('courseGeneration.lessonPlan.courseStructureEyebrow', '教学进程') }}</small>
             <strong>{{ t('courseGeneration.lessonPlan.courseStructureTitle', '章节怎样推动学习发生') }}</strong>
           </span>
-          <p>{{ t('courseGeneration.lessonPlan.courseStructureHelp', '章节负责阶段性推进，分小节教案负责把每一步落实为知识与课程块。') }}</p>
+          <p>{{ t('courseGeneration.lessonPlan.courseStructureHelp', '章节负责阶段性推进，教学设计负责把每一步落实为知识与课程块。') }}</p>
         </header>
         <ol class="generation-lesson-plan__chapter-path">
           <li v-for="(chapter, index) in overallPlan.chapters" :key="chapter.chapter_id || index">
