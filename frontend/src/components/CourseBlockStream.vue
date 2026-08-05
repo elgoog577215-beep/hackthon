@@ -88,6 +88,26 @@
         @delete="deleteAiRecord"
       />
     </template>
+    <section v-if="chapterSourceCards.length" class="chapter-sources" aria-label="本节来源">
+      <header>
+        <strong>{{ t('courseWorkspace.sources.title', '本节来源') }}</strong>
+        <small>{{ t('courseWorkspace.sources.summaryOnly', '网页内容仅使用摘要核验') }}</small>
+      </header>
+      <div>
+        <a
+          v-for="source in chapterSourceCards"
+          :key="source.source_id"
+          class="chapter-source-card"
+          :href="source.url"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span>{{ sourceCitationLabel(source.source_id) }}</span>
+          <strong>{{ source.title || source.domain || source.source_id }}</strong>
+          <small>{{ source.domain }}<template v-if="source.published_date"> · {{ source.published_date }}</template></small>
+        </a>
+      </div>
+    </section>
     <span v-if="isStreaming" class="stream-cursor"></span>
   </div>
   <template v-else>
@@ -176,6 +196,13 @@ const blocks = computed(() => (props.node.course_blocks?.length
   : [...(props.node.content_blocks || [])])
   .filter(block => block && (String(block.content || '').trim() || block.status === 'draft'))
   .sort((left, right) => (left.order || 0) - (right.order || 0)))
+const chapterSourceCards = computed(() => (props.node.source_cards || []).filter(source => {
+  try {
+    return new URL(String(source.url || '')).protocol === 'https:'
+  } catch {
+    return false
+  }
+}))
 const projectableRecords = computed(() => props.records.filter(record => (
   record.sourceType !== 'format'
   && record.sourceType !== 'wrong'
@@ -198,6 +225,11 @@ const streamItems = computed(() => {
   return items
 })
 const applicationVisual = computed(() => evolutionStore.applicationVisual)
+
+function sourceCitationLabel(sourceId: string) {
+  const match = Object.entries(props.node.citation_map || {}).find(([, value]) => value === sourceId)
+  return match ? `〔${match[0]}〕` : '〔S〕'
+}
 
 
 watch(
@@ -374,6 +406,16 @@ async function deleteAiRecord(note: Note) {
 .course-content-block[data-content-block-type="summary"] .block-heading span { min-height:29px; padding:4px 10px; border-radius:9px; font-size:13px; }
 .course-content-block[data-content-block-type="summary"] .block-heading h4 { font-size:21px; font-weight:800; }
 .course-content-block :deep(hr) { display:none; }
+.chapter-sources { display:grid; gap:9px; margin-top:4px; border-top:1px solid #e2e8f0; padding-top:15px; }
+.chapter-sources > header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.chapter-sources > header strong { color:#334155; font-size:11px; }
+.chapter-sources > header small { color:#64748b; font-size:9px; }
+.chapter-sources > div { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; }
+.chapter-source-card { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:2px 7px; border:1px solid #e2e8f0; border-radius:10px; padding:8px 9px; color:#334155; background:#fff; text-decoration:none; transition:border-color .16s ease,transform .16s ease; }
+.chapter-source-card:hover { transform:translateY(-1px); border-color:#a5b4fc; }
+.chapter-source-card > span { grid-row:1/3; border-radius:6px; padding:4px 5px; color:#4338ca; background:#eef2ff; font-size:9px; font-weight:800; }
+.chapter-source-card > strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.chapter-source-card > small { color:#64748b; font-size:8px; }
 .stream-cursor { display: inline-block; width: 2px; height: 18px; background: var(--lz-brand); animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes course-ai-growth-arrival {

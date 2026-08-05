@@ -21,6 +21,7 @@ vi.mock('@/utils/question-bank-rebuild', () => ({
 
 describe('QuestionBankReviewPanel', () => {
   beforeEach(() => {
+    vi.stubGlobal('confirm', vi.fn(() => false))
     get.mockReset()
     post.mockReset()
     resumeQuestionBankRebuild.mockReset()
@@ -495,6 +496,7 @@ describe('QuestionBankReviewPanel', () => {
         node_ids: [],
         revision_ids: ['revision-published'],
         mode: 'incremental',
+        retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -516,6 +518,7 @@ describe('QuestionBankReviewPanel', () => {
         scope: 'nodes',
         node_ids: ['node-1'],
         mode: 'incremental',
+        retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -544,6 +547,7 @@ describe('QuestionBankReviewPanel', () => {
         node_ids: [],
         mode: 'full',
         resume_existing: false,
+        retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -576,6 +580,7 @@ describe('QuestionBankReviewPanel', () => {
         node_ids: [],
         mode: 'full',
         resume_existing: false,
+        retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -624,6 +629,7 @@ describe('QuestionBankReviewPanel', () => {
         node_ids: [],
         mode: 'full',
         resume_existing: true,
+        retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )

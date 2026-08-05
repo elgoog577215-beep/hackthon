@@ -869,6 +869,10 @@ function selectView(view: 'current') {
 
 async function rebuildQuestionBank() {
   if (!props.courseId || questionBankRebuilding.value) return
+  const retrievalEnabled = window.confirm(t(
+    'courseAvailability.rebuildRetrievalConfirm',
+    '本次重建是否启用联网研究？选择“取消”将继续离线重建。',
+  ))
   questionBankRebuilding.value = true
   questionBankRebuildError.value = ''
   questionBankRebuildJob.value = null
@@ -882,6 +886,7 @@ async function rebuildQuestionBank() {
         scope: nodeScoped ? 'nodes' : 'course',
         node_ids: nodeScoped ? [String(props.nodeId)] : [],
         mode: 'incremental',
+        retrieval_enabled: retrievalEnabled,
       },
       {
         signal: rebuildAbortController.signal,

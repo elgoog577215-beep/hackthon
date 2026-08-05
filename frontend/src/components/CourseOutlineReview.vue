@@ -33,8 +33,80 @@
         <div class="outline-review__setup">
           <label class="outline-review__course-name">
             <span>{{ t('courseWorkspace.blueprint.courseName', '课程名称') }}</span>
-            <input v-model="blueprintDraft.course_name" type="text" :placeholder="courseName" />
+            <input
+              v-model="blueprintDraft.course_name"
+              type="text"
+              :placeholder="courseName"
+              :disabled="adjustmentBusy"
+              @input="invalidateProposal"
+            />
           </label>
+
+          <section
+            v-if="retrievalProposal"
+            class="outline-retrieval"
+            data-testid="retrieval-outline-proposal"
+          >
+            <header>
+              <div>
+                <strong>{{ t('courseGeneration.outlineReview.retrievalTitle', '联网研究调整提案') }}</strong>
+                <small>{{ t('courseGeneration.outlineReview.retrievalRevision', '检索包修订 {revision}').replace('{revision}', String(retrievalProposal.retrieval_package_revision || 1)) }}</small>
+              </div>
+              <span>{{ t('courseGeneration.outlineReview.retrievalPending', '确认目录后生效') }}</span>
+            </header>
+            <p>{{ retrievalProposal.reason || t('courseGeneration.outlineReview.retrievalReasonFallback', '外部资料建议调整当前课程结构。') }}</p>
+            <div class="outline-retrieval__shape">
+              <span>{{ shapeSummary(retrievalProposal.diff?.before) }}</span>
+              <ArrowRight :size="13" />
+              <span>{{ shapeSummary(retrievalProposal.diff?.after) }}</span>
+            </div>
+            <div class="outline-retrieval__diff">
+              <section v-for="group in retrievalDiffGroups" :key="group.key" v-show="group.items.length">
+                <h3>{{ group.label }}</h3>
+                <ul>
+                  <li v-for="item in group.items" :key="`${group.key}-${item.node_id || item.node_name}`">
+                    <span>{{ item.node_name || item.title }}</span>
+                    <small>{{ item.old_position && item.new_position
+                      ? `${item.old_position} → ${item.new_position}`
+                      : item.new_position || item.old_position || changedFieldSummary(item.changes) }}</small>
+                  </li>
+                </ul>
+              </section>
+            </div>
+            <div v-if="retrievalProposal.sources?.length" class="outline-retrieval__sources">
+              <a
+                v-for="source in retrievalProposal.sources"
+                v-show="safeExternalUrl(source.url)"
+                :key="source.source_id"
+                class="outline-retrieval__source"
+                :href="safeExternalUrl(source.url)"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <strong>{{ source.title || source.domain }}</strong>
+                <small>{{ source.domain }} · {{ source.trust_tier }}<template v-if="source.published_date"> · {{ source.published_date }}</template></small>
+              </a>
+            </div>
+          </section>
+
+          <section
+            v-else-if="retrievalNotice"
+            class="outline-retrieval outline-retrieval--notice"
+            data-testid="retrieval-outline-notice"
+            role="status"
+          >
+            <div>
+              <strong>{{ t('courseGeneration.outlineReview.retrievalIncomplete', '联网核验未完成') }}</strong>
+              <p>{{ retrievalNotice }}</p>
+            </div>
+            <button type="button" :disabled="retryingRetrieval" @click="retryRetrieval">
+              <LoaderCircle v-if="retryingRetrieval" :size="14" />
+              {{ retryingRetrieval
+                ? t('courseGeneration.outlineReview.retrievalRetrying', '正在重试')
+                : t('courseGeneration.outlineReview.retrievalRetry', '重试联网核验') }}
+            </button>
+            <small>{{ t('courseGeneration.outlineReview.retrievalOffline', '也可以直接确认当前本地蓝图，离线继续。') }}</small>
+          </section>
 
           <section v-if="isProjectCourse" class="outline-review__starting-point" :data-status="startingProfileStatus">
             <header>
@@ -57,6 +129,125 @@
             </div>
             <footer>{{ t('courseGeneration.outlineReview.startingPointGuard', '起点来自你的自述，只用于安排第一版路径，不等同于已经掌握。') }}</footer>
           </section>
+
+          <section class="outline-review__adjustment" :aria-busy="generatingProposal">
+            <div>
+              <label for="outline-adjustment-instruction">
+                {{ t('courseGeneration.outlineReview.adjustmentTitle', '一句话调整目录') }}
+              </label>
+              <p>{{ t('courseGeneration.outlineReview.adjustmentHelp', '可以增删、排序、跨章移动、拆章、并章，也可以修改标题和学习目标。系统会先展示整套差异。') }}</p>
+            </div>
+            <textarea
+              id="outline-adjustment-instruction"
+              v-model="adjustmentInstruction"
+              rows="2"
+              maxlength="3000"
+              :disabled="adjustmentBusy"
+              :placeholder="t('courseGeneration.outlineReview.adjustmentPlaceholder', '例如：把生命周期移到工程实践章最前面，再新增一节组件组合实战')"
+            />
+            <button
+              type="button"
+              data-testid="generate-outline-adjustment"
+              :disabled="adjustmentBusy || !adjustmentInstruction.trim() || !blueprintNodes.length"
+              @click="generateAdjustmentProposal"
+            >
+              <LoaderCircle v-if="generatingProposal" :size="15" />
+              <Sparkles v-else :size="15" />
+              {{ generatingProposal
+                ? t('courseGeneration.outlineReview.adjustmentGenerating', '正在生成方案')
+                : t('courseGeneration.outlineReview.adjustmentGenerate', '生成调整方案') }}
+            </button>
+          </section>
+
+          <p v-if="proposalNotice" class="outline-review__proposal-notice" role="status">
+            {{ proposalNotice }}
+          </p>
+
+          <section
+            v-if="adjustmentProposal"
+            ref="proposalSummaryRef"
+            class="outline-review__proposal"
+            tabindex="-1"
+            aria-labelledby="outline-adjustment-summary"
+          >
+            <details open>
+              <summary id="outline-adjustment-summary">
+                <span>{{ t('courseGeneration.outlineReview.proposalTitle', '调整方案预览') }}</span>
+                <strong>
+                  {{ shapeSummary(adjustmentProposal.diff?.before) }}
+                  <ArrowRight :size="13" />
+                  {{ shapeSummary(adjustmentProposal.diff?.after) }}
+                </strong>
+              </summary>
+              <p class="outline-review__proposal-summary">{{ adjustmentProposal.summary }}</p>
+
+              <div class="outline-review__diff-groups">
+                <section v-if="adjustmentProposal.diff?.added?.length">
+                  <h3>{{ t('courseGeneration.outlineReview.diffAdded', '新增') }}</h3>
+                  <ul>
+                    <li v-for="item in adjustmentProposal.diff.added" :key="`added-${item.node_id || item.node_name}`">
+                      <span>{{ item.node_name }}</span><small>{{ item.new_position }}</small>
+                    </li>
+                  </ul>
+                </section>
+                <section v-if="adjustmentProposal.diff?.removed?.length">
+                  <h3>{{ t('courseGeneration.outlineReview.diffRemoved', '删除') }}</h3>
+                  <ul>
+                    <li v-for="item in adjustmentProposal.diff.removed" :key="`removed-${item.node_id || item.node_name}`">
+                      <span>{{ item.node_name }}</span><small>{{ item.old_position }}</small>
+                    </li>
+                  </ul>
+                </section>
+                <section v-if="adjustmentProposal.diff?.moved?.length">
+                  <h3>{{ t('courseGeneration.outlineReview.diffMoved', '移动') }}</h3>
+                  <ul>
+                    <li v-for="item in adjustmentProposal.diff.moved" :key="`moved-${item.node_id || item.node_name}`">
+                      <span>{{ item.node_name }}</span>
+                      <small>{{ item.old_position }} → {{ item.new_position }}</small>
+                    </li>
+                  </ul>
+                </section>
+                <section v-if="adjustmentProposal.diff?.updated?.length">
+                  <h3>{{ t('courseGeneration.outlineReview.diffUpdated', '内容修改') }}</h3>
+                  <ul>
+                    <li v-for="item in adjustmentProposal.diff.updated" :key="`updated-${item.node_id || item.node_name}`">
+                      <span>{{ item.node_name }}</span>
+                      <small>{{ changedFieldSummary(item.changes) }}</small>
+                    </li>
+                  </ul>
+                </section>
+              </div>
+
+              <ul v-if="adjustmentProposal.blocking_issues?.length" class="outline-review__blockers" role="alert">
+                <li v-for="issue in adjustmentProposal.blocking_issues" :key="issue.code || issue.message">
+                  {{ issue.message }}
+                </li>
+              </ul>
+
+              <div class="outline-review__proposal-actions">
+                <button
+                  type="button"
+                  data-testid="cancel-outline-adjustment"
+                  :disabled="applyingProposal"
+                  @click="cancelAdjustmentProposal"
+                >
+                  {{ t('courseGeneration.outlineReview.proposalCancel', '取消') }}
+                </button>
+                <button
+                  type="button"
+                  class="primary"
+                  data-testid="apply-outline-adjustment"
+                  :disabled="applyingProposal || !adjustmentProposal.can_apply"
+                  @click="applyAdjustmentProposal"
+                >
+                  <LoaderCircle v-if="applyingProposal" :size="15" />
+                  {{ applyingProposal
+                    ? t('courseGeneration.outlineReview.proposalApplying', '正在应用')
+                    : t('courseGeneration.outlineReview.proposalApply', '应用整套方案') }}
+                </button>
+              </div>
+            </details>
+          </section>
         </div>
 
         <ol class="outline-review__nodes">
@@ -77,14 +268,18 @@
               <input
                 v-model="node.node_name"
                 type="text"
+                :disabled="adjustmentBusy"
                 :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
+                @input="invalidateProposal"
               />
               <textarea
                 v-if="Number(node.node_level || 2) >= 2 || 'learning_objective' in node"
                 v-model="node.learning_objective"
                 rows="1"
+                :disabled="adjustmentBusy"
                 :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '写清这一节结束后，学习者能够做到什么')"
                 :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
+                @input="invalidateProposal"
               />
             </div>
           </li>
@@ -105,7 +300,7 @@
           <button
             type="button"
             class="secondary"
-            :disabled="loading || acting || !dirty || !blueprintNodes.length"
+            :disabled="loading || acting || !!adjustmentProposal || !dirty || !blueprintNodes.length"
             @click="saveDraft"
           >
             <LoaderCircle v-if="saving" :size="15" />
@@ -119,7 +314,7 @@
           <button
             type="button"
             class="primary"
-            :disabled="loading || acting || !blueprintNodes.length"
+            :disabled="loading || acting || !!adjustmentProposal || !blueprintNodes.length"
             @click="confirmOutline"
           >
             <LoaderCircle v-if="confirming" :size="15" />
@@ -129,12 +324,13 @@
         </div>
       </footer>
     </article>
+    <span class="outline-review__sr-only" aria-live="polite">{{ liveStatus }}</span>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { ArrowRight, CircleCheckBig, LoaderCircle, Save, TriangleAlert } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { ArrowRight, CircleCheckBig, LoaderCircle, Save, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
@@ -161,14 +357,38 @@ const courseStore = useCourseStore()
 const workspace = useCourseWorkspaceStore()
 const generationStore = useGenerationStore()
 const blueprintDraft = ref<Record<string, any>>({})
+const retrievalArtifact = ref<Record<string, any>>({})
 const baseline = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const confirming = ref(false)
 const loadError = ref('')
 const actionError = ref('')
+const adjustmentInstruction = ref('')
+const adjustmentProposal = ref<Record<string, any> | null>(null)
+const generatingProposal = ref(false)
+const applyingProposal = ref(false)
+const retryingRetrieval = ref(false)
+const proposalNotice = ref('')
+const liveStatus = ref('')
+const proposalSummaryRef = ref<HTMLElement | null>(null)
+const adjustmentRequestId = ref('')
 
-const acting = computed(() => saving.value || confirming.value)
+const adjustmentBusy = computed(() => generatingProposal.value || applyingProposal.value)
+const retrievalProposal = computed<Record<string, any> | null>(() => (
+  retrievalArtifact.value?.proposal || null
+))
+const retrievalNotice = computed(() => String(retrievalArtifact.value?.notice || '').trim())
+const retrievalDiffGroups = computed(() => {
+  const diff = retrievalProposal.value?.diff || {}
+  return [
+    { key: 'added', label: t('courseGeneration.outlineReview.diffAdded', '新增'), items: diff.added || [] },
+    { key: 'removed', label: t('courseGeneration.outlineReview.diffRemoved', '删除'), items: diff.removed || [] },
+    { key: 'moved', label: t('courseGeneration.outlineReview.diffMoved', '移动'), items: diff.moved || [] },
+    { key: 'updated', label: t('courseGeneration.outlineReview.diffUpdated', '内容修改'), items: diff.updated || [] },
+  ]
+})
+const acting = computed(() => saving.value || confirming.value || adjustmentBusy.value)
 const blueprintNodes = computed<any[]>(() => (
   Array.isArray(blueprintDraft.value?.nodes)
     ? blueprintDraft.value.nodes
@@ -195,6 +415,7 @@ const draftSignature = computed(() => JSON.stringify({
     node_name: node.node_name,
     node_level: node.node_level,
     learning_objective: node.learning_objective || '',
+    prerequisite_node_ids: node.prerequisite_node_ids || [],
   })),
 }))
 const dirty = computed(() => Boolean(baseline.value && draftSignature.value !== baseline.value))
@@ -254,6 +475,11 @@ function seedNodesFromCourse() {
     }))
 }
 
+function syncNavigationFromDraft() {
+  if (courseStore.currentCourseId !== props.courseId || !blueprintNodes.value.length) return
+  courseStore.applyGenerationOutlineDraft(blueprintNodes.value)
+}
+
 async function loadBlueprint() {
   if (!props.courseId || loading.value) return
   loading.value = true
@@ -261,10 +487,14 @@ async function loadBlueprint() {
   actionError.value = ''
   try {
     const data = await workspace.loadBlueprint(props.courseId)
+    retrievalArtifact.value = clone(data.retrieval || {})
     blueprintDraft.value = clone(data.draft || data.current || data || {})
     seedNodesFromCourse()
     if (!blueprintDraft.value.course_name) blueprintDraft.value.course_name = props.courseName
+    syncNavigationFromDraft()
     baseline.value = draftSignature.value
+    adjustmentProposal.value = null
+    proposalNotice.value = ''
   } catch {
     loadError.value = t('courseGeneration.gate.loadFailed', '当前确认内容读取失败，请稍后重试。')
   } finally {
@@ -272,10 +502,18 @@ async function loadBlueprint() {
   }
 }
 
-function draftPayload() {
-  const draft = blueprintDraft.value
+function draftPayload(
+  source: Record<string, any> = blueprintDraft.value,
+  expectedDraftRevisionId?: string,
+  proposalId?: string,
+  adjustmentOperations?: Record<string, any>[],
+) {
+  const draft = source
   return {
     base_blueprint_revision_id: draft.base_blueprint_revision_id,
+    expected_draft_revision_id: expectedDraftRevisionId || draft.draft_revision_id,
+    adjustment_proposal_id: proposalId,
+    adjustment_operations: adjustmentOperations,
     course_name: draft.course_name,
     course_purpose: draft.course_purpose,
     course_type: draft.course_type,
@@ -292,8 +530,157 @@ async function persistDraft(showMessage = true) {
   if (!blueprintNodes.value.length) return
   const result = await workspace.saveBlueprint(props.courseId, draftPayload())
   if (result?.draft) blueprintDraft.value = clone(result.draft)
+  syncNavigationFromDraft()
   baseline.value = draftSignature.value
   if (showMessage) ElMessage.success(t('courseGeneration.outlineReview.savedMessage', '目录修改已保存'))
+}
+
+function safeExternalUrl(value: unknown) {
+  try {
+    const parsed = new URL(String(value || ''))
+    return parsed.protocol === 'https:' ? parsed.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
+async function retryRetrieval() {
+  if (!props.courseId || retryingRetrieval.value) return
+  retryingRetrieval.value = true
+  actionError.value = ''
+  try {
+    const result = await workspace.retryBlueprintRetrieval(props.courseId)
+    retrievalArtifact.value = clone(result.retrieval || {})
+    const candidate = retrievalArtifact.value?.proposal?.candidate_draft
+    if (candidate) {
+      blueprintDraft.value = clone(candidate)
+      baseline.value = draftSignature.value
+      syncNavigationFromDraft()
+    }
+  } catch (error: any) {
+    actionError.value = error?.response?.data?.detail?.message || t(
+      'courseGeneration.outlineReview.retrievalRetryFailed',
+      '联网核验重试失败，当前本地蓝图仍然保留。',
+    )
+  } finally {
+    retryingRetrieval.value = false
+  }
+}
+
+function requestId() {
+  return `outline-adjustment-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function shapeSummary(shape: Record<string, any> | undefined) {
+  const chapters = Number(shape?.chapter_count || 0)
+  const sections = Number(shape?.section_count || 0)
+  return t('courseGeneration.outlineReview.shapeSummary', '{chapters} 章 · {sections} 节')
+    .replace('{chapters}', String(chapters))
+    .replace('{sections}', String(sections))
+}
+
+function changedFieldSummary(changes: Record<string, any> | undefined) {
+  const labels: Record<string, string> = {
+    node_name: t('courseGeneration.outlineReview.changedName', '标题'),
+    learning_objective: t('courseGeneration.outlineReview.changedObjective', '学习目标'),
+    prerequisite_node_ids: t('courseGeneration.outlineReview.changedDependencies', '前置依赖'),
+  }
+  return Object.keys(changes || {}).map(field => labels[field] || field).join('、')
+}
+
+function invalidateProposal() {
+  if (!adjustmentProposal.value) return
+  adjustmentProposal.value = null
+  proposalNotice.value = t(
+    'courseGeneration.outlineReview.proposalInvalidated',
+    '目录已被手动修改，请重新生成方案',
+  )
+  liveStatus.value = proposalNotice.value
+}
+
+async function generateAdjustmentProposal() {
+  const instruction = adjustmentInstruction.value.trim()
+  if (!instruction || acting.value || !blueprintNodes.value.length) return
+  generatingProposal.value = true
+  adjustmentProposal.value = null
+  proposalNotice.value = ''
+  actionError.value = ''
+  liveStatus.value = t('courseGeneration.outlineReview.adjustmentGenerating', '正在生成方案')
+  try {
+    if (dirty.value) await persistDraft(false)
+    adjustmentRequestId.value = requestId()
+    const proposal = await workspace.previewBlueprintAdjustment(props.courseId, {
+      request_id: adjustmentRequestId.value,
+      base_blueprint_revision_id: blueprintDraft.value.base_blueprint_revision_id,
+      expected_draft_revision_id: blueprintDraft.value.draft_revision_id,
+      instruction,
+    })
+    adjustmentProposal.value = clone(proposal)
+    liveStatus.value = proposal.can_apply
+      ? t('courseGeneration.outlineReview.proposalReady', '调整方案已生成，请检查整套差异')
+      : t('courseGeneration.outlineReview.proposalBlocked', '调整方案存在阻断项，不能应用')
+    await nextTick()
+    proposalSummaryRef.value?.focus()
+  } catch (error: any) {
+    const status = Number(error?.response?.status || 0)
+    actionError.value = status === 409
+      ? t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
+      : status === 503
+        ? t('courseGeneration.outlineReview.proposalUnavailable', 'AI 调整服务暂时不可用，请稍后重试。')
+        : t('courseGeneration.outlineReview.proposalFailed', '调整方案生成失败，请换一种说法后重试。')
+    liveStatus.value = actionError.value
+  } finally {
+    generatingProposal.value = false
+  }
+}
+
+function cancelAdjustmentProposal() {
+  const proposalId = String(adjustmentProposal.value?.proposal_id || '')
+  if (proposalId && adjustmentRequestId.value) {
+    void workspace.cancelBlueprintAdjustment(
+      props.courseId,
+      proposalId,
+      adjustmentRequestId.value,
+    ).catch(() => undefined)
+  }
+  adjustmentProposal.value = null
+  proposalNotice.value = ''
+  liveStatus.value = t('courseGeneration.outlineReview.proposalCancelled', '已取消调整方案，目录没有变化')
+}
+
+async function applyAdjustmentProposal() {
+  const proposal = adjustmentProposal.value
+  if (!proposal?.can_apply || acting.value) return
+  applyingProposal.value = true
+  actionError.value = ''
+  liveStatus.value = t('courseGeneration.outlineReview.proposalApplying', '正在应用')
+  try {
+    const candidate = clone(proposal.draft || {})
+    const result = await workspace.saveBlueprint(
+      props.courseId,
+      draftPayload(
+        candidate,
+        proposal.source_draft_revision_id,
+        proposal.proposal_id,
+        proposal.operations,
+      ),
+    )
+    adjustmentProposal.value = null
+    blueprintDraft.value = clone(result?.draft || candidate)
+    syncNavigationFromDraft()
+    baseline.value = draftSignature.value
+    proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
+    liveStatus.value = proposalNotice.value
+    ElMessage.success(proposalNotice.value)
+  } catch (error: any) {
+    const status = Number(error?.response?.status || 0)
+    actionError.value = status === 409
+      ? t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
+      : t('courseGeneration.outlineReview.proposalApplyFailed', '方案应用失败，原目录草稿未改变。')
+    liveStatus.value = actionError.value
+  } finally {
+    applyingProposal.value = false
+  }
 }
 
 async function saveDraft() {
@@ -531,6 +918,161 @@ async function confirmOutline() {
   font-size:10px;
   line-height:1.5;
 }
+.outline-retrieval { margin:14px 30px 2px; border:1px solid #c7d2fe; border-radius:12px; padding:13px; background:linear-gradient(135deg,#eef2ff,#fafaff); }
+.outline-retrieval > header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.outline-retrieval > header div { display:grid; gap:2px; }
+.outline-retrieval > header strong { color:#312e81; font-size:13px; }
+.outline-retrieval > header small,.outline-retrieval > header > span { color:#6366f1; font-size:9px; }
+.outline-retrieval > header > span { border-radius:999px; padding:3px 7px; background:#e0e7ff; white-space:nowrap; }
+.outline-retrieval > p { margin:9px 0; color:#475569; font-size:11px; line-height:1.55; }
+.outline-retrieval__shape { display:flex; align-items:center; gap:6px; color:#4338ca; font-size:10px; }
+.outline-retrieval__diff { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:10px; }
+.outline-retrieval__diff section { border-radius:8px; padding:8px; background:rgba(255,255,255,.75); }
+.outline-retrieval__diff h3 { margin:0 0 4px; color:#475569; font-size:9px; }
+.outline-retrieval__diff ul { margin:0; padding-left:15px; }
+.outline-retrieval__diff li { color:#334155; font-size:10px; }
+.outline-retrieval__diff li small { display:block; color:#64748b; font-size:9px; }
+.outline-retrieval__sources { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.outline-retrieval__source { max-width:240px; display:grid; gap:1px; border:1px solid #e0e7ff; border-radius:8px; padding:6px 8px; color:#3730a3; background:#fff; text-decoration:none; }
+.outline-retrieval__source:hover { border-color:#a5b4fc; }
+.outline-retrieval__source strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.outline-retrieval__source small { color:#64748b; font-size:8px; }
+.outline-retrieval--notice { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; border-color:#fed7aa; background:#fff7ed; }
+.outline-retrieval--notice strong { color:#9a3412; font-size:12px; }
+.outline-retrieval--notice p { margin:2px 0 0; color:#9a3412; font-size:10px; }
+.outline-retrieval--notice button { border:1px solid #fdba74; border-radius:8px; padding:6px 9px; color:#9a3412; background:#fff; font-size:10px; cursor:pointer; }
+.outline-retrieval--notice > small { grid-column:1/-1; color:#7c2d12; font-size:9px; }
+.outline-review__adjustment {
+  display:grid;
+  grid-template-columns:minmax(180px,.8fr) minmax(280px,1.7fr) auto;
+  align-items:center;
+  gap:14px;
+  margin:0 30px;
+  padding:13px 0;
+  border-top:1px solid #eceef2;
+}
+.outline-review__adjustment label {
+  color:#344054;
+  font-size:12px;
+  font-weight:850;
+}
+.outline-review__adjustment p {
+  margin:3px 0 0;
+  color:#7b8494;
+  font-size:10px;
+  line-height:1.45;
+}
+.outline-review__adjustment textarea {
+  min-height:56px;
+  padding:9px 11px;
+  border-color:#d9ddea;
+  background:#fbfbfe;
+  resize:vertical;
+  font-size:12px;
+  line-height:1.5;
+}
+.outline-review__adjustment button,
+.outline-review__proposal-actions button {
+  min-height:39px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:0 13px;
+  border:1px solid #c9cdea;
+  border-radius:8px;
+  color:#454ca8;
+  background:#f7f7ff;
+  font-size:11px;
+  font-weight:800;
+  cursor:pointer;
+}
+.outline-review__adjustment button:disabled,
+.outline-review__proposal-actions button:disabled { opacity:.5; cursor:not-allowed; }
+.outline-review__adjustment svg.lucide-loader-circle,
+.outline-review__proposal-actions svg.lucide-loader-circle { animation:outline-review-spin .9s linear infinite; }
+.outline-review__proposal-notice {
+  margin:0 30px;
+  padding:7px 0 10px 114px;
+  color:#087a5b;
+  font-size:11px;
+  font-weight:750;
+}
+.outline-review__proposal {
+  margin:0 30px 13px 144px;
+  border:1px solid #d9dcef;
+  border-radius:10px;
+  background:#fbfbff;
+  outline:none;
+}
+.outline-review__proposal:focus { box-shadow:0 0 0 3px rgba(79,70,217,.1); }
+.outline-review__proposal details { padding:10px 12px 12px; }
+.outline-review__proposal summary {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  color:#343b86;
+  font-size:11px;
+  font-weight:850;
+  cursor:pointer;
+}
+.outline-review__proposal summary strong {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  color:#60687b;
+  font-size:10px;
+}
+.outline-review__proposal-summary {
+  margin:9px 0;
+  color:#3e485b;
+  font-size:12px;
+  line-height:1.55;
+}
+.outline-review__diff-groups {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+.outline-review__diff-groups section {
+  min-width:0;
+  padding:8px 9px;
+  border:1px solid #e5e7ef;
+  border-radius:7px;
+  background:#fff;
+}
+.outline-review__diff-groups h3 { margin:0 0 5px; color:#596579; font-size:10px; }
+.outline-review__diff-groups ul,
+.outline-review__blockers { margin:0; padding-left:16px; }
+.outline-review__diff-groups li { margin:3px 0; color:#344054; font-size:10px; }
+.outline-review__diff-groups li span,
+.outline-review__diff-groups li small { display:block; overflow-wrap:anywhere; }
+.outline-review__diff-groups li small { margin-top:1px; color:#7b8494; font-size:9px; }
+.outline-review__blockers {
+  margin-top:9px;
+  color:#b42318;
+  font-size:10px;
+}
+.outline-review__proposal-actions {
+  display:flex;
+  justify-content:flex-end;
+  gap:7px;
+  margin-top:10px;
+}
+.outline-review__proposal-actions button.primary {
+  border-color:#454ca8;
+  color:#fff;
+  background:#454ca8;
+}
+.outline-review__sr-only {
+  position:absolute;
+  width:1px;
+  height:1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+}
 .outline-review__nodes {
   display:grid;
   min-height:0;
@@ -701,6 +1243,19 @@ async function confirmOutline() {
   .outline-review__course-name { grid-template-columns:1fr; gap:3px; margin:0 16px; padding:10px 0 8px; }
   .outline-review__starting-point { margin:0 16px; padding:11px 0 13px; }
   .outline-review__starting-point > div { grid-template-columns:1fr; gap:8px; }
+  .outline-review__adjustment {
+    grid-template-columns:1fr;
+    gap:8px;
+    margin:0 16px;
+    padding:11px 0;
+  }
+  .outline-review__adjustment button { width:100%; }
+  .outline-review__proposal-notice { margin:0 16px; padding:6px 0 10px; }
+  .outline-review__proposal { width:auto; margin:0 16px 11px; }
+  .outline-review__proposal summary { align-items:flex-start; flex-direction:column; gap:4px; }
+  .outline-review__diff-groups { grid-template-columns:1fr; }
+  .outline-review__proposal-actions { display:grid; grid-template-columns:1fr 1.25fr; }
+  .outline-review__proposal-actions button { width:100%; }
   .outline-review__nodes { padding:4px 16px 12px; }
   .outline-review__nodes li { grid-template-columns:26px 12px minmax(0,1fr); gap:6px; }
   .outline-review__footer { align-items:stretch; flex-direction:column; gap:9px; padding:11px 12px 13px; }

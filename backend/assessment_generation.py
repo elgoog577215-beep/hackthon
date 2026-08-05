@@ -47,6 +47,14 @@ def generate_universal_question_contract(
     )
     if not resolved_objective:
         raise ValueError("assessment objective is required")
+    web_source_records = [
+        deepcopy(reference.get("source_record") or {})
+        for reference in references or []
+        if (
+            reference.get("source_type") == "trusted_web_reference"
+            and (reference.get("source_record") or {}).get("source_id")
+        )
+    ]
     if (
         slot
         and str(slot.get("archetype_id") or "")
@@ -133,12 +141,18 @@ def generate_universal_question_contract(
         "provenance": {
             "course_id": str(course_data.get("course_id") or ""),
             "source_priority": (
-                "course_materials"
-                if resolved_objective.get("source_refs")
-                else "general_model_knowledge"
+                "trusted_web_reference"
+                if web_source_records
+                else (
+                    "course_materials"
+                    if resolved_objective.get("source_refs")
+                    else "general_model_knowledge"
+                )
             ),
             "source_refs": deepcopy(
-                resolved_objective.get("source_refs") or []
+                web_source_records
+                or resolved_objective.get("source_refs")
+                or []
             ),
         },
         "difficulty_contract": deepcopy(
@@ -179,6 +193,7 @@ def generate_universal_question_contract(
         "input_contract": deepcopy(content["input_contract"]),
         "estimated_minutes": _estimated_minutes(practice_level),
         "question_spec": question_spec,
+        "source_records": deepcopy(web_source_records),
         "solution_envelope": solution_envelope,
         "solution_validation": validation,
         "risk_flags": list(dict.fromkeys([
