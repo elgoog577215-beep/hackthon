@@ -1661,7 +1661,8 @@
     "courseTypes": {
       "label": "Course type",
       "help": "Course type organizes the learning process; discipline shapes how the content is taught.",
-      "comingSoon": "Coming soon",
+      "comingSoon": "Planned",
+      "plannedReason": "This course type needs its own dedicated planner before it can really be organized this way. It stays closed until that planner is ready, so you never get an ordinary systematic course under a different name.",
       "systematic": {
         "label": "Systematic learning",
         "detail": "Build from foundations through prerequisites and a complete knowledge structure"

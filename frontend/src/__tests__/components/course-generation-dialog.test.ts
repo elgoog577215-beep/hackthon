@@ -178,7 +178,9 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
     expect(wrapper.text()).toContain('课程类型决定学习过程如何组织')
-    expect(wrapper.text()).toContain('即将开放')
+    expect(wrapper.text()).toContain('规划中')
+    expect(wrapper.text()).toContain('需要专用的规划器')
+    expect(wrapper.text()).toContain('避免生成出来的其实是一门普通系统课程')
   })
 
   it('辅助学科不能与手动选择的主学科相同', async () => {
@@ -261,7 +263,8 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.text()).toContain('Project practice')
     expect(wrapper.text()).toContain('Inquiry learning')
     expect(wrapper.text()).toContain('Exam sprint')
-    expect(wrapper.text()).toContain('Coming soon')
+    expect(wrapper.text()).toContain('Planned')
+    expect(wrapper.text()).toContain('needs its own dedicated planner')
     expect(wrapper.text()).toContain('More classroom settings')
     expect(wrapper.text()).not.toContain('courseGeneration.')
     expect(wrapper.text()).not.toContain('课程类型')

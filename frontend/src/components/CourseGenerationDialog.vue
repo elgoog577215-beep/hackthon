@@ -57,6 +57,9 @@
                       <small v-if="!item.available">{{ t('courseGeneration.courseTypes.comingSoon', '即将开放') }}</small>
                     </span>
                     <span>{{ item.detail }}</span>
+                    <span v-if="!item.available" class="course-type-option__reason">
+                      {{ t('courseGeneration.courseTypes.plannedReason', '这类课程需要专用的规划器才能真正按上述方式组织；在它完成前不开放，避免生成出来的其实是一门普通系统课程。') }}
+                    </span>
                   </span>
                   <span v-if="item.available" class="course-type-option__check"><Check :size="11" /></span>
                 </button>
@@ -609,6 +612,7 @@ async function submit() {
 .course-type-option:disabled .course-type-option__icon { color: var(--lz-text-muted); background: #fff; }
 .course-type-option__copy { min-width: 0; display: grid; gap: 5px; }
 .course-type-option__copy > span:last-child { overflow-wrap: anywhere; color: var(--lz-text-muted); font-size: 9px; line-height: 1.45; }
+.course-type-option__reason { overflow-wrap: anywhere; color: var(--lz-text-muted); font-size: 9px; line-height: 1.5; font-style: italic; opacity: .92; }
 .course-type-option__heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .course-type-option__heading strong { color: inherit; font-size: 11px; }
 .course-type-option__heading small { padding: 2px 5px; border-radius: 4px; color: var(--lz-text-muted); background: #fff; font-size: 8px; font-weight: 650; }
