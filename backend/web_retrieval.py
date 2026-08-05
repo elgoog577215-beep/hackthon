@@ -275,6 +275,7 @@ class RetrievalGateway:
                     tier_a_domains=self.tier_a_domains,
                     retrieved_at=now,
                 )
+                source["matched_query"] = query
                 key = str(source.get("canonical_url") or source.get("url") or source.get("content_hash"))
                 if key in seen:
                     continue
@@ -452,7 +453,13 @@ def classify_source(
     license_name = _sanitize_untrusted(
         str(raw.get("license") or raw.get("rights") or ""), limit=200
     )
-    relevance = _relevance(query, f"{title} {excerpt}")
+    provider_score = raw.get("score")
+    computed_relevance = _relevance(query, f"{title} {excerpt}")
+    relevance = (
+        max(computed_relevance, min(1.0, max(0.0, float(provider_score))))
+        if isinstance(provider_score, (int, float))
+        else computed_relevance
+    )
     has_injection = _contains_injection(str(raw.get("text") or raw.get("content") or highlight_text or ""))
     allowed_domains = tuple(tier_a_domains or _DEFAULT_TIER_A_DOMAINS)
     is_tier_a_domain = any(

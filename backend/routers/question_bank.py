@@ -776,6 +776,13 @@ async def _execute_question_bank_rebuild(
         message="正在解析题目资料与课程正文",
     )
     course_for_bank = deepcopy(course)
+    generation_request = deepcopy(
+        course_for_bank.get("generation_request") or {}
+    )
+    generation_request["retrieval"] = {
+        "enabled": payload.retrieval_enabled,
+    }
+    course_for_bank["generation_request"] = generation_request
     course_for_bank["evidence_catalog"] = _load_course_evidence(
         course.get("material_bindings") or []
     )
@@ -897,16 +904,25 @@ async def _execute_question_bank_rebuild(
         profile=assessment_profile,
         objectives=assessment_objectives,
     )
-    reference_package = compile_local_reference_package(
-        course_for_bank,
-        objectives=assessment_objectives,
-        blueprint=assessment_blueprint,
+    active_job = repository.load(course_id, job_id) or {}
+    reference_package = deepcopy(
+        active_job.get("reference_package") or {}
     )
-    reference_package = await enrich_reference_package_with_web(
-        course_for_bank,
-        reference_package,
-        objectives=assessment_objectives,
-    )
+    if not reference_package:
+        reference_package = compile_local_reference_package(
+            course_for_bank,
+            objectives=assessment_objectives,
+            blueprint=assessment_blueprint,
+        )
+        reference_package = await enrich_reference_package_with_web(
+            course_for_bank,
+            reference_package,
+            objectives=assessment_objectives,
+        )
+        reference_package = repository.freeze_retrieval_package(
+            job_id,
+            reference_package,
+        )
     chapter_publication_enabled = payload.scope in {
         "course",
         "nodes",

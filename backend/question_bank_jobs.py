@@ -375,6 +375,27 @@ class QuestionBankRebuildJobRepository:
             self._write(path, job)
             return deepcopy(job)
 
+    def freeze_retrieval_package(
+        self,
+        job_id: str,
+        package: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist the first package and return it on every later attempt."""
+
+        with self._lock:
+            path, job = self._load_by_job_id(job_id)
+            existing = job.get("reference_package")
+            if isinstance(existing, dict) and existing:
+                return deepcopy(existing)
+            frozen = deepcopy(package)
+            job["reference_package"] = frozen
+            job["retrieval_package_revision_id"] = str(
+                frozen.get("package_revision_id") or ""
+            )
+            job["updated_at"] = _now()
+            self._write(path, job)
+            return deepcopy(frozen)
+
     def fail(
         self,
         job_id: str,

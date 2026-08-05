@@ -32,7 +32,16 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from assessment_blueprint import compile_course_assessment_blueprint
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
+)
 from assessment_orchestrator import AssessmentGenerationOrchestrator
+from assessment_retrieval import (
+    compile_local_reference_package,
+    enrich_reference_package_with_web,
+)
 from content_blocks import set_node_content_blocks
 from course_coherence import (
     compile_course_coherence_contract,
@@ -143,7 +152,6 @@ from question_bank import (
     reconcile_question_bank,
     reconcile_scoped_question_bank,
 )
-from question_search import enrich_question_bank_with_web
 from representation_compiler import (
     compile_core_representations,
     rebuild_core_representations_safely,
@@ -6479,6 +6487,10 @@ class TaskManager:
             node_ids=failed_node_ids,
             practice_levels_by_node=failed_targets,
             on_chapter_complete=checkpoint_repaired_node,
+            reference_package=deepcopy(
+                asset_course.get("_question_reference_package") or {}
+            )
+            or None,
         )
         repaired_compilation = compile_learning_assets(prepared_course)
         rebuilt_question_bank = repaired_compilation.pop("question_bank_bundle")
@@ -6608,6 +6620,63 @@ class TaskManager:
             asset_course["evidence_catalog"] = self.course_service.load_course_evidence_catalog(
                 fresh_course
             )
+        assessment_profile = compile_course_assessment_profile(
+            asset_course
+        )
+        assessment_objectives = compile_assessment_objectives(
+            asset_course,
+            assessment_profile,
+        )
+        assessment_blueprint = compile_course_assessment_blueprint(
+            asset_course,
+            profile=assessment_profile,
+            objectives=assessment_objectives,
+        )
+        retrieval_artifact = deepcopy(
+            stage_artifacts.get("assessment_retrieval") or {}
+        )
+        reference_package = deepcopy(
+            retrieval_artifact.get("reference_package") or {}
+        )
+        if (
+            not reference_package
+            or reference_package.get("blueprint_revision_id")
+            != assessment_blueprint.get("blueprint_revision_id")
+        ):
+            reference_package = compile_local_reference_package(
+                asset_course,
+                objectives=assessment_objectives,
+                blueprint=assessment_blueprint,
+            )
+            course_retrieval_package = deepcopy(
+                (
+                    stage_artifacts.get("web_retrieval") or {}
+                ).get("package")
+                or fresh_course.get("retrieval_package")
+                or {}
+            )
+            reference_package = await enrich_reference_package_with_web(
+                asset_course,
+                reference_package,
+                objectives=assessment_objectives,
+                retrieval_package=course_retrieval_package or None,
+            )
+            stage_artifacts["assessment_retrieval"] = {
+                "status": "frozen",
+                "reference_package": deepcopy(reference_package),
+                "package_revision_id": reference_package.get(
+                    "package_revision_id"
+                ),
+            }
+            await self._save_task_course(task_id, fresh_course)
+        asset_course["_question_reference_package"] = deepcopy(
+            reference_package
+        )
+        if reference_package.get("retrieval_mode") != "off":
+            asset_course = await self._assessment_orchestrator.prepare_course(
+                asset_course,
+                reference_package=reference_package,
+            )
         asset_bundle = compile_learning_assets(asset_course)
         question_bank_bundle = asset_bundle.pop("question_bank_bundle")
         await self._update_phase(
@@ -6626,10 +6695,6 @@ class TaskManager:
             # fallbacks would throw away successful work from a prior run.
             question_bank_bundle = previous_question_bank
         else:
-            question_bank_bundle = await enrich_question_bank_with_web(
-                fresh_course,
-                question_bank_bundle,
-            )
             question_bank_bundle = reconcile_question_bank(
                 previous_question_bank,
                 question_bank_bundle,
