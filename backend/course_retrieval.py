@@ -111,7 +111,15 @@ def build_outline_research_proposal(
     operations = model_result.get("operations")
     if not isinstance(operations, list):
         operations = []
-    applied = apply_outline_operations(base_draft, operations)
+    applied = (
+        apply_outline_operations(base_draft, operations)
+        if operations
+        else {
+            "draft": deepcopy(base_draft),
+            "id_map": {},
+            "constraint_report": {"valid": True, "no_changes": True},
+        }
+    )
     candidate = deepcopy(applied["draft"])
     candidate["base_blueprint_revision_id"] = base_draft.get(
         "base_blueprint_revision_id"

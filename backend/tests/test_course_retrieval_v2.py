@@ -166,6 +166,27 @@ def test_outline_research_proposal_preserves_base_candidate_diff_and_sources():
     assert proposal["tier_b_source_ids"] == ["src_b"]
 
 
+def test_outline_research_proposal_accepts_source_backed_no_change_result():
+    course = _course()
+    base = build_blueprint_draft(course)
+
+    proposal = build_outline_research_proposal(
+        course=course,
+        base_draft=base,
+        model_result={
+            "summary": "The sources support the existing course sequence.",
+            "operations": [],
+        },
+        retrieval_package=_package(),
+    )
+
+    assert proposal["operations"] == []
+    assert proposal["candidate_draft"]["nodes"] == base["nodes"]
+    assert proposal["diff"]["added"] == []
+    assert proposal["diff"]["removed"] == []
+    assert proposal["reason"] == "The sources support the existing course sequence."
+
+
 def test_confirmed_sources_get_stable_inline_citations_and_block_metadata():
     package = _package()
     course = {
