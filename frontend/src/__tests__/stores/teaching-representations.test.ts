@@ -12,6 +12,7 @@ vi.mock('@/utils/http', () => ({
 import {
   consumeTeachingRepresentationStream,
   preferredRepresentationForType,
+  type TeachingRepresentation,
   useTeachingRepresentationsStore,
 } from '@/stores/teachingRepresentations'
 
@@ -57,15 +58,15 @@ beforeEach(() => {
 
 describe('preferredRepresentationForType', () => {
   it('selects the registry target schema instead of a retained legacy PPT', () => {
-    const legacy = {
+    const legacy: TeachingRepresentation = {
       representation_id: 'legacy-v2', representation_type: 'slide_deck', spec_id: 'spec-v2',
       status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: '2026-08-03',
-    } as const
-    const current = {
+    }
+    const current: TeachingRepresentation = {
       representation_id: 'current-v5', representation_type: 'slide_deck', spec_id: 'spec-v5',
       variant_key: 'teaching:qizhi-classroom', status: 'ready', stale_unit_ids: [], stale_reasons: [],
       revision: 'r2', updated_at: '2026-08-05',
-    } as const
+    }
     const registry = {
       slide_deck_target_schema: 'slide_deck_v5',
       specs: [
@@ -79,6 +80,19 @@ describe('preferredRepresentationForType', () => {
       'slide_deck',
       registry,
     )?.representation_id).toBe('current-v5')
+  })
+
+  it('does not surface a legacy PPT when the current slide engine is blocked', () => {
+    const legacy: TeachingRepresentation = {
+      representation_id: 'legacy-v2', representation_type: 'slide_deck', spec_id: 'spec-v2',
+      status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: '2026-08-03',
+    }
+
+    expect(preferredRepresentationForType(
+      [legacy],
+      'slide_deck',
+      { slide_deck_target_schema: 'blocked' },
+    )).toBeUndefined()
   })
 })
 
