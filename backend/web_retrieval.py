@@ -233,6 +233,27 @@ class SearXNGSearchProvider:
                 )
                 response.raise_for_status()
                 data = response.json()
+                results = data.get("results") if isinstance(data, dict) else None
+                if not isinstance(results, list):
+                    raise RetrievalProviderError("provider_error")
+                if not results and (
+                    form["language"] != "all"
+                    or form["categories"] != "general,science"
+                ):
+                    fallback_form = {
+                        **form,
+                        "categories": "general,science",
+                        "language": "all",
+                    }
+                    response = await client.post(
+                        f"{self.base_url}/search",
+                        data=fallback_form,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    results = data.get("results") if isinstance(data, dict) else None
+                    if not isinstance(results, list):
+                        raise RetrievalProviderError("provider_error")
             except httpx.TimeoutException:
                 raise
             except (httpx.HTTPError, ValueError, TypeError) as exc:
@@ -241,9 +262,6 @@ class SearXNGSearchProvider:
             if owns_client:
                 await client.aclose()
 
-        results = data.get("results") if isinstance(data, dict) else None
-        if not isinstance(results, list):
-            raise RetrievalProviderError("provider_error")
         normalized: list[dict[str, Any]] = []
         for raw in results:
             if not isinstance(raw, dict):
