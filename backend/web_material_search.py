@@ -1,8 +1,9 @@
-"""联网资料检索：从课程需求推导查询，把采纳结果落成资料资产。
+"""联网资料落成课程资料资产。
 
-关键约束：联网资料**不建立平行真源**。命中的网页会经 `create_text_asset`
-成为普通 `MaterialAsset`，再走既有 parse -> evidence -> grounding 链，
-与教师导入的资料完全同路。本模块只负责"搜什么、留哪些、怎么标注来源"。
+检索本身由团队的 `web_retrieval.RetrievalGateway` 拥有：provider 选择、
+信誉分级、PII 脱敏、注入清洗、灰度授权与幂等回执都在那一层。本模块只做
+团队没做的一段——把已准入的检索来源变成**普通资料资产**，走 parse →
+evidence → grounding 这条既有链，而不是另开一条 Prompt 注入路径。
 """
 
 from __future__ import annotations
@@ -11,20 +12,15 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from web_search_config import WebSearchPolicy, normalize_domain
-from web_search_provider import (
-    RobotsGate,
-    SearchCallable,
-    WebMaterialSearch,
-    content_hash,
-    detect_open_license,
-    safe_query_term,
-    sanitize_untrusted_text,
+from web_retrieval import (
+    RetrievalRequest,
+    admitted_sources,
+    configured_retrieval_gateway,
+    resolve_retrieval_policy,
 )
 
-# 搜索结果作为资料的最低正文长度，短于此值不足以支撑教学内容。
+# 落地为资料资产的最低正文长度，短于此值不足以支撑教学内容。
 MIN_USABLE_TEXT_CHARS = 200
-MAX_TITLE_CHARS = 300
 MAX_QUERY_CHARS = 300
 
 _STOPWORDS = {
@@ -33,6 +29,13 @@ _STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "into", "about", "course",
     "students", "should", "would", "please", "need", "want", "learn", "teach",
 }
+
+
+def safe_query_term(value: str) -> str:
+    """查询词只保留安全字符，避免把用户/模型文本原样拼进外部请求。"""
+    text = re.sub(r"[\r\n\t]+", " ", str(value or ""))
+    text = re.sub(r"[^\w㐀-鿿 .,+\-]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()[:200]
 
 
 def derive_search_queries(
@@ -46,6 +49,7 @@ def derive_search_queries(
     """从课程主题与需求推导查询词。
 
     查询完全由输入推导且可展示给教师审阅，不做隐式扩写。
+    网关还会再做一次 PII 脱敏，这里只负责语义构造。
     """
     safe_topic = safe_query_term(topic)
     if not safe_topic:
@@ -88,8 +92,7 @@ def _requirement_phrases(requirements: str) -> list[str]:
         cleaned = safe_query_term(segment)
         if not cleaned or len(cleaned) < 2:
             continue
-        lowered = cleaned.lower()
-        if lowered in _STOPWORDS:
+        if cleaned.lower() in _STOPWORDS:
             continue
         tokens: list[str] = []
         for token in re.findall(r"[A-Za-z][A-Za-z0-9_+-]{1,30}|[㐀-鿿]{2,20}", cleaned):
@@ -121,61 +124,27 @@ def _strip_chinese_stopwords(token: str) -> str:
     return re.sub(r"\s+", "", token)
 
 
-def normalize_candidate(
-    raw: dict[str, Any],
-    *,
-    policy: WebSearchPolicy,
-    query: str,
-    retrieved_at: str,
-) -> dict[str, Any]:
-    """把 provider 原始结果归一化为带来源标注的候选，正文已清洗。"""
-    url = str(raw.get("url") or "").strip()[:2000]
-    highlights = raw.get("highlights") or []
-    highlight_text = " ".join(str(v) for v in highlights if isinstance(v, str))
-    body = str(raw.get("text") or raw.get("content") or highlight_text or raw.get("summary") or "")
-    text = sanitize_untrusted_text(body, max_chars=policy.max_source_chars)
-    title = sanitize_untrusted_text(str(raw.get("title") or ""), max_chars=MAX_TITLE_CHARS)
-    license_name = sanitize_untrusted_text(
-        str(raw.get("license") or raw.get("rights") or ""), max_chars=200
-    )
-    open_license = detect_open_license(license_name)
-    return {
-        "url": url,
-        "domain": normalize_domain(urlparse(url).netloc),
-        "title": title,
-        "text": text,
-        "author": sanitize_untrusted_text(str(raw.get("author") or ""), max_chars=300),
-        "published_date": str(raw.get("publishedDate") or raw.get("published_date") or "")[:50],
-        "license": license_name,
-        "open_license": open_license,
-        "credibility": policy.credibility_for(url, open_license=open_license),
-        "content_hash": content_hash(text),
-        "retrieved_at": retrieved_at,
-        "query": query[:MAX_QUERY_CHARS],
-    }
-
-
 async def discover_web_materials(
     *,
     topic: str,
     requirements: str = "",
     target_audience: str = "",
     objectives: list[str] | None = None,
-    policy: WebSearchPolicy | None = None,
-    search: SearchCallable | None = None,
-    robots_gate: RobotsGate | None = None,
+    generation_request: dict[str, Any] | None = None,
+    ingest_settings: dict[str, Any] | None = None,
+    user_id: str | None = None,
+    gateway: Any = None,
+    feature: dict[str, Any] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
-    """执行一次联网资料检索，返回可供教师审阅的候选与完整搜索记录。
+    """经团队检索网关取回来源，转成可落地的资料候选。
 
     永不抛异常：任何失败都体现为 status 与 degraded 标记，让生成流程继续。
     """
-    from web_search_provider import RateLimiter  # 局部导入避免循环依赖顾虑
-
-    active_policy = policy or WebSearchPolicy.from_env()
-    retrieved_at = now or _timestamp()
+    settings = ingest_settings or {}
+    policy = resolve_retrieval_policy(generation_request or {})
     report: dict[str, Any] = {
-        "enabled": bool(active_policy.enabled),
+        "enabled": bool(policy.get("enabled")),
         "status": "disabled",
         "degraded": True,
         "queries": [],
@@ -183,11 +152,31 @@ async def discover_web_materials(
         "rejected": [],
         "query_count": 0,
         "candidate_count": 0,
-        "policy": active_policy.to_dict(),
-        "retrieved_at": retrieved_at,
+        "policy": {
+            "enabled": bool(policy.get("enabled")),
+            "scopes": list(policy.get("scopes") or []),
+            "source": str(policy.get("source") or "default_off"),
+        },
+        "retrieved_at": now or "",
         "message_code": "web_search_disabled",
     }
-    if not active_policy.enabled:
+    # 旧的题库联网开关只覆盖 assessment，不放行课程资料检索。
+    if not policy.get("enabled") or "course" not in (policy.get("scopes") or []):
+        return report
+    # 教师可以只用引用、不落资料库。
+    if bool(settings.get("skip_ingest")):
+        report.update(status="ingest_skipped", message_code="web_search_ingest_skipped")
+        return report
+
+    if gateway is None:
+        gateway, feature = configured_retrieval_gateway(user_id)
+    feature = feature or {}
+    report["policy"]["provider"] = str(feature.get("provider") or "")
+    if feature and not feature.get("enabled_for_user", True):
+        report.update(
+            status="unavailable_not_configured",
+            message_code="web_search_not_configured",
+        )
         return report
 
     queries = derive_search_queries(
@@ -195,7 +184,7 @@ async def discover_web_materials(
         requirements=requirements,
         target_audience=target_audience,
         objectives=objectives,
-        max_queries=active_policy.max_queries,
+        max_queries=12,
     )
     report["queries"] = list(queries)
     report["query_count"] = len(queries)
@@ -203,71 +192,136 @@ async def discover_web_materials(
         report.update(status="no_queries", message_code="web_search_no_queries")
         return report
 
-    client = WebMaterialSearch(
-        policy=active_policy,
-        search=search,
-        robots_gate=robots_gate,
-        rate_limiter=RateLimiter(active_policy.min_request_interval_seconds),
-    )
-    if not client.configured:
+    try:
+        package = await gateway.retrieve(RetrievalRequest(
+            purpose="course",
+            enabled=True,
+            queries=queries,
+        ))
+    except Exception:
         report.update(
-            status="unavailable_not_configured",
-            message_code="web_search_not_configured",
+            status="provider_unavailable",
+            message_code="web_search_provider_failed",
         )
         return report
 
-    candidates: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
-    seen_urls: set[str] = set()
-    seen_hashes: set[str] = set()
-    provider_failures = 0
+    report["retrieved_at"] = str(package.get("retrieved_at") or report["retrieved_at"])
+    report["package_hash"] = str(package.get("package_hash") or "")
+    report["receipt"] = package.get("receipt") or {}
+    report["queries"] = [str(item) for item in (package.get("queries") or queries)]
+    report["query_count"] = len(report["queries"])
 
-    for query in queries:
-        if len(candidates) >= active_policy.max_sources:
-            break
-        try:
-            results = await client.search(query)
-        except Exception:
-            results = []
-        if not results:
-            provider_failures += 1
+    excluded = _excluded_keys(settings)
+    admitted = admitted_sources(
+        package,
+        accepted_source_ids=settings.get("accepted_source_ids") or [],
+    )
+    candidates: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = [
+        {
+            "url": str(item.get("url") or ""),
+            "reason": (item.get("rejection_reasons") or ["not_admitted"])[0],
+            "source_id": str(item.get("source_id") or ""),
+        }
+        for item in (package.get("rejected_sources") or [])
+    ]
+    for source in admitted:
+        candidate = candidate_from_source(source)
+        if _is_excluded(candidate, excluded):
+            rejected.append({
+                "url": candidate["url"],
+                "reason": "excluded_by_teacher",
+                "source_id": candidate["source_id"],
+            })
             continue
-        for raw in results:
-            if len(candidates) >= active_policy.max_sources:
-                break
-            candidate = normalize_candidate(
-                raw, policy=active_policy, query=query, retrieved_at=retrieved_at
-            )
-            url = candidate["url"]
-            if not url or url in seen_urls:
-                continue
-            accepted, reason = await client.candidate_verdict(url, candidate["text"])
-            if not accepted:
-                seen_urls.add(url)
-                rejected.append({"url": url, "reason": reason, "query": query})
-                continue
-            if len(candidate["text"]) < MIN_USABLE_TEXT_CHARS:
-                seen_urls.add(url)
-                rejected.append({"url": url, "reason": "insufficient_text", "query": query})
-                continue
-            if candidate["content_hash"] in seen_hashes:
-                seen_urls.add(url)
-                rejected.append({"url": url, "reason": "duplicate_content", "query": query})
-                continue
-            seen_urls.add(url)
-            seen_hashes.add(candidate["content_hash"])
-            candidates.append(candidate)
+        if len(candidate["text"]) < MIN_USABLE_TEXT_CHARS:
+            rejected.append({
+                "url": candidate["url"],
+                "reason": "insufficient_text",
+                "source_id": candidate["source_id"],
+            })
+            continue
+        candidates.append(candidate)
 
     report["candidates"] = candidates
     report["candidate_count"] = len(candidates)
     report["rejected"] = rejected
+    status = str(package.get("status") or "")
     if candidates:
         report.update(status="ready", degraded=False, message_code="web_search_ready")
-    elif provider_failures >= len(queries):
-        report.update(status="provider_unavailable", message_code="web_search_provider_failed")
+    elif status in {"failed", "error"} or package.get("errors"):
+        report.update(
+            status="provider_unavailable",
+            message_code="web_search_provider_failed",
+        )
     else:
         report.update(status="no_results", message_code="web_search_no_results")
     return report
+
+
+def _excluded_keys(settings: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for value in settings.get("excluded_source_ids") or []:
+        text = str(value or "").strip()
+        if text:
+            keys.add(text)
+    for value in settings.get("excluded_urls") or []:
+        text = _canonical_url(value)
+        if text:
+            keys.add(text)
+    return keys
+
+
+def _is_excluded(candidate: dict[str, Any], excluded: set[str]) -> bool:
+    if not excluded:
+        return False
+    return bool(
+        candidate.get("source_id") in excluded
+        or _canonical_url(candidate.get("url")) in excluded
+        or _canonical_url(candidate.get("canonical_url")) in excluded
+    )
+
+
+def _canonical_url(value: Any) -> str:
+    """URL 归一化，便于教师逐条剔除时稳定比对（忽略末尾斜杠与大小写）。"""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    if not parsed.scheme:
+        return raw.rstrip("/").lower()
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = parsed.path.rstrip("/")
+    canonical = f"{parsed.scheme.lower()}://{host}{path}"
+    return f"{canonical}?{parsed.query}" if parsed.query else canonical
+
+
+def candidate_from_source(source: dict[str, Any]) -> dict[str, Any]:
+    """把网关的 `retrieval_source_v1` 转成落地候选。
+
+    正文已由网关清洗与截断，这里不再重复清洗，只做资料链需要的字段映射。
+    """
+    trust_tier = str(source.get("trust_tier") or "tier_c")
+    return {
+        "source_id": str(source.get("source_id") or ""),
+        "url": str(source.get("url") or ""),
+        "canonical_url": str(source.get("canonical_url") or ""),
+        "domain": str(source.get("domain") or ""),
+        "title": str(source.get("title") or ""),
+        "text": str(source.get("excerpt") or ""),
+        "published_date": str(source.get("published_date") or ""),
+        "license": str(source.get("license") or ""),
+        "reuse_policy": str(source.get("reuse_policy") or "summary_only"),
+        "trust_tier": trust_tier,
+        # 沿用既有 UI 与绑定语义：tier_a/b/c 映射为 high/medium/low。
+        "credibility": {"tier_a": "high", "tier_b": "medium"}.get(trust_tier, "low"),
+        "content_hash": str(source.get("content_hash") or ""),
+        "retrieved_at": str(source.get("retrieved_at") or ""),
+        "provider": str(source.get("provider") or ""),
+        "relevance": source.get("relevance"),
+    }
 
 
 def candidate_to_markdown(candidate: dict[str, Any]) -> str:
@@ -279,19 +333,18 @@ def candidate_to_markdown(candidate: dict[str, Any]) -> str:
     lines = [
         f"# {title}",
         "",
-        "> 本文为联网检索得到的外部参考资料，非平台原创内容。",
+        "> 本文为联网检索得到的外部参考资料摘录，非平台原创内容。",
         "",
         f"- 来源 URL：{candidate.get('url') or '未知'}",
         f"- 来源域名：{candidate.get('domain') or '未知'}",
         f"- 抓取时间：{candidate.get('retrieved_at') or '未知'}",
-        f"- 可信度标记：{candidate.get('credibility') or 'low'}",
-        f"- 检索查询：{candidate.get('query') or ''}",
+        f"- 可信度标记：{candidate.get('credibility') or 'low'}（{candidate.get('trust_tier') or 'tier_c'}）",
+        f"- 检索来源标识：{candidate.get('source_id') or ''}",
     ]
-    if candidate.get("author"):
-        lines.append(f"- 作者：{candidate['author']}")
     if candidate.get("published_date"):
         lines.append(f"- 发布时间：{candidate['published_date']}")
     lines.append(f"- 许可信息：{candidate.get('license') or '未标注'}")
+    lines.append(f"- 复用策略：{candidate.get('reuse_policy') or 'summary_only'}")
     lines.extend(["", "## 摘录正文", ""])
     body = str(candidate.get("text") or "").strip()
     lines.extend(f"> {line}" if line.strip() else ">" for line in body.splitlines() or [""])
@@ -299,9 +352,10 @@ def candidate_to_markdown(candidate: dict[str, Any]) -> str:
 
 
 def candidate_to_binding(candidate: dict[str, Any], asset_id: str) -> dict[str, Any]:
-    """联网资料的绑定策略：只做参考、不逐字复用、权利状态明确未知。"""
+    """联网资料的绑定策略：只做参考、不逐字复用、权利状态明确。"""
     credibility = str(candidate.get("credibility") or "low")
-    open_license = bool(candidate.get("open_license"))
+    # 网关只在明确开放许可时给 verbatim_allowed，其余一律 summary_only。
+    open_license = str(candidate.get("reuse_policy") or "") == "verbatim_allowed"
     return {
         "asset_id": asset_id,
         "purpose": "supplement" if credibility == "high" else "weak_context",
@@ -314,32 +368,28 @@ def candidate_to_binding(candidate: dict[str, Any], asset_id: str) -> dict[str, 
         "rights_basis": "open_license" if open_license else "license_unknown",
         "source_metadata": {
             "origin": "web_search",
+            "source_id": candidate.get("source_id") or "",
             "url": candidate.get("url") or "",
             "domain": candidate.get("domain") or "",
             "retrieved_at": candidate.get("retrieved_at") or "",
             "credibility": credibility,
+            "trust_tier": candidate.get("trust_tier") or "",
             "content_hash": candidate.get("content_hash") or "",
-            "query": candidate.get("query") or "",
             "license": candidate.get("license") or "",
             "published_date": candidate.get("published_date") or "",
-            "author": candidate.get("author") or "",
+            "provider": candidate.get("provider") or "",
         },
         "source_label": str(candidate.get("title") or candidate.get("domain") or "联网资料")[:200],
         "user_description": f"联网检索（{credibility} 可信度）：{candidate.get('url') or ''}"[:2000],
     }
 
 
-def _timestamp() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()
-
-
 __all__ = [
     "MIN_USABLE_TEXT_CHARS",
+    "candidate_from_source",
     "candidate_to_binding",
     "candidate_to_markdown",
     "derive_search_queries",
     "discover_web_materials",
-    "normalize_candidate",
+    "safe_query_term",
 ]

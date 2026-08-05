@@ -31,7 +31,7 @@ const uniqueMatches = (source: string, pattern: RegExp): string[] => {
 
 describe('web search i18n coverage', () => {
   const search = readBackend('web_material_search.py')
-  const config = readBackend('web_search_config.py')
+  const gateway = readBackend('web_retrieval.py')
   const service = readBackend('course_service.py')
 
   it('translates every message_code the backend emits', () => {
@@ -50,17 +50,30 @@ describe('web search i18n coverage', () => {
     }
   })
 
-  it('translates every policy rejection reason', () => {
-    const policyReasons = uniqueMatches(config, /return (?:False|True), "([a-z_]+)"/g)
-    const searchReasons = uniqueMatches(search, /"reason":\s*"([a-z_]+)"/g)
-    const reasons = [...new Set([...policyReasons, ...searchReasons])]
-    expect(reasons).toContain('denied_domain')
+  it('translates every rejection reason surfaced to teachers', () => {
+    const reasons = uniqueMatches(search, /"reason":\s*"([a-z_]+)"/g)
     expect(reasons).toContain('excluded_by_teacher')
+    expect(reasons).toContain('insufficient_text')
 
     for (const locale of [enLocale, zhLocale]) {
       const translated = webSearch(locale).reason
       for (const reason of reasons) {
         expect(translated[reason], `missing reason: ${reason}`).toBeTruthy()
+      }
+    }
+  })
+
+  it('translates every gateway error code', () => {
+    // The gateway's ERROR_CODES set is what reaches the teacher on failure.
+    const block = gateway.match(/ERROR_CODES\s*=\s*\{([^}]*)\}/)
+    expect(block, 'ERROR_CODES not found in web_retrieval.py').toBeTruthy()
+    const codes = uniqueMatches(block![1], /"([a-z_]+)"/g)
+    expect(codes.length).toBeGreaterThanOrEqual(5)
+
+    for (const locale of [enLocale, zhLocale]) {
+      const translated = webSearch(locale).gatewayError
+      for (const code of codes) {
+        expect(translated[code], `missing gateway error: ${code}`).toBeTruthy()
       }
     }
   })
@@ -92,7 +105,7 @@ describe('web search i18n coverage', () => {
   it('does not leave machine codes as their own translation', () => {
     for (const locale of [enLocale, zhLocale]) {
       const block = webSearch(locale)
-      for (const group of ['messageCode', 'reason', 'status'] as const) {
+      for (const group of ['messageCode', 'reason', 'status', 'gatewayError'] as const) {
         for (const [code, text] of Object.entries(block[group])) {
           expect(text, `${group}.${code} is untranslated`).not.toBe(code)
         }

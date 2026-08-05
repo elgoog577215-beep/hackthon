@@ -289,29 +289,29 @@
           <section class="form-section web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
-                v-model="form.webQuestionEnrichment"
-                data-testid="web-question-enrichment"
+                v-model="form.retrievalEnabled"
+                data-testid="web-retrieval"
                 type="checkbox"
                 :disabled="busy"
               />
               <span>
-                <strong>{{ t('courseGeneration.webQuestions.label', '资料不足时联网补充') }}</strong>
-                <small>{{ t('courseGeneration.webQuestions.help', '仅对题库覆盖缺口检索可信来源；不会发送学生画像、作答或个人记录。') }}</small>
+                <strong>{{ t('courseGeneration.retrieval.label', '联网研究') }}</strong>
+                <small>{{ t('courseGeneration.retrieval.help', '用于新课程蓝图、正文和题库的同源资料核验；默认关闭，不会发送学生画像、作答或个人记录。') }}</small>
               </span>
             </label>
           </section>
 
-          <section class="form-section web-enrichment-setting">
+          <section v-if="form.retrievalEnabled" class="form-section web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
-                v-model="form.webMaterialSearch"
-                data-testid="web-material-search"
+                v-model="form.webMaterialIngest"
+                data-testid="web-material-ingest"
                 type="checkbox"
                 :disabled="busy"
               />
               <span>
-                <strong>{{ t('courseGeneration.materials.webSearch.enable', '本次生成允许联网检索') }}</strong>
-                <small>{{ t('courseGeneration.materials.webSearch.disabledHint', '默认不联网。开启后仅检索公开网页，不绕过付费墙或登录。') }}</small>
+                <strong>{{ t('courseGeneration.materials.webSearch.ingestLabel', '把联网资料并入课程资料库') }}</strong>
+                <small>{{ t('courseGeneration.materials.webSearch.ingestHint', '联网结果会与导入资料同路解析并保留出处；关闭则只作为本次生成的引用，不落库。') }}</small>
               </span>
             </label>
           </section>
@@ -410,8 +410,8 @@ const form = reactive({
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
-  webQuestionEnrichment: true,
-  webMaterialSearch: false,
+  retrievalEnabled: false,
+  webMaterialIngest: true,
   requirements: '',
   targetAudience: '大学生',
   academicTerm: '',
@@ -561,8 +561,9 @@ async function submit() {
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
-      web_question_enrichment: { enabled: form.webQuestionEnrichment },
-      web_material_search: { enabled: form.webMaterialSearch },
+      ...(form.retrievalEnabled && !form.webMaterialIngest
+        ? { web_material_ingest: { skip_ingest: true } }
+        : {}),
       target_audience: form.targetAudience.trim(),
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1',
@@ -582,6 +583,7 @@ async function submit() {
           parse_status: 'ready',
         })),
       },
+      retrieval: { enabled: form.retrievalEnabled },
     }
     const identity = JSON.stringify({ subject, options })
     if (!submissionRequestId.value || submissionIdentity.value !== identity) {

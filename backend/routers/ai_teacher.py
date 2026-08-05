@@ -17,7 +17,7 @@ from ai_teacher_actions import (
     reject_proposal,
     undo_receipt,
 )
-from ai_teacher_state import ai_teacher_repository
+from ai_teacher_state import InteractionConflict, ai_teacher_repository
 from dependencies import get_course_or_404
 from learner_context import require_user_id
 from learning_events import load_learning_events, record_learning_event, summarize_text
@@ -30,6 +30,13 @@ class ConversationCreate(BaseModel):
     course_id: str = Field(min_length=1, max_length=160)
     title: str = Field(default="", max_length=200)
     conversation_id: str | None = Field(default=None, max_length=160)
+    retrieval_enabled: bool = False
+
+
+class ConversationSettingsUpdate(BaseModel):
+    course_id: str = Field(min_length=1, max_length=160)
+    retrieval_enabled: bool = False
+    expected_revision: int = Field(ge=1)
 
 
 class ProposalCreate(BaseModel):
@@ -101,8 +108,41 @@ async def create_conversation(payload: ConversationCreate, request: Request):
         title=payload.title,
         course_version_id=str(course.get("current_course_version_id") or ""),
         conversation_id=payload.conversation_id,
+        retrieval_enabled=payload.retrieval_enabled,
     )
     return conversation
+
+
+@router.patch("/conversations/{conversation_id}/settings")
+async def update_conversation_settings(
+    conversation_id: str,
+    payload: ConversationSettingsUpdate,
+    request: Request,
+):
+    await get_course_or_404(payload.course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    try:
+        return await run_in_threadpool(
+            ai_teacher_repository.update_conversation_settings,
+            user_id,
+            payload.course_id,
+            conversation_id,
+            retrieval_enabled=payload.retrieval_enabled,
+            expected_revision=payload.expected_revision,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail="AI conversation not found",
+        ) from None
+    except InteractionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "conversation_revision_conflict",
+                "current": exc.current,
+            },
+        ) from None
 
 
 @router.get("/conversations/{conversation_id}")

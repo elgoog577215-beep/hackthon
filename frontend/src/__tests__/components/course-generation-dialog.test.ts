@@ -30,7 +30,9 @@ describe('CourseGenerationDialog', () => {
     await wrapper.findAll('.compact-grid select')[0]!.setValue('math_formal')
     expect(wrapper.findAll('select[data-testid="secondary-pedagogy-mode"] option').map(option => option.attributes('value'))).not.toContain('math_formal')
     await wrapper.find('[data-testid="secondary-pedagogy-mode"]').setValue('natural_science')
-    await wrapper.find('[data-testid="web-question-enrichment"]').setValue(true)
+    const retrievalToggle = wrapper.get('[data-testid="web-retrieval"]')
+    expect((retrievalToggle.element as HTMLInputElement).checked).toBe(false)
+    await retrievalToggle.setValue(true)
     expect(wrapper.text()).toContain('四步完成课程')
     expect(wrapper.findAll('.guided-intro__steps li')).toHaveLength(4)
     expect(wrapper.findAll('.guided-intro__steps strong').map(item => item.text())).toEqual([
@@ -64,7 +66,7 @@ describe('CourseGenerationDialog', () => {
         },
         requirements: '保留完整推导，并提供独立练习',
         material_bindings: [],
-        web_question_enrichment: { enabled: true },
+        retrieval: { enabled: true },
         teacher_course_brief: expect.objectContaining({
           schema_version: 'teacher_course_brief_v1',
           target_audience: '大学生',
@@ -174,7 +176,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.findAll('.course-type-option')).toHaveLength(4)
     expect(wrapper.findAll('.course-type-option:disabled')).toHaveLength(2)
     expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(3)
-    expect(wrapper.find('[data-testid="web-question-enrichment"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="web-retrieval"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
     expect(wrapper.text()).toContain('课程类型决定学习过程如何组织')

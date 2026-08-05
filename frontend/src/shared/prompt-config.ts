@@ -314,12 +314,14 @@ export interface GenerateCourseParams {
     mode?: 'auto_on_gap' | 'off' | 'always';
     enabled?: boolean;
   };
-  /** 联网检索公开资料。默认关闭，需教师显式开启。 */
-  web_material_search?: {
-    enabled?: boolean;
-    max_results?: number;
-    allowed_domains?: string[];
-    blocked_domains?: string[];
+  /** 联网研究授权；检索开关与策略由团队检索网关拥有。 */
+  retrieval?: {
+    enabled: boolean;
+  };
+  /** 联网结果落成资料资产时的取舍；不承载检索配置。 */
+  web_material_ingest?: {
+    skip_ingest?: boolean;
+    excluded_source_ids?: string[];
     excluded_urls?: string[];
   };
 }

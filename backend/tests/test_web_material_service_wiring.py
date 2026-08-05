@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from course_service import CourseService
 from course_generation_workflow import build_course_generation_artifacts
-from models import CourseGenerationRequest, WebMaterialSearchInput
+from models import CourseGenerationRequest, WebMaterialIngestInput
 
 
 @pytest.mark.asyncio
-async def test_disabled_by_default_skips_search_and_never_calls_provider():
+async def test_disabled_retrieval_skips_search_and_never_notifies():
     service = CourseService()
     phases: list[tuple] = []
 
@@ -24,7 +24,7 @@ async def test_disabled_by_default_skips_search_and_never_calls_provider():
         topic="导数",
         requirements="需要真实案例",
         target_audience="高中生",
-        settings={"enabled": False},
+        generation_request={"retrieval": {"enabled": False}},
         on_phase=on_phase,
     )
 
@@ -36,21 +36,32 @@ async def test_disabled_by_default_skips_search_and_never_calls_provider():
 
 
 @pytest.mark.asyncio
-async def test_request_cannot_enable_search_when_env_forbids(monkeypatch):
-    """请求只能在环境允许范围内收紧，不能越权开启联网。"""
+async def test_missing_retrieval_authorization_defaults_to_disabled():
+    """没有显式 retrieval 授权时默认不联网。"""
     service = CourseService()
-    monkeypatch.setenv("WEB_SEARCH_ENABLED", "false")
-
     report = await service._run_web_material_search(
         topic="导数",
         requirements="",
         target_audience="",
-        settings={"enabled": True},
+        generation_request={},
         on_phase=None,
     )
-
     assert report["status"] == "disabled"
     assert report["candidates"] == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_question_enrichment_does_not_grant_course_scope():
+    """旧的题库联网开关只覆盖 assessment，不应放行课程资料检索。"""
+    service = CourseService()
+    report = await service._run_web_material_search(
+        topic="导数",
+        requirements="",
+        target_audience="",
+        generation_request={"web_question_enrichment": {"enabled": True}},
+        on_phase=None,
+    )
+    assert report["status"] == "disabled"
 
 
 @pytest.mark.asyncio
@@ -67,13 +78,12 @@ async def test_provider_failure_degrades_instead_of_breaking_generation(monkeypa
     import web_material_search
 
     monkeypatch.setattr(web_material_search, "discover_web_materials", boom)
-    monkeypatch.setenv("WEB_SEARCH_ENABLED", "true")
 
     report = await service._run_web_material_search(
         topic="导数",
         requirements="需要真实案例",
         target_audience="高中生",
-        settings={"enabled": True},
+        generation_request={"retrieval": {"enabled": True}},
         on_phase=on_phase,
     )
 
@@ -97,7 +107,7 @@ def test_artifacts_expose_web_search_summary():
         prepared_materials={
             "web_search": {
                 "enabled": True,
-                "status": "ok",
+                "status": "ready",
                 "queries": ["导数 定义"],
                 "candidates": [{"url": "https://example.edu/a"}],
             }
@@ -123,16 +133,17 @@ def test_artifacts_default_web_summary_when_absent():
     assert artifacts["web_material_search"] == {"enabled": False}
 
 
-def test_request_model_defaults_to_disabled():
+def test_request_model_defaults_to_no_retrieval_and_no_exclusions():
     request = CourseGenerationRequest(topic="导数", subject="数学")
-    assert request.web_material_search.enabled is False
+    assert request.retrieval.enabled is False
+    assert request.web_material_ingest.skip_ingest is False
+    assert request.web_material_ingest.excluded_source_ids == []
 
 
-def test_request_model_normalizes_comma_separated_domains():
-    payload = WebMaterialSearchInput(
-        enabled=True,
-        allowed_domains="example.edu, wikipedia.org",
-        blocked_domains="",
+def test_ingest_model_normalizes_comma_separated_exclusions():
+    payload = WebMaterialIngestInput(
+        excluded_source_ids="src_a, src_b",
+        excluded_urls="",
     )
-    assert payload.allowed_domains == ["example.edu", "wikipedia.org"]
-    assert payload.blocked_domains == []
+    assert payload.excluded_source_ids == ["src_a", "src_b"]
+    assert payload.excluded_urls == []

@@ -267,6 +267,17 @@ export interface Node {
   objective_revision_id?: string
   content_blocks?: ContentBlock[]
   course_blocks?: CourseDocumentBlock[]
+  citation_map?: Record<string, string>
+  source_cards?: Array<{
+    source_id: string
+    title?: string
+    url: string
+    domain?: string
+    published_date?: string | null
+    trust_tier?: string
+    license?: string | null
+  }>
+  citation_invalid_refs?: string[]
   node_type: 'original' | 'custom' | 'extend'
   children?: Node[]
   is_read?: boolean

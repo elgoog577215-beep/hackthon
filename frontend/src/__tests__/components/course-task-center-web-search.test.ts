@@ -40,7 +40,7 @@ const READY_SUMMARY = {
     credibility: 'high',
     retrieved_at: '2026-08-05T00:00:00+00:00',
   }],
-  rejected: [{ url: 'https://wenku.baidu.com/view/1', reason: 'denied_domain' }],
+  rejected: [{ url: 'https://blog.example.com/post', reason: 'low_relevance' }],
 }
 
 const taskWith = (webSearch: Record<string, unknown> | undefined) => ({
@@ -115,8 +115,8 @@ describe('CourseTaskCenter 联网资料审阅', () => {
     const panel = wrapper.find('[data-testid="web-search-summary"]')
 
     expect(panel.text()).toContain('已排除 1 条')
-    expect(panel.text()).toContain('域名在屏蔽名单中')
-    expect(panel.text()).not.toContain('denied_domain')
+    expect(panel.text()).toContain('与课程相关性不足')
+    expect(panel.text()).not.toContain('low_relevance')
   })
 
   it('联网失败时明确告知本次没有联网资料', async () => {
@@ -141,7 +141,7 @@ describe('CourseTaskCenter 联网资料审阅', () => {
     const panel = wrapper.find('[data-testid="web-search-summary"]')
 
     expect(panel.text()).toContain('Web materials')
-    expect(panel.text()).toContain('Domain is on the block list')
+    expect(panel.text()).toContain('Not relevant enough')
     expect(panel.text()).not.toContain('courseGeneration.materials')
     // 来源标题来自网页本身，允许非英文；只检查界面自身文案。
     expect(panel.find('.web-search-summary__hint').text()).not.toMatch(/[一-鿿]/)
