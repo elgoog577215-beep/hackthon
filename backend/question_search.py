@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import html
-import os
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
-
-import httpx
 
 from assessment_contracts import (
     compile_assessment_objectives,
@@ -28,12 +25,15 @@ from question_bank import (
     formal_task_from_question_bank_item,
     refresh_question_bank_bundle,
 )
+from web_retrieval import (
+    EXA_SEARCH_ENDPOINT,
+    ExaSearchProvider,
+)
 
 MAX_QUERIES_PER_GAP = 2
 MAX_COURSE_QUERIES = 12
 MAX_COURSE_SOURCES = 24
 MAX_REFERENCE_TEXT_CHARS = 4000
-EXA_SEARCH_ENDPOINT = "https://api.exa.ai/search"
 
 SearchCallable = Callable[..., Awaitable[list[dict[str, Any]]]]
 
@@ -53,48 +53,27 @@ class ExaQuestionSearch:
         api_key: str | None = None,
         endpoint: str | None = None,
         timeout_seconds: float = 12.0,
-        client: httpx.AsyncClient | None = None,
+        client: Any = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("EXA_API_KEY", "")
-        self.endpoint = endpoint or os.getenv("EXA_SEARCH_ENDPOINT", EXA_SEARCH_ENDPOINT)
-        self.timeout_seconds = timeout_seconds
-        self._client = client
+        self._provider = ExaSearchProvider(
+            api_key=api_key,
+            endpoint=endpoint,
+            timeout_seconds=timeout_seconds,
+            client=client,
+        )
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key)
+        return self._provider.configured
 
     async def search(self, query: str, *, num_results: int = 2) -> list[dict[str, Any]]:
-        if not self.configured:
-            return []
-        payload = {
-            "query": _clip_query(query),
-            "type": "auto",
-            "numResults": max(1, min(4, int(num_results))),
-            "moderation": True,
-            "contents": {
-                "highlights": {
-                    "maxCharacters": 2400,
-                }
-            },
-        }
-        headers = {
-            "x-api-key": self.api_key,
-            "content-type": "application/json",
-        }
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds)
         try:
-            response = await client.post(self.endpoint, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-        except (httpx.HTTPError, ValueError):
+            return await self._provider.search(
+                _clip_query(query),
+                limit=max(1, min(4, int(num_results))),
+            )
+        except Exception:
             return []
-        finally:
-            if owns_client:
-                await client.aclose()
-        results = data.get("results") if isinstance(data, dict) else []
-        return [item for item in results or [] if isinstance(item, dict)]
 
 
 async def enrich_question_bank_with_web(
