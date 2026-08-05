@@ -47,6 +47,8 @@ export interface AIMessage {
   context_ref?: AIContextRef
   task_ref?: Record<string, any>
   sources?: Array<Record<string, any>>
+  retrieval_status?: 'started' | 'completed' | 'failed_fallback_local'
+  retrieval_receipt?: Record<string, any> | null
   proposal_id?: string
   receipt_id?: string
   proposal?: AIActionProposal | null
@@ -60,6 +62,7 @@ export interface AIConversation {
   course_version_id?: string
   title: string
   revision: number
+  retrieval_enabled?: boolean
   messages: AIMessage[]
   created_at: string
   updated_at: string
@@ -96,6 +99,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   const currentConversationId = ref('')
   const loading = ref(false)
   const loadingConversations = ref(false)
+  const retrievalUpdating = ref(false)
   const error = ref<string | null>(null)
   const currentContext = ref<Record<string, any> | null>(null)
   const abortController = ref<AbortController | null>(null)
@@ -107,9 +111,13 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   const messages = computed(() => currentConversation.value?.messages || [])
 
   function replaceConversation(conversation: AIConversation) {
+    const normalized = {
+      ...conversation,
+      retrieval_enabled: Boolean(conversation.retrieval_enabled),
+    }
     const index = conversations.value.findIndex(item => item.conversation_id === conversation.conversation_id)
-    if (index >= 0) conversations.value[index] = conversation
-    else conversations.value.unshift(conversation)
+    if (index >= 0) conversations.value[index] = normalized
+    else conversations.value.unshift(normalized)
     persistCache()
   }
 
@@ -129,7 +137,12 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     try {
       const cached = JSON.parse(localStorage.getItem(cacheKey(targetCourseId)) || 'null')
       if (!cached) return
-      conversations.value = Array.isArray(cached.conversations) ? cached.conversations : []
+      conversations.value = Array.isArray(cached.conversations)
+        ? cached.conversations.map((conversation: AIConversation) => ({
+            ...conversation,
+            retrieval_enabled: Boolean(conversation.retrieval_enabled),
+          }))
+        : []
       currentConversationId.value = String(cached.currentConversationId || '')
     } catch (cacheError) {
       logger.warn('Failed to read AI teacher cache', cacheError)
@@ -145,7 +158,10 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     try {
       const response = await http.get('/api/ai-teacher/conversations', { params: { course_id: targetCourseId } })
       if (sequence !== requestSequence) return
-      conversations.value = response.data?.conversations || []
+      conversations.value = (response.data?.conversations || []).map((conversation: AIConversation) => ({
+        ...conversation,
+        retrieval_enabled: Boolean(conversation.retrieval_enabled),
+      }))
       if (!conversations.value.length) {
         await createConversation()
       } else if (!conversations.value.some(item => item.conversation_id === currentConversationId.value)) {
@@ -159,11 +175,12 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     }
   }
 
-  async function createConversation(title = '') {
+  async function createConversation(title = '', retrievalEnabled = false) {
     if (!courseId.value) return null
     const response = await http.post('/api/ai-teacher/conversations', {
       course_id: courseId.value,
       title,
+      retrieval_enabled: retrievalEnabled,
     })
     const conversation = response.data as AIConversation
     replaceConversation(conversation)
@@ -196,6 +213,34 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   async function ensureConversation() {
     if (currentConversation.value) return currentConversation.value
     return createConversation()
+  }
+
+  async function updateRetrievalEnabled(enabled: boolean) {
+    const conversation = currentConversation.value
+    if (!conversation || retrievalUpdating.value) return
+    retrievalUpdating.value = true
+    error.value = null
+    try {
+      const response = await http.patch(
+        `/api/ai-teacher/conversations/${conversation.conversation_id}/settings`,
+        {
+          course_id: courseId.value,
+          retrieval_enabled: enabled,
+          expected_revision: conversation.revision,
+        },
+      )
+      replaceConversation(response.data as AIConversation)
+    } catch (updateError: any) {
+      if (Number(updateError?.response?.status || 0) === 409) {
+        await refreshConversation(conversation.conversation_id)
+        error.value = 'conversation_revision_conflict'
+        return
+      }
+      error.value = updateError?.message || 'conversation_settings_update_failed'
+      throw updateError
+    } finally {
+      retrievalUpdating.value = false
+    }
   }
 
   async function sendMessage(payload: SendAIMessagePayload) {
@@ -348,6 +393,9 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       if (data.message_id) assistantMessage.message_id = data.message_id
     } else if (eventName === 'sources') {
       assistantMessage.sources = data.sources || []
+    } else if (eventName === 'retrieval') {
+      assistantMessage.retrieval_status = data.status
+      if (data.receipt) assistantMessage.retrieval_receipt = data.receipt
     } else if (eventName === 'proposal') {
       assistantMessage.proposal = data
       assistantMessage.proposal_id = data.proposal_id
@@ -457,12 +505,14 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     messages,
     loading,
     loadingConversations,
+    retrievalUpdating,
     error,
     currentContext,
     load,
     createConversation,
     selectConversation,
     deleteConversation,
+    updateRetrievalEnabled,
     sendMessage,
     cancel,
     proposeForMessage,

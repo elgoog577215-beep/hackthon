@@ -27,7 +27,7 @@ from question_bank import (
 )
 from web_retrieval import (
     EXA_SEARCH_ENDPOINT,
-    ExaSearchProvider,
+    create_search_provider,
 )
 
 MAX_QUERIES_PER_GAP = 2
@@ -55,7 +55,7 @@ class ExaQuestionSearch:
         timeout_seconds: float = 12.0,
         client: Any = None,
     ) -> None:
-        self._provider = ExaSearchProvider(
+        self._provider = create_search_provider(
             api_key=api_key,
             endpoint=endpoint,
             timeout_seconds=timeout_seconds,

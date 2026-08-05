@@ -14,10 +14,10 @@ from typing import Any, Awaitable, Callable
 from assessment_blueprint import REFERENCE_PACKAGE_SCHEMA
 from course_versioning import stable_hash
 from web_retrieval import (
-    ExaSearchProvider,
     RetrievalGateway,
     RetrievalRequest,
     admitted_sources,
+    configured_retrieval_gateway,
     resolve_retrieval_policy,
 )
 
@@ -183,6 +183,7 @@ async def enrich_reference_package_with_web(
     objectives: list[dict[str, Any]],
     search: SearchCallable | None = None,
     retrieval_package: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Fill uncovered objective references before question generation."""
     result = deepcopy(package)
@@ -223,14 +224,15 @@ async def enrich_reference_package_with_web(
     if retrieval_package:
         retrieval_package = deepcopy(retrieval_package)
     else:
-        provider = (
-            _CallableSearchProvider(search)
+        gateway = (
+            RetrievalGateway(
+                provider=_CallableSearchProvider(search),
+                cache_ttl_seconds=0,
+            )
             if search is not None
-            else ExaSearchProvider()
+            else configured_retrieval_gateway(user_id)[0]
         )
-        retrieval_package = await RetrievalGateway(
-            provider=provider
-        ).retrieve(
+        retrieval_package = await gateway.retrieve(
             RetrievalRequest(
                 purpose="assessment",
                 enabled=True,

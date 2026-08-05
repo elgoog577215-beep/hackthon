@@ -680,6 +680,14 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         this.saving = false
       }
     },
+    async retryBlueprintRetrieval(courseId: string) {
+      const res = await http.post(`/api/courses/${courseId}/blueprint/retrieval/retry`)
+      this.blueprint = {
+        ...this.blueprint,
+        retrieval: res.data.retrieval,
+      }
+      return res.data
+    },
     async previewBlueprintAdjustment(courseId: string, payload: any) {
       const res = await http.post(
         `/api/courses/${courseId}/blueprint/adjustments/preview`,

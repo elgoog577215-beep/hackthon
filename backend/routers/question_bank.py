@@ -918,6 +918,7 @@ async def _execute_question_bank_rebuild(
             course_for_bank,
             reference_package,
             objectives=assessment_objectives,
+            user_id=str(active_job.get("actor_id") or "") or None,
         )
         reference_package = repository.freeze_retrieval_package(
             job_id,

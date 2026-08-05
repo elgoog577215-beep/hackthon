@@ -195,11 +195,9 @@ from slide_visuals import (
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
 from web_retrieval import (
-    ExaSearchProvider,
-    RetrievalGateway,
     RetrievalRequest,
+    configured_retrieval_gateway,
     resolve_retrieval_policy,
-    retrieval_feature_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -1365,6 +1363,8 @@ class TaskManager:
         self,
         course_data: dict[str, Any],
         request: dict[str, Any],
+        *,
+        package_revision: int = 1,
     ) -> dict[str, Any]:
         """Retrieve once and create a non-applied source-backed outline draft."""
 
@@ -1383,15 +1383,10 @@ class TaskManager:
             return course_data
 
         queries = build_course_retrieval_queries(course_data, request)
-        feature = retrieval_feature_state(
+        gateway, feature = configured_retrieval_gateway(
             str(request.get("_retrieval_actor_id") or "") or None
         )
-        provider = (
-            ExaSearchProvider()
-            if feature.get("enabled_for_user")
-            else ExaSearchProvider(api_key="")
-        )
-        package = await RetrievalGateway(provider=provider).retrieve(
+        package = await gateway.retrieve(
             RetrievalRequest(
                 purpose="course",
                 enabled=True,
@@ -1406,6 +1401,7 @@ class TaskManager:
                     },
                     prefix="rrq_",
                 ),
+                revision=max(1, int(package_revision)),
             )
         )
         artifact = {
@@ -1793,6 +1789,93 @@ class TaskManager:
     async def confirm_blueprint(self, course_id: str) -> dict[str, Any]:
         """Compatibility alias for the former outline-only review endpoint."""
         return await self.confirm_generation_step(course_id, "outline")
+
+    async def retry_course_outline_research(
+        self,
+        course_id: str,
+    ) -> dict[str, Any]:
+        """Retry only a failed outline retrieval while preserving the local draft."""
+
+        candidates = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id and task.get("workspace_id")
+        ]
+        candidates.sort(
+            key=lambda item: str(item.get("updated_at") or ""),
+            reverse=True,
+        )
+        if not candidates:
+            raise ValueError("Course generation task not found")
+        task = candidates[0]
+        workflow = task.get("guided_workflow") or {}
+        if (
+            task.get("status") != "waiting_for_review"
+            or workflow.get("review_step") != "outline"
+        ):
+            raise TaskStateConflict(
+                "Outline retrieval can only be retried during outline review",
+                status=str(task.get("status") or "unknown"),
+            )
+
+        task_id = str(task.get("task_id") or task.get("id") or "")
+        course_data = self._load_task_course(task_id)
+        if not isinstance(course_data, dict):
+            raise ValueError("Course generation workspace not found")
+        artifact = (
+            (course_data.get("generation_stage_artifacts") or {}).get(
+                "web_retrieval"
+            )
+            or {}
+        )
+        package = artifact.get("package") or {}
+        if artifact.get("status") in {
+            "waiting_for_confirmation",
+            "completed_no_changes",
+            "frozen",
+        }:
+            raise TaskStateConflict(
+                "A successful immutable retrieval package already exists",
+                status=str(artifact.get("status") or "completed"),
+            )
+        previous_revision = max(0, int(package.get("revision") or 0))
+
+        current_draft = self._version_repository.load_draft(course_id)
+        retry_course = (
+            merge_blueprint_draft(course_data, current_draft)
+            if isinstance(current_draft, dict)
+            else deepcopy(course_data)
+        )
+        retry_course.pop("retrieval_package", None)
+        retry_course.pop("outline_research", None)
+        retry_course.setdefault("generation_stage_artifacts", {}).pop(
+            "web_retrieval",
+            None,
+        )
+        retry_course = await self._prepare_course_outline_research(
+            retry_course,
+            task.get("request_snapshot") or {},
+            package_revision=previous_revision + 1,
+        )
+
+        retried_artifact = (
+            (retry_course.get("generation_stage_artifacts") or {}).get(
+                "web_retrieval"
+            )
+            or {}
+        )
+        proposal = retried_artifact.get("proposal") or {}
+        candidate = deepcopy(
+            proposal.get("candidate_draft") or current_draft or {}
+        ) or build_blueprint_draft(retry_course)
+        candidate["impact_report"] = analyze_blueprint_impact(
+            retry_course,
+            candidate,
+        )
+        self._version_repository.save_draft(course_id, candidate)
+        await self._save_task_course(task_id, retry_course)
+        return deepcopy(retried_artifact)
+
     async def create_regeneration_job(
         self,
         course_id: str,
@@ -2038,6 +2121,11 @@ class TaskManager:
                     deepcopy(raw.get("content_blocks") or [])
                     if status == NodeStatus.COMPLETED.value
                     else []
+                ),
+                "citation_map": deepcopy(raw.get("citation_map") or {}),
+                "source_cards": deepcopy(raw.get("source_cards") or []),
+                "citation_invalid_refs": deepcopy(
+                    raw.get("citation_invalid_refs") or []
                 ),
             }
             nodes.append(node)
@@ -6845,6 +6933,13 @@ class TaskManager:
                 reference_package,
                 objectives=assessment_objectives,
                 retrieval_package=course_retrieval_package or None,
+                user_id=str(
+                    (task.get("request_snapshot") or {}).get(
+                        "_retrieval_actor_id"
+                    )
+                    or ""
+                )
+                or None,
             )
             stage_artifacts["assessment_retrieval"] = {
                 "status": "frozen",

@@ -396,6 +396,9 @@ export const useCourseStore = defineStore('course', {
                 error_summary: raw.error_summary || previous?.error_summary,
                 difficulty_contract: raw.difficulty_contract || previous?.difficulty_contract,
                 content_blocks: raw.content_blocks || previous?.content_blocks || [],
+                citation_map: raw.citation_map || previous?.citation_map || {},
+                source_cards: raw.source_cards || previous?.source_cards || [],
+                citation_invalid_refs: raw.citation_invalid_refs || previous?.citation_invalid_refs || [],
                 children: [],
             }
         })
@@ -444,6 +447,9 @@ export const useCourseStore = defineStore('course', {
                     error_summary: raw.error_summary,
                     difficulty_contract: raw.difficulty_contract,
                     content_blocks: raw.content_blocks || [],
+                    citation_map: raw.citation_map || previous?.citation_map || {},
+                    source_cards: raw.source_cards || previous?.source_cards || [],
+                    citation_invalid_refs: raw.citation_invalid_refs || previous?.citation_invalid_refs || [],
                     children: [],
                 }
             })

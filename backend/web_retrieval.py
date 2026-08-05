@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -32,6 +33,7 @@ ERROR_CODES = {
     "no_sources",
     "privacy_blocked",
 }
+_QUERY_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
 PURPOSE_LIMITS: dict[str, dict[str, int | float]] = {
     "course": {
@@ -174,6 +176,8 @@ class RetrievalGateway:
         *,
         provider: SearchProvider | None = None,
         tier_a_domains: list[str] | tuple[str, ...] | None = None,
+        cache_namespace: str | None = None,
+        cache_ttl_seconds: float | None = None,
     ) -> None:
         self.provider = provider or ExaSearchProvider()
         configured_domains = [
@@ -184,6 +188,18 @@ class RetrievalGateway:
         self.tier_a_domains = tuple(
             tier_a_domains or configured_domains or _DEFAULT_TIER_A_DOMAINS
         )
+        self.cache_namespace = cache_namespace or (
+            f"{POLICY_VERSION}:{self.provider.name}"
+        )
+        configured_ttl = cache_ttl_seconds
+        if configured_ttl is None:
+            try:
+                configured_ttl = float(
+                    os.getenv("WEB_RETRIEVAL_CACHE_TTL_SECONDS", "900")
+                )
+            except ValueError:
+                configured_ttl = 900.0
+        self.cache_ttl_seconds = max(0.0, min(86400.0, configured_ttl))
 
     async def retrieve(self, request: RetrievalRequest) -> dict[str, Any]:
         started = time.monotonic()
@@ -238,18 +254,36 @@ class RetrievalGateway:
         semaphore = asyncio.Semaphore(concurrency)
         per_query = max(1, min(max_sources, (max_sources + len(safe_queries) - 1) // len(safe_queries)))
 
-        async def run(query: str) -> tuple[str, list[dict[str, Any]], str | None]:
+        async def run(
+            query: str,
+        ) -> tuple[str, list[dict[str, Any]], str | None, bool]:
             async with semaphore:
+                cache_key = _digest({
+                    "namespace": self.cache_namespace,
+                    "query": query,
+                    "limit": per_query,
+                })
+                cached = _QUERY_CACHE.get(cache_key)
+                if cached and cached[0] > time.monotonic():
+                    return query, deepcopy(cached[1]), None, True
+                if cached:
+                    _QUERY_CACHE.pop(cache_key, None)
                 try:
-                    return query, await self.provider.search(query, limit=per_query), None
+                    results = await self.provider.search(query, limit=per_query)
+                    if self.cache_ttl_seconds > 0:
+                        _QUERY_CACHE[cache_key] = (
+                            time.monotonic() + self.cache_ttl_seconds,
+                            deepcopy(results),
+                        )
+                    return query, results, None, False
                 except RetrievalProviderError as exc:
-                    return query, [], exc.error_code
+                    return query, [], exc.error_code, False
                 except httpx.TimeoutException:
-                    return query, [], "timeout"
+                    return query, [], "timeout", False
                 except (httpx.HTTPError, ValueError, TypeError):
-                    return query, [], "provider_error"
+                    return query, [], "provider_error", False
                 except Exception:
-                    return query, [], "provider_error"
+                    return query, [], "provider_error", False
 
         try:
             batches = await asyncio.wait_for(
@@ -264,7 +298,9 @@ class RetrievalGateway:
         accepted: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for query, results, error_code in batches:
+        cache_hit_count = 0
+        for query, results, error_code, cache_hit in batches:
+            cache_hit_count += int(cache_hit)
             if error_code:
                 error_codes.append(error_code)
             for raw in results:
@@ -297,6 +333,7 @@ class RetrievalGateway:
                 errors=_unique_error_codes(error_codes),
                 started=started,
                 retrieved_at=now,
+                cache_hit_count=cache_hit_count,
             )
         return self._package(
             request=request,
@@ -307,6 +344,7 @@ class RetrievalGateway:
             errors=_unique_error_codes(error_codes),
             started=started,
             retrieved_at=now,
+            cache_hit_count=cache_hit_count,
         )
 
     def _failed_package(
@@ -316,6 +354,7 @@ class RetrievalGateway:
         errors: list[str],
         started: float,
         retrieved_at: str,
+        cache_hit_count: int = 0,
     ) -> dict[str, Any]:
         return self._package(
             request=request,
@@ -326,6 +365,7 @@ class RetrievalGateway:
             errors=_unique_error_codes(errors),
             started=started,
             retrieved_at=retrieved_at,
+            cache_hit_count=cache_hit_count,
         )
 
     def _package(
@@ -339,6 +379,7 @@ class RetrievalGateway:
         errors: list[str],
         started: float,
         retrieved_at: str,
+        cache_hit_count: int = 0,
     ) -> dict[str, Any]:
         tier_counts = {"tier_a": 0, "tier_b": 0, "tier_c": 0}
         for source in [*sources, *rejected_sources]:
@@ -358,6 +399,7 @@ class RetrievalGateway:
             "error_codes": errors,
             "duration_ms": max(0, round((time.monotonic() - started) * 1000)),
             "package_revision": package_revision,
+            "cache_hit_count": max(0, int(cache_hit_count)),
         }
         package = {
             "schema_version": "retrieval_package_v1",
@@ -534,6 +576,44 @@ def retrieval_feature_state(user_id: str | None = None) -> dict[str, Any]:
     }
 
 
+def create_search_provider(
+    *,
+    provider_name: str | None = None,
+    api_key: str | None = None,
+    endpoint: str | None = None,
+    timeout_seconds: float = 12.0,
+    client: httpx.AsyncClient | None = None,
+) -> SearchProvider:
+    """Create the configured provider behind the replaceable domain interface."""
+
+    selected = str(
+        provider_name or os.getenv("WEB_RETRIEVAL_PROVIDER", "exa")
+    ).strip().lower()
+    if selected != "exa":
+        raise RetrievalProviderError(
+            "not_configured",
+            f"Unsupported retrieval provider: {selected or 'empty'}",
+        )
+    return ExaSearchProvider(
+        api_key=api_key,
+        endpoint=endpoint,
+        timeout_seconds=timeout_seconds,
+        client=client,
+    )
+
+
+def configured_retrieval_gateway(
+    user_id: str | None = None,
+) -> tuple[RetrievalGateway, dict[str, Any]]:
+    """Return a rollout-aware gateway without leaking provider choice to callers."""
+
+    feature = retrieval_feature_state(user_id)
+    provider = create_search_provider(
+        api_key=None if feature.get("enabled_for_user") else ""
+    )
+    return RetrievalGateway(provider=provider), feature
+
+
 def admitted_sources(
     package: dict[str, Any] | None,
     *,
@@ -636,6 +716,8 @@ __all__ = [
     "SearchProvider",
     "admitted_sources",
     "classify_source",
+    "configured_retrieval_gateway",
+    "create_search_provider",
     "redact_outbound_query",
     "resolve_retrieval_policy",
     "retrieval_feature_state",

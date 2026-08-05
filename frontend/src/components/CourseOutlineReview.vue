@@ -42,6 +42,72 @@
             />
           </label>
 
+          <section
+            v-if="retrievalProposal"
+            class="outline-retrieval"
+            data-testid="retrieval-outline-proposal"
+          >
+            <header>
+              <div>
+                <strong>{{ t('courseGeneration.outlineReview.retrievalTitle', '联网研究调整提案') }}</strong>
+                <small>{{ t('courseGeneration.outlineReview.retrievalRevision', '检索包修订 {revision}').replace('{revision}', String(retrievalProposal.retrieval_package_revision || 1)) }}</small>
+              </div>
+              <span>{{ t('courseGeneration.outlineReview.retrievalPending', '确认目录后生效') }}</span>
+            </header>
+            <p>{{ retrievalProposal.reason || t('courseGeneration.outlineReview.retrievalReasonFallback', '外部资料建议调整当前课程结构。') }}</p>
+            <div class="outline-retrieval__shape">
+              <span>{{ shapeSummary(retrievalProposal.diff?.before) }}</span>
+              <ArrowRight :size="13" />
+              <span>{{ shapeSummary(retrievalProposal.diff?.after) }}</span>
+            </div>
+            <div class="outline-retrieval__diff">
+              <section v-for="group in retrievalDiffGroups" :key="group.key" v-show="group.items.length">
+                <h3>{{ group.label }}</h3>
+                <ul>
+                  <li v-for="item in group.items" :key="`${group.key}-${item.node_id || item.node_name}`">
+                    <span>{{ item.node_name || item.title }}</span>
+                    <small>{{ item.old_position && item.new_position
+                      ? `${item.old_position} → ${item.new_position}`
+                      : item.new_position || item.old_position || changedFieldSummary(item.changes) }}</small>
+                  </li>
+                </ul>
+              </section>
+            </div>
+            <div v-if="retrievalProposal.sources?.length" class="outline-retrieval__sources">
+              <a
+                v-for="source in retrievalProposal.sources"
+                v-show="safeExternalUrl(source.url)"
+                :key="source.source_id"
+                class="outline-retrieval__source"
+                :href="safeExternalUrl(source.url)"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <strong>{{ source.title || source.domain }}</strong>
+                <small>{{ source.domain }} · {{ source.trust_tier }}<template v-if="source.published_date"> · {{ source.published_date }}</template></small>
+              </a>
+            </div>
+          </section>
+
+          <section
+            v-else-if="retrievalNotice"
+            class="outline-retrieval outline-retrieval--notice"
+            data-testid="retrieval-outline-notice"
+            role="status"
+          >
+            <div>
+              <strong>{{ t('courseGeneration.outlineReview.retrievalIncomplete', '联网核验未完成') }}</strong>
+              <p>{{ retrievalNotice }}</p>
+            </div>
+            <button type="button" :disabled="retryingRetrieval" @click="retryRetrieval">
+              <LoaderCircle v-if="retryingRetrieval" :size="14" />
+              {{ retryingRetrieval
+                ? t('courseGeneration.outlineReview.retrievalRetrying', '正在重试')
+                : t('courseGeneration.outlineReview.retrievalRetry', '重试联网核验') }}
+            </button>
+            <small>{{ t('courseGeneration.outlineReview.retrievalOffline', '也可以直接确认当前本地蓝图，离线继续。') }}</small>
+          </section>
+
           <section v-if="isProjectCourse" class="outline-review__starting-point" :data-status="startingProfileStatus">
             <header>
               <span>{{ t('courseGeneration.outlineReview.startingPoint', '你的项目起点（暂定）') }}</span>
@@ -291,6 +357,7 @@ const courseStore = useCourseStore()
 const workspace = useCourseWorkspaceStore()
 const generationStore = useGenerationStore()
 const blueprintDraft = ref<Record<string, any>>({})
+const retrievalArtifact = ref<Record<string, any>>({})
 const baseline = ref('')
 const loading = ref(false)
 const saving = ref(false)
@@ -301,12 +368,26 @@ const adjustmentInstruction = ref('')
 const adjustmentProposal = ref<Record<string, any> | null>(null)
 const generatingProposal = ref(false)
 const applyingProposal = ref(false)
+const retryingRetrieval = ref(false)
 const proposalNotice = ref('')
 const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
 const adjustmentRequestId = ref('')
 
 const adjustmentBusy = computed(() => generatingProposal.value || applyingProposal.value)
+const retrievalProposal = computed<Record<string, any> | null>(() => (
+  retrievalArtifact.value?.proposal || null
+))
+const retrievalNotice = computed(() => String(retrievalArtifact.value?.notice || '').trim())
+const retrievalDiffGroups = computed(() => {
+  const diff = retrievalProposal.value?.diff || {}
+  return [
+    { key: 'added', label: t('courseGeneration.outlineReview.diffAdded', '新增'), items: diff.added || [] },
+    { key: 'removed', label: t('courseGeneration.outlineReview.diffRemoved', '删除'), items: diff.removed || [] },
+    { key: 'moved', label: t('courseGeneration.outlineReview.diffMoved', '移动'), items: diff.moved || [] },
+    { key: 'updated', label: t('courseGeneration.outlineReview.diffUpdated', '内容修改'), items: diff.updated || [] },
+  ]
+})
 const acting = computed(() => saving.value || confirming.value || adjustmentBusy.value)
 const blueprintNodes = computed<any[]>(() => (
   Array.isArray(blueprintDraft.value?.nodes)
@@ -406,6 +487,7 @@ async function loadBlueprint() {
   actionError.value = ''
   try {
     const data = await workspace.loadBlueprint(props.courseId)
+    retrievalArtifact.value = clone(data.retrieval || {})
     blueprintDraft.value = clone(data.draft || data.current || data || {})
     seedNodesFromCourse()
     if (!blueprintDraft.value.course_name) blueprintDraft.value.course_name = props.courseName
@@ -451,6 +533,38 @@ async function persistDraft(showMessage = true) {
   syncNavigationFromDraft()
   baseline.value = draftSignature.value
   if (showMessage) ElMessage.success(t('courseGeneration.outlineReview.savedMessage', '目录修改已保存'))
+}
+
+function safeExternalUrl(value: unknown) {
+  try {
+    const parsed = new URL(String(value || ''))
+    return parsed.protocol === 'https:' ? parsed.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
+async function retryRetrieval() {
+  if (!props.courseId || retryingRetrieval.value) return
+  retryingRetrieval.value = true
+  actionError.value = ''
+  try {
+    const result = await workspace.retryBlueprintRetrieval(props.courseId)
+    retrievalArtifact.value = clone(result.retrieval || {})
+    const candidate = retrievalArtifact.value?.proposal?.candidate_draft
+    if (candidate) {
+      blueprintDraft.value = clone(candidate)
+      baseline.value = draftSignature.value
+      syncNavigationFromDraft()
+    }
+  } catch (error: any) {
+    actionError.value = error?.response?.data?.detail?.message || t(
+      'courseGeneration.outlineReview.retrievalRetryFailed',
+      '联网核验重试失败，当前本地蓝图仍然保留。',
+    )
+  } finally {
+    retryingRetrieval.value = false
+  }
 }
 
 function requestId() {
@@ -804,6 +918,30 @@ async function confirmOutline() {
   font-size:10px;
   line-height:1.5;
 }
+.outline-retrieval { margin:14px 30px 2px; border:1px solid #c7d2fe; border-radius:12px; padding:13px; background:linear-gradient(135deg,#eef2ff,#fafaff); }
+.outline-retrieval > header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.outline-retrieval > header div { display:grid; gap:2px; }
+.outline-retrieval > header strong { color:#312e81; font-size:13px; }
+.outline-retrieval > header small,.outline-retrieval > header > span { color:#6366f1; font-size:9px; }
+.outline-retrieval > header > span { border-radius:999px; padding:3px 7px; background:#e0e7ff; white-space:nowrap; }
+.outline-retrieval > p { margin:9px 0; color:#475569; font-size:11px; line-height:1.55; }
+.outline-retrieval__shape { display:flex; align-items:center; gap:6px; color:#4338ca; font-size:10px; }
+.outline-retrieval__diff { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-top:10px; }
+.outline-retrieval__diff section { border-radius:8px; padding:8px; background:rgba(255,255,255,.75); }
+.outline-retrieval__diff h3 { margin:0 0 4px; color:#475569; font-size:9px; }
+.outline-retrieval__diff ul { margin:0; padding-left:15px; }
+.outline-retrieval__diff li { color:#334155; font-size:10px; }
+.outline-retrieval__diff li small { display:block; color:#64748b; font-size:9px; }
+.outline-retrieval__sources { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.outline-retrieval__source { max-width:240px; display:grid; gap:1px; border:1px solid #e0e7ff; border-radius:8px; padding:6px 8px; color:#3730a3; background:#fff; text-decoration:none; }
+.outline-retrieval__source:hover { border-color:#a5b4fc; }
+.outline-retrieval__source strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.outline-retrieval__source small { color:#64748b; font-size:8px; }
+.outline-retrieval--notice { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; border-color:#fed7aa; background:#fff7ed; }
+.outline-retrieval--notice strong { color:#9a3412; font-size:12px; }
+.outline-retrieval--notice p { margin:2px 0 0; color:#9a3412; font-size:10px; }
+.outline-retrieval--notice button { border:1px solid #fdba74; border-radius:8px; padding:6px 9px; color:#9a3412; background:#fff; font-size:10px; cursor:pointer; }
+.outline-retrieval--notice > small { grid-column:1/-1; color:#7c2d12; font-size:9px; }
 .outline-review__adjustment {
   display:grid;
   grid-template-columns:minmax(180px,.8fr) minmax(280px,1.7fr) auto;

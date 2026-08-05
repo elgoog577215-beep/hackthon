@@ -118,6 +118,27 @@ async def get_blueprint(course_id: str):
     }
 
 
+@router.post("/blueprint/retrieval/retry")
+async def retry_blueprint_retrieval(
+    course_id: str,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    try:
+        retrieval = await tm.retry_course_outline_research(course_id)
+        return {"status": "success", "retrieval": retrieval}
+    except TaskStateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "outline_retrieval_retry_conflict",
+                "message": str(exc),
+                "status": exc.status,
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.put("/blueprint/draft")
 async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
     course = await _course_for_blueprint(course_id)

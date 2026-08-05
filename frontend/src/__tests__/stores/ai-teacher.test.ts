@@ -48,7 +48,9 @@ describe('AI teacher store', () => {
         { message_id: 'user-1', role: 'user', content: '变量是什么？', status: 'complete' },
         {
           message_id: 'assistant-1', role: 'assistant', content: '变量用于保存可变化的值。', status: 'complete',
-          sources: [{ source_id: 'block-rev-1', title: '变量定义' }],
+          retrieval_status: 'completed',
+          retrieval_receipt: { status: 'completed', source_count: 1 },
+          sources: [{ source_id: 'src-web-1', title: '变量定义', url: 'https://example.edu/variables' }],
         },
       ],
     }
@@ -135,6 +137,26 @@ describe('AI teacher store', () => {
     )
     expect(store.currentConversation?.retrieval_enabled).toBe(true)
     expect(store.currentConversation?.revision).toBe(2)
+  })
+
+  it('reloads the conversation when retrieval settings hit a revision conflict', async () => {
+    const current = { ...emptyConversation, revision: 2, retrieval_enabled: false }
+    httpMock.patch.mockRejectedValue({ response: { status: 409 } })
+    httpMock.get.mockResolvedValue({ data: current })
+    const store = useAITeacherStore()
+    store.courseId = 'course-1'
+    store.conversations = [{ ...emptyConversation }]
+    store.currentConversationId = 'aic-1'
+
+    await store.updateRetrievalEnabled(true)
+
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/ai-teacher/conversations/aic-1',
+      { params: { course_id: 'course-1' } },
+    )
+    expect(store.currentConversation?.retrieval_enabled).toBe(false)
+    expect(store.currentConversation?.revision).toBe(2)
+    expect(store.error).toBe('conversation_revision_conflict')
   })
 
   it('把块级回答效果反馈提交到所属会话消息', async () => {

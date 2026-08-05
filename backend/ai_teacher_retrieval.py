@@ -7,11 +7,10 @@ from typing import Any
 
 from course_versioning import stable_hash
 from web_retrieval import (
-    ExaSearchProvider,
     RetrievalGateway,
     RetrievalRequest,
     admitted_sources,
-    retrieval_feature_state,
+    configured_retrieval_gateway,
 )
 
 
@@ -54,14 +53,10 @@ async def retrieve_ai_teacher_sources(
     user_id: str,
     gateway: RetrievalGateway | None = None,
 ) -> dict[str, Any]:
-    feature = retrieval_feature_state(user_id)
     if gateway is None:
-        provider = (
-            ExaSearchProvider()
-            if feature.get("enabled_for_user")
-            else ExaSearchProvider(api_key="")
-        )
-        gateway = RetrievalGateway(provider=provider)
+        gateway, feature = configured_retrieval_gateway(user_id)
+    else:
+        feature = {"enabled_for_user": True, "injected_gateway": True}
     queries = build_ai_teacher_queries(
         course,
         question=question,
