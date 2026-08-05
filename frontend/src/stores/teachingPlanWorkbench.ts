@@ -85,7 +85,13 @@ export interface TeachingPlanWorkbench {
   revisions: TeachingPlanRevision[]
   change_sets: TeachingPlanChangeSet[]
   ai_candidates: TeachingPlanAICandidate[]
-  editable_fields: Array<{ path: string; state: 'editable' | 'readonly'; reason: string }>
+  // 后端 field_permission 返回三态；分小节的字段几乎都是
+  // requires_impact_review（可写草稿，但应用前必须有完整影响报告）。
+  editable_fields: Array<{
+    path: string
+    state: 'editable' | 'requires_impact_review' | 'readonly'
+    reason: string
+  }>
   downstream: Record<string, unknown>
 }
 

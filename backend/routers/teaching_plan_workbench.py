@@ -47,13 +47,18 @@ class CommandRequest(BaseModel):
 
 
 class AICandidateRequest(BaseModel):
-    paths: list[str] = Field(min_length=1, max_length=12)
+    # 上限按「一个小节的全部可编辑字段」定，不是按人手勾选的字段数定：
+    # 需求 5 的分小节优化会把整节路径一次性发出，最小课程的小节已有 17 条
+    # （目标、要点、时长、7 条课堂执行列表、5 条模块字段、知识 2 条），
+    # 模块或知识点多几个就更高。领域层仍逐条校验白名单与只读。
+    paths: list[str] = Field(min_length=1, max_length=64)
     instruction: str = Field(min_length=1, max_length=3000)
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class CandidateCommandRequest(CommandRequest):
-    operation_ids: list[str] = Field(default_factory=list, max_length=12)
+    # 逐项接受 AI 候选时同样可能覆盖整节，与 paths 对齐。
+    operation_ids: list[str] = Field(default_factory=list, max_length=64)
 
 
 def _service(repository=Depends(get_course_document_repository)) -> TeachingPlanWorkbenchService:
