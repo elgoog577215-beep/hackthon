@@ -43,6 +43,7 @@ def _course(family: str = "general") -> dict:
         },
         "generation_request": {
             "web_question_enrichment": {
+                "enabled": True,
                 "mode": "auto_on_gap",
             },
         },
@@ -213,6 +214,51 @@ async def test_web_retrieval_runs_before_generation_with_minimal_query():
     )
     assert enriched["content_coverage"][0]["covered"] is True
     assert enriched["method_coverage"]
+    assert enriched["retrieval_package"]["schema_version"] == (
+        "retrieval_package_v1"
+    )
+    web_source = next(
+        item["source_record"]
+        for item in enriched["references"]
+        if item["source_type"] == "trusted_web_reference"
+    )
+    assert web_source["source_id"].startswith("src_")
+    assert web_source["trust_tier"] == "tier_a"
+    assert web_source["provider"] == "test"
+
+
+async def test_question_retrieval_is_default_off_and_makes_no_search_call():
+    course = _course("math_formal")
+    course["generation_request"] = {}
+    profile = compile_course_assessment_profile(course)
+    objectives = compile_assessment_objectives(course, profile)
+    blueprint = compile_course_assessment_blueprint(
+        course,
+        profile=profile,
+        objectives=objectives,
+    )
+    package = compile_local_reference_package(
+        course,
+        objectives=objectives,
+        blueprint=blueprint,
+    )
+    calls = 0
+
+    async def search(query: str, *, num_results: int):
+        nonlocal calls
+        calls += 1
+        return []
+
+    enriched = await enrich_reference_package_with_web(
+        course,
+        package,
+        objectives=objectives,
+        search=search,
+    )
+
+    assert calls == 0
+    assert enriched["retrieval_mode"] == "off"
+    assert enriched["web"]["status"] == "disabled"
 
 
 def test_teacher_question_bank_has_highest_authoring_priority():
