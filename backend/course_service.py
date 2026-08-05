@@ -138,6 +138,7 @@ from course_prompt_composer import (
     get_course_prompt_composer,
 )
 from course_quality import evaluate_node_content, validate_blueprint
+from course_retrieval import build_course_source_context
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
     normalize_teaching_plan_batch_v3,
@@ -374,6 +375,10 @@ class CourseService(AIBase):
             "course_blueprint",
             "generation_quality_report",
             "generation_runtime_budget",
+            "generation_stage_artifacts",
+            "retrieval_package",
+            "retrieval_acceptance",
+            "outline_research",
         ]
         metadata = {key: course_data.get(key) for key in metadata_keys if course_data.get(key) is not None}
         if metadata:
@@ -4244,6 +4249,11 @@ class CourseService(AIBase):
                 node.update({key: value for key, value in blueprint_node.items() if key not in node or not node.get(key)})
 
         context = self._build_persisted_generation_context(persisted, node)
+        source_context, citation_map, source_cards = (
+            build_course_source_context(persisted)
+        )
+        if source_context:
+            context = f"{context}\n\n{source_context}"
         if config.custom_instruction:
             context += f"\n\n## 用户自定义指令\n{config.custom_instruction}"
         content_levels = prompt_detail_levels_for_source(
@@ -4374,6 +4384,26 @@ class CourseService(AIBase):
             raise RuntimeError(f"节点 {node_name} 没有生成任何正文")
 
         raw_content = self.clean_response_text(full_content)
+        cited_ids = list(dict.fromkeys(
+            re.findall(r"〔(S\d+)〕", raw_content)
+        ))
+        invalid_citations = [
+            citation_id
+            for citation_id in cited_ids
+            if citation_id not in citation_map
+        ]
+        node["citation_map"] = {
+            citation_id: citation_map[citation_id]
+            for citation_id in cited_ids
+            if citation_id in citation_map
+        }
+        cited_source_ids = set(node["citation_map"].values())
+        node["source_cards"] = [
+            deepcopy(card)
+            for card in source_cards
+            if card.get("source_id") in cited_source_ids
+        ]
+        node["citation_invalid_refs"] = invalid_citations
         grounding_contract = node.get("grounding_contract") or {}
         allowed_ids = set(grounding_contract.get("required_evidence_ids") or []) | set(
             grounding_contract.get("optional_evidence_ids") or []
@@ -4388,6 +4418,7 @@ class CourseService(AIBase):
         node["generation_quality"] = quality
         node["needs_manual_review"] = (
             generation_source != "model"
+            or bool(invalid_citations)
             or any(
                 item.get("severity") == "critical"
                 for item in quality.get("issues") or []

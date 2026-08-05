@@ -76,6 +76,11 @@ from course_outline_adjustments import (
     compile_outline_draft,
     describe_outline_diff,
 )
+from course_retrieval import (
+    build_course_retrieval_queries,
+    build_outline_research_instruction,
+    build_outline_research_proposal,
+)
 from course_teaching_plan_projection import project_course_teaching_plan
 from course_type_contracts import (
     compatible_course_purpose,
@@ -189,6 +194,13 @@ from slide_visuals import (
 )
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
+from web_retrieval import (
+    ExaSearchProvider,
+    RetrievalGateway,
+    RetrievalRequest,
+    resolve_retrieval_policy,
+    retrieval_feature_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1349,6 +1361,151 @@ class TaskManager:
             "warnings": [],
         }
 
+    async def _prepare_course_outline_research(
+        self,
+        course_data: dict[str, Any],
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Retrieve once and create a non-applied source-backed outline draft."""
+
+        policy = resolve_retrieval_policy(request)
+        artifacts = course_data.setdefault(
+            "generation_stage_artifacts", {}
+        )
+        existing = deepcopy(artifacts.get("web_retrieval") or {})
+        if existing.get("package"):
+            return course_data
+        if "course" not in policy.get("scopes", []):
+            artifacts["web_retrieval"] = {
+                "status": "disabled",
+                "authorization": policy,
+            }
+            return course_data
+
+        queries = build_course_retrieval_queries(course_data, request)
+        feature = retrieval_feature_state(
+            str(request.get("_retrieval_actor_id") or "") or None
+        )
+        provider = (
+            ExaSearchProvider()
+            if feature.get("enabled_for_user")
+            else ExaSearchProvider(api_key="")
+        )
+        package = await RetrievalGateway(provider=provider).retrieve(
+            RetrievalRequest(
+                purpose="course",
+                enabled=True,
+                queries=queries,
+                request_fingerprint=stable_hash(
+                    {
+                        "course_id": course_data.get("course_id"),
+                        "subject": request.get("subject"),
+                        "difficulty": request.get("difficulty"),
+                        "course_intent": request.get("course_intent") or {},
+                        "outline_revision": blueprint_revision_id(course_data),
+                    },
+                    prefix="rrq_",
+                ),
+            )
+        )
+        artifact = {
+            "schema_version": "course_web_retrieval_v2",
+            "status": package.get("status"),
+            "authorization": policy,
+            "feature": feature,
+            "package": deepcopy(package),
+            "proposal": None,
+        }
+        artifacts["web_retrieval"] = artifact
+        course_data["retrieval_package"] = deepcopy(package)
+        if package.get("status") != "completed":
+            artifact["notice"] = "联网核验未完成，可重试或离线继续"
+            return course_data
+
+        base_draft = build_blueprint_draft(course_data)
+        try:
+            model_result = await self.course_service.propose_outline_adjustment(
+                draft=base_draft,
+                instruction=build_outline_research_instruction(package),
+                correction=None,
+            )
+            proposal = build_outline_research_proposal(
+                course=course_data,
+                base_draft=base_draft,
+                model_result=model_result,
+                retrieval_package=package,
+            )
+            if not proposal.get("operations"):
+                proposal["status"] = "no_changes"
+            artifact["proposal"] = proposal
+            artifact["status"] = (
+                "waiting_for_confirmation"
+                if proposal.get("operations")
+                else "completed_no_changes"
+            )
+            course_data["outline_research"] = {
+                key: deepcopy(proposal.get(key))
+                for key in (
+                    "schema_version",
+                    "proposal_id",
+                    "status",
+                    "reason",
+                    "diff",
+                    "source_ids",
+                    "tier_b_source_ids",
+                    "sources",
+                    "retrieval_package_revision",
+                )
+            }
+        except (
+            OutlineAdjustmentError,
+            AIProviderRequestError,
+            AIProviderUnavailable,
+            ValueError,
+            TypeError,
+        ) as exc:
+            artifact["status"] = "proposal_failed_fallback_local"
+            artifact["notice"] = (
+                "联网资料已取得，但目录调整提案未完成；当前显示本地蓝图"
+            )
+            artifact["proposal_error"] = {
+                "code": "outline_proposal_failed",
+                "message": str(exc)[:500],
+            }
+        return course_data
+
+    @staticmethod
+    def _accept_outline_research(
+        course_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        artifacts = course_data.get("generation_stage_artifacts") or {}
+        artifact = artifacts.get("web_retrieval") or {}
+        proposal = artifact.get("proposal") or {}
+        package = artifact.get("package") or {}
+        if proposal.get("status") not in {
+            "waiting_for_confirmation",
+            "no_changes",
+        }:
+            return course_data
+        accepted_ids = list(proposal.get("tier_b_source_ids") or [])
+        for source in package.get("sources") or []:
+            if source.get("source_id") in accepted_ids:
+                source["accepted_for_generation"] = True
+        proposal["status"] = "accepted"
+        artifact["status"] = "frozen"
+        artifact["accepted_source_ids"] = accepted_ids
+        course_data["retrieval_acceptance"] = {
+            "schema_version": "retrieval_acceptance_v1",
+            "proposal_id": proposal.get("proposal_id"),
+            "accepted_source_ids": accepted_ids,
+            "package_revision": package.get("revision"),
+            "package_hash": package.get("package_hash"),
+        }
+        course_data["retrieval_package"] = deepcopy(package)
+        if isinstance(course_data.get("outline_research"), dict):
+            course_data["outline_research"]["status"] = "accepted"
+        return course_data
+
     @staticmethod
     def _has_downstream_outline_artifacts(course_data: dict[str, Any]) -> bool:
         if any(
@@ -1451,6 +1608,7 @@ class TaskManager:
                     confirmed,
                     "outline",
                 )
+            confirmed = self._accept_outline_research(confirmed)
             confirmed["generation_status"] = "outline_confirmed"
             confirmed["blueprint_revision_id"] = impact.get("draft_blueprint_revision_id")
             frozen = self._version_repository.freeze_blueprint(course_id, confirmed)
@@ -4955,7 +5113,20 @@ class TaskManager:
                 on_checkpoint=on_checkpoint,
             )
             if stop_after_outline:
-                draft = build_blueprint_draft(course_data)
+                course_data = await self._prepare_course_outline_research(
+                    course_data,
+                    request,
+                )
+                research_proposal = (
+                    (
+                        course_data.get("generation_stage_artifacts")
+                        or {}
+                    ).get("web_retrieval")
+                    or {}
+                ).get("proposal") or {}
+                draft = deepcopy(
+                    research_proposal.get("candidate_draft") or {}
+                ) or build_blueprint_draft(course_data)
                 impact = analyze_blueprint_impact(course_data, draft)
                 draft["impact_report"] = impact
                 self._version_repository.save_draft(course_id, draft)
@@ -5265,10 +5436,18 @@ class TaskManager:
         generation_quality: dict[str, Any] | None = None,
         needs_manual_review: bool = False,
         generation_runtime: dict[str, Any] | None = None,
+        citation_map: dict[str, str] | None = None,
+        source_cards: list[dict[str, Any]] | None = None,
+        citation_invalid_refs: list[str] | None = None,
     ) -> dict[str, Any] | None:
         def update(fresh_data: dict[str, Any]) -> dict[str, Any]:
             for node in fresh_data.get("nodes", []):
                 if node.get("node_id") == node_id:
+                    node["citation_map"] = deepcopy(citation_map or {})
+                    node["source_cards"] = deepcopy(source_cards or [])
+                    node["citation_invalid_refs"] = list(
+                        citation_invalid_refs or []
+                    )
                     set_node_content_blocks(node, fixed_content)
                     node["generation_status"] = NodeStatus.COMPLETED.value
                     node["generated_chars"] = generated_chars
@@ -5588,6 +5767,12 @@ class TaskManager:
                                 or not generation_quality.get("passed", False)
                             ),
                             generation_runtime=generation_runtime,
+                            citation_map=node.get("citation_map") or {},
+                            source_cards=node.get("source_cards") or [],
+                            citation_invalid_refs=node.get(
+                                "citation_invalid_refs"
+                            )
+                            or [],
                         )
 
                         self._add_log_entry(

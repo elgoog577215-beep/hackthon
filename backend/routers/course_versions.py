@@ -109,6 +109,12 @@ async def get_blueprint(course_id: str):
         "draft": draft,
         "current_blueprint_revision_id": blueprint_revision_id(course),
         "has_unconfirmed_draft": bool(draft),
+        "retrieval": deepcopy(
+            (course.get("generation_stage_artifacts") or {}).get(
+                "web_retrieval"
+            )
+            or {}
+        ),
     }
 
 
