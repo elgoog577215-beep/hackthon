@@ -36,19 +36,6 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Prepare pinned SearXNG image on runner
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/searxng-image.tar.gz"
-          timeout 8m docker pull "$SEARXNG_IMAGE"
-          docker image inspect "$SEARXNG_IMAGE" >/dev/null
-          docker image tag "$SEARXNG_IMAGE" "$SEARXNG_ARCHIVE_TAG"
-          docker image save "$SEARXNG_ARCHIVE_TAG" | gzip -1 > "$archive"
-          (
-            cd "$RUNNER_TEMP"
-            sha256sum searxng-image.tar.gz > searxng-image.tar.gz.sha256
-          )
-
       - name: Configure deployment SSH
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
@@ -64,10 +51,40 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Check for pinned image on production server
+        id: remote_image
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          if ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "docker image inspect '$SEARXNG_ARCHIVE_TAG' >/dev/null 2>&1"; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare pinned SearXNG image on runner
+        if: steps.remote_image.outputs.present != 'true'
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/searxng-image.tar.gz"
+          timeout 8m docker pull "$SEARXNG_IMAGE"
+          docker image inspect "$SEARXNG_IMAGE" >/dev/null
+          docker image tag "$SEARXNG_IMAGE" "$SEARXNG_ARCHIVE_TAG"
+          docker image save "$SEARXNG_ARCHIVE_TAG" | gzip -1 > "$archive"
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum searxng-image.tar.gz > searxng-image.tar.gz.sha256
+          )
+
       - name: Upload pinned SearXNG configuration
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_REMOTE_IMAGE_PRESENT: ${{ steps.remote_image.outputs.present }}
         run: |
           set -euo pipefail
           remote_dir="/opt/lingzhi/incoming/searxng-${GITHUB_SHA}"
@@ -77,8 +94,13 @@ jobs:
           scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             deploy/searxng/compose.yml deploy/searxng/settings.yml scripts/provision-searxng.sh \
-            "$RUNNER_TEMP/searxng-image.tar.gz" "$RUNNER_TEMP/searxng-image.tar.gz.sha256" \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/"
+          if [ "$LINGZHI_REMOTE_IMAGE_PRESENT" != "true" ]; then
+            scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$RUNNER_TEMP/searxng-image.tar.gz" "$RUNNER_TEMP/searxng-image.tar.gz.sha256" \
+              "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/"
+          fi
 
       - name: Provision on production server
         env:
