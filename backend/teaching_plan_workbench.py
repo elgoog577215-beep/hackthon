@@ -374,6 +374,80 @@ _KNOWLEDGE_DETAIL_FIELDS = {
 }
 
 
+def _module_plan(snapshot: dict[str, Any], section_id: str) -> list[dict[str, Any]]:
+    """学科模板为该小节提供的课程块合同（module_plan）。"""
+    return [
+        item
+        for item in _outline_section(snapshot, section_id).get("module_plan") or []
+        if isinstance(item, dict) and _text(item.get("module_id"))
+    ]
+
+
+def _write_module_order(
+    snapshot: dict[str, Any],
+    section_id: str,
+    value: Any,
+) -> list[str]:
+    """按 module_id 有序列表重写小节的教学环节。
+
+    一条路径同时表达新增、删除、替换与排序：给出的顺序就是结果顺序。
+    module_id 保持稳定——已有环节按 id 原样搬运，不重建内容；新增的环节
+    从模板取 label 与 output_contract 作为初始教学职责。
+
+    模板合同在这里就地校验，不留到应用时才报错：教师删掉一个必需环节，
+    应该当场知道，而不是写了一串草稿之后才被质量门挡下。
+    """
+    order = _strings(value, maximum=16)
+    plan_by_id = {_text(item.get("module_id")): item for item in _module_plan(snapshot, section_id)}
+    section = _plan_section(snapshot, section_id)
+    existing = {
+        _text(module.get("module_id")): module
+        for module in section.get("teaching_modules") or []
+        if isinstance(module, dict) and _text(module.get("module_id"))
+    }
+
+    if unknown := [item for item in order if item not in plan_by_id]:
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_invalid_value",
+            "教学环节必须来自学科模板提供的课程块。",
+            details={"section_id": section_id, "unknown_module_ids": unknown},
+        )
+    required = [
+        _text(item.get("module_id"))
+        for item in _module_plan(snapshot, section_id)
+        if item.get("required")
+    ]
+    if missing := [item for item in required if item not in order]:
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_quality_blocked",
+            "不能删除学科模板规定的必需教学环节。",
+            details={"section_id": section_id, "missing_required_module_ids": missing},
+        )
+    if not order:
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_invalid_value",
+            "小节至少保留一个教学环节。",
+            details={"section_id": section_id},
+        )
+
+    rebuilt: list[dict[str, Any]] = []
+    for module_id in order:
+        if module_id in existing:
+            rebuilt.append(existing[module_id])
+            continue
+        template = plan_by_id[module_id]
+        rebuilt.append({
+            "module_id": module_id,
+            "teaching_purpose": _text(template.get("output_contract"))
+            or _text(template.get("label"))
+            or "待补充教学职责",
+            "teaching_guidance": _text(template.get("prompt_instruction")),
+            "knowledge_names": [],
+        })
+    section["teaching_modules"] = rebuilt
+    return order
+
+
 def _detail_texts(entries: Any, primary_field: str) -> list[str]:
     """把结构化条目投影成教师看到的主字段文本列表。"""
     texts: list[str] = []
@@ -444,6 +518,11 @@ def field_permission(path: str) -> dict[str, str]:
         return {
             "state": "requires_impact_review",
             "reason": "课堂执行字段变化需要检查该小节的教学表达与课时安排。",
+        }
+    if re.fullmatch(r"sections/[^/]+/teaching_modules", normalized):
+        return {
+            "state": "requires_impact_review",
+            "reason": "教学环节的增删与排序会改变本节的教学结构与派生表达。",
         }
     if re.fullmatch(
         r"sections/[^/]+/teaching_modules/[^/]+/(teaching_purpose|teaching_guidance|planned_minutes|teacher_activity|student_activity)",
@@ -521,6 +600,12 @@ def _read_path(snapshot: dict[str, Any], path: str) -> Any:
         return _plan_section(snapshot, parts[1]).get("planned_minutes")
     if len(parts) == 3 and parts[0] == "sections" and parts[2] in _SECTION_CLASSROOM_LIST_FIELDS:
         return _plan_section(snapshot, parts[1]).get(parts[2], [])
+    if len(parts) == 3 and parts[0] == "sections" and parts[2] == "teaching_modules":
+        return [
+            _text(module.get("module_id"))
+            for module in _plan_section(snapshot, parts[1]).get("teaching_modules") or []
+            if isinstance(module, dict) and _text(module.get("module_id"))
+        ]
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "teaching_modules":
         if parts[4] in {"teaching_purpose", "teaching_guidance", "teacher_activity", "student_activity"}:
             return _module(snapshot, parts[1], parts[3]).get(parts[4], "")
@@ -631,6 +716,8 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
         values = _strings(value, maximum=30 if parts[2] == "resource_refs" else 16)
         _plan_section(snapshot, parts[1])[parts[2]] = values
         return values
+    if len(parts) == 3 and parts[0] == "sections" and parts[2] == "teaching_modules":
+        return _write_module_order(snapshot, parts[1], value)
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "teaching_modules":
         if parts[4] in {"teaching_purpose", "teaching_guidance", "teacher_activity", "student_activity"}:
             text = _text(value)
@@ -841,6 +928,9 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             teaching_section = _plan_section(snapshot, section_id)
         except TeachingPlanWorkbenchError:
             continue
+        # 环节的增删与排序：一条路径承载整组顺序，module_id 保持稳定。
+        order_path = f"sections/{section_id}/teaching_modules"
+        fields.append({"path": order_path, **field_permission(order_path)})
         for module in teaching_section.get("teaching_modules") or []:
             module_id = _text((module or {}).get("module_id"))
             if not module_id:
