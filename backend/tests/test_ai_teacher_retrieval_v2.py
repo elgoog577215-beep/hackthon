@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from ai_teacher_retrieval import (
     build_ai_teacher_queries,
     merge_ai_teacher_retrieval,
+    should_retrieve_for_message,
 )
 from ai_teacher_context import context_public_summary, format_ai_teacher_context_prompt
+from ai_teacher_state import AITeacherRepository
+from routers import assistant as assistant_router
 
 
 def _course() -> dict:
@@ -122,3 +130,103 @@ def test_failed_retrieval_keeps_local_context_and_explicit_receipt():
     assert merged["sources"] == local["sources"]
     assert merged["web_retrieval"]["status"] == "failed_fallback_local"
     assert merged["web_retrieval"]["receipt"]["error_codes"] == ["timeout"]
+
+
+def test_retrieval_only_runs_for_enabled_ordinary_answers():
+    assert should_retrieve_for_message(
+        {"retrieval_enabled": True}, direct_action=None
+    )
+    assert not should_retrieve_for_message(
+        {"retrieval_enabled": False}, direct_action=None
+    )
+    assert not should_retrieve_for_message(
+        {"retrieval_enabled": True}, direct_action="create_note"
+    )
+
+
+class _AnswerService:
+    async def answer_question_events(self, **_kwargs):
+        yield (
+            "event: answer\ndata: "
+            + json.dumps({"chunk": "Web-backed answer [S1]."})
+            + "\n\n"
+        )
+        yield (
+            "event: final_answer\ndata: "
+            + json.dumps({"answer": "Web-backed answer [S1]."})
+            + "\n\n"
+        )
+        yield "event: metadata\ndata: {}\n\n"
+
+
+def test_ask_events_emits_retrieval_lifecycle_and_persists_receipt(
+    monkeypatch, tmp_path
+):
+    repository = AITeacherRepository(tmp_path / "ai-teacher")
+    conversation = repository.create_conversation(
+        "u1", "course-1", retrieval_enabled=True
+    )
+
+    async def get_course(_course_id: str):
+        return {
+            **_course(),
+            "current_course_version_id": "cv-1",
+        }
+
+    async def retrieve(*_args, **_kwargs):
+        return _package()
+
+    monkeypatch.setattr(assistant_router, "ai_teacher_repository", repository)
+    monkeypatch.setattr(assistant_router, "get_course_or_404", get_course)
+    monkeypatch.setattr(
+        assistant_router,
+        "build_ai_teacher_context",
+        lambda *_args, **_kwargs: _context(),
+    )
+    monkeypatch.setattr(
+        assistant_router,
+        "retrieve_ai_teacher_sources",
+        retrieve,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        assistant_router,
+        "record_course_evolution_request",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        assistant_router,
+        "record_learning_event",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(assistant_router, "ai_service", _AnswerService())
+    monkeypatch.setattr(
+        assistant_router, "_assistant_demo_mode", lambda _course_id: False
+    )
+    app = FastAPI()
+    app.include_router(assistant_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/ask_events",
+        headers={"X-User-Id": "u1"},
+        json={
+            "course_id": "course-1",
+            "conversation_id": conversation["conversation_id"],
+            "node_id": "node-1",
+            "question": "What is current?",
+        },
+    )
+
+    assert response.status_code == 200
+    assert 'event: retrieval\ndata: {"status": "started"}' in response.text
+    assert 'event: retrieval\ndata: {"status": "completed"' in response.text
+    assert "https://example.edu/current" in response.text
+    persisted = repository.get_conversation(
+        "u1", "course-1", conversation["conversation_id"]
+    )
+    message = next(
+        item for item in persisted["messages"] if item["role"] == "assistant"
+    )
+    assert message["retrieval_receipt"]["status"] == "completed"
+    assert any(item.get("source_id") == "src_web" for item in message["sources"])
