@@ -1722,8 +1722,18 @@ def test_v5_quality_retains_non_superseded_presentation_blockers() -> None:
 
 def test_v5_quality_recomputes_stale_presentation_and_final_slide_count() -> None:
     slides = [
-        {"unit_id": "slide:v4:0001", "quality": {"passed": True}},
-        {"unit_id": "slide:v4:0002", "quality": {"passed": True}},
+        {
+            "unit_id": "slide:v4:0001",
+            "title": "结构关系决定判断顺序",
+            "blocks": [{"type": "rich_text", "content": "先定位，再辨认。"}],
+            "quality": {"passed": True},
+        },
+        {
+            "unit_id": "slide:v4:0002",
+            "title": "安全边界约束操作路径",
+            "blocks": [{"type": "rich_text", "content": "先识别边界，再选择路径。"}],
+            "quality": {"passed": True},
+        },
     ]
     report = finalize_v5_quality_report(
         previous_quality={
