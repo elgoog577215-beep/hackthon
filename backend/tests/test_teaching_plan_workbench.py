@@ -711,6 +711,28 @@ def test_section_scoped_ai_request_accepts_a_whole_section_of_fields() -> None:
     ]
     assert len(section_paths) > 12, "最小课程的小节路径数应当已经超过旧上限"
 
+    # 真实课程规模远大于这个合成夹具：矩阵与线性变换 12 个小节，每节
+    # 75–89 条路径（5 个环节 + 7 个知识点的那一节是 84 条）。上限只按
+    # 夹具的 17 条定过一次，结果在真实数据上继续 422——这里直接按真实
+    # 规模再压一次契约，避免夹具偏小把上限问题重新藏起来。
+    real_scale_paths = section_paths + [
+        f"sections/section-1/teaching_modules/module-{index}/teaching_guidance"
+        for index in range(90 - len(section_paths))
+    ]
+    assert len(real_scale_paths) == 90
+    oversized = client.post(
+        f"{base_path}/drafts/{draft['draft_id']}/ai-candidates",
+        headers=headers,
+        json={
+            "paths": real_scale_paths,
+            "instruction": "按真实课程规模一次发出整节路径",
+            "idempotency_key": "section-scope-real-scale",
+        },
+    )
+    assert oversized.status_code != 422, (
+        f"真实课程一节有 75-89 条路径，HTTP 契约不能在这个量级拒绝：{oversized.text}"
+    )
+
     response = client.post(
         f"{base_path}/drafts/{draft['draft_id']}/ai-candidates",
         headers=headers,
