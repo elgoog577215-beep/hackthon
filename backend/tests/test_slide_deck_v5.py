@@ -25,6 +25,7 @@ from slide_deck_v3 import (
 )
 from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
+    SLIDE_DECK_V5_COMPILER_VERSION,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
@@ -188,7 +189,7 @@ def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
             return_value={"passed": True, "score": 100, "issues": []},
         ),
     ):
-        compile_slide_deck_v5(
+        compiled = compile_slide_deck_v5(
             document,
             {},
             story_plan=_story(1),
@@ -204,6 +205,21 @@ def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
     assert rebuilt_visual_plan.deck_brief["fallback_reason"] == (
         "v5_compaction_visual_plan_rebuilt"
     )
+    assert compiled["generation_provenance"] == {
+        "schema_version": "slide_generation_provenance_v1",
+        "compiler_version": SLIDE_DECK_V5_COMPILER_VERSION,
+        "story": {
+            "planner": "deterministic_fallback",
+            "fallback_reason": "",
+            "prompt_contract_version": "slide_story_chapter_directives_v2",
+        },
+        "visual": {
+            "planner": "deterministic_fallback",
+            "fallback_reason": "v5_compaction_visual_plan_rebuilt",
+            "prompt_contract_version": "slide_visual_plan_v1",
+            "policy_version": rebuilt_visual_plan.policy_version,
+        },
+    }
 
 
 def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() -> None:
@@ -1818,6 +1834,27 @@ def test_v5_publishable_ai_fallback_is_a_warning_not_a_blocker() -> None:
     assert {
         issue["code"] for issue in report["warnings"]
     } == {"ai_story_planner_fallback"}
+
+
+def test_v5_reports_partial_visual_ai_fallback_as_degraded() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={"passed": True, "score": 100, "blockers": []},
+        slides=[],
+        planner="ai",
+        fallback_reason="",
+        visual_planning={
+            "planner": "ai",
+            "fallback_reason": "partial_ai_visual_plan",
+            "ai_visual_pages_accepted": 65,
+            "ai_visual_pages_fallback": 24,
+        },
+    )
+
+    assert report["passed"] is True
+    assert report["visual_planning"]["degraded"] is True
+    assert {
+        issue["code"] for issue in report["warnings"]
+    } == {"ai_visual_planner_partial_fallback"}
 
 
 def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
