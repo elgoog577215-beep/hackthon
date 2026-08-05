@@ -142,3 +142,42 @@ def test_explicit_retrieval_policy_prefers_v2_and_preserves_legacy_scope():
         "scopes": [],
         "source": "retrieval_v2",
     }
+
+
+@pytest.mark.asyncio
+async def test_gateway_reuses_sanitized_query_cache_across_requests():
+    class CountingProvider:
+        name = "counting"
+        configured = True
+
+        def __init__(self):
+            self.calls = 0
+
+        async def search(self, query: str, *, limit: int):
+            self.calls += 1
+            return [{
+                "url": "https://example.edu/linear-algebra",
+                "title": "Linear algebra course",
+                "text": "Linear algebra eigenvalue course reference.",
+                "score": 0.95,
+            }]
+
+    provider = CountingProvider()
+    request = RetrievalRequest(
+        purpose="ai_teacher",
+        enabled=True,
+        queries=["linear algebra eigenvalue course"],
+    )
+    first = await RetrievalGateway(
+        provider=provider,
+        cache_namespace="cache-contract",
+    ).retrieve(request)
+    second = await RetrievalGateway(
+        provider=provider,
+        cache_namespace="cache-contract",
+    ).retrieve(request)
+
+    assert first["status"] == "completed"
+    assert second["status"] == "completed"
+    assert second["receipt"]["cache_hit_count"] == 1
+    assert provider.calls == 1
