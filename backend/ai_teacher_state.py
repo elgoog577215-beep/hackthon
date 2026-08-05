@@ -15,7 +15,7 @@ import uuid
 from storage import storage
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PROPOSAL_STATUSES = {
     "presented",
     "confirmed",
@@ -56,6 +56,7 @@ class AITeacherRepository:
         title: str = "",
         course_version_id: str = "",
         conversation_id: str | None = None,
+        retrieval_enabled: bool = False,
     ) -> dict[str, Any]:
         with self._guard(user_id, course_id, write=True) as data:
             requested_id = str(conversation_id or "")
@@ -71,11 +72,33 @@ class AITeacherRepository:
                 "course_version_id": course_version_id,
                 "title": _clip(title, 200) or "新对话",
                 "revision": 1,
+                "retrieval_enabled": bool(retrieval_enabled),
                 "messages": [],
                 "created_at": now,
                 "updated_at": now,
             }
             data["conversations"].insert(0, conversation)
+            return deepcopy(conversation)
+
+    def update_conversation_settings(
+        self,
+        user_id: str,
+        course_id: str,
+        conversation_id: str,
+        *,
+        retrieval_enabled: bool,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        with self._guard(user_id, course_id, write=True) as data:
+            conversation = self._conversation(data, conversation_id)
+            if not conversation:
+                raise KeyError(conversation_id)
+            current_revision = int(conversation.get("revision") or 0)
+            if current_revision != int(expected_revision):
+                raise InteractionConflict(deepcopy(conversation))
+            conversation["retrieval_enabled"] = bool(retrieval_enabled)
+            conversation["revision"] = current_revision + 1
+            conversation["updated_at"] = _now()
             return deepcopy(conversation)
 
     def get_conversation(
@@ -305,6 +328,11 @@ class AITeacherRepository:
             normalized = _blank()
             for key in {"conversations", "proposals", "receipts", "suppressions"}:
                 normalized[key] = data.get(key) if isinstance(data.get(key), list) else []
+            for conversation in normalized["conversations"]:
+                if isinstance(conversation, dict):
+                    conversation["retrieval_enabled"] = bool(
+                        conversation.get("retrieval_enabled", False)
+                    )
             return normalized
         except (OSError, json.JSONDecodeError):
             corrupt = path.with_suffix(f".corrupt-{datetime.now().strftime('%Y%m%d%H%M%S')}.json")
@@ -369,6 +397,7 @@ def _sanitize_message(payload: dict[str, Any]) -> dict[str, Any]:
         "context_ref": _sanitize(payload.get("context_ref") or {}),
         "task_ref": _sanitize(payload.get("task_ref") or {}),
         "sources": _sanitize(payload.get("sources") or []),
+        "retrieval_receipt": _sanitize(payload.get("retrieval_receipt") or {}),
         "proposal_id": str(payload.get("proposal_id") or ""),
         "receipt_id": str(payload.get("receipt_id") or ""),
         "status": str(payload.get("status") or "complete"),

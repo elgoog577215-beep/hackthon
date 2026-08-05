@@ -62,6 +62,40 @@ def blueprint_revision_id(course_data: dict[str, Any]) -> str:
     return stable_hash(payload, prefix="bp_")
 
 
+def blueprint_draft_revision_id(draft: dict[str, Any]) -> str:
+    """Hash only editable structural state, excluding reports and timestamps."""
+    payload = {
+        "course_name": draft.get("course_name") or "",
+        "course_purpose": draft.get("course_purpose") or "systematic",
+        "course_type": draft.get("course_type") or "systematic",
+        "course_intent": draft.get("course_intent") or {},
+        "learner_starting_profile": draft.get("learner_starting_profile") or {},
+        "course_blueprint": draft.get("course_blueprint") or {},
+        "course_plan": draft.get("course_plan") or {},
+        "course_outline": draft.get("course_outline") or {},
+        "nodes": [_blueprint_node(node) for node in draft.get("nodes") or []],
+        "learning_asset_plan": draft.get("learning_asset_plan") or {},
+        "blueprint_locks": draft.get("blueprint_locks") or {},
+        "course_shape_constraints": draft.get("course_shape_constraints") or {},
+        "course_generation_brief": draft.get("course_generation_brief") or {},
+    }
+    return stable_hash(payload, prefix="draft_")
+
+
+def outline_adjustment_proposal_id(
+    source_draft_revision_id: str,
+    operations: list[dict[str, Any]],
+) -> str:
+    """Bind an adjustment proposal to its source revision and exact operations."""
+    return stable_hash(
+        {
+            "source_draft_revision_id": source_draft_revision_id,
+            "operations": operations,
+        },
+        prefix="proposal-",
+    )
+
+
 def content_revision_ids(course_data: dict[str, Any]) -> dict[str, str]:
     revisions: dict[str, str] = {}
     for node in course_data.get("nodes") or []:
@@ -124,7 +158,7 @@ def build_version_entry(
 
 
 def build_blueprint_draft(course_data: dict[str, Any]) -> dict[str, Any]:
-    return {
+    draft = {
         "schema_version": BLUEPRINT_SCHEMA,
         "course_id": course_data.get("course_id"),
         "course_name": course_data.get("course_name"),
@@ -135,12 +169,19 @@ def build_blueprint_draft(course_data: dict[str, Any]) -> dict[str, Any]:
             course_data.get("learner_starting_profile") or {}
         ),
         "course_blueprint": deepcopy(course_data.get("course_blueprint") or {}),
+        "course_plan": deepcopy(course_data.get("course_plan") or {}),
+        "course_outline": deepcopy(course_data.get("course_outline") or {}),
         "nodes": [_blueprint_node(node) for node in course_data.get("nodes") or []],
         "learning_asset_plan": deepcopy(course_data.get("learning_asset_plan") or {}),
         "blueprint_locks": deepcopy(course_data.get("blueprint_locks") or {}),
+        "difficulty_profile": deepcopy(course_data.get("difficulty_profile") or {}),
+        "course_generation_brief": deepcopy(course_data.get("course_generation_brief") or {}),
+        "course_shape_constraints": deepcopy(course_data.get("course_shape_constraints") or {}),
         "base_blueprint_revision_id": blueprint_revision_id(course_data),
         "updated_at": datetime.now().isoformat(),
     }
+    draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
+    return draft
 
 
 def merge_blueprint_draft(course_data: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
@@ -161,8 +202,13 @@ def merge_blueprint_draft(course_data: dict[str, Any], draft: dict[str, Any]) ->
         "course_intent",
         "learner_starting_profile",
         "course_blueprint",
+        "course_plan",
+        "course_outline",
         "learning_asset_plan",
         "blueprint_locks",
+        "difficulty_profile",
+        "course_generation_brief",
+        "course_shape_constraints",
     ):
         if field in draft:
             candidate[field] = deepcopy(draft[field])

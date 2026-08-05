@@ -70,11 +70,36 @@ describe('runQuestionBankRebuild', () => {
         scope: 'nodes',
         node_ids: ['node-1'],
         mode: 'incremental',
+        retrieval_enabled: false,
       },
     )
     expect(get).toHaveBeenCalledTimes(2)
     expect(updates).toEqual([0, 55, 100])
     expect(result.status).toBe('completed')
+  })
+
+  it('forwards explicit per-job retrieval consent', async () => {
+    post.mockResolvedValue({
+      data: {
+        job_id: 'job-retrieval',
+        status: 'completed',
+        progress: 100,
+        status_url: '/api/jobs/job-retrieval',
+      },
+    })
+
+    await runQuestionBankRebuild('course-1', {
+      request_id: 'request-retrieval',
+      scope: 'course',
+      node_ids: [],
+      mode: 'full',
+      retrieval_enabled: true,
+    })
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/courses/course-1/question-bank/rebuild',
+      expect.objectContaining({ retrieval_enabled: true }),
+    )
   })
 
   it('surfaces a durable failed job instead of reporting success', async () => {

@@ -206,6 +206,11 @@ class PlannedPageV2(_StrictModel):
     ] = "concept"
     section_id: str = ""
     chapter_id: str = ""
+    episode_id: str = ""
+    beat_id: str = ""
+    semantic_atom_ids: list[str] = Field(default_factory=list, max_length=8)
+    continuation_of: str = ""
+    continuation_index: int = Field(default=0, ge=0)
 
 
 class FragmentExclusionV1(_StrictModel):
@@ -1936,6 +1941,7 @@ def compile_slide_deck_v3(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
     asset_repository: SlideAssetRepository | None = None,
+    allow_generated_illustrations: bool | None = None,
 ) -> dict[str, Any]:
     fragments = fragment_course_document(document)
     if allocation_plan is None:
@@ -1980,6 +1986,7 @@ def compile_slide_deck_v3(
         course_id=document.course_id,
         repository=asset_repository,
         progress_callback=progress_callback,
+        allow_generated_illustrations=allow_generated_illustrations,
     )
     rebalance_visual_plan_pages(
         resolved_visual_plan.pages,

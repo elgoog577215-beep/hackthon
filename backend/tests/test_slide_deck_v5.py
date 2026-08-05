@@ -28,6 +28,7 @@ from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
+    allocation_from_story_plan_v5,
     apply_page_contract_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -40,6 +41,7 @@ from slide_deck_v5 import (
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
+from slide_quality_v5 import _concise_existing_title
 from slide_story_plan import (
     ChapterStoryV2,
     ClaimSourceV2,
@@ -49,7 +51,7 @@ from slide_story_plan import (
     StorySourceRevisionsV2,
     TeachingEpisodeV2,
 )
-from slide_visuals import deterministic_visual_plan, validate_visual_plan
+from slide_visuals import deterministic_visual_plan
 
 
 def _beat(chapter_index: int, scene: str) -> StoryBeatV2:
@@ -131,7 +133,156 @@ def _document(chapter_count: int) -> CourseDocument:
     )
 
 
-def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
+def test_v5_allocation_stabilizes_reversed_story_beats_by_source_order() -> None:
+    document = _document(1)
+    early = ContentFragmentV1(
+        fragment_id="fragment-early",
+        section_id="chapter-1",
+        block_id="block-early",
+        kind="paragraph",
+        text="Earlier source statement with enough detail for a complete teaching claim.",
+        ordinal=10,
+        source_hash="hash-early",
+        role="concept",
+        source_kind="course_block",
+    )
+    late = ContentFragmentV1(
+        fragment_id="fragment-late",
+        section_id="chapter-1",
+        block_id="block-late",
+        kind="paragraph",
+        text="Later source statement with enough detail for a complete teaching claim.",
+        ordinal=20,
+        source_hash="hash-late",
+        role="concept",
+        source_kind="course_block",
+    )
+    story = _story(1)
+    base_chapter = story.chapters[0]
+    late_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-late",
+        "fragment_ids": [late.fragment_id],
+    })
+    early_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-early",
+        "fragment_ids": [early.fragment_id],
+    })
+    chapter = base_chapter.model_copy(update={
+        "episodes": [
+            base_chapter.episodes[0],
+            TeachingEpisodeV2(
+                episode_id="episode-late",
+                scene_kind="concept",
+                teaching_job="Explain the later source statement",
+                beats=[late_beat],
+            ),
+            TeachingEpisodeV2(
+                episode_id="episode-early",
+                scene_kind="concept",
+                teaching_job="Explain the earlier source statement",
+                beats=[early_beat],
+            ),
+            base_chapter.episodes[-1],
+        ],
+    })
+    story = story.model_copy(update={"chapters": [chapter]})
+
+    allocation, _ = allocation_from_story_plan_v5(
+        document,
+        [early, late],
+        story,
+    )
+
+    assert [
+        fragment_id
+        for page in allocation.pages
+        for fragment_id in page.fragment_ids
+    ] == [early.fragment_id, late.fragment_id]
+
+
+def test_v5_allocation_closes_source_lists_and_uses_continuations() -> None:
+    document = _document(1)
+    fragments = [
+        ContentFragmentV1(
+            fragment_id="fragment-lead",
+            section_id="chapter-1",
+            block_id="block-list",
+            kind="list_item",
+            text="来源明确包括5个分支：",
+            ordinal=10,
+            source_hash="hash-lead",
+            role="concept",
+            source_kind="course_block",
+        ),
+        *[
+            ContentFragmentV1(
+                fragment_id=f"fragment-item-{index}",
+                section_id="chapter-1",
+                block_id="block-list",
+                kind="list_item",
+                text=f"Branch {index} is explicitly described by the source.",
+                ordinal=10 + index,
+                source_hash=f"hash-item-{index}",
+                role="concept",
+                source_kind="course_block",
+            )
+            for index in range(1, 6)
+        ],
+        ContentFragmentV1(
+            fragment_id="fragment-next-heading",
+            section_id="chapter-1",
+            block_id="block-next",
+            kind="heading",
+            text="Next independent topic",
+            ordinal=20,
+            source_hash="hash-next",
+            role="concept",
+            source_kind="course_block",
+        ),
+    ]
+    story = _story(1)
+    chapter = story.chapters[0]
+    source_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-list",
+        "fragment_ids": ["fragment-lead"],
+        "renderer_layout": "question",
+    })
+    story = story.model_copy(update={
+        "chapters": [chapter.model_copy(update={
+            "episodes": [
+                chapter.episodes[0],
+                TeachingEpisodeV2(
+                    episode_id="episode-list",
+                    scene_kind="concept",
+                    teaching_job="Explain the source list",
+                    beats=[source_beat],
+                ),
+                chapter.episodes[-1],
+            ],
+        })],
+    })
+
+    allocation, _ = allocation_from_story_plan_v5(document, fragments, story)
+    content_pages = [page for page in allocation.pages if page.fragment_ids]
+    allocated_ids = [
+        fragment_id
+        for page in content_pages
+        for fragment_id in page.fragment_ids
+    ]
+
+    assert allocated_ids == [
+        "fragment-lead",
+        "fragment-item-1",
+        "fragment-item-2",
+        "fragment-item-3",
+        "fragment-item-4",
+        "fragment-item-5",
+    ]
+    assert len(content_pages) >= 2
+    assert content_pages[1].continuation_of == content_pages[0].page_id
+
+
+def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() -> None:
     document = _document(1)
     variant_key = slide_deck_variant_key("teaching", "qizhi-classroom")
     supplied_allocation = SlideAllocationPlanV2(
@@ -150,59 +301,30 @@ def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
             ),
         ],
     )
-    compact_allocation = supplied_allocation.model_copy(update={
-        "pages": supplied_allocation.pages[:2],
-    })
     supplied_visual_plan = deterministic_visual_plan(
         document,
         supplied_allocation,
         [],
     )
-    captured: dict[str, object] = {}
+    content = compile_slide_deck_v5(
+        document,
+        {},
+        story_plan=_story(1),
+        allocation_plan=supplied_allocation,
+        visual_plan=supplied_visual_plan,
+    )
 
-    def _compile_v4(*args: object, **kwargs: object) -> dict[str, object]:
-        visual_plan = kwargs["visual_plan"]
-        allocation_plan = kwargs["allocation_plan"]
-        validate_visual_plan(visual_plan, allocation_plan, [])
-        captured["visual_plan"] = visual_plan
-        captured["allocation_plan"] = allocation_plan
-        return {
-            "schema_version": "slide_deck_v4",
-            "title": document.title,
-            "slides": [],
-            "quality_report": {"passed": True, "score": 100, "issues": []},
-            "quality_summary": {},
-        }
-
-    with (
-        patch("slide_deck_v5.fragment_course_document", return_value=[]),
-        patch("slide_deck_v5.compact_story_plan_v5", return_value=_story(1)),
-        patch(
-            "slide_deck_v5.allocation_from_story_plan_v2",
-            return_value=(compact_allocation, {}),
-        ),
-        patch("slide_deck_v5.compile_slide_deck_v4", side_effect=_compile_v4),
-        patch("slide_deck_v5._materialize_v5_structure", return_value=[]),
-        patch(
-            "slide_deck_v5.finalize_v5_quality_report",
-            return_value={"passed": True, "score": 100, "issues": []},
-        ),
-    ):
-        compile_slide_deck_v5(
-            document,
-            {},
-            story_plan=_story(1),
-            allocation_plan=supplied_allocation,
-            visual_plan=supplied_visual_plan,
-        )
-
-    rebuilt_visual_plan = captured["visual_plan"]
-    rebuilt_allocation = captured["allocation_plan"]
-    assert [page.page_id for page in rebuilt_visual_plan.pages] == [
-        page.page_id for page in rebuilt_allocation.pages
+    final_page_ids = [slide["unit_id"] for slide in content["slides"]]
+    allocation_page_ids = [
+        page["page_id"] for page in content["allocation_plan"]["pages"]
     ]
-    assert rebuilt_visual_plan.deck_brief["fallback_reason"] == (
-        "v5_compaction_visual_plan_rebuilt"
+    visual_page_ids = [
+        page["page_id"] for page in content["visual_plan"]["pages"]
+    ]
+    assert all(page_id.startswith("slide:v5:") for page_id in final_page_ids)
+    assert allocation_page_ids == visual_page_ids
+    assert content["deck_brief"]["fallback_reason"] == (
+        "v5_final_page_ids_visual_plan_rebuilt"
     )
 
 
@@ -1686,6 +1808,95 @@ def test_v5_quality_cannot_publish_when_a_retained_nested_gate_is_critical() -> 
     } == {"official_source_revision_mismatch"}
 
 
+def test_v5_quality_retains_non_superseded_presentation_blockers() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": True,
+            "score": 95,
+            "slide_count": 1,
+            "presentation": {
+                "passed": False,
+                "score": 80,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "rendered_text_clipped",
+                    "target": "slide:v4:0001",
+                }],
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "rendered_text_clipped",
+                    "target": "slide:v4:0001",
+                }],
+            },
+            "blockers": [],
+        },
+        slides=[],
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is False
+    assert report["presentation"]["passed"] is False
+    assert report["visual"]["passed"] is True
+    assert {
+        issue["code"] for issue in report["blockers"]
+    } == {"rendered_text_clipped"}
+
+
+def test_v5_quality_recomputes_stale_presentation_and_final_slide_count() -> None:
+    slides = [
+        {
+            "unit_id": "slide:v5:0001",
+            "title": "结构关系决定判断顺序",
+            "blocks": [{
+                "type": "rich_text",
+                "content": "先定位目标结构，再辨认相邻关系，最后依据边界完成判断。",
+            }],
+            "quality": {"passed": True},
+        },
+        {
+            "unit_id": "slide:v5:0002",
+            "title": "安全边界约束操作路径",
+            "blocks": [{
+                "type": "rich_text",
+                "content": "先识别安全边界，再选择操作路径，并用最终结果检查判断。",
+            }],
+            "quality": {"passed": True},
+        },
+    ]
+    report = finalize_v5_quality_report(
+        previous_quality={
+            "passed": False,
+            "score": 80,
+            "slide_count": 1,
+            "presentation": {
+                "passed": False,
+                "score": 80,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "layout_family_repeated_more_than_twice",
+                    "target": "deck",
+                }],
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "layout_family_repeated_more_than_twice",
+                    "target": "deck",
+                }],
+            },
+            "blockers": [],
+        },
+        slides=slides,
+        planner="ai",
+        fallback_reason="",
+    )
+
+    assert report["passed"] is True
+    assert report["slide_count"] == len(slides)
+    assert report["presentation"]["passed"] is True
+    assert report["presentation"]["issues"] == []
+    assert report["presentation"]["blockers"] == []
+
+
 def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
     report = finalize_v5_quality_report(
         previous_quality={
@@ -1712,7 +1923,7 @@ def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
     )
 
     assert report["passed"] is False
-    assert "slide_block_overflow" in {
+    assert "legacy_slide_id" in {
         issue["code"] for issue in report["blockers"]
     }
 
@@ -1738,16 +1949,37 @@ def test_v5_publishable_ai_fallback_is_a_warning_not_a_blocker() -> None:
     } == {"ai_story_planner_fallback"}
 
 
+def test_v5_reports_partial_visual_ai_fallback_as_degraded() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={"passed": True, "score": 100, "blockers": []},
+        slides=[],
+        planner="ai",
+        fallback_reason="",
+        visual_planning={
+            "planner": "ai",
+            "fallback_reason": "partial_ai_visual_plan",
+            "ai_visual_pages_accepted": 65,
+            "ai_visual_pages_fallback": 24,
+        },
+    )
+
+    assert report["passed"] is True
+    assert report["visual_planning"]["degraded"] is True
+    assert {
+        issue["code"] for issue in report["warnings"]
+    } == {"ai_visual_planner_partial_fallback"}
+
+
 def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
     slide = apply_page_contract_v5({
-        "unit_id": "slide:v4:long-course",
+        "unit_id": "slide:v5:long-course",
         "layout": "concept",
         "composition": "statement",
         "title": "状态变量只取决于系统当前状态",
         "blocks": [{
             "block_id": "definition",
             "type": "rich_text",
-            "content": "状态变量与过程路径无关。",
+            "content": "状态变量与过程路径无关，因此判断时只比较系统的初态与终态。",
             "items": [],
         }],
         "visuals": [],
@@ -1756,12 +1988,12 @@ def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
             "issues": [{
                 "severity": "critical",
                 "code": "concept_card_overflow",
-                "slide_id": "slide:v4:long-course",
+                "slide_id": "slide:v5:long-course",
             }],
             "blockers": [{
                 "severity": "critical",
                 "code": "slide_block_overflow",
-                "slide_id": "slide:v4:long-course",
+                "slide_id": "slide:v5:long-course",
             }],
         },
     })
@@ -1778,7 +2010,7 @@ def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
             "blockers": [{
                 "severity": "critical",
                 "code": "slide_block_overflow",
-                "slide_id": "slide:v4:long-course",
+                "slide_id": "slide:v5:long-course",
             }],
         },
         slides=[slide],
@@ -2195,7 +2427,7 @@ def test_v5_structural_evaluation_across_course_types(
 
 def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
     slides = repair_final_page_contracts_v5([{
-        "unit_id": "repaired-page",
+        "unit_id": "slide:v5:repaired-page",
         "layout": "concept",
         "title": "三种系统具有不同交换边界",
         "blocks": [{
@@ -2212,18 +2444,18 @@ def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
                 {
                     "severity": "critical",
                     "code": "visible_item_overflow",
-                    "target": "repaired-page",
+                    "target": "slide:v5:repaired-page",
                 },
                 {
                     "severity": "critical",
                     "code": "enumeration_cardinality_mismatch",
-                    "target": "repaired-page",
+                    "target": "slide:v5:repaired-page",
                 },
             ],
             "semantic": {"issues": [{
                 "severity": "major",
                 "code": "slide_title_too_long",
-                "target": "repaired-page",
+                "target": "slide:v5:repaired-page",
             }]},
         },
         slides=slides,
@@ -2246,13 +2478,13 @@ def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
 
 def test_v5_reports_course_input_semantic_gaps_without_blocking_safe_pages() -> None:
     slide = apply_page_contract_v5({
-        "unit_id": "safe-concept",
+        "unit_id": "slide:v5:safe-concept",
         "layout": "concept",
         "title": "结构关系决定判断顺序",
         "blocks": [{
             "block_id": "concept",
             "type": "rich_text",
-            "content": "先确认位置关系，再检查相邻结构。",
+            "content": "先确认对象的位置关系，再检查相邻结构，最终形成来源支持的完整判断。",
         }],
         "quality": {"requested_layout": "editorial-body"},
     })
@@ -2391,14 +2623,36 @@ def test_chapter_recap_uses_claims_and_a_retrieval_prompt_not_slide_titles() -> 
 
     recap = _chapter_recap_slide(outline.chapters[0], source_slides)
 
-    assert recap["title"] == "本章必须带走的关键判断"
+    assert recap["title"] == "回顾：主题1"
     assert recap["blocks"][0]["items"] == [
         "系统类型取决于它与环境交换物质和能量的方式。",
         "第零定律支撑温度测量和温度控制。",
     ]
+    assert "？" in recap["key_message"]
+    assert all(len(item) <= 24 for item in recap["blocks"][0]["items"])
     assert "不看前文" in recap["key_message"]
     assert recap["quality"]["navigation_only"] is False
     assert recap["quality"]["retrieval_recap"] is True
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("本节课的核心目标是建立局部解剖学的空间定位基础", "局部解剖学的空间定位基础"),
+        ("起点：面神经主干自茎乳孔（Stylomastoid foramen）", "起点：面神经主干自茎乳孔"),
+        ("本节课旨在掌握纵隔的“四分法”分区逻辑", "纵隔的四分法分区逻辑"),
+        (
+            "本节的核心任务是建立骨盆作为“骨性容器”与盆底肌群作为“功能性底板”的空间对应关系",
+            "骨盆与盆底肌群的空间对应关系",
+        ),
+        (
+            "本节旨在建立上肢近端至中段的“骨 - 肌 - 神经”空间对应关系",
+            "骨 - 肌 - 神经空间对应关系",
+        ),
+    ],
+)
+def test_concise_title_uses_complete_existing_phrases(source: str, expected: str) -> None:
+    assert _concise_existing_title(source, maximum=18) == expected
 
 
 def test_quality_gate_blocks_mixed_question_and_chapter_transition() -> None:

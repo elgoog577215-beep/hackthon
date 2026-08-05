@@ -26,7 +26,7 @@ class SlideVisualAsset(BaseModel):
 
     asset_id: str
     course_id: str
-    kind: Literal["source_image", "generated_illustration"]
+    kind: Literal["source_image", "retrieved_image", "generated_illustration"]
     purpose: str
     source_fragment_ids: list[str] = Field(default_factory=list)
     alt_text: str
@@ -39,6 +39,16 @@ class SlideVisualAsset(BaseModel):
     prompt: str = ""
     model: str = ""
     generation_seed: str = ""
+    source_provider: str = ""
+    source_page_url: str = ""
+    asset_url: str = ""
+    creator: str = ""
+    license: str = ""
+    license_url: str = ""
+    license_allowed: bool = True
+    retrieval_query: str = ""
+    retrieval_score: float = Field(default=0, ge=0, le=1)
+    retrieved_at: str = ""
     quality_checks: dict[str, bool] = Field(default_factory=dict)
 
 
@@ -57,10 +67,24 @@ class SlideAssetRepository:
         source_fragment_ids: list[str],
         alt_text: str,
         purpose: str,
-        kind: Literal["source_image", "generated_illustration"] = "source_image",
+        kind: Literal[
+            "source_image",
+            "retrieved_image",
+            "generated_illustration",
+        ] = "source_image",
         prompt: str = "",
         model: str = "",
         generation_seed: str = "",
+        source_provider: str = "",
+        source_page_url: str = "",
+        asset_url: str = "",
+        creator: str = "",
+        license: str = "",
+        license_url: str = "",
+        license_allowed: bool = True,
+        retrieval_query: str = "",
+        retrieval_score: float = 0,
+        retrieved_at: str = "",
         quality_checks: dict[str, bool] | None = None,
     ) -> SlideVisualAsset:
         source = Path(source_path)
@@ -103,6 +127,16 @@ class SlideAssetRepository:
             prompt=prompt,
             model=model,
             generation_seed=generation_seed,
+            source_provider=source_provider,
+            source_page_url=source_page_url,
+            asset_url=asset_url,
+            creator=creator,
+            license=license,
+            license_url=license_url,
+            license_allowed=license_allowed,
+            retrieval_query=retrieval_query,
+            retrieval_score=retrieval_score,
+            retrieved_at=retrieved_at,
             quality_checks=dict(quality_checks or {}),
         )
         (staged_dir / "manifest.json").write_text(
@@ -213,6 +247,23 @@ class SlideAssetRepository:
                 return asset
         return None
 
+    def find_retrieved(self, *, asset_url: str) -> SlideVisualAsset | None:
+        """Reuse one previously validated download without re-hotlinking it."""
+        for manifest in self.root.glob("sva_*/manifest.json"):
+            try:
+                asset = SlideVisualAsset.model_validate(
+                    json.loads(manifest.read_text(encoding="utf-8"))
+                )
+            except (OSError, ValueError):
+                continue
+            if (
+                asset.kind == "retrieved_image"
+                and asset.asset_url == asset_url
+                and asset.license_allowed
+            ):
+                return asset
+        return None
+
     @staticmethod
     def _validate_id(asset_id: str) -> None:
         if not asset_id.startswith("sva_") or not all(
@@ -232,6 +283,7 @@ def resolve_visual_plan_assets(
     course_id: str,
     repository: SlideAssetRepository | None = None,
     progress_callback: object | None = None,
+    allow_generated_illustrations: bool | None = None,
 ) -> tuple[SlideVisualPlanV1, list[dict[str, object]]]:
     """Resolve course image references and deterministically degrade bad assets."""
     target = repository or slide_asset_repository
@@ -241,10 +293,14 @@ def resolve_visual_plan_assets(
     }
     resolved = visual_plan.model_copy(deep=True)
     provider = SlideImageProvider()
-    illustrations_enabled = os.getenv(
-        "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
-        "",
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    illustrations_enabled = (
+        os.getenv(
+            "SLIDE_GENERATED_ILLUSTRATIONS_ENABLED",
+            "",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if allow_generated_illustrations is None
+        else bool(allow_generated_illustrations)
+    )
     if not illustrations_enabled:
         for page in resolved.pages:
             if page.visual_anchor.kind == "generated_illustration":
@@ -336,7 +392,11 @@ def resolve_visual_plan_assets(
     image_pages = [
         page
         for page in resolved.pages
-        if page.visual_anchor.kind in {"source_image", "generated_illustration"}
+        if page.visual_anchor.kind in {
+            "source_image",
+            "retrieved_image",
+            "generated_illustration",
+        }
     ]
     manifest: list[dict[str, object]] = []
     for index, page in enumerate(image_pages, start=1):
@@ -363,7 +423,7 @@ def resolve_visual_plan_assets(
                 )
                 asset = staged
                 anchor.asset_id = asset.asset_id
-            else:
+            elif anchor.kind == "generated_illustration":
                 prompt = str(anchor.parameters.get("prompt") or "")
                 if not prompt:
                     raise ValueError("Generated illustration prompt is missing")
@@ -393,6 +453,8 @@ def resolve_visual_plan_assets(
                     )
                     asset = staged
                     anchor.asset_id = asset.asset_id
+            else:
+                raise ValueError("Retrieved image anchors require a staged asset id")
             manifest.append(asset.model_dump(mode="json"))
         except Exception:
             page.visual_anchor = _fallback_anchor(anchor, catalog)

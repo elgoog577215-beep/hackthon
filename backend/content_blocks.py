@@ -266,9 +266,39 @@ def set_node_content_blocks(node: dict[str, Any], content: str) -> list[dict[str
             node_title=str(node.get("node_name") or ""),
         )
     _attach_module_plan_metadata(blocks, node.get("module_plan") or [])
+    _attach_citation_metadata(
+        blocks,
+        node.get("citation_map") or {},
+    )
     node["content_blocks"] = blocks
     node["node_content"] = blocks_to_markdown(blocks) if blocks else content
     return blocks
+
+
+def _attach_citation_metadata(
+    blocks: list[dict[str, Any]],
+    citation_map: dict[str, str],
+) -> None:
+    if not citation_map:
+        return
+    for block in blocks:
+        used = list(dict.fromkeys(
+            re.findall(
+                r"〔(S\d+)〕",
+                str(block.get("content") or ""),
+            )
+        ))
+        citations = {
+            citation_id: str(citation_map[citation_id])
+            for citation_id in used
+            if citation_id in citation_map
+        }
+        if not citations:
+            continue
+        metadata = deepcopy(block.get("metadata") or {})
+        metadata["citations"] = citations
+        metadata["source_ids"] = list(dict.fromkeys(citations.values()))
+        block["metadata"] = metadata
 
 
 def _attach_module_plan_metadata(

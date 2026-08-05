@@ -130,6 +130,7 @@ app.add_middleware(
 # ============================================================================
 
 from datetime import datetime
+from web_retrieval import retrieval_feature_state
 
 @app.get("/health")
 async def health_check():
@@ -137,7 +138,18 @@ async def health_check():
 
 @app.get("/api/health")
 def read_root():
-    return {"message": "KnowledgeMap AI API"}
+    retrieval = retrieval_feature_state()
+    return {
+        "message": "KnowledgeMap AI API",
+        "web_retrieval_v2": {
+            "enabled": retrieval["enabled"],
+            "mode": retrieval["mode"],
+            "provider": retrieval["provider"],
+            "provider_configured": retrieval[
+                "provider_configured"
+            ],
+        },
+    }
 
 
 # ============================================================================

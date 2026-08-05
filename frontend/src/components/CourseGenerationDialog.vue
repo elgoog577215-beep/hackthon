@@ -289,14 +289,14 @@
           <section class="form-section web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
-                v-model="form.webQuestionEnrichment"
-                data-testid="web-question-enrichment"
+                v-model="form.retrievalEnabled"
+                data-testid="web-retrieval"
                 type="checkbox"
                 :disabled="busy"
               />
               <span>
-                <strong>{{ t('courseGeneration.webQuestions.label', '资料不足时联网补充') }}</strong>
-                <small>{{ t('courseGeneration.webQuestions.help', '仅对题库覆盖缺口检索可信来源；不会发送学生画像、作答或个人记录。') }}</small>
+                <strong>{{ t('courseGeneration.retrieval.label', '联网研究') }}</strong>
+                <small>{{ t('courseGeneration.retrieval.help', '用于新课程蓝图、正文和题库的同源资料核验；默认关闭，不会发送学生画像、作答或个人记录。') }}</small>
               </span>
             </label>
           </section>
@@ -395,7 +395,7 @@ const form = reactive({
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
-  webQuestionEnrichment: true,
+  retrievalEnabled: false,
   requirements: '',
   targetAudience: '大学生',
   academicTerm: '',
@@ -545,7 +545,6 @@ async function submit() {
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
-      web_question_enrichment: { enabled: form.webQuestionEnrichment },
       target_audience: form.targetAudience.trim(),
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1',
@@ -565,6 +564,7 @@ async function submit() {
           parse_status: 'ready',
         })),
       },
+      retrieval: { enabled: form.retrievalEnabled },
     }
     const identity = JSON.stringify({ subject, options })
     if (!submissionRequestId.value || submissionIdentity.value !== identity) {

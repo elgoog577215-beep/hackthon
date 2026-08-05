@@ -107,6 +107,9 @@
           <span>{{ t('questionBank.webSources', '联网补充') }}</span>
           <strong>{{ webStatusLabel }}</strong>
           <small>{{ t('questionBank.sourceCount', '{count} 个来源').replace('{count}', String(webEnrichment.source_count || 0)) }}</small>
+          <small v-if="webRetrievalError" data-testid="question-bank-retrieval-error">
+            {{ webRetrievalError }}
+          </small>
         </article>
         <article data-testid="question-diversity-monitor">
           <span>{{ t('questionBank.diversity', '题组多样性') }}</span>
@@ -685,6 +688,7 @@ import {
 } from 'lucide-vue-next'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
+import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
 import {
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
@@ -1027,6 +1031,10 @@ const webStatusLabel = computed(() => {
   }
   return labels[status] || t('questionBank.web.notStarted', '未启用')
 })
+const webRetrievalError = computed(() => {
+  const key = retrievalErrorTranslationKey(webEnrichment.value)
+  return key ? t(key, '') : ''
+})
 
 onMounted(() => {
   void load()
@@ -1200,6 +1208,10 @@ async function load() {
 
 async function rebuild(nodeId?: string, resumeExisting = true) {
   if (!props.courseId || rebuilding.value) return
+  const retrievalEnabled = window.confirm(t(
+    'courseAvailability.rebuildRetrievalConfirm',
+    '本次重建是否启用联网研究？选择“取消”将继续离线重建。',
+  ))
   rebuildAbortController?.abort()
   const controller = new AbortController()
   rebuildAbortController = controller
@@ -1216,6 +1228,7 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
         scope: scopedNodeId ? 'nodes' : 'course',
         node_ids: scopedNodeId ? [scopedNodeId] : [],
         mode: scopedNodeId ? 'incremental' : 'full',
+        retrieval_enabled: retrievalEnabled,
         ...(!scopedNodeId ? { resume_existing: resumeExisting } : {}),
       },
       {
@@ -1291,6 +1304,10 @@ async function approve(item: QuestionBankItem) {
 
 async function rework(item: QuestionBankItem) {
   if (!props.courseId || actingRevision.value) return
+  const retrievalEnabled = window.confirm(t(
+    'courseAvailability.rebuildRetrievalConfirm',
+    '本次重做是否启用联网研究？选择“取消”将继续离线生成。',
+  ))
   actingRevision.value = item.revision_id
   rebuilding.value = true
   errorMessage.value = ''
@@ -1306,6 +1323,7 @@ async function rework(item: QuestionBankItem) {
         node_ids: [],
         revision_ids: [item.revision_id],
         mode: 'incremental',
+        retrieval_enabled: retrievalEnabled,
       },
       {
         onUpdate: job => {
