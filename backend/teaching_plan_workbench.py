@@ -362,6 +362,49 @@ _SECTION_CLASSROOM_LIST_FIELDS = {
     "teaching_notes",
 }
 
+# 知识语义字段（contracts.md §2.4）。稳定知识 ID、来源绑定与编译状态
+# 不在其中——它们由课程知识库维护，只读。
+_KNOWLEDGE_TEXT_FIELDS = {"statement", "capability"}
+_KNOWLEDGE_LIST_FIELDS = {"conditions", "boundaries", "counterexamples"}
+# 结构化条目：教师编辑的是每条的主字段文本，verification_method、
+# discrimination 等兄弟键必须原样保留，不能被整条覆盖掉。
+_KNOWLEDGE_DETAIL_FIELDS = {
+    "misconceptions": "observable_error_pattern",
+    "mastery_criteria": "observable_performance",
+}
+
+
+def _detail_texts(entries: Any, primary_field: str) -> list[str]:
+    """把结构化条目投影成教师看到的主字段文本列表。"""
+    texts: list[str] = []
+    for entry in entries or []:
+        if isinstance(entry, dict):
+            text = _text(entry.get(primary_field))
+        else:
+            text = _text(entry)
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _merge_detail_texts(
+    existing: Any,
+    texts: list[str],
+    primary_field: str,
+) -> list[dict[str, Any]]:
+    """按位置回填主字段，保留原条目的其他键；多出的条目新建。
+
+    教师改的是「易错表现」「掌握标准」这句话本身，配套的验证方法、
+    纠偏策略不该因为改了一句话就被抹掉。
+    """
+    previous = [item for item in (existing or []) if isinstance(item, dict)]
+    merged: list[dict[str, Any]] = []
+    for index, text in enumerate(texts):
+        entry = deepcopy(previous[index]) if index < len(previous) else {}
+        entry[primary_field] = text
+        merged.append(entry)
+    return merged
+
 
 def field_permission(path: str) -> dict[str, str]:
     normalized = path.strip("/")
@@ -411,7 +454,7 @@ def field_permission(path: str) -> dict[str, str]:
             "reason": "教学环节变化会影响当前小节的派生表达。",
         }
     if re.fullmatch(
-        r"sections/[^/]+/knowledge/[^/]+/(statement|capability)",
+        r"sections/[^/]+/knowledge/[^/]+/(statement|capability|conditions|boundaries|counterexamples|misconceptions|mastery_criteria)",
         normalized,
     ):
         return {
@@ -484,8 +527,14 @@ def _read_path(snapshot: dict[str, Any], path: str) -> Any:
         if parts[4] == "planned_minutes":
             return _module(snapshot, parts[1], parts[3]).get(parts[4])
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "knowledge":
-        if parts[4] in {"statement", "capability"}:
+        if parts[4] in _KNOWLEDGE_TEXT_FIELDS:
             return _knowledge_point(snapshot, parts[1], parts[3]).get(parts[4], "")
+        if parts[4] in _KNOWLEDGE_LIST_FIELDS:
+            point = _knowledge_point(snapshot, parts[1], parts[3])
+            return list(point.get(parts[4]) or [])
+        if (primary := _KNOWLEDGE_DETAIL_FIELDS.get(parts[4])) is not None:
+            point = _knowledge_point(snapshot, parts[1], parts[3])
+            return _detail_texts(point.get(parts[4]), primary)
     raise TeachingPlanWorkbenchError(
         "teaching_plan_path_not_found",
         "教案字段不存在",
@@ -595,12 +644,21 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
             _module(snapshot, parts[1], parts[3])[parts[4]] = value
             return value
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "knowledge":
-        if parts[4] in {"statement", "capability"}:
+        if parts[4] in _KNOWLEDGE_TEXT_FIELDS:
             text = _text(value)
             if not text or len(text) > _TEXT_LIMIT:
                 raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "知识说明不能为空且不能过长")
             _knowledge_point(snapshot, parts[1], parts[3])[parts[4]] = text
             return text
+        if parts[4] in _KNOWLEDGE_LIST_FIELDS:
+            values = _strings(value, maximum=12)
+            _knowledge_point(snapshot, parts[1], parts[3])[parts[4]] = values
+            return values
+        if (primary := _KNOWLEDGE_DETAIL_FIELDS.get(parts[4])) is not None:
+            texts = _strings(value, maximum=12)
+            point = _knowledge_point(snapshot, parts[1], parts[3])
+            point[parts[4]] = _merge_detail_texts(point.get(parts[4]), texts, primary)
+            return texts
     raise TeachingPlanWorkbenchError(
         "teaching_plan_path_not_found",
         "教案字段不存在",
@@ -803,7 +861,15 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 name = _text((point or {}).get("name"))
                 if not name:
                     continue
-                for suffix in ("statement", "capability"):
+                for suffix in (
+                    "statement",
+                    "capability",
+                    "conditions",
+                    "boundaries",
+                    "counterexamples",
+                    "misconceptions",
+                    "mastery_criteria",
+                ):
                     path = f"sections/{section_id}/knowledge/{name}/{suffix}"
                     fields.append({"path": path, **field_permission(path)})
     return fields
