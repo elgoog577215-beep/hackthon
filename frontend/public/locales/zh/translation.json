@@ -1827,6 +1827,70 @@
         "prefer": "优先使用",
         "optional": "可选使用",
         "styleOnly": "仅参考讲法"
+      },
+      "webSearch": {
+        "label": "联网资料",
+        "subtitle": "从公开网页补充资料，来源与抓取时间可回溯",
+        "enable": "本次生成允许联网检索",
+        "disabledHint": "默认不联网。开启后仅检索公开网页，不绕过付费墙或登录。",
+        "queries": "检索关键词",
+        "queriesHint": "关键词由教学需求推导，生成后可在报告中查看",
+        "adopted": "已采用 {count} 条",
+        "rejectedCount": "已排除 {count} 条",
+        "none": "本次没有联网资料",
+        "degraded": "本次未获取联网资料，仅使用已导入资料",
+        "fetchedAt": "抓取时间",
+        "sourceUrl": "来源链接",
+        "trust": "可信度",
+        "exclude": "剔除这条",
+        "excluded": "已剔除",
+        "restore": "恢复",
+        "openSource": "打开原文",
+        "reviewTitle": "联网资料审阅",
+        "reviewHint": "采用前请确认出处与内容适用性；引用内容会保留出处，不作为原创产物。",
+        "allowedDomains": "仅允许这些域名",
+        "blockedDomains": "屏蔽这些域名",
+        "domainsPlaceholder": "每行一个域名，例如：edu.cn",
+        "maxResults": "最多采用条数",
+        "trustLevel": {
+          "high": "高",
+          "medium": "中",
+          "low": "低"
+        },
+        "messageCode": {
+          "web_search_disabled": "联网检索未开启",
+          "web_search_unavailable": "联网检索不可用，已降级为仅用导入资料",
+          "web_search_ready": "联网资料已就绪",
+          "web_search_no_queries": "没有可用的检索关键词，已跳过联网",
+          "web_search_not_configured": "联网检索未配置，已降级为仅用导入资料",
+          "web_search_provider_failed": "联网检索服务调用失败，已降级为仅用导入资料",
+          "web_search_no_results": "联网检索没有可采用的结果"
+        },
+        "status": {
+          "disabled": "未开启",
+          "ready": "已就绪",
+          "no_queries": "无检索关键词",
+          "no_results": "无可用结果",
+          "unavailable_not_configured": "未配置",
+          "provider_unavailable": "服务不可用"
+        },
+        "reason": {
+          "accepted": "已采用",
+          "allowed": "域名允许",
+          "invalid_url": "链接无效",
+          "unsupported_scheme": "不支持的链接协议",
+          "invalid_host": "域名无法解析",
+          "excluded_by_teacher": "教师已剔除",
+          "denied_domain": "域名在屏蔽名单中",
+          "not_in_allowlist": "域名不在允许名单中",
+          "paywalled_or_login_required": "需付费或登录，未抓取",
+          "robots_disallowed": "站点 robots 不允许抓取",
+          "robots_allowed": "站点 robots 允许抓取",
+          "robots_unavailable": "robots 不可达",
+          "robots_unparsed": "robots 无法解析",
+          "insufficient_text": "正文内容过少",
+          "duplicate_content": "与已有资料重复"
+        }
       }
     },
     "grounding": {

@@ -1827,6 +1827,70 @@
         "prefer": "Prefer",
         "optional": "Optional",
         "styleOnly": "Style only"
+      },
+      "webSearch": {
+        "label": "Web materials",
+        "subtitle": "Supplement with public web pages; source and fetch time stay traceable",
+        "enable": "Allow web search for this generation",
+        "disabledHint": "Off by default. When on, only public pages are fetched, never past paywalls or logins.",
+        "queries": "Search queries",
+        "queriesHint": "Queries are derived from your teaching brief and listed in the report",
+        "adopted": "{count} adopted",
+        "rejectedCount": "{count} excluded",
+        "none": "No web materials this time",
+        "degraded": "No web materials were retrieved; using imported materials only",
+        "fetchedAt": "Fetched at",
+        "sourceUrl": "Source URL",
+        "trust": "Trust",
+        "exclude": "Exclude this",
+        "excluded": "Excluded",
+        "restore": "Restore",
+        "openSource": "Open source",
+        "reviewTitle": "Review web materials",
+        "reviewHint": "Confirm the source and fit before adopting. Citations keep their attribution and are not presented as original work.",
+        "allowedDomains": "Allow only these domains",
+        "blockedDomains": "Block these domains",
+        "domainsPlaceholder": "One domain per line, e.g. edu.cn",
+        "maxResults": "Max adopted results",
+        "trustLevel": {
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low"
+        },
+        "messageCode": {
+          "web_search_disabled": "Web search is off",
+          "web_search_unavailable": "Web search unavailable; fell back to imported materials only",
+          "web_search_ready": "Web materials are ready",
+          "web_search_no_queries": "No usable search queries; web search skipped",
+          "web_search_not_configured": "Web search is not configured; using imported materials only",
+          "web_search_provider_failed": "Web search provider call failed; using imported materials only",
+          "web_search_no_results": "Web search returned no usable results"
+        },
+        "status": {
+          "disabled": "Off",
+          "ready": "Ready",
+          "no_queries": "No queries",
+          "no_results": "No results",
+          "unavailable_not_configured": "Not configured",
+          "provider_unavailable": "Provider unavailable"
+        },
+        "reason": {
+          "accepted": "Adopted",
+          "allowed": "Domain allowed",
+          "invalid_url": "Invalid link",
+          "unsupported_scheme": "Unsupported URL scheme",
+          "invalid_host": "Host could not be resolved",
+          "excluded_by_teacher": "Excluded by teacher",
+          "denied_domain": "Domain is on the block list",
+          "not_in_allowlist": "Domain is not on the allow list",
+          "paywalled_or_login_required": "Paywalled or login required, not fetched",
+          "robots_disallowed": "Site robots.txt disallows fetching",
+          "robots_allowed": "Site robots.txt allows fetching",
+          "robots_unavailable": "robots.txt unreachable",
+          "robots_unparsed": "robots.txt could not be parsed",
+          "insufficient_text": "Too little body text",
+          "duplicate_content": "Duplicate of existing material"
+        }
       }
     },
     "grounding": {
