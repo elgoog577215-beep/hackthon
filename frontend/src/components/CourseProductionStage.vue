@@ -19,6 +19,14 @@
           aria-live="polite"
           aria-atomic="true"
         >{{ liveStatusSummary }}</p>
+        <p
+          v-if="isStalled && !isTerminal"
+          class="formation-heartbeat-alert"
+          role="status"
+        >
+          <Clock3 :size="15" />
+          {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
+        </p>
       </header>
 
       <section class="formation-outline" :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')">
@@ -195,7 +203,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Check, ChevronDown, CircleDashed, CirclePause, Database, GitBranch,
+  Check, ChevronDown, CircleDashed, CirclePause, Clock3, Database, GitBranch,
   GitCompareArrows, LoaderCircle, RotateCw, Sprout, TriangleAlert,
 } from 'lucide-vue-next'
 import type { Node, Task } from '../stores/types'
@@ -209,7 +217,7 @@ import {
   courseProductionStageStatus,
   type CourseProductionStageKey,
 } from '../utils/course-production'
-import { taskUserError } from '../utils/task-observability'
+import { taskHeartbeatState, taskUserError } from '../utils/task-observability'
 
 const props = withDefaults(defineProps<{
   task?: Task
@@ -495,6 +503,10 @@ const userError = computed(() => taskUserError({
   errorCode: props.task?.errorCode,
   errorUserMessage: props.task?.errorUserMessage,
 }))
+const heartbeat = computed(() => props.task
+  ? taskHeartbeatState(props.task)
+  : { state: 'unknown' as const, ageSeconds: null })
+const isStalled = computed(() => heartbeat.value.state === 'stalled')
 const technicalError = computed(() => userError.value.technicalDetail)
 const terminalTitle = computed(() => {
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
@@ -559,6 +571,19 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
   font-size:13px;
   line-height:1.6;
 }
+.formation-sheet__header p.formation-heartbeat-alert {
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  margin:10px 0 0;
+  padding:10px 12px;
+  border-radius:8px;
+  color:#9a4d13;
+  background:#fff8ed;
+  font-size:11px;
+  line-height:1.5;
+}
+.formation-heartbeat-alert svg { flex:0 0 auto; margin-top:1px; }
 .formation-outline { padding:0 26px; }
 .formation-outline > header {
   display:flex;

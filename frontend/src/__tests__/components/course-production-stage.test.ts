@@ -196,6 +196,27 @@ describe('CourseProductionStage', () => {
     expect(wrapper.text()).toContain('响应超时')
   })
 
+  it('长任务心跳停滞时在生产现场提示，未停滞时不打扰', async () => {
+    const runningTask: Task = {
+      ...interruptedTask,
+      status: 'running',
+      error: undefined,
+      currentPhase: 'course_teaching_plan_batch',
+      heartbeatAt: new Date(Date.now() - 8 * 1000).toISOString(),
+    }
+    const wrapper = mount(CourseProductionStage, {
+      props: { task: runningTask, courseName: '量子力学' },
+    })
+    expect(wrapper.find('.formation-heartbeat-alert').exists()).toBe(false)
+
+    await wrapper.setProps({
+      task: { ...runningTask, heartbeatAt: new Date(Date.now() - 400 * 1000).toISOString() },
+    })
+    const alert = wrapper.get('.formation-heartbeat-alert')
+    expect(alert.attributes('role')).toBe('status')
+    expect(alert.text()).toContain('长时间没有更新')
+  })
+
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {    const task: Task = {
       ...interruptedTask,
       currentPhase: 'teaching_plan_ready',
