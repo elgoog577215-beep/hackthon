@@ -10,6 +10,7 @@ from ai_teacher_state import AITeacherRepository, InteractionConflict
 from models import CourseGenerationRequest
 from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers import ai_teacher as ai_teacher_router
+from routers import course_versions as course_versions_router
 from routers.question_bank import QuestionBankRebuildRequest
 
 
@@ -149,3 +150,26 @@ def test_ai_teacher_public_settings_endpoint_returns_409_on_conflict(
     )
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "conversation_revision_conflict"
+
+
+@pytest.mark.asyncio
+async def test_failed_outline_retrieval_exposes_an_explicit_retry_action():
+    class TaskManagerStub:
+        def __init__(self):
+            self.course_ids: list[str] = []
+
+        async def retry_course_outline_research(self, course_id: str):
+            self.course_ids.append(course_id)
+            return {
+                "status": "waiting_for_confirmation",
+                "package": {"revision": 2},
+            }
+
+    task_manager = TaskManagerStub()
+    result = await course_versions_router.retry_blueprint_retrieval(
+        "course-1",
+        task_manager,
+    )
+
+    assert task_manager.course_ids == ["course-1"]
+    assert result["retrieval"]["package"]["revision"] == 2
