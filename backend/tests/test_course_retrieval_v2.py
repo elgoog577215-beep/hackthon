@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from course_retrieval import (
+    build_course_source_context,
     build_course_retrieval_queries,
     build_outline_research_instruction,
     build_outline_research_proposal,
 )
+from content_blocks import set_node_content_blocks
 from course_versioning import build_blueprint_draft
 
 
@@ -127,3 +129,30 @@ def test_outline_research_proposal_preserves_base_candidate_diff_and_sources():
     assert proposal["reason"] == "Add a prerequisite section."
     assert proposal["source_ids"] == ["src_a", "src_b"]
     assert proposal["tier_b_source_ids"] == ["src_b"]
+
+
+def test_confirmed_sources_get_stable_inline_citations_and_block_metadata():
+    package = _package()
+    course = {
+        "retrieval_package": package,
+        "retrieval_acceptance": {"accepted_source_ids": ["src_b"]},
+    }
+    context, citation_map, source_cards = build_course_source_context(course)
+
+    assert "〔S1〕" in context
+    assert "〔S2〕" in context
+    assert citation_map == {"S1": "src_a", "S2": "src_b"}
+    assert [item["source_id"] for item in source_cards] == ["src_a", "src_b"]
+
+    node = {
+        "node_id": "section-1",
+        "node_name": "Eigenvalues",
+        "citation_map": citation_map,
+        "source_cards": source_cards,
+    }
+    blocks = set_node_content_blocks(
+        node,
+        "## Concept\n\nDiagonalization follows eigenvectors.〔S2〕",
+    )
+    assert blocks[0]["metadata"]["citations"] == {"S2": "src_b"}
+    assert blocks[0]["metadata"]["source_ids"] == ["src_b"]
