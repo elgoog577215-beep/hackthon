@@ -8,7 +8,7 @@ revision listeners instead of creating a second teaching-plan repository.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import inspect
 import os
 import re
@@ -53,6 +53,58 @@ class TeachingPlanWorkbenchError(RuntimeError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _draft_ttl_hours() -> int:
+    """Draft lifetime in hours; 0 disables expiry."""
+    raw = os.getenv("TEACHING_PLAN_DRAFT_TTL_HOURS", "72").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 72
+    return max(value, 0)
+
+
+def _draft_expires_at(created_at: str) -> str | None:
+    hours = _draft_ttl_hours()
+    if not hours:
+        return None
+    try:
+        started = datetime.fromisoformat(created_at)
+    except ValueError:
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return (started + timedelta(hours=hours)).isoformat()
+
+
+def _is_expired(draft: dict[str, Any]) -> bool:
+    expires_at = _text(draft.get("expires_at"))
+    if not expires_at:
+        return False
+    try:
+        deadline = datetime.fromisoformat(expires_at)
+    except ValueError:
+        return False
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) >= deadline
+
+
+def _draft_status(draft: dict[str, Any], current_plan_revision: str) -> str:
+    """Draft lifecycle state derived from expiry and the current official plan.
+
+    A draft never silently overwrites a newer official revision: once the plan
+    it was based on is superseded it becomes ``stale`` and must be rebased.
+    """
+    if _is_expired(draft):
+        return "expired"
+    if (
+        current_plan_revision
+        and _text(draft.get("base_plan_revision_id")) != current_plan_revision
+    ):
+        return "stale"
+    return "active"
 
 
 def _text(value: Any) -> str:
@@ -758,14 +810,19 @@ def _baseline_revision(raw: dict[str, Any], state: dict[str, Any]) -> None:
     })
 
 
-def _public_draft(draft: dict[str, Any] | None) -> dict[str, Any] | None:
+def _public_draft(
+    draft: dict[str, Any] | None,
+    current_plan_revision: str = "",
+) -> dict[str, Any] | None:
     if not isinstance(draft, dict):
         return None
-    return {
+    public = {
         key: deepcopy(value)
         for key, value in draft.items()
         if key != "snapshot"
     }
+    public["status"] = _draft_status(draft, current_plan_revision)
+    return public
 
 
 def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
@@ -946,7 +1003,7 @@ class TeachingPlanWorkbenchService:
                 CourseDocument.model_validate(raw["course_document"]), raw,
             ).model_dump(mode="json") if is_canonical else {},
             "teaching_plan": project_course_teaching_plan(raw),
-            "draft": _public_draft(draft),
+            "draft": _public_draft(draft, current_revision),
             "revisions": sorted(revisions, key=lambda item: int(item.get("revision_number") or 0), reverse=True),
             "change_sets": [{
                 key: deepcopy(value)
@@ -999,8 +1056,13 @@ class TeachingPlanWorkbenchService:
             state = _state(working, create=True)
             _baseline_revision(working, state)
             existing = (state.get("drafts") or {}).get(actor)
-            if isinstance(existing, dict) and existing.get("base_plan_revision_id") == current_plan_revision:
+            if (
+                isinstance(existing, dict)
+                and existing.get("base_plan_revision_id") == current_plan_revision
+                and not _is_expired(existing)
+            ):
                 return
+            created_at = _now()
             state["drafts"][actor] = {
                 "schema_version": DRAFT_SCHEMA,
                 "draft_id": _new_id("tpd_"),
@@ -1012,8 +1074,9 @@ class TeachingPlanWorkbenchService:
                 "operations": [],
                 "changed_paths": [],
                 "validation": _validate(_source_snapshot(working)),
-                "updated_at": _now(),
-                "expires_at": None,
+                "created_at": created_at,
+                "updated_at": created_at,
+                "expires_at": _draft_expires_at(created_at),
             }
 
         await self.repository.apply_metadata_command(
@@ -1052,6 +1115,12 @@ class TeachingPlanWorkbenchService:
             draft = (state.get("drafts") or {}).get(actor)
             if not isinstance(draft, dict) or draft.get("draft_id") != draft_id:
                 raise TeachingPlanWorkbenchError("teaching_plan_draft_not_found", "教案草稿不存在或已被放弃。")
+            if _is_expired(draft):
+                raise TeachingPlanWorkbenchError(
+                    "teaching_plan_draft_expired",
+                    "教案草稿已过期，请重新创建草稿后再编辑。",
+                    details={"expires_at": _text(draft.get("expires_at"))},
+                )
             if draft.get("base_plan_revision_id") != current_plan_revision or (
                 base_plan_revision_id and base_plan_revision_id != current_plan_revision
             ):
@@ -1432,12 +1501,17 @@ class TeachingPlanWorkbenchService:
         if not isinstance(draft, dict) or draft.get("draft_id") != draft_id:
             raise TeachingPlanWorkbenchError("teaching_plan_draft_not_found", "教案草稿不存在或已被放弃。")
         current = _source_snapshot(raw)
+        current_plan_revision = _current_plan_revision(raw)
         snapshot = deepcopy(draft.get("snapshot") or {})
         operations = deepcopy(draft.get("operations") or [])
         validation = _validate(snapshot)
+        status = _draft_status(draft, current_plan_revision)
         return {
             "draft_id": draft_id,
             "base_plan_revision_id": draft.get("base_plan_revision_id"),
+            "current_plan_revision_id": current_plan_revision,
+            "status": status,
+            "expires_at": _text(draft.get("expires_at")) or None,
             "diff": _diff_between(current, snapshot, operations=operations),
             "impact_report": _impact(operations, snapshot),
             "validation": validation,
@@ -1455,12 +1529,29 @@ class TeachingPlanWorkbenchService:
         raw = self.repository.load_raw(course_id)
         document_revision = _text(raw.get("course_document_revision"))
         current = _source_snapshot(raw)
+        current_plan_revision = _current_plan_revision(raw)
 
         def mutation(working: dict[str, Any]) -> None:
             state = _state(working, create=True)
             draft = (state.get("drafts") or {}).get(actor)
             if not isinstance(draft, dict) or draft.get("draft_id") != draft_id:
                 raise TeachingPlanWorkbenchError("teaching_plan_draft_not_found", "教案草稿不存在或已被放弃。")
+            status = _draft_status(draft, current_plan_revision)
+            if status == "expired":
+                raise TeachingPlanWorkbenchError(
+                    "teaching_plan_draft_expired",
+                    "教案草稿已过期，请重新创建草稿后再审阅。",
+                    details={"expires_at": _text(draft.get("expires_at"))},
+                )
+            if status == "stale":
+                raise TeachingPlanWorkbenchError(
+                    "teaching_plan_base_conflict",
+                    "正式教案已更新，请基于当前修订重新编辑后再审阅。",
+                    details={
+                        "current_plan_revision_id": current_plan_revision,
+                        "draft_base_plan_revision_id": _text(draft.get("base_plan_revision_id")),
+                    },
+                )
             existing = next(
                 (
                     item for item in state.get("change_sets") or []
