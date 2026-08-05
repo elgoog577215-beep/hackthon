@@ -54,7 +54,10 @@
     "migrating": "Upgrading course…",
     "migrationPreviewRefreshed": "The course source changed. The migration preview was refreshed; confirm and try again.",
     "themeLabel": "Deck theme",
-    "themes": { "qingfeng": "Qingfeng Classroom", "academic": "Academic Blue-gray" },
+    "themes": {
+      "qingfeng": "Qingfeng Classroom",
+      "academic": "Academic Blue-gray"
+    },
     "failedPreview": "Unpublished issue preview",
     "failedPreviewHelp": "These are the unpublished slides from this build. Resolve the issues below before syncing again.",
     "legacyQualityFallback": "The backend returned no slide-level issues. Review this preview and try again.",
@@ -653,8 +656,20 @@
       "passed": "Passed",
       "failed": "Not passed"
     },
-    "sources": { "dialogue": "Dialogue and feedback", "record": "Learning record", "practice": "Formal practice" },
-    "operations": { "explanation": "Additional explanation", "transition": "Follow-up transition", "checkpoint": "Understanding check", "targetedPractice": "Targeted practice", "animation": "Step animation", "fold": "Fold mastered content", "reorder": "Reorganize learning order" },
+    "sources": {
+      "dialogue": "Dialogue and feedback",
+      "record": "Learning record",
+      "practice": "Formal practice"
+    },
+    "operations": {
+      "explanation": "Additional explanation",
+      "transition": "Follow-up transition",
+      "checkpoint": "Understanding check",
+      "targetedPractice": "Targeted practice",
+      "animation": "Step animation",
+      "fold": "Fold mastered content",
+      "reorder": "Reorganize learning order"
+    },
     "sectionGrowth": {
       "stepsLabel": "Six course growth steps",
       "prompt": "How should this course change?",
@@ -683,10 +698,28 @@
       "fold": "Fold",
       "reorder": "Reorganize",
       "adjust": "Adjust",
-      "steps": { "request": "Request", "structure": "Structure", "candidates": "Candidates", "sameSource": "Same source", "confirm": "Confirm", "validate": "Validate" },
-      "roles": { "reasoning": "Theory reasoning", "application": "Practical application", "example": "Worked example", "checkpoint": "Understanding check", "concept": "Core concept" }
+      "steps": {
+        "request": "Request",
+        "structure": "Structure",
+        "candidates": "Candidates",
+        "sameSource": "Same source",
+        "confirm": "Confirm",
+        "validate": "Validate"
+      },
+      "roles": {
+        "reasoning": "Theory reasoning",
+        "application": "Practical application",
+        "example": "Worked example",
+        "checkpoint": "Understanding check",
+        "concept": "Core concept"
+      }
     },
-    "effects": { "effective": "New evidence supports the diagnosis; transfer will keep being observed", "ineffective": "Later evidence suggests another adjustment", "harmful": "Later evidence shows side effects; rollback is recommended", "insufficient": "Waiting for independent validation on a later formal task" }
+    "effects": {
+      "effective": "New evidence supports the diagnosis; transfer will keep being observed",
+      "ineffective": "Later evidence suggests another adjustment",
+      "harmful": "Later evidence shows side effects; rollback is recommended",
+      "insufficient": "Waiting for independent validation on a later formal task"
+    }
   },
   "learningNavigator": {
     "title": "Course outline",
@@ -840,9 +873,26 @@
     "syncDetailedCounts": "{changed} changed, {verified} verified, {reused} confirmed untouched",
     "syncGroupCounts": "{changed} changed · {verified} verified",
     "changeRejected": "The course meaning change was not applied",
-    "classification": { "presentation": "Presentation edit", "equivalent": "Equivalent wording", "semantic": "Semantic edit", "ambiguous": "Decision required" },
-    "types": { "outline": "Outline", "lesson_plan": "Lesson plan", "handout": "Handout", "practice_sheet": "Practice sheet", "slide_deck": "Slides", "diagram": "Knowledge diagram" },
-    "status": { "ready": "Synced", "stale": "Needs sync", "building": "Building", "failed": "Failed" },
+    "classification": {
+      "presentation": "Presentation edit",
+      "equivalent": "Equivalent wording",
+      "semantic": "Semantic edit",
+      "ambiguous": "Decision required"
+    },
+    "types": {
+      "outline": "Outline",
+      "lesson_plan": "Lesson plan",
+      "handout": "Handout",
+      "practice_sheet": "Practice sheet",
+      "slide_deck": "Slides",
+      "diagram": "Knowledge diagram"
+    },
+    "status": {
+      "ready": "Synced",
+      "stale": "Needs sync",
+      "building": "Building",
+      "failed": "Failed"
+    },
     "impactDialog": {
       "open": "Open same-source impact workspace",
       "analyzing": "Understanding what teaching goal this edit changes…",
@@ -965,10 +1015,49 @@
       "noSlides": "No slides are available yet",
       "askAi": "Ask AI teacher",
       "aiPrompt": "Review this slide from its learning goal, knowledge evidence, and visual communication, then suggest concrete improvements.",
-      "fields": { "title": "Title", "subtitle": "Subtitle", "keyMessage": "Key message", "notes": "Speaker notes", "layout": "Layout" },
-      "stages": { "planning": "Preparing course structure", "slidePlan": "Planning slides", "slideBuild": "Generating slides", "quality": "Checking quality", "complete": "Build complete", "building": "Generating slide deck" },
-      "layouts": { "cover": "Cover", "roadmap": "Roadmap", "chapter": "Chapter", "objective": "Objective", "concept": "Concept", "comparison": "Comparison", "process": "Process", "code": "Code", "misconception": "Misconception", "practice": "Practice", "recap": "Recap" },
-      "purposes": { "teaching": "Teaching", "orientation": "Course orientation", "course_route": "Course roadmap", "chapter_transition": "Chapter transition", "learning_objective": "Learning objective", "concept": "Concept building", "example": "Worked example", "reasoning": "Reasoning process", "application": "Transfer", "activity": "Learning activity", "checkpoint": "Checkpoint", "mastery_check": "Mastery check", "course_recap": "Course recap" }
+      "fields": {
+        "title": "Title",
+        "subtitle": "Subtitle",
+        "keyMessage": "Key message",
+        "notes": "Speaker notes",
+        "layout": "Layout"
+      },
+      "stages": {
+        "planning": "Preparing course structure",
+        "slidePlan": "Planning slides",
+        "slideBuild": "Generating slides",
+        "quality": "Checking quality",
+        "complete": "Build complete",
+        "building": "Generating slide deck"
+      },
+      "layouts": {
+        "cover": "Cover",
+        "roadmap": "Roadmap",
+        "chapter": "Chapter",
+        "objective": "Objective",
+        "concept": "Concept",
+        "comparison": "Comparison",
+        "process": "Process",
+        "code": "Code",
+        "misconception": "Misconception",
+        "practice": "Practice",
+        "recap": "Recap"
+      },
+      "purposes": {
+        "teaching": "Teaching",
+        "orientation": "Course orientation",
+        "course_route": "Course roadmap",
+        "chapter_transition": "Chapter transition",
+        "learning_objective": "Learning objective",
+        "concept": "Concept building",
+        "example": "Worked example",
+        "reasoning": "Reasoning process",
+        "application": "Transfer",
+        "activity": "Learning activity",
+        "checkpoint": "Checkpoint",
+        "mastery_check": "Mastery check",
+        "course_recap": "Course recap"
+      }
     }
   },
   "knowledgeLibrary": {
@@ -1091,6 +1180,37 @@
     "contrasts": "Contrast",
     "applies": "Application",
     "generalizes": "Generalization"
+  },
+  "knowledgeCommands": {
+    "title": "Knowledge maintenance",
+    "candidateOnly": "Takes effect after confirmation",
+    "selectPoint": "Select a knowledge point to start maintenance",
+    "target": "Selected knowledge point",
+    "operation": "Operation",
+    "opRevise": "Revise knowledge statement",
+    "opRename": "Rename knowledge point",
+    "statement": "Knowledge statement",
+    "statementPlaceholder": "State the proposition this knowledge point expresses",
+    "newName": "New name",
+    "namePlaceholder": "Enter a new knowledge point name",
+    "reason": "Reason for change",
+    "reasonPlaceholder": "Explain why this changes; reviewers need it",
+    "preview": "Preview impact",
+    "previewing": "Calculating impact",
+    "previewFailed": "Impact preview failed; the knowledge base is unchanged",
+    "candidateTitle": "Candidate awaiting confirmation",
+    "confirmable": "Confirmable",
+    "notConfirmable": "Not confirmable",
+    "notAppliedYet": "The knowledge base has not changed yet; it applies only after you confirm.",
+    "needsRegeneration": "Needs rebuild",
+    "stale": "Needs review",
+    "blocked": "Blocked",
+    "dependentPoints": "Knowledge points affected through relations",
+    "confirm": "Confirm and apply",
+    "confirming": "Confirming",
+    "confirmFailed": "Confirmation failed; the knowledge base keeps its previous revision",
+    "discard": "Discard candidate",
+    "applied": "Knowledge revision applied; downstream artifacts are marked for rebuild."
   },
   "taskOverlay": {
     "title": "Learning task",
@@ -1946,26 +2066,379 @@
     "openCourseTree": "Open course outline",
     "loading": "Loading course assets",
     "allCourse": "Entire course",
-    "scope": { "currentObjective": "Current objective", "entireCourse": "Entire course", "finalAssessment": "Final assessment" },
+    "scope": {
+      "currentObjective": "Current objective",
+      "entireCourse": "Entire course",
+      "finalAssessment": "Final assessment"
+    },
     "practiceStart": "Start practice",
     "practiceOpenNeedsReview": "Open practice that needs review",
-    "smartBar": { "openNotes": "Open notes", "notes": "Notes", "notebook": "Notebook", "items": "items", "noNotes": "No notes yet. Select text to add one.", "viewAllNotes": "View all notes", "ai": "AI tutor", "openAi": "Open AI tutor", "closeAi": "Close AI tutor", "stats": "Overview", "openStats": "View learning overview", "knowledgeLibrary": "Knowledge library", "openKnowledgeLibrary": "Open knowledge library" },
-    "changeProposals": { "title": "Base-course changes", "currentNode": "Affects the current node", "awaitingGeneration": "This item is waiting to be regenerated. Refresh later or contact an administrator.", "added": "Added", "before": "Before", "after": "After", "kgNodeReviewOnly": "This suggestion concerns a knowledge node. Accepting it only records a review note and does not rewrite the formal definition.", "accept": "Accept", "reject": "Reject", "regenerate": "Regenerate", "rejectReasonPlaceholder": "Optional rejection reason", "regenerateInstructionPlaceholder": "Optional regeneration instruction", "confirm": "Confirm", "cancel": "Cancel", "synced": "Base course and teaching resources synchronized", "syncedUnits": "Precisely rebuilt {count} affected units", "syncFallback": "Base course updated; previous teaching resources retained", "syncFallbackDetail": "The rebuild failed quality checks. The previous version remains available and is marked stale.", "scope": { "block": "Current block", "section": "Current section", "sections": "Multiple sections", "chapters": "Multiple chapters", "book": "Entire course" }, "source": { "evidence": "Legacy personal-evidence proposal", "kbLink": "Knowledge review", "representationSemantic": "Teaching-resource semantic edit", "blockRegeneration": "Formal content improvement" } },
-    "modes": { "reading": "Read", "overview": "Overview", "practice": "Practice", "mastery": "Mastery", "blueprint": "Blueprint", "versions": "Versions" },
-    "purpose": { "systematic": "Systematic learning", "exam_sprint": "Exam sprint", "material_organization": "Material organization", "personalized_remedial": "Personal remediation" },
-    "quality": { "passed": "Assets verified", "warning": "Assets need repair" },
-    "overview": { "outcomes": "Learning outcomes", "chapters": "Chapters", "units": "Learning units", "finalTask": "Final task", "openFinalAssessment": "Open final assessment" },
-    "practice": { "title": "Formal practice", "finalTitle": "Final assessment", "allCourse": "Entire course", "count": "questions", "empty": "No quality-approved practice is available for this scope", "answerPlaceholder": "Show your process, evidence, and result checks", "submit": "Submit answer", "attempt": "Attempt {count}", "views": "Practice views", "current": "Current practice", "history": "History", "needsReview": "Needs review", "loading": "Restoring practice", "invalidated": "This question version changed. Your draft is preserved; start again to continue.", "hintLevel": "Hint level {level}", "askTeacher": "Ask teacher", "retry": "Try again", "next": "Next question", "noHistory": "No matching practice history yet", "unknownNode": "Course practice", "savedAttempt": "Attempt history preserved", "legacy": "Imported history", "lowConfidence": "Low-confidence history", "notMasteryEvidence": "Not used as current mastery evidence", "pendingReview": "Pending review", "passed": "Meets the standard", "notPassed": "Not yet at standard", "inProgress": "In progress", "hintThreeImpact": "A level-three hint means this attempt cannot prove mastery on its own. Continue?", "hintTwoImpact": "A level-two hint marks this result as supported work. Continue?", "useHint": "Use hint", "submitFailed": "Submission failed. Check the connection and try again.", "solutionTitle": "Full solution", "revealSolution": "View full solution", "referenceAnswer": "Reference answer", "solutionImpact": "After viewing the full solution, this result no longer counts as independent mastery evidence. Continue?", "level": { "concept_check": "Concept check", "objective_practice": "Objective practice", "mastery_check": "Mastery check", "final_assessment": "Final assessment", "diagnostic_probe": "Diagnostic probe", "remediation_guided": "Guided remediation", "remediation_validation": "Independent validation" }, "saveState": { "idle": "Not saved", "saving": "Saving", "saved": "Saved", "local_only": "Saved on this device", "conflict": "Draft conflict" }, "evidence": { "independent": "Completed independently", "lightly_supported": "Completed with a light hint", "supported": "Completed with support", "scaffolded": "Completed with full scaffolding", "invalid": "Evidence pending" }, "workflow": { "phase": { "diagnostic": "Diagnose the issue", "remediation": "Targeted remediation", "validation": "Independent validation", "resolved": "Resolved", "needs_support": "Tutor review needed" }, "headline": { "diagnostic": "Identify the cause before drawing conclusions from an error", "remediation": "Repair only the confirmed local issue", "validation": "Use an unseen task to verify the repair independently", "resolved": "Independent validation passed", "needs_support": "Automation stopped pending further judgment" }, "resolvedTitle": "This issue passed independent validation", "resolvedBody": "The diagnostic case is closed. Return to the original course objective.", "resume": "Return to course practice", "needsSupportTitle": "Current evidence cannot support further automatic remediation", "needsSupportBody": "The record is preserved for the AI tutor to review with the full process." } },
-    "practiceAnalysis": { "title": "Question analysis and this judgment", "taskGoal": "What this question assesses", "studentApproach": "Your approach", "selectedMeaning": "What your selection indicates", "behaviorGap": "Most important current gap", "nextAction": "Do just this next", "selfCheck": "Self-check", "fit": { "HIT": "Mapped to course targets", "PARTIAL": "Partially mapped to course targets", "MISS": "Not yet covered by current targets" } },
-    "targetedRetry": { "action": "Targeted practice", "title": "Targeted practice for this mistake", "alternateHint": "A different formal question sharing the same misconception or skill was selected", "sameHint": "No equivalent alternative is active, so the original question will be used for reinforcement", "unavailable": "The original question is no longer active in this course version", "failed": "Targeted practice could not be started. Try again shortly." },
-    "questionTypes": { "single_choice": "Single choice", "worked_solution": "Worked solution", "implementation_task": "Implementation task", "evidence_analysis": "Evidence analysis", "mechanism_explanation": "Mechanism explanation", "source_argument": "Source argument", "language_production": "Language production", "scenario_deliverable": "Scenario deliverable", "short_answer": "Applied response" },
-    "practiceRuntime": { "resumeUnavailableTitle": "The previous learning task has changed", "resumeUnavailableBody": "No other task was opened. Return to the course and choose the next step from the refreshed learning state." },
-    "mastery": { "title": "Objective mastery", "misconceptions": "Current objective misconceptions", "noMisconceptions": "No misconception asset for this objective", "status": { "not_started": "Not started", "self_confirmed": "Self-confirmed", "system_verified": "System verified", "needs_review": "Needs review", "unverified": "Unverified", "stale": "Asset stale" } },
-    "blueprint": { "kicker": "Pre-generation control", "title": "Course blueprint", "discard": "Discard draft", "previewImpact": "Save and inspect impact", "courseName": "Course name", "purpose": "Course purpose", "affectedNodes": "nodes affected", "assetUpdates": "asset updates", "lockConflicts": "lock conflicts", "lock": "Lock plan", "objective": "Observable learning objective", "confirmHelp": "Confirmation continues the waiting job; completed courses use an isolated candidate for local regeneration.", "confirm": "Confirm and continue", "regenerate": "Generate affected content", "saved": "Blueprint draft saved", "regenerateReason": "Apply course blueprint changes", "jobStarted": "Generation job continued", "updated": "Course blueprint updated" },
-    "versions": { "kicker": "Immutable history", "title": "Course versions", "restore": "Restore as new version", "select": "Select a historical version to compare with the current version", "diffSummary": "Added {added}, removed {removed}, modified {modified}, asset changes {assets}", "restoreConfirm": "Restore creates a new version and keeps later versions.", "restored": "Restore version created" },
-    "learningSession": { "title": "Learning state", "idle": "Waiting", "loading": "Restoring", "pending": "Waiting to sync", "syncing": "Syncing", "synced": "Synced", "offline": "Saved offline", "conflict": "Sync conflict", "restored": "Continued from your last position", "contentUpdated": "Course content changed; moved to the matching section" },
-    "progress": { "title": "Current objective", "reading": { "not_started": "Not started", "in_progress": "In progress", "learned": "Learned" }, "mastery": { "not_checked": "Not checked", "evidence_insufficient": "Insufficient evidence", "partial": "Partially mastered", "mastered": "Mastered", "needs_review": "Needs review" } },
-    "continuity": { "title": "Learning continuity", "defer": "Defer this notice", "closeResult": "Close chapter result", "entryMode": { "first_entry": "First entry", "continue_learning": "Continue learning", "resume_task": "Resume task", "version_change": "Version change", "risk_handling": "Handle prerequisite", "awaiting_validation": "Awaiting validation", "chapter_closeout": "Chapter closeout" }, "learning": { "not_started": "Not started", "in_progress": "In progress", "covered": "Reading covered" }, "mastery": { "not_checked": "Not checked", "evidence_insufficient": "Insufficient evidence", "partial": "Partially verified", "verified": "Verified", "needs_attention": "Needs attention" }, "task": { "none": "", "resumable": "Task can be resumed", "stale": "Version needs confirmation", "blocked": "Progress blocked" }, "actions": { "confirm_version_change": "Handle version change", "resume_diagnostic": "Continue diagnosis", "resume_remediation": "Continue remediation", "resume_validation": "Complete independent validation", "resolve_diagnostic_support": "Ask tutor for judgment", "resume_practice_attempt": "Continue unfinished practice", "resolve_blocking_issue": "Resolve open question", "resolve_open_issue": "Resolve chapter question", "resolve_prerequisite_gap": "Handle prerequisite first", "resume_reading": "Continue reading", "start_objective": "Start current objective", "continue_objective": "Continue current objective", "complete_reading": "Mark lesson learned", "start_mastery_check": "Take mastery check", "start_due_review": "Start due review", "start_next_chapter": "Start next chapter", "view_chapter_result": "View chapter result" }, "reasons": { "course_version_changed": "The course changed. Confirm how unfinished work relates to the new version.", "active_diagnostic": "The cause is still being diagnosed; finish this evidence chain first.", "active_remediation": "A confirmed local issue has unfinished remediation.", "active_validation": "Remediation is complete and needs an unseen independent validation task.", "active_needs_support": "Automatic judgment stopped and needs review of the full process.", "unfinished_practice_attempt": "The server has an unfinished formal practice draft.", "user_marked_blocker": "You marked an issue as blocking this chapter.", "chapter_issue_remaining": "This chapter still has a saved unresolved question.", "required_prerequisite_needs_attention": "A required prerequisite has reliable current evidence that needs attention.", "prerequisite_needs_attention": "A prerequisite has current evidence that needs attention.", "prerequisite_not_verified": "A prerequisite is not formally verified, but this does not block entry.", "saved_reading_position": "Your saved reading position was restored.", "reading_not_started": "This is the first objective in the chapter that has not started.", "reading_in_progress": "This objective has started and needs explicit reading completion.", "mastery_not_checked": "Reading is complete, but there is no formal mastery evidence.", "mastery_evidence_insufficient": "Current evidence is insufficient to verify mastery.", "mastery_partial": "Some criteria are verified; finish the remaining checks.", "mastery_needs_review": "Current formal evidence shows that this objective needs reinforcement.", "current_chapter_review_due": "A review task in this chapter is due.", "chapter_ready_to_advance": "This chapter meets the course progression contract.", "course_learning_path_complete": "You have reached the end of the course learning path." }, "result": { "in_progress": "Chapter in progress", "covered_unverified": "Reading complete, mastery evidence insufficient", "partially_verified": "Some objectives verified", "verified": "Chapter objectives verified", "needs_attention": "Key objectives still need attention", "stale": "Chapter result needs version confirmation" }, "objectiveMastery": { "not_checked": "Not checked", "evidence_insufficient": "Insufficient evidence", "partial": "Partially verified", "verified": "Verified", "needs_attention": "Needs attention" }, "evidence": { "none": "No formal evidence", "limited": "Limited evidence", "moderate": "Moderate evidence", "strong": "Strong evidence" }, "notices": { "other_chapter_workflow_active": "Another chapter has unfinished diagnosis or remediation", "other_chapter_attempt_active": "Another chapter has an unfinished practice attempt", "prerequisite_not_verified": "An external prerequisite is not verified", "prerequisite_needs_attention": "An external prerequisite needs attention", "review_tasks_due": "A review is due but will not preempt the current task", "other_blocking_issue_open": "Another unresolved issue remains", "open_issues_remaining": "This chapter has unresolved questions", "practice_waiting_for_review": "One practice attempt is pending review" } },
+    "smartBar": {
+      "openNotes": "Open notes",
+      "notes": "Notes",
+      "notebook": "Notebook",
+      "items": "items",
+      "noNotes": "No notes yet. Select text to add one.",
+      "viewAllNotes": "View all notes",
+      "ai": "AI tutor",
+      "openAi": "Open AI tutor",
+      "closeAi": "Close AI tutor",
+      "stats": "Overview",
+      "openStats": "View learning overview",
+      "knowledgeLibrary": "Knowledge library",
+      "openKnowledgeLibrary": "Open knowledge library"
+    },
+    "changeProposals": {
+      "title": "Base-course changes",
+      "currentNode": "Affects the current node",
+      "awaitingGeneration": "This item is waiting to be regenerated. Refresh later or contact an administrator.",
+      "added": "Added",
+      "before": "Before",
+      "after": "After",
+      "kgNodeReviewOnly": "This suggestion concerns a knowledge node. Accepting it only records a review note and does not rewrite the formal definition.",
+      "accept": "Accept",
+      "reject": "Reject",
+      "regenerate": "Regenerate",
+      "rejectReasonPlaceholder": "Optional rejection reason",
+      "regenerateInstructionPlaceholder": "Optional regeneration instruction",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "synced": "Base course and teaching resources synchronized",
+      "syncedUnits": "Precisely rebuilt {count} affected units",
+      "syncFallback": "Base course updated; previous teaching resources retained",
+      "syncFallbackDetail": "The rebuild failed quality checks. The previous version remains available and is marked stale.",
+      "scope": {
+        "block": "Current block",
+        "section": "Current section",
+        "sections": "Multiple sections",
+        "chapters": "Multiple chapters",
+        "book": "Entire course"
+      },
+      "source": {
+        "evidence": "Legacy personal-evidence proposal",
+        "kbLink": "Knowledge review",
+        "representationSemantic": "Teaching-resource semantic edit",
+        "blockRegeneration": "Formal content improvement"
+      }
+    },
+    "modes": {
+      "reading": "Read",
+      "overview": "Overview",
+      "practice": "Practice",
+      "mastery": "Mastery",
+      "blueprint": "Blueprint",
+      "versions": "Versions"
+    },
+    "purpose": {
+      "systematic": "Systematic learning",
+      "exam_sprint": "Exam sprint",
+      "material_organization": "Material organization",
+      "personalized_remedial": "Personal remediation"
+    },
+    "quality": {
+      "passed": "Assets verified",
+      "warning": "Assets need repair"
+    },
+    "overview": {
+      "outcomes": "Learning outcomes",
+      "chapters": "Chapters",
+      "units": "Learning units",
+      "finalTask": "Final task",
+      "openFinalAssessment": "Open final assessment"
+    },
+    "practice": {
+      "title": "Formal practice",
+      "finalTitle": "Final assessment",
+      "allCourse": "Entire course",
+      "count": "questions",
+      "empty": "No quality-approved practice is available for this scope",
+      "answerPlaceholder": "Show your process, evidence, and result checks",
+      "submit": "Submit answer",
+      "attempt": "Attempt {count}",
+      "views": "Practice views",
+      "current": "Current practice",
+      "history": "History",
+      "needsReview": "Needs review",
+      "loading": "Restoring practice",
+      "invalidated": "This question version changed. Your draft is preserved; start again to continue.",
+      "hintLevel": "Hint level {level}",
+      "askTeacher": "Ask teacher",
+      "retry": "Try again",
+      "next": "Next question",
+      "noHistory": "No matching practice history yet",
+      "unknownNode": "Course practice",
+      "savedAttempt": "Attempt history preserved",
+      "legacy": "Imported history",
+      "lowConfidence": "Low-confidence history",
+      "notMasteryEvidence": "Not used as current mastery evidence",
+      "pendingReview": "Pending review",
+      "passed": "Meets the standard",
+      "notPassed": "Not yet at standard",
+      "inProgress": "In progress",
+      "hintThreeImpact": "A level-three hint means this attempt cannot prove mastery on its own. Continue?",
+      "hintTwoImpact": "A level-two hint marks this result as supported work. Continue?",
+      "useHint": "Use hint",
+      "submitFailed": "Submission failed. Check the connection and try again.",
+      "solutionTitle": "Full solution",
+      "revealSolution": "View full solution",
+      "referenceAnswer": "Reference answer",
+      "solutionImpact": "After viewing the full solution, this result no longer counts as independent mastery evidence. Continue?",
+      "level": {
+        "concept_check": "Concept check",
+        "objective_practice": "Objective practice",
+        "mastery_check": "Mastery check",
+        "final_assessment": "Final assessment",
+        "diagnostic_probe": "Diagnostic probe",
+        "remediation_guided": "Guided remediation",
+        "remediation_validation": "Independent validation"
+      },
+      "saveState": {
+        "idle": "Not saved",
+        "saving": "Saving",
+        "saved": "Saved",
+        "local_only": "Saved on this device",
+        "conflict": "Draft conflict"
+      },
+      "evidence": {
+        "independent": "Completed independently",
+        "lightly_supported": "Completed with a light hint",
+        "supported": "Completed with support",
+        "scaffolded": "Completed with full scaffolding",
+        "invalid": "Evidence pending"
+      },
+      "workflow": {
+        "phase": {
+          "diagnostic": "Diagnose the issue",
+          "remediation": "Targeted remediation",
+          "validation": "Independent validation",
+          "resolved": "Resolved",
+          "needs_support": "Tutor review needed"
+        },
+        "headline": {
+          "diagnostic": "Identify the cause before drawing conclusions from an error",
+          "remediation": "Repair only the confirmed local issue",
+          "validation": "Use an unseen task to verify the repair independently",
+          "resolved": "Independent validation passed",
+          "needs_support": "Automation stopped pending further judgment"
+        },
+        "resolvedTitle": "This issue passed independent validation",
+        "resolvedBody": "The diagnostic case is closed. Return to the original course objective.",
+        "resume": "Return to course practice",
+        "needsSupportTitle": "Current evidence cannot support further automatic remediation",
+        "needsSupportBody": "The record is preserved for the AI tutor to review with the full process."
+      }
+    },
+    "practiceAnalysis": {
+      "title": "Question analysis and this judgment",
+      "taskGoal": "What this question assesses",
+      "studentApproach": "Your approach",
+      "selectedMeaning": "What your selection indicates",
+      "behaviorGap": "Most important current gap",
+      "nextAction": "Do just this next",
+      "selfCheck": "Self-check",
+      "fit": {
+        "HIT": "Mapped to course targets",
+        "PARTIAL": "Partially mapped to course targets",
+        "MISS": "Not yet covered by current targets"
+      }
+    },
+    "targetedRetry": {
+      "action": "Targeted practice",
+      "title": "Targeted practice for this mistake",
+      "alternateHint": "A different formal question sharing the same misconception or skill was selected",
+      "sameHint": "No equivalent alternative is active, so the original question will be used for reinforcement",
+      "unavailable": "The original question is no longer active in this course version",
+      "failed": "Targeted practice could not be started. Try again shortly."
+    },
+    "questionTypes": {
+      "single_choice": "Single choice",
+      "worked_solution": "Worked solution",
+      "implementation_task": "Implementation task",
+      "evidence_analysis": "Evidence analysis",
+      "mechanism_explanation": "Mechanism explanation",
+      "source_argument": "Source argument",
+      "language_production": "Language production",
+      "scenario_deliverable": "Scenario deliverable",
+      "short_answer": "Applied response"
+    },
+    "practiceRuntime": {
+      "resumeUnavailableTitle": "The previous learning task has changed",
+      "resumeUnavailableBody": "No other task was opened. Return to the course and choose the next step from the refreshed learning state."
+    },
+    "mastery": {
+      "title": "Objective mastery",
+      "misconceptions": "Current objective misconceptions",
+      "noMisconceptions": "No misconception asset for this objective",
+      "status": {
+        "not_started": "Not started",
+        "self_confirmed": "Self-confirmed",
+        "system_verified": "System verified",
+        "needs_review": "Needs review",
+        "unverified": "Unverified",
+        "stale": "Asset stale"
+      }
+    },
+    "blueprint": {
+      "kicker": "Pre-generation control",
+      "title": "Course blueprint",
+      "discard": "Discard draft",
+      "previewImpact": "Save and inspect impact",
+      "courseName": "Course name",
+      "purpose": "Course purpose",
+      "affectedNodes": "nodes affected",
+      "assetUpdates": "asset updates",
+      "lockConflicts": "lock conflicts",
+      "lock": "Lock plan",
+      "objective": "Observable learning objective",
+      "confirmHelp": "Confirmation continues the waiting job; completed courses use an isolated candidate for local regeneration.",
+      "confirm": "Confirm and continue",
+      "regenerate": "Generate affected content",
+      "saved": "Blueprint draft saved",
+      "regenerateReason": "Apply course blueprint changes",
+      "jobStarted": "Generation job continued",
+      "updated": "Course blueprint updated"
+    },
+    "versions": {
+      "kicker": "Immutable history",
+      "title": "Course versions",
+      "restore": "Restore as new version",
+      "select": "Select a historical version to compare with the current version",
+      "diffSummary": "Added {added}, removed {removed}, modified {modified}, asset changes {assets}",
+      "restoreConfirm": "Restore creates a new version and keeps later versions.",
+      "restored": "Restore version created"
+    },
+    "learningSession": {
+      "title": "Learning state",
+      "idle": "Waiting",
+      "loading": "Restoring",
+      "pending": "Waiting to sync",
+      "syncing": "Syncing",
+      "synced": "Synced",
+      "offline": "Saved offline",
+      "conflict": "Sync conflict",
+      "restored": "Continued from your last position",
+      "contentUpdated": "Course content changed; moved to the matching section"
+    },
+    "progress": {
+      "title": "Current objective",
+      "reading": {
+        "not_started": "Not started",
+        "in_progress": "In progress",
+        "learned": "Learned"
+      },
+      "mastery": {
+        "not_checked": "Not checked",
+        "evidence_insufficient": "Insufficient evidence",
+        "partial": "Partially mastered",
+        "mastered": "Mastered",
+        "needs_review": "Needs review"
+      }
+    },
+    "continuity": {
+      "title": "Learning continuity",
+      "defer": "Defer this notice",
+      "closeResult": "Close chapter result",
+      "entryMode": {
+        "first_entry": "First entry",
+        "continue_learning": "Continue learning",
+        "resume_task": "Resume task",
+        "version_change": "Version change",
+        "risk_handling": "Handle prerequisite",
+        "awaiting_validation": "Awaiting validation",
+        "chapter_closeout": "Chapter closeout"
+      },
+      "learning": {
+        "not_started": "Not started",
+        "in_progress": "In progress",
+        "covered": "Reading covered"
+      },
+      "mastery": {
+        "not_checked": "Not checked",
+        "evidence_insufficient": "Insufficient evidence",
+        "partial": "Partially verified",
+        "verified": "Verified",
+        "needs_attention": "Needs attention"
+      },
+      "task": {
+        "none": "",
+        "resumable": "Task can be resumed",
+        "stale": "Version needs confirmation",
+        "blocked": "Progress blocked"
+      },
+      "actions": {
+        "confirm_version_change": "Handle version change",
+        "resume_diagnostic": "Continue diagnosis",
+        "resume_remediation": "Continue remediation",
+        "resume_validation": "Complete independent validation",
+        "resolve_diagnostic_support": "Ask tutor for judgment",
+        "resume_practice_attempt": "Continue unfinished practice",
+        "resolve_blocking_issue": "Resolve open question",
+        "resolve_open_issue": "Resolve chapter question",
+        "resolve_prerequisite_gap": "Handle prerequisite first",
+        "resume_reading": "Continue reading",
+        "start_objective": "Start current objective",
+        "continue_objective": "Continue current objective",
+        "complete_reading": "Mark lesson learned",
+        "start_mastery_check": "Take mastery check",
+        "start_due_review": "Start due review",
+        "start_next_chapter": "Start next chapter",
+        "view_chapter_result": "View chapter result"
+      },
+      "reasons": {
+        "course_version_changed": "The course changed. Confirm how unfinished work relates to the new version.",
+        "active_diagnostic": "The cause is still being diagnosed; finish this evidence chain first.",
+        "active_remediation": "A confirmed local issue has unfinished remediation.",
+        "active_validation": "Remediation is complete and needs an unseen independent validation task.",
+        "active_needs_support": "Automatic judgment stopped and needs review of the full process.",
+        "unfinished_practice_attempt": "The server has an unfinished formal practice draft.",
+        "user_marked_blocker": "You marked an issue as blocking this chapter.",
+        "chapter_issue_remaining": "This chapter still has a saved unresolved question.",
+        "required_prerequisite_needs_attention": "A required prerequisite has reliable current evidence that needs attention.",
+        "prerequisite_needs_attention": "A prerequisite has current evidence that needs attention.",
+        "prerequisite_not_verified": "A prerequisite is not formally verified, but this does not block entry.",
+        "saved_reading_position": "Your saved reading position was restored.",
+        "reading_not_started": "This is the first objective in the chapter that has not started.",
+        "reading_in_progress": "This objective has started and needs explicit reading completion.",
+        "mastery_not_checked": "Reading is complete, but there is no formal mastery evidence.",
+        "mastery_evidence_insufficient": "Current evidence is insufficient to verify mastery.",
+        "mastery_partial": "Some criteria are verified; finish the remaining checks.",
+        "mastery_needs_review": "Current formal evidence shows that this objective needs reinforcement.",
+        "current_chapter_review_due": "A review task in this chapter is due.",
+        "chapter_ready_to_advance": "This chapter meets the course progression contract.",
+        "course_learning_path_complete": "You have reached the end of the course learning path."
+      },
+      "result": {
+        "in_progress": "Chapter in progress",
+        "covered_unverified": "Reading complete, mastery evidence insufficient",
+        "partially_verified": "Some objectives verified",
+        "verified": "Chapter objectives verified",
+        "needs_attention": "Key objectives still need attention",
+        "stale": "Chapter result needs version confirmation"
+      },
+      "objectiveMastery": {
+        "not_checked": "Not checked",
+        "evidence_insufficient": "Insufficient evidence",
+        "partial": "Partially verified",
+        "verified": "Verified",
+        "needs_attention": "Needs attention"
+      },
+      "evidence": {
+        "none": "No formal evidence",
+        "limited": "Limited evidence",
+        "moderate": "Moderate evidence",
+        "strong": "Strong evidence"
+      },
+      "notices": {
+        "other_chapter_workflow_active": "Another chapter has unfinished diagnosis or remediation",
+        "other_chapter_attempt_active": "Another chapter has an unfinished practice attempt",
+        "prerequisite_not_verified": "An external prerequisite is not verified",
+        "prerequisite_needs_attention": "An external prerequisite needs attention",
+        "review_tasks_due": "A review is due but will not preempt the current task",
+        "other_blocking_issue_open": "Another unresolved issue remains",
+        "open_issues_remaining": "This chapter has unresolved questions",
+        "practice_waiting_for_review": "One practice attempt is pending review"
+      }
+    },
     "explainContinuity": "Ask AI to explain this step",
     "learningOverview": {
       "title": "Learning overview",
@@ -1997,15 +2470,239 @@
       "policy": "This overview is recalculated only from formal evidence. Reading is not mastery, and AI conversations do not directly change these conclusions.",
       "revision": "Model revision",
       "expiredEvidence": "Evidence expired",
-      "evidenceLevel": { "none": "No formal evidence", "limited": "Limited evidence", "moderate": "Moderate evidence", "strong": "Strong evidence" },
-      "confidence": { "insufficient": "Insufficient evidence", "low": "Low confidence", "medium": "Moderate confidence", "high": "High confidence" },
-      "supportReason": { "active_diagnostic": "A specific issue is being diagnosed", "formal_evidence_needs_review": "Current formal assessment indicates review is needed", "repeated_independent_failure": "Multiple independent attempts have not passed", "open_user_issue": "You retained an unresolved question", "single_formal_failure_insufficient": "One failed attempt is not enough to infer a stable weakness", "no_current_support_need": "No current evidence requires extra support", "insufficient_evidence": "Current evidence is insufficient for a judgment", "formally_mastered": "Verified by formal assessment" }
+      "evidenceLevel": {
+        "none": "No formal evidence",
+        "limited": "Limited evidence",
+        "moderate": "Moderate evidence",
+        "strong": "Strong evidence"
+      },
+      "confidence": {
+        "insufficient": "Insufficient evidence",
+        "low": "Low confidence",
+        "medium": "Moderate confidence",
+        "high": "High confidence"
+      },
+      "supportReason": {
+        "active_diagnostic": "A specific issue is being diagnosed",
+        "formal_evidence_needs_review": "Current formal assessment indicates review is needed",
+        "repeated_independent_failure": "Multiple independent attempts have not passed",
+        "open_user_issue": "You retained an unresolved question",
+        "single_formal_failure_insufficient": "One failed attempt is not enough to infer a stable weakness",
+        "no_current_support_need": "No current evidence requires extra support",
+        "insufficient_evidence": "Current evidence is insufficient for a judgment",
+        "formally_mastered": "Verified by formal assessment"
+      }
     },
-    "aiTeacher": { "title": "AI tutor", "newConversation": "New conversation", "close": "Close", "conversation": "Current conversation", "manageConversations": "Manage conversations", "deleteConversation": "Delete conversation", "context": "Current context", "clearQuote": "Remove quote", "loadingConversation": "Loading conversation", "emptyTitle": "Start from the current learning context", "emptyBody": "Start with a concept, problem, or course passage that is still unclear.", "explainSuggestion": "Explain this suggestion", "thinking": "Thinking", "basedOn": "Based on", "courseSource": "Course source", "confirm": "Confirm action", "notNow": "Not now", "undo": "Undo", "saveAsNote": "Save as note", "generating": "Generating", "stop": "Stop", "offline": "Network unavailable. Cached conversations remain visible.", "placeholder": "Ask a question", "send": "Send", "courseContext": "Course context", "evidenceReady": "Learning evidence loaded", "quickExplain": "Explain differently", "quickExplainPrompt": "Explain the current content in a simpler way.", "quickExample": "Give an example", "quickExamplePrompt": "Give a concrete example based on the current content.", "explainRuntimePrompt": "Explain why I should take this learning action now and cite the evidence:" },
-    "inlineAi": { "open": "Open AI for this content block", "menu": "Content block AI actions", "explain": "Explain", "example": "Example", "simplify": "Simplify", "ask": "Ask", "aiPrefix": "AI", "automatic": "Automatically saved into the lesson", "autoSaving": "Saving into the lesson", "autoSaved": "Saved into the lesson", "autoLocal": "Added to the lesson and waiting to sync", "source": "Source: ", "thinking": "Thinking with this content block", "askHint": "Ask a question about this content block.", "placeholder": "Ask more about this block…", "send": "Send question", "cancelQuestion": "Cancel this follow-up", "followUp": "Ask a follow-up", "redo": "Regenerate", "stop": "Stop generating", "remove": "Remove", "delete": "Delete", "saveFailed": "The lesson record has not synced yet. Try again.", "persistedQuestion": "Question / request", "persistedAnswer": "AI explanation", "feedbackPrompt": "Did this answer resolve your question?", "feedbackResolved": "Resolved", "feedbackUnclear": "Still unclear", "feedbackFailed": "Feedback was not recorded. Try again.", "explainPrompt": "Explain this course block in a more approachable way using only its current content.", "examplePrompt": "Give one concrete, checkable example for this course block.", "simplifyPrompt": "Explain this course block more concisely without changing its meaning." },
-    "blockRegeneration": { "open": "Improve canonical content", "target": "Improve content block", "candidate": "Content candidate", "returnToChat": "Return to chat", "generating": "Generating and checking candidate", "interrupted": "Generation stopped and can resume", "interruptedHelp": "The request and checkpoint were preserved and can resume directly.", "resume": "Resume generation", "retryFailed": "The candidate could not resume. Try again shortly.", "attempts": "Generated {count} times", "apply": "Apply to content", "discard": "Discard candidate", "applied": "Applied to the canonical course content", "currentContent": "Current content", "ready": "Candidate passed checks", "qualityFailed": "Candidate failed checks", "rejected": "Candidate discarded", "stale": "Course changed; generate a new candidate", "placeholder": "Describe how this block should improve", "generate": "Generate candidate", "defaultInstruction": "Make this block more accurate and clear while preserving its connection to adjacent content.", "generateFailed": "Candidate generation failed. Try again shortly.", "applyFailed": "Candidate could not be applied. Generate a new one.", "failures": { "processInterrupted": "The generation service stopped. Resume from this candidate.", "providerError": "The generation service is temporarily unavailable. Resume shortly.", "requestCancelled": "The previous generation was cancelled. Resume from this candidate.", "revisionConflict": "The course content changed. Start a new improvement request." }, "gates": { "content_present": "Candidate content is empty or too short", "content_changed": "Candidate does not differ materially from the original", "generation_clean": "Candidate contains a generation error or refusal marker", "safe_length": "Candidate exceeds the safe block length", "payload_preserved": "Candidate lost non-content data from the original block", "code_fence_preserved": "Candidate did not preserve valid closed code fences" } },
-    "personalization": { "open": "Adjust this passage", "eyebrow": "Adjust course", "returnToChat": "Return to chat", "direction": "Adjustment direction", "directions": { "simplify": "Make it easier", "expand": "Go deeper", "custom": "Custom" }, "scopeLabel": "Adjustment scope", "scopeCurrent": "Current content only", "scopeCurrentHint": "Generate one candidate for this content block", "scopeCurrentNotice": "This scope can change only the content block you are viewing.", "scopeSection": "Adjust current section", "scopeSectionHint": "AI finds positions in this section that should change together", "scopeSectionNotice": "AI searches only this section. Multiple candidates move to the centered review.", "scopeWholeCourse": "Apply to matching content across the course", "scopeWholeCourseHint": "AI matches the same teaching role across sections", "scopeWholeCourseNotice": "AI first generates a course-wide impact preview. Nothing changes before confirmation.", "feedback": "Your adjustment request", "placeholders": { "simplify": "Tell me what is difficult or how you want it explained", "expand": "Tell me which derivations, examples, or applications to add", "custom": "Describe exactly how this passage should change" }, "currentContent": "Current content", "generate": "Generate adjustment comparison", "generateSection": "Generate section adjustment plan", "generateWholeCourse": "Generate course-wide impact preview", "sectionInstruction": "Find positions in the current section that should change together and generate candidates.", "wholeCourseInstruction": "Apply this adjustment request to matching content across the course and generate an itemized impact preview first.", "planMissing": "The course adjustment plan was generated but could not be located. Return to the AI tutor and reopen it.", "reviewCount": "Review {count} affected course blocks", "generatingPlan": "Generating course-adjustment candidates; closing the panel will not lose the task", "before": "Before", "after": "After", "applySelected": "Apply selected adjustments", "applied": "Selected adjustments were written to the current course", "affectedBlocks": "Affected course blocks", "representationSynced": "Representations synchronized; rebuilt {count} units", "representationFallback": "Representation synchronization did not pass; the last available version remains in use", "generationInProgress": "An adjustment for this content is still being generated", "conflict": "The course changed. No adjustment was applied; close this view and start again.", "generateFailed": "Course-adjustment candidates could not be generated. Refresh the course and try again.", "blockFallback": "Course block {index}", "applyFailed": "The selected adjustments could not be applied. Try again shortly." },
-    "records": { "title": "Learning records", "ask": "Ask AI", "note": "Add note", "later": "Handle later", "issue": "I don't understand", "review": "Review later", "bookmark": "Bookmark only", "issueTitle": "Unresolved question", "reviewTitle": "Review task", "bookmarkTitle": "Reading bookmark", "saved": "Saved", "saveAiNote": "Save as note", "saveUnavailable": "This answer has no course location to save", "locationMissing": "Could not locate the selected lesson", "search": "Search learning records...", "exportNotes": "Export notes", "noMatch": "No matching records", "empty": "No learning records", "emptyHint": "Select course text to add a note or handle it later", "wrongBook": "Wrong answers", "wrongCount": "{count} wrong answers", "recordCount": "{count} records", "tabs": { "all": "All", "notes": "Notes", "issues": "Questions", "reviews": "Review", "bookmarks": "Bookmarks" }, "type": { "issue": "Question", "review": "Review", "bookmark": "Bookmark", "aiNote": "AI note", "note": "Note" }, "status": { "active": "Active", "open": "Open", "explaining": "Explaining", "awaiting_verification": "Awaiting verification", "resolved": "Resolved", "reopened": "Reopened", "pending": "Pending", "due": "Due", "completed": "Completed", "dismissed": "Dismissed" }, "actions": { "reopen": "Reopen", "resolve": "Resolve", "reviewAgain": "Review again", "complete": "Complete" } }
+    "aiTeacher": {
+      "title": "AI tutor",
+      "newConversation": "New conversation",
+      "close": "Close",
+      "conversation": "Current conversation",
+      "manageConversations": "Manage conversations",
+      "deleteConversation": "Delete conversation",
+      "context": "Current context",
+      "clearQuote": "Remove quote",
+      "loadingConversation": "Loading conversation",
+      "emptyTitle": "Start from the current learning context",
+      "emptyBody": "Start with a concept, problem, or course passage that is still unclear.",
+      "explainSuggestion": "Explain this suggestion",
+      "thinking": "Thinking",
+      "basedOn": "Based on",
+      "courseSource": "Course source",
+      "confirm": "Confirm action",
+      "notNow": "Not now",
+      "undo": "Undo",
+      "saveAsNote": "Save as note",
+      "generating": "Generating",
+      "stop": "Stop",
+      "offline": "Network unavailable. Cached conversations remain visible.",
+      "placeholder": "Ask a question",
+      "send": "Send",
+      "courseContext": "Course context",
+      "evidenceReady": "Learning evidence loaded",
+      "quickExplain": "Explain differently",
+      "quickExplainPrompt": "Explain the current content in a simpler way.",
+      "quickExample": "Give an example",
+      "quickExamplePrompt": "Give a concrete example based on the current content.",
+      "explainRuntimePrompt": "Explain why I should take this learning action now and cite the evidence:"
+    },
+    "inlineAi": {
+      "open": "Open AI for this content block",
+      "menu": "Content block AI actions",
+      "explain": "Explain",
+      "example": "Example",
+      "simplify": "Simplify",
+      "ask": "Ask",
+      "aiPrefix": "AI",
+      "automatic": "Automatically saved into the lesson",
+      "autoSaving": "Saving into the lesson",
+      "autoSaved": "Saved into the lesson",
+      "autoLocal": "Added to the lesson and waiting to sync",
+      "source": "Source: ",
+      "thinking": "Thinking with this content block",
+      "askHint": "Ask a question about this content block.",
+      "placeholder": "Ask more about this block…",
+      "send": "Send question",
+      "cancelQuestion": "Cancel this follow-up",
+      "followUp": "Ask a follow-up",
+      "redo": "Regenerate",
+      "stop": "Stop generating",
+      "remove": "Remove",
+      "delete": "Delete",
+      "saveFailed": "The lesson record has not synced yet. Try again.",
+      "persistedQuestion": "Question / request",
+      "persistedAnswer": "AI explanation",
+      "feedbackPrompt": "Did this answer resolve your question?",
+      "feedbackResolved": "Resolved",
+      "feedbackUnclear": "Still unclear",
+      "feedbackFailed": "Feedback was not recorded. Try again.",
+      "explainPrompt": "Explain this course block in a more approachable way using only its current content.",
+      "examplePrompt": "Give one concrete, checkable example for this course block.",
+      "simplifyPrompt": "Explain this course block more concisely without changing its meaning."
+    },
+    "blockRegeneration": {
+      "open": "Improve canonical content",
+      "target": "Improve content block",
+      "candidate": "Content candidate",
+      "returnToChat": "Return to chat",
+      "generating": "Generating and checking candidate",
+      "interrupted": "Generation stopped and can resume",
+      "interruptedHelp": "The request and checkpoint were preserved and can resume directly.",
+      "resume": "Resume generation",
+      "retryFailed": "The candidate could not resume. Try again shortly.",
+      "attempts": "Generated {count} times",
+      "apply": "Apply to content",
+      "discard": "Discard candidate",
+      "applied": "Applied to the canonical course content",
+      "currentContent": "Current content",
+      "ready": "Candidate passed checks",
+      "qualityFailed": "Candidate failed checks",
+      "rejected": "Candidate discarded",
+      "stale": "Course changed; generate a new candidate",
+      "placeholder": "Describe how this block should improve",
+      "generate": "Generate candidate",
+      "defaultInstruction": "Make this block more accurate and clear while preserving its connection to adjacent content.",
+      "generateFailed": "Candidate generation failed. Try again shortly.",
+      "applyFailed": "Candidate could not be applied. Generate a new one.",
+      "failures": {
+        "processInterrupted": "The generation service stopped. Resume from this candidate.",
+        "providerError": "The generation service is temporarily unavailable. Resume shortly.",
+        "requestCancelled": "The previous generation was cancelled. Resume from this candidate.",
+        "revisionConflict": "The course content changed. Start a new improvement request."
+      },
+      "gates": {
+        "content_present": "Candidate content is empty or too short",
+        "content_changed": "Candidate does not differ materially from the original",
+        "generation_clean": "Candidate contains a generation error or refusal marker",
+        "safe_length": "Candidate exceeds the safe block length",
+        "payload_preserved": "Candidate lost non-content data from the original block",
+        "code_fence_preserved": "Candidate did not preserve valid closed code fences"
+      }
+    },
+    "personalization": {
+      "open": "Adjust this passage",
+      "eyebrow": "Adjust course",
+      "returnToChat": "Return to chat",
+      "direction": "Adjustment direction",
+      "directions": {
+        "simplify": "Make it easier",
+        "expand": "Go deeper",
+        "custom": "Custom"
+      },
+      "scopeLabel": "Adjustment scope",
+      "scopeCurrent": "Current content only",
+      "scopeCurrentHint": "Generate one candidate for this content block",
+      "scopeCurrentNotice": "This scope can change only the content block you are viewing.",
+      "scopeSection": "Adjust current section",
+      "scopeSectionHint": "AI finds positions in this section that should change together",
+      "scopeSectionNotice": "AI searches only this section. Multiple candidates move to the centered review.",
+      "scopeWholeCourse": "Apply to matching content across the course",
+      "scopeWholeCourseHint": "AI matches the same teaching role across sections",
+      "scopeWholeCourseNotice": "AI first generates a course-wide impact preview. Nothing changes before confirmation.",
+      "feedback": "Your adjustment request",
+      "placeholders": {
+        "simplify": "Tell me what is difficult or how you want it explained",
+        "expand": "Tell me which derivations, examples, or applications to add",
+        "custom": "Describe exactly how this passage should change"
+      },
+      "currentContent": "Current content",
+      "generate": "Generate adjustment comparison",
+      "generateSection": "Generate section adjustment plan",
+      "generateWholeCourse": "Generate course-wide impact preview",
+      "sectionInstruction": "Find positions in the current section that should change together and generate candidates.",
+      "wholeCourseInstruction": "Apply this adjustment request to matching content across the course and generate an itemized impact preview first.",
+      "planMissing": "The course adjustment plan was generated but could not be located. Return to the AI tutor and reopen it.",
+      "reviewCount": "Review {count} affected course blocks",
+      "generatingPlan": "Generating course-adjustment candidates; closing the panel will not lose the task",
+      "before": "Before",
+      "after": "After",
+      "applySelected": "Apply selected adjustments",
+      "applied": "Selected adjustments were written to the current course",
+      "affectedBlocks": "Affected course blocks",
+      "representationSynced": "Representations synchronized; rebuilt {count} units",
+      "representationFallback": "Representation synchronization did not pass; the last available version remains in use",
+      "generationInProgress": "An adjustment for this content is still being generated",
+      "conflict": "The course changed. No adjustment was applied; close this view and start again.",
+      "generateFailed": "Course-adjustment candidates could not be generated. Refresh the course and try again.",
+      "blockFallback": "Course block {index}",
+      "applyFailed": "The selected adjustments could not be applied. Try again shortly."
+    },
+    "records": {
+      "title": "Learning records",
+      "ask": "Ask AI",
+      "note": "Add note",
+      "later": "Handle later",
+      "issue": "I don't understand",
+      "review": "Review later",
+      "bookmark": "Bookmark only",
+      "issueTitle": "Unresolved question",
+      "reviewTitle": "Review task",
+      "bookmarkTitle": "Reading bookmark",
+      "saved": "Saved",
+      "saveAiNote": "Save as note",
+      "saveUnavailable": "This answer has no course location to save",
+      "locationMissing": "Could not locate the selected lesson",
+      "search": "Search learning records...",
+      "exportNotes": "Export notes",
+      "noMatch": "No matching records",
+      "empty": "No learning records",
+      "emptyHint": "Select course text to add a note or handle it later",
+      "wrongBook": "Wrong answers",
+      "wrongCount": "{count} wrong answers",
+      "recordCount": "{count} records",
+      "tabs": {
+        "all": "All",
+        "notes": "Notes",
+        "issues": "Questions",
+        "reviews": "Review",
+        "bookmarks": "Bookmarks"
+      },
+      "type": {
+        "issue": "Question",
+        "review": "Review",
+        "bookmark": "Bookmark",
+        "aiNote": "AI note",
+        "note": "Note"
+      },
+      "status": {
+        "active": "Active",
+        "open": "Open",
+        "explaining": "Explaining",
+        "awaiting_verification": "Awaiting verification",
+        "resolved": "Resolved",
+        "reopened": "Reopened",
+        "pending": "Pending",
+        "due": "Due",
+        "completed": "Completed",
+        "dismissed": "Dismissed"
+      },
+      "actions": {
+        "reopen": "Reopen",
+        "resolve": "Resolve",
+        "reviewAgain": "Review again",
+        "complete": "Complete"
+      }
+    }
   },
   "courseAvailability": {
     "rebuildQuestions": "Regenerate questions",
@@ -2014,10 +2711,22 @@
     "rebuildQuestionsSuccess": "Questions were generated through the current pipeline and are ready for formal practice.",
     "rebuildQuestionsFailed": "Question generation failed. The legacy bank and attempt history were not overwritten. Try again later.",
     "practice": {
-      "declared_reading_only": { "title": "This course is intentionally reading-only", "body": "No formal questions were generated. Reading progress remains available, but it does not verify mastery." },
-      "legacy_reading_compatible": { "title": "This is a legacy-compatible course", "body": "You can continue reading, but the legacy course has no traceable formal practice or mastery evidence." },
-      "required_practice_missing": { "title": "Course practice assets need repair", "body": "This standard course should include formal questions. Missing assets are not treated as reading-only mode." },
-      "no_questions_in_scope": { "title": "No formal practice in this scope", "body": "Other course sections may still have questions. Switch sections or return to the course to continue." }
+      "declared_reading_only": {
+        "title": "This course is intentionally reading-only",
+        "body": "No formal questions were generated. Reading progress remains available, but it does not verify mastery."
+      },
+      "legacy_reading_compatible": {
+        "title": "This is a legacy-compatible course",
+        "body": "You can continue reading, but the legacy course has no traceable formal practice or mastery evidence."
+      },
+      "required_practice_missing": {
+        "title": "Course practice assets need repair",
+        "body": "This standard course should include formal questions. Missing assets are not treated as reading-only mode."
+      },
+      "no_questions_in_scope": {
+        "title": "No formal practice in this scope",
+        "body": "Other course sections may still have questions. Switch sections or return to the course to continue."
+      }
     },
     "mastery": {
       "readingOnlyTitle": "This course provides reading and self-check only",
@@ -2027,7 +2736,10 @@
       "blockedTitle": "Course mastery assets need repair",
       "blockedBody": "Formal mastery checks are incomplete. Self-checks will not replace formal evidence."
     },
-    "continuity": { "repairAssets": "Wait for course asset repair", "requiredPracticeMissing": "Required formal practice is missing, so the system stopped before opening an empty mastery check." }
+    "continuity": {
+      "repairAssets": "Wait for course asset repair",
+      "requiredPracticeMissing": "Required formal practice is missing, so the system stopped before opening an empty mastery check."
+    }
   },
   "notebook": {
     "title": "Notebook",

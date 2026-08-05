@@ -16,6 +16,10 @@ from course_knowledge_commands import (
     build_knowledge_candidate,
 )
 from course_knowledge_impact import knowledge_coverage_check
+from course_knowledge_point_edits import (
+    POINT_EDIT_OPERATIONS,
+    build_point_edit_candidate,
+)
 from course_knowledge_rebuild import (
     CourseKnowledgeRebuildError,
     CourseKnowledgeRebuildService,
@@ -66,6 +70,19 @@ class KnowledgeConfirmRequest(BaseModel):
 
 class KnowledgeCoverageRequest(BaseModel):
     changed_block_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class PointEditRequest(BaseModel):
+    """A targeted edit to one knowledge point, described rather than uploaded."""
+
+    knowledge_id: str = Field(min_length=1, max_length=200)
+    operation: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class PointEditConfirmRequest(PointEditRequest):
+    command_id: str = Field(min_length=1, max_length=200)
 
 
 def get_course_knowledge_rebuild_service(
@@ -276,3 +293,94 @@ async def check_knowledge_coverage(
             course, changed_block_ids=body.changed_block_ids,
         ),
     }
+
+
+@router.post("/courses/{course_id}/knowledge-library/points/preview-edit")
+async def preview_point_edit(
+    course_id: str,
+    body: PointEditRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Preview a targeted single-point edit without writing anything.
+
+    The client describes the edit instead of uploading a knowledge base: real
+    course envelopes are megabytes, and a description cannot smuggle changes to
+    stable IDs, relations or bindings the way a full payload could.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+        candidate, _ = build_point_edit_candidate(
+            course,
+            knowledge_id=body.knowledge_id,
+            operation=body.operation,
+            value=body.value,
+            reason=body.reason,
+            actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "success",
+        "candidate": candidate,
+        "supported_operations": sorted(POINT_EDIT_OPERATIONS),
+    }
+
+
+@router.post("/courses/{course_id}/knowledge-library/points/confirm-edit")
+async def confirm_point_edit(
+    course_id: str,
+    body: PointEditConfirmRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+    service: CourseKnowledgeCommandService = Depends(get_course_knowledge_command_service),
+) -> dict:
+    """Recompute the edit against the current base, then commit it atomically.
+
+    The candidate is rebuilt here rather than accepted from the request. A
+    client-supplied candidate would be a second, unverified source of truth for
+    what is about to be written; recomputing means the quality gate, identity
+    check and impact analysis all run against the base actually on disk. If the
+    knowledge base moved since the teacher previewed, the recomputed candidate
+    carries the new base revision and the command service rejects it as stale.
+    """
+    try:
+        # Idempotency is resolved before recomputing. A replay of an applied
+        # command would otherwise rebuild the proposal against a base that
+        # already contains the edit and be rejected as a no-op — turning a safe
+        # retry into a spurious 400.
+        replayed = course_repository.receipt_for_command(course_id, body.command_id)
+        if replayed:
+            return {"status": "success", "receipt": replayed, "candidate": None}
+
+        course = course_repository.load_course_view(course_id)
+        candidate, proposed = build_point_edit_candidate(
+            course,
+            knowledge_id=body.knowledge_id,
+            operation=body.operation,
+            value=body.value,
+            reason=body.reason,
+            actor=_actor(request),
+        )
+        receipt = await service.confirm_knowledge_candidate(
+            course_id,
+            command_id=body.command_id,
+            candidate=candidate,
+            proposed_knowledge_base=proposed,
+            actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "course_document_conflict", "message": str(exc),
+        }) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "success", "receipt": receipt, "candidate": candidate}

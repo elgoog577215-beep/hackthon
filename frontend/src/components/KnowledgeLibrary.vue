@@ -369,6 +369,13 @@
                     </div>
                   </section>
 
+                  <KnowledgeCommandPanel
+                    v-if="selectedNode.node_type === 'knowledge_point' && courseStore.currentCourseId"
+                    :course-id="courseStore.currentCourseId"
+                    :point="commandPanelPoint"
+                    @applied="loadLibrary"
+                  />
+
                   <footer class="knowledge-tree-detail-footer">
                     <div>
                       <span>{{ sourceLabel(selectedNode.source_status) }}</span>
@@ -423,6 +430,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
+import KnowledgeCommandPanel from './KnowledgeCommandPanel.vue'
 import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
 import { t } from '../shared/i18n'
 import http from '../utils/http'
@@ -665,6 +673,14 @@ const relatedKnowledge = computed(() => {
     if (node) entries.push({ relation, node, direction: outgoing ? 'outgoing' : 'incoming' })
   }
   return entries
+})
+
+// The command panel only ever targets an atomic knowledge point; concept
+// groups and sections are structure, not something a knowledge command edits.
+const commandPanelPoint = computed(() => {
+  const node = selectedNode.value
+  if (!node || node.node_type !== 'knowledge_point') return null
+  return { knowledge_id: node.knowledge_id, name: node.name, statement: node.statement }
 })
 
 const jumpTarget = computed(() => {

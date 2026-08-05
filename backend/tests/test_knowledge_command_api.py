@@ -445,3 +445,176 @@ def test_coverage_check_reports_no_gap_for_bound_block() -> None:
     coverage = response.json()["coverage"]
     assert coverage["gaps"] == []
     assert coverage["requires_knowledge_review"] is False
+
+
+# --- 定向单点编辑（教师端界面使用的轻量路径） -------------------------------
+
+
+def _point_id(course: dict, name: str) -> str:
+    for point in course["course_knowledge_base"]["knowledge_points"]:
+        if point["name"] == name:
+            return point["knowledge_id"]
+    raise AssertionError(f"知识点 {name} 不存在")
+
+
+def test_point_edit_preview_does_not_write() -> None:
+    """定向编辑预览同样是只读的。"""
+    course = _canonical_course()
+    client, storage = _client(course)
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/preview-edit",
+        json={
+            "knowledge_id": _point_id(course, "容量耗尽判定"),
+            "operation": "revise_knowledge_point",
+            "value": "长度等于容量时，插入前必须先扩容。",
+            "reason": "表述更精确",
+        },
+    )
+
+    assert response.status_code == 200
+    candidate = response.json()["candidate"]
+    assert candidate["confirmable"] is True
+    assert candidate["impact_report"]["changed_knowledge_ids"]
+    assert storage.save_count == 0
+
+
+def test_point_edit_only_moves_the_target_point_revision() -> None:
+    """只有被编辑的知识点修订变化，其余保持不变——这是局部影响面的前提。
+
+    同时断言影响面本身是局部的：只比对修订键还不够，一个改动如果让别的
+    知识点也进了 needs_regeneration，"精确影响面"就名存实亡了。
+    """
+    course = _canonical_course()
+    client, _ = _client(course)
+    target = _point_id(course, "容量耗尽判定")
+    other = _point_id(course, "动态数组扩容")
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/preview-edit",
+        json={
+            "knowledge_id": target,
+            "operation": "revise_knowledge_point",
+            "value": "长度等于容量时，插入前必须先扩容。",
+            "reason": "表述更精确",
+        },
+    )
+
+    candidate = response.json()["candidate"]
+    changed = candidate["revision_event"]["changed_source_keys"]
+    assert f"point:{target}" in changed
+    assert f"point:{other}" not in changed
+
+    report = candidate["impact_report"]
+    assert report["changed_knowledge_ids"] == [target]
+    # 直接重建组只能由被改的知识点驱动；其他知识点若受影响，只能经关系
+    # 进入 stale（待复核），语义不同，不得混入直接重建。
+    assert {item.get("knowledge_id") for item in report["needs_regeneration"]} == {target}
+
+
+def test_point_edit_confirm_applies_atomically() -> None:
+    """确认后知识库换版，课程正文不受影响。"""
+    course = _canonical_course()
+    client, storage = _client(course)
+    before = course["course_knowledge_base"]["revision_id"]
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit",
+        json={
+            "command_id": "cmd-point-1",
+            "knowledge_id": _point_id(course, "容量耗尽判定"),
+            "operation": "revise_knowledge_point",
+            "value": "长度等于容量时，插入前必须先扩容。",
+            "reason": "表述更精确",
+        },
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 200
+    assert storage.course["course_knowledge_base"]["revision_id"] != before
+    assert storage.course["course_document"] == course["course_document"]
+    log = client.get("/api/courses/course-1/knowledge-library/revisions").json()["revisions"]
+    assert log[-1]["actor"] == "teacher-1"
+
+
+def test_point_edit_replay_is_idempotent() -> None:
+    """同一 command_id 重发不重复应用。"""
+    course = _canonical_course()
+    client, storage = _client(course)
+    payload = {
+        "command_id": "cmd-point-1",
+        "knowledge_id": _point_id(course, "容量耗尽判定"),
+        "operation": "revise_knowledge_point",
+        "value": "长度等于容量时，插入前必须先扩容。",
+        "reason": "表述更精确",
+    }
+
+    client.post("/api/courses/course-1/knowledge-library/points/confirm-edit", json=payload)
+    saves = storage.save_count
+    second = client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit", json=payload,
+    )
+
+    assert second.status_code == 200
+    assert storage.save_count == saves
+
+
+def test_point_edit_rejects_unknown_point() -> None:
+    """知识点不存在时明确拒绝，不静默无操作。"""
+    client, storage = _client()
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/preview-edit",
+        json={
+            "knowledge_id": "ckp_ghost",
+            "operation": "revise_knowledge_point",
+            "value": "任意内容",
+            "reason": "测试",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "knowledge_point_not_found"
+    assert storage.save_count == 0
+
+
+def test_point_edit_rejects_unsupported_operation() -> None:
+    """定向编辑只开放不移动稳定 ID 的操作；拆分必须走完整命令路径。"""
+    course = _canonical_course()
+    client, _ = _client(course)
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/preview-edit",
+        json={
+            "knowledge_id": _point_id(course, "容量耗尽判定"),
+            "operation": "split_knowledge_point",
+            "value": "任意内容",
+            "reason": "测试",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "knowledge_point_edit_unsupported"
+
+
+def test_point_edit_rejects_no_op_edit() -> None:
+    """内容没变时不产生空修订，避免下游被无谓地标记待重建。"""
+    course = _canonical_course()
+    client, _ = _client(course)
+    target = next(
+        item for item in course["course_knowledge_base"]["knowledge_points"]
+        if item["name"] == "容量耗尽判定"
+    )
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/preview-edit",
+        json={
+            "knowledge_id": target["knowledge_id"],
+            "operation": "revise_knowledge_point",
+            "value": target["statement"],
+            "reason": "测试",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "knowledge_point_edit_no_change"
