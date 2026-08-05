@@ -859,8 +859,13 @@ async def test_section_optimization_touches_only_that_section_and_leaves_others_
     ], "只有被优化的第一节目标改变，第二节保持原样"
 
     sections = storage.course["course_teaching_plan"]["sections"]
-    untouched = next(item for item in sections if item["node_id"] == "section-2")
-    assert untouched == before_section_two, "分小节优化不得波及其他小节"
+    # 应用后教案小节的 node_id 会跟随目录归一化（section-2 → L2-1-2），
+    # 所以按位置取、比内容不比 ID。
+    untouched = deepcopy(sections[1])
+    original = deepcopy(before_section_two)
+    untouched.pop("node_id", None)
+    original.pop("node_id", None)
+    assert untouched == original, "分小节优化不得波及其他小节"
     assert storage.course["course_plan"]["positioning"] == before_positioning, "不得顺手改总体教案"
 
     # 正式教案仍然只有一份，且修订前进了一格。

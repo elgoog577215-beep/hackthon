@@ -1047,6 +1047,56 @@ def _normalize_ai_operations(
     return operations
 
 
+def _realign_plan_section_ids(
+    course_plan: dict[str, Any],
+    teaching_plan: dict[str, Any],
+) -> None:
+    """让教案小节的 node_id 跟随目录归一化后的正式 ID。
+
+    apply_course_teaching_plan 内部会走 normalize_course_plan_contract，
+    把目录小节重编为 L2-<章>-<节>。教案自己的 sections[].node_id 不在那条
+    链路上，于是应用之后两边会分叉：目录是 L2-1-1，教案还是 section-1。
+
+    分叉的后果是安静的——_plan_section 找不到小节，_editable_fields 直接
+    跳过整节，于是第二轮编辑时该节的教学环节与知识字段**从工作台消失**，
+    不报任何错。需求 5 的「二次编辑」正好踩在这上面。
+
+    目录是结构真源，所以按位置对齐、以目录为准；两边小节数不一致时不猜，
+    保持原样交给结构校验去报。
+    """
+    outline_ids = [
+        _text(section.get("node_id"))
+        for chapter in course_plan.get("chapters") or []
+        if isinstance(chapter, dict)
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict)
+    ]
+    plan_sections = [
+        section for section in teaching_plan.get("sections") or []
+        if isinstance(section, dict)
+    ]
+    if len(outline_ids) != len(plan_sections):
+        return
+    renamed = {
+        _text(section.get("node_id")): outline_id
+        for section, outline_id in zip(plan_sections, outline_ids)
+        if _text(section.get("node_id")) and _text(section.get("node_id")) != outline_id
+    }
+    if not renamed:
+        return
+    for section, outline_id in zip(plan_sections, outline_ids):
+        if outline_id:
+            section["node_id"] = outline_id
+    # 知识关系与复用引用里的小节归属同样要跟着改名，否则会指向不存在的节。
+    for section in plan_sections:
+        for relation in section.get("knowledge_relations") or []:
+            if not isinstance(relation, dict):
+                continue
+            for key in ("owner_node_id", "source_node_id", "target_node_id"):
+                if (current := _text(relation.get(key))) in renamed:
+                    relation[key] = renamed[current]
+
+
 class TeachingPlanWorkbenchService:
     def __init__(
         self,
@@ -1802,6 +1852,7 @@ class TeachingPlanWorkbenchService:
                 working["course_plan"] = apply_course_teaching_plan(
                     working["course_plan"], source_plan,
                 )
+                _realign_plan_section_ids(working["course_plan"], source_plan)
             stage = (working.setdefault("generation_stage_artifacts", {})
                      .setdefault("course_teaching_plan", {}))
             stage["revision_id"] = source_plan["revision_id"]
@@ -1942,6 +1993,7 @@ class TeachingPlanWorkbenchService:
             working["course_plan"] = apply_course_teaching_plan(
                 deepcopy(snapshot.get("course_plan") or {}), source_plan,
             )
+            _realign_plan_section_ids(working["course_plan"], source_plan)
             working["generation_request"] = deepcopy(snapshot.get("generation_request") or {})
             working["subject_pedagogy_profile"] = deepcopy(snapshot.get("subject_pedagogy_profile") or {})
             working["course_teaching_plan"] = source_plan
