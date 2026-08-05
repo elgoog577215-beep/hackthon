@@ -263,6 +263,8 @@ export const useGenerationStore = defineStore('generation', {
 
         localTask.progress = (payload.progress as number) ?? localTask.progress
         if (task_id) localTask.id = task_id
+        if (payload.heartbeat_at) localTask.heartbeatAt = String(payload.heartbeat_at)
+        if (payload.updated_at) localTask.updatedAt = String(payload.updated_at)
         const phase = String(payload.current_phase || payload.phase || '')
         if (phase) {
           localTask.currentPhase = phase
@@ -418,6 +420,10 @@ export const useGenerationStore = defineStore('generation', {
         } else {
           localTask.status = 'error'
           localTask.error = String(payload.error || 'Unknown error')
+          if (payload.error_code) localTask.errorCode = String(payload.error_code)
+          if (payload.error_user_message) {
+            localTask.errorUserMessage = String(payload.error_user_message)
+          }
           this.addLogToTask(course_id, `❌ 任务错误: ${payload.error || 'Unknown error'}`)
         }
       }
@@ -844,6 +850,12 @@ export const useGenerationStore = defineStore('generation', {
             if (backendTask.course_type) localTask.courseType = backendTask.course_type
             localTask.recovery = backendTask.recovery || undefined
             localTask.error = backendTask.error ? String(backendTask.error) : undefined
+            localTask.errorCode = backendTask.error_code ? String(backendTask.error_code) : undefined
+            localTask.errorUserMessage = backendTask.error_user_message
+              ? String(backendTask.error_user_message)
+              : undefined
+            if (backendTask.heartbeat_at) localTask.heartbeatAt = String(backendTask.heartbeat_at)
+            if (backendTask.updated_at) localTask.updatedAt = String(backendTask.updated_at)
             if (typeof backendTask.publication_allowed === 'boolean') {
               localTask.publicationAllowed = backendTask.publication_allowed
             }

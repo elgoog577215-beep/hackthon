@@ -496,4 +496,74 @@ describe('course generation lifecycle reconciliation', () => {
     expect(generation.getTask('course-delete')).toBeUndefined()
     expect(generation.taskProgress['course-delete']).toBeUndefined()
   })
+
+  it('WebSocket 进度事件保留后端心跳与更新时间，供停滞判断使用', () => {
+    const generation = useGenerationStore()
+    generation.createTask('job-beat', 'course-beat', '世界模型')
+
+    generation.handleWSMessage({
+      type: 'progress_update',
+      course_id: 'course-beat',
+      task_id: 'job-beat',
+      payload: {
+        status: 'running',
+        progress: 40,
+        current_phase: 'course_teaching_plan_batch',
+        heartbeat_at: '2026-08-05T10:00:00',
+        updated_at: '2026-08-05T10:00:05',
+      },
+    } as any)
+
+    const task = generation.getTask('course-beat')
+    expect(task?.heartbeatAt).toBe('2026-08-05T10:00:00')
+    expect(task?.updatedAt).toBe('2026-08-05T10:00:05')
+  })
+
+  it('任务错误事件保留后端错误码与可读原因，不只留技术堆栈', () => {
+    const generation = useGenerationStore()
+    generation.createTask('job-fail', 'course-fail', '世界模型')
+
+    generation.handleWSMessage({
+      type: 'task_error',
+      course_id: 'course-fail',
+      task_id: 'job-fail',
+      payload: {
+        error: 'RateLimitError: 429 too_many_requests',
+        error_code: 'provider_rate_limited',
+        error_user_message: '服务请求过于频繁，已保留当前进度。',
+      },
+    } as any)
+
+    const task = generation.getTask('course-fail')
+    expect(task?.status).toBe('error')
+    expect(task?.errorCode).toBe('provider_rate_limited')
+    expect(task?.errorUserMessage).toBe('服务请求过于频繁，已保留当前进度。')
+    expect(task?.error).toBe('RateLimitError: 429 too_many_requests')
+  })
+
+  it('HTTP 对账同样接通错误码、可读原因与心跳', async () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-poll', 'course-poll', '世界模型')
+    localTask.status = 'running'
+
+    vi.spyOn(http, 'get').mockResolvedValue({
+      data: [{
+        id: 'job-poll', course_id: 'course-poll', course_name: '世界模型', status: 'error',
+        progress: 62, phase: 'content_generation', current_phase: 'content_generation',
+        error: 'ProviderTimeout: upstream timed out',
+        error_code: 'provider_timeout',
+        error_user_message: 'AI 服务响应超时，已完成正文不会丢失。',
+        heartbeat_at: '2026-08-05T10:00:00',
+        updated_at: '2026-08-05T10:00:05',
+      }],
+    })
+
+    await generation.fetchGlobalTasks()
+
+    const task = generation.getTask('course-poll')
+    expect(task?.errorCode).toBe('provider_timeout')
+    expect(task?.errorUserMessage).toBe('AI 服务响应超时，已完成正文不会丢失。')
+    expect(task?.heartbeatAt).toBe('2026-08-05T10:00:00')
+    expect(task?.updatedAt).toBe('2026-08-05T10:00:05')
+  })
 })
