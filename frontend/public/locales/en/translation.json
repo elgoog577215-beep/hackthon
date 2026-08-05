@@ -1202,6 +1202,8 @@
       "contentWillAppear": "The outline and lesson text will appear as real generation results arrive",
       "follow": "Follow the chapter being generated",
       "generating": "Generating",
+      "generatingNamed": "Generating: {name}",
+      "queued": "Waiting…",
       "finalized": "Finalized",
       "failed": "Generation failed",
       "draft": "AI draft",

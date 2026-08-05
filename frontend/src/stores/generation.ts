@@ -39,6 +39,10 @@ const ACTIVE_BACKEND_TASK_STATUSES = new Set([
 const backendTaskTimestamp = (task: Record<string, any>) => (
   Date.parse(String(task.updated_at || task.created_at || '')) || 0
 )
+const generatingNodeLabel = (nodeName: string) => t(
+  'courseGeneration.workspace.generatingNamed',
+  '正在生成：{name}',
+).replace('{name}', nodeName)
 const currentBackendTasksByCourse = (tasks: Record<string, any>[]) => {
   const selected = new Map<string, Record<string, any>>()
   for (const task of tasks) {
@@ -274,11 +278,11 @@ export const useGenerationStore = defineStore('generation', {
         const backendMessage = payload.message as string | undefined
         const currentNodeName = payload.current_node_name as string | undefined
         if (currentNodeName) {
-          localTask.currentStep = `正在生成: ${currentNodeName}`
+          localTask.currentStep = generatingNodeLabel(currentNodeName)
         } else if (backendMessage) {
           localTask.currentStep = backendMessage
         } else if (status === 'pending') {
-          localTask.currentStep = '等待中...'
+          localTask.currentStep = t('courseGeneration.workspace.queued', '等待中…')
         }
         if (payload.current_nodes) {
           localTask.currentNodes = payload.current_nodes as Task['currentNodes']
@@ -384,14 +388,14 @@ export const useGenerationStore = defineStore('generation', {
                 this.streamingContent[nodeId] || '',
               )
               hydratedNode.generation_status = 'generating'
-              this.currentGeneratingNode = `正在生成: ${hydratedNode.node_name}`
+              this.currentGeneratingNode = generatingNodeLabel(hydratedNode.node_name)
             }).finally(() => this.previewHydrationPending.delete(nodeId))
           }
           return
         }
         if (this.currentGeneratingNodeId !== nodeId) {
           this.currentGeneratingNodeId = nodeId
-          this.currentGeneratingNode = `正在生成: ${node.node_name}`
+          this.currentGeneratingNode = generatingNodeLabel(node.node_name)
           node.generation_status = 'generating'
         }
         this.addToBuffer(nodeId, chunk)
@@ -871,7 +875,7 @@ export const useGenerationStore = defineStore('generation', {
             }
             if (backendTask.message) localTask.currentStep = backendTask.message
             if (backendTask.current_node_name) {
-              localTask.currentStep = `正在生成: ${backendTask.current_node_name}`
+              localTask.currentStep = generatingNodeLabel(String(backendTask.current_node_name))
             }
             this.syncCurrentCourseGenerationState(
               courseId,
@@ -1039,7 +1043,7 @@ export const useGenerationStore = defineStore('generation', {
       const node = cs.nodes.find((n: Node) => n.node_id === nodeId)
       if (!node) return
       this.isGenerating = true
-      this.currentGeneratingNode = `正在生成: ${node.node_name}`
+      this.currentGeneratingNode = generatingNodeLabel(node.node_name)
       this.currentGeneratingNodeId = nodeId
       this.addLog(`🚀 开始生成章节: ${node.node_name}`)
       node.node_content = ''

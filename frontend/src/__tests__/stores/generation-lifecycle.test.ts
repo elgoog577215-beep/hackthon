@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElMessage } from 'element-plus'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
+import { setLocale } from '@/shared/i18n'
 import http from '@/utils/http'
+import enMessages from '../../../public/locales/en/translation.json'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 
 describe('course generation lifecycle reconciliation', () => {
@@ -12,6 +15,10 @@ describe('course generation lifecycle reconciliation', () => {
     vi.useRealTimers()
     localStorage.clear()
     setActivePinia(createPinia())
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
   })
 
   it('创建与恢复生成任务时保留课程类型', () => {
@@ -565,5 +572,27 @@ describe('course generation lifecycle reconciliation', () => {
     expect(task?.errorUserMessage).toBe('AI 服务响应超时，已完成正文不会丢失。')
     expect(task?.heartbeatAt).toBe('2026-08-05T10:00:00')
     expect(task?.updatedAt).toBe('2026-08-05T10:00:05')
+  })
+
+  it('正在生成的节点提示走 i18n，英文模式不残留中文', async () => {
+    const generation = useGenerationStore()
+    generation.createTask('job-i18n', 'course-i18n', '线性代数')
+
+    const emit = () => generation.handleWSMessage({
+      type: 'progress_update',
+      course_id: 'course-i18n',
+      task_id: 'job-i18n',
+      payload: { status: 'running', progress: 20, current_node_name: '向量空间' },
+    } as any)
+
+    emit()
+    expect(generation.getTask('course-i18n')?.currentStep).toBe('正在生成：向量空间')
+
+    await setLocale('en')
+    emit()
+    const englishStep = generation.getTask('course-i18n')?.currentStep || ''
+    expect(englishStep).toBe('Generating: 向量空间')
+    expect(englishStep).not.toContain('正在生成')
+    await setLocale('zh')
   })
 })

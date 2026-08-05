@@ -1202,6 +1202,8 @@
       "contentWillAppear": "目录与正文会随着真实生成结果逐步出现",
       "follow": "跟随当前生成章节",
       "generating": "正在生成",
+      "generatingNamed": "正在生成：{name}",
+      "queued": "等待中…",
       "finalized": "已定稿",
       "failed": "生成失败",
       "draft": "AI 草稿",
