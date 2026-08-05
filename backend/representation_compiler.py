@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from course_document import CourseBlock, CourseDocument, stable_hash
+from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from diagram_spec import DIAGRAM_COMPILER_VERSION, compile_diagram_spec, validate_diagram_spec
 from slide_deck import (
@@ -46,6 +46,7 @@ from slide_deck_v5 import (
     slide_deck_v5_enabled,
     validate_slide_deck_v5,
 )
+from slide_quality_v5 import repair_render_slides_v5
 from slide_story_plan import SlideStoryPlanV2
 from slide_theme import slide_theme_version
 from slide_visuals import SlideVisualPlanV1, build_signature
@@ -547,18 +548,50 @@ def compile_slide_deck_variant(
             progress_callback=progress_callback,
             resume_slides=resume_slides,
         )
+        render_repair_history: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-render-review-") as review_dir:
             review_path = Path(review_dir) / "candidate.pptx"
-            export_structured_slide_deck(
-                content,
-                review_path,
-                require_quality=False,
-                theme=normalized_theme,
+            render_review: dict[str, Any] = {}
+            for render_attempt in range(3):
+                export_structured_slide_deck(
+                    content,
+                    review_path,
+                    require_quality=False,
+                    theme=normalized_theme,
+                )
+                render_review = audit_exported_pptx(
+                    review_path,
+                    expected_slide_count=len(content.get("slides") or []),
+                )
+                render_review["repair_attempts"] = render_attempt
+                if render_review.get("passed") or not use_v5 or render_attempt >= 2:
+                    break
+                repaired_slides, round_history = repair_render_slides_v5(
+                    list(content.get("slides") or []),
+                    render_review,
+                    round_index=render_attempt + 1,
+                )
+                if not round_history:
+                    break
+                content["slides"] = repaired_slides
+                render_repair_history.extend(round_history)
+                if progress_callback:
+                    progress_callback({
+                        "event": "render_repair",
+                        "progress": min(99, 97 + render_attempt),
+                        "stage": "render_repair",
+                        "repair_attempt": render_attempt + 1,
+                        "repair_history": deepcopy(round_history),
+                    })
+            content["render_review"] = render_review
+        if use_v5:
+            existing_history = list(
+                (content.get("quality_report") or {}).get("repair_history") or []
             )
-            content["render_review"] = audit_exported_pptx(
-                review_path,
-                expected_slide_count=len(content.get("slides") or []),
-            )
+            content.setdefault("quality_report", {})["repair_history"] = [
+                *existing_history,
+                *render_repair_history,
+            ]
         if progress_callback:
             progress_callback({
                 "event": "render_review",
@@ -575,7 +608,9 @@ def compile_slide_deck_variant(
                     if content["render_review"].get("passed")
                     else "blocked_after_export_audit"
                 ),
-                "repair_attempts": 0,
+                "repair_attempts": int(
+                    (content.get("render_review") or {}).get("repair_attempts") or 0
+                ),
             })
         quality = (
             validate_slide_deck_v5(content, course_data=course_data)
@@ -583,7 +618,7 @@ def compile_slide_deck_variant(
             else validate_slide_deck_v4(content, course_data=course_data)
         )
         render_blockers = list((content.get("render_review") or {}).get("blockers") or [])
-        if render_blockers:
+        if render_blockers and not use_v5:
             quality["passed"] = False
             quality["blockers"] = [
                 *(quality.get("blockers") or []),
@@ -736,7 +771,10 @@ def rebuild_slide_deck_variant_safely(
         None,
     )
     try:
-        if allocation_plan is not None:
+        if (
+            allocation_plan is not None
+            and not (story_plan is not None and slide_deck_v5_enabled())
+        ):
             preflight = slide_deck_preflight_quality(allocation_plan)
             if not preflight["passed"]:
                 parts = split_slide_deck_plan_by_chapter(
@@ -1860,7 +1898,7 @@ def _blocks_by_section(document: CourseDocument) -> dict[str, list[CourseBlock]]
     return result
 
 
-def _learning_sections(document: CourseDocument):
+def _learning_sections(document: CourseDocument) -> list[CourseSection]:
     active_section_ids = {
         block.section_id for block in document.blocks if block.status != "retired"
     }

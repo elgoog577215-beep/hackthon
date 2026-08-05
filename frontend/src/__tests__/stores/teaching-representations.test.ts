@@ -165,6 +165,11 @@ describe('teaching representation progressive build', () => {
       mode: 'teaching',
       theme: 'grid-notebook',
       forceRebuild: true,
+      webImageRetrieval: {
+        enabled: true,
+        mode: 'wide_safe',
+        targetCount: 7,
+      },
     })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -174,6 +179,11 @@ describe('teaching representation progressive build', () => {
       mode: 'teaching',
       theme: 'grid-notebook',
       force_rebuild: true,
+      web_image_retrieval: {
+        enabled: true,
+        mode: 'wide_safe',
+        target_count: 7,
+      },
     })
   })
 

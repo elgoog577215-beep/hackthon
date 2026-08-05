@@ -60,6 +60,12 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
 )
 from course_knowledge_map import compile_course_knowledge_map
+from course_outline_adjustments import (
+    OutlineAdjustmentError,
+    apply_outline_operations,
+    compile_outline_draft,
+    describe_outline_diff,
+)
 from course_quality import (
     build_final_course_quality_report,
     dedupe_quality_issues,
@@ -69,12 +75,6 @@ from course_repository import (
     CourseDocumentConflict,
     CourseDocumentNotFound,
     CourseDocumentRepository,
-)
-from course_outline_adjustments import (
-    OutlineAdjustmentError,
-    apply_outline_operations,
-    compile_outline_draft,
-    describe_outline_diff,
 )
 from course_retrieval import (
     build_course_retrieval_queries,
@@ -178,7 +178,11 @@ from slide_deck_v4 import (
     allocation_from_story_plan_v2,
     build_signature_v4,
 )
-from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
+from slide_deck_v5 import (
+    allocation_from_story_plan_v5,
+    build_signature_v5,
+    compact_story_plan_v5,
+)
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
@@ -192,6 +196,7 @@ from slide_visuals import (
     build_signature,
     plan_slide_visuals,
 )
+from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
 from web_retrieval import (
@@ -359,7 +364,13 @@ def _source_first_slide_visual_ai_worker() -> (
                 "and source-bound nodes, edges, and relation_evidence. Never emit Mermaid, "
                 "SVG, HTML, coordinates, executable drawing code, or invented labels. "
                 "Do not request generated_illustration when it is absent from "
-                "allowed_visual_kinds."
+                "allowed_visual_kinds. When a real image materially improves a page, "
+                "put its strict search request under "
+                "deck_brief.visual_search_requests keyed by the exact page_id. "
+                "Otherwise omit that key.\n\n"
+                + VISUAL_RETRIEVAL_PLANNER_PROMPT
+                + "\nThe root JSON object must still be slide_visual_plan_v1; "
+                "never return a standalone search request."
             ),
             use_fast_model=True,
             retry_count=1,
@@ -4419,6 +4430,13 @@ class TaskManager:
         course_view = await asyncio.to_thread(
             self._course_document_repository.load_course_view, course_id,
         )
+        course_view = deepcopy(course_view)
+        course_view["generation_request"] = {
+            **(course_view.get("generation_request") or {}),
+            "web_image_retrieval": deepcopy(
+                request.get("web_image_retrieval") or {}
+            ),
+        }
         story_engine_enabled = os.getenv(
             "SLIDE_STORY_ENGINE_V2_ENABLED",
             "true",
@@ -4548,7 +4566,12 @@ class TaskManager:
                     baseline=story_baseline,
                     ai_planner=_source_first_story_ai_worker(),
                 )
-                allocation_plan, _ = allocation_from_story_plan_v2(
+                allocation_compiler = (
+                    allocation_from_story_plan_v5
+                    if slide_schema == "slide_deck_v5"
+                    else allocation_from_story_plan_v2
+                )
+                allocation_plan, _ = allocation_compiler(
                     document,
                     source_fragments,
                     story_plan,
@@ -4594,7 +4617,19 @@ class TaskManager:
                     ai_reviewer=reviewer,
                 )
             resume_slides = []
-        preflight = slide_deck_preflight_quality(allocation_plan)
+        preflight = (
+            {
+                "passed": True,
+                "score": 100,
+                "issues": [],
+                "blockers": [],
+                "warnings": [],
+                "estimated_slide_count": len(allocation_plan.pages),
+                "maximum_slide_count": None,
+            }
+            if slide_schema == "slide_deck_v5"
+            else slide_deck_preflight_quality(allocation_plan)
+        )
         bundle_parts = []
         if not preflight["passed"]:
             bundle_parts = split_slide_deck_plan_by_chapter(

@@ -11,14 +11,22 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import CourseDocument, stable_hash
+from slide_asset_repository import slide_asset_repository
 from slide_deck import SlideDeckContent
-from slide_deck_v3 import fragment_course_document
-from slide_deck_v4 import (
-    SLIDE_DECK_V4_SCHEMA,
-    allocation_from_story_plan_v2,
-    build_signature_v4,
-    compile_slide_deck_v4,
-    validate_slide_deck_v4,
+from slide_deck_v3 import (
+    ContentFragmentV1,
+    DerivedTextV1,
+    FragmentExclusionV1,
+    PlannedPageV2,
+    SlideAllocationPlanV2,
+    compile_slide_deck_v3,
+    fragment_course_document,
+    slide_deck_variant_key,
+    validate_allocation_plan,
+)
+from slide_quality_v5 import (
+    build_slide_deck_quality_v5,
+    repair_semantic_slides_v5,
 )
 from slide_semantics import (
     DOMAIN_PRESENTATION_PROFILE_VERSION,
@@ -37,11 +45,19 @@ from slide_story_plan import (
     TeachingEpisodeV2,
 )
 from slide_visuals import deterministic_visual_plan
+from slide_web_images import (
+    VisualSearchRequestV5,
+    WebImageRetrievalConfig,
+    compute_image_target_v5,
+    enrich_slides_with_generated_images_v5,
+    enrich_slides_with_web_images_v5,
+    web_image_retrieval_enabled,
+)
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.18"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.19"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.11"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.12"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -65,6 +81,7 @@ _GENERIC_TITLES = {
     "练习与思考",
     "实战案例",
     "实战案例行业应用",
+    "实践案例行业应用",
     "思考与挑战",
     "深度原理底层机制",
     "行业应用",
@@ -87,11 +104,11 @@ _NUMBERED_SECTION_TITLE_PATTERN = re.compile(
 _ENUMERATION_PROMISE_PATTERN = re.compile(
     r"(?P<verb>分为|分成|可分为|包括|包含|共有|共计)"
     r"\s*(?P<count>[一二两三四五六七八九十百\d]+)\s*"
-    r"(?P<unit>类|种|项|个|步|部分|方面|阶段)"
+    r"(?P<unit>类|种|项|个|步|部分|方面|阶段|分支|层|区域|结构|边界|要点|平面)"
 )
 _TITLE_ENUMERATION_PATTERN = re.compile(
     r"(?P<count>[一二两三四五六七八九十百\d]+)\s*"
-    r"(?:(?:类|种|项|步|部分|方面|阶段)|"
+    r"(?:(?:类|种|项|步|部分|方面|阶段|分支|层|区域|结构|边界|要点|平面)|"
     r"个\s*(?:要点|重点|性质|特征|条件|步骤|原因|方法|结论|"
     r"原则|问题|维度|类别|类型|规则|标准|目标))"
 )
@@ -102,7 +119,7 @@ _GENERIC_ENUMERATION_NOUN_PATTERN = re.compile(
 _INLINE_ENUMERATION_MEMBER_PATTERN = re.compile(
     r"(?:第\s*)?(?:[一二三四五六七八九十\d]+|"
     r"另\s*(?:一|二|三|四|五|六|七|八|九|十)?)"
-    r"(?:类|种|项|步|部分|方面|阶段)"
+    r"(?:类|种|项|步|部分|方面|阶段|分支|层|区域|结构|边界|要点|平面)"
     r"(?=\s*(?:是|为|指|：|:))"
 )
 _RAW_TITLE_PATTERN = re.compile(
@@ -116,29 +133,44 @@ _TEMPLATE_LEAD_PATTERN = re.compile(
     r"实战案例(?:/行业应用)?|思考与挑战|练习与思考|"
     r"深度原理/底层机制|行业应用)\s*[:：]?\s*"
 )
-_V5_DEFAULT_DENSITY_BUDGET = {"characters": 360, "items": 6, "title": 18}
+_V5_DEFAULT_DENSITY_BUDGET = {"characters": 230, "items": 5, "title": 18}
 _V5_DENSITY_BUDGETS = {
     "cover-minimal": {"characters": 90, "items": 0, "title": 22},
     "cover-editorial": {"characters": 120, "items": 0, "title": 22},
     "agenda-linear": {"characters": 240, "items": 6, "title": 18},
     "chapter-entry": {"characters": 120, "items": 0, "title": 22},
     "hero-claim": {"characters": 180, "items": 1, "title": 18},
-    "editorial-body": {"characters": 360, "items": 6, "title": 18},
-    "balanced-two-column": {"characters": 420, "items": 6, "title": 18},
+    "editorial-body": {"characters": 230, "items": 5, "title": 18},
+    "balanced-two-column": {"characters": 320, "items": 6, "title": 18},
     "classification-3": {"characters": 270, "items": 3, "title": 18},
     "parallel-examples": {"characters": 320, "items": 4, "title": 18},
-    "question-prompt": {"characters": 260, "items": 4, "title": 18},
-    "process-sequence": {"characters": 300, "items": 5, "title": 18},
+    "question-prompt": {"characters": 220, "items": 4, "title": 18},
+    "process-sequence": {"characters": 240, "items": 5, "title": 18},
     "formula-explanation": {"characters": 280, "items": 4, "title": 18},
     "figure-text": {"characters": 320, "items": 5, "title": 18},
     "diagram-full": {"characters": 0, "items": 0, "title": 18},
-    "worked-example": {"characters": 360, "items": 3, "title": 18},
-    "practice-feedback": {"characters": 400, "items": 6, "title": 18},
-    "chapter-recap": {"characters": 320, "items": 4, "title": 18},
-    "course-synthesis": {"characters": 340, "items": 6, "title": 18},
+    "worked-example": {"characters": 230, "items": 3, "title": 18},
+    "practice-feedback": {"characters": 260, "items": 6, "title": 18},
+    "chapter-recap": {"characters": 220, "items": 4, "title": 18},
+    "course-synthesis": {"characters": 240, "items": 6, "title": 18},
 }
 _V5_MINIMUM_BODY_FONT_PT = 16
 _V5_MINIMUM_TITLE_FONT_PT = 35
+_V5_SCENE_NARRATIVE_ROLE = {
+    "chapter_entry": "orientation",
+    "prerequisite_activation": "orientation",
+    "concept": "concept",
+    "reasoning": "reasoning",
+    "method": "method",
+    "process": "method",
+    "worked_example": "example",
+    "practice_feedback": "checkpoint",
+    "misconception": "misconception",
+    "application": "example",
+    "comparison": "reasoning",
+    "evidence": "reasoning",
+    "chapter_recap": "recap",
+}
 _V5_REPLACED_V4_QUALITY_CODES = {
     "appendix_content_overflow",
     "chapter_message_overflow",
@@ -2281,7 +2313,13 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         )
         resolved_composition = "statement"
         major_regions = 1
-    elif len(classification) == 3:
+    elif (
+        len(classification) == 3
+        and sum(
+            len([item for item in block.get("items") or [] if _clean_text(item)])
+            for block in slide.get("blocks") or []
+        ) <= 3
+    ):
         resolved_layout = "classification-3"
         resolved_composition = "statement"
         major_regions = 3
@@ -2688,7 +2726,7 @@ def _chapter_recap_slide(
         "layout": "recap",
         "slide_purpose": "chapter_recap",
         "eyebrow": "章节回顾",
-        "title": "本章必须带走的关键判断",
+        "title": f"回顾：{_clean_text(chapter.title)[:14]}",
         "subtitle": "",
         "key_message": "不看前文，你能否用自己的话解释这些判断？",
         "teaching_job": "用回忆问题检验本章关键判断是否真正形成",
@@ -3381,9 +3419,6 @@ def _enrich_practice_feedback_slides_v5(
             ))
             answer_mode = "source_extracted"
 
-        non_feedback_blocks = [
-            block for block in blocks if block not in direct_blocks
-        ]
         if len(direct_answers) == len(prompt_values) and prompt_values:
             answer_block = {
                 "block_id": f"{slide.get('unit_id') or 'practice'}:answers",
@@ -3646,6 +3681,527 @@ def _materialize_v5_structure(
     return result
 
 
+def _v5_title_text(value: str) -> str:
+    normalized = _clean_text(value)
+    if len(normalized) <= 72:
+        return normalized
+    for marker in ("。", "；", "：", ";", ":"):
+        index = normalized.find(marker, 20, 72)
+        if index >= 0:
+            return normalized[: index + 1]
+    return normalized[:71].rstrip() + "…"
+
+
+def _stable_v5_page_id(
+    *,
+    chapter_id: str,
+    episode_id: str,
+    beat_id: str,
+    fragment_ids: list[str],
+    part_index: int,
+) -> str:
+    digest = stable_hash({
+        "chapter_id": chapter_id,
+        "episode_id": episode_id,
+        "beat_id": beat_id,
+        "fragment_ids": fragment_ids,
+        "part_index": part_index,
+    }, prefix="v5p_")
+    return f"slide:v5:{digest.removeprefix('v5p_')}"
+
+
+def _semantic_atom_groups_v5(
+    fragments: list[ContentFragmentV1],
+) -> list[list[ContentFragmentV1]]:
+    """Keep headings, questions/options/answers, processes, and tables intact."""
+    ordered = sorted(fragments, key=lambda item: item.ordinal)
+    if not ordered:
+        return []
+    groups = _v5_fragment_groups(ordered)
+    result: list[list[ContentFragmentV1]] = []
+    for group in groups:
+        current: list[ContentFragmentV1] = []
+        for fragment in group:
+            starts_new = bool(
+                current
+                and fragment.kind == "heading"
+                and any(item.kind != "heading" for item in current)
+            )
+            if starts_new:
+                result.append(current)
+                current = []
+            current.append(fragment)
+        if current:
+            result.append(current)
+    return result
+
+
+def _complete_source_semantics_v5(
+    selected: list[ContentFragmentV1],
+    *,
+    all_fragments: list[ContentFragmentV1],
+    reserved_ids: set[str],
+) -> list[ContentFragmentV1]:
+    """Include omitted source members required to close a selected list lead."""
+    if not selected:
+        return []
+    ordered = sorted(all_fragments, key=lambda item: item.ordinal)
+    ordinal_index = {item.ordinal: index for index, item in enumerate(ordered)}
+    completed = {item.fragment_id: item for item in selected}
+
+    # A compact story beat may retain two list labels while skipping the source
+    # member between them. Fill only gaps from the same source block.
+    selected_ordered = sorted(selected, key=lambda item: item.ordinal)
+    for left, right in zip(selected_ordered, selected_ordered[1:]):
+        if not left.block_id or left.block_id != right.block_id:
+            continue
+        for candidate in ordered[
+            ordinal_index[left.ordinal] + 1 : ordinal_index[right.ordinal]
+        ]:
+            if candidate.block_id != left.block_id or candidate.kind == "heading":
+                break
+            if candidate.fragment_id not in reserved_ids:
+                completed[candidate.fragment_id] = candidate
+
+    # A colon-ended source fragment promises members that must remain visible.
+    # Continue within the same source block, stopping at the stated cardinality
+    # or the next semantic boundary.
+    for lead in sorted(completed.values(), key=lambda item: item.ordinal):
+        lead_text = _clean_text(lead.text)
+        if not re.search(r"[：:]\s*$", lead_text):
+            continue
+        expected_counts = [
+            *_enumeration_counts(lead_text),
+            *_title_enumeration_counts(lead_text),
+        ]
+        expected = max(expected_counts, default=0)
+        appended = 0
+        for candidate in ordered[ordinal_index[lead.ordinal] + 1 :]:
+            if candidate.block_id != lead.block_id or candidate.kind == "heading":
+                break
+            if candidate.fragment_id in completed:
+                if candidate.kind == "list_item":
+                    appended += 1
+                continue
+            if candidate.fragment_id in reserved_ids or candidate.kind != "list_item":
+                break
+            completed[candidate.fragment_id] = candidate
+            appended += 1
+            if expected and appended >= expected:
+                break
+    return sorted(completed.values(), key=lambda item: item.ordinal)
+
+
+def _split_oversized_atom_v5(
+    atom: list[ContentFragmentV1],
+    *,
+    capacity: int,
+    item_capacity: int,
+) -> list[list[ContentFragmentV1]]:
+    visible_items = sum(item.kind == "list_item" for item in atom)
+    if (
+        len(atom) <= 8
+        and visible_items <= item_capacity
+        and sum(len(item.text) for item in atom) <= capacity
+    ):
+        return [atom]
+    chunks: list[list[ContentFragmentV1]] = []
+    current: list[ContentFragmentV1] = []
+    current_size = 0
+    current_items = 0
+    for fragment in atom:
+        fragment_size = len(fragment.text)
+        fragment_items = int(fragment.kind == "list_item")
+        if current and (
+            len(current) >= 8
+            or current_size + fragment_size > capacity
+            or current_items + fragment_items > item_capacity
+        ):
+            if re.search(r"[：:]\s*$", _clean_text(current[-1].text)):
+                lead = current.pop()
+                if current:
+                    chunks.append(current)
+                current = [lead]
+                current_size = len(lead.text)
+                current_items = int(lead.kind == "list_item")
+            else:
+                chunks.append(current)
+                current = []
+                current_size = 0
+                current_items = 0
+        current.append(fragment)
+        current_size += fragment_size
+        current_items += fragment_items
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _packed_semantic_pages_v5(
+    fragments: list[ContentFragmentV1],
+    *,
+    capacity: int,
+    item_capacity: int,
+) -> list[tuple[list[ContentFragmentV1], list[str], str, int]]:
+    atoms = _semantic_atom_groups_v5(fragments)
+    packed: list[tuple[list[ContentFragmentV1], list[str], str, int]] = []
+    current: list[ContentFragmentV1] = []
+    current_atom_ids: list[str] = []
+    current_size = 0
+    for atom in atoms:
+        atom_id = stable_hash(
+            [fragment.fragment_id for fragment in atom],
+            prefix="atomv5_",
+        )
+        chunks = _split_oversized_atom_v5(
+            atom,
+            capacity=capacity,
+            item_capacity=item_capacity,
+        )
+        if len(chunks) > 1:
+            if current:
+                packed.append((current, current_atom_ids, "", 0))
+                current = []
+                current_atom_ids = []
+                current_size = 0
+            for chunk_index, chunk in enumerate(chunks, start=1):
+                packed.append((
+                    chunk,
+                    [f"{atom_id}:part:{chunk_index}"],
+                    atom_id,
+                    chunk_index,
+                ))
+            continue
+        atom_size = sum(len(item.text) for item in atom)
+        if current and (
+            len(current) + len(atom) > 8
+            or current_size + atom_size > capacity
+            or (
+                sum(item.kind == "list_item" for item in current)
+                + sum(item.kind == "list_item" for item in atom)
+                > item_capacity
+            )
+        ):
+            packed.append((current, current_atom_ids, "", 0))
+            current = []
+            current_atom_ids = []
+            current_size = 0
+        current.extend(atom)
+        current_atom_ids.append(atom_id)
+        current_size += atom_size
+    if current:
+        packed.append((current, current_atom_ids, "", 0))
+    return packed
+
+
+def allocation_from_story_plan_v5(
+    document: CourseDocument,
+    fragments: list[ContentFragmentV1],
+    story_plan: SlideStoryPlanV2,
+) -> tuple[SlideAllocationPlanV2, dict[str, StoryBeatV2]]:
+    """Compile source-bound teaching beats directly into final V5 pages."""
+    catalog = {item.fragment_id: item for item in fragments}
+    pages = [
+        PlannedPageV2(
+            page_id="slide:v5:cover",
+            layout="cover",
+            narrative_role="orientation",
+            derived_text=[DerivedTextV1(text=document.title, purpose="navigation")],
+        ),
+        PlannedPageV2(
+            page_id="slide:v5:agenda",
+            layout="roadmap",
+            narrative_role="orientation",
+            derived_text=[
+                DerivedTextV1(text=chapter.title, purpose="navigation")
+                for chapter in story_plan.chapters[:8]
+            ],
+        ),
+    ]
+    page_beats: dict[str, StoryBeatV2] = {}
+    allocated: set[str] = set()
+    beat_units: list[
+        tuple[
+            int,
+            int,
+            int,
+            int,
+            Any,
+            Any,
+            StoryBeatV2,
+            list[ContentFragmentV1],
+        ]
+    ] = []
+    for chapter_index, chapter in enumerate(story_plan.chapters):
+        for episode_index, episode in enumerate(chapter.episodes):
+            for beat_index, beat in enumerate(episode.beats):
+                beat_fragments = sorted(
+                    [
+                        catalog[fragment_id]
+                        for fragment_id in beat.fragment_ids
+                        if fragment_id in catalog and fragment_id not in allocated
+                    ],
+                    key=lambda item: item.ordinal,
+                )
+                if beat_fragments:
+                    beat_units.append((
+                        beat_fragments[0].ordinal,
+                        chapter_index,
+                        episode_index,
+                        beat_index,
+                        chapter,
+                        episode,
+                        beat,
+                        beat_fragments,
+                    ))
+                    allocated.update(item.fragment_id for item in beat_fragments)
+
+    completed_units: list[tuple[Any, ...]] = []
+    for unit in sorted(beat_units, key=lambda item: item[:4]):
+        beat_fragments = _complete_source_semantics_v5(
+            unit[-1],
+            all_fragments=fragments,
+            reserved_ids=allocated,
+        )
+        allocated.update(item.fragment_id for item in beat_fragments)
+        completed_units.append((*unit[:-1], beat_fragments))
+
+    for (
+        _source_ordinal,
+        _chapter_index,
+        _episode_index,
+        _beat_index,
+        chapter,
+        episode,
+        beat,
+        beat_fragments,
+    ) in completed_units:
+        budget_layout = {
+            "question": "question-prompt",
+            "practice": "question-prompt",
+            "answer": "practice-feedback",
+            "process": "process-sequence",
+            "formula": "formula-explanation",
+            "comparison": "balanced-two-column",
+        }.get(beat.renderer_layout, beat.renderer_layout)
+        budget = _V5_DENSITY_BUDGETS.get(
+            budget_layout,
+            _V5_DEFAULT_DENSITY_BUDGET,
+        )
+        capacity = int(
+            budget["characters"] or _V5_DEFAULT_DENSITY_BUDGET["characters"]
+        )
+        item_capacity = int(
+            budget["items"] or _V5_DEFAULT_DENSITY_BUDGET["items"]
+        )
+        packed = _packed_semantic_pages_v5(
+            beat_fragments,
+            capacity=capacity,
+            item_capacity=item_capacity,
+        )
+        continuation_totals = {
+            token: sum(
+                1
+                for _chunk, _atoms, candidate, _index in packed
+                if candidate == token
+            )
+            for _chunk, _atoms, token, _index in packed
+            if token
+        }
+        continuation_root = ""
+        for part_index, (
+            chunk,
+            atom_ids,
+            continuation_of,
+            continuation_index,
+        ) in enumerate(packed, start=1):
+            page_id = _stable_v5_page_id(
+                chapter_id=chapter.chapter_id,
+                episode_id=episode.episode_id,
+                beat_id=beat.beat_id,
+                fragment_ids=[item.fragment_id for item in chunk],
+                part_index=part_index,
+            )
+            if continuation_of and not continuation_root:
+                continuation_root = page_id
+            derived = [DerivedTextV1(
+                text=_v5_title_text(
+                    beat.audience_facing_title
+                    or beat.primary_claim_source.text
+                ),
+                purpose="page_title",
+                derived_from=[item.fragment_id for item in chunk],
+            )]
+            if continuation_of and continuation_index > 1:
+                derived.append(DerivedTextV1(
+                    text=(
+                        f"续页 {continuation_index}/"
+                        f"{continuation_totals.get(continuation_of, continuation_index)}"
+                    ),
+                    purpose="continuation",
+                    derived_from=[item.fragment_id for item in chunk],
+                ))
+            page = PlannedPageV2(
+                page_id=page_id,
+                layout=beat.renderer_layout,
+                fragment_ids=[item.fragment_id for item in chunk],
+                narrative_role=_V5_SCENE_NARRATIVE_ROLE.get(
+                    episode.scene_kind,
+                    "concept",
+                ),
+                section_id=chunk[0].section_id,
+                chapter_id=chapter.chapter_id,
+                episode_id=episode.episode_id,
+                beat_id=beat.beat_id,
+                semantic_atom_ids=atom_ids,
+                continuation_of=(
+                    continuation_root if continuation_index > 1 else ""
+                ),
+                continuation_index=continuation_index,
+                derived_text=derived,
+            )
+            pages.append(page)
+            page_beats[page_id] = beat
+    leftovers = [item for item in fragments if item.fragment_id not in allocated]
+    exclusions = [
+        FragmentExclusionV1(
+            fragment_id=item.fragment_id,
+            reason=(
+                "mode_concise"
+                if story_plan.mode == "concise"
+                else "v5_semantic_core"
+            ),
+        )
+        for item in leftovers
+    ]
+    allocation = SlideAllocationPlanV2(
+        title=document.title,
+        mode=story_plan.mode,
+        theme=story_plan.theme,
+        variant_key=slide_deck_variant_key(story_plan.mode, story_plan.theme),
+        source_document_revision=document.document_revision,
+        pages=pages,
+        exclusions=exclusions,
+        planner=story_plan.planner,
+        fallback_reason=story_plan.fallback_reason,
+        review={
+            "story_plan_id": story_plan.plan_id,
+            "compiler": "direct_v5_semantic_atoms",
+        },
+    )
+    validate_allocation_plan(allocation, fragments)
+    return allocation, page_beats
+
+
+def _map_resume_slides_v5(
+    resume_slides: list[dict[str, Any]] | None,
+    allocation: SlideAllocationPlanV2,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    page_by_sources: dict[tuple[str, ...], list[PlannedPageV2]] = {}
+    for page in allocation.pages:
+        if page.fragment_ids:
+            page_by_sources.setdefault(tuple(sorted(page.fragment_ids)), []).append(page)
+    mapped: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    for raw in resume_slides or []:
+        source_ids = tuple(sorted(
+            str(item)
+            for item in (raw.get("quality") or {}).get("fragment_ids") or []
+        ))
+        candidates = page_by_sources.get(source_ids, []) if source_ids else []
+        if len(candidates) != 1:
+            if source_ids:
+                conflicts.append({
+                    "legacy_page_id": str(raw.get("unit_id") or ""),
+                    "source_fragment_ids": list(source_ids),
+                    "reason": "ambiguous_source_episode_beat_mapping",
+                })
+            continue
+        updated = deepcopy(raw)
+        updated["unit_id"] = candidates[0].page_id
+        updated["chapter_id"] = candidates[0].chapter_id
+        updated["episode_id"] = candidates[0].episode_id
+        mapped.append(updated)
+    return mapped, conflicts
+
+
+def _bind_question_feedback_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Bind source-backed prompt/answer pages before semantic repair."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for slide in slides:
+        episode_id = _clean_text(slide.get("episode_id"))
+        if episode_id:
+            grouped.setdefault(episode_id, []).append(slide)
+    for episode_id, episode_slides in grouped.items():
+        scene = _clean_text(episode_slides[0].get("scene_kind"))
+        if scene not in {"practice_feedback", "worked_example"}:
+            continue
+        prompts = [
+            slide for slide in episode_slides
+            if _clean_text(slide.get("beat_role")) in {"prompt", "question"}
+        ]
+        answers = [
+            slide for slide in episode_slides
+            if _clean_text(slide.get("beat_role")) in {
+                "answer",
+                "feedback",
+                "solution",
+                "validation",
+            }
+        ]
+        if not prompts:
+            continue
+        question_id = stable_hash(episode_id, prefix="question_v5_")
+        answer_text = " ".join(
+            _block_visible_text(block)
+            for answer_slide in answers
+            for block in answer_slide.get("blocks") or []
+            if _block_visible_text(block)
+        )
+        for prompt in prompts:
+            blocks = prompt.get("blocks") or []
+            if not blocks:
+                continue
+            question = blocks[0]
+            question["type"] = "exercise"
+            question["metadata"] = {
+                **(question.get("metadata") or {}),
+                "question_id": question_id,
+                "question_mode": "closed",
+                "source_answer": answer_text,
+            }
+            prompt["quality"] = {
+                **(prompt.get("quality") or {}),
+                "question_mode": "closed",
+                "answer_page_ids": [
+                    str(answer.get("unit_id") or "") for answer in answers
+                ],
+            }
+        for answer in answers:
+            blocks = answer.get("blocks") or []
+            if not blocks:
+                continue
+            feedback = blocks[-1]
+            feedback["type"] = "callout"
+            feedback["metadata"] = {
+                **(feedback.get("metadata") or {}),
+                "answer_for": question_id,
+                "source_fragment_ids": list(
+                    (answer.get("quality") or {}).get("fragment_ids") or []
+                ),
+            }
+            if scene == "worked_example":
+                answer["quality"] = {
+                    **(answer.get("quality") or {}),
+                    "worked_example_conclusion": _first_body_sentence(
+                        _block_visible_text(feedback)
+                    ),
+                }
+    return slides
+
+
 def build_signature_v5(
     *,
     document: CourseDocument,
@@ -3653,14 +4209,36 @@ def build_signature_v5(
     mode: str,
     theme: str,
 ) -> dict[str, Any]:
-    base = build_signature_v4(
-        document=document,
-        course_data=course_data,
-        mode=mode,  # type: ignore[arg-type]
-        theme=theme,  # type: ignore[arg-type]
+    teaching_plan = course_data.get("course_teaching_plan") or {}
+    knowledge = course_data.get("course_knowledge_base") or {}
+    coherence = course_data.get("course_coherence_contract") or {}
+    web_image_retrieval = WebImageRetrievalConfig.model_validate(
+        (course_data.get("generation_request") or {}).get("web_image_retrieval")
+        or {}
+    )
+    web_image_retrieval_signature = web_image_retrieval.model_dump(mode="json")
+    web_image_retrieval_signature["enabled"] = (
+        web_image_retrieval.enabled or web_image_retrieval_enabled()
     )
     fields = {
-        **{key: value for key, value in base.items() if key != "signature"},
+        "course_document_revision": str(document.document_revision or ""),
+        "teaching_plan_revision": str(
+            teaching_plan.get("revision_id")
+            or course_data.get("teaching_plan_revision")
+            or ""
+        ),
+        "knowledge_base_revision": str(
+            knowledge.get("revision_id")
+            or course_data.get("knowledge_base_revision")
+            or ""
+        ),
+        "coherence_contract_revision": str(
+            coherence.get("revision_id")
+            or course_data.get("coherence_contract_revision")
+            or ""
+        ),
+        "mode": mode,
+        "theme": theme,
         "compiler_version": SLIDE_DECK_V5_COMPILER_VERSION,
         "deck_outline_version": DECK_OUTLINE_V5_VERSION,
         "final_page_contract_version": FINAL_PAGE_CONTRACT_V5_VERSION,
@@ -3669,6 +4247,7 @@ def build_signature_v5(
             DOMAIN_PRESENTATION_PROFILE_VERSION
         ),
         "visual_planning_batch_version": VISUAL_PLANNING_BATCH_VERSION,
+        "web_image_retrieval": web_image_retrieval_signature,
     }
     return {
         **fields,
@@ -3678,6 +4257,14 @@ def build_signature_v5(
 
 def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    slide_by_id = {
+        str(slide.get("unit_id") or ""): slide for slide in slides
+    }
+    continuation_children: dict[str, list[dict[str, Any]]] = {}
+    for candidate in slides:
+        parent = str((candidate.get("quality") or {}).get("continuation_of") or "")
+        if parent:
+            continuation_children.setdefault(parent, []).append(candidate)
     for slide in slides:
         quality = slide.get("quality") or {}
         requested = str(quality.get("requested_layout") or "")
@@ -3900,9 +4487,15 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "code": "visible_item_overflow",
                 "page_id": slide.get("unit_id"),
             })
+        continuation_root = str(quality.get("continuation_of") or slide.get("unit_id") or "")
+        family_slides = [
+            slide_by_id.get(continuation_root, slide),
+            *continuation_children.get(continuation_root, []),
+        ]
         body_text = " ".join(
             _clean_text(value)
-            for block in slide.get("blocks") or []
+            for family_slide in family_slides
+            for block in family_slide.get("blocks") or []
             for value in [
                 block.get("content"),
                 *(block.get("items") or []),
@@ -3911,33 +4504,51 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
         visible_items = [
             _clean_text(item)
-            for block in slide.get("blocks") or []
+            for family_slide in family_slides
+            for block in family_slide.get("blocks") or []
             for item in block.get("items") or []
             if _clean_text(item)
         ]
         visible_items.extend(
             _clean_text(match.group(1))
-            for block in slide.get("blocks") or []
+            for family_slide in family_slides
+            for block in family_slide.get("blocks") or []
             for line in str(block.get("content") or "").splitlines()
             if (match := _VISIBLE_BULLET_LINE.match(line)) is not None
         )
         expected_counts = [
             *_title_enumeration_counts(title),
-            *_enumeration_counts(body_text),
+            *_enumeration_counts(title),
         ]
-        expected_count = max(
-            (
-                count
-                for count in expected_counts
-                if count <= density["visible_item_budget"]
-            ),
-            default=0,
+        visible_items.extend(
+            content
+            for family_slide in family_slides
+            for block in family_slide.get("blocks") or []
+            if (content := _clean_text(block.get("content")))
+            and not re.search(r"[：:]\s*$", content)
+            and not _enumeration_counts(content)
         )
+        for family_slide in family_slides:
+            for block in family_slide.get("blocks") or []:
+                content = _clean_text(block.get("content"))
+                if not re.search(r"[：:]\s*$", content):
+                    continue
+                block_counts = [
+                    *_enumeration_counts(content),
+                    *_title_enumeration_counts(content),
+                ]
+                if block_counts:
+                    expected_counts.append(block_counts[-1])
+        expected_count = max(expected_counts, default=0)
         visible_enumeration_count = max(
             len(visible_items),
             _inline_enumeration_member_count(body_text),
         )
-        if expected_count and visible_enumeration_count < expected_count:
+        if (
+            not quality.get("continuation_of")
+            and expected_count
+            and visible_enumeration_count < expected_count
+        ):
             issues.append({
                 "severity": "critical",
                 "code": "enumeration_cardinality_mismatch",
@@ -4052,6 +4663,11 @@ def finalize_v5_quality_report(
     fallback_reason: str,
     planning_diagnostics: dict[str, Any] | None = None,
     visual_planning: dict[str, Any] | None = None,
+    visual_asset_manifest: list[dict[str, Any]] | None = None,
+    repair_history: list[dict[str, Any]] | None = None,
+    image_target: int = 0,
+    render_review: dict[str, Any] | None = None,
+    coverage_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Replace stale V3/V4 gates with one internally consistent V5 report."""
     previous_presentation = previous_quality.get("presentation") or {}
@@ -4204,143 +4820,94 @@ def finalize_v5_quality_report(
             })
         final_slide_issues.extend(slide_issues)
 
-    combined = [
-        *retained,
-        *v5_contract_issues(slides),
-        *final_slide_issues,
-        *planning_issues,
-        *visual_planning_issues,
-    ]
-    issues: list[dict[str, Any]] = []
-    seen: set[tuple[str, ...]] = set()
-    for issue in combined:
-        identity = _v5_issue_identity(issue)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        issues.append(issue)
-
-    blockers = [
-        issue for issue in issues
-        if str(issue.get("severity") or "") == "critical"
-    ]
-    warnings = [
-        issue for issue in issues
-        if str(issue.get("severity") or "") != "critical"
-    ]
-    semantic_issues = [
-        issue for issue in issues
-        if _v5_semantic_issue(issue)
-    ]
-    retained_presentation_identities = {
+    presentation_identities = {
         _v5_issue_identity(issue)
         for issue in previous_presentation_candidates
         if str(issue.get("code") or "") not in _V5_REPLACED_V4_QUALITY_CODES
     }
+    for issue in retained:
+        if _v5_issue_identity(issue) in presentation_identities:
+            issue.setdefault("dimension", "layout_export")
+    for issue in planning_issues:
+        issue.setdefault("dimension", "source_integrity")
+    for issue in visual_planning_issues:
+        issue.setdefault("dimension", "visual_effectiveness")
+
+    report = build_slide_deck_quality_v5(
+        slides,
+        planner=planner,
+        fallback_reason=fallback_reason,
+        planning_diagnostics=planning_diagnostics,
+        render_review=render_review,
+        visual_asset_manifest=visual_asset_manifest,
+        repair_history=repair_history,
+        image_target=image_target,
+        legacy_quality=previous_quality,
+        extra_issues=[
+            *retained,
+            *final_slide_issues,
+            *v5_contract_issues(slides),
+            *planning_issues,
+            *visual_planning_issues,
+        ],
+        coverage_report=coverage_report,
+    )
+    semantic_issues = [
+        issue for issue in report["issues"]
+        if str(issue.get("dimension") or "") in {
+            "source_integrity",
+            "teaching_closure",
+            "pagination_narrative",
+        }
+    ]
     presentation_issues = [
-        issue for issue in issues
-        if _v5_issue_identity(issue) in retained_presentation_identities
+        issue for issue in report["issues"]
+        if str(issue.get("dimension") or "") == "layout_export"
     ]
     visual_issues = [
-        issue for issue in issues
-        if issue not in semantic_issues
-        and _v5_issue_identity(issue) not in retained_presentation_identities
+        issue for issue in report["issues"]
+        if str(issue.get("dimension") or "") in {
+            "visual_effectiveness",
+            "attribution_accessibility",
+        }
     ]
+    report["semantic"] = {
+        "passed": not any(item.get("severity") == "critical" for item in semantic_issues),
+        "issues": semantic_issues,
+    }
+    report["visual"] = {
+        "passed": not any(item.get("severity") == "critical" for item in visual_issues),
+        "issues": visual_issues,
+    }
     presentation_blockers = [
         issue for issue in presentation_issues
-        if str(issue.get("severity") or "") == "critical"
+        if issue.get("severity") == "critical"
     ]
-    presentation_score = max(
-        0,
-        100 - sum(
-            {
-                "critical": 20,
-                "major": 6,
-                "minor": 1,
-            }.get(str(issue.get("severity") or ""), 1)
-            for issue in presentation_issues
-        ),
-    )
-    score = max(
-        0,
-        100 - sum(
-            {
-                "critical": 20,
-                "major": 6,
-                "minor": 1,
-            }.get(str(issue.get("severity") or ""), 1)
-            for issue in issues
-        ),
-    )
-    passthrough = {
-        key: deepcopy(value)
-        for key, value in previous_quality.items()
-        if key not in {
-            "passed",
-            "score",
-            "issues",
-            "blockers",
-            "warnings",
-            "semantic",
-            "visual",
-            "presentation",
-            "slide_count",
-            "v5_composition",
-        }
+    report["presentation"] = {
+        "passed": not presentation_blockers,
+        "issues": presentation_issues,
+        "blockers": presentation_blockers,
     }
-    contract_issues = v5_contract_issues(slides)
-    return {
-        **passthrough,
-        "passed": not blockers,
-        "score": score,
-        "slide_count": len(slides),
-        "issues": issues,
-        "blockers": blockers,
-        "warnings": warnings,
-        "semantic": {
-            "passed": not any(
-                str(issue.get("severity") or "") == "critical"
-                for issue in semantic_issues
-            ),
-            "issues": semantic_issues,
-        },
-        "visual": {
-            "passed": not any(
-                str(issue.get("severity") or "") == "critical"
-                for issue in visual_issues
-            ),
-            "issues": visual_issues,
-        },
-        "presentation": {
-            "passed": not presentation_blockers,
-            "score": presentation_score,
-            "issues": presentation_issues,
-            "blockers": presentation_blockers,
-        },
-        "planning": {
-            "planner": planner,
-            "fallback_reason": fallback_reason,
-            "diagnostics": deepcopy(planning_diagnostics or {}),
-            "passed": not any(
-                str(issue.get("severity") or "") == "critical"
-                for issue in planning_issues
-            ),
-            "issues": planning_issues,
-        },
-        "visual_planning": {
-            **visual_planning_details,
-            "degraded": bool(visual_planning_issues),
-            "passed": not any(
-                str(issue.get("severity") or "") == "critical"
-                for issue in visual_planning_issues
-            ),
-            "issues": visual_planning_issues,
-        },
-        "v5_composition": {
-            "passed": not contract_issues,
-            "issues": contract_issues,
-        },
+    report["planning"] = {
+        **report.get("planning", {}),
+        "passed": not any(
+            issue.get("severity") == "critical" for issue in planning_issues
+        ),
+        "issues": planning_issues,
     }
+    report["visual_planning"] = {
+        **visual_planning_details,
+        "degraded": bool(visual_planning_issues),
+        "passed": not any(
+            issue.get("severity") == "critical" for issue in visual_planning_issues
+        ),
+        "issues": visual_planning_issues,
+    }
+    report["v5_composition"] = {
+        "passed": not v5_contract_issues(slides),
+        "issues": v5_contract_issues(slides),
+    }
+    return report
 
 
 def compile_slide_deck_v5(
@@ -4360,56 +4927,174 @@ def compile_slide_deck_v5(
         else SlideStoryPlanV2.model_validate(story_plan)
     )
     source_fragments = fragment_course_document(document)
-    compact_story = compact_story_plan_v5(
+    configured_retrieval = WebImageRetrievalConfig.model_validate(
+        (course_data.get("generation_request") or {}).get("web_image_retrieval") or {}
+    )
+    retrieval_enabled = configured_retrieval.enabled or web_image_retrieval_enabled()
+    has_source_bound_beats = any(
+        beat.fragment_ids
+        for chapter in story.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+    )
+    resolved_story = (
+        story
+        if has_source_bound_beats
+        else compact_story_plan_v5(document, story, source_fragments)
+    )
+    resolved_allocation, page_beats = allocation_from_story_plan_v5(
         document,
-        story,
         source_fragments,
+        resolved_story,
     )
-    compact_allocation, _ = allocation_from_story_plan_v2(
-        document,
-        source_fragments,
-        compact_story,
-    )
-    provided_page_count = (
-        len(allocation_plan.pages)
-        if hasattr(allocation_plan, "pages")
-        else len((allocation_plan or {}).get("pages") or [])
-        if isinstance(allocation_plan, dict)
-        else 10**9
-    )
-    compaction_applied = False
-    if len(compact_allocation.pages) < provided_page_count:
-        story = compact_story
-        allocation_plan = compact_allocation
-        compaction_applied = True
-    if compaction_applied and visual_plan is not None:
-        # Page IDs and their source bindings are regenerated by compaction.
-        # Reusing the pre-compaction visual plan can either fail validation or,
-        # worse, attach a visual decision to a different semantic page.
+    resolved_page_ids = [page.page_id for page in resolved_allocation.pages]
+    supplied_visual_page_ids = [
+        str(page.page_id)
+        for page in getattr(visual_plan, "pages", [])
+    ] if visual_plan is not None else []
+    if visual_plan is None or supplied_visual_page_ids != resolved_page_ids:
         visual_plan = deterministic_visual_plan(
             document,
-            compact_allocation,
+            resolved_allocation,
             source_fragments,
         )
         visual_plan.deck_brief["fallback_reason"] = (
-            "v5_compaction_visual_plan_rebuilt"
+            "v5_final_page_ids_visual_plan_rebuilt"
         )
-    content = compile_slide_deck_v4(
+    planned_visual_search_requests: dict[str, dict[str, Any]] = {}
+    raw_visual_search_requests = (
+        (getattr(visual_plan, "deck_brief", {}) or {}).get(
+            "visual_search_requests"
+        )
+        or {}
+    )
+    if not isinstance(raw_visual_search_requests, dict):
+        raw_visual_search_requests = {}
+    for page_id, raw_request in raw_visual_search_requests.items():
+        try:
+            request = VisualSearchRequestV5.model_validate(raw_request)
+        except ValueError:
+            continue
+        if request.page_id == str(page_id) and request.page_id in resolved_page_ids:
+            planned_visual_search_requests[request.page_id] = request.model_dump(
+                mode="json"
+            )
+    mapped_resume, override_conflicts = _map_resume_slides_v5(
+        resume_slides,
+        resolved_allocation,
+    )
+    if progress_callback:
+        progress_callback({
+            "event": "story_plan",
+            "progress": 8,
+            "stage": "story_plan",
+            "story_plan": resolved_story.model_dump(mode="json"),
+        })
+        progress_callback({
+            "event": "layout_plan",
+            "progress": 20,
+            "stage": "layout_plan",
+            "allocation_plan": resolved_allocation.model_dump(mode="json"),
+        })
+    content = compile_slide_deck_v3(
         document,
         course_data,
-        story_plan=story,
-        allocation_plan=allocation_plan,
+        mode=resolved_story.mode,
+        theme=resolved_story.theme,
+        allocation_plan=resolved_allocation,
         visual_plan=visual_plan,
         progress_callback=progress_callback,
-        resume_slides=resume_slides,
+        resume_slides=mapped_resume,
         asset_repository=asset_repository,
+        allow_generated_illustrations=False if retrieval_enabled else None,
     )
-    outline = compile_deck_outline_v5(document, story)
+    continuation_totals = {
+        page.page_id: max(
+            [
+                int(candidate.continuation_index or 0)
+                for candidate in resolved_allocation.pages
+                if candidate.continuation_of == page.page_id
+            ]
+            or [0]
+        )
+        for page in resolved_allocation.pages
+    }
+    episode_by_beat = {
+        beat.beat_id: (chapter.chapter_id, episode.episode_id, episode)
+        for chapter in resolved_story.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+    }
+    page_catalog = {page.page_id: page for page in resolved_allocation.pages}
+    for slide in content.get("slides") or []:
+        page_id = str(slide.get("unit_id") or "")
+        beat = page_beats.get(page_id)
+        page = page_catalog.get(page_id)
+        if page is not None:
+            continuation_total = (
+                continuation_totals.get(page.continuation_of, 0)
+                if page.continuation_of
+                else continuation_totals.get(page.page_id, 0)
+            )
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "semantic_atom_ids": list(page.semantic_atom_ids),
+                "continuation_of": page.continuation_of,
+                "continuation_index": page.continuation_index,
+                "continuation_total": continuation_total,
+                "fragment_ids": list(page.fragment_ids),
+            }
+        if beat is None:
+            continue
+        chapter_id, episode_id, episode = episode_by_beat[beat.beat_id]
+        audience_title = _clean_text(beat.audience_facing_title)
+        audience_summary = _clean_text(beat.audience_facing_summary)
+        title = audience_title or slide.get("title") or beat.primary_claim_source.text
+        if page is not None and page.continuation_of:
+            total = max(
+                int(page.continuation_index or 0),
+                int(continuation_totals.get(page.continuation_of, 0) or 0),
+            )
+            suffix = f"（续{page.continuation_index}/{total}）"
+            base_title = re.sub(
+                r"\s*[（(]+\s*续(?:页)?(?:\s*\d+/\d+)?\s*[）)]+\s*$",
+                "",
+                _clean_text(title),
+            )
+            concise_base = base_title[:max(8, 18 - len(suffix))].rstrip("（(")
+            title = f"{concise_base}{suffix}"
+        slide.update({
+            "chapter_id": chapter_id,
+            "episode_id": episode_id,
+            "scene_kind": episode.scene_kind,
+            "beat_role": beat.beat_role,
+            "teaching_job": beat.teaching_job,
+            "title": title,
+            "key_message": audience_summary or slide.get("key_message") or "",
+            "takeaway": audience_summary or beat.primary_claim_source.text,
+            "primary_claim_source": beat.primary_claim_source.model_dump(mode="json"),
+            "transition_from": beat.transition_from,
+            "knowledge_refs": beat.knowledge_refs,
+            "prerequisite_refs": beat.prerequisite_refs,
+            "mastery_criterion_refs": beat.mastery_criterion_refs,
+            "layout_selection_reason": beat.layout_selection_reason,
+        })
+    outline = compile_deck_outline_v5(document, resolved_story)
     slides = _materialize_v5_structure(
         list(content.get("slides") or []),
         outline,
     )
+    slides = _bind_question_feedback_v5(slides)
     slides = split_mixed_intent_slides_v5(slides)
+    for slide in slides:
+        page_id = str(slide.get("unit_id") or "")
+        if page_id in planned_visual_search_requests:
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "visual_search_request": deepcopy(
+                    planned_visual_search_requests[page_id]
+                ),
+            }
     for slide in slides:
         scene_kind = str(slide.get("scene_kind") or "")
         beat_role = str(slide.get("beat_role") or "")
@@ -4445,10 +5130,100 @@ def compile_slide_deck_v5(
     slides = repair_final_page_contracts_v5(slides)
     slides = _assign_heading_modes_v5(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})
+    slides = [apply_page_contract_v5(slide) for slide in slides]
+    slides, repair_history = repair_semantic_slides_v5(slides, max_rounds=2)
+    slides = [apply_page_contract_v5(slide) for slide in slides]
+    slides = _assign_heading_modes_v5(slides)
+    if progress_callback:
+        progress_callback({
+            "event": "semantic_repair",
+            "progress": 97,
+            "stage": "semantic_repair",
+            "repair_attempts": max(
+                (int(item.get("round") or 0) for item in repair_history),
+                default=0,
+            ),
+            "repair_history": deepcopy(repair_history),
+        })
+    visually_eligible = [
+        slide for slide in slides
+        if str(slide.get("scene_kind") or "") in {
+            "concept",
+            "reasoning",
+            "method",
+            "process",
+            "comparison",
+            "worked_example",
+            "application",
+            "evidence",
+        }
+    ]
+    image_target = (
+        min(configured_retrieval.target_count, len(visually_eligible))
+        if configured_retrieval.target_count is not None
+        else compute_image_target_v5(
+            chapter_count=len(resolved_story.chapters),
+            main_slide_count=sum(
+                1 for slide in slides
+                if slide.get("layout") != "appendix"
+            ),
+            visually_eligible_page_count=len(visually_eligible),
+        )
+    ) if retrieval_enabled else 0
+    retrieved_manifest: list[dict[str, Any]] = []
+    generated_fallback_manifest: list[dict[str, Any]] = []
+    if retrieval_enabled and image_target:
+        slides, retrieved_manifest = enrich_slides_with_web_images_v5(
+            slides,
+            repository=asset_repository or slide_asset_repository,
+            course_id=document.course_id,
+            target_count=int(image_target),
+            progress_callback=progress_callback,
+        )
+        slides = [apply_page_contract_v5(slide) for slide in slides]
+        existing_image_count = sum(
+            1
+            for asset in [
+                *list(content.get("visual_asset_manifest") or []),
+                *retrieved_manifest,
+            ]
+            if asset.get("kind") in {
+                "source_image",
+                "retrieved_image",
+                "generated_illustration",
+            }
+        )
+        slides, generated_fallback_manifest = enrich_slides_with_generated_images_v5(
+            slides,
+            repository=asset_repository or slide_asset_repository,
+            course_id=document.course_id,
+            maximum_count=min(6, max(0, int(image_target) - existing_image_count)),
+            progress_callback=progress_callback,
+        )
+        slides = [apply_page_contract_v5(slide) for slide in slides]
+    visual_asset_manifest = [
+        *list(content.get("visual_asset_manifest") or []),
+        *retrieved_manifest,
+        *generated_fallback_manifest,
+    ]
     content.update({
         "schema_version": SLIDE_DECK_V5_SCHEMA,
         "slides": slides,
+        "visual_asset_manifest": visual_asset_manifest,
+        "story_plan": resolved_story.model_dump(mode="json"),
+        "scene_manifest": [
+            {
+                "chapter_id": chapter.chapter_id,
+                "episode_id": episode.episode_id,
+                "scene_kind": episode.scene_kind,
+                "teaching_job": episode.teaching_job,
+                "beat_ids": [beat.beat_id for beat in episode.beats],
+            }
+            for chapter in resolved_story.chapters
+            for episode in chapter.episodes
+        ],
         "deck_outline": outline.model_dump(mode="json"),
+        "override_conflicts": override_conflicts,
         "build_signature": build_signature_v5(
             document=document,
             course_data=course_data,
@@ -4511,12 +5286,16 @@ def compile_slide_deck_v5(
         fallback_reason=outline.fallback_reason,
         planning_diagnostics=outline.planning_diagnostics,
         visual_planning=visual_brief,
+        visual_asset_manifest=visual_asset_manifest,
+        repair_history=repair_history,
+        image_target=int(image_target or 0),
+        coverage_report=dict(content.get("coverage_report") or {}),
     )
     content["quality_summary"] = {
-        **(content.get("quality_summary") or {}),
         "passed": content["quality_report"]["passed"],
         "score": content["quality_report"]["score"],
         **summarize_v5_slide_counts(slides),
+        "image_target_met": content["quality_report"]["image_target_met"],
     }
     # Fail at the V5 compiler boundary, before rendering or publication, if a
     # future semantic transform leaks planner-only fields into SlideSpec.
@@ -4532,20 +5311,25 @@ def validate_slide_deck_v5(
     if content.get("schema_version") != SLIDE_DECK_V5_SCHEMA:
         raise ValueError("Expected slide_deck_v5 content")
     DeckOutlineV5.model_validate(content.get("deck_outline") or {})
-    compatibility = deepcopy(content)
-    compatibility["schema_version"] = SLIDE_DECK_V4_SCHEMA
-    base = validate_slide_deck_v4(compatibility, course_data=course_data)
+    del course_data
     outline = content.get("deck_outline") or {}
     visual_brief = dict(
         (content.get("visual_plan") or {}).get("deck_brief") or {}
     )
+    slides = list(content.get("slides") or [])
+    previous = content.get("quality_report") or {}
     return finalize_v5_quality_report(
-        previous_quality=base,
-        slides=list(content.get("slides") or []),
+        previous_quality=previous,
+        slides=slides,
         planner=str(outline.get("planner") or ""),
         fallback_reason=str(outline.get("fallback_reason") or ""),
         planning_diagnostics=dict(
             outline.get("planning_diagnostics") or {}
         ),
         visual_planning=visual_brief,
+        render_review=dict(content.get("render_review") or {}),
+        visual_asset_manifest=list(content.get("visual_asset_manifest") or []),
+        repair_history=list(previous.get("repair_history") or []),
+        image_target=int((previous.get("metrics") or {}).get("image_target") or 0),
+        coverage_report=dict(content.get("coverage_report") or {}),
     )

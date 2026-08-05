@@ -1832,26 +1832,48 @@ async def plan_slide_story_v2(
             ],
         ) -> tuple[ChapterStoryV2, dict[str, str] | None]:
             chapter, chapter_baseline, chapter_fragments, request = unit
-            try:
-                async with semaphore:
-                    raw = await invoke_planner(request)
+
+            def validate_response(raw: dict[str, Any]) -> ChapterStoryV2:
                 normalized_directives = _normalize_chapter_directives_v2(raw)
                 if normalized_directives is not None:
-                    planned = _apply_chapter_directives_v2(
+                    return _apply_chapter_directives_v2(
                         chapter=chapter,
                         raw=normalized_directives,
                         fragment_catalog=fragment_catalog,
                         semantic_by_fragment=semantic_by_fragment,
                     )
-                else:
-                    chapter_candidate = SlideStoryPlanV2.model_validate(raw)
-                    validate_ai_story_plan_v2(
-                        chapter_candidate,
-                        fallback=chapter_baseline,
-                        course_data=course_data,
-                        fragments=chapter_fragments,
-                    )
-                    planned = chapter_candidate.chapters[0]
+                chapter_candidate = SlideStoryPlanV2.model_validate(raw)
+                validate_ai_story_plan_v2(
+                    chapter_candidate,
+                    fallback=chapter_baseline,
+                    course_data=course_data,
+                    fragments=chapter_fragments,
+                )
+                return chapter_candidate.chapters[0]
+
+            try:
+                async with semaphore:
+                    raw = await invoke_planner(request)
+                try:
+                    planned = validate_response(raw)
+                except ValueError as validation_error:
+                    retry_request = {
+                        **request,
+                        "validation_retry": {
+                            "attempt": 1,
+                            "errors": [{
+                                "code": "invalid_structure",
+                                "message": str(validation_error)[:800],
+                            }],
+                            "instruction": (
+                                "Repair only the reported structure errors. Preserve "
+                                "all supplied identifiers and source constraints."
+                            ),
+                        },
+                    }
+                    async with semaphore:
+                        retry_raw = await invoke_planner(retry_request)
+                    planned = validate_response(retry_raw)
                 return planned, None
             except Exception as exc:
                 code = (
