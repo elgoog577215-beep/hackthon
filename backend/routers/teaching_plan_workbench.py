@@ -14,6 +14,7 @@ from teaching_plan_workbench import (
     TeachingPlanWorkbenchError,
     TeachingPlanWorkbenchService,
 )
+from teaching_representations import teaching_representation_repository
 
 
 router = APIRouter(
@@ -56,7 +57,12 @@ class CandidateCommandRequest(CommandRequest):
 
 
 def _service(repository=Depends(get_course_document_repository)) -> TeachingPlanWorkbenchService:
-    return TeachingPlanWorkbenchService(repository)
+    # 表达注册表只读接入：影响分析据此把 needs_regeneration 收窄到真实引用的
+    # 下游对象；拿不到注册表时分析自动退回按小节的保守答案，不阻断工作台。
+    return TeachingPlanWorkbenchService(
+        repository,
+        representation_repository=teaching_representation_repository,
+    )
 
 
 def _actor(request: Request) -> str:

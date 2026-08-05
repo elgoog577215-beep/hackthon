@@ -655,3 +655,24 @@ def test_workbench_router_smoke_covers_draft_review_and_apply() -> None:
     )
     assert applied.status_code == 200
     assert applied.json()["workbench"]["current_plan_revision_id"] != workbench["current_plan_revision_id"]
+
+
+def test_router_service_reads_the_representation_registry_for_impact() -> None:
+    """路由必须把表达注册表接进影响分析。
+
+    注册表只读接入决定 needs_regeneration 是真实引用闭包还是按小节的保守答案。
+    这个接线断了不会让任何断言失败——影响报告照样返回、只是变粗——
+    所以在这里正面钉住它。
+    """
+    from routers import teaching_plan_workbench as workbench_router
+
+    storage = MemoryStorage(_course())
+    repository = CourseDocumentRepository(storage)
+    service = workbench_router._service(repository)
+
+    assert service.representation_repository is not None
+    # 未知课程返回空注册表而不是抛错：影响分析退回按小节的保守答案，
+    # 工作台仍然可用。
+    registry = service.representation_registry("course-does-not-exist")
+    assert registry is not None
+    assert list(registry.representations) == []
