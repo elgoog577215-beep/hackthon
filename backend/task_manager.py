@@ -60,6 +60,12 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
 )
 from course_knowledge_map import compile_course_knowledge_map
+from course_outline_adjustments import (
+    OutlineAdjustmentError,
+    apply_outline_operations,
+    compile_outline_draft,
+    describe_outline_diff,
+)
 from course_quality import (
     build_final_course_quality_report,
     dedupe_quality_issues,
@@ -69,12 +75,6 @@ from course_repository import (
     CourseDocumentConflict,
     CourseDocumentNotFound,
     CourseDocumentRepository,
-)
-from course_outline_adjustments import (
-    OutlineAdjustmentError,
-    apply_outline_operations,
-    compile_outline_draft,
-    describe_outline_diff,
 )
 from course_retrieval import (
     build_course_retrieval_queries,

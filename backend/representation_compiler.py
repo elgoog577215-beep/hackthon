@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from course_document import CourseBlock, CourseDocument, stable_hash
+from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from diagram_spec import DIAGRAM_COMPILER_VERSION, compile_diagram_spec, validate_diagram_spec
 from slide_deck import (
@@ -1898,7 +1898,7 @@ def _blocks_by_section(document: CourseDocument) -> dict[str, list[CourseBlock]]
     return result
 
 
-def _learning_sections(document: CourseDocument):
+def _learning_sections(document: CourseDocument) -> list[CourseSection]:
     active_section_ids = {
         block.section_id for block in document.blocks if block.status != "retired"
     }

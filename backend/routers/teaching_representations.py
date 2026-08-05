@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from copy import deepcopy
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from queue import Queue
 from typing import Any
@@ -16,8 +16,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from change_proposals import change_proposal_repository, create_authoring_change
 from ai_base import AIBase
+from change_proposals import change_proposal_repository, create_authoring_change
 from course_document import stable_hash
 from course_logic_upgrade import (
     CourseLogicUpgradeError,
@@ -38,7 +38,17 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
+from representation_edits import (
+    apply_course_text_patch_preview,
+    apply_representation_only_edit,
+    build_course_text_patch,
+    classify_representation_edit,
+    representation_edit_impact,
+)
+from slide_ai_runtime import ai_slide_planning_enabled
+from slide_asset_repository import slide_asset_repository
 from slide_deck import SlideDeckPlanV1, plan_slide_deck
+from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -67,24 +77,14 @@ from slide_story_plan import (
     slide_deck_v4_prerequisite_details,
     slide_deck_v4_prerequisite_issues,
 )
-from slide_web_images import WebImageRetrievalConfig
-from slide_deck_renderer import SlideDeckQualityError, validate_theme
-from slide_asset_repository import slide_asset_repository
-from slide_ai_runtime import ai_slide_planning_enabled
 from slide_theme import slide_theme_version
 from slide_visuals import build_signature
+from slide_web_images import WebImageRetrievalConfig
 from storage import DATA_DIR
 from teaching_representations import (
     RepresentationConflict,
     TeachingRepresentationRepository,
     teaching_representation_repository,
-)
-from representation_edits import (
-    apply_course_text_patch_preview,
-    apply_representation_only_edit,
-    build_course_text_patch,
-    classify_representation_edit,
-    representation_edit_impact,
 )
 
 router = APIRouter(
