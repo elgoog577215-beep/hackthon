@@ -38,7 +38,7 @@ PURPOSE_LIMITS: dict[str, dict[str, int | float]] = {
     "course": {
         "max_queries": 12,
         "max_sources": 24,
-        "concurrency": 3,
+        "concurrency": 2,
         "timeout_seconds": 20,
     },
     "assessment": {
