@@ -2076,7 +2076,16 @@ def _render_question_prompt(
 ) -> None:
     """Render one practice prompt as a flat, presentation-first composition."""
     _heading(slide, unit, theme)
-    prompt = _block_content(unit.blocks, 0) or unit.key_message or unit.takeaway
+    values = [
+        value
+        for block in unit.blocks
+        for value in ([block.content] if block.content else []) + list(block.items)
+        if value
+    ]
+    prompt = "\n".join(
+        f"{index}. {value}" if len(values) > 1 else value
+        for index, value in enumerate(values, start=1)
+    ) or unit.key_message or unit.takeaway
     _shape(slide, 0.92, 2.18, 0.11, 3.5, theme["accent"], radius=False)
     _text(slide, "先独立判断", 1.42, 2.24, 2.4, 0.34, 13, theme["accent"], bold=True)
     _text(
@@ -2085,8 +2094,8 @@ def _render_question_prompt(
         1.42,
         3.0,
         10.45,
-        2.25,
-        25 if len(prompt) <= 88 else 20,
+        2.8,
+        24 if len(prompt) <= 88 else 18,
         theme["ink"],
         bold=True,
         font=theme["title_font"],

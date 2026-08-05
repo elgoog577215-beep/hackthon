@@ -196,6 +196,39 @@ def test_non_exempt_sparse_page_and_internal_labels_are_blockers() -> None:
     assert "sparse_non_exempt_page" in codes
 
 
+def test_semantic_repair_removes_internal_labels_from_source_body_without_losing_text() -> None:
+    slide = _slide(
+        "slide:v5:episode-1:001",
+        title="本页解释完整对象关系",
+        content="知识规范名称：对象之间的完整关系",
+    )
+
+    repaired, history = repair_semantic_slides_v5([slide], max_rounds=2)
+
+    assert repaired[0]["blocks"][0]["content"] == "对象之间的完整关系"
+    assert any(item["action"] == "replace_internal_label" for item in history)
+    assert "raw_internal_label_visible" not in {
+        issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
+def test_semantic_repair_completes_a_hard_truncated_title_from_source_copy() -> None:
+    slide = _slide(
+        "slide:v5:episode-1:001",
+        title="本节课的核心目标是建立局部解剖学的空",
+        content="本节课的核心目标是建立局部解剖学的空间定位基础。",
+    )
+    slide["quality"]["title_character_budget"] = 18
+
+    repaired, history = repair_semantic_slides_v5([slide], max_rounds=2)
+
+    assert repaired[0]["title"] == "局部解剖学的空间定位基础"
+    assert any(
+        item["action"] == "complete_title_from_existing_copy"
+        for item in history
+    )
+
+
 def test_export_audit_detects_inner_text_clipping_and_unreadable_body_font(
     tmp_path: Path,
 ) -> None:
@@ -324,6 +357,26 @@ def test_worked_example_accepts_source_backed_linked_answer_as_conclusion() -> N
     })
 
     report = build_slide_deck_quality_v5([prompt, answer])
+
+    assert "worked_example_conclusion_missing" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_open_worked_example_accepts_source_backed_analysis_as_conclusion() -> None:
+    slide = _slide(
+        "slide:v5:example:analysis",
+        title="根据条件解释判断依据",
+        content="推导依据：来源材料中的两个条件共同支持这一判断。",
+        scene_kind="worked_example",
+        block_type="exercise",
+    )
+    slide["blocks"][0]["metadata"].update({
+        "question_mode": "open_discussion",
+        "fragment_ids": ["fragment-analysis"],
+    })
+
+    report = build_slide_deck_quality_v5([slide])
 
     assert "worked_example_conclusion_missing" not in {
         issue["code"] for issue in report["issues"]

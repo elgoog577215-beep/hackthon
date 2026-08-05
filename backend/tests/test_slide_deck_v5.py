@@ -25,10 +25,10 @@ from slide_deck_v3 import (
 )
 from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
-    SLIDE_DECK_V5_COMPILER_VERSION,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
+    allocation_from_story_plan_v5,
     apply_page_contract_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -41,6 +41,7 @@ from slide_deck_v5 import (
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
+from slide_quality_v5 import _concise_existing_title
 from slide_story_plan import (
     ChapterStoryV2,
     ClaimSourceV2,
@@ -50,7 +51,7 @@ from slide_story_plan import (
     StorySourceRevisionsV2,
     TeachingEpisodeV2,
 )
-from slide_visuals import deterministic_visual_plan, validate_visual_plan
+from slide_visuals import deterministic_visual_plan
 
 
 def _beat(chapter_index: int, scene: str) -> StoryBeatV2:
@@ -130,6 +131,155 @@ def _document(chapter_count: int) -> CourseDocument:
             for index in range(1, chapter_count + 1)
         ],
     )
+
+
+def test_v5_allocation_stabilizes_reversed_story_beats_by_source_order() -> None:
+    document = _document(1)
+    early = ContentFragmentV1(
+        fragment_id="fragment-early",
+        section_id="chapter-1",
+        block_id="block-early",
+        kind="paragraph",
+        text="Earlier source statement with enough detail for a complete teaching claim.",
+        ordinal=10,
+        source_hash="hash-early",
+        role="concept",
+        source_kind="course_block",
+    )
+    late = ContentFragmentV1(
+        fragment_id="fragment-late",
+        section_id="chapter-1",
+        block_id="block-late",
+        kind="paragraph",
+        text="Later source statement with enough detail for a complete teaching claim.",
+        ordinal=20,
+        source_hash="hash-late",
+        role="concept",
+        source_kind="course_block",
+    )
+    story = _story(1)
+    base_chapter = story.chapters[0]
+    late_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-late",
+        "fragment_ids": [late.fragment_id],
+    })
+    early_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-early",
+        "fragment_ids": [early.fragment_id],
+    })
+    chapter = base_chapter.model_copy(update={
+        "episodes": [
+            base_chapter.episodes[0],
+            TeachingEpisodeV2(
+                episode_id="episode-late",
+                scene_kind="concept",
+                teaching_job="Explain the later source statement",
+                beats=[late_beat],
+            ),
+            TeachingEpisodeV2(
+                episode_id="episode-early",
+                scene_kind="concept",
+                teaching_job="Explain the earlier source statement",
+                beats=[early_beat],
+            ),
+            base_chapter.episodes[-1],
+        ],
+    })
+    story = story.model_copy(update={"chapters": [chapter]})
+
+    allocation, _ = allocation_from_story_plan_v5(
+        document,
+        [early, late],
+        story,
+    )
+
+    assert [
+        fragment_id
+        for page in allocation.pages
+        for fragment_id in page.fragment_ids
+    ] == [early.fragment_id, late.fragment_id]
+
+
+def test_v5_allocation_closes_source_lists_and_uses_continuations() -> None:
+    document = _document(1)
+    fragments = [
+        ContentFragmentV1(
+            fragment_id="fragment-lead",
+            section_id="chapter-1",
+            block_id="block-list",
+            kind="list_item",
+            text="来源明确包括5个分支：",
+            ordinal=10,
+            source_hash="hash-lead",
+            role="concept",
+            source_kind="course_block",
+        ),
+        *[
+            ContentFragmentV1(
+                fragment_id=f"fragment-item-{index}",
+                section_id="chapter-1",
+                block_id="block-list",
+                kind="list_item",
+                text=f"Branch {index} is explicitly described by the source.",
+                ordinal=10 + index,
+                source_hash=f"hash-item-{index}",
+                role="concept",
+                source_kind="course_block",
+            )
+            for index in range(1, 6)
+        ],
+        ContentFragmentV1(
+            fragment_id="fragment-next-heading",
+            section_id="chapter-1",
+            block_id="block-next",
+            kind="heading",
+            text="Next independent topic",
+            ordinal=20,
+            source_hash="hash-next",
+            role="concept",
+            source_kind="course_block",
+        ),
+    ]
+    story = _story(1)
+    chapter = story.chapters[0]
+    source_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-list",
+        "fragment_ids": ["fragment-lead"],
+        "renderer_layout": "question",
+    })
+    story = story.model_copy(update={
+        "chapters": [chapter.model_copy(update={
+            "episodes": [
+                chapter.episodes[0],
+                TeachingEpisodeV2(
+                    episode_id="episode-list",
+                    scene_kind="concept",
+                    teaching_job="Explain the source list",
+                    beats=[source_beat],
+                ),
+                chapter.episodes[-1],
+            ],
+        })],
+    })
+
+    allocation, _ = allocation_from_story_plan_v5(document, fragments, story)
+    content_pages = [page for page in allocation.pages if page.fragment_ids]
+    allocated_ids = [
+        fragment_id
+        for page in content_pages
+        for fragment_id in page.fragment_ids
+    ]
+
+    assert allocated_ids == [
+        "fragment-lead",
+        "fragment-item-1",
+        "fragment-item-2",
+        "fragment-item-3",
+        "fragment-item-4",
+        "fragment-item-5",
+    ]
+    assert len(content_pages) >= 2
+    assert content_pages[1].continuation_of == content_pages[0].page_id
 
 
 def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() -> None:
@@ -1696,15 +1846,21 @@ def test_v5_quality_retains_non_superseded_presentation_blockers() -> None:
 def test_v5_quality_recomputes_stale_presentation_and_final_slide_count() -> None:
     slides = [
         {
-            "unit_id": "slide:v4:0001",
+            "unit_id": "slide:v5:0001",
             "title": "结构关系决定判断顺序",
-            "blocks": [{"type": "rich_text", "content": "先定位，再辨认。"}],
+            "blocks": [{
+                "type": "rich_text",
+                "content": "先定位目标结构，再辨认相邻关系，最后依据边界完成判断。",
+            }],
             "quality": {"passed": True},
         },
         {
-            "unit_id": "slide:v4:0002",
+            "unit_id": "slide:v5:0002",
             "title": "安全边界约束操作路径",
-            "blocks": [{"type": "rich_text", "content": "先识别边界，再选择路径。"}],
+            "blocks": [{
+                "type": "rich_text",
+                "content": "先识别安全边界，再选择操作路径，并用最终结果检查判断。",
+            }],
             "quality": {"passed": True},
         },
     ]
@@ -2271,7 +2427,7 @@ def test_v5_structural_evaluation_across_course_types(
 
 def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
     slides = repair_final_page_contracts_v5([{
-        "unit_id": "repaired-page",
+        "unit_id": "slide:v5:repaired-page",
         "layout": "concept",
         "title": "三种系统具有不同交换边界",
         "blocks": [{
@@ -2288,18 +2444,18 @@ def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
                 {
                     "severity": "critical",
                     "code": "visible_item_overflow",
-                    "target": "repaired-page",
+                    "target": "slide:v5:repaired-page",
                 },
                 {
                     "severity": "critical",
                     "code": "enumeration_cardinality_mismatch",
-                    "target": "repaired-page",
+                    "target": "slide:v5:repaired-page",
                 },
             ],
             "semantic": {"issues": [{
                 "severity": "major",
                 "code": "slide_title_too_long",
-                "target": "repaired-page",
+                "target": "slide:v5:repaired-page",
             }]},
         },
         slides=slides,
@@ -2322,13 +2478,13 @@ def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
 
 def test_v5_reports_course_input_semantic_gaps_without_blocking_safe_pages() -> None:
     slide = apply_page_contract_v5({
-        "unit_id": "safe-concept",
+        "unit_id": "slide:v5:safe-concept",
         "layout": "concept",
         "title": "结构关系决定判断顺序",
         "blocks": [{
             "block_id": "concept",
             "type": "rich_text",
-            "content": "先确认位置关系，再检查相邻结构。",
+            "content": "先确认对象的位置关系，再检查相邻结构，最终形成来源支持的完整判断。",
         }],
         "quality": {"requested_layout": "editorial-body"},
     })
@@ -2467,14 +2623,36 @@ def test_chapter_recap_uses_claims_and_a_retrieval_prompt_not_slide_titles() -> 
 
     recap = _chapter_recap_slide(outline.chapters[0], source_slides)
 
-    assert recap["title"] == "本章必须带走的关键判断"
+    assert recap["title"] == "回顾：主题1"
     assert recap["blocks"][0]["items"] == [
         "系统类型取决于它与环境交换物质和能量的方式。",
         "第零定律支撑温度测量和温度控制。",
     ]
+    assert "？" in recap["key_message"]
+    assert all(len(item) <= 24 for item in recap["blocks"][0]["items"])
     assert "不看前文" in recap["key_message"]
     assert recap["quality"]["navigation_only"] is False
     assert recap["quality"]["retrieval_recap"] is True
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("本节课的核心目标是建立局部解剖学的空间定位基础", "局部解剖学的空间定位基础"),
+        ("起点：面神经主干自茎乳孔（Stylomastoid foramen）", "起点：面神经主干自茎乳孔"),
+        ("本节课旨在掌握纵隔的“四分法”分区逻辑", "纵隔的四分法分区逻辑"),
+        (
+            "本节的核心任务是建立骨盆作为“骨性容器”与盆底肌群作为“功能性底板”的空间对应关系",
+            "骨盆与盆底肌群的空间对应关系",
+        ),
+        (
+            "本节旨在建立上肢近端至中段的“骨 - 肌 - 神经”空间对应关系",
+            "骨 - 肌 - 神经空间对应关系",
+        ),
+    ],
+)
+def test_concise_title_uses_complete_existing_phrases(source: str, expected: str) -> None:
+    assert _concise_existing_title(source, maximum=18) == expected
 
 
 def test_quality_gate_blocks_mixed_question_and_chapter_transition() -> None:
