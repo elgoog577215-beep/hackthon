@@ -78,6 +78,33 @@ _OPEN_LICENSE = re.compile(
     r"\b(?:cc[- ]?by(?:[- ]?sa)?|creative commons|public domain|oer|open educational)\b",
     re.I,
 )
+_ACADEMIC_QUERY_TERMS = re.compile(
+    r"\b(?:research|papers?|academic|literature|journal|arxiv|pubmed|clinical|"
+    r"mathematics|physics|chemistry|biology|medicine|linear\s+algebra|eigenvalues?)\b|"
+    r"研究|论文|学术|文献|期刊|临床|数学|物理|化学|生物|医学|线性代数|特征值",
+    re.I,
+)
+_RELEVANCE_NOISE_TOKENS = {
+    "course",
+    "curriculum",
+    "education",
+    "learning",
+    "objective",
+    "open",
+    "prerequisite",
+    "tutorial",
+    "university",
+    "beginner",
+    "intermediate",
+    "advanced",
+    "课程",
+    "学习",
+    "目标",
+    "先修",
+    "教程",
+    "官方",
+    "文档",
+}
 _DEFAULT_TIER_A_DOMAINS = (
     ".gov",
     ".gov.cn",
@@ -188,7 +215,7 @@ class SearXNGSearchProvider:
         form = {
             "q": _clip(query, 1000),
             "format": "json",
-            "categories": "general,science",
+            "categories": _search_categories(query),
             "safesearch": "2",
             "language": "zh-CN" if _contains_cjk(query) else "en",
             "pageno": "1",
@@ -814,6 +841,12 @@ def _contains_cjk(value: str) -> bool:
     return bool(re.search(r"[\u3400-\u9fff]", str(value or "")))
 
 
+def _search_categories(query: str) -> str:
+    """Route explicit academic intent to science engines; keep product docs general."""
+
+    return "general,science" if _ACADEMIC_QUERY_TERMS.search(query) else "general"
+
+
 def _canonical_public_https_url(url: str) -> tuple[str, str, bool]:
     try:
         parsed = urlparse(url)
@@ -851,11 +884,20 @@ def _contains_injection(value: str) -> bool:
 
 
 def _relevance(query: str, text: str) -> float:
-    query_tokens = set(_tokens(query))
+    query_tokens = {
+        token
+        for token in _tokens(query)
+        if token not in _RELEVANCE_NOISE_TOKENS
+    }
     if not query_tokens:
         return 0.0
     text_tokens = set(_tokens(text))
-    return len(query_tokens & text_tokens) / len(query_tokens)
+    # Search queries contain context that snippets rarely repeat verbatim. A
+    # bounded denominator still requires several independent concept matches,
+    # while preventing verbose objectives from making a relevant source score
+    # worse solely because more context was supplied.
+    evidence_target = min(len(query_tokens), 12)
+    return min(1.0, len(query_tokens & text_tokens) / evidence_target)
 
 
 def _tokens(value: str) -> list[str]:

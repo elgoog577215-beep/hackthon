@@ -133,14 +133,28 @@ describe('课程生产内联确认', () => {
         status: 'failed',
         notice: '联网核验未完成，可重试或离线继续',
         package: {
-          receipt: { error_codes: ['not_configured'] },
+          rejected_sources: Array.from({ length: 20 }, (_, index) => ({
+            source_id: `rejected-${index}`,
+            trust_tier: 'tier_c',
+            rejection_reasons: ['low_relevance'],
+          })),
+          receipt: {
+            error_codes: ['no_sources'],
+            source_count: 0,
+            admitted_count: 0,
+            tier_distribution: { tier_c: 20 },
+          },
         },
       },
     } as any)
     await (wrapper.vm as any).loadBlueprint()
     await flushPromises()
     expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('联网核验未完成')
-    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('联网服务尚未配置')
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain(
+      zhMessages.courseGeneration.retrieval.errors.no_sources,
+    )
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('20')
+    expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('0')
     expect(wrapper.findAll('.outline-review__nodes li')).toHaveLength(1)
   })
 

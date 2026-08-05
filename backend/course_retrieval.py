@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -30,9 +31,6 @@ def build_course_retrieval_queries(
     subject = _safe_term(
         str(request.get("subject") or course.get("course_name") or "course")
     )
-    difficulty = _safe_term(
-        str(request.get("difficulty") or course.get("difficulty") or "intermediate")
-    )
     intent = request.get("course_intent") or course.get("course_intent") or {}
     intent_text = _safe_term(
         " ".join(
@@ -50,11 +48,11 @@ def build_course_retrieval_queries(
         )
     )
     queries: list[str] = []
+    search_hint = "官方文档 教程" if _contains_cjk(subject) else "official documentation tutorial"
     overview = _join_query(
         subject,
-        intent_text,
-        difficulty,
-        "curriculum sequence open education university",
+        _query_focus(intent_text),
+        search_hint,
     )
     if overview:
         queries.append(overview)
@@ -66,9 +64,8 @@ def build_course_retrieval_queries(
         query = _join_query(
             subject,
             node_name,
-            objective,
-            difficulty,
-            "course prerequisite learning objective open education",
+            _query_focus(objective),
+            search_hint,
         )
         if query and query not in queries:
             queries.append(query)
@@ -255,7 +252,25 @@ def _safe_term(value: str) -> str:
 
 
 def _join_query(*parts: str) -> str:
-    return " ".join(part.strip() for part in parts if part.strip())[:1000]
+    return " ".join(part.strip() for part in parts if part.strip())[:120]
+
+
+def _query_focus(value: str) -> str:
+    """Keep searchable concepts without sending a verbose learning objective."""
+
+    safe = _safe_term(value)
+    technical_terms = list(
+        dict.fromkeys(
+            re.findall(r"[A-Za-z][A-Za-z0-9_.+#-]{1,40}", safe)
+        )
+    )
+    if technical_terms:
+        return " ".join(technical_terms[:6])[:72]
+    return safe[:72]
+
+
+def _contains_cjk(value: str) -> bool:
+    return any("\u3400" <= character <= "\u9fff" for character in value)
 
 
 def _single_line(value: str, limit: int) -> str:

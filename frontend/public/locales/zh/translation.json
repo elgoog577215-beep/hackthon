@@ -1403,6 +1403,7 @@
       "retrievalRetrying": "正在重试",
       "retrievalRetryFailed": "联网核验重试失败，当前本地蓝图仍然保留。",
       "retrievalOffline": "也可以直接确认当前本地蓝图，离线继续。",
+      "retrievalStats": "已检查 {total} 个候选来源，其中 {admitted} 个符合准入标准。",
       "sectionCount": "{count} 个目录节点",
       "loading": "正在载入可编辑目录",
       "loadErrorHelp": "已生成结果仍然保留，重新载入不会重复创建课程。",

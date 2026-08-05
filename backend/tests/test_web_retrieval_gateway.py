@@ -72,6 +72,39 @@ def test_source_classification_is_tiered(url, query, text, expected):
     assert source["trust_tier"] == expected
 
 
+def test_live_unity_document_is_admitted_but_unrelated_academic_result_is_rejected():
+    query = (
+        "Unity 游戏编程 C# 脚本类创建与挂载机制 能够使用 Visual Studio 创建自定义 "
+        "MonoBehaviour 子类并将其正确拖拽挂载到 GameObject 上 intermediate "
+        "course prerequisite learning objective open education"
+    )
+
+    unity_document = classify_source(
+        {
+            "url": "https://docs.unity.cn/cn/current/Manual/CreatingAndUsingScripts.html",
+            "title": "团结引擎 - 手册：创建和使用脚本",
+            "content": (
+                "在 Unity 中创建 C# 脚本后，可使用 Visual Studio 编辑继承自 "
+                "MonoBehaviour 的类，并将脚本组件挂载到 GameObject。"
+            ),
+        },
+        query=query,
+    )
+    unrelated_paper = classify_source(
+        {
+            "url": "https://api.crossref.org/works/10.1000/example",
+            "title": "Effects of Exercise Self-Efficacy on Public Health",
+            "content": "A clinical study of exercise adherence and health outcomes.",
+        },
+        query=query,
+    )
+
+    assert unity_document["relevance"] >= 0.55
+    assert unity_document["trust_tier"] == "tier_b"
+    assert unrelated_paper["relevance"] < 0.55
+    assert unrelated_paper["trust_tier"] == "tier_c"
+
+
 @pytest.mark.asyncio
 async def test_exa_provider_uses_expected_http_contract():
     captured: dict = {}
@@ -169,6 +202,24 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
         "raw_score": 42.0,
     }
     assert "score" not in results[0]
+
+
+@pytest.mark.asyncio
+async def test_searxng_programming_query_uses_general_engines_only():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["form"] = parse_qs(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"results": []})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SearXNGSearchProvider(
+            base_url="http://127.0.0.1:8080",
+            client=client,
+        )
+        await provider.search("Unity C# MonoBehaviour GameObject tutorial", limit=2)
+
+    assert captured["form"]["categories"] == ["general"]
 
 
 @pytest.mark.asyncio
