@@ -4,6 +4,10 @@ use_default_settings:
       - duckduckgo
       - bing
       - baidu
+      - brave
+      - startpage
+      - qwant
+      - yahoo
       - wikipedia
       - arxiv
       - pubmed
@@ -38,6 +42,14 @@ engines:
   - name: bing
     disabled: false
   - name: baidu
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: yahoo
     disabled: false
   - name: wikipedia
     display_type: ["infobox", "list"]

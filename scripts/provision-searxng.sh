@@ -148,7 +148,7 @@ for attempt in $(seq 1 3); do
         --data 'safesearch=2' \
         --data 'language=en' \
         http://127.0.0.1:8080/search \
-        | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list)'; then
+        | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert payload.get("results")'; then
         smoke_ready=1
         break
     fi
