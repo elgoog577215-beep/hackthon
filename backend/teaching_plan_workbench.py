@@ -422,8 +422,34 @@ def field_permission(path: str) -> dict[str, str]:
         return {
             "state": "readonly",
             "reason": "章节增删与排序请在目录编辑器中完成。",
+            "redirect": "redirect_to_outline_edit",
         }
     return {"state": "readonly", "reason": "该字段暂不支持直接编辑。"}
+
+
+# 目录真源拥有的结构操作：章节/小节的增删、排序与改标题。
+# 这些路径即使落在 sections/ 命名空间下也不归教案命令管——
+# 教案只描述「怎么教」，目录决定「有哪些节、什么顺序」。
+_OUTLINE_OWNED_SUFFIXES = (
+    "position",
+    "order",
+    "title",
+    "node_name",
+    "parent_section_id",
+    "parent_node_id",
+    "level",
+)
+
+
+def outline_redirect_reason(path: str) -> str:
+    """结构操作要走目录真源时的用户可见理由；不命中返回空串。"""
+    normalized = path.strip("/")
+    if "chapter" in normalized or "outline" in normalized:
+        return "章节增删与排序请在目录编辑器中完成。"
+    parts = normalized.split("/")
+    if len(parts) >= 3 and parts[0] == "sections" and parts[-1] in _OUTLINE_OWNED_SUFFIXES:
+        return "小节的标题、层级与排序请在目录编辑器中完成。"
+    return ""
 
 
 def _read_path(snapshot: dict[str, Any], path: str) -> Any:
@@ -1059,6 +1085,18 @@ class TeachingPlanWorkbenchService:
                 )
             snapshot = deepcopy(draft.get("snapshot") or {})
             permission = field_permission(path)
+            # 结构操作先于只读兜底判定：目录真源拥有章节/小节的增删、排序与
+            # 标题，教案命令不得绕过它。这里必须回目录修订，前端才能跳转。
+            if redirect_reason := outline_redirect_reason(path):
+                raise TeachingPlanWorkbenchError(
+                    "redirect_to_outline_edit",
+                    redirect_reason,
+                    details={
+                        "path": path,
+                        "course_id": course_id,
+                        "outline_revision_id": document_revision,
+                    },
+                )
             if permission["state"] == "readonly":
                 raise TeachingPlanWorkbenchError(
                     "teaching_plan_readonly_field",

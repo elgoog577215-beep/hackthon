@@ -79,6 +79,10 @@ def _error(exc: Exception) -> HTTPException:
         status_code = 409 if exc.code.endswith("conflict") or exc.code.endswith("blocked") else 400
         if exc.code.endswith("not_found") or exc.code == "teaching_plan_missing":
             status_code = 404
+        # 结构操作重定向不是「请求错误」，是「这件事归目录真源管」：
+        # 前端据此跳目录编辑器，语义与版本冲突同属 409。
+        if exc.code == "redirect_to_outline_edit":
+            status_code = 409
         return HTTPException(status_code=status_code, detail={
             "code": exc.code,
             "message": str(exc),
