@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import httpx
 import pytest
 
@@ -181,3 +183,33 @@ async def test_gateway_reuses_sanitized_query_cache_across_requests():
     assert second["status"] == "completed"
     assert second["receipt"]["cache_hit_count"] == 1
     assert provider.calls == 1
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_EXA_STAGING_SMOKE") != "1"
+    or not os.getenv("EXA_API_KEY", "").strip(),
+    reason="requires an explicit staging opt-in and Exa test key",
+)
+@pytest.mark.asyncio
+async def test_exa_staging_smoke_returns_public_sources():
+    package = await RetrievalGateway(
+        provider=ExaSearchProvider(),
+        cache_namespace="exa-staging-smoke",
+        cache_ttl_seconds=0,
+    ).retrieve(
+        RetrievalRequest(
+            purpose="ai_teacher",
+            enabled=True,
+            queries=["OpenStax linear algebra matrices course material"],
+            request_fingerprint="exa_staging_smoke_v1",
+        )
+    )
+
+    assert package["status"] == "completed"
+    assert package["sources"]
+    assert package["receipt"]["admitted_source_count"] > 0
+    assert all(
+        source["provider"] == "exa"
+        and source["url"].startswith("https://")
+        for source in package["sources"]
+    )
