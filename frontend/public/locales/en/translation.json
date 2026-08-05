@@ -1539,6 +1539,8 @@
       "errorFieldConflict": "This field changed in the draft. Review it and try again.",
       "errorQuality": "The lesson plan did not pass structural checks and cannot be applied.",
       "errorLegacy": "This course must be migrated to a structured course first.",
+      "errorDraftExpired": "The lesson-plan draft has expired. Start editing again.",
+      "errorOutlineEdit": "Add, remove, or reorder chapters in the outline editor.",
       "errorRequest": "The lesson-plan action did not complete. Try again shortly.",
       "appliedMessage": "The lesson-plan revision is applied. Related content is marked for rebuild.",
       "sections": "Sections",

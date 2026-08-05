@@ -1254,6 +1254,8 @@ const workbenchErrorMessage = computed(() => {
     teaching_plan_field_conflict: t('courseGeneration.lessonPlan.errorFieldConflict', '该字段已在草稿中变化，请确认后重试。'),
     teaching_plan_quality_blocked: t('courseGeneration.lessonPlan.errorQuality', '教案尚未通过结构校验，不能应用。'),
     teaching_plan_readonly_legacy: t('courseGeneration.lessonPlan.errorLegacy', '这门课程需要先迁移为结构化课程。'),
+    teaching_plan_draft_expired: t('courseGeneration.lessonPlan.errorDraftExpired', '教案草稿已过期，请重新开始编辑。'),
+    redirect_to_outline_edit: t('courseGeneration.lessonPlan.errorOutlineEdit', '章节增删与排序请在目录编辑器中完成。'),
   }
   return messages[workbenchStore.errorCode]
     || t('courseGeneration.lessonPlan.errorRequest', '教案操作未完成，请稍后重试。')

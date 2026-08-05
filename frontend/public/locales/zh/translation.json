@@ -1539,6 +1539,8 @@
       "errorFieldConflict": "该字段已在草稿中变化，请确认后重试。",
       "errorQuality": "教案尚未通过结构校验，不能应用。",
       "errorLegacy": "这门课程需要先迁移为结构化课程。",
+      "errorDraftExpired": "教案草稿已过期，请重新开始编辑。",
+      "errorOutlineEdit": "章节增删与排序请在目录编辑器中完成。",
       "errorRequest": "教案操作未完成，请稍后重试。",
       "appliedMessage": "教案修订已应用，相关内容已标记为待重建",
       "sections": "小节",
