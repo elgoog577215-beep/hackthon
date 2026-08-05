@@ -1731,6 +1731,7 @@ def test_v5_quality_retains_non_superseded_presentation_blockers() -> None:
 
     assert report["passed"] is False
     assert report["presentation"]["passed"] is False
+    assert report["visual"]["passed"] is True
     assert {
         issue["code"] for issue in report["blockers"]
     } == {"rendered_text_clipped"}
