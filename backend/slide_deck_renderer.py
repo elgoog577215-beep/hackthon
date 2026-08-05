@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import tempfile
+from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
+from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
 from slide_theme import load_slide_theme_pack
 
 THEMES: dict[str, dict[str, str]] = {
@@ -198,8 +204,8 @@ def export_structured_slide_deck(
     if require_quality:
         if deck.schema_version == "slide_deck_v5":
             from slide_deck_v5 import (
-                validate_slide_deck_v5,
                 v5_contract_issues,
+                validate_slide_deck_v5,
             )
 
             if course_data is not None:
@@ -256,12 +262,265 @@ def export_structured_slide_deck(
     return path
 
 
+@lru_cache(maxsize=32)
+def _audit_font(font_size_px: int) -> Any:
+    from PIL import ImageFont
+
+    candidates = [
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf"),
+        Path("C:/Windows/Fonts/NotoSansCJK-Regular.ttc"),
+        Path("C:/Windows/Fonts/msyh.ttc"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            return ImageFont.truetype(str(path), font_size_px)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _paragraph_font_size_pt(paragraph: Any) -> float:
+    sizes = [
+        float(run.font.size.pt)
+        for run in paragraph.runs
+        if run.font.size is not None
+    ]
+    if paragraph.font.size is not None:
+        sizes.append(float(paragraph.font.size.pt))
+    return max(sizes, default=18.0)
+
+
+def _paragraph_minimum_font_size_pt(paragraph: Any) -> float:
+    sizes = [
+        float(run.font.size.pt)
+        for run in paragraph.runs
+        if run.font.size is not None
+    ]
+    if paragraph.font.size is not None:
+        sizes.append(float(paragraph.font.size.pt))
+    return min(sizes, default=18.0)
+
+
+def _wrapped_line_count(text: str, *, width_pt: float, font_size_pt: float) -> int:
+    if not text:
+        return 1
+    dpi_scale = 96 / 72
+    font = _audit_font(max(8, round(font_size_pt * dpi_scale)))
+    maximum_width = max(1.0, width_pt * dpi_scale)
+    lines = 0
+    for logical_line in str(text).splitlines() or [""]:
+        if not logical_line:
+            lines += 1
+            continue
+        current_width = 0.0
+        lines += 1
+        for character in logical_line:
+            try:
+                character_width = float(font.getlength(character))
+            except AttributeError:
+                character_width = float(font.getbbox(character)[2])
+            if current_width and current_width + character_width > maximum_width:
+                lines += 1
+                current_width = 0.0
+            current_width += character_width
+    return lines
+
+
+def _text_frame_audit(shape: Any) -> dict[str, Any]:
+    frame = shape.text_frame
+    width_pt = max(
+        1.0,
+        (
+            int(shape.width)
+            - int(frame.margin_left or 0)
+            - int(frame.margin_right or 0)
+        ) / 12700,
+    )
+    height_pt = max(
+        1.0,
+        (
+            int(shape.height)
+            - int(frame.margin_top or 0)
+            - int(frame.margin_bottom or 0)
+        ) / 12700,
+    )
+    required_height = 0.0
+    minimum_size = 10**9
+    maximum_lines = 1
+    for paragraph in frame.paragraphs:
+        text = paragraph.text or ""
+        font_size = _paragraph_font_size_pt(paragraph)
+        minimum_size = min(minimum_size, _paragraph_minimum_font_size_pt(paragraph))
+        line_count = _wrapped_line_count(
+            text,
+            width_pt=width_pt,
+            font_size_pt=font_size,
+        )
+        maximum_lines = max(maximum_lines, line_count)
+        before = float(paragraph.space_before.pt) if paragraph.space_before else 0.0
+        after = float(paragraph.space_after.pt) if paragraph.space_after else 0.0
+        required_height += line_count * font_size * 1.22 + before + after
+    return {
+        "overflow": required_height > max(height_pt * 1.18, height_pt + 2.0),
+        "required_height_pt": round(required_height, 2),
+        "available_height_pt": round(height_pt, 2),
+        "minimum_font_size_pt": 18.0 if minimum_size == 10**9 else minimum_size,
+        "maximum_wrapped_lines": maximum_lines,
+    }
+
+
+def _normalized_ocr_text(value: object) -> str:
+    return re.sub(r"[^0-9a-zA-Z\u3400-\u9fff]+", "", str(value or "")).lower()
+
+
+@lru_cache(maxsize=1)
+def _rapidocr_engine() -> Any:
+    from rapidocr_onnxruntime import RapidOCR
+
+    return RapidOCR()
+
+
+def _rapidocr_page_text(path: Path) -> str:
+    result, _ = _rapidocr_engine()(str(path))
+    return " ".join(
+        str(item[1])
+        for item in result or []
+        if isinstance(item, (list, tuple)) and len(item) >= 2
+    )
+
+
+def audit_rendered_slide_images(
+    presentation: Any,
+    image_paths: list[Path],
+    *,
+    ocr_runner: Any | None = None,
+) -> dict[str, Any]:
+    """Compare OCR from every rendered page with the PPTX's expected visible text."""
+    issues: list[dict[str, Any]] = []
+    expected_count = len(presentation.slides)
+    if len(image_paths) != expected_count:
+        issues.append({
+            "severity": "critical",
+            "code": "rendered_page_count_mismatch",
+            "expected": expected_count,
+            "actual": len(image_paths),
+        })
+    runner = ocr_runner or _rapidocr_page_text
+    checked_pages = 0
+    for page_number, (slide, image_path) in enumerate(
+        zip(presentation.slides, image_paths),
+        start=1,
+    ):
+        expected = _normalized_ocr_text(" ".join(
+            str(shape.text or "")
+            for shape in slide.shapes
+            if getattr(shape, "has_text_frame", False)
+            and str(shape.text or "").strip()
+        ))
+        if len(expected) < 8:
+            continue
+        checked_pages += 1
+        try:
+            recognized = _normalized_ocr_text(runner(image_path))
+        except Exception as exc:
+            issues.append({
+                "severity": "critical",
+                "code": "rendered_page_ocr_failed",
+                "page": page_number,
+                "message": str(exc),
+            })
+            continue
+        coverage = SequenceMatcher(
+            None,
+            expected,
+            recognized,
+            autojunk=False,
+        ).ratio()
+        if coverage < 0.68:
+            issues.append({
+                "severity": "critical",
+                "code": "exported_ocr_text_missing_or_clipped",
+                "page": page_number,
+                "coverage": round(coverage, 4),
+                "expected_character_count": len(expected),
+                "recognized_character_count": len(recognized),
+            })
+    blockers = [item for item in issues if item["severity"] == "critical"]
+    return {
+        "passed": not blockers,
+        "page_count": expected_count,
+        "checked_pages": checked_pages,
+        "issues": issues,
+        "blockers": blockers,
+    }
+
+
+def _libreoffice_render_audit(
+    path: Path,
+    presentation: Any,
+) -> dict[str, Any]:
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    pdftoppm = shutil.which("pdftoppm")
+    if not soffice or not pdftoppm:
+        issue = {
+            "severity": "critical",
+            "code": "libreoffice_render_audit_unavailable",
+            "missing": [
+                name
+                for name, executable in (("libreoffice", soffice), ("pdftoppm", pdftoppm))
+                if not executable
+            ],
+        }
+        return {
+            "passed": False,
+            "page_count": len(presentation.slides),
+            "checked_pages": 0,
+            "issues": [issue],
+            "blockers": [issue],
+        }
+    with tempfile.TemporaryDirectory(prefix="lingzhi-slide-pixel-audit-") as temp_dir:
+        output_dir = Path(temp_dir)
+        subprocess.run(
+            [
+                soffice,
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(output_dir),
+                str(path.resolve()),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=90,
+        )
+        pdf_path = output_dir / f"{path.stem}.pdf"
+        if not pdf_path.is_file():
+            raise RuntimeError("LibreOffice did not produce the expected PDF")
+        prefix = output_dir / "page"
+        subprocess.run(
+            [pdftoppm, "-png", "-r", "160", str(pdf_path), str(prefix)],
+            check=True,
+            capture_output=True,
+            timeout=90,
+        )
+        image_paths = sorted(
+            output_dir.glob("page-*.png"),
+            key=lambda item: int(item.stem.rsplit("-", 1)[-1]),
+        )
+        return audit_rendered_slide_images(presentation, image_paths)
+
+
 def audit_exported_pptx(
     path: str | Path,
     *,
     expected_slide_count: int | None = None,
 ) -> dict[str, Any]:
-    """Audit the actual PPTX object tree after export without external services."""
+    """Audit exported objects, then optionally render and OCR every page."""
     from pptx import Presentation
 
     presentation = Presentation(path)
@@ -280,6 +539,7 @@ def audit_exported_pptx(
         })
     for slide_index, slide in enumerate(presentation.slides, start=1):
         visible_object_count = 0
+        text_shapes: list[Any] = []
         for shape in slide.shapes:
             left = int(shape.left)
             top = int(shape.top)
@@ -294,21 +554,149 @@ def audit_exported_pptx(
                 })
             if int(shape.width) > 0 and int(shape.height) > 0:
                 visible_object_count += 1
+            if getattr(shape, "has_text_frame", False) and str(shape.text or "").strip():
+                text_shapes.append(shape)
+                text_audit = _text_frame_audit(shape)
+                top_inches = int(shape.top) / 914400
+                bottom_inches = (int(shape.top) + int(shape.height)) / 914400
+                is_footer = top_inches >= 6.9
+                is_eyebrow = top_inches < 0.62 and int(shape.height) / 914400 < 0.5
+                is_title = (
+                    0.6 <= top_inches < 1.95
+                    and text_audit["minimum_font_size_pt"] >= 28
+                )
+                if text_audit["overflow"]:
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_text_frame_overflow",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                        **text_audit,
+                    })
+                if is_title and text_audit["maximum_wrapped_lines"] > 1:
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_title_unexpected_wrap",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                    })
+                if (
+                    not is_footer
+                    and not is_eyebrow
+                    and not is_title
+                    and top_inches >= 1.9
+                    and bottom_inches <= 7.05
+                    and text_audit["minimum_font_size_pt"] < 16
+                    and (
+                        len(re.sub(r"\s+", "", str(shape.text or ""))) >= 20
+                        or int(shape.height) / 914400 > 0.45
+                    )
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_body_font_below_16pt",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                        "minimum_font_size_pt": text_audit["minimum_font_size_pt"],
+                    })
+            if getattr(shape, "shape_type", None) == 13:
+                crop_total = sum(
+                    float(getattr(shape, name, 0) or 0)
+                    for name in ("crop_left", "crop_right", "crop_top", "crop_bottom")
+                )
+                if crop_total > 0.35:
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_image_subject_overcropped",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                        "crop_total": round(crop_total, 4),
+                    })
+        for left_index, left_shape in enumerate(text_shapes):
+            for right_shape in text_shapes[left_index + 1:]:
+                intersection_width = max(
+                    0,
+                    min(
+                        int(left_shape.left) + int(left_shape.width),
+                        int(right_shape.left) + int(right_shape.width),
+                    ) - max(int(left_shape.left), int(right_shape.left)),
+                )
+                intersection_height = max(
+                    0,
+                    min(
+                        int(left_shape.top) + int(left_shape.height),
+                        int(right_shape.top) + int(right_shape.height),
+                    ) - max(int(left_shape.top), int(right_shape.top)),
+                )
+                intersection = intersection_width * intersection_height
+                smaller = min(
+                    int(left_shape.width) * int(left_shape.height),
+                    int(right_shape.width) * int(right_shape.height),
+                )
+                if not smaller or intersection / smaller <= 0.12:
+                    continue
+                left_top = int(left_shape.top) / 914400
+                right_top = int(right_shape.top) / 914400
+                code = (
+                    "exported_footer_overlap"
+                    if max(left_top, right_top) >= 6.9
+                    else "exported_text_overlap"
+                )
+                issues.append({
+                    "severity": "critical",
+                    "code": code,
+                    "page": slide_index,
+                    "shape_names": [
+                        str(left_shape.name or ""),
+                        str(right_shape.name or ""),
+                    ],
+                })
         if visible_object_count == 0:
             issues.append({
                 "severity": "critical",
                 "code": "exported_page_has_no_objects",
                 "page": slide_index,
             })
+    pixel_audit: dict[str, Any] | None = None
+    if os.getenv("SLIDE_LIBREOFFICE_AUDIT_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        try:
+            pixel_audit = _libreoffice_render_audit(Path(path), presentation)
+        except Exception as exc:
+            pixel_audit = {
+                "passed": False,
+                "page_count": len(presentation.slides),
+                "checked_pages": 0,
+                "issues": [{
+                    "severity": "critical",
+                    "code": "libreoffice_render_audit_failed",
+                    "message": str(exc),
+                }],
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "libreoffice_render_audit_failed",
+                    "message": str(exc),
+                }],
+            }
+        issues.extend(pixel_audit.get("issues") or [])
     blockers = [item for item in issues if item["severity"] == "critical"]
     return {
         "schema_version": "slide_render_review_v1",
-        "reviewer": "post_export_pptx_object_audit",
+        "reviewer": (
+            "post_export_pptx_object_and_ocr_audit"
+            if pixel_audit is not None
+            else "post_export_pptx_object_audit"
+        ),
         "passed": not blockers,
         "page_count": len(presentation.slides),
         "issues": issues,
         "blockers": blockers,
         "repair_attempts": 0,
+        "pixel_audit": pixel_audit,
     }
 
 
@@ -445,7 +833,7 @@ def _render_visual_directed(
     visual = dict(unit.visuals[0])
     kind = str(visual.get("kind") or "none")
     _heading(slide, unit, theme)
-    if kind in {"source_image", "generated_illustration"}:
+    if kind in {"source_image", "retrieved_image", "generated_illustration"}:
         if _render_image_visual(
             slide,
             unit,
@@ -1076,12 +1464,29 @@ def _render_image_visual(
         image_path = asset_repository.resolve(asset_id)
     except (FileNotFoundError, ValueError):
         return False
+    from PIL import Image
+
+    with Image.open(image_path) as image:
+        image_width, image_height = image.size
+    frame_x, frame_y, frame_width, frame_height = 0.78, 1.92, 7.2, 4.62
+    image_ratio = image_width / max(1, image_height)
+    frame_ratio = frame_width / frame_height
+    if image_ratio >= frame_ratio:
+        picture_width = frame_width
+        picture_height = frame_width / image_ratio
+        picture_x = frame_x
+        picture_y = frame_y + (frame_height - picture_height) / 2
+    else:
+        picture_height = frame_height
+        picture_width = frame_height * image_ratio
+        picture_x = frame_x + (frame_width - picture_width) / 2
+        picture_y = frame_y
     picture = slide.shapes.add_picture(
         str(image_path),
-        Inches(0.78),
-        Inches(1.92),
-        width=Inches(7.2),
-        height=Inches(4.62),
+        Inches(picture_x),
+        Inches(picture_y),
+        width=Inches(picture_width),
+        height=Inches(picture_height),
     )
     _set_alt_text(picture, str(visual.get("alt_text") or "课程视觉素材"))
     _source_panel(slide, unit, 8.28, 1.92, 4.28, 4.62, theme)
@@ -2290,9 +2695,9 @@ def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         return
     heading = _display_heading(unit)
     heading_size = 35
-    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.3, 11, theme["accent"], bold=True)
+    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.22, 11, theme["accent"], bold=True)
     _text(
-        slide, heading, 0.78, 0.68, 11.72, 1.18, heading_size, theme["title"], bold=True,
+        slide, heading, 0.78, 0.70, 11.72, 1.16, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
     _shape(slide, 0.78, 1.86, 0.72, 0.04, theme["accent"], radius=False)
@@ -2302,6 +2707,19 @@ def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 def _footer(slide: Any, unit: SlideSpec, page: int, total: int, theme: dict[str, str]) -> None:
     section = unit.section_id or "COURSE"
     _text(slide, section, 0.78, 7.1, 2.4, 0.2, 8, theme["muted"], font="Aptos Mono")
+    image_source = str(unit.quality.get("image_source_short") or "").strip()
+    if image_source:
+        _text(
+            slide,
+            f"图源：{image_source}",
+            3.12,
+            7.1,
+            7.9,
+            0.2,
+            8,
+            theme["muted"],
+            align="center",
+        )
     _text(slide, f"{page:02d} / {total:02d}", 11.48, 7.1, 1.02, 0.2, 8, theme["muted"], align="right", font="Aptos Mono")
 
 

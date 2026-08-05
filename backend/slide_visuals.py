@@ -27,6 +27,7 @@ SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v7"
 
 VisualKind = Literal[
     "source_image",
+    "retrieved_image",
     "generated_illustration",
     "rule_diagram",
     "relational_diagram",
@@ -59,6 +60,7 @@ SlideComposition = Literal[
 
 _VISUAL_KINDS = {
     "source_image",
+    "retrieved_image",
     "generated_illustration",
     "rule_diagram",
     "relational_diagram",
@@ -159,7 +161,7 @@ class VisualAnchorV1(_StrictModel):
                 raise ValueError("Coordinate plot points must be numeric pairs")
         if self.kind == "formula" and not str(self.parameters.get("formula") or "").strip():
             raise ValueError("A formula visual must retain the source formula")
-        if self.kind in {"source_image", "generated_illustration"} and not (
+        if self.kind in {"source_image", "retrieved_image", "generated_illustration"} and not (
             self.asset_id or self.parameters.get("asset_ref") or self.parameters.get("prompt")
         ):
             raise ValueError("An image visual needs an asset reference or prompt")
@@ -824,6 +826,33 @@ def _visual_plan_request(
         },
         "allowed_visual_kinds": sorted(allowed_visual_kinds),
         "allowed_rule_diagram_templates": sorted(RULE_DIAGRAM_TEMPLATES),
+        "optional_visual_search_output": {
+            "location": "deck_brief.visual_search_requests",
+            "key": "page_id",
+            "maximum_queries_per_page": 2,
+            "visual_intents": [
+                "physical_structure",
+                "spatial_relation",
+                "process",
+                "comparison",
+                "evidence",
+                "historical_context",
+                "real_world_context",
+                "quantitative_pattern",
+            ],
+            "required_fields": [
+                "page_id",
+                "need_visual",
+                "visual_intent",
+                "priority",
+                "canonical_terms",
+                "view_or_context",
+                "visual_goal",
+                "must_show",
+                "must_not_show",
+                "queries",
+            ],
+        },
         "pages": [
             {
                 "page_id": page.page_id,
@@ -1447,7 +1476,11 @@ def visual_quality_report(
             })
     issues.extend(episode_warnings[:20])
     image_count = sum(
-        page.visual_anchor.kind in {"source_image", "generated_illustration"}
+        page.visual_anchor.kind in {
+            "source_image",
+            "retrieved_image",
+            "generated_illustration",
+        }
         and scores[page.page_id] >= 0.5
         for page in eligible
     )
@@ -1678,7 +1711,7 @@ def visual_integrity_issues(content: dict[str, Any]) -> list[dict[str, Any]]:
                         "code": "rule_diagram_invalid",
                         "slide_id": slide_id,
                     })
-            if kind in {"source_image", "generated_illustration"}:
+            if kind in {"source_image", "retrieved_image", "generated_illustration"}:
                 asset_id = str(visual.get("asset_id") or "")
                 asset = assets.get(asset_id)
                 if (

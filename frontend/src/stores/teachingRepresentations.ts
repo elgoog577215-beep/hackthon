@@ -17,6 +17,11 @@ export interface SlideDeckBuildOptions {
   mode: SlideDeckMode
   theme: Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
   forceRebuild?: boolean
+  webImageRetrieval?: {
+    enabled: boolean
+    mode?: 'wide_safe'
+    targetCount?: number
+  }
 }
 
 export interface TeachingRepresentation {
@@ -429,6 +434,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
                 mode: options.mode,
                 theme: options.theme,
                 force_rebuild: options.forceRebuild === true,
+                ...(options.webImageRetrieval ? {
+                  web_image_retrieval: {
+                    enabled: options.webImageRetrieval.enabled,
+                    mode: options.webImageRetrieval.mode || 'wide_safe',
+                    ...(options.webImageRetrieval.targetCount == null
+                      ? {}
+                      : { target_count: options.webImageRetrieval.targetCount }),
+                  },
+                } : {}),
               }),
             } : {}),
           },
@@ -480,6 +494,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             }
           }
           if (event.event === 'render_review') this.buildStage = 'render_review'
+          if (event.event === 'semantic_repair') this.buildStage = 'semantic_repair'
+          if (event.event === 'image_search') this.buildStage = 'image_search'
+          if (event.event === 'render_repair') this.buildStage = 'render_repair'
           if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
           if (event.event === 'build_blocked') {
             const failure = normalizedBuildFailure(event, event.quality)

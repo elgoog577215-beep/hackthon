@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from change_proposals import change_proposal_repository, create_authoring_change
 from ai_base import AIBase
@@ -53,7 +53,11 @@ from slide_deck_v4 import (
     allocation_from_story_plan_v2,
     build_signature_v4,
 )
-from slide_deck_v5 import build_signature_v5, compact_story_plan_v5
+from slide_deck_v5 import (
+    allocation_from_story_plan_v5,
+    build_signature_v5,
+    compact_story_plan_v5,
+)
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
@@ -63,6 +67,7 @@ from slide_story_plan import (
     slide_deck_v4_prerequisite_details,
     slide_deck_v4_prerequisite_issues,
 )
+from slide_web_images import WebImageRetrievalConfig
 from slide_deck_renderer import SlideDeckQualityError, validate_theme
 from slide_asset_repository import slide_asset_repository
 from slide_ai_runtime import ai_slide_planning_enabled
@@ -138,6 +143,9 @@ class SlideDeckVariantBuildRequest(BaseModel):
     mode: SlideDeckMode = "teaching"
     theme: SlideDeckTheme = "qizhi-classroom"
     force_rebuild: bool = False
+    web_image_retrieval: WebImageRetrievalConfig = Field(
+        default_factory=WebImageRetrievalConfig
+    )
 
 
 def _reconciled_registry(course_id: str) -> dict:
@@ -330,6 +338,7 @@ def _compile_slide_variant_registry(
     allocation_plan: SlideAllocationPlanV2 | dict[str, Any],
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Any | None = None,
+    web_image_retrieval: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
@@ -341,9 +350,14 @@ def _compile_slide_variant_registry(
         course_id,
         list(raw.get("course_operation_log") or []),
     )
+    course_view = deepcopy(course_repository.load_course_view(course_id))
+    course_view["generation_request"] = {
+        **(course_view.get("generation_request") or {}),
+        "web_image_retrieval": deepcopy(web_image_retrieval or {}),
+    }
     build = rebuild_slide_deck_variant_safely(
         document,
-        course_repository.load_course_view(course_id),
+        course_view,
         repository,
         mode=mode,
         theme=theme,
@@ -616,6 +630,11 @@ async def stream_slide_deck_variant_build(
     theme = normalize_slide_deck_theme(body.theme)
     variant_key = slide_deck_variant_key(body.mode, theme)
     document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    course_view = deepcopy(course_view)
+    course_view["generation_request"] = {
+        **(course_view.get("generation_request") or {}),
+        "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
+    }
     try:
         resolve_slide_deck_schema(
             course_view,
@@ -743,6 +762,7 @@ async def stream_slide_deck_variant_build(
                 "theme": theme,
                 "variant_key": variant_key,
                 "force_rebuild": body.force_rebuild,
+                "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
             },
             base_document_revision=str(document.document_revision or ""),
         )
@@ -834,7 +854,12 @@ async def stream_slide_deck_variant_build(
                     story_plan,
                     source_fragments,
                 )
-            allocation_plan, _ = allocation_from_story_plan_v2(
+            allocation_compiler = (
+                allocation_from_story_plan_v5
+                if _v5_enabled()
+                else allocation_from_story_plan_v2
+            )
+            allocation_plan, _ = allocation_compiler(
                 document,
                 source_fragments,
                 story_plan,
@@ -860,6 +885,7 @@ async def stream_slide_deck_variant_build(
                     allocation_plan=allocation_plan,
                     story_plan=story_plan,
                     progress_callback=publish,
+                    web_image_retrieval=body.web_image_retrieval.model_dump(mode="json"),
                 )
                 blocked = (
                     str((result.get("build") or {}).get("status") or "") != "synchronized"

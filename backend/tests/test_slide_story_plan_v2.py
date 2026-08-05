@@ -897,6 +897,49 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
     assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
 
 
+def test_ai_story_planner_retries_one_invalid_chapter_with_validation_errors() -> None:
+    course = _course_with_teaching_plan()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    requests: list[dict] = []
+
+    async def planner(request: dict) -> dict:
+        requests.append(request)
+        if len(requests) == 1:
+            return {
+                "schema_version": "slide_story_chapter_directives_v2",
+                "chapter_id": request["scope"]["chapter_id"],
+                "beat_directives": [{
+                    "beat_id": "unknown-beat",
+                }],
+            }
+        beat = request["beat_catalog"][0]
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [{
+                "beat_id": beat["beat_id"],
+                "layout_id": beat["current_layout_id"],
+            }],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        ai_planner=planner,
+    ))
+
+    assert planned.planner == "ai"
+    assert len(requests) == 2
+    retry = requests[1]["validation_retry"]
+    assert retry["attempt"] == 1
+    assert retry["errors"][0]["code"] == "invalid_structure"
+    assert "unknown beat" in retry["errors"][0]["message"].lower()
+
+
 def test_ai_story_planner_keeps_valid_chapters_when_one_times_out(
     monkeypatch,
 ) -> None:

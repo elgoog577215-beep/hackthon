@@ -132,7 +132,7 @@ def _document(chapter_count: int) -> CourseDocument:
     )
 
 
-def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
+def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() -> None:
     document = _document(1)
     variant_key = slide_deck_variant_key("teaching", "qizhi-classroom")
     supplied_allocation = SlideAllocationPlanV2(
@@ -151,75 +151,31 @@ def test_v5_rebuilds_visual_plan_when_compaction_changes_page_ids() -> None:
             ),
         ],
     )
-    compact_allocation = supplied_allocation.model_copy(update={
-        "pages": supplied_allocation.pages[:2],
-    })
     supplied_visual_plan = deterministic_visual_plan(
         document,
         supplied_allocation,
         [],
     )
-    captured: dict[str, object] = {}
-
-    def _compile_v4(*args: object, **kwargs: object) -> dict[str, object]:
-        visual_plan = kwargs["visual_plan"]
-        allocation_plan = kwargs["allocation_plan"]
-        validate_visual_plan(visual_plan, allocation_plan, [])
-        captured["visual_plan"] = visual_plan
-        captured["allocation_plan"] = allocation_plan
-        return {
-            "schema_version": "slide_deck_v4",
-            "title": document.title,
-            "slides": [],
-            "quality_report": {"passed": True, "score": 100, "issues": []},
-            "quality_summary": {},
-        }
-
-    with (
-        patch("slide_deck_v5.fragment_course_document", return_value=[]),
-        patch("slide_deck_v5.compact_story_plan_v5", return_value=_story(1)),
-        patch(
-            "slide_deck_v5.allocation_from_story_plan_v2",
-            return_value=(compact_allocation, {}),
-        ),
-        patch("slide_deck_v5.compile_slide_deck_v4", side_effect=_compile_v4),
-        patch("slide_deck_v5._materialize_v5_structure", return_value=[]),
-        patch(
-            "slide_deck_v5.finalize_v5_quality_report",
-            return_value={"passed": True, "score": 100, "issues": []},
-        ),
-    ):
-        compiled = compile_slide_deck_v5(
-            document,
-            {},
-            story_plan=_story(1),
-            allocation_plan=supplied_allocation,
-            visual_plan=supplied_visual_plan,
-        )
-
-    rebuilt_visual_plan = captured["visual_plan"]
-    rebuilt_allocation = captured["allocation_plan"]
-    assert [page.page_id for page in rebuilt_visual_plan.pages] == [
-        page.page_id for page in rebuilt_allocation.pages
-    ]
-    assert rebuilt_visual_plan.deck_brief["fallback_reason"] == (
-        "v5_compaction_visual_plan_rebuilt"
+    content = compile_slide_deck_v5(
+        document,
+        {},
+        story_plan=_story(1),
+        allocation_plan=supplied_allocation,
+        visual_plan=supplied_visual_plan,
     )
-    assert compiled["generation_provenance"] == {
-        "schema_version": "slide_generation_provenance_v1",
-        "compiler_version": SLIDE_DECK_V5_COMPILER_VERSION,
-        "story": {
-            "planner": "deterministic_fallback",
-            "fallback_reason": "",
-            "prompt_contract_version": "slide_story_chapter_directives_v2",
-        },
-        "visual": {
-            "planner": "deterministic_fallback",
-            "fallback_reason": "v5_compaction_visual_plan_rebuilt",
-            "prompt_contract_version": "slide_visual_plan_v1",
-            "policy_version": rebuilt_visual_plan.policy_version,
-        },
-    }
+
+    final_page_ids = [slide["unit_id"] for slide in content["slides"]]
+    allocation_page_ids = [
+        page["page_id"] for page in content["allocation_plan"]["pages"]
+    ]
+    visual_page_ids = [
+        page["page_id"] for page in content["visual_plan"]["pages"]
+    ]
+    assert all(page_id.startswith("slide:v5:") for page_id in final_page_ids)
+    assert allocation_page_ids == visual_page_ids
+    assert content["deck_brief"]["fallback_reason"] == (
+        "v5_final_page_ids_visual_plan_rebuilt"
+    )
 
 
 def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() -> None:
@@ -1811,7 +1767,7 @@ def test_v5_quality_cannot_publish_when_any_final_slide_is_critical() -> None:
     )
 
     assert report["passed"] is False
-    assert "slide_block_overflow" in {
+    assert "legacy_slide_id" in {
         issue["code"] for issue in report["blockers"]
     }
 
@@ -1860,14 +1816,14 @@ def test_v5_reports_partial_visual_ai_fallback_as_degraded() -> None:
 
 def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
     slide = apply_page_contract_v5({
-        "unit_id": "slide:v4:long-course",
+        "unit_id": "slide:v5:long-course",
         "layout": "concept",
         "composition": "statement",
         "title": "状态变量只取决于系统当前状态",
         "blocks": [{
             "block_id": "definition",
             "type": "rich_text",
-            "content": "状态变量与过程路径无关。",
+            "content": "状态变量与过程路径无关，因此判断时只比较系统的初态与终态。",
             "items": [],
         }],
         "visuals": [],
@@ -1876,12 +1832,12 @@ def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
             "issues": [{
                 "severity": "critical",
                 "code": "concept_card_overflow",
-                "slide_id": "slide:v4:long-course",
+                "slide_id": "slide:v5:long-course",
             }],
             "blockers": [{
                 "severity": "critical",
                 "code": "slide_block_overflow",
-                "slide_id": "slide:v4:long-course",
+                "slide_id": "slide:v5:long-course",
             }],
         },
     })
@@ -1898,7 +1854,7 @@ def test_v5_contract_discards_superseded_v4_capacity_blockers() -> None:
             "blockers": [{
                 "severity": "critical",
                 "code": "slide_block_overflow",
-                "slide_id": "slide:v4:long-course",
+                "slide_id": "slide:v5:long-course",
             }],
         },
         slides=[slide],
