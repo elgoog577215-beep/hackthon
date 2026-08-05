@@ -50,11 +50,33 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "workflow_dispatch:" in workflow
     assert "push:" not in workflow
     assert "LINGZHI_SSH_HOST" in workflow
+    assert 'docker pull "$SEARXNG_IMAGE"' in workflow
+    assert "docker image save" in workflow
+    assert "searxng-image.tar.gz" in workflow
     assert "docker compose" in script
+    assert "sha256sum --check" in script
+    assert "docker image load" in script
+    assert "--pull never" in script
+    assert 'compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull' not in script
     assert "install -m 600" in script
     assert "http://127.0.0.1:8080/config" in script
     assert "http://127.0.0.1:8080/search" in script
     assert "format=json" in script
+
+
+def test_provisioning_can_activate_retrieval_and_verify_application_health() -> None:
+    workflow = _read(".github/workflows/provision-searxng.yml")
+    script = _read("scripts/provision-searxng.sh")
+
+    assert "rollout_mode:" in workflow
+    assert "off, allowlist, or on" in workflow
+    assert "LINGZHI_WEB_RETRIEVAL_MODE" in workflow
+    assert "WEB_RETRIEVAL_PROVIDER" in script
+    assert "SEARXNG_BASE_URL" in script
+    assert "WEB_RETRIEVAL_V2_MODE" in script
+    assert "systemctl restart" in script
+    assert "http://127.0.0.1:7862/api/health" in script
+    assert 'state["provider_configured"] is True' in script
 
 
 def test_normal_deploy_preflights_searxng_before_stopping_application() -> None:
