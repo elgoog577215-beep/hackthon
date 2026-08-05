@@ -23,6 +23,10 @@ from course_generation_workflow import (
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_revisions import revision_vector_for_course
 from course_teaching_plan_projection import project_course_teaching_plan
+from teaching_plan_impact import (
+    build_downstream_state,
+    build_impact_report,
+)
 
 
 WORKBENCH_SCHEMA = "teaching_plan_workbench_v1"
@@ -581,104 +585,14 @@ def _validate(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _impact_for_operation(operation: dict[str, Any], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
-    path = _text(operation.get("path"))
-    parts = path.strip("/").split("/")
-    outcome: list[dict[str, Any]] = []
-
-    def add(group: str, item_type: str, item_id: str, reason: str) -> None:
-        outcome.append({
-            "group": group,
-            "type": item_type,
-            "id": item_id,
-            "reason": reason,
-        })
-
-    if path in {
-        "overall/positioning",
-        "overall/target_audience",
-        "overall/teaching_strategy/rationale",
-        "overall/academic_term",
-        "overall/class_size",
-        "overall/class_profile",
-        "overall/teaching_preparation",
-        "overall/course_assessment_plan",
-    }:
-        add("changed", "teaching_plan", "overall", "总体教学设计已更新")
-        add("changed", "teacher_projection", "overall", "教师阅读投影需要同步")
-        return outcome
-    if path in {
-        "overall/total_class_hours",
-        "overall/lesson_duration_minutes",
-        "overall/teaching_context",
-    }:
-        add("changed", "teaching_plan", "overall", "课堂执行约束已更新")
-        for section in _course_sections(snapshot):
-            section_id = _text(section.get("node_id"))
-            if section_id:
-                add("needs_regeneration", "teaching_representation", section_id, "课堂时间或场景变化")
-        return outcome
-    if path in {"overall/learning_objectives", "overall/prerequisites"}:
-        add("changed", "teaching_plan", "overall", "总体教学设计已更新")
-        for section in _course_sections(snapshot):
-            section_id = _text(section.get("node_id"))
-            if section_id:
-                add("needs_regeneration", "section_content", section_id, "总体目标或前置要求变化")
-        return outcome
-    if len(parts) >= 2 and parts[0] == "sections":
-        section_id = parts[1]
-        add("changed", "teaching_plan_section", section_id, "小节教案已更新")
-        if len(parts) == 3 and parts[2] == "learning_objective":
-            for item_type in ("section_content", "practice", "slide_deck"):
-                add("needs_regeneration", item_type, section_id, "小节目标变化")
-        elif len(parts) == 3 and parts[2] == "key_points":
-            add("needs_regeneration", "knowledge_binding", section_id, "知识范围变化")
-            for item_type in ("section_content", "practice", "slide_deck"):
-                add("needs_regeneration", item_type, section_id, "知识范围变化")
-        elif len(parts) >= 3 and parts[2] == "teaching_modules":
-            for item_type in ("section_content", "lecture", "slide_deck"):
-                add("needs_regeneration", item_type, section_id, "教学环节职责变化")
-        elif len(parts) == 3 and parts[2] == "planned_minutes":
-            for item_type in ("lecture", "slide_deck"):
-                add("needs_regeneration", item_type, section_id, "小节课堂时长变化")
-        elif len(parts) == 3 and parts[2] in _SECTION_CLASSROOM_LIST_FIELDS:
-            for item_type in ("lecture", "slide_deck"):
-                add("needs_regeneration", item_type, section_id, "小节课堂执行安排变化")
-        elif len(parts) >= 3 and parts[2] == "knowledge":
-            add("needs_regeneration", "knowledge_binding", section_id, "知识语义变化")
-            for item_type in ("section_content", "practice", "slide_deck"):
-                add("needs_regeneration", item_type, section_id, "知识语义变化")
-        return outcome
-    add("blocked", "unknown", path or "unknown", "无法确定字段的教学语义与影响范围")
-    return outcome
-
-
-def _impact(operations: list[dict[str, Any]], snapshot: dict[str, Any]) -> dict[str, Any]:
-    groups: dict[str, list[dict[str, Any]]] = {
-        "changed": [],
-        "needs_regeneration": [],
-        "stale": [],
-        "unchanged": [],
-        "blocked": [],
-    }
-    seen: set[tuple[str, str, str]] = set()
-    for operation in operations:
-        for item in _impact_for_operation(operation, snapshot):
-            key = (item["group"], item["type"], item["id"])
-            if key not in seen:
-                groups[item["group"]].append(item)
-                seen.add(key)
-    if not operations:
-        groups["unchanged"].append({
-            "type": "teaching_plan",
-            "id": "current",
-            "reason": "草稿尚未包含修改。",
-        })
-    return {
-        "schema_version": "teaching_plan_impact_report_v1",
-        **groups,
-        "blocking": bool(groups["blocked"]),
-    }
+def _impact(
+    operations: list[dict[str, Any]],
+    snapshot: dict[str, Any],
+    *,
+    course_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Deterministic impact report; see teaching_plan_impact for the rules."""
+    return build_impact_report(operations, snapshot, course_data=course_data)
 
 
 def _diff_between(
@@ -901,10 +815,24 @@ class TeachingPlanWorkbenchService:
         *,
         candidate_generator: Any | None = None,
         feature_enabled: bool | None = None,
+        representation_repository: Any | None = None,
     ) -> None:
         self.repository = repository
         self.candidate_generator = candidate_generator
         self.feature_enabled = _feature_enabled() if feature_enabled is None else feature_enabled
+        # Read-only: the impact analysis inspects the representation registry to
+        # report downstream source state; rebuilds stay with their own pipelines.
+        self.representation_repository = representation_repository
+
+    def representation_registry(self, course_id: str) -> Any | None:
+        if self.representation_repository is None:
+            return None
+        try:
+            return self.representation_repository.load(course_id)
+        except Exception:
+            # A missing or unreadable registry must never block teaching-plan
+            # analysis; downstream state simply falls back to the course data.
+            return None
 
     def _require_feature_enabled(self) -> None:
         if not self.feature_enabled:
@@ -1216,7 +1144,7 @@ class TeachingPlanWorkbenchService:
         for operation in operations:
             _write_path(candidate_snapshot, operation["path"], operation["after"])
         validation = _validate(candidate_snapshot)
-        impact = _impact(operations, candidate_snapshot)
+        impact = _impact(operations, candidate_snapshot, course_data=raw)
         if not validation.get("passed") or impact.get("blocking"):
             raise TeachingPlanWorkbenchError(
                 "teaching_plan_ai_quality_blocked",
@@ -1439,7 +1367,7 @@ class TeachingPlanWorkbenchService:
             "draft_id": draft_id,
             "base_plan_revision_id": draft.get("base_plan_revision_id"),
             "diff": _diff_between(current, snapshot, operations=operations),
-            "impact_report": _impact(operations, snapshot),
+            "impact_report": _impact(operations, snapshot, course_data=raw),
             "validation": validation,
         }
 
@@ -1480,7 +1408,7 @@ class TeachingPlanWorkbenchService:
                     "草稿没有修改，不能创建正式变更集。",
                 )
             validation = _validate(snapshot)
-            impact = _impact(operations, snapshot)
+            impact = _impact(operations, snapshot, course_data=working)
             status = "blocked" if not validation.get("passed") or impact.get("blocking") else "ready"
             state["change_sets"].append({
                 "schema_version": CHANGE_SET_SCHEMA,
@@ -1565,7 +1493,9 @@ class TeachingPlanWorkbenchService:
                 )
             snapshot = deepcopy(change_set.get("snapshot") or {})
             validation = _validate(snapshot)
-            impact = _impact(change_set.get("operations") or [], snapshot)
+            impact = _impact(
+                change_set.get("operations") or [], snapshot, course_data=working,
+            )
             if not validation.get("passed") or impact.get("blocking"):
                 change_set["status"] = "blocked"
                 change_set["validation"] = validation
@@ -1613,18 +1543,13 @@ class TeachingPlanWorkbenchService:
             change_set["applied_at"] = _now()
             change_set["validation"] = validation
             change_set["impact_report"] = impact
-            state["downstream"] = {
-                "source_plan_revision_id": source_plan["revision_id"],
-                "items": [
-                    {
-                        **item,
-                        "status": "stale" if item["group"] == "needs_regeneration" else item["group"],
-                    }
-                    for group in ("changed", "needs_regeneration", "stale", "unchanged", "blocked")
-                    for item in impact.get(group) or []
-                ],
-                "updated_at": _now(),
-            }
+            state["downstream"] = build_downstream_state(
+                impact,
+                plan_revision_id=source_plan["revision_id"],
+                course_data=working,
+                registry=self.representation_registry(course_id),
+                previous=state.get("downstream"),
+            )
             drafts = state.get("drafts") or {}
             if (draft := drafts.get(actor)) and draft.get("draft_id") == change_set.get("draft_id"):
                 drafts.pop(actor, None)
@@ -1716,7 +1641,7 @@ class TeachingPlanWorkbenchService:
             snapshot = deepcopy(target.get("snapshot") or {})
             operations = _diff_between(_source_snapshot(working), snapshot)["operations"]
             validation = _validate(snapshot)
-            impact = _impact(operations, snapshot)
+            impact = _impact(operations, snapshot, course_data=working)
             if not validation.get("passed") or impact.get("blocking"):
                 raise TeachingPlanWorkbenchError("teaching_plan_quality_blocked", "该历史版本不能通过当前质量门。")
             source_plan = deepcopy(snapshot.get("course_teaching_plan") or {})
@@ -1757,14 +1682,13 @@ class TeachingPlanWorkbenchService:
                 "created_by": actor,
                 "created_at": _now(),
             })
-            state["downstream"] = {
-                "source_plan_revision_id": source_plan["revision_id"],
-                "items": [{
-                    **item,
-                    "status": "stale" if item["group"] == "needs_regeneration" else item["group"],
-                } for group in ("changed", "needs_regeneration", "stale", "unchanged", "blocked") for item in impact.get(group) or []],
-                "updated_at": _now(),
-            }
+            state["downstream"] = build_downstream_state(
+                impact,
+                plan_revision_id=source_plan["revision_id"],
+                course_data=working,
+                registry=self.representation_registry(course_id),
+                previous=state.get("downstream"),
+            )
 
         receipt = await self.repository.apply_metadata_command(
             course_id,
