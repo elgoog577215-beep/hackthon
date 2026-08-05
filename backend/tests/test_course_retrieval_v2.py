@@ -90,6 +90,41 @@ def test_course_queries_only_use_public_course_contract():
     assert "student@example.com" not in joined
 
 
+def test_programming_course_queries_are_concise_and_do_not_add_academic_boilerplate():
+    course = {
+        "course_name": "Unity 游戏编程系统实战",
+        "difficulty": "intermediate",
+        "course_intent": {
+            "type": "systematic",
+            "learning_goal": "掌握 Unity 游戏开发工作流",
+        },
+        "nodes": [
+            {
+                "node_level": 2,
+                "node_name": "C# 脚本类创建与挂载机制",
+                "learning_objective": (
+                    "能够使用 Visual Studio 创建自定义 MonoBehaviour 子类并将其正确拖拽"
+                    "挂载到 GameObject 上"
+                ),
+            },
+        ],
+    }
+
+    queries = build_course_retrieval_queries(
+        course,
+        {
+            "subject": "Unity 游戏编程系统实战",
+            "difficulty": "intermediate",
+            "course_intent": course["course_intent"],
+        },
+    )
+
+    assert queries
+    assert max(map(len, queries)) <= 120
+    assert all("course prerequisite learning objective open education" not in query for query in queries)
+    assert any("MonoBehaviour" in query or "GameObject" in query for query in queries)
+
+
 def test_research_instruction_labels_sources_and_does_not_copy_full_pages():
     instruction = build_outline_research_instruction(_package())
     assert "[src_a]" in instruction
