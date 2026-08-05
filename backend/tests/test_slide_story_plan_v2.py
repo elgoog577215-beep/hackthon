@@ -9,6 +9,7 @@ from pptx import Presentation
 from course_document import document_from_legacy_course
 from course_revisions import revision_vector_for_course
 from representation_compiler import (
+    compile_core_representations,
     rebuild_slide_deck_variant_bundle_safely,
     rebuild_slide_deck_variant_safely,
 )
@@ -1673,6 +1674,12 @@ def test_v5_variant_is_atomically_published_under_existing_variant_key(tmp_path)
     )
     allocation, _ = allocation_from_story_plan_v2(document, fragments, story)
     repository = TeachingRepresentationRepository(tmp_path / "registry")
+    compile_core_representations(document, course, repository)
+    legacy = next(
+        item for item in repository.load(document.course_id).representations
+        if item.representation_type == "slide_deck" and not item.variant_key
+    )
+    assert legacy.status == "ready"
 
     result = rebuild_slide_deck_variant_safely(
         document,
@@ -1692,6 +1699,11 @@ def test_v5_variant_is_atomically_published_under_existing_variant_key(tmp_path)
 
     assert result["status"] == "synchronized"
     assert representation.status == "ready"
+    archived_legacy = next(
+        item for item in registry.representations
+        if item.representation_id == legacy.representation_id
+    )
+    assert archived_legacy.status == "archived"
     assert spec.payload["content"]["schema_version"] == "slide_deck_v5"
     assert spec.payload["content"]["deck_outline"]["schema_version"] == "deck_outline_v5"
     resolved_layouts = [
