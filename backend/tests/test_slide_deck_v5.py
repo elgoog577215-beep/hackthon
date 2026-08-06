@@ -27,6 +27,7 @@ from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
+    _v5_group_kind_for_profile,
     _split_practice_feedback_capacity_v5,
     allocation_from_story_plan_v5,
     apply_page_contract_v5,
@@ -280,6 +281,31 @@ def test_v5_allocation_closes_source_lists_and_uses_continuations() -> None:
     ]
     assert len(content_pages) >= 2
     assert content_pages[1].continuation_of == content_pages[0].page_id
+
+
+def test_quality_fallback_prefers_explicit_source_group_kind() -> None:
+    fragment = ContentFragmentV1(
+        fragment_id="fragment-clinical-context",
+        section_id="chapter-1",
+        block_id="block-clinical-context",
+        kind="heading",
+        text="Clinical context",
+        ordinal=10,
+        source_hash="hash-clinical-context",
+        role="concept",
+        source_kind="course_block",
+    )
+    inferred_practice = SimpleNamespace(
+        semantic_unit_id="semantic-clinical-context",
+        primary_role="checkpoint",
+        presentation_intent="practice_feedback",
+    )
+
+    assert _v5_group_kind_for_profile(
+        [fragment],
+        {fragment.fragment_id: inferred_practice},
+        profile="quality_fallback",
+    ) == "concept"
 
 
 def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() -> None:
