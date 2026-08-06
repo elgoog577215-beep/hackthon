@@ -7,6 +7,8 @@ export type QuestionBankRebuildStatus =
   | 'completed'
   | 'failed'
 
+export type AssessmentGenerationProfile = 'fast' | 'deliberate'
+
 export interface QuestionBankRebuildRequest {
   request_id: string
   scope: 'course' | 'nodes' | 'items'
@@ -15,6 +17,7 @@ export interface QuestionBankRebuildRequest {
   mode: 'incremental' | 'full'
   resume_existing?: boolean
   retrieval_enabled?: boolean
+  assessment_generation_profile?: AssessmentGenerationProfile
 }
 
 export interface QuestionBankRebuildJob {
@@ -24,6 +27,8 @@ export interface QuestionBankRebuildJob {
   current_stage?: string
   message?: string
   status_url: string
+  assessment_generation_profile?: AssessmentGenerationProfile
+  assessment_generation_policy_version?: string
   error?: {
     code?: string
     message?: string
@@ -60,6 +65,18 @@ export class QuestionBankRebuildError extends Error {
     this.name = 'QuestionBankRebuildError'
     this.code = job.error?.code || 'question_bank_rebuild_failed'
     this.retryable = Boolean(job.error?.retryable)
+    this.job = job
+  }
+}
+
+export class QuestionBankRebuildPollingDetached extends Error {
+  code = 'question_bank_polling_detached'
+  retryable = true
+  job: QuestionBankRebuildJob
+
+  constructor(job: QuestionBankRebuildJob) {
+    super('本次轮询已结束，任务仍在后台继续；可稍后重新连接查看进度。')
+    this.name = 'QuestionBankRebuildPollingDetached'
     this.job = job
   }
 }
@@ -127,16 +144,12 @@ async function pollQuestionBankRebuild(
       throw new DOMException('Question bank rebuild aborted', 'AbortError')
     }
     if (pollCount >= maxPolls) {
-      const timeoutJob: QuestionBankRebuildJob = {
+      const detachedJob: QuestionBankRebuildJob = {
         ...job,
-        status: 'failed',
-        error: {
-          code: 'question_bank_rebuild_timeout',
-          message: '题目生成仍在后台进行，请稍后返回查看进度。',
-          retryable: true,
-        },
+        message: '任务仍在后台继续，可稍后重新连接查看进度。',
       }
-      throw new QuestionBankRebuildError(timeoutJob)
+      options.onUpdate?.(detachedJob)
+      throw new QuestionBankRebuildPollingDetached(detachedJob)
     }
     if (pollIntervalMs > 0) {
       await new Promise(resolve => setTimeout(resolve, pollIntervalMs))

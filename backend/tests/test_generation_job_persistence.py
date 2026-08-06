@@ -3,6 +3,9 @@ import json
 import pytest
 
 import task_manager as task_manager_module
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+)
 from task_manager import TaskManager
 
 
@@ -56,6 +59,39 @@ def test_task_manager_history_survives_restart(tmp_path, monkeypatch):
 
     assert restarted.tasks["job-1"]["status"] == "waiting_for_review"
     assert restarted.tasks["job-1"]["course_id"] == "course-1"
+
+
+@pytest.mark.asyncio
+async def test_generation_job_persists_assessment_profile_and_legacy_default(
+    tmp_path,
+    monkeypatch,
+):
+    durable = tmp_path / "data" / "generation_jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", durable)
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+
+    task_id = await manager.create_task(
+        "course-fast",
+        request_snapshot={"assessment_generation_profile": "fast"},
+        enqueue=False,
+    )
+    assert manager.tasks[task_id]["assessment_generation_profile"] == "fast"
+    assert manager.tasks[task_id][
+        "assessment_generation_policy_version"
+    ] == ASSESSMENT_GENERATION_POLICY_VERSION
+
+    manager.tasks["legacy"] = {
+        "id": "legacy",
+        "course_id": "course-legacy",
+        "type": "course_generation",
+        "status": "completed",
+    }
+    manager.save_tasks(strict=True)
+    restarted = TaskManager(storage=None, course_service=None, ws_service=None)
+
+    assert restarted.tasks["legacy"]["assessment_generation_profile"] == (
+        "deliberate"
+    )
 
 
 @pytest.mark.asyncio

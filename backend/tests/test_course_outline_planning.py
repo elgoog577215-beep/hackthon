@@ -72,6 +72,56 @@ def _outline_batch_payload(system_prompt: str) -> str:
     }, ensure_ascii=False)
 
 
+def test_plan_conversion_keeps_existing_outline_numbering_idempotent():
+    nodes = CourseService._convert_plan_to_nodes(
+        None,
+        {
+            "chapters": [{
+                "chapter_number": 1,
+                "title": "第1章 开发环境与核心机制",
+                "sections": [{
+                    "section_number": "1.1",
+                    "title": "1.1 初始化项目",
+                }],
+            }],
+        },
+        "course-numbering",
+    )
+
+    assert [node["node_name"] for node in nodes] == [
+        "第1章 开发环境与核心机制",
+        "1.1 初始化项目",
+    ]
+
+
+def test_confirmed_outline_snapshot_is_not_replaced_by_downstream_normalization():
+    confirmed = {
+        "course_title": "Unity 实战",
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "第1章 开发环境",
+            "learning_focus": "",
+            "sections": [{
+                "section_number": "1.1",
+                "title": "1.1 初始化项目",
+            }],
+        }],
+    }
+    normalized = deepcopy(confirmed)
+    normalized["chapters"][0]["learning_focus"] = "第1章 开发环境"
+    normalized["chapters"][0]["sections"][0]["title"] = "初始化项目"
+
+    selected = CourseService._select_output_course_outline(
+        {
+            "course_outline_revision_id": "bp-confirmed",
+            "course_outline": confirmed,
+        },
+        normalized,
+    )
+
+    assert selected == confirmed
+
+
 def test_total_course_size_is_not_an_outline_budget_dimension():
     budget = CourseOutlinePlanningBudget()
 

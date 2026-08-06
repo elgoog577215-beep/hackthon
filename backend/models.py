@@ -314,6 +314,10 @@ class CourseGenerationRequest(BaseModel):
         Literal["light", "collaborative", "dual_core"]
     ] = None
     generation_mode: Literal["fast", "review_blueprint"] = "review_blueprint"
+    assessment_generation_profile: Literal[
+        "fast",
+        "deliberate",
+    ] = "deliberate"
     course_purpose: Literal[
         "systematic",
         "exam_sprint",
