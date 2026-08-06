@@ -50,7 +50,7 @@ def test_server_activation_sizes_free_space_from_release_backup_and_reserve() ->
         script.index("required_deploy_free_kb()") : script.index("ensure_free_space()")
     ]
 
-    assert 'DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-512}"' in script
+    assert 'DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-176}"' in script
     assert 'MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-}"' in script
     assert 'gzip -l "$ARTIFACT_PATH"' in capacity
     assert 'find "$BACKUP_DIR"' in capacity
@@ -137,3 +137,15 @@ def test_workflow_builds_before_uploading_release() -> None:
 
     assert build_step < upload_step < activate_step
     assert "scripts/build-deploy-artifact.sh" in workflow
+
+
+def test_release_artifact_excludes_non_runtime_visual_evidence() -> None:
+    script = (ROOT / "scripts" / "build-deploy-artifact.sh").read_text()
+
+    archive = script.index('git -C "$ROOT_DIR" archive "$TARGET_COMMIT"')
+    prune_videos = script.index('rm -rf "$STAGING_DIR/demo_videos"')
+    prune_design_evidence = script.index("-name 'design-qa-*.png' -delete")
+    package = script.index('tar -C "$STAGING_DIR" -czf "$OUTPUT_PATH" .')
+
+    assert archive < prune_videos < package
+    assert archive < prune_design_evidence < package

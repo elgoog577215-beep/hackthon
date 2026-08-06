@@ -6,7 +6,15 @@
         <h3 id="question-bank-title">{{ t('questionBank.title', '课程题库质量管理') }}</h3>
       </div>
       <div class="question-bank-panel__header-action">
-        <div>
+        <AssessmentGenerationProfileSelector
+          v-model="assessmentGenerationProfile"
+          compact
+          :disabled="rebuilding"
+          :hint="canContinueGeneration
+            ? `继续生成将锁定为${generationProfileLabel(checkpointGenerationProfile)}`
+            : ''"
+        />
+        <div class="question-bank-panel__header-copy">
           <small>{{ generationActionHelp }}</small>
           <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
             已发布新版章节 {{ completedChapters }}/{{ totalChapters }}
@@ -689,9 +697,11 @@ import {
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
+import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
+  type AssessmentGenerationProfile,
   type QuestionBankRebuildJob,
 } from '@/utils/question-bank-rebuild'
 
@@ -777,6 +787,7 @@ const items = ref<QuestionBankItem[]>([])
 const reviewNotes = reactive<Record<string, string>>({})
 const expandedQuestionRevision = ref('')
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
+const assessmentGenerationProfile = ref<AssessmentGenerationProfile>('fast')
 const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
 const browserQuery = ref('')
@@ -816,6 +827,12 @@ const canContinueGeneration = computed(() => Boolean(
   && completedChapters.value > 0
   && remainingChapters.value > 0,
 ))
+const checkpointGenerationProfile = computed<AssessmentGenerationProfile>(
+  () => normalizeGenerationProfile(
+    chapterRebuild.value.assessment_generation_profile,
+    'deliberate',
+  ),
+)
 const generationActionHelp = computed(() => (
   canContinueGeneration.value
     ? `已完成的 ${completedChapters.value} 章不会重做；每完成一章立即替换该章旧题`
@@ -1139,6 +1156,10 @@ async function recoverActiveRebuild() {
             || props.courseId !== courseId
           ) return
           rebuildJob.value = update
+          assessmentGenerationProfile.value = normalizeGenerationProfile(
+            update.assessment_generation_profile,
+            assessmentGenerationProfile.value,
+          )
           rebuilding.value = (
             update.status === 'queued'
             || update.status === 'running'
@@ -1221,6 +1242,11 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
   rebuildJob.value = null
   try {
     const scopedNodeId = String(nodeId || '')
+    const generationProfile = (
+      !scopedNodeId && resumeExisting && canContinueGeneration.value
+        ? checkpointGenerationProfile.value
+        : assessmentGenerationProfile.value
+    )
     await runQuestionBankRebuild(
       props.courseId,
       {
@@ -1228,6 +1254,7 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
         scope: scopedNodeId ? 'nodes' : 'course',
         node_ids: scopedNodeId ? [scopedNodeId] : [],
         mode: scopedNodeId ? 'incremental' : 'full',
+        assessment_generation_profile: generationProfile,
         retrieval_enabled: retrievalEnabled,
         ...(!scopedNodeId ? { resume_existing: resumeExisting } : {}),
       },
@@ -1265,6 +1292,17 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
 
 function isAbortError(error: any) {
   return error?.name === 'AbortError'
+}
+
+function normalizeGenerationProfile(
+  value: unknown,
+  fallback: AssessmentGenerationProfile,
+): AssessmentGenerationProfile {
+  return value === 'fast' || value === 'deliberate' ? value : fallback
+}
+
+function generationProfileLabel(value: AssessmentGenerationProfile) {
+  return value === 'fast' ? '快速版' : '思考版'
 }
 
 async function loadSolution(item: QuestionBankItem) {
@@ -1323,6 +1361,7 @@ async function rework(item: QuestionBankItem) {
         node_ids: [],
         revision_ids: [item.revision_id],
         mode: 'incremental',
+        assessment_generation_profile: assessmentGenerationProfile.value,
         retrieval_enabled: retrievalEnabled,
       },
       {
@@ -1479,7 +1518,7 @@ function formatValue(value: unknown) {
 .question-bank-panel__header p { margin: 0 0 3px; color: var(--lz-text-muted); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
 .question-bank-panel__header h3 { margin: 0; color: var(--lz-text-strong); font-size: 15px; }
 .question-bank-panel__header-action { display:flex; align-items:flex-end; gap:10px; }
-.question-bank-panel__header-action>div:first-child { display:grid; max-width:250px; gap:3px; text-align:right; }
+.question-bank-panel__header-copy { display:grid; max-width:250px; gap:3px; text-align:right; }
 .question-bank-panel__header-action small,.question-bank-panel__header-action span { color:var(--lz-text-muted); font-size:10px; line-height:1.4; }
 .question-bank-panel__header-action span { color:#047857; font-weight:700; }
 .question-bank-panel__header-buttons { display:flex; align-items:center; gap:7px; }
@@ -1605,5 +1644,5 @@ function formatValue(value: unknown) {
 .spin { animation: question-bank-spin .9s linear infinite; }
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
 @media (max-width: 900px) { .question-review-item__summary-main { grid-template-columns:auto minmax(0,1fr); }.question-review-item__meta { grid-column:1/-1; max-width:none; } }
-@media (max-width: 720px) { .question-bank-panel__header { align-items:flex-start; flex-direction:column; }.question-bank-panel__header-action { width:100%; align-items:flex-start; flex-direction:column; }.question-bank-panel__header-action>div:first-child { max-width:none; text-align:left; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-summary { grid-template-columns: 1fr; }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
+@media (max-width: 720px) { .question-bank-panel__header { align-items:flex-start; flex-direction:column; }.question-bank-panel__header-action { width:100%; align-items:flex-start; flex-direction:column; }.question-bank-panel__header-copy { max-width:none; text-align:left; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-summary { grid-template-columns: 1fr; }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 </style>
