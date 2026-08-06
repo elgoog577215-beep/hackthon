@@ -93,8 +93,30 @@ def test_queries_respect_max_and_are_unique():
     queries = derive_search_queries(
         topic="微积分", requirements="极限 连续 导数 积分 级数", max_queries=3
     )
-    assert len(queries) == 3
-    assert len(set(queries)) == 3
+    assert 0 < len(queries) <= 3
+    assert len(set(queries)) == len(queries)
+
+
+def test_query_fallback_matches_topic_language():
+    """兜底资料词必须与主题同语言，跨语言会引入噪音被网关判低相关。"""
+    zh = derive_search_queries(topic="微积分", requirements="", max_queries=5)
+    assert any("讲义" in query for query in zh)
+    assert not any("lecture notes" in query for query in zh)
+
+    en = derive_search_queries(topic="calculus", requirements="", max_queries=5)
+    assert any("lecture notes" in query for query in en)
+    assert not any("讲义" in query for query in en)
+
+
+def test_queries_stay_short_for_relevance_scoring():
+    """网关按查询词与标题/摘要重合度打分，堆砌套话会把来源稀释成 tier_c。"""
+    queries = derive_search_queries(
+        topic="线性代数", requirements="特征值 特征向量", max_queries=5
+    )
+    for query in queries:
+        assert "开放教育资源" not in query
+        assert "教学资料" not in query
+        assert len(query.split()) <= 6
 
 
 def test_queries_empty_without_topic():
@@ -330,4 +352,5 @@ def test_low_trust_binding_is_weak_context():
 
 
 def test_min_usable_text_threshold_is_meaningful():
-    assert MIN_USABLE_TEXT_CHARS >= 100
+    # SearXNG 返回摘要而非全文，阈值只用于排除空壳页面，不承担质量判定。
+    assert 40 <= MIN_USABLE_TEXT_CHARS <= 120

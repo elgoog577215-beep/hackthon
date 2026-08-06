@@ -19,8 +19,12 @@ from web_retrieval import (
     resolve_retrieval_policy,
 )
 
-# 落地为资料资产的最低正文长度，短于此值不足以支撑教学内容。
-MIN_USABLE_TEXT_CHARS = 200
+# 落地为资料资产的最低正文长度。
+# SearXNG 返回的是搜索引擎摘要（snippet）而非整页正文，实测（2026-08-06）
+# 中文来源摘要常在 100-200 字之间，英文在 250-700 字之间。原先按 Exa 全文
+# 场景定的 200 字阈值会把合格的中文 tier_a 来源整批挡掉，故下调到 80。
+# 这不降低质量门：相关性与可信度由网关的 tier 判定负责，这里只排除空壳页面。
+MIN_USABLE_TEXT_CHARS = 80
 MAX_QUERY_CHARS = 300
 
 _STOPWORDS = {
@@ -29,6 +33,11 @@ _STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "into", "about", "course",
     "students", "should", "would", "please", "need", "want", "learn", "teach",
 }
+
+
+def _contains_cjk(value: str) -> bool:
+    """判断查询主题是否为中文，用于选择同语言的兜底资料词。"""
+    return bool(re.search(r"[㐀-鿿]", str(value or "")))
 
 
 def safe_query_term(value: str) -> str:
@@ -50,6 +59,11 @@ def derive_search_queries(
 
     查询完全由输入推导且可展示给教师审阅，不做隐式扩写。
     网关还会再做一次 PII 脱敏，这里只负责语义构造。
+
+    刻意保持查询简短：网关的 `_relevance()` 按查询词与标题/摘要的重合度打分，
+    低于 0.55 直接判 `low_relevance` 落到 tier_c。实测（2026-08-06，真实
+    SearXNG）拼接"教学资料""开放教育资源"这类套话会把所有来源稀释成 tier_c，
+    准入数从 8 条掉到 0 条。因此这里只输出主题 + 具体知识点。
     """
     safe_topic = safe_query_term(topic)
     if not safe_topic:
@@ -62,13 +76,16 @@ def derive_search_queries(
 
     candidates: list[str] = []
     for goal in goals:
-        candidates.append(f"{safe_topic} {goal} 教学资料")
+        candidates.append(f"{safe_topic} {goal}")
     for phrase in phrases[:3]:
         candidates.append(f"{safe_topic} {phrase}")
-    candidates.append(f"{safe_topic} 教程 开放教育资源")
-    candidates.append(f"{safe_topic} lecture notes open educational resource")
+    # 兜底查询与主题同语言：中文主题配英文资料词（或反之）会让搜索引擎
+    # 返回跨语言噪音，进而被网关判 low_relevance。
+    candidates.append(
+        f"{safe_topic} 讲义" if _contains_cjk(safe_topic) else f"{safe_topic} lecture notes"
+    )
     if audience:
-        candidates.append(f"{safe_topic} {audience} 课程大纲")
+        candidates.append(f"{safe_topic} {audience}")
 
     result: list[str] = []
     for item in candidates:
@@ -184,7 +201,11 @@ async def discover_web_materials(
         requirements=requirements,
         target_audience=target_audience,
         objectives=objectives,
-        max_queries=12,
+        # 刻意只发少量查询：网关按 ceil(max_sources / 查询数) 给每条查询分配
+        # 取回额度，查询越多每条取回越浅。实测（2026-08-06 真实 SearXNG）
+        # 中文查询发 3 条时每条只取前 8 条结果，而中文搜索前 8 名多为
+        # 百科/问答/博客聚合站，全部判 low_relevance，准入从 3 条掉到 0 条。
+        max_queries=2,
     )
     report["queries"] = list(queries)
     report["query_count"] = len(queries)
