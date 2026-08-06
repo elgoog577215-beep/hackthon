@@ -643,6 +643,12 @@ async def test_scoped_repair_keeps_reviewable_local_contract_on_provider_quota()
     assert audit["fallback_count"] == 1
     assert audit["items"][0]["final_decision"] == "teacher_review"
     assert chapter_events[0]["passed"] is True
+    bank = build_question_bank(prepared)
+    item = bank["items"][0]
+    assert item["quality_report"]["passed"] is True
+    assert item["generation_status"] == "waiting_review"
+    assert item["review_required"] is True
+    assert "ai_validation_unavailable" in item["risk_flags"]
 
 
 async def test_node_uses_one_batch_generation_call_when_supported():
