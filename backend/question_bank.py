@@ -6,11 +6,12 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Iterable
 from copy import deepcopy
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
@@ -898,10 +899,17 @@ def reconcile_scoped_question_bank(
             return False
         if not selected_levels:
             return True
-        practice_level = str(item.get("practice_level") or "")
+        item_levels = {
+            str(level)
+            for level in (
+                item.get("practice_levels")
+                or [item.get("practice_level")]
+            )
+            if str(level or "").strip()
+        }
         return any(
             not selected_levels.get(node_id)
-            or practice_level in selected_levels[node_id]
+            or bool(item_levels & selected_levels[node_id])
             for node_id in matched_nodes
         )
 

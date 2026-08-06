@@ -3,9 +3,9 @@ from __future__ import annotations
 from copy import deepcopy
 
 from question_bank import (
+    recalculate_question_bank_coverage,
     reconcile_item_question_bank,
     reconcile_scoped_question_bank,
-    recalculate_question_bank_coverage,
 )
 
 
