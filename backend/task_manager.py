@@ -6900,6 +6900,25 @@ class TaskManager:
         )
         completed_repair_nodes: list[str] = []
 
+        async def checkpoint_repair_progress(event: dict[str, Any]) -> None:
+            completed_items = max(0, int(event.get("completed_items") or 0))
+            total_items = max(1, int(event.get("total_items") or 0))
+            await self._update_phase(
+                task_id,
+                "practice_repair",
+                94,
+                f"正在生成并验证练习 {completed_items}/{total_items}",
+                phase_progress=(
+                    70 + int(min(completed_items, total_items) / total_items * 20)
+                ),
+                phase_detail={
+                    "completed_item_count": completed_items,
+                    "target_item_count": total_items,
+                    "target_node_count": len(failed_node_ids),
+                    "repair_scope": "failed_practice_only",
+                },
+            )
+
         async def checkpoint_repaired_node(event: dict[str, Any]) -> None:
             nonlocal question_bank_bundle
             node_id = str(event.get("node_id") or "")
@@ -6962,6 +6981,7 @@ class TaskManager:
             asset_course,
             node_ids=failed_node_ids,
             practice_levels_by_node=failed_targets,
+            on_progress=checkpoint_repair_progress,
             on_chapter_complete=checkpoint_repaired_node,
             reference_package=deepcopy(
                 asset_course.get("_question_reference_package") or {}
