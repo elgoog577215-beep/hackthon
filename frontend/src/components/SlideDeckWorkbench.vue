@@ -632,17 +632,43 @@ const advisoryQualityIssues = computed(() => (
 const failureIssueSummary = computed(() => {
   const issues = blockingQualityIssues.value
   if (!issues.length) return ''
-  const firstCode = issues[0]?.code
-  if (!firstCode) return ''
-  const matching = issues.filter(issue => issue.code === firstCode)
-  const pageCount = new Set(matching.map(issue => issue.slide)).size
-  const label = ({
-    body_density_overflow: '正文过密',
-    slide_title_overflow: '标题过长',
-    visible_item_overflow: '项目过多',
-    mixed_narrative_jobs: '页面叙事混杂',
-  } as Record<string, string>)[firstCode] || '质量检查阻断'
-  return `${label} · ${pageCount} 页`
+  const reportedTotal = Number(props.quality?.blocker_count || 0)
+  const total = Number.isFinite(reportedTotal) && reportedTotal > 0
+    ? reportedTotal
+    : issues.length
+  const returned = issues.length
+  const counts = issues.reduce((result, issue) => {
+    result.set(issue.code, (result.get(issue.code) || 0) + 1)
+    return result
+  }, new Map<string, number>())
+  const issueLabels: Record<string, string> = {
+    dangling_fragment: t('pptWorkspace.qualityIssueLabels.danglingFragment', '残句'),
+    continuation_sequence_missing: t('pptWorkspace.qualityIssueLabels.continuationSequence', '续页序号'),
+    process_result_missing: t('pptWorkspace.qualityIssueLabels.processResult', '过程结果'),
+    raw_internal_label_visible: t('pptWorkspace.qualityIssueLabels.internalLabel', '内部标签'),
+    worked_example_conclusion_missing: t('pptWorkspace.qualityIssueLabels.exampleConclusion', '例题结论'),
+    semantic_atom_split: t('pptWorkspace.qualityIssueLabels.semanticSplit', '语义拆页'),
+    duplicate_title: t('pptWorkspace.qualityIssueLabels.duplicateTitle', '重复标题'),
+    body_density_overflow: t('pptWorkspace.qualityIssueLabels.bodyDensity', '正文过密'),
+    slide_title_overflow: t('pptWorkspace.qualityIssueLabels.titleOverflow', '标题过长'),
+    visible_item_overflow: t('pptWorkspace.qualityIssueLabels.itemOverflow', '项目过多'),
+    mixed_narrative_jobs: t('pptWorkspace.qualityIssueLabels.mixedNarrative', '页面叙事混杂'),
+  }
+  const groups = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([code, count]) => `${issueLabels[code] || code} ${count}`)
+    .join(t('pptWorkspace.qualityIssueSeparator', '、'))
+  const summaryTemplate = returned < total
+    ? t(
+        'pptWorkspace.qualityBlockerSummaryPartial',
+        '质量检查阻断 · {total} 项（当前返回 {returned} 项）',
+      )
+    : t('pptWorkspace.qualityBlockerSummary', '质量检查阻断 · {total} 项')
+  const summary = summaryTemplate
+    .replace('{total}', String(total))
+    .replace('{returned}', String(returned))
+  return groups ? `${summary}：${groups}` : summary
 })
 const failureReceiptTitle = computed(() => (
   generationBlocked.value
@@ -725,6 +751,7 @@ const stageLabel = computed(() => ({
   image_search: '正在检索并核验教学图片',
   render_repair: '正在修复导出版式问题',
   repair_progress: '正在定向修复问题页面',
+  quality_fallback: t('pptWorkspace.qualityFallbackStage', 'AI 草稿未通过检查，正在切换稳定生成方案'),
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 

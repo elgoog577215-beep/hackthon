@@ -27,8 +27,9 @@ from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
-    _v5_group_kind_for_profile,
     _split_practice_feedback_capacity_v5,
+    _v5_fragment_groups_for_profile,
+    _v5_group_kind_for_profile,
     allocation_from_story_plan_v5,
     apply_page_contract_v5,
     build_signature_v5,
@@ -306,6 +307,19 @@ def test_quality_fallback_prefers_explicit_source_group_kind() -> None:
         {fragment.fragment_id: inferred_practice},
         profile="quality_fallback",
     ) == "concept"
+
+    continuation = fragment.model_copy(update={
+        "fragment_id": "fragment-clinical-context-detail",
+        "block_id": "block-clinical-context-detail",
+        "kind": "paragraph",
+        "text": "Source-bound detail stored in a separate legacy block.",
+        "ordinal": 11,
+        "source_hash": "hash-clinical-context-detail",
+    })
+    assert _v5_fragment_groups_for_profile(
+        [fragment, continuation],
+        profile="quality_fallback",
+    ) == [[fragment, continuation]]
 
 
 def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() -> None:
@@ -2674,6 +2688,10 @@ def test_chapter_recap_uses_claims_and_a_retrieval_prompt_not_slide_titles() -> 
         (
             "本节旨在建立上肢近端至中段的“骨 - 肌 - 神经”空间对应关系",
             "骨 - 肌 - 神经空间对应关系",
+        ),
+        (
+            "本模块依据下肢肌群配布的功能分区与协同拮抗机制开展教学",
+            "下肢肌群配布的功能分区",
         ),
     ],
 )

@@ -216,6 +216,36 @@ def _v5_fragment_groups(fragments: list[Any]) -> list[list[Any]]:
     return groups
 
 
+def _v5_fragment_groups_for_profile(
+    fragments: list[Any],
+    *,
+    profile: str,
+) -> list[list[Any]]:
+    if profile == "semantic":
+        return _v5_fragment_groups(fragments)
+    if profile != "quality_fallback":
+        raise ValueError(f"Unsupported V5 compaction profile: {profile}")
+
+    # Legacy material often stores every paragraph or list item in its own
+    # block. Splitting at those storage boundaries promoted each fragment to a
+    # standalone teaching episode (78 beats / 120 pages for the anatomy deck).
+    # Explicit source headings are the stable narrative boundary for fallback.
+    groups: list[list[Any]] = []
+    current: list[Any] = []
+    for fragment in sorted(fragments, key=lambda item: item.ordinal):
+        if (
+            fragment.kind == "heading"
+            and current
+            and any(item.kind != "heading" for item in current)
+        ):
+            groups.append(current)
+            current = []
+        current.append(fragment)
+    if current:
+        groups.append(current)
+    return groups
+
+
 def _v5_group_kind(
     group: list[Any],
     semantic_by_fragment: dict[str, Any] | None = None,
@@ -283,6 +313,27 @@ def _v5_group_kind(
     if semantic_units:
         return semantic_group_kind(unit_by_id[semantic_units[0]])
     return "concept"
+
+
+def _v5_group_kind_for_profile(
+    group: list[Any],
+    semantic_by_fragment: dict[str, Any],
+    *,
+    profile: str,
+) -> str:
+    """Choose source-explicit grouping for the quality fallback profile.
+
+    The semantic adapter intentionally infers checkpoints from legacy prose.
+    That inference is useful for the normal planner, but using it again after
+    an AI candidate has already failed can turn every instructional hint into
+    a separate practice episode.  The fallback therefore trusts explicit
+    source headings and roles, producing the smaller source-bound plan.
+    """
+    if profile == "quality_fallback":
+        return _v5_group_kind(group)
+    if profile != "semantic":
+        raise ValueError(f"Unsupported V5 compaction profile: {profile}")
+    return _v5_group_kind(group, semantic_by_fragment)
 
 
 def _chinese_count(value: str) -> int | None:
@@ -700,12 +751,16 @@ def compact_story_plan_v5(
     document: CourseDocument,
     story_plan: SlideStoryPlanV2 | dict[str, Any],
     fragments: list[Any] | None = None,
+    *,
+    profile: str = "semantic",
 ) -> SlideStoryPlanV2:
     """Select three complete, source-bound teaching groups per source section.
 
     Detailed source fragments remain available as explicit coverage decisions
     instead of being copied into dense appendix slides.
     """
+    if profile not in {"semantic", "quality_fallback"}:
+        raise ValueError(f"Unsupported V5 compaction profile: {profile}")
     story = (
         story_plan
         if isinstance(story_plan, SlideStoryPlanV2)
@@ -797,20 +852,29 @@ def compact_story_plan_v5(
             )
             section_ids = []
         for section_id in section_ids:
-            groups = _v5_fragment_groups(
-                fragments_by_section.get(section_id, [])
+            groups = _v5_fragment_groups_for_profile(
+                fragments_by_section.get(section_id, []),
+                profile=profile,
             )
             by_kind: dict[str, list[list[Any]]] = {}
             for group in groups:
                 by_kind.setdefault(
-                    _v5_group_kind(group, semantic_by_fragment),
+                    _v5_group_kind_for_profile(
+                        group,
+                        semantic_by_fragment,
+                        profile=profile,
+                    ),
                     [],
                 ).append(group)
             selected_groups: list[tuple[str, list[Any]]] = []
             if by_kind.get("concept"):
                 concept_group = list(by_kind["concept"][0])
                 if (
-                    any(_enumeration_counts(str(item.text or "")) for item in concept_group)
+                    profile == "semantic"
+                    and any(
+                        _enumeration_counts(str(item.text or ""))
+                        for item in concept_group
+                    )
                     and not _v5_required_enumeration_fragments(concept_group)
                 ):
                     for sibling_group in by_kind["concept"][1:]:
@@ -829,11 +893,20 @@ def compact_story_plan_v5(
                 (
                     (kind, by_kind[kind][0])
                     for kind in (
-                        "worked",
-                        "application",
-                        "method",
-                        "reasoning",
-                        "misconception",
+                        (
+                            "worked",
+                            "application",
+                            "method",
+                            "reasoning",
+                        )
+                        if profile == "quality_fallback"
+                        else (
+                            "worked",
+                            "application",
+                            "method",
+                            "reasoning",
+                            "misconception",
+                        )
                     )
                     if by_kind.get(kind)
                 ),
@@ -843,7 +916,7 @@ def compact_story_plan_v5(
                 selected_groups.append(second)
             if by_kind.get("practice"):
                 practice_group = list(by_kind["practice"][0])
-                if by_kind.get("feedback"):
+                if profile == "semantic" and by_kind.get("feedback"):
                     practice_group.extend(by_kind["feedback"][0])
                     practice_group = sorted(
                         {
@@ -868,11 +941,15 @@ def compact_story_plan_v5(
                         )
                     ):
                         continue
-                    fallback_kind = _v5_group_kind(
+                    fallback_kind = _v5_group_kind_for_profile(
                         group,
                         semantic_by_fragment,
+                        profile=profile,
                     )
-                    if fallback_kind in {"navigation", "feedback", "recap"}:
+                    if (
+                        profile == "semantic"
+                        and fallback_kind in {"navigation", "feedback", "recap"}
+                    ):
                         continue
                     selected_groups.append((fallback_kind, group))
                     if len(selected_groups) == 3:
@@ -884,7 +961,7 @@ def compact_story_plan_v5(
                         semantic_by_fragment,
                         limit=400,
                     )
-                    if kind == "practice"
+                    if kind == "practice" and profile == "semantic"
                     else _v5_fit_group(raw_group, limit=230)
                 )
                 if not group:
@@ -1179,6 +1256,7 @@ def compact_story_plan_v5(
         "planning_diagnostics": {
             **(story.planning_diagnostics or {}),
             "semantic_compiler_version": PPT_SEMANTIC_COMPILER_VERSION,
+            "compaction_profile": profile,
             "semantic_unit_count": len(semantic_units),
             "structured_semantic_unit_count": structured_count,
             "legacy_semantic_unit_count": len(semantic_units) - structured_count,
@@ -1781,7 +1859,10 @@ _INSTRUCTIONAL_CLAIM_PATTERN = re.compile(
 
 
 def _is_complete_declarative_claim(value: str) -> bool:
-    clean = _clean_text(value).rstrip("。！？!?；;，,：:、 ")
+    visible = _clean_text(value)
+    if re.search(r"(?:[：:，,、；;]|以及|并且|包括|如下)\s*$", visible):
+        return False
+    clean = visible.rstrip("。！？!? ")
     return bool(
         clean
         and not _is_incomplete_visible_claim(clean)
@@ -2698,7 +2779,7 @@ def _chapter_recap_slide(
                 continue
             compact_candidate = _bounded_body_claim(
                 candidate,
-                limit=64,
+                limit=52,
                 require_complete=True,
             )
             normalized_candidate = _normalize_title_match(compact_candidate)
@@ -4261,10 +4342,14 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
         str(slide.get("unit_id") or ""): slide for slide in slides
     }
     continuation_children: dict[str, list[dict[str, Any]]] = {}
+    episode_slides: dict[str, list[dict[str, Any]]] = {}
     for candidate in slides:
         parent = str((candidate.get("quality") or {}).get("continuation_of") or "")
         if parent:
             continuation_children.setdefault(parent, []).append(candidate)
+        episode_id = str(candidate.get("episode_id") or "")
+        if episode_id:
+            episode_slides.setdefault(episode_id, []).append(candidate)
     for slide in slides:
         quality = slide.get("quality") or {}
         requested = str(quality.get("requested_layout") or "")
@@ -4492,6 +4577,15 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             slide_by_id.get(continuation_root, slide),
             *continuation_children.get(continuation_root, []),
         ]
+        episode_id = str(slide.get("episode_id") or "")
+        if episode_id:
+            family_slides = list({
+                str(candidate.get("unit_id") or ""): candidate
+                for candidate in [
+                    *family_slides,
+                    *episode_slides.get(episode_id, []),
+                ]
+            }.values())
         body_text = " ".join(
             _clean_text(value)
             for family_slide in family_slides

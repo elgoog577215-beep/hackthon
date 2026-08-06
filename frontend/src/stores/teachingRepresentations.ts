@@ -498,6 +498,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.event === 'image_search') this.buildStage = 'image_search'
           if (event.event === 'render_repair') this.buildStage = 'render_repair'
           if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
+          if (event.event === 'quality_fallback') {
+            this.buildStage = 'quality_fallback'
+            this.liveSlides = []
+            this.draftSlideQuality = null
+            this.buildFailure = null
+            this.buildError = ''
+            if (this.publishedSlideQuality) {
+              this.slidePreviewSource = 'published'
+              this.slideQuality = this.publishedSlideQuality
+            }
+          }
           if (event.event === 'build_blocked') {
             const failure = normalizedBuildFailure(event, event.quality)
             this.settleFailedSlideDraft(event.quality)

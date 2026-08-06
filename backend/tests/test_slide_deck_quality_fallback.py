@@ -28,6 +28,7 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
     calls: list[dict] = []
     progress_events: list[dict] = []
     checkpoints: list[tuple[object, object, object]] = []
+    compaction_profiles: list[str] = []
 
     def rebuild(*_args, **kwargs):
         calls.append(kwargs)
@@ -60,11 +61,11 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
         "compile_slide_story_plan_v2",
         lambda *_args, **_kwargs: SimpleNamespace(planner="deterministic_fallback"),
     )
-    monkeypatch.setattr(
-        task_manager,
-        "compact_story_plan_v5",
-        lambda *_args, **_kwargs: deterministic_story,
-    )
+    def compact(*_args, **kwargs):
+        compaction_profiles.append(kwargs.get("profile", ""))
+        return deterministic_story
+
+    monkeypatch.setattr(task_manager, "compact_story_plan_v5", compact)
     monkeypatch.setattr(
         task_manager,
         "allocation_from_story_plan_v5",
@@ -102,6 +103,7 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
     assert checkpoints == [
         (deterministic_allocation, deterministic_visual, deterministic_story),
     ]
+    assert compaction_profiles == ["quality_fallback"]
     assert result["used_deterministic_fallback"] is True
     assert result["build"]["quality"]["passed"] is True
     assert result["initial_quality"] == failed_quality

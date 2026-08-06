@@ -142,6 +142,110 @@ def test_continuation_requires_parent_link_and_visible_sequence() -> None:
     }
 
 
+def test_semantic_repair_restores_continuation_sequence_after_title_repair() -> None:
+    root = _slide(
+        "slide:v5:episode-1:root",
+        title="纵隔四分法的平面划分依据",
+        content="前三个区域分别说明其位置与主要结构。" * 20,
+    )
+    continuation = _slide(
+        "slide:v5:episode-1:continuation",
+        title="纵隔四分法的平面划分依据",
+        content="后纵隔位于心包后壁与脊柱之间。" * 20,
+    )
+    continuation["quality"].update({
+        "continuation_of": root["unit_id"],
+        "continuation_index": 2,
+        "continuation_total": 2,
+        "title_character_budget": 18,
+    })
+
+    repaired, _history = repair_semantic_slides_v5(
+        [root, continuation],
+        max_rounds=2,
+    )
+
+    assert repaired[1]["title"].endswith("（续2/2）")
+    assert "continuation_sequence_missing" not in {
+        issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
+def test_semantic_repair_renumbers_duplicate_continuation_children() -> None:
+    root = _slide(
+        "slide:v5:episode-1:root",
+        title="纵隔四分法的平面划分依据",
+        content="纵隔划分的来源说明。" * 30,
+    )
+    children = []
+    for number, content in enumerate((
+        "前纵隔与中纵隔分别说明其边界。",
+        "后纵隔位于心包后壁与脊柱之间。",
+    ), start=1):
+        child = _slide(
+            f"slide:v5:episode-1:continuation-{number}",
+            title="纵隔四分法的平面划分依据（续2/2）",
+            content=content * 20,
+        )
+        child["quality"].update({
+            "continuation_of": root["unit_id"],
+            "continuation_index": 2,
+            "continuation_total": 2,
+            "title_character_budget": 18,
+        })
+        children.append(child)
+
+    repaired, _history = repair_semantic_slides_v5(
+        [root, *children],
+        max_rounds=2,
+    )
+
+    assert [slide["quality"]["continuation_index"] for slide in repaired] == [
+        1,
+        2,
+        3,
+    ]
+    assert repaired[1]["title"].endswith("（续2/3）")
+    assert repaired[2]["title"].endswith("（续3/3）")
+
+
+def test_grounded_practice_feedback_is_not_accidental_duplicate_copy() -> None:
+    concept = _slide(
+        "slide:v5:episode-1:concept",
+        title="四层结构形成稳定定位顺序",
+        content="皮层、浅筋膜、深筋膜与肌层构成由浅入深的定位顺序。",
+    )
+    practice = _slide(
+        "slide:v5:episode-2:practice",
+        title="核对四层结构的绘制顺序",
+        content="请核对绘图中四层结构的顺序。",
+        episode_id="episode-2",
+        scene_kind="practice_feedback",
+        block_type="exercise",
+    )
+    practice["blocks"][0]["metadata"].update({
+        "question_mode": "open_discussion",
+        "semantic_role": "prompt",
+    })
+    practice["blocks"].append({
+        "block_id": "slide:v5:episode-2:practice:feedback",
+        "type": "callout",
+        "title": "判断依据",
+        "content": "皮层、浅筋膜、深筋膜与肌层构成由浅入深的定位顺序。",
+        "items": [],
+        "metadata": {
+            "semantic_role": "feedback",
+            "grounded": True,
+        },
+    })
+
+    report = build_slide_deck_quality_v5([concept, practice])
+
+    assert "duplicate_visible_content" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_deterministic_semantic_repair_is_targeted_and_never_invents_an_answer() -> None:
     healthy = _slide(
         "slide:v5:episode-1:001",
