@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import json
-from pathlib import Path
 import subprocess
 import sys
 import time
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -20,7 +20,7 @@ from guided_generation import (
     mark_waiting,
     step_state,
 )
-from task_manager import TaskManager, TaskRecoveryConflict
+from task_manager import TaskManager
 
 
 class MemoryStorage:
@@ -432,6 +432,119 @@ def test_quality_failure_summary_includes_source_chain_blockers():
     assert summary["repair_scopes"] == ["manual_review"]
     assert summary["supported"] is False
     assert summary["blockers"][0]["code"] == "requirements_revision_mismatch"
+
+
+def test_missing_practice_slots_are_included_in_targeted_repair():
+    targets = TaskManager._failed_practice_targets(
+        {
+            "questions": [{
+                "node_id": "L2-1-1",
+                "practice_level": "concept_check",
+                "quality_status": "passed",
+                "quality_report": {"passed": True},
+                "practice_contract_revision_id": "pc-ok",
+                "input_contract": {"node_id": "L2-1-1"},
+            }],
+        },
+        expected_node_ids=["L2-1-1", "L2-1-2"],
+    )
+
+    assert targets == {
+        "L2-1-1": ["objective_practice", "mastery_check"],
+        "L2-1-2": [
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        ],
+    }
+
+
+def test_confirmed_outline_revision_mismatch_uses_snapshot_repair_scope():
+    summary = TaskManager._quality_failure_summary({
+        "course_outline_revision_id": "bp-confirmed",
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "blocking_issues": [],
+        },
+        "asset_quality_report": {
+            "passed": True,
+            "blocking_issues": [],
+        },
+        "generation_source_chain_report": {
+            "can_publish": False,
+            "issues": [{
+                "code": "outline_revision_mismatch",
+                "step": "outline",
+                "message": "outline no longer matches its confirmed revision",
+            }],
+        },
+    })
+
+    assert summary["supported"] is True
+    assert summary["repair_scopes"] == ["confirmed_outline_snapshot"]
+
+
+def test_confirmed_outline_snapshot_restore_preserves_content_and_exact_revision():
+    confirmed = {
+        "course_id": "course-recovery",
+        "course_name": "Unity 实战",
+        "course_outline": {
+            "course_title": "Unity 实战",
+            "chapters": [{
+                "chapter_number": 1,
+                "title": "第1章 开发环境",
+                "learning_focus": "",
+                "sections": [{
+                    "section_number": "1.1",
+                    "node_id": "L2-1-1",
+                    "title": "1.1 初始化项目",
+                    "learning_objective": "完成项目初始化",
+                    "scope_boundary": "只覆盖工程初始化",
+                    "assessment": ["项目可以运行"],
+                    "prerequisite_node_ids": [],
+                }],
+            }],
+        },
+        "nodes": [
+            {
+                "node_id": "L1-1",
+                "parent_node_id": "root",
+                "node_name": "第1章 开发环境",
+                "node_level": 1,
+                "learning_objective": "",
+                "prerequisite_node_ids": [],
+                "scope_boundary": "",
+                "assessment": [],
+            },
+            {
+                "node_id": "L2-1-1",
+                "parent_node_id": "L1-1",
+                "node_name": "1.1 初始化项目",
+                "node_level": 2,
+                "learning_objective": "完成项目初始化",
+                "prerequisite_node_ids": [],
+                "scope_boundary": "只覆盖工程初始化",
+                "assessment": ["项目可以运行"],
+            },
+        ],
+    }
+    expected_revision = artifact_revision("outline", confirmed, request={})
+    drifted = deepcopy(confirmed)
+    drifted["course_outline"]["chapters"][0]["learning_focus"] = "第1章 开发环境"
+    drifted["course_outline"]["chapters"][0]["sections"][0]["title"] = "初始化项目"
+    drifted["nodes"][0]["node_name"] = "第1章 第1章 开发环境"
+    drifted["nodes"][1]["node_content"] = "已经生成且必须保留的正文"
+
+    restored = TaskManager._restore_confirmed_outline_identity(
+        drifted,
+        confirmed,
+        expected_revision=expected_revision,
+        request={},
+    )
+
+    assert artifact_revision("outline", restored, request={}) == expected_revision
+    assert restored["nodes"][1]["node_content"] == "已经生成且必须保留的正文"
+    assert restored["nodes"][0]["node_name"] == "第1章 开发环境"
 
 
 @pytest.mark.asyncio
