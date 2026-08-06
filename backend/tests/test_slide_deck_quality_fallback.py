@@ -34,10 +34,11 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
         calls.append(kwargs)
         if len(calls) == 1:
             kwargs["progress_callback"]({
-                "event": "build_blocked",
-                "stage": "build_blocked",
+                "event": "build_failed",
+                "stage": "build_failed",
                 "progress": 100,
                 "quality": failed_quality,
+                "message": "final SlideDeckContent schema mismatch",
             })
             return {
                 "status": "failed_using_last_available",
@@ -94,7 +95,10 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
     assert calls[1]["allocation_plan"] is deterministic_allocation
     assert calls[1]["visual_plan"] is deterministic_visual
     assert calls[1]["resume_slides"] == []
-    assert not any(event["event"] == "build_blocked" for event in progress_events)
+    assert not any(
+        event["event"] in {"build_blocked", "build_failed"}
+        for event in progress_events
+    )
     fallback_event = next(
         event for event in progress_events if event["event"] == "quality_fallback"
     )
