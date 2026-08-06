@@ -760,7 +760,16 @@ def evaluate_learning_asset_quality(
         if [item.get("level") for item in hint_levels] != [1, 2, 3]:
             issues.append(_asset_issue("discipline", "major", "questions", "题目必须提供顺序明确的三级提示", question))
         answer_spec = question.get("answer_spec") or {}
-        if not answer_spec.get("criteria") or not answer_spec.get("expected_keywords"):
+        question_spec = question.get("question_spec") or {}
+        compiled_v2_contract = bool(
+            question_spec.get("schema_version") == "question_spec_v2"
+            and question.get("solution_revision_id")
+            and (question.get("compiled_contract_validation") or {}).get("passed")
+        )
+        if not answer_spec.get("criteria") or (
+            not answer_spec.get("expected_keywords")
+            and not compiled_v2_contract
+        ):
             issues.append(_asset_issue("discipline", "major", "questions", "答案量规不可执行", question))
         criteria_text = " ".join(str(item) for item in answer_spec.get("criteria") or [])
         if question.get("practice_level") == "concept_check":
@@ -790,13 +799,15 @@ def evaluate_learning_asset_quality(
                 question,
             ))
         if question.get("practice_level") == "mastery_check":
-            question_spec = question.get("question_spec") or {}
             target = question_spec.get("target") or {}
             task = question_spec.get("task") or {}
             if (
-                not target.get("assessment_actions")
-                or not str(task.get("rendered_text") or "").strip()
-                or not str(task.get("deliverable") or "").strip()
+                not compiled_v2_contract
+                and (
+                    not target.get("assessment_actions")
+                    or not str(task.get("rendered_text") or "").strip()
+                    or not str(task.get("deliverable") or "").strip()
+                )
             ):
                 issues.append(_asset_issue(
                     "semantic",
