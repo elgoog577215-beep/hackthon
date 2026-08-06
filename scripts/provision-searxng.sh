@@ -142,11 +142,11 @@ smoke_ready=0
 for attempt in $(seq 1 3); do
     if curl --fail --silent --show-error --max-time 12 \
         --request POST \
-        --data 'q=Lingzhi retrieval smoke test' \
+        --data-urlencode 'q=Unity MonoBehaviour GameObject 中文教程' \
         --data 'format=json' \
-        --data 'categories=general,science' \
+        --data 'categories=general' \
         --data 'safesearch=2' \
-        --data 'language=en' \
+        --data 'language=zh-CN' \
         http://127.0.0.1:8080/search \
         | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert payload.get("results")'; then
         smoke_ready=1

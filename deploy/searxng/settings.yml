@@ -8,6 +8,8 @@ use_default_settings:
       - startpage
       - qwant
       - yahoo
+      - sogou
+      - quark
       - wikipedia
       - arxiv
       - pubmed
@@ -50,6 +52,10 @@ engines:
   - name: qwant
     disabled: false
   - name: yahoo
+    disabled: false
+  - name: sogou
+    disabled: false
+  - name: quark
     disabled: false
   - name: wikipedia
     display_type: ["infobox", "list"]

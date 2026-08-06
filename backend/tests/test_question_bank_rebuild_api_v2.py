@@ -146,6 +146,7 @@ def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     assert payload["status"] == "queued"
     assert payload["job_id"].startswith("qbr_")
     assert payload["scope"] == "nodes"
+    assert payload["assessment_generation_profile"] == "deliberate"
     assert payload["node_ids"] == ["node-1", "node-2"]
     assert payload["status_url"].endswith(
         f"/question-bank/rebuilds/{payload['job_id']}"
@@ -244,6 +245,41 @@ def test_rebuild_api_deduplicates_and_validates_node_scope(
     assert second.json()["deduplicated"] is True
     assert len(executor.submissions) == 1
     assert invalid.status_code == 422
+
+
+def test_rebuild_api_rejects_conflicting_active_profile(
+    monkeypatch,
+    tmp_path,
+):
+    client, _, executor = _client(monkeypatch, tmp_path)
+
+    first = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-fast-active",
+            "scope": "course",
+            "mode": "full",
+            "assessment_generation_profile": "fast",
+        },
+    )
+    conflict = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-deliberate-conflict",
+            "scope": "course",
+            "mode": "full",
+            "assessment_generation_profile": "deliberate",
+        },
+    )
+
+    assert first.status_code == 202
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == (
+        "question_bank_rebuild_conflict"
+    )
+    assert len(executor.submissions) == 1
 
 
 def test_rebuild_management_requires_identity(monkeypatch, tmp_path):

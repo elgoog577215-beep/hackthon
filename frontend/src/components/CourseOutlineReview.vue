@@ -30,7 +30,8 @@
       </div>
 
       <template v-else>
-        <div class="outline-review__setup">
+        <div class="outline-review__body">
+          <div class="outline-review__setup">
           <label class="outline-review__course-name">
             <span>{{ t('courseWorkspace.blueprint.courseName', '课程名称') }}</span>
             <input
@@ -251,46 +252,47 @@
               </div>
             </details>
           </section>
-        </div>
+          </div>
 
-        <ol class="outline-review__nodes">
-          <li
-            v-for="(node, index) in blueprintNodes"
-            :key="node.node_id || index"
-            :data-level="node.node_level || 2"
-          >
-            <span class="outline-review__index">{{ String(index + 1).padStart(2, '0') }}</span>
-            <span class="outline-review__branch" aria-hidden="true"></span>
-            <div>
-              <div v-if="node.learning_path_role" class="outline-review__node-meta">
-                <span :data-role="normalizedPathRole(node.learning_path_role)">
-                  {{ pathRoleLabel(node.learning_path_role) }}
-                </span>
-                <p v-if="node.path_reason">{{ node.path_reason }}</p>
+          <ol class="outline-review__nodes">
+            <li
+              v-for="(node, index) in blueprintNodes"
+              :key="node.node_id || index"
+              :data-level="node.node_level || 2"
+            >
+              <span class="outline-review__index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <span class="outline-review__branch" aria-hidden="true"></span>
+              <div>
+                <div v-if="node.learning_path_role" class="outline-review__node-meta">
+                  <span :data-role="normalizedPathRole(node.learning_path_role)">
+                    {{ pathRoleLabel(node.learning_path_role) }}
+                  </span>
+                  <p v-if="node.path_reason">{{ node.path_reason }}</p>
+                </div>
+                <input
+                  v-model="node.node_name"
+                  type="text"
+                  :disabled="adjustmentBusy"
+                  :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
+                  @input="invalidateProposal"
+                />
+                <textarea
+                  v-if="Number(node.node_level || 2) >= 2 || 'learning_objective' in node"
+                  v-model="node.learning_objective"
+                  rows="1"
+                  :disabled="adjustmentBusy"
+                  :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '写清这一节结束后，学习者能够做到什么')"
+                  :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
+                  @input="invalidateProposal"
+                />
               </div>
-              <input
-                v-model="node.node_name"
-                type="text"
-                :disabled="adjustmentBusy"
-                :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
-                @input="invalidateProposal"
-              />
-              <textarea
-                v-if="Number(node.node_level || 2) >= 2 || 'learning_objective' in node"
-                v-model="node.learning_objective"
-                rows="1"
-                :disabled="adjustmentBusy"
-                :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '写清这一节结束后，学习者能够做到什么')"
-                :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
-                @input="invalidateProposal"
-              />
-            </div>
-          </li>
-        </ol>
+            </li>
+          </ol>
 
-        <p v-if="!blueprintNodes.length" class="outline-review__empty">
-          {{ t('courseGeneration.outlineReview.empty', '目录尚未形成，请重新载入后再确认。') }}
-        </p>
+          <p v-if="!blueprintNodes.length" class="outline-review__empty">
+            {{ t('courseGeneration.outlineReview.empty', '目录尚未形成，请重新载入后再确认。') }}
+          </p>
+        </div>
       </template>
 
       <footer class="outline-review__footer">
@@ -764,7 +766,7 @@ async function confirmOutline() {
   height:100%;
   min-height:0;
   display:grid;
-  grid-template-rows:auto auto minmax(0,1fr) auto;
+  grid-template-rows:auto minmax(0,1fr) auto;
   margin:0 auto;
   overflow:hidden;
   border:1px solid rgba(208,213,223,.88);
@@ -824,7 +826,7 @@ async function confirmOutline() {
 }
 .outline-review__loading,
 .outline-review__load-error {
-  grid-row:2/4;
+  grid-row:2;
   min-height:260px;
   display:flex;
   align-items:center;
@@ -854,6 +856,11 @@ async function confirmOutline() {
   font-size:12px;
   font-weight:800;
   cursor:pointer;
+}
+.outline-review__body {
+  min-height:0;
+  overflow:auto;
+  overscroll-behavior:contain;
 }
 .outline-review__setup {
   min-width:0;
@@ -1111,7 +1118,7 @@ async function confirmOutline() {
 .outline-review__nodes {
   display:grid;
   min-height:0;
-  overflow:auto;
+  overflow:visible;
   margin:0;
   padding:6px 30px 18px;
   list-style:none;
@@ -1215,7 +1222,6 @@ async function confirmOutline() {
   line-height:1.55;
 }
 .outline-review__empty {
-  grid-row:3;
   margin:0;
   padding:42px 30px;
   color:#8a93a3;
@@ -1223,7 +1229,7 @@ async function confirmOutline() {
   font-size:13px;
 }
 .outline-review__footer {
-  grid-row:4;
+  grid-row:3;
   display:flex;
   align-items:center;
   justify-content:space-between;

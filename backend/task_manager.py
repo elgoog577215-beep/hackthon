@@ -37,6 +37,10 @@ from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
 )
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+    normalize_assessment_generation_profile,
+)
 from assessment_orchestrator import AssessmentGenerationOrchestrator
 from assessment_retrieval import (
     compile_local_reference_package,
@@ -213,6 +217,7 @@ LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
 DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
+QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.2"
 
 # 内容完整性阈值（字符数）
 CONTENT_COMPLETE_THRESHOLD = 600
@@ -763,6 +768,16 @@ class TaskManager:
             "retry_count": 0,
             "logs": [],
             "request_snapshot": request_snapshot or {},
+            "assessment_generation_profile": (
+                normalize_assessment_generation_profile(
+                    (request_snapshot or {}).get(
+                        "assessment_generation_profile"
+                    )
+                )
+            ),
+            "assessment_generation_policy_version": (
+                ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "node_drafts": {},
             "operation": str((request_snapshot or {}).get("operation") or "generate"),
             "candidate_id": (request_snapshot or {}).get("candidate_id"),
@@ -2821,6 +2836,124 @@ class TaskManager:
         return {**base, "checkpoint": checkpoint}
 
     @staticmethod
+    def _restore_confirmed_outline_identity(
+        course_data: dict[str, Any],
+        confirmed_snapshot: dict[str, Any],
+        *,
+        expected_revision: str,
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Restore only frozen outline identity fields after derived drift.
+
+        The candidate is accepted only when its artifact hash exactly matches
+        the revision the user confirmed. Course content and every downstream
+        field remain untouched.
+        """
+        current_nodes = {
+            str(node.get("node_id") or ""): node
+            for node in course_data.get("nodes") or []
+            if isinstance(node, dict) and node.get("node_id")
+        }
+        confirmed_nodes = [
+            node
+            for node in confirmed_snapshot.get("nodes") or []
+            if isinstance(node, dict) and node.get("node_id")
+        ]
+        confirmed_ids = [str(node.get("node_id") or "") for node in confirmed_nodes]
+        if not confirmed_ids or set(confirmed_ids) != set(current_nodes):
+            return None
+
+        identity_fields = (
+            "node_id",
+            "parent_node_id",
+            "node_name",
+            "node_level",
+            "learning_objective",
+            "prerequisite_node_ids",
+            "scope_boundary",
+            "assessment",
+        )
+        restored = deepcopy(course_data)
+        restored["course_name"] = str(
+            confirmed_snapshot.get("course_name")
+            or course_data.get("course_name")
+            or ""
+        )
+        confirmed_outline = (
+            confirmed_snapshot.get("course_outline")
+            or confirmed_snapshot.get("course_plan")
+            or {}
+        )
+        if not isinstance(confirmed_outline, dict) or not confirmed_outline.get(
+            "chapters"
+        ):
+            return None
+        restored["course_outline"] = deepcopy(confirmed_outline)
+
+        restored_nodes: list[dict[str, Any]] = []
+        for confirmed_node in confirmed_nodes:
+            node_id = str(confirmed_node.get("node_id") or "")
+            restored_node = deepcopy(current_nodes[node_id])
+            for field in identity_fields:
+                if field in confirmed_node:
+                    restored_node[field] = deepcopy(confirmed_node[field])
+                else:
+                    restored_node.pop(field, None)
+            restored_nodes.append(restored_node)
+        restored["nodes"] = restored_nodes
+
+        actual_revision = guided_artifact_revision(
+            "outline",
+            restored,
+            request=request or {},
+        )
+        if actual_revision != expected_revision:
+            return None
+        return restored
+
+    def _restore_task_confirmed_outline_snapshot(
+        self,
+        task: dict[str, Any],
+        course_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        workflow = task.get("guided_workflow")
+        if not isinstance(workflow, dict):
+            raise CourseVersionConflict("Missing guided workflow for outline repair")
+        outline_state = guided_step_state(workflow, "outline")
+        expected_revision = str(outline_state.get("artifact_revision") or "")
+        blueprint_revision = str(course_data.get("course_outline_revision_id") or "")
+        if not expected_revision or not blueprint_revision:
+            raise CourseVersionConflict("Missing confirmed outline revision")
+        try:
+            snapshot = self._version_repository.get_blueprint_revision(
+                str(task.get("course_id") or course_data.get("course_id") or ""),
+                blueprint_revision,
+            )
+        except KeyError as exc:
+            raise CourseVersionConflict(
+                "Confirmed outline snapshot is unavailable"
+            ) from exc
+        restored = self._restore_confirmed_outline_identity(
+            course_data,
+            snapshot,
+            expected_revision=expected_revision,
+            request=task.get("request_snapshot") or {},
+        )
+        if restored is None:
+            raise CourseVersionConflict(
+                "Confirmed outline snapshot does not match the approved revision"
+            )
+        repairs = restored.setdefault("generation_lineage_repairs", [])
+        repairs.append({
+            "schema_version": "generation_lineage_repair_v1",
+            "repair_type": "restore_confirmed_outline_snapshot",
+            "blueprint_revision_id": blueprint_revision,
+            "artifact_revision": expected_revision,
+            "repaired_at": datetime.now().isoformat(),
+        })
+        return restored
+
+    @staticmethod
     def _quality_failure_summary(
         course_data: dict[str, Any],
         *,
@@ -2862,6 +2995,11 @@ class TaskManager:
             is_asset = bool(issue.get("asset_type")) or code.startswith("asset:")
             if code == "difficulty:double_spike":
                 scopes.add("difficulty_contract")
+            elif (
+                code == "outline_revision_mismatch"
+                and course_data.get("course_outline_revision_id")
+            ):
+                scopes.add("confirmed_outline_snapshot")
             elif is_asset and str(issue.get("asset_type") or "questions") == "questions":
                 scopes.add("learning_assets")
             else:
@@ -2889,7 +3027,14 @@ class TaskManager:
             prefix="qf_",
         )
         previous = previous if isinstance(previous, dict) else {}
-        same_failure = bool(blockers) and previous.get("fingerprint") == fingerprint
+        same_policy = (
+            previous.get("repair_policy_version") == QUALITY_REPAIR_POLICY_VERSION
+        )
+        same_failure = (
+            bool(blockers)
+            and previous.get("fingerprint") == fingerprint
+            and same_policy
+        )
         previous_count = int(previous.get("repeat_count") or 0)
         repeat_count = (
             previous_count + 1
@@ -2898,9 +3043,15 @@ class TaskManager:
             if same_failure
             else 1
         )
-        order = ["difficulty_contract", "learning_assets", "manual_review"]
+        order = [
+            "difficulty_contract",
+            "confirmed_outline_snapshot",
+            "learning_assets",
+            "manual_review",
+        ]
         return {
             "fingerprint": fingerprint,
+            "repair_policy_version": QUALITY_REPAIR_POLICY_VERSION,
             "repeat_count": repeat_count,
             "blocker_count": len(blockers),
             "repair_scopes": [scope for scope in order if scope in scopes],
@@ -3020,6 +3171,14 @@ class TaskManager:
         total_nodes = int(task.get("total_nodes") or 0)
         checkpoint = {
             "phase": phase,
+            "assessment_generation_profile": str(
+                task.get("assessment_generation_profile")
+                or "deliberate"
+            ),
+            "assessment_generation_policy_version": str(
+                task.get("assessment_generation_policy_version")
+                or ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "completed_nodes": completed_nodes,
             "total_nodes": total_nodes,
             "draft_node_ids": list((task.get("node_drafts") or {}).keys()),
@@ -3700,6 +3859,8 @@ class TaskManager:
             if quality_repair:
                 task["quality_repair_requested"] = True
                 task["quality_repair_scopes"] = sorted(repair_scopes)
+                if "confirmed_outline_snapshot" in repair_scopes:
+                    task["outline_repair_requested"] = True
                 if "learning_assets" in repair_scopes:
                     task["asset_repair_requested"] = True
             task["updated_at"] = datetime.now().isoformat()
@@ -6163,6 +6324,24 @@ class TaskManager:
                 task.setdefault("phase_progress", 0)
                 task.setdefault("phase_detail", {})
                 task.setdefault("request_snapshot", {})
+                try:
+                    persisted_generation_profile = (
+                        normalize_assessment_generation_profile(
+                            task.get("assessment_generation_profile")
+                            or (task.get("request_snapshot") or {}).get(
+                                "assessment_generation_profile"
+                            )
+                        )
+                    )
+                except ValueError:
+                    persisted_generation_profile = "deliberate"
+                task["assessment_generation_profile"] = (
+                    persisted_generation_profile
+                )
+                task.setdefault(
+                    "assessment_generation_policy_version",
+                    ASSESSMENT_GENERATION_POLICY_VERSION,
+                )
                 task.setdefault("node_drafts", {})
                 task.setdefault("operation", "generate")
                 task.setdefault("candidate_id", None)
@@ -6672,21 +6851,39 @@ class TaskManager:
     @staticmethod
     def _failed_practice_targets(
         assets: dict[str, list[dict[str, Any]]],
+        *,
+        expected_node_ids: list[str] | None = None,
     ) -> dict[str, list[str]]:
-        """Return only rejected learner-facing exercise slots by section."""
+        """Return rejected and completely absent exercise slots by section."""
+        expected_levels = (
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        )
         failed: dict[str, list[str]] = {}
+        valid_slots: set[tuple[str, str]] = set()
         for question in assets.get("questions") or []:
             quality = question.get("quality_report") or {}
-            if (
+            node_id = str(question.get("node_id") or "")
+            practice_level = str(question.get("practice_level") or "")
+            valid = (
                 question.get("quality_status") != "passed"
                 or quality.get("passed") is not True
                 or not question.get("practice_contract_revision_id")
                 or not question.get("input_contract")
-            ):
-                node_id = str(question.get("node_id") or "")
-                practice_level = str(question.get("practice_level") or "")
-                if node_id and practice_level:
-                    failed.setdefault(node_id, []).append(practice_level)
+            ) is False
+            if node_id and practice_level and valid:
+                valid_slots.add((node_id, practice_level))
+            elif node_id and practice_level:
+                failed.setdefault(node_id, []).append(practice_level)
+
+        for node_id in expected_node_ids or []:
+            normalized_node_id = str(node_id or "")
+            if not normalized_node_id:
+                continue
+            for practice_level in expected_levels:
+                if (normalized_node_id, practice_level) not in valid_slots:
+                    failed.setdefault(normalized_node_id, []).append(practice_level)
         return {
             node_id: list(dict.fromkeys(levels))
             for node_id, levels in failed.items()
@@ -6705,8 +6902,28 @@ class TaskManager:
         the former gap where the generation pipeline required universal
         exercises but never invoked the universal assessment orchestrator.
         """
-        failed_targets = self._failed_practice_targets(
-            asset_bundle.get("assets") or {}
+        asset_plan = asset_bundle.get("plan") or {}
+        questions_enabled = (
+            not asset_plan
+            or "questions" in (asset_plan.get("enabled_asset_types") or [])
+        )
+        expected_node_ids = (
+            [
+                str(node.get("node_id") or "")
+                for node in asset_course.get("nodes") or []
+                if int(node.get("node_level") or 1) == 2
+                and node.get("node_id")
+            ]
+            if questions_enabled
+            else []
+        )
+        failed_targets = (
+            self._failed_practice_targets(
+                asset_bundle.get("assets") or {},
+                expected_node_ids=expected_node_ids,
+            )
+            if questions_enabled
+            else {}
         )
         failed_node_ids = list(failed_targets)
         if not failed_node_ids:
@@ -6731,6 +6948,25 @@ class TaskManager:
             },
         )
         completed_repair_nodes: list[str] = []
+
+        async def checkpoint_repair_progress(event: dict[str, Any]) -> None:
+            completed_items = max(0, int(event.get("completed_items") or 0))
+            total_items = max(1, int(event.get("total_items") or 0))
+            await self._update_phase(
+                task_id,
+                "practice_repair",
+                94,
+                f"正在生成并验证练习 {completed_items}/{total_items}",
+                phase_progress=(
+                    70 + int(min(completed_items, total_items) / total_items * 20)
+                ),
+                phase_detail={
+                    "completed_item_count": completed_items,
+                    "target_item_count": total_items,
+                    "target_node_count": len(failed_node_ids),
+                    "repair_scope": "failed_practice_only",
+                },
+            )
 
         async def checkpoint_repaired_node(event: dict[str, Any]) -> None:
             nonlocal question_bank_bundle
@@ -6794,11 +7030,19 @@ class TaskManager:
             asset_course,
             node_ids=failed_node_ids,
             practice_levels_by_node=failed_targets,
+            on_progress=checkpoint_repair_progress,
             on_chapter_complete=checkpoint_repaired_node,
             reference_package=deepcopy(
                 asset_course.get("_question_reference_package") or {}
             )
             or None,
+            generation_profile=str(
+                (self.tasks[task_id].get("request_snapshot") or {}).get(
+                    "assessment_generation_profile"
+                )
+                or "deliberate"
+            ),
+            generation_scope="scoped_repair",
         )
         repaired_compilation = compile_learning_assets(prepared_course)
         rebuilt_question_bank = repaired_compilation.pop("question_bank_bundle")
@@ -6821,7 +7065,8 @@ class TaskManager:
         )
         repaired_assets.pop("question_bank_bundle", None)
         remaining_targets = self._failed_practice_targets(
-            repaired_assets.get("assets") or {}
+            repaired_assets.get("assets") or {},
+            expected_node_ids=expected_node_ids,
         )
         remaining_node_ids = list(remaining_targets)
         return repaired_question_bank, repaired_assets, {
@@ -6847,11 +7092,32 @@ class TaskManager:
         if not task:
             raise ValueError("Task not found")
         fresh_course = self._load_task_course(task_id) or course_data
+        if task.get("outline_repair_requested"):
+            fresh_course = self._restore_task_confirmed_outline_snapshot(
+                task,
+                fresh_course,
+            )
+            await self._save_task_course(task_id, fresh_course)
+            await self._update_phase(
+                task_id,
+                "quality_repair",
+                85,
+                "已恢复教师确认的目录版本，正在定向修复学习资产",
+                phase_progress=10,
+                phase_detail={
+                    "repair_scope": "confirmed_outline_snapshot",
+                    "outline_artifact_revision": guided_step_state(
+                        task["guided_workflow"],
+                        "outline",
+                    ).get("artifact_revision"),
+                },
+            )
         stage_artifacts = fresh_course.setdefault("generation_stage_artifacts", {})
         prepared = stage_artifacts.get("content_candidate") or {}
         repair_requested = bool(
             task.get("asset_repair_requested")
             or task.get("quality_repair_requested")
+            or task.get("outline_repair_requested")
         )
         if (
             not repair_requested
@@ -6991,6 +7257,13 @@ class TaskManager:
             asset_course = await self._assessment_orchestrator.prepare_course(
                 asset_course,
                 reference_package=reference_package,
+                generation_profile=str(
+                    (task.get("request_snapshot") or {}).get(
+                        "assessment_generation_profile"
+                    )
+                    or "deliberate"
+                ),
+                generation_scope="full_generation",
             )
         asset_bundle = compile_learning_assets(asset_course)
         question_bank_bundle = asset_bundle.pop("question_bank_bundle")
@@ -7179,6 +7452,7 @@ class TaskManager:
                 )
         await self._save_task_course(task_id, fresh_course)
         task.pop("asset_repair_requested", None)
+        task.pop("outline_repair_requested", None)
         task.pop("quality_repair_requested", None)
         task.pop("quality_repair_scopes", None)
         await self._update_progress(task_id, fresh_course)
