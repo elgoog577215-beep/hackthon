@@ -617,6 +617,34 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
     )
 
 
+async def test_scoped_repair_keeps_reviewable_local_contract_on_provider_quota():
+    class QuotaFailureModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            raise AIProviderRequestError("429 insufficient balance")
+
+    chapter_events: list[dict] = []
+    prepared = await AssessmentGenerationOrchestrator(
+        model=QuotaFailureModel(),
+    ).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+        on_chapter_complete=chapter_events.append,
+    )
+
+    contract = prepared["_assessment_generated_contracts"]["thermo-1"][
+        "concept_check"
+    ]
+    audit = prepared["_assessment_generation_audit"]
+    assert contract["generation_status"] == "ready"
+    assert contract["review_required"] is True
+    assert "ai_validation_unavailable" in contract["risk_flags"]
+    assert contract["solution_validation"]["passed"] is True
+    assert audit["fallback_count"] == 1
+    assert audit["items"][0]["final_decision"] == "teacher_review"
+    assert chapter_events[0]["passed"] is True
+
+
 async def test_node_uses_one_batch_generation_call_when_supported():
     model = BatchRepairingModel()
 
