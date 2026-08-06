@@ -55,7 +55,7 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.20"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.21"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.12"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
@@ -138,7 +138,7 @@ _V5_DENSITY_BUDGETS = {
     "cover-minimal": {"characters": 90, "items": 0, "title": 22},
     "cover-editorial": {"characters": 120, "items": 0, "title": 22},
     "agenda-linear": {"characters": 240, "items": 6, "title": 18},
-    "chapter-entry": {"characters": 120, "items": 0, "title": 22},
+    "chapter-entry": {"characters": 120, "items": 0, "title": 18},
     "hero-claim": {"characters": 180, "items": 1, "title": 18},
     "editorial-body": {"characters": 230, "items": 5, "title": 18},
     "balanced-two-column": {"characters": 320, "items": 6, "title": 18},
@@ -3611,12 +3611,38 @@ def _split_practice_feedback_capacity_v5(
                     f"{source.get('unit_id') or 'practice'}:practice:{page_index + 1}"
                 )
             page_blocks = list(page.get("blocks") or [])
+            parent_atom_ids = [
+                _clean_text(atom_id)
+                for atom_id in quality.get("semantic_atom_ids") or []
+                if _clean_text(atom_id)
+            ]
+            page_question_ids = prompt_ids[start:end]
+            atom_id_map = {
+                parent_atom_id: stable_hash(
+                    {
+                        "parent_semantic_atom_id": parent_atom_id,
+                        "question_ids": page_question_ids,
+                        "page_index": page_index + 1,
+                    },
+                    prefix="atomv5_practice_",
+                )
+                for parent_atom_id in parent_atom_ids
+            }
+            for block in page_blocks:
+                metadata = block.get("metadata") or {}
+                parent_atom_id = _clean_text(metadata.get("semantic_atom_id"))
+                if parent_atom_id and parent_atom_id in atom_id_map:
+                    block["metadata"] = {
+                        **metadata,
+                        "parent_semantic_atom_id": parent_atom_id,
+                        "semantic_atom_id": atom_id_map[parent_atom_id],
+                    }
             prompt_block = page_blocks[prompt_index]
             prompt_block["content"] = ""
             prompt_block["items"] = prompt_values[start:end]
             prompt_block["metadata"] = {
                 **(prompt_block.get("metadata") or {}),
-                "question_ids": prompt_ids[start:end],
+                "question_ids": page_question_ids,
             }
             for block_index, block in enumerate(page_blocks):
                 if block_index == prompt_index:
@@ -3638,7 +3664,9 @@ def _split_practice_feedback_capacity_v5(
                     block["items"] = values[:limit]
             page["quality"] = {
                 **quality,
-                "question_ids": prompt_ids[start:end],
+                "question_ids": page_question_ids,
+                "semantic_atom_ids": list(atom_id_map.values()),
+                "parent_semantic_atom_ids": parent_atom_ids,
                 "feedback_pair_count": (
                     end - start if feedback_mode == "paired" else 0
                 ),

@@ -105,6 +105,13 @@ continuation pages.
 - **THEN** it omits the unsupported practice episode
 - **AND** it does not fabricate a prompt or answer merely to satisfy a template
 
+#### Scenario: A bounded practice group exceeds the renderer row capacity
+- **WHEN** complete question-answer pairs require more than one practice page
+- **THEN** V5 partitions only at question-answer pair boundaries
+- **AND** each page receives stable child semantic atom IDs while retaining the
+  parent semantic atom IDs as provenance
+- **AND** no question or its bound answer is split across pages
+
 ### Requirement: AI Refines the Compact Source-Bound Story
 
 The system SHALL refine the deterministic V5 compact story with chapter-scoped,
@@ -435,3 +442,21 @@ the publication report from final visible pages.
 - **WHEN** the final page fits its title, character, and item budget
 - **THEN** the stale intermediate warning is removed
 - **AND** it cannot block publication
+
+#### Scenario: Semantic repair considers merging adjacent pages
+- **WHEN** a sparse, dangling, or split-atom page is eligible for a deterministic
+  merge
+- **THEN** the merge is allowed only when the combined body and visible items
+  fit the target page's resolved final-layout budgets
+- **AND** semantic repair does not replace one semantic issue with a final-page
+  overflow
+
+#### Scenario: The first V5 candidate fails its final publication gate
+- **WHEN** the first AI, partially deterministic, or fully deterministic V5
+  candidate is not already the strict `quality_fallback` profile
+- **THEN** the system retries once with the source-only `quality_fallback`
+  profile and newly compiled allocation and visual plans
+- **AND** only a candidate that passes all final semantic, capacity,
+  composition, export, and rendering gates is atomically published
+- **AND** a terminal compiler exception emits its structured blocker and
+  original diagnostic message to the durable task and browser client

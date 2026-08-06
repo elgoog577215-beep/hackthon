@@ -465,36 +465,49 @@ async def _rebuild_slide_variant_with_quality_fallback(
     ),
     resume_slides: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Retry a rejected AI V5 draft with the source-only deterministic plan.
+    """Retry a rejected V5 draft with the strict source-only plan.
 
     The first candidate still runs through the normal shadow repository. Its
     terminal ``build_blocked`` event is converted into a non-terminal fallback
     event so clients do not settle the build before the deterministic candidate
-    has been evaluated.
+    has been evaluated. This also covers deterministic semantic plans: a new
+    course must still reach the stricter ``quality_fallback`` profile when the
+    ordinary deterministic plan cannot satisfy the final page contract.
     """
 
     fallback_enabled = os.getenv(
         "SLIDE_DECK_V5_QUALITY_FALLBACK_ENABLED",
         "true",
     ).strip().lower() in {"1", "true", "yes", "on"}
+    story_diagnostics = (
+        story_plan.get("planning_diagnostics")
+        if isinstance(story_plan, dict)
+        else getattr(story_plan, "planning_diagnostics", None)
+    )
+    compaction_profile = str(
+        (story_diagnostics or {}).get("compaction_profile") or ""
+    ) if isinstance(story_diagnostics, dict) else ""
     fallback_allowed = bool(
         fallback_enabled
         and slide_schema == "slide_deck_v5"
         and story_plan is not None
-        and str(getattr(story_plan, "planner", "")) == "ai"
+        and compaction_profile != "quality_fallback"
     )
     fallback_event_emitted = False
 
     def primary_progress(payload: dict[str, Any]) -> None:
         nonlocal fallback_event_emitted
-        if fallback_allowed and payload.get("event") == "build_blocked":
+        if (
+            fallback_allowed
+            and payload.get("event") in {"build_blocked", "build_failed"}
+        ):
             quality = payload.get("quality") or {}
             blockers = list(quality.get("blockers") or [])
             progress_callback({
                 "event": "quality_fallback",
                 "stage": "quality_fallback",
                 "progress": 85,
-                "message": "AI 候选稿未通过质量检查，正在切换确定性生成方案",
+                "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
                 "initial_score": int(quality.get("score") or 0),
                 "initial_blocker_count": int(
                     quality.get("blocker_count") or len(blockers)
@@ -534,7 +547,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
             "event": "quality_fallback",
             "stage": "quality_fallback",
             "progress": 85,
-            "message": "AI 候选稿未通过质量检查，正在切换确定性生成方案",
+            "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
             "initial_score": int(initial_quality.get("score") or 0),
             "initial_blocker_count": int(
                 initial_quality.get("blocker_count") or len(blockers)
@@ -5222,7 +5235,7 @@ class TaskManager:
             history.append(event)
             task["event_history"] = history[-240:]
             task["last_event"] = event
-            if payload.get("event") == "build_blocked":
+            if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")
                 )

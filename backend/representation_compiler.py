@@ -869,28 +869,31 @@ def rebuild_slide_deck_variant_safely(
                 "reused_unit_count": len(resume_slides or []),
             }
     except Exception as exc:
+        failure_quality = {
+            "passed": False,
+            "issues": [{
+                "severity": "critical",
+                "code": "slide_variant_rebuild_failed",
+                "message": str(exc),
+            }],
+            "blockers": [{
+                "severity": "critical",
+                "code": "slide_variant_rebuild_failed",
+                "message": str(exc),
+            }],
+        }
         if progress_callback:
             progress_callback({
                 "event": "build_failed",
                 "progress": 100,
+                "code": "slide_variant_rebuild_failed",
                 "message": str(exc),
+                "quality": deepcopy(failure_quality),
             })
         return {
             "status": "failed_using_last_available",
             "variant_key": variant_key,
-            "quality": {
-                "passed": False,
-                "issues": [{
-                    "severity": "critical",
-                    "code": "slide_variant_rebuild_failed",
-                    "message": str(exc),
-                }],
-                "blockers": [{
-                    "severity": "critical",
-                    "code": "slide_variant_rebuild_failed",
-                    "message": str(exc),
-                }],
-            },
+            "quality": failure_quality,
             "last_available": (
                 previous_variant.model_dump(mode="json")
                 if previous_variant
