@@ -92,6 +92,15 @@ export interface TeachingPlanWorkbench {
     state: 'editable' | 'requires_impact_review' | 'readonly'
     reason: string
   }>
+  // 学科模板为每节提供的候选教学环节：前端据此渲染增删入口。
+  // 必需环节由模板规定，取消勾选会被后端的必需环节合同拒绝。
+  section_module_options?: Record<string, Array<{
+    module_id: string
+    label: string
+    required: boolean
+    selected: boolean
+    output_contract: string
+  }>>
   downstream: Record<string, unknown>
 }
 

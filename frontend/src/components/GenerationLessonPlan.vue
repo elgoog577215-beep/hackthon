@@ -884,6 +884,34 @@
             <p v-else class="generation-lesson-plan__inline-empty">
               {{ t('courseGeneration.lessonPlan.noTeachingFlow', '这一节暂未形成教学环节。') }}
             </p>
+
+            <div
+              v-if="editing && sectionModuleOptions.length"
+              class="generation-lesson-plan__module-composer"
+            >
+              <p class="generation-lesson-plan__module-composer-help">
+                {{ t('courseGeneration.lessonPlan.moduleComposerHelp', '勾选本节要用的教学环节；必需环节由学科模板规定，不能取消。') }}
+              </p>
+              <ul>
+                <li v-for="option in sectionModuleOptions" :key="option.module_id">
+                  <label>
+                    <input
+                      type="checkbox"
+                      :checked="option.selected"
+                      :disabled="option.required || moduleOrderSaving"
+                      @change="toggleModule(option)"
+                    />
+                    <span>{{ option.label }}</span>
+                    <small v-if="option.required">
+                      {{ t('courseGeneration.lessonPlan.moduleRequired', '必需') }}
+                    </small>
+                  </label>
+                </li>
+              </ul>
+              <p v-if="moduleOrderError" class="generation-lesson-plan__module-composer-error" role="alert">
+                {{ moduleOrderError }}
+              </p>
+            </div>
           </section>
 
           <section class="generation-lesson-plan__block generation-lesson-plan__knowledge">
@@ -1304,6 +1332,48 @@ function modulePath(
 
 function knowledgePath(sectionId: string, name: string, field: 'statement' | 'capability'): string {
   return `sections/${sectionId}/knowledge/${name}/${field}`
+}
+
+// 教学环节的增删：一条有序 module_id 列表路径承载整组顺序，module_id 保持稳定。
+// 不走防抖——这是离散的结构操作，而且可能被必需环节合同当场拒绝，
+// 教师需要立刻看到结果而不是等 650ms 后悄悄失败。
+const moduleOrderSaving = ref(false)
+const moduleOrderError = ref('')
+
+const sectionModuleOptions = computed(() => {
+  const sectionId = selectedSection.value?.node.node_id
+  if (!sectionId) return []
+  return workbenchStore.workbench?.section_module_options?.[sectionId] || []
+})
+
+function moduleOrderPath(sectionId: string): string {
+  return `sections/${sectionId}/teaching_modules`
+}
+
+async function toggleModule(option: { module_id: string; required: boolean; selected: boolean }) {
+  const sectionId = selectedSection.value?.node.node_id
+  if (!sectionId || option.required || moduleOrderSaving.value) return
+  const current = sectionModuleOptions.value
+    .filter(item => item.selected)
+    .map(item => item.module_id)
+  // 保持模板顺序：新增的环节按模板里的位置插入，不追加到末尾。
+  const next = option.selected
+    ? current.filter(id => id !== option.module_id)
+    : sectionModuleOptions.value
+      .filter(item => item.selected || item.module_id === option.module_id)
+      .map(item => item.module_id)
+
+  moduleOrderSaving.value = true
+  moduleOrderError.value = ''
+  try {
+    await workbenchStore.patchDraft(moduleOrderPath(sectionId), next)
+  } catch {
+    moduleOrderError.value = workbenchStore.errorCode === 'teaching_plan_quality_blocked'
+      ? t('courseGeneration.lessonPlan.moduleRequiredBlocked', '这是学科模板规定的必需教学环节，不能删除。')
+      : workbenchErrorMessage.value
+  } finally {
+    moduleOrderSaving.value = false
+  }
 }
 
 function queuePatch(path: string, fallback: unknown, next: unknown) {
@@ -1806,6 +1876,13 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__connection-grid li > div { display:flex; align-items:center; gap:8px; color:#4d5780; font-size:12px; font-weight:750; }
 .generation-lesson-plan__connection-grid li > p { margin:5px 0 0; color:#778091; font-size:12px; line-height:1.55; }
 .generation-lesson-plan__inline-empty { margin:0; padding:24px; border:1px dashed #d9dde5; border-radius:11px; color:#858d9c; background:#fafbfc; font-size:13px; text-align:center; }
+.generation-lesson-plan__module-composer { margin-top:14px; padding:14px 16px; border:1px solid #e4e7ee; border-radius:11px; background:#fafbfc; }
+.generation-lesson-plan__module-composer-help { margin:0 0 10px; color:#6b7382; font-size:12px; line-height:1.6; }
+.generation-lesson-plan__module-composer ul { display:flex; flex-wrap:wrap; gap:8px 16px; margin:0; padding:0; list-style:none; }
+.generation-lesson-plan__module-composer label { display:inline-flex; align-items:center; gap:7px; color:#3c4453; font-size:13px; cursor:pointer; }
+.generation-lesson-plan__module-composer input[disabled] + span { color:#858d9c; }
+.generation-lesson-plan__module-composer label small { padding:1px 7px; border-radius:999px; background:#eef0f6; color:#6b7382; font-size:11px; }
+.generation-lesson-plan__module-composer-error { margin:10px 0 0; color:#c0392b; font-size:12px; line-height:1.6; }
 .generation-lesson-plan__skeleton { display:grid; gap:18px; padding:34px; }
 .generation-lesson-plan__skeleton > div { display:grid; gap:10px; padding:20px; border:1px solid #e5e7ec; border-radius:12px; }
 .generation-lesson-plan__skeleton i { height:13px; border-radius:4px; background:linear-gradient(90deg,#eef0f4 20%,#f8f9fb 45%,#eef0f4 70%); background-size:220% 100%; animation:lesson-plan-shimmer 1.4s ease infinite; }

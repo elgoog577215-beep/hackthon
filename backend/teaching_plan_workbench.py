@@ -910,6 +910,41 @@ def _public_draft(
     return public
 
 
+def _section_module_options(snapshot: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """每节的候选教学环节：模板给了哪些、哪些必需、当前是否已选。
+
+    教师要能增删环节，前端就得知道「候选集是什么」。这份数据来自目录侧的
+    `module_plan`（学科模板合同），不是教案自己编的——教案只能在模板给定的
+    集合里选，必需环节不能删（校验在 `_write_module_order`）。
+    """
+    options: dict[str, list[dict[str, Any]]] = {}
+    for section in _course_sections(snapshot):
+        section_id = _text(section.get("node_id"))
+        if not section_id:
+            continue
+        try:
+            selected = {
+                _text(module.get("module_id"))
+                for module in _plan_section(snapshot, section_id).get("teaching_modules") or []
+                if isinstance(module, dict)
+            }
+        except TeachingPlanWorkbenchError:
+            selected = set()
+        entries = []
+        for item in _module_plan(snapshot, section_id):
+            module_id = _text(item.get("module_id"))
+            entries.append({
+                "module_id": module_id,
+                "label": _text(item.get("label")) or module_id,
+                "required": bool(item.get("required")),
+                "selected": module_id in selected,
+                "output_contract": _text(item.get("output_contract")),
+            })
+        if entries:
+            options[section_id] = entries
+    return options
+
+
 def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     fields = []
     for path in sorted(_OVERALL_FIELDS):
@@ -1177,6 +1212,9 @@ class TeachingPlanWorkbenchService:
             ],
             "downstream": deepcopy(state.get("downstream") or {}),
             "editable_fields": _editable_fields(snapshot) if is_canonical else [],
+            # 学科模板为每节提供的候选教学环节：前端据此渲染「可以加哪些环节、
+            # 哪些是必需的不能删」。没有它，UI 只能显示已有环节，教师无从新增。
+            "section_module_options": _section_module_options(snapshot) if is_canonical else {},
         }
 
     async def create_draft(
