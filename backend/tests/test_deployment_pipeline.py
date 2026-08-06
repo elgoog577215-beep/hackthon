@@ -137,3 +137,15 @@ def test_workflow_builds_before_uploading_release() -> None:
 
     assert build_step < upload_step < activate_step
     assert "scripts/build-deploy-artifact.sh" in workflow
+
+
+def test_release_artifact_excludes_non_runtime_visual_evidence() -> None:
+    script = (ROOT / "scripts" / "build-deploy-artifact.sh").read_text()
+
+    archive = script.index('git -C "$ROOT_DIR" archive "$TARGET_COMMIT"')
+    prune_videos = script.index('rm -rf "$STAGING_DIR/demo_videos"')
+    prune_design_evidence = script.index("-name 'design-qa-*.png' -delete")
+    package = script.index('tar -C "$STAGING_DIR" -czf "$OUTPUT_PATH" .')
+
+    assert archive < prune_videos < package
+    assert archive < prune_design_evidence < package
