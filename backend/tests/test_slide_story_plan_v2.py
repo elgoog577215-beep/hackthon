@@ -475,6 +475,11 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
     assert decided_fragment_ids == {
         fragment.fragment_id for fragment in fragments
     }
+    assert {
+        fragment.fragment_id for fragment in code_fragments
+    } <= {
+        exclusion.fragment_id for exclusion in allocation.exclusions
+    }
 
 
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:

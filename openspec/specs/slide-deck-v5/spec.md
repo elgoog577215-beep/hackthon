@@ -68,6 +68,17 @@ The system SHALL select a bounded teaching arc from complete, source-bound
 semantic groups and SHALL NOT mechanically split a selected group across
 continuation pages.
 
+#### Scenario: One source atom exceeds every layout budget
+- **WHEN** a code block, display formula, prose sentence, or list item is larger
+  than the safe input capacity of the semantic layout registry
+- **THEN** source parsing partitions it at source-native boundaries and assigns
+  stable continuation fragment IDs before layout selection
+- **AND** all continuation fragments retain the same source block binding
+- **AND** V5 either selects the complete bounded semantic group or records the
+  complete oversized group as explicit source exclusions
+- **AND** an oversized atom does not terminate the whole-course build with a
+  layout-capacity exception
+
 #### Scenario: A legacy section contains several Markdown subsections
 - **WHEN** deterministic V5 compaction builds the section teaching arc
 - **THEN** it selects no more than three complete concept, reasoning/example,
