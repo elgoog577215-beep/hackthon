@@ -213,6 +213,7 @@ LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
 DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
+QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.1"
 
 # 内容完整性阈值（字符数）
 CONTENT_COMPLETE_THRESHOLD = 600
@@ -3012,7 +3013,14 @@ class TaskManager:
             prefix="qf_",
         )
         previous = previous if isinstance(previous, dict) else {}
-        same_failure = bool(blockers) and previous.get("fingerprint") == fingerprint
+        same_policy = (
+            previous.get("repair_policy_version") == QUALITY_REPAIR_POLICY_VERSION
+        )
+        same_failure = (
+            bool(blockers)
+            and previous.get("fingerprint") == fingerprint
+            and same_policy
+        )
         previous_count = int(previous.get("repeat_count") or 0)
         repeat_count = (
             previous_count + 1
@@ -3029,6 +3037,7 @@ class TaskManager:
         ]
         return {
             "fingerprint": fingerprint,
+            "repair_policy_version": QUALITY_REPAIR_POLICY_VERSION,
             "repeat_count": repeat_count,
             "blocker_count": len(blockers),
             "repair_scopes": [scope for scope in order if scope in scopes],
