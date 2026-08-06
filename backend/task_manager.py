@@ -2555,7 +2555,7 @@ class TaskManager:
                 "updated_at": task.get("updated_at"),
             },
         }
-        if status == "completed" or self._publication_receipt(task):
+        if self._task_is_published(task):
             return {
                 **base,
                 "state": "completed",
@@ -2772,6 +2772,7 @@ class TaskManager:
             return {**base, "checkpoint": checkpoint}
         if status == "completed_with_warnings" and (
             task.get("phase") == "quality_failed"
+            or task.get("publication_allowed") is False
             or workspace.get("status") == "quality_failed"
         ):
             return self._quality_recovery_contract(
@@ -3228,10 +3229,7 @@ class TaskManager:
             "reason": "当前任务不需要恢复",
             "checkpoint": checkpoint,
         }
-        if status == "completed" or (
-            status == "completed_with_warnings"
-            and task.get("publication_allowed") is not False
-        ):
+        if self._task_is_published(task):
             return {
                 **base,
                 "state": "completed",
@@ -3310,6 +3308,25 @@ class TaskManager:
         view = deepcopy(task)
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
+
+    def _task_is_published(self, task: dict[str, Any]) -> bool:
+        """Single answer to "did this job actually publish a course?".
+
+        Both recovery projections must agree, otherwise the task list and the
+        resume button describe the same job differently.
+
+        ``completed`` is conclusive on its own. ``completed_with_warnings`` is
+        not: a job can finish with warnings and never reach publication, so it
+        only counts when a publication receipt exists. A receipt is also
+        authoritative for a job still marked ``running`` — that is how a restart
+        recognises work that finished publishing before the process died.
+        """
+        status = str(task.get("status") or "")
+        if status == "completed":
+            return True
+        if status == "completed_with_warnings" and task.get("publication_allowed") is False:
+            return False
+        return self._publication_receipt(task) is not None
 
     def _publication_receipt(self, task: dict[str, Any]) -> dict[str, Any] | None:
         if not task.get("workspace_id"):
