@@ -446,7 +446,10 @@ async def test_repair_policy_upgrade_allows_one_retry_of_legacy_quality_failure(
     assert recovery["can_resume"] is True
     assert recovery["reason_code"] == "quality_gate_failed"
     assert recovery["quality_failure"]["repeat_count"] == 1
-    assert recovery["quality_failure"]["repair_policy_version"]
+    assert (
+        recovery["quality_failure"]["repair_policy_version"]
+        == "quality_repair_v2.2"
+    )
 
 
 def test_quality_failure_summary_includes_source_chain_blockers():
