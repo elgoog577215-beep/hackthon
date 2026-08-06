@@ -11,7 +11,7 @@ from assessment_orchestrator import (
     UniversalAssessmentModel,
     _SemanticEvaluationBatcher,
 )
-from question_bank import build_question_bank
+from question_bank import approved_formal_tasks, build_question_bank
 
 
 def _course() -> dict:
@@ -617,7 +617,7 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
     )
 
 
-async def test_scoped_repair_keeps_reviewable_local_contract_on_provider_quota():
+async def test_scoped_repair_publishes_locally_validated_contract_on_provider_quota():
     class QuotaFailureModel(RepairingModel):
         async def generate_candidate(self, context: dict) -> dict:
             raise AIProviderRequestError("429 insufficient balance")
@@ -637,19 +637,23 @@ async def test_scoped_repair_keeps_reviewable_local_contract_on_provider_quota()
     ]
     audit = prepared["_assessment_generation_audit"]
     assert contract["generation_status"] == "ready"
-    assert contract["review_required"] is True
+    assert contract["review_required"] is False
     assert "ai_validation_unavailable" in contract["risk_flags"]
     assert contract["solution_validation"]["passed"] is True
+    assert contract["solution_validation"]["auto_publish_eligible"] is True
+    assert contract["generation_degradation"]["teacher_review_recommended"] is True
     assert audit["fallback_count"] == 1
-    assert audit["items"][0]["final_decision"] == "teacher_review"
+    assert audit["items"][0]["final_decision"] == "local_contract_approved"
     assert chapter_events[0]["passed"] is True
     bank = build_question_bank(prepared)
     item = bank["items"][0]
     assert item["quality_report"]["passed"] is True
     assert item["quality_report"]["status"] == "passed"
-    assert item["generation_status"] == "waiting_review"
-    assert item["review_required"] is True
+    assert item["generation_status"] == "published"
+    assert item["lifecycle_status"] == "approved"
+    assert item["review_required"] is False
     assert "ai_validation_unavailable" in item["risk_flags"]
+    assert len(approved_formal_tasks(bank, assessment_role="practice")) == 1
 
 
 async def test_node_uses_one_batch_generation_call_when_supported():
