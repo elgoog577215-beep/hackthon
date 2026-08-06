@@ -58,6 +58,7 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
+from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -4393,18 +4394,36 @@ class TaskManager:
                     task_id, exc, task.get("status"),
                 )
             else:
+                failure = classify_generation_failure(exc)
                 error_detail = (
                     exc.public_detail()
                     if isinstance(exc, SlideStoryPlanPrerequisiteError)
-                    else None
+                    else {
+                        "code": failure["code"],
+                        "translation_key": failure["translation_key"],
+                        "retryable": failure["retryable"],
+                    }
                 )
+                async with self._lock:
+                    current = self.tasks.get(task_id)
+                    if current is not None:
+                        current["error_code"] = str(
+                            error_detail.get("code") or failure["code"]
+                        )
+                        # The backend emits a code, not prose: user-facing copy
+                        # is resolved through the frontend i18n layer so it stays
+                        # bilingual. Clear any message left by an earlier run.
+                        current["error_user_message"] = None
+                        self.save_tasks()
                 await self._update_task_status(
                     task_id,
                     "failed",
-                    error=str(exc),
+                    error=failure["technical_detail"],
                     error_detail=error_detail,
                 )
-                await self._record_workspace_failure(task_id, str(exc))
+                await self._record_workspace_failure(
+                    task_id, failure["technical_detail"]
+                )
         finally:
             self._running_job_tasks.pop(task_id, None)
 

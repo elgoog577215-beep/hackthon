@@ -130,6 +130,21 @@ export function taskHeartbeatState(
   return { state: ageSeconds > 120 ? 'stalled' : 'fresh', ageSeconds }
 }
 
+const GENERATION_ERROR_CODES = new Set([
+  'provider_rate_limited',
+  'provider_quota_exhausted',
+  'provider_auth_failed',
+  'provider_unavailable',
+  'provider_timeout',
+  'generation_budget_exceeded',
+  'generation_deadline_exceeded',
+  'response_truncated',
+  'workspace_missing',
+  'revision_conflict',
+  'course_missing',
+  'generation_failed',
+])
+
 export function taskUserError(task: Pick<Task, 'error' | 'errorCode' | 'errorUserMessage'>): {
   message: string
   technicalDetail: string
@@ -137,6 +152,13 @@ export function taskUserError(task: Pick<Task, 'error' | 'errorCode' | 'errorUse
   const code = String(task.errorCode || '')
   const technicalDetail = String(task.error || code || '')
   if (task.errorUserMessage) return { message: task.errorUserMessage, technicalDetail }
+  // A classified backend failure resolves straight from its code: that mapping
+  // is exact, so it must win over the string heuristics below. Fall back to the
+  // generic sentence rather than an empty box if a key is ever missing.
+  if (GENERATION_ERROR_CODES.has(code)) {
+    const generic = t('taskObservability.errors.generic', '任务在当前阶段中断，已完成内容不会丢失。')
+    return { message: t(`taskObservability.errors.${code}`, generic), technicalDetail }
+  }
   if (!technicalDetail) return { message: '', technicalDetail: '' }
   const known: Array<[RegExp, string]> = [
     [/slide_deck_variant_quality_gate_failed|quality_gate_failed/, t('taskObservability.errors.quality', '生成结果质量检查未通过，请查看问题后重试当前阶段。')],

@@ -165,6 +165,18 @@
       "encoding": "The file encoding could not be read. Convert it to UTF-8 and import it again.",
       "body": "The file contains headings but no teachable body. Add lesson content and import it again.",
       "persistence": "Saving the course failed temporarily. The parsed result is saved and can resume from its checkpoint.",
+      "provider_rate_limited": "The AI service is receiving too many requests, so this stage paused. Completed work is saved; continuing later resumes from the checkpoint.",
+      "provider_quota_exhausted": "The AI service quota is used up, so retrying will not succeed. Top up the quota before continuing; completed work is preserved.",
+      "provider_auth_failed": "The AI service could not verify its credentials, and retrying will not fix it. Check the service configuration or key, then continue.",
+      "provider_unavailable": "The AI service is temporarily unavailable. Completed work is saved and can resume from the checkpoint once it recovers.",
+      "provider_timeout": "The AI service timed out and this unit did not finish. Finished units will not be regenerated, so you can continue directly.",
+      "generation_budget_exceeded": "This input exceeds the safe limit for a single generation, so retrying will not succeed. Narrow the material or split the chapter, then generate again.",
+      "generation_deadline_exceeded": "This round reached its time limit and everything finished so far is saved. Continue to pick up from the unfinished units.",
+      "response_truncated": "The AI output hit its length limit, so this unit is incomplete. You can regenerate just this unit.",
+      "workspace_missing": "The workspace for this run no longer exists, so it cannot resume from a checkpoint. Start the generation again.",
+      "revision_conflict": "The course has a newer revision that conflicts with this result. Reconcile with the latest version before continuing.",
+      "course_missing": "The course could not be found and may have been deleted. Check the course library and start again.",
+      "generation_failed": "Course generation stopped in the current stage. Completed work is preserved and you can try to continue.",
       "generic": "The task stopped in the current stage. Completed work has been preserved."
     }
   },
