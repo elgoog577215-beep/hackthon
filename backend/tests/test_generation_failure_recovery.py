@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
 import json
-from pathlib import Path
 import subprocess
 import sys
 import time
+from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -20,7 +20,7 @@ from guided_generation import (
     mark_waiting,
     step_state,
 )
-from task_manager import TaskManager, TaskRecoveryConflict
+from task_manager import TaskManager
 
 
 class MemoryStorage:
