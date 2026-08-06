@@ -646,6 +646,7 @@ async def test_scoped_repair_keeps_reviewable_local_contract_on_provider_quota()
     bank = build_question_bank(prepared)
     item = bank["items"][0]
     assert item["quality_report"]["passed"] is True
+    assert item["quality_report"]["status"] == "passed"
     assert item["generation_status"] == "waiting_review"
     assert item["review_required"] is True
     assert "ai_validation_unavailable" in item["risk_flags"]

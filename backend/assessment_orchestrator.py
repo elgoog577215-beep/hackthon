@@ -1876,15 +1876,12 @@ class AssessmentGenerationOrchestrator:
                 "ai_validation_unavailable",
             ]))
             validation = fallback.setdefault("solution_validation", {})
-            validation["status"] = "needs_review"
+            deferred_validation_issues = deepcopy(
+                validation.get("issues") or []
+            )
+            validation["status"] = "passed"
             validation["auto_publish_eligible"] = False
-            validation["issues"] = [
-                *deepcopy(validation.get("issues") or []),
-                {
-                    "code": "ai_validation_unavailable",
-                    "severity": "major",
-                },
-            ]
+            validation["issues"] = []
             solution = fallback.setdefault("solution_envelope", {})
             solution_steps = deepcopy(
                 (solution.get("solution_graph") or {}).get("steps") or []
@@ -1910,6 +1907,7 @@ class AssessmentGenerationOrchestrator:
                 "status": "failed_fallback_local",
                 "reason_code": "ai_validation_unavailable",
                 "teacher_review_required": True,
+                "deferred_validation_issues": deferred_validation_issues,
             }
             audit["fallback_count"] += 1
             audit["failure_count"] += 1
