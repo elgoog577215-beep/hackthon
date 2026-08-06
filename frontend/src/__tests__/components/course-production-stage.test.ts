@@ -217,6 +217,32 @@ describe('CourseProductionStage', () => {
     expect(alert.text()).toContain('长时间没有更新')
   })
 
+  it('把失败小节清单显示出来，而不是只说"部分完成"', () => {
+    // The backend already pushes a failure_report naming each failed section and
+    // its retry count; nothing rendered it, so the teacher could not tell which
+    // sections to look at.
+    const task: Task = {
+      ...interruptedTask,
+      failedNodes: [
+        { node_id: 'L2-1-1', node_name: '波函数', error: 'ProviderTimeout', retry_count: 2 },
+        { node_id: 'L2-2-3', node_name: '不确定性原理', error: 'ProviderTimeout', retry_count: 1 },
+      ],
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+
+    const failures = wrapper.get('.formation-recovery__failures')
+    expect(failures.text()).toContain('波函数')
+    expect(failures.text()).toContain('不确定性原理')
+    expect(failures.text()).toContain('2')
+  })
+
+  it('没有失败小节时不显示失败清单', () => {
+    const wrapper = mount(CourseProductionStage, {
+      props: { task: interruptedTask, courseName: '量子力学' },
+    })
+    expect(wrapper.find('.formation-recovery__failures').exists()).toBe(false)
+  })
+
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {    const task: Task = {
       ...interruptedTask,
       currentPhase: 'teaching_plan_ready',

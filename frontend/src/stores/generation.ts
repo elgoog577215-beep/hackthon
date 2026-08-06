@@ -437,12 +437,16 @@ export const useGenerationStore = defineStore('generation', {
       const currentTask = this.tasks.get(message.course_id)
       if (currentTask?.id && message.task_id && currentTask.id !== message.task_id) return
       const { payload } = message
+      const failedNodes = (payload.failed_nodes as FailureReport['failed_nodes']) || []
       this.failureReport = {
         task_id: message.task_id,
         course_id: message.course_id,
-        failed_nodes: (payload.failed_nodes as FailureReport['failed_nodes']) || [],
+        failed_nodes: failedNodes,
         total_failed: (payload.total_failed as number) || 0,
       }
+      // Attach the report to the task as well: the production stage explains the
+      // failure from the task, and the standalone store field alone reached no UI.
+      if (currentTask) currentTask.failedNodes = failedNodes
     },
 
     // ========== Node Control Actions (Req 7.1, 7.2, 7.5) ==========

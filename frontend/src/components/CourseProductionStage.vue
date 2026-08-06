@@ -177,6 +177,16 @@
           <div v-if="savedItems.length" class="formation-recovery__saved">
             <span v-for="item in savedItems" :key="item"><Check :size="11" />{{ item }}</span>
           </div>
+          <div v-if="failedNodes.length" class="formation-recovery__failures">
+            <strong>{{ t('courseGeneration.production.failedSections', '未完成的小节（{count}）').replace('{count}', String(failedNodes.length)) }}</strong>
+            <ul>
+              <li v-for="node in failedNodes" :key="node.node_id">
+                <span>{{ node.node_name || node.node_id }}</span>
+                <small v-if="node.retry_count">{{ t('courseGeneration.production.retriedTimes', '已重试 {count} 次').replace('{count}', String(node.retry_count)) }}</small>
+              </li>
+            </ul>
+            <p>{{ t('courseGeneration.production.failedSectionsHelp', '其余小节已保存；继续时只重做这些小节。') }}</p>
+          </div>
           <details v-if="technicalError">
             <summary>{{ t('courseGeneration.production.technicalReason', '查看技术原因') }}</summary>
             <code>{{ technicalError }}</code>
@@ -507,6 +517,7 @@ const heartbeat = computed(() => props.task
   ? taskHeartbeatState(props.task)
   : { state: 'unknown' as const, ageSeconds: null })
 const isStalled = computed(() => heartbeat.value.state === 'stalled')
+const failedNodes = computed(() => props.task?.failedNodes || [])
 const technicalError = computed(() => userError.value.technicalDetail)
 const terminalTitle = computed(() => {
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
@@ -1106,6 +1117,25 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   font-size:11px;
   font-weight:750;
 }
+.formation-recovery__failures {
+  margin-top:9px;
+  padding:9px 11px;
+  border-radius:9px;
+  background:rgba(255,255,255,.66);
+}
+.formation-recovery__failures strong { color:#8a4b12; font-size:11px; font-weight:800; }
+.formation-recovery__failures ul { margin:5px 0 0; padding:0; list-style:none; display:grid; gap:3px; }
+.formation-recovery__failures li {
+  display:flex;
+  align-items:baseline;
+  flex-wrap:wrap;
+  gap:6px;
+  color:#75431c;
+  font-size:11px;
+  line-height:1.5;
+}
+.formation-recovery__failures li small { color:#a07a55; font-size:10px; }
+.formation-recovery__failures p { margin:6px 0 0; color:#8a6b4f; font-size:10px; line-height:1.5; }
 .formation-recovery details { margin-top:8px; color:#8a6b4f; font-size:11px; }
 .formation-recovery summary { width:max-content; cursor:pointer; }
 .formation-recovery code {

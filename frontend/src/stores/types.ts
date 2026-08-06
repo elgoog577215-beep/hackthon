@@ -531,6 +531,8 @@ export interface Task {
     error?: string
     errorCode?: string
     errorUserMessage?: string
+    /** Sections that failed generation, as reported by the backend failure report. */
+    failedNodes?: FailureReport['failed_nodes']
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string
