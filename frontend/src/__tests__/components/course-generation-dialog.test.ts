@@ -57,6 +57,7 @@ describe('CourseGenerationDialog', () => {
         secondary_mode: 'natural_science',
         secondary_intensity: 'collaborative',
         generation_mode: 'review_blueprint',
+        assessment_generation_profile: 'fast',
         course_type: 'systematic',
         course_intent: {
           schema_version: 'course_intent_v1',
