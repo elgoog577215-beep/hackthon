@@ -50,7 +50,7 @@ def test_server_activation_sizes_free_space_from_release_backup_and_reserve() ->
         script.index("required_deploy_free_kb()") : script.index("ensure_free_space()")
     ]
 
-    assert 'DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-320}"' in script
+    assert 'DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-192}"' in script
     assert 'MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-}"' in script
     assert 'gzip -l "$ARTIFACT_PATH"' in capacity
     assert 'find "$BACKUP_DIR"' in capacity
