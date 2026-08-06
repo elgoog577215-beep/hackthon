@@ -12,6 +12,10 @@ from typing import Any
 from uuid import uuid4
 
 from course_versioning import stable_hash
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+    normalize_assessment_generation_profile,
+)
 from storage import DATA_DIR
 
 
@@ -54,10 +58,14 @@ class QuestionBankRebuildJobRepository:
         revision_ids: list[str] | None = None,
         worker_id: str = "",
         retrieval_enabled: bool = False,
+        assessment_generation_profile: str = "deliberate",
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
         normalized_mode = str(mode or "incremental")
+        normalized_profile = normalize_assessment_generation_profile(
+            assessment_generation_profile
+        )
         normalized_nodes = sorted({
             str(value).strip()
             for value in node_ids
@@ -95,6 +103,7 @@ class QuestionBankRebuildJobRepository:
                 "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
                 "retrieval_enabled": bool(retrieval_enabled),
+                "assessment_generation_profile": normalized_profile,
             },
             prefix="qbr_",
         )
@@ -111,6 +120,7 @@ class QuestionBankRebuildJobRepository:
                         mode=normalized_mode,
                         actor_id=normalized_actor_id,
                         retrieval_enabled=bool(retrieval_enabled),
+                        assessment_generation_profile=normalized_profile,
                     ):
                         continue
                     active_worker_id = str(
@@ -139,6 +149,10 @@ class QuestionBankRebuildJobRepository:
                 "revision_ids": normalized_revisions,
                 "mode": normalized_mode,
                 "retrieval_enabled": bool(retrieval_enabled),
+                "assessment_generation_profile": normalized_profile,
+                "assessment_generation_policy_version": (
+                    ASSESSMENT_GENERATION_POLICY_VERSION
+                ),
                 "actor_id": normalized_actor_id,
                 "worker_id": normalized_worker_id,
                 "status": "queued",
@@ -439,7 +453,13 @@ class QuestionBankRebuildJobRepository:
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
+            value = json.load(handle)
+        value.setdefault("assessment_generation_profile", "deliberate")
+        value.setdefault(
+            "assessment_generation_policy_version",
+            ASSESSMENT_GENERATION_POLICY_VERSION,
+        )
+        return value
 
     @staticmethod
     def _write(path: Path, value: dict[str, Any]) -> None:
@@ -466,6 +486,7 @@ def _same_active_scope(
     mode: str,
     actor_id: str,
     retrieval_enabled: bool,
+    assessment_generation_profile: str,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
@@ -479,6 +500,9 @@ def _same_active_scope(
         and str(job.get("mode") or "") == mode
         and str(job.get("actor_id") or "") == actor_id
         and bool(job.get("retrieval_enabled")) is retrieval_enabled
+        and normalize_assessment_generation_profile(
+            job.get("assessment_generation_profile")
+        ) == assessment_generation_profile
     )
 
 

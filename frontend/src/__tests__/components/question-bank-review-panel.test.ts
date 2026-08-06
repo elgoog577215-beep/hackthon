@@ -637,6 +637,7 @@ describe('QuestionBankReviewPanel', () => {
         web_enrichment: {},
         chapter_rebuild: {
           status: 'partial',
+          assessment_generation_profile: 'fast',
           total_chapters: 63,
           completed_chapters: 9,
           remaining_chapters: 54,

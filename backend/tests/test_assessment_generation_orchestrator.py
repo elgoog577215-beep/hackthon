@@ -895,6 +895,14 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         "mastery_check",
     }
     assert len(chapter_events[0]["audit_items"]) == 3
+    assert chapter_events[0]["audit_snapshot"][
+        "assessment_generation_profile"
+    ] == "deliberate"
+    assert chapter_events[0]["audit_snapshot"][
+        "assessment_generation_policy_version"
+    ]
+    assert chapter_events[0]["audit_snapshot"]["logical_call_count"] >= 1
+    assert chapter_events[0]["audit_snapshot"]["wall_clock_ms"] >= 0
 
 
 async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
@@ -909,9 +917,11 @@ async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
     )
 
     audit = prepared["_assessment_generation_audit"]
-    assert model.generation_batch_sizes == [3]
+    # The two simple slots share one no-thinking batch. The structured slot
+    # is generated separately so it can keep necessary model deliberation.
+    assert model.generation_batch_sizes == [2]
     assert 2 in model.solve_batch_sizes
-    assert model.generate_calls == 0
+    assert model.generate_calls == 1
     assert audit["assessment_generation_profile"] == "fast"
     assert audit["assessment_generation_policy_version"]
     assert audit["max_generation_attempts_per_question"] == 2

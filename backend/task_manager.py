@@ -37,6 +37,10 @@ from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
 )
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+    normalize_assessment_generation_profile,
+)
 from assessment_orchestrator import AssessmentGenerationOrchestrator
 from assessment_retrieval import (
     compile_local_reference_package,
@@ -764,6 +768,16 @@ class TaskManager:
             "retry_count": 0,
             "logs": [],
             "request_snapshot": request_snapshot or {},
+            "assessment_generation_profile": (
+                normalize_assessment_generation_profile(
+                    (request_snapshot or {}).get(
+                        "assessment_generation_profile"
+                    )
+                )
+            ),
+            "assessment_generation_policy_version": (
+                ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "node_drafts": {},
             "operation": str((request_snapshot or {}).get("operation") or "generate"),
             "candidate_id": (request_snapshot or {}).get("candidate_id"),
@@ -3157,6 +3171,14 @@ class TaskManager:
         total_nodes = int(task.get("total_nodes") or 0)
         checkpoint = {
             "phase": phase,
+            "assessment_generation_profile": str(
+                task.get("assessment_generation_profile")
+                or "deliberate"
+            ),
+            "assessment_generation_policy_version": str(
+                task.get("assessment_generation_policy_version")
+                or ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "completed_nodes": completed_nodes,
             "total_nodes": total_nodes,
             "draft_node_ids": list((task.get("node_drafts") or {}).keys()),
@@ -6302,6 +6324,24 @@ class TaskManager:
                 task.setdefault("phase_progress", 0)
                 task.setdefault("phase_detail", {})
                 task.setdefault("request_snapshot", {})
+                try:
+                    persisted_generation_profile = (
+                        normalize_assessment_generation_profile(
+                            task.get("assessment_generation_profile")
+                            or (task.get("request_snapshot") or {}).get(
+                                "assessment_generation_profile"
+                            )
+                        )
+                    )
+                except ValueError:
+                    persisted_generation_profile = "deliberate"
+                task["assessment_generation_profile"] = (
+                    persisted_generation_profile
+                )
+                task.setdefault(
+                    "assessment_generation_policy_version",
+                    ASSESSMENT_GENERATION_POLICY_VERSION,
+                )
                 task.setdefault("node_drafts", {})
                 task.setdefault("operation", "generate")
                 task.setdefault("candidate_id", None)
@@ -6996,6 +7036,13 @@ class TaskManager:
                 asset_course.get("_question_reference_package") or {}
             )
             or None,
+            generation_profile=str(
+                (self.tasks[task_id].get("request_snapshot") or {}).get(
+                    "assessment_generation_profile"
+                )
+                or "deliberate"
+            ),
+            generation_scope="scoped_repair",
         )
         repaired_compilation = compile_learning_assets(prepared_course)
         rebuilt_question_bank = repaired_compilation.pop("question_bank_bundle")
@@ -7210,6 +7257,13 @@ class TaskManager:
             asset_course = await self._assessment_orchestrator.prepare_course(
                 asset_course,
                 reference_package=reference_package,
+                generation_profile=str(
+                    (task.get("request_snapshot") or {}).get(
+                        "assessment_generation_profile"
+                    )
+                    or "deliberate"
+                ),
+                generation_scope="full_generation",
             )
         asset_bundle = compile_learning_assets(asset_course)
         question_bank_bundle = asset_bundle.pop("question_bank_bundle")
