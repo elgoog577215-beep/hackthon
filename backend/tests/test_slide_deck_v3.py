@@ -306,6 +306,62 @@ def test_fragmenter_drops_quoted_diagram_id_authoring_metadata() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("kind", "content", "expected_text"),
+    [
+        (
+            "paragraph",
+            "没有自然句号的Unity状态同步说明" * 50,
+            "没有自然句号的Unity状态同步说明" * 50,
+        ),
+        (
+            "list_item",
+            "- " + "单个列表项同时解释输入状态和输出状态" * 45,
+            "单个列表项同时解释输入状态和输出状态" * 45,
+        ),
+    ],
+)
+def test_fragmenter_partitions_oversized_atomic_prose_without_losing_text(
+    kind: str,
+    content: str,
+    expected_text: str,
+) -> None:
+    course = source_course()
+    course["nodes"][0]["content_blocks"][0]["content"] = content
+    document = document_from_legacy_course(course)
+
+    fragments = [
+        fragment
+        for fragment in fragment_course_document(document)
+        if fragment.block_id == "block-core" and fragment.kind == kind
+    ]
+
+    assert len(fragments) > 1
+    assert all(len(fragment.text) <= 230 for fragment in fragments)
+    assert "".join(fragment.text for fragment in fragments) == expected_text
+
+
+def test_fragmenter_partitions_oversized_display_formula_at_safe_boundaries() -> None:
+    course = source_course()
+    formula_body = " + ".join(f"x_{{{index}}}" for index in range(1, 90)) + " = 0"
+    course["nodes"][0]["content_blocks"][0]["content"] = f"$${formula_body}$$"
+    document = document_from_legacy_course(course)
+
+    fragments = [
+        fragment
+        for fragment in fragment_course_document(document)
+        if fragment.block_id == "block-core" and fragment.kind == "formula"
+    ]
+
+    assert len(fragments) > 1
+    assert all(len(fragment.text) <= 230 for fragment in fragments)
+    assert all(
+        fragment.text.startswith("$$") and fragment.text.endswith("$$")
+        for fragment in fragments
+    )
+    assert "".join(fragment.text[2:-2] for fragment in fragments) == formula_body
+
+
 def test_pagination_keeps_enumeration_unit_and_next_heading_with_its_body() -> None:
     course = source_course()
     course["nodes"][0]["content_blocks"][0]["content"] = (
