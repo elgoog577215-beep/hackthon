@@ -1868,11 +1868,59 @@ class AssessmentGenerationOrchestrator:
             AIProviderRequestError,
             AIProviderUnavailable,
         ) as exc:
+            fallback = deepcopy(base)
+            fallback["generation_status"] = "ready"
+            fallback["review_required"] = True
+            fallback["risk_flags"] = list(dict.fromkeys([
+                *fallback.get("risk_flags", []),
+                "ai_validation_unavailable",
+            ]))
+            validation = fallback.setdefault("solution_validation", {})
+            validation["status"] = "needs_review"
+            validation["auto_publish_eligible"] = False
+            validation["issues"] = [
+                *deepcopy(validation.get("issues") or []),
+                {
+                    "code": "ai_validation_unavailable",
+                    "severity": "major",
+                },
+            ]
+            solution = fallback.setdefault("solution_envelope", {})
+            solution_steps = deepcopy(
+                (solution.get("solution_graph") or {}).get("steps") or []
+            )
+            solution["worked_solution"] = {
+                "schema_version": "worked_solution_v1",
+                "summary": (
+                    "Use the course conditions, complete each required step, "
+                    "and verify the final result."
+                ),
+                "steps": solution_steps,
+                "final_answer": deepcopy(solution.get("canonical_answer")),
+                "checks": [
+                    str(step.get("check") or "").strip()
+                    for step in solution_steps
+                    if isinstance(step, dict)
+                    and str(step.get("check") or "").strip()
+                ],
+                "option_analysis": [],
+                "common_errors": [],
+            }
+            fallback["generation_degradation"] = {
+                "status": "failed_fallback_local",
+                "reason_code": "ai_validation_unavailable",
+                "teacher_review_required": True,
+            }
+            audit["fallback_count"] += 1
             audit["failure_count"] += 1
             item_audit["error_code"] = type(exc).__name__
             item_audit["error_message"] = str(exc)[:500]
-            item_audit["final_decision"] = "discard"
-            return practice_level, None, item_audit, exc
+            item_audit["final_decision"] = "teacher_review"
+            _attach_generation_audit_summary(
+                fallback,
+                item_audit,
+            )
+            return practice_level, fallback, item_audit, None
         except Exception as exc:
             fallback = deepcopy(base)
             _mark_discarded(
