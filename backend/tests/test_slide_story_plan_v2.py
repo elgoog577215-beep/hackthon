@@ -27,6 +27,7 @@ from slide_deck_v4 import (
 )
 from slide_layout_registry import registry_summary_v2, select_layout_v2
 from slide_story_plan import (
+    STORY_BEAT_TEXT_CAPACITY,
     SlideStoryPlanPrerequisiteError,
     _claim_for_scene,
     compile_slide_story_plan_v2,
@@ -404,6 +405,54 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
     assert first.scene_match_score > 0
     assert first.capacity_passed is True
     assert first.layout_family != "split"
+
+
+def test_new_programming_course_long_code_is_partitioned_before_story_layout_selection() -> None:
+    course = deepcopy(_course_with_teaching_plan())
+    code_lines = [
+        (
+            f"public void Tick{index}(GameObject player) {{ "
+            f"player.transform.position += velocity{index} * Time.deltaTime; }}"
+        )
+        for index in range(1, 33)
+    ]
+    concept = next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-concept"
+    )
+    concept["content"] = "```csharp\n" + "\n".join(code_lines) + "\n```"
+    document = document_from_legacy_course(course)
+
+    fragments = fragment_course_document(document)
+    code_fragments = [
+        fragment
+        for fragment in fragments
+        if fragment.block_id == "block-concept" and fragment.kind == "code"
+    ]
+
+    assert len(code_fragments) > 1
+    assert all(
+        len(fragment.text) <= STORY_BEAT_TEXT_CAPACITY
+        for fragment in code_fragments
+    )
+    assert "\n".join(fragment.text for fragment in code_fragments) == "\n".join(code_lines)
+
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+
+    assert any(
+        code_fragment.fragment_id in beat.fragment_ids
+        for chapter in story.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+        for code_fragment in code_fragments
+    )
 
 
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
