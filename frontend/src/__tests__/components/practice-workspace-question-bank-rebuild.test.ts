@@ -135,6 +135,7 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
         scope: 'nodes',
         node_ids: ['node-1'],
         mode: 'incremental',
+        assessment_generation_profile: 'fast',
         retrieval_enabled: true,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),

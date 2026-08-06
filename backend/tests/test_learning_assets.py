@@ -575,6 +575,38 @@ def test_quality_gate_accepts_internal_mastery_rubric_for_a_concrete_prompt():
     assert report["passed"] is True
 
 
+def test_quality_gate_accepts_v2_compiled_answers_without_legacy_rubric_fields():
+    course = _course()
+    bundle = compile_learning_assets(course)
+    expected_solution_revisions = {
+        (
+            str(item.get("node_id") or ""),
+            str(next(iter(item.get("practice_levels") or []), "")),
+        ): str(item.get("solution_revision_id") or "")
+        for item in bundle["question_bank_bundle"]["items"]
+        if item.get("assessment_role") == "practice"
+    }
+    for question in bundle["assets"]["questions"]:
+        expected_revision = expected_solution_revisions[
+            (question["node_id"], question["practice_level"])
+        ]
+        assert expected_revision
+        assert question["solution_revision_id"] == expected_revision
+        question["answer_spec"].pop("expected_keywords", None)
+        question["question_spec"].pop("target", None)
+        question["question_spec"].pop("task", None)
+
+    report = evaluate_learning_asset_quality(
+        course,
+        bundle["plan"],
+        bundle["assets"],
+    )
+    messages = [str(issue.get("message") or "") for issue in report["issues"]]
+
+    assert "答案量规不可执行" not in messages
+    assert "掌握题缺少内部评测目标或明确任务产物" not in messages
+
+
 def test_asset_repository_keeps_immutable_bundle_revisions(tmp_path):
     repository = LearningAssetRepository(tmp_path)
     first = repository.save_bundle("course-1", compile_learning_assets(_course()))
