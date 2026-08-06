@@ -1304,6 +1304,7 @@ class AssessmentGenerationOrchestrator:
                             reference_package,
                             node_id=node_id,
                         ) >= 2
+                        and use_batch_generation
                         else 0.0
                     ),
                 )
@@ -1336,13 +1337,19 @@ class AssessmentGenerationOrchestrator:
                             semantic_batcher=semantic_batcher,
                         )
 
-                results = await asyncio.gather(*[
-                    run_slot(PRACTICE_LEVELS.index(level), level)
-                    for level in node_practice_levels
-                ])
                 fatal_errors: list[Exception] = []
                 node_audit_items: list[dict[str, Any]] = []
-                for practice_level, contract, item_audit, fatal in results:
+
+                async def record_result(
+                    result: tuple[
+                        str,
+                        dict[str, Any] | None,
+                        dict[str, Any],
+                        Exception | None,
+                    ],
+                ) -> None:
+                    nonlocal completed_items
+                    practice_level, contract, item_audit, fatal = result
                     if contract is not None:
                         contracts[node_id][practice_level] = contract
                     audit["items"].append(item_audit)
@@ -1358,6 +1365,22 @@ class AssessmentGenerationOrchestrator:
                             "total_items": total_items,
                         }
                     await _notify_progress(on_progress, progress_event)
+
+                if use_batch_generation:
+                    results = await asyncio.gather(*[
+                        run_slot(PRACTICE_LEVELS.index(level), level)
+                        for level in node_practice_levels
+                    ])
+                    for result in results:
+                        await record_result(result)
+                else:
+                    # Scoped repair spends one global slot per active section.
+                    # This keeps three sections moving without increasing the
+                    # provider-wide request limit or starving later sections.
+                    for level in node_practice_levels:
+                        await record_result(
+                            await run_slot(PRACTICE_LEVELS.index(level), level)
+                        )
                 chapter_passed = bool(
                     not fatal_errors
                     and set(contracts[node_id]) == set(node_practice_levels)

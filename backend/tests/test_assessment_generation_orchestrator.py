@@ -593,10 +593,6 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
         ).prepare_course(
             course,
             node_ids=["thermo-1", "thermo-2"],
-            practice_levels_by_node={
-                "thermo-1": ["concept_check"],
-                "thermo-2": ["concept_check"],
-            },
             on_chapter_complete=chapter_events.append,
         ),
         timeout=1,
@@ -611,6 +607,14 @@ async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
         "thermo-1",
         "thermo-2",
     }
+    assert all(
+        set(contracts) == {
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        }
+        for contracts in prepared["_assessment_generated_contracts"].values()
+    )
 
 
 async def test_node_uses_one_batch_generation_call_when_supported():
