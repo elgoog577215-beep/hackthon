@@ -144,6 +144,34 @@ def test_scoped_rebuild_replaces_only_failed_practice_level():
     assert active_ids == {"new-concept", "old-mastery"}
 
 
+def test_scoped_rebuild_reads_compiled_practice_levels_list():
+    previous_items = [
+        _item("old-concept", "node-a", practice_level="concept_check"),
+        _item("old-mastery", "node-a", practice_level="mastery_check"),
+    ]
+    rebuilt_items = [
+        _item("new-concept", "node-a", practice_level="concept_check"),
+        _item("new-mastery", "node-a", practice_level="mastery_check"),
+    ]
+    for item in [*previous_items, *rebuilt_items]:
+        item["practice_levels"] = [item.pop("practice_level")]
+
+    merged = reconcile_scoped_question_bank(
+        _bundle(previous_items),
+        _bundle(rebuilt_items),
+        node_ids=["node-a"],
+        practice_levels_by_node={"node-a": ["concept_check"]},
+        preserve_reviewed=False,
+    )
+
+    active_ids = {
+        item["item_id"]
+        for item in merged["items"]
+        if item["lifecycle_status"] != "retired"
+    }
+    assert active_ids == {"new-concept", "old-mastery"}
+
+
 def test_scoped_rebuild_preserves_untouched_rag_coverage_metadata():
     previous = _bundle([
         _item("old-a", "node-a"),
