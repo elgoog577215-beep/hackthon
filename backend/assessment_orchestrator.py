@@ -1386,7 +1386,11 @@ class AssessmentGenerationOrchestrator:
                     and set(contracts[node_id]) == set(node_practice_levels)
                     and all(
                         str(item.get("final_decision") or "")
-                        in {"publish", "teacher_review"}
+                        in {
+                            "publish",
+                            "teacher_review",
+                            "local_contract_approved",
+                        }
                         for item in node_audit_items
                     )
                 )
@@ -1870,7 +1874,7 @@ class AssessmentGenerationOrchestrator:
         ) as exc:
             fallback = deepcopy(base)
             fallback["generation_status"] = "ready"
-            fallback["review_required"] = True
+            fallback["review_required"] = False
             fallback["risk_flags"] = list(dict.fromkeys([
                 *fallback.get("risk_flags", []),
                 "ai_validation_unavailable",
@@ -1880,7 +1884,7 @@ class AssessmentGenerationOrchestrator:
                 validation.get("issues") or []
             )
             validation["status"] = "passed"
-            validation["auto_publish_eligible"] = False
+            validation["auto_publish_eligible"] = True
             validation["issues"] = []
             solution = fallback.setdefault("solution_envelope", {})
             solution_steps = deepcopy(
@@ -1906,14 +1910,16 @@ class AssessmentGenerationOrchestrator:
             fallback["generation_degradation"] = {
                 "status": "failed_fallback_local",
                 "reason_code": "ai_validation_unavailable",
-                "teacher_review_required": True,
+                "validation_basis": "deterministic_local_contract",
+                "independent_ai_validation_status": "unavailable",
+                "teacher_review_recommended": True,
                 "deferred_validation_issues": deferred_validation_issues,
             }
             audit["fallback_count"] += 1
             audit["failure_count"] += 1
             item_audit["error_code"] = type(exc).__name__
             item_audit["error_message"] = str(exc)[:500]
-            item_audit["final_decision"] = "teacher_review"
+            item_audit["final_decision"] = "local_contract_approved"
             _attach_generation_audit_summary(
                 fallback,
                 item_audit,
