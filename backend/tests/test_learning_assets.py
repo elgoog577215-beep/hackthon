@@ -575,6 +575,36 @@ def test_quality_gate_accepts_internal_mastery_rubric_for_a_concrete_prompt():
     assert report["passed"] is True
 
 
+def test_quality_gate_accepts_v2_compiled_answers_without_legacy_rubric_fields():
+    course = _course()
+    bundle = compile_learning_assets(course)
+    for question in bundle["assets"]["questions"]:
+        question["question_spec"] = {
+            "schema_version": "question_spec_v2",
+            "archetype_id": "integrated_performance",
+        }
+        question["solution_revision_id"] = "sol_local_validated"
+        question["compiled_contract_validation"] = {"passed": True}
+        question["answer_spec"] = {
+            "criteria": ["根据私有解题图逐步验证结果"],
+            "solution_spec": {
+                "schema_version": "solution_spec_v1",
+                "final_answer": "validated",
+                "steps": [{"operator": "verify", "check": "result"}],
+            },
+        }
+
+    report = evaluate_learning_asset_quality(
+        course,
+        bundle["plan"],
+        bundle["assets"],
+    )
+    messages = [str(issue.get("message") or "") for issue in report["issues"]]
+
+    assert "答案量规不可执行" not in messages
+    assert "掌握题缺少内部评测目标或明确任务产物" not in messages
+
+
 def test_asset_repository_keeps_immutable_bundle_revisions(tmp_path):
     repository = LearningAssetRepository(tmp_path)
     first = repository.save_bundle("course-1", compile_learning_assets(_course()))
