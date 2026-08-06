@@ -742,6 +742,25 @@ describe('teaching representation progressive build', () => {
     expect(store.slideQuality?.issues?.[0]?.suggestion).toBe('将可见要点压缩到版式允许的数量。')
   })
 
+  it('clears the rejected AI draft before a deterministic quality fallback is streamed', async () => {
+    const registry = slideRegistry('slides-deterministic', 'r2')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { event: 'slide_upsert', progress: 45, slide: { unit_id: 'slide:ai', title: 'Rejected AI', layout: 'concept' } },
+      { event: 'quality_fallback', progress: 85, initial_blocker_count: 99, initial_score: 23 },
+      { event: 'slide_upsert', progress: 88, slide: { unit_id: 'slide:deterministic', title: 'Accepted fallback', layout: 'cover' } },
+      { event: 'build_complete', progress: 100, build: { status: 'ready' }, registry, quality: { passed: true, score: 98 } },
+    ])))
+    httpMock.get.mockResolvedValue({ data: { spec: slideSpec('slides-deterministic', 'Accepted fallback') } })
+
+    const store = useTeachingRepresentationsStore()
+    await store.buildProgressive('course-1')
+
+    expect(store.liveSlides.map(slide => slide.unit_id)).toEqual(['slide:deterministic'])
+    expect(store.buildError).toBe('')
+    expect(store.buildFailure).toBeNull()
+    expect(store.slideQuality?.passed).toBe(true)
+  })
+
   it('keeps the published deck visible when a rebuild fails before the first slide', async () => {
     const registry = slideRegistry('slides-published', 'r1')
     const publishedQuality = { passed: true, score: 0.9, issues: [] }

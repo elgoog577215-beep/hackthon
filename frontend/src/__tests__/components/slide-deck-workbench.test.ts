@@ -294,6 +294,33 @@ describe('SlideDeckWorkbench', () => {
     expect(preview.find('.slide-workbench__failed-preview-advisories').exists()).toBe(true)
   })
 
+  it('shows the backend blocker total instead of presenting the first issue code as the whole failure', () => {
+    const blockers = [
+      ...Array.from({ length: 9 }, (_, index) => ({
+        severity: 'critical', code: 'dangling_fragment', page_id: `slide:dangling:${index}`,
+        message: 'Page ends with an incomplete fragment.',
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        severity: 'critical', code: 'continuation_sequence_missing', page_id: `slide:continuation:${index}`,
+        message: 'Continuation numbering is missing.',
+      })),
+    ]
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: 'Quality summary', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'build_blocked',
+        error: 'quality_gate_failed', previewSource: 'published',
+        quality: { passed: false, blocker_count: 99, blockers },
+      },
+    })
+
+    const receipt = wrapper.find('.slide-inspector__receipt').text()
+    expect(receipt).toContain('99')
+    expect(receipt).toContain('15')
+    expect(receipt).toContain('9')
+    expect(receipt).toContain('6')
+  })
+
   it('restores export when a successful rebuild changes the preview from draft to published', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
