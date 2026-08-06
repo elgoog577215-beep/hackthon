@@ -17,7 +17,6 @@ from slide_web_images import (
     rank_image_candidates_v5,
     resolve_visual_search_request_v5,
     safe_retrieval_url,
-    search_wikimedia_commons_v5,
     stage_retrieved_image,
 )
 
@@ -169,30 +168,6 @@ def test_retrieved_asset_manifest_keeps_full_provenance(tmp_path: Path) -> None:
     assert manifest["retrieved_at"]
 
 
-def test_commons_request_uses_a_descriptive_user_agent() -> None:
-    captured: dict[str, object] = {}
-
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict:
-            return {"query": {"pages": {}}}
-
-    class FakeClient:
-        def get(self, url: str, *, params: dict, headers: dict) -> FakeResponse:
-            captured.update({"url": url, "params": params, "headers": headers})
-            return FakeResponse()
-
-    assert search_wikimedia_commons_v5(
-        "generic educational structure",
-        client=FakeClient(),  # type: ignore[arg-type]
-    ) == []
-    assert str((captured["headers"] or {}).get("User-Agent", "")).startswith(
-        "LingzhiPPTV5/"
-    )
-
-
 def test_source_bound_ai_search_plan_is_used_before_deterministic_fallback() -> None:
     slide = {
         "unit_id": "slide:v5:source-bound-search",
@@ -286,6 +261,7 @@ def test_ppt_image_retrieval_uses_shared_gateway_and_hydrates_commons_license(
         def get(self, url: str, *, params: dict, headers: dict) -> FakeResponse:
             captured["metadata_url"] = url
             captured["metadata_params"] = params
+            captured["metadata_headers"] = headers
             return FakeResponse()
 
         def close(self) -> None:
@@ -325,6 +301,7 @@ def test_ppt_image_retrieval_uses_shared_gateway_and_hydrates_commons_license(
     assert gateway_request.category == "images"
     assert captured["metadata_url"] == "https://commons.wikimedia.org/w/api.php"
     assert captured["metadata_params"]["titles"] == "File:Heart diagram.png"
+    assert str(captured["metadata_headers"]["User-Agent"]).startswith("LingzhiPPTV5/")
     assert asset is not None
     assert asset.source_provider == "searxng"
     assert asset.license == "CC BY 4.0"
