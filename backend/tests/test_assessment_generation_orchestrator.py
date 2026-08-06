@@ -252,6 +252,55 @@ class LongTaskThenRepairModel(RepairingModel):
         return proposal
 
 
+class ProfileAwareBatchModel(BatchRepairingModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.generation_batch_sizes: list[int] = []
+        self.solve_batch_sizes: list[int] = []
+        self.call_policies: list[object] = []
+
+    async def generate_candidate_batch(
+        self,
+        contexts: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        self.batch_generate_calls += 1
+        self.generation_batch_sizes.append(len(contexts))
+        self.call_policies.append(call_policy)
+        return {
+            context["assessment_slot"]["slot_id"]: _proposal(
+                12,
+                context,
+            )
+            for context in contexts
+        }
+
+    async def solve_candidate(
+        self,
+        public_question_spec: dict,
+        *,
+        call_policy=None,
+    ) -> dict:
+        self.call_policies.append(call_policy)
+        return await super().solve_candidate(public_question_spec)
+
+    async def solve_candidate_batch(
+        self,
+        items: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        self.solve_batch_sizes.append(len(items))
+        self.call_policies.append(call_policy)
+        return {
+            str(item["slot_id"]): await super().solve_candidate(
+                item["question_spec"]
+            )
+            for item in items
+        }
+
+
 def _proposal(answer: float, context: dict) -> dict:
     slot = context["assessment_slot"]
     mode = slot["input_mode"]
@@ -846,3 +895,56 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         "mastery_check",
     }
     assert len(chapter_events[0]["audit_items"]) == 3
+
+
+async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
+    model = ProfileAwareBatchModel()
+
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+
+    audit = prepared["_assessment_generation_audit"]
+    assert model.generation_batch_sizes == [3]
+    assert 2 in model.solve_batch_sizes
+    assert model.generate_calls == 0
+    assert audit["assessment_generation_profile"] == "fast"
+    assert audit["assessment_generation_policy_version"]
+    assert audit["max_generation_attempts_per_question"] == 2
+    assert audit["max_repairs_per_question"] == 1
+    assert any(
+        timing.get("thinking_requested") is True
+        and "complex_input_mode" in timing.get(
+            "thinking_reason_codes",
+            [],
+        )
+        for timing in audit["call_timings"]
+    )
+
+
+async def test_fast_profile_stops_after_one_repair_attempt():
+    model = DisagreeingModel()
+
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="scoped_repair",
+    )
+
+    contract = prepared["_assessment_generated_contracts"][
+        "thermo-1"
+    ]["objective_practice"]
+    audit_item = next(
+        item
+        for item in prepared["_assessment_generation_audit"]["items"]
+        if item["practice_level"] == "objective_practice"
+    )
+    assert model.repair_calls == 1
+    assert len(audit_item["attempts"]) == 2
+    assert contract["generation_status"] == "discarded"

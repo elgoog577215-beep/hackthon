@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+    requires_deliberation,
+    resolve_assessment_generation_policy,
+)
+from models import CourseGenerationRequest
+from question_bank_jobs import QuestionBankRebuildJobRepository
+from routers.question_bank import QuestionBankRebuildRequest
+
+
+def test_generation_profile_defaults_preserve_legacy_behavior() -> None:
+    course_request = CourseGenerationRequest(subject="线性代数")
+    rebuild_request = QuestionBankRebuildRequest()
+
+    assert course_request.assessment_generation_profile == "deliberate"
+    assert rebuild_request.assessment_generation_profile == "deliberate"
+    assert QuestionBankRebuildRequest(
+        assessment_generation_profile="fast"
+    ).assessment_generation_profile == "fast"
+
+
+def test_fast_policy_has_bounded_repairs_and_provider_budget() -> None:
+    policy = resolve_assessment_generation_policy("fast")
+
+    assert policy.version == ASSESSMENT_GENERATION_POLICY_VERSION
+    assert policy.profile == "fast"
+    assert policy.max_generation_attempts == 2
+    assert policy.generation_batch_size == 3
+    assert policy.solution_batch_size == 2
+    assert policy.max_provider_attempts == 2
+    assert policy.compact_candidate is True
+
+
+def test_deliberation_is_selective_and_reasoned() -> None:
+    simple = requires_deliberation(
+        "generate",
+        {
+            "assessment_slot": {
+                "input_mode": "choice",
+                "validation_mode": "exact_validator",
+            },
+        },
+    )
+    complex_item = requires_deliberation(
+        "solve",
+        {
+            "input_contract": {"mode": "structured_fields"},
+            "validation_mode": "expert_rubric_validator",
+        },
+    )
+    structural_repair = requires_deliberation(
+        "repair",
+        {"issue_codes": ["MODEL_OUTPUT_SCHEMA_INVALID"]},
+    )
+    semantic_repair = requires_deliberation(
+        "repair",
+        {"issue_codes": ["independent_solution_mismatch"]},
+    )
+
+    assert simple.required is False
+    assert simple.reason_codes == ()
+    assert complex_item.required is True
+    assert set(complex_item.reason_codes) == {
+        "complex_input_mode",
+        "complex_validation_mode",
+    }
+    assert structural_repair.required is False
+    assert semantic_repair.required is True
+    assert semantic_repair.reason_codes == ("semantic_repair",)
+
+
+def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
+    repository = QuestionBankRebuildJobRepository(tmp_path)
+
+    fast, fast_created = repository.create_job(
+        "course-1",
+        request_id="request-fast",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+        assessment_generation_profile="fast",
+    )
+    deliberate, deliberate_created = repository.create_job(
+        "course-1",
+        request_id="request-deliberate",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+        assessment_generation_profile="deliberate",
+    )
+
+    assert fast_created is True
+    assert deliberate_created is True
+    assert fast["job_id"] != deliberate["job_id"]
+    assert fast["assessment_generation_profile"] == "fast"
+    assert deliberate["assessment_generation_profile"] == "deliberate"
+    assert fast["assessment_generation_policy_version"] == (
+        ASSESSMENT_GENERATION_POLICY_VERSION
+    )
