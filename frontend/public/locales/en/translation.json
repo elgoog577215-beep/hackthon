@@ -2847,6 +2847,8 @@
     "confirming": "Confirming",
     "confirmFailed": "Confirmation failed; the knowledge base keeps its previous revision",
     "discard": "Discard candidate",
-    "applied": "Knowledge revision applied; downstream artifacts are marked for rebuild."
+    "applied": "Knowledge revision applied; downstream artifacts are marked for rebuild.",
+    "relocated": "The knowledge base changed; impact was recomputed against the current version. Please confirm again.",
+    "relocateConflict": "The knowledge base changed and the candidate cannot be carried over. Please start again."
   }
 }

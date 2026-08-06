@@ -24,6 +24,7 @@ from course_knowledge_rebuild import (
     CourseKnowledgeRebuildError,
     CourseKnowledgeRebuildService,
 )
+from course_knowledge_relocation import relocate_point_edit_candidate
 from course_repository import (
     CourseDocumentConflict,
     CourseDocumentNotFound,
@@ -83,6 +84,12 @@ class PointEditRequest(BaseModel):
 
 class PointEditConfirmRequest(PointEditRequest):
     command_id: str = Field(min_length=1, max_length=200)
+
+
+class PointEditRelocateRequest(PointEditRequest):
+    """A pending candidate asking to be re-anchored onto the current base."""
+
+    base_knowledge_revision_id: str = Field(min_length=1, max_length=200)
 
 
 def get_course_knowledge_rebuild_service(
@@ -384,3 +391,37 @@ async def confirm_point_edit(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "success", "receipt": receipt, "candidate": candidate}
+
+
+@router.post("/courses/{course_id}/knowledge-library/points/relocate-edit")
+async def relocate_point_edit(
+    course_id: str,
+    body: PointEditRelocateRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Re-anchor a pending candidate whose base revision moved.
+
+    Returns 200 for every outcome, including `conflict`. A conflict here is a
+    normal review state the teacher must read and act on — not a failed
+    request — and folding it into 409 would make the client discard the
+    explanation of *why* it could not be relocated.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+        result = relocate_point_edit_candidate(
+            course,
+            knowledge_id=body.knowledge_id,
+            operation=body.operation,
+            value=body.value,
+            reason=body.reason,
+            base_knowledge_revision_id=body.base_knowledge_revision_id,
+            actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "success", "relocation": result}

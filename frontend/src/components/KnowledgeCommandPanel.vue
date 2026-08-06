@@ -300,6 +300,12 @@ async function confirm(): Promise<void> {
     emit('applied')
   } catch (error: any) {
     logger.error(error)
+    // A stale base is not a dead end: try to re-anchor the candidate onto the
+    // current revision instead of telling the teacher their work is gone.
+    if (error?.response?.data?.detail?.code === 'knowledge_base_revision_changed') {
+      const relocated = await relocate()
+      if (relocated) return
+    }
     errorText.value = errorMessage(
       error,
       t('knowledgeCommands.confirmFailed', '确认失败，知识库保持原修订'),
@@ -307,6 +313,43 @@ async function confirm(): Promise<void> {
   } finally {
     confirming.value = false
   }
+}
+
+async function relocate(): Promise<boolean> {
+  if (!props.point || !candidate.value) return false
+  try {
+    const response = await http.post(
+      `/api/courses/${props.courseId}/knowledge-library/points/relocate-edit`,
+      {
+        knowledge_id: props.point.knowledge_id,
+        operation: operation.value,
+        value: value.value.trim(),
+        reason: reason.value.trim(),
+        base_knowledge_revision_id: candidate.value.base_knowledge_revision_id,
+      },
+      { silentError: true },
+    )
+    const relocation = response.data?.relocation
+    if (relocation?.outcome === 'relocated' && relocation.candidate) {
+      // Re-offer, never auto-apply: the impact was recomputed against a base
+      // the teacher has not seen, so it needs a fresh confirmation.
+      candidate.value = relocation.candidate
+      errorText.value = t(
+        'knowledgeCommands.relocated',
+        '知识库已变化，影响已按当前版本重新计算，请再次确认。',
+      )
+      return true
+    }
+    if (relocation?.outcome === 'conflict') {
+      candidate.value = null
+      errorText.value = relocation.message
+        || t('knowledgeCommands.relocateConflict', '知识库已变化且无法自动衔接，请重新发起。')
+      return true
+    }
+  } catch (relocateError: any) {
+    logger.error(relocateError)
+  }
+  return false
 }
 
 function discard(): void {

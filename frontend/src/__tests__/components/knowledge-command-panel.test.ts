@@ -205,3 +205,84 @@ describe('知识维护面板', () => {
     await setLocale('zh')
   })
 })
+
+describe('确认遇到基线前移时的重定位', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => ({
+      ok: true,
+      json: async () => (String(input).includes('/en/') ? enMessages : zhMessages),
+    })))
+    await setLocale('zh')
+  })
+
+  function staleError() {
+    return {
+      response: { data: { detail: { code: 'knowledge_base_revision_changed', message: '知识库已变化' } } },
+    }
+  }
+
+  it('无关改动导致过期时自动重定位并要求再次确认，不作废教师的工作', async () => {
+    httpMock.post
+      .mockResolvedValueOnce({ data: { candidate: candidate({ base_knowledge_revision_id: 'ckbr_old' }) } })
+      .mockRejectedValueOnce(staleError())
+      .mockResolvedValueOnce({
+        data: {
+          relocation: {
+            outcome: 'relocated',
+            candidate: candidate({ candidate_id: 'ckc_2', base_knowledge_revision_id: 'ckbr_new' }),
+          },
+        },
+      })
+    const wrapper = await mountPanel()
+    await fillAndPreview(wrapper)
+    await wrapper.get('.knowledge-command-candidate .is-primary').trigger('click')
+    await flushPromises()
+
+    const [url, body] = httpMock.post.mock.calls[2]!
+    expect(url).toBe('/api/courses/course-1/knowledge-library/points/relocate-edit')
+    expect(body.base_knowledge_revision_id).toBe('ckbr_old')
+    // 候选换成重算后的那个，仍在待确认状态（不是自动应用）。
+    expect(wrapper.find('.knowledge-command-candidate').exists()).toBe(true)
+    expect(wrapper.text()).toContain('请再次确认')
+    expect(wrapper.emitted('applied')).toBeUndefined()
+  })
+
+  it('冲突时清掉候选并说明原因，不假装还能确认', async () => {
+    httpMock.post
+      .mockResolvedValueOnce({ data: { candidate: candidate({ base_knowledge_revision_id: 'ckbr_old' }) } })
+      .mockRejectedValueOnce(staleError())
+      .mockResolvedValueOnce({
+        data: {
+          relocation: {
+            outcome: 'conflict',
+            reason: 'target_field_changed',
+            message: '候选要修改的字段已被他人改动',
+            candidate: null,
+          },
+        },
+      })
+    const wrapper = await mountPanel()
+    await fillAndPreview(wrapper)
+    await wrapper.get('.knowledge-command-candidate .is-primary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.knowledge-command-candidate').exists()).toBe(false)
+    expect(wrapper.get('.knowledge-command-error').text()).toContain('已被他人改动')
+    expect(wrapper.emitted('applied')).toBeUndefined()
+  })
+
+  it('非过期类失败不触发重定位', async () => {
+    httpMock.post
+      .mockResolvedValueOnce({ data: { candidate: candidate() } })
+      .mockRejectedValueOnce({ response: { data: { detail: { code: 'knowledge_candidate_not_confirmable', message: '未通过质量门' } } } })
+    const wrapper = await mountPanel()
+    await fillAndPreview(wrapper)
+    await wrapper.get('.knowledge-command-candidate .is-primary').trigger('click')
+    await flushPromises()
+
+    // 只有 preview + confirm 两次请求，没有第三次重定位。
+    expect(httpMock.post).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.knowledge-command-error').text()).toContain('未通过质量门')
+  })
+})

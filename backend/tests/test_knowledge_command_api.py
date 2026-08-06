@@ -663,3 +663,112 @@ def test_rename_keeps_the_old_name_resolvable_as_alias() -> None:
     assert index.resolve("section-1", "容量耗尽判定") == target["knowledge_id"]
     # 原有别名不能被顶掉。
     assert index.resolve("section-1", "满容量判定") == target["knowledge_id"]
+
+
+# --- 候选重定位（HTTP 边界） -------------------------------------------------
+
+
+def test_relocate_returns_unchanged_when_base_did_not_move() -> None:
+    """基线没变时如实说"未变化"，不谎称重定位过。"""
+    course = _canonical_course()
+    client, storage = _client(course)
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/relocate-edit",
+        json={
+            "knowledge_id": _point_id(course, "容量耗尽判定"),
+            "operation": "revise_knowledge_point",
+            "value": "长度等于容量时，插入前必须先扩容。",
+            "reason": "表述更精确",
+            "base_knowledge_revision_id": course["course_knowledge_base"]["revision_id"],
+        },
+    )
+
+    assert response.status_code == 200
+    relocation = response.json()["relocation"]
+    assert relocation["outcome"] == "unchanged"
+    assert relocation["candidate"]["confirmable"] is True
+    assert storage.save_count == 0
+
+
+def test_relocate_recomputes_candidate_after_unrelated_edit() -> None:
+    """他人改了别的知识点后，我的待确认候选应被重定位而不是作废。"""
+    course = _canonical_course()
+    client, storage = _client(course)
+    stale_base = course["course_knowledge_base"]["revision_id"]
+
+    # 先由他人确认一次对另一个知识点的修改，推动基线前进。
+    client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit",
+        json={
+            "command_id": "cmd-other",
+            "knowledge_id": _point_id(course, "动态数组扩容"),
+            "operation": "revise_knowledge_point",
+            "value": "倍增扩容把复制成本摊还到一系列插入。",
+            "reason": "他人的修改",
+        },
+    )
+    assert storage.course["course_knowledge_base"]["revision_id"] != stale_base
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/relocate-edit",
+        json={
+            "knowledge_id": _point_id(course, "容量耗尽判定"),
+            "operation": "revise_knowledge_point",
+            "value": "长度等于容量时，插入前必须先扩容。",
+            "reason": "表述更精确",
+            "base_knowledge_revision_id": stale_base,
+        },
+    )
+
+    relocation = response.json()["relocation"]
+    assert relocation["outcome"] == "relocated"
+    assert relocation["candidate"]["confirmable"] is True
+    # 重定位后的候选钉在新基线上，可以直接确认成功。
+    confirmed = client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit",
+        json={
+            "command_id": "cmd-relocated",
+            "knowledge_id": _point_id(course, "容量耗尽判定"),
+            "operation": "revise_knowledge_point",
+            "value": "长度等于容量时，插入前必须先扩容。",
+            "reason": "表述更精确",
+        },
+    )
+    assert confirmed.status_code == 200
+
+
+def test_relocate_reports_conflict_when_same_field_moved() -> None:
+    """同一字段被他人改过时报冲突，且仍是 200——这是要教师读的审阅状态。"""
+    course = _canonical_course()
+    client, _ = _client(course)
+    stale_base = course["course_knowledge_base"]["revision_id"]
+    target = _point_id(course, "容量耗尽判定")
+
+    client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit",
+        json={
+            "command_id": "cmd-other",
+            "knowledge_id": target,
+            "operation": "revise_knowledge_point",
+            "value": "他人已经改写过的陈述。",
+            "reason": "他人的修改",
+        },
+    )
+
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/relocate-edit",
+        json={
+            "knowledge_id": target,
+            "operation": "revise_knowledge_point",
+            "value": "我的版本。",
+            "reason": "表述更精确",
+            "base_knowledge_revision_id": stale_base,
+        },
+    )
+
+    assert response.status_code == 200
+    relocation = response.json()["relocation"]
+    assert relocation["outcome"] == "conflict"
+    assert relocation["reason"] == "target_field_changed"
+    assert relocation["candidate"] is None
