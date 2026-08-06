@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
-from copy import deepcopy
 import asyncio
 import inspect
 import json
 import os
 import time
+from collections.abc import Awaitable, Callable, Iterable
+from copy import deepcopy
 from typing import Any, Protocol
 
 from ai_base import (
@@ -16,13 +16,13 @@ from ai_base import (
     AIProviderRequestError,
     AIProviderUnavailable,
 )
-from assessment_contracts import (
-    compile_assessment_objectives,
-    compile_course_assessment_profile,
-)
 from assessment_blueprint import (
     compile_course_assessment_blueprint,
     slot_for,
+)
+from assessment_contracts import (
+    compile_assessment_objectives,
+    compile_course_assessment_profile,
 )
 from assessment_diversity import (
     forbidden_diversity_context,
@@ -42,13 +42,12 @@ from assessment_semantics import (
     should_run_semantic_review,
 )
 from assessment_validators import validate_candidate_answer
-from course_versioning import stable_hash
 from code_runner_client import (
     CodeRunnerUnavailable,
     code_runner_client,
 )
+from course_versioning import stable_hash
 from solution_contracts import worked_solution_is_complete
-
 
 PRACTICE_LEVELS = (
     "concept_check",
@@ -669,6 +668,13 @@ class AssessmentGenerationOrchestrator:
                 ),
             ),
         )
+        self.node_concurrency = max(
+            1,
+            min(
+                3,
+                int(os.getenv("ASSESSMENT_NODE_CONCURRENCY", "3")),
+            ),
+        )
 
     async def prepare_course(
         self,
@@ -1244,26 +1250,30 @@ class AssessmentGenerationOrchestrator:
                 len(PRACTICE_LEVELS),
             )
         semaphore = asyncio.Semaphore(slot_parallelism)
+        node_semaphore = asyncio.Semaphore(self.node_concurrency)
+        progress_lock = asyncio.Lock()
+        chapter_callback_lock = asyncio.Lock()
         completed_items = 0
 
-        for node in target_nodes:
-            node_id = str(node.get("node_id") or "")
-            node_practice_levels = (
-                practice_levels_by_node.get(node_id) or PRACTICE_LEVELS
-            )
-            objective = objective_by_node.get(node_id)
-            if not objective:
-                continue
-            contracts[node_id] = {}
-            accepted_questions = historical_questions_for_node(
-                prepared,
-                node_id=node_id,
-            )
-            audit["historical_diversity_comparison_count"] += len(
-                accepted_questions
-            )
-            initial_candidates = (
-                await self._generate_initial_candidate_batch(
+        async def run_node(node: dict[str, Any]) -> None:
+            nonlocal completed_items
+            async with node_semaphore:
+                node_id = str(node.get("node_id") or "")
+                node_practice_levels = (
+                    practice_levels_by_node.get(node_id) or PRACTICE_LEVELS
+                )
+                objective = objective_by_node.get(node_id)
+                if not objective:
+                    return
+                contracts[node_id] = {}
+                accepted_questions = historical_questions_for_node(
+                    prepared,
+                    node_id=node_id,
+                )
+                audit["historical_diversity_comparison_count"] += len(
+                    accepted_questions
+                )
+                initial_candidates = await self._generate_initial_candidate_batch(
                     profile=profile,
                     objective=objective,
                     blueprint=blueprint,
@@ -1273,107 +1283,111 @@ class AssessmentGenerationOrchestrator:
                     existing_questions=accepted_questions,
                     practice_levels=node_practice_levels,
                 )
-            )
-            semantic_batcher = _SemanticEvaluationBatcher(
-                model=self.model,
-                audit=audit,
-                max_wait_seconds=(
-                    float(
-                        os.getenv(
-                            "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
-                            "1",
+                semantic_batcher = _SemanticEvaluationBatcher(
+                    model=self.model,
+                    audit=audit,
+                    max_wait_seconds=(
+                        float(
+                            os.getenv(
+                                "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
+                                "1",
+                            )
                         )
-                    )
-                    if _semantic_review_candidate_count(
-                        blueprint,
-                        reference_package,
-                        node_id=node_id,
-                    ) >= 2
-                    else 0.0
-                ),
-            )
-
-            async def run_slot(
-                variant_index: int,
-                practice_level: str,
-            ):
-                async with semaphore:
-                    return await self._generate_slot_contract(
-                        prepared=prepared,
-                        node=node,
-                        profile=profile,
-                        objective=objective,
-                        blueprint=blueprint,
-                        reference_package=reference_package,
-                        practice_level=practice_level,
-                        variant_index=variant_index,
-                        audit=audit,
-                        accepted_questions=accepted_questions,
-                        quality_lock=quality_lock,
-                        initial_candidate=initial_candidates.get(
-                            practice_level
-                        ),
-                        semantic_batcher=semantic_batcher,
-                    )
-
-            results = await asyncio.gather(*[
-                run_slot(PRACTICE_LEVELS.index(level), level)
-                for level in node_practice_levels
-            ])
-            fatal_errors: list[Exception] = []
-            node_audit_items: list[dict[str, Any]] = []
-            for practice_level, contract, item_audit, fatal in results:
-                if contract is not None:
-                    contracts[node_id][practice_level] = contract
-                audit["items"].append(item_audit)
-                node_audit_items.append(item_audit)
-                if fatal is not None:
-                    fatal_errors.append(fatal)
-                completed_items += 1
-                await _notify_progress(
-                    on_progress,
-                    {
-                        "node_id": node_id,
-                        "practice_level": practice_level,
-                        "completed_items": completed_items,
-                        "total_items": total_items,
-                    },
+                        if _semantic_review_candidate_count(
+                            blueprint,
+                            reference_package,
+                            node_id=node_id,
+                        ) >= 2
+                        else 0.0
+                    ),
                 )
-            chapter_passed = bool(
-                not fatal_errors
-                and set(contracts[node_id]) == set(node_practice_levels)
-                and all(
-                    str(item.get("final_decision") or "")
-                    in {"publish", "teacher_review"}
-                    for item in node_audit_items
+
+                async def run_slot(
+                    variant_index: int,
+                    practice_level: str,
+                ) -> tuple[
+                    str,
+                    dict[str, Any] | None,
+                    dict[str, Any],
+                    Exception | None,
+                ]:
+                    async with semaphore:
+                        return await self._generate_slot_contract(
+                            prepared=prepared,
+                            node=node,
+                            profile=profile,
+                            objective=objective,
+                            blueprint=blueprint,
+                            reference_package=reference_package,
+                            practice_level=practice_level,
+                            variant_index=variant_index,
+                            audit=audit,
+                            accepted_questions=accepted_questions,
+                            quality_lock=quality_lock,
+                            initial_candidate=initial_candidates.get(
+                                practice_level
+                            ),
+                            semantic_batcher=semantic_batcher,
+                        )
+
+                results = await asyncio.gather(*[
+                    run_slot(PRACTICE_LEVELS.index(level), level)
+                    for level in node_practice_levels
+                ])
+                fatal_errors: list[Exception] = []
+                node_audit_items: list[dict[str, Any]] = []
+                for practice_level, contract, item_audit, fatal in results:
+                    if contract is not None:
+                        contracts[node_id][practice_level] = contract
+                    audit["items"].append(item_audit)
+                    node_audit_items.append(item_audit)
+                    if fatal is not None:
+                        fatal_errors.append(fatal)
+                    async with progress_lock:
+                        completed_items += 1
+                        progress_event = {
+                            "node_id": node_id,
+                            "practice_level": practice_level,
+                            "completed_items": completed_items,
+                            "total_items": total_items,
+                        }
+                    await _notify_progress(on_progress, progress_event)
+                chapter_passed = bool(
+                    not fatal_errors
+                    and set(contracts[node_id]) == set(node_practice_levels)
+                    and all(
+                        str(item.get("final_decision") or "")
+                        in {"publish", "teacher_review"}
+                        for item in node_audit_items
+                    )
                 )
-            )
-            await _notify_progress(
-                on_chapter_complete,
-                {
-                    "node_id": node_id,
-                    "node_name": str(
-                        node.get("node_name") or node_id
-                    ),
-                    "passed": chapter_passed,
-                    "contracts": deepcopy(contracts[node_id]),
-                    "audit_items": deepcopy(node_audit_items),
-                    "completed_items": completed_items,
-                    "total_items": total_items,
-                    "error_code": (
-                        type(fatal_errors[0]).__name__
-                        if fatal_errors
-                        else ""
-                    ),
-                    "error_message": (
-                        str(fatal_errors[0])[:500]
-                        if fatal_errors
-                        else ""
-                    ),
-                },
-            )
-            if fatal_errors:
-                raise fatal_errors[0]
+                async with chapter_callback_lock:
+                    await _notify_progress(
+                        on_chapter_complete,
+                        {
+                            "node_id": node_id,
+                            "node_name": str(node.get("node_name") or node_id),
+                            "passed": chapter_passed,
+                            "contracts": deepcopy(contracts[node_id]),
+                            "audit_items": deepcopy(node_audit_items),
+                            "completed_items": completed_items,
+                            "total_items": total_items,
+                            "error_code": (
+                                type(fatal_errors[0]).__name__
+                                if fatal_errors
+                                else ""
+                            ),
+                            "error_message": (
+                                str(fatal_errors[0])[:500]
+                                if fatal_errors
+                                else ""
+                            ),
+                        },
+                    )
+                if fatal_errors:
+                    raise fatal_errors[0]
+
+        await asyncio.gather(*(run_node(node) for node in target_nodes))
         return contracts
 
     async def _generate_initial_candidate_batch(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+
 import pytest
 
 from ai_base import AIProviderRequestError
