@@ -563,6 +563,55 @@ async def test_slots_generate_with_bounded_concurrency(monkeypatch):
     ] == 0
 
 
+async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
+    monkeypatch.setenv("ASSESSMENT_NODE_CONCURRENCY", "2")
+    started_nodes: set[str] = set()
+    both_started = asyncio.Event()
+
+    class CrossNodeModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            objective_id = str(
+                (context.get("assessment_slot") or {}).get("objective_id") or ""
+            )
+            started_nodes.add(objective_id)
+            if len(started_nodes) == 2:
+                both_started.set()
+            await both_started.wait()
+            return await super().generate_candidate(context)
+
+    course = _course()
+    second = deepcopy(course["nodes"][0])
+    second["node_id"] = "thermo-2"
+    second["node_name"] = "热力学第二小节"
+    course["nodes"].append(second)
+    chapter_events: list[dict] = []
+
+    prepared = await asyncio.wait_for(
+        AssessmentGenerationOrchestrator(
+            model=CrossNodeModel(),
+        ).prepare_course(
+            course,
+            node_ids=["thermo-1", "thermo-2"],
+            practice_levels_by_node={
+                "thermo-1": ["concept_check"],
+                "thermo-2": ["concept_check"],
+            },
+            on_chapter_complete=chapter_events.append,
+        ),
+        timeout=1,
+    )
+
+    assert len(started_nodes) == 2
+    assert {event["node_id"] for event in chapter_events} == {
+        "thermo-1",
+        "thermo-2",
+    }
+    assert set(prepared["_assessment_generated_contracts"]) == {
+        "thermo-1",
+        "thermo-2",
+    }
+
+
 async def test_node_uses_one_batch_generation_call_when_supported():
     model = BatchRepairingModel()
 
