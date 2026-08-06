@@ -43,7 +43,7 @@ from slide_deck_v5 import (
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
-from slide_quality_v5 import _concise_existing_title
+from slide_quality_v5 import _concise_existing_title, build_slide_deck_quality_v5
 from slide_story_plan import (
     ChapterStoryV2,
     ClaimSourceV2,
@@ -2318,6 +2318,7 @@ def test_v5_paginates_every_practice_question_instead_of_hiding_overflow() -> No
         "quality": {
             "requested_layout": "practice-feedback",
             "feedback_mode": "shared_evidence",
+            "semantic_atom_ids": ["atom-practice-five-questions"],
         },
     }])
     resolved = [apply_page_contract_v5(page) for page in pages]
@@ -2337,10 +2338,12 @@ def test_v5_paginates_every_practice_question_instead_of_hiding_overflow() -> No
         <= page["quality"]["visible_item_budget"]
         for page in resolved
     )
-    assert not any(
-        issue["code"] == "visible_item_overflow"
-        for issue in v5_contract_issues(resolved)
-    )
+    issue_codes = {
+        issue["code"]
+        for issue in build_slide_deck_quality_v5(resolved)["issues"]
+    }
+    assert "visible_item_overflow" not in issue_codes
+    assert "semantic_atom_split" not in issue_codes
 
 
 def test_v5_promotes_feedback_group_labels_instead_of_counting_them_as_items() -> None:
