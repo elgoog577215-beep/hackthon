@@ -72,6 +72,19 @@ def test_deliberation_is_selective_and_reasoned() -> None:
     assert semantic_repair.reason_codes == ("semantic_repair",)
 
 
+def test_global_thinking_switch_vetoes_provider_request(monkeypatch) -> None:
+    monkeypatch.setenv("AI_THINKING_ENABLED", "false")
+
+    policy = resolve_assessment_generation_policy("fast")
+    call_policy = policy.call_policy(
+        "solve",
+        {"input_contract": {"mode": "code"}},
+    )
+
+    assert call_policy.enable_thinking is False
+    assert call_policy.thinking_reason_codes == ()
+
+
 def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
     repository = QuestionBankRebuildJobRepository(tmp_path)
 

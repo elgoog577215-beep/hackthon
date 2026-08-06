@@ -286,6 +286,13 @@
             </ol>
           </section>
 
+          <section class="form-section">
+            <AssessmentGenerationProfileSelector
+              v-model="form.assessmentGenerationProfile"
+              :disabled="busy"
+            />
+          </section>
+
           <section class="form-section web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
@@ -359,6 +366,7 @@ import {
 } from 'lucide-vue-next'
 import MaterialInputPanel from './MaterialInputPanel.vue'
 import { t } from '@/shared/i18n'
+import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
@@ -395,6 +403,7 @@ const form = reactive({
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
+  assessmentGenerationProfile: 'fast' as 'fast' | 'deliberate',
   retrievalEnabled: false,
   requirements: '',
   targetAudience: '大学生',
@@ -524,6 +533,7 @@ async function submit() {
         ? { secondary_mode: form.secondaryMode, secondary_intensity: 'collaborative' as const }
         : {}),
       generation_mode: 'review_blueprint',
+      assessment_generation_profile: form.assessmentGenerationProfile,
       course_purpose: 'systematic',
       course_type: form.courseType,
       course_intent: form.courseType === 'project'

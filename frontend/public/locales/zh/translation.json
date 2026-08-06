@@ -2115,6 +2115,13 @@
     "cancel": "取消",
     "save": "保存笔记"
   },
+  "assessmentGeneration": {
+    "label": "题目生成方式",
+    "fastLabel": "快速版",
+    "fastHelp": "批量生成与独立求解；复杂题和关键修复仍会保留必要思考",
+    "deliberateLabel": "思考版",
+    "deliberateHelp": "完整逐题独立求解，并保留更多质量修复轮次"
+  },
   "units": {
     "seconds": "秒",
     "minutes": "分钟",
