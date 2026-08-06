@@ -30,6 +30,8 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
         "startpage",
         "qwant",
         "yahoo",
+        "sogou",
+        "quark",
         "wikipedia",
         "arxiv",
         "pubmed",
@@ -71,6 +73,9 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "http://127.0.0.1:8080/search" in script
     assert "format=json" in script
     assert 'assert payload.get("results")' in script
+    assert "q=Unity MonoBehaviour GameObject 中文教程" in script
+    assert "categories=general" in script
+    assert "categories=general,science" not in script
     assert "--force-recreate" in script
     assert "for attempt in $(seq 1 3)" in script
 

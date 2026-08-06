@@ -2806,6 +2806,13 @@
     "cancel": "Cancel",
     "save": "Save note"
   },
+  "assessmentGeneration": {
+    "label": "Question generation mode",
+    "fastLabel": "Fast",
+    "fastHelp": "Uses batched generation and independent solving while retaining necessary reasoning for complex questions and critical repairs.",
+    "deliberateLabel": "Deliberate",
+    "deliberateHelp": "Uses complete per-question independent solving and additional quality-repair rounds."
+  },
   "units": {
     "seconds": " sec",
     "minutes": " min",

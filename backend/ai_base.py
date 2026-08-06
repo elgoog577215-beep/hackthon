@@ -951,6 +951,7 @@ class AIBase:
         json_mode: bool = False,
         model_role: str | None = None,
         on_stream_activity: Callable[[], None] | None = None,
+        telemetry_sink: Callable[[dict], None] | None = None,
     ) -> Optional[str]:
         """
         通用 LLM 调用函数。
@@ -1006,6 +1007,53 @@ class AIBase:
                 if max_attempts is not None and attempts >= max_attempts:
                     break
                 attempts += 1
+                attempt_started = time.perf_counter()
+                queue_wait_ms = 0
+                physical_request_count = 0
+                estimated_input_tokens = self.estimate_request_tokens(
+                    prompt,
+                    system_prompt,
+                )
+
+                def emit_telemetry(
+                    *,
+                    status: str,
+                    output: str = "",
+                    error: Exception | None = None,
+                ) -> None:
+                    if telemetry_sink is None:
+                        return
+                    try:
+                        telemetry_sink({
+                            "model_id": model_id,
+                            "model_role": model_role or "",
+                            "provider_attempt": attempts,
+                            "physical_request_count": (
+                                physical_request_count
+                            ),
+                            "status": status,
+                            "error_code": (
+                                type(error).__name__ if error else ""
+                            ),
+                            "queue_wait_ms": queue_wait_ms,
+                            "duration_ms": int(round(
+                                (time.perf_counter() - attempt_started)
+                                * 1000
+                            )),
+                            "estimated_input_tokens": (
+                                estimated_input_tokens
+                            ),
+                            "estimated_output_tokens": (
+                                self.estimate_request_tokens(output, "")
+                                if output
+                                else 0
+                            ),
+                        })
+                    except Exception:
+                        logger.debug(
+                            "Assessment telemetry sink failed",
+                            exc_info=True,
+                        )
                 try:
                     extra_body = self._thinking_extra_body(enable_thinking)
                     capacity = get_provider_capacity_controller(self.api_base)
@@ -1024,13 +1072,18 @@ class AIBase:
                         request_options["response_format"] = {
                             "type": "json_object"
                         }
+                    queue_started = time.perf_counter()
                     lease = await capacity.acquire(
                         model_id,
                         on_wait_activity=on_stream_activity,
                     )
+                    queue_wait_ms = int(round(
+                        (time.perf_counter() - queue_started) * 1000
+                    ))
                     try:
                         try:
                             await self._wait_for_request_slot()
+                            physical_request_count += 1
                             response = await self.client.chat.completions.create(
                                 **request_options
                             )
@@ -1042,6 +1095,7 @@ class AIBase:
                                 raise
                             request_options.pop("response_format", None)
                             await self._wait_for_request_slot()
+                            physical_request_count += 1
                             response = await self.client.chat.completions.create(
                                 **request_options
                             )
@@ -1084,6 +1138,7 @@ class AIBase:
                             )
 
                     if not full_content:
+                        emit_telemetry(status="empty_response")
                         empty_error = AIProviderRequestError(
                             f"empty_response:{model_id}"
                         )
@@ -1115,9 +1170,14 @@ class AIBase:
                         reasoning_chars,
                     )
                     logger.info(f"AI Response Complete (Model: {model_id})")
+                    emit_telemetry(
+                        status="completed",
+                        output=full_content,
+                    )
                     return full_content
 
                 except Exception as e:
+                    emit_telemetry(status="failed", error=e)
                     last_error = e
                     logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
                     if isinstance(e, ModelCapacityCoolingDown):
@@ -1126,6 +1186,28 @@ class AIBase:
                         self._block_provider("authentication_failed")
                         if raise_on_failure:
                             raise AIProviderUnavailable("authentication_failed") from e
+                        return None
+                    if (
+                        max_attempts is not None
+                        and self._capacity_failure_kind(e)
+                        == "quota_exhausted"
+                    ):
+                        capacity = get_provider_capacity_controller(
+                            self.api_base
+                        )
+                        await capacity.report_failure(
+                            model_id,
+                            failure_kind="quota_exhausted",
+                            cooldown_seconds=(
+                                self._model_failure_cooldown_seconds(e)
+                            ),
+                        )
+                        self._cool_down_model(model_id, e)
+                        self._block_provider("quota_exhausted")
+                        if raise_on_failure:
+                            raise AIProviderUnavailable(
+                                "quota_exhausted"
+                            ) from e
                         return None
                     if self._should_try_next_model(e):
                         capacity = get_provider_capacity_controller(self.api_base)

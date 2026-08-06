@@ -25,6 +25,8 @@ printf '[%s] 在构建机生成前端产物：%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%
 )
 
 git -C "$ROOT_DIR" archive "$TARGET_COMMIT" | tar -x -C "$STAGING_DIR"
+rm -rf "$STAGING_DIR/demo_videos"
+find "$STAGING_DIR" -maxdepth 1 -type f -name 'design-qa-*.png' -delete
 rm -rf "$STAGING_DIR/backend/static"
 mkdir -p "$STAGING_DIR/backend/static"
 cp -a "$ROOT_DIR/frontend/dist/." "$STAGING_DIR/backend/static/"
