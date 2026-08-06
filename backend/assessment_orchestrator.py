@@ -791,6 +791,7 @@ class AssessmentGenerationOrchestrator:
                 on_chapter_complete=on_chapter_complete,
                 total_items=total_items,
                 practice_levels_by_node=requested_levels_by_node,
+                use_batch_generation=requested_node_ids is None,
             )
             completed_items = total_items
             target_nodes = []
@@ -1234,6 +1235,7 @@ class AssessmentGenerationOrchestrator:
         on_chapter_complete: AssessmentChapterCallback | None,
         total_items: int,
         practice_levels_by_node: dict[str, tuple[str, ...]],
+        use_batch_generation: bool,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
         quality_lock = asyncio.Lock()
@@ -1273,15 +1275,19 @@ class AssessmentGenerationOrchestrator:
                 audit["historical_diversity_comparison_count"] += len(
                     accepted_questions
                 )
-                initial_candidates = await self._generate_initial_candidate_batch(
-                    profile=profile,
-                    objective=objective,
-                    blueprint=blueprint,
-                    reference_package=reference_package,
-                    node_id=node_id,
-                    audit=audit,
-                    existing_questions=accepted_questions,
-                    practice_levels=node_practice_levels,
+                initial_candidates = (
+                    await self._generate_initial_candidate_batch(
+                        profile=profile,
+                        objective=objective,
+                        blueprint=blueprint,
+                        reference_package=reference_package,
+                        node_id=node_id,
+                        audit=audit,
+                        existing_questions=accepted_questions,
+                        practice_levels=node_practice_levels,
+                    )
+                    if use_batch_generation
+                    else {}
                 )
                 semantic_batcher = _SemanticEvaluationBatcher(
                     model=self.model,

@@ -758,7 +758,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         "learning_objective": "判断热过程方向并说明熵变依据",
     })
     course["nodes"].append(second)
-    model = RepairingModel()
+    model = BatchRepairingModel()
     progress_events: list[dict] = []
     chapter_events: list[dict] = []
 
@@ -780,6 +780,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert set(prepared["_assessment_generated_contracts"]) == {
         "thermo-2",
     }
+    assert model.batch_generate_calls == 0
     assert model.generate_calls == 3
     assert model.solve_calls == 4
     assert model.repair_calls == 1
