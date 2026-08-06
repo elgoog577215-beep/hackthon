@@ -308,6 +308,9 @@ def compile_learning_assets(
                 "answer_spec": deepcopy(
                     contract_source.get("answer_spec") or {}
                 ),
+                "solution_revision_id": contract_source.get(
+                    "solution_revision_id"
+                ),
                 "input_contract": deepcopy(
                     contract_source.get("input_contract") or {}
                 ),
