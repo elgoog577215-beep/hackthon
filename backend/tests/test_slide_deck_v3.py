@@ -1198,6 +1198,44 @@ def test_mode_theme_variants_are_cached_independently_and_do_not_replace_core_sp
             )
 
 
+def test_failed_variant_rebuild_emits_the_structured_terminal_quality(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import representation_compiler
+
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    def fail_compile(*_args, **_kwargs):
+        raise ValueError("final SlideDeckContent schema mismatch")
+
+    monkeypatch.setattr(
+        representation_compiler,
+        "compile_slide_deck_variant",
+        fail_compile,
+    )
+
+    result = rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        progress_callback=events.append,
+    )
+
+    terminal = events[-1]
+    assert terminal["event"] == "build_failed"
+    assert terminal["code"] == "slide_variant_rebuild_failed"
+    assert terminal["quality"] == result["quality"]
+    assert terminal["quality"]["blockers"][0]["message"] == (
+        "final SlideDeckContent schema mismatch"
+    )
+
+
 def test_v3_export_is_editable_widescreen_and_uses_variant_theme(tmp_path: Path) -> None:
     course = source_course()
     document = document_from_legacy_course(course)
