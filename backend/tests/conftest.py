@@ -157,3 +157,56 @@ def task_manager(
         max_concurrency=5,
     )
     return tm
+
+
+# ---------------------------------------------------------------------------
+# Durable-fact isolation
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def isolate_learning_event_store(tmp_path, monkeypatch):
+    """Keep learning-event writes out of the repository's data directory.
+
+    ``learning_events`` writes through a module-level ``storage`` singleton that
+    defaults to ``backend/data``. Most tests that record events patch that
+    singleton themselves, but any test that exercises a route reaching
+    ``record_learning_event`` without patching appends real rows to the tracked
+    ``backend/data/learning_events.json`` — the file then shows up as modified
+    in every later ``git status`` and is one ``git add -A`` away from being
+    committed as if it were product data.
+
+    Autouse rather than opt-in on purpose: the leak comes precisely from tests
+    that did not know they needed the fixture. Tests that patch the singleton
+    themselves still win, because their ``monkeypatch.setattr`` runs after this.
+    """
+    import learning_events
+
+    event_store = _IsolatedEventStorage(tmp_path / "learning_events")
+    monkeypatch.setattr(learning_events, "storage", event_store)
+    return event_store
+
+
+class _IsolatedEventStorage:
+    """Minimal load_data/save_data storage backed by a per-test directory."""
+
+    def __init__(self, root) -> None:
+        self._root = root
+        self._root.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, filename: str):
+        return self._root / filename
+
+    def load_data(self, filename: str):
+        import json
+
+        path = self._path(filename)
+        if not path.exists():
+            return []
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def save_data(self, filename: str, value) -> None:
+        import json
+
+        self._path(filename).write_text(
+            json.dumps(value, ensure_ascii=False), encoding="utf-8",
+        )
