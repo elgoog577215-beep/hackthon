@@ -5,6 +5,7 @@ from assessment_generation_policy import (
     requires_deliberation,
     resolve_assessment_generation_policy,
 )
+from assessment_independent_solvers import IndependentSolverRegistry
 from models import CourseGenerationRequest
 from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers.question_bank import QuestionBankRebuildRequest
@@ -101,3 +102,38 @@ def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
     assert fast["assessment_generation_policy_version"] == (
         ASSESSMENT_GENERATION_POLICY_VERSION
     )
+
+
+def test_local_numeric_solver_uses_only_public_solver_contract() -> None:
+    registry = IndependentSolverRegistry.with_builtin_solvers()
+
+    solution = registry.solve({
+        "input_contract": {"mode": "numeric_unit"},
+        "solver_contract": {
+            "kind": "numeric_expression",
+            "expression": "20 - 8",
+            "unit": "kJ",
+        },
+    })
+
+    assert solution is not None
+    assert solution["answer"] == {"value": 12, "unit": "kJ"}
+    assert solution["work"]
+    assert solution["checks"]
+    assert solution["solver_attested"] is True
+
+
+def test_local_solver_rejects_unsafe_or_incomplete_contract() -> None:
+    registry = IndependentSolverRegistry.with_builtin_solvers()
+
+    assert registry.solve({
+        "input_contract": {"mode": "numeric_unit"},
+        "solver_contract": {
+            "kind": "numeric_expression",
+            "expression": "__import__('os').system('whoami')",
+            "unit": "kJ",
+        },
+    }) is None
+    assert registry.solve({
+        "input_contract": {"mode": "choice"},
+    }) is None
