@@ -408,6 +408,47 @@ async def test_repeated_unchanged_quality_failure_disables_blind_resume(tmp_path
     assert "连续两次" in repeated["reason"]
 
 
+@pytest.mark.asyncio
+async def test_repair_policy_upgrade_allows_one_retry_of_legacy_quality_failure(
+    tmp_path, monkeypatch
+):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch, task_status="failed"
+    )
+    course = workspaces.load_course("job-recovery")
+    course["generation_quality_report"] = {
+        "final_status": "quality_failed",
+        "publication_allowed": False,
+        "blocking_issues": [{
+            "code": "asset:question_coverage",
+            "severity": "critical",
+            "message": "questions do not cover L2-1-1",
+            "asset_type": "questions",
+        }],
+    }
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "completed_with_warnings",
+        "phase": "quality_failed",
+        "publication_allowed": False,
+        "quality_failure": {
+            "fingerprint": TaskManager._quality_failure_summary(course)["fingerprint"],
+            "repeat_count": 2,
+            "supported": True,
+            "repair_scopes": ["learning_assets"],
+            "blockers": [],
+        },
+    })
+
+    recovery = manager.describe_task_recovery("job-recovery")
+
+    assert recovery["state"] == "quality_blocked"
+    assert recovery["can_resume"] is True
+    assert recovery["reason_code"] == "quality_gate_failed"
+    assert recovery["quality_failure"]["repeat_count"] == 1
+    assert recovery["quality_failure"]["repair_policy_version"]
+
+
 def test_quality_failure_summary_includes_source_chain_blockers():
     summary = TaskManager._quality_failure_summary({
         "generation_quality_report": {
