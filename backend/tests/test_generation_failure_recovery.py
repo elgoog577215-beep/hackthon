@@ -484,6 +484,69 @@ def test_confirmed_outline_revision_mismatch_uses_snapshot_repair_scope():
     assert summary["repair_scopes"] == ["confirmed_outline_snapshot"]
 
 
+def test_confirmed_outline_snapshot_restore_preserves_content_and_exact_revision():
+    confirmed = {
+        "course_id": "course-recovery",
+        "course_name": "Unity 实战",
+        "course_outline": {
+            "course_title": "Unity 实战",
+            "chapters": [{
+                "chapter_number": 1,
+                "title": "第1章 开发环境",
+                "learning_focus": "",
+                "sections": [{
+                    "section_number": "1.1",
+                    "node_id": "L2-1-1",
+                    "title": "1.1 初始化项目",
+                    "learning_objective": "完成项目初始化",
+                    "scope_boundary": "只覆盖工程初始化",
+                    "assessment": ["项目可以运行"],
+                    "prerequisite_node_ids": [],
+                }],
+            }],
+        },
+        "nodes": [
+            {
+                "node_id": "L1-1",
+                "parent_node_id": "root",
+                "node_name": "第1章 开发环境",
+                "node_level": 1,
+                "learning_objective": "",
+                "prerequisite_node_ids": [],
+                "scope_boundary": "",
+                "assessment": [],
+            },
+            {
+                "node_id": "L2-1-1",
+                "parent_node_id": "L1-1",
+                "node_name": "1.1 初始化项目",
+                "node_level": 2,
+                "learning_objective": "完成项目初始化",
+                "prerequisite_node_ids": [],
+                "scope_boundary": "只覆盖工程初始化",
+                "assessment": ["项目可以运行"],
+            },
+        ],
+    }
+    expected_revision = artifact_revision("outline", confirmed, request={})
+    drifted = deepcopy(confirmed)
+    drifted["course_outline"]["chapters"][0]["learning_focus"] = "第1章 开发环境"
+    drifted["course_outline"]["chapters"][0]["sections"][0]["title"] = "初始化项目"
+    drifted["nodes"][0]["node_name"] = "第1章 第1章 开发环境"
+    drifted["nodes"][1]["node_content"] = "已经生成且必须保留的正文"
+
+    restored = TaskManager._restore_confirmed_outline_identity(
+        drifted,
+        confirmed,
+        expected_revision=expected_revision,
+        request={},
+    )
+
+    assert artifact_revision("outline", restored, request={}) == expected_revision
+    assert restored["nodes"][1]["node_content"] == "已经生成且必须保留的正文"
+    assert restored["nodes"][0]["node_name"] == "第1章 开发环境"
+
+
 @pytest.mark.asyncio
 async def test_restart_replaces_stale_source_chain_publication_decision_before_completion(
     tmp_path,
