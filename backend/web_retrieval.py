@@ -748,7 +748,8 @@ def classify_source(
         rejection_reasons.append("unsafe_url")
     if not excerpt:
         rejection_reasons.append("missing_excerpt")
-    if relevance < 0.55:
+    minimum_relevance = 0.25 if category == "images" else 0.55
+    if relevance < minimum_relevance:
         rejection_reasons.append("low_relevance")
     if has_injection:
         rejection_reasons.append("prompt_injection")
