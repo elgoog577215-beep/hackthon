@@ -434,6 +434,56 @@ def test_quality_failure_summary_includes_source_chain_blockers():
     assert summary["blockers"][0]["code"] == "requirements_revision_mismatch"
 
 
+def test_missing_practice_slots_are_included_in_targeted_repair():
+    targets = TaskManager._failed_practice_targets(
+        {
+            "questions": [{
+                "node_id": "L2-1-1",
+                "practice_level": "concept_check",
+                "quality_status": "passed",
+                "quality_report": {"passed": True},
+                "practice_contract_revision_id": "pc-ok",
+                "input_contract": {"node_id": "L2-1-1"},
+            }],
+        },
+        expected_node_ids=["L2-1-1", "L2-1-2"],
+    )
+
+    assert targets == {
+        "L2-1-1": ["objective_practice", "mastery_check"],
+        "L2-1-2": [
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        ],
+    }
+
+
+def test_confirmed_outline_revision_mismatch_uses_snapshot_repair_scope():
+    summary = TaskManager._quality_failure_summary({
+        "course_outline_revision_id": "bp-confirmed",
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "blocking_issues": [],
+        },
+        "asset_quality_report": {
+            "passed": True,
+            "blocking_issues": [],
+        },
+        "generation_source_chain_report": {
+            "can_publish": False,
+            "issues": [{
+                "code": "outline_revision_mismatch",
+                "step": "outline",
+                "message": "outline no longer matches its confirmed revision",
+            }],
+        },
+    })
+
+    assert summary["supported"] is True
+    assert summary["repair_scopes"] == ["confirmed_outline_snapshot"]
+
+
 @pytest.mark.asyncio
 async def test_restart_replaces_stale_source_chain_publication_decision_before_completion(
     tmp_path,
