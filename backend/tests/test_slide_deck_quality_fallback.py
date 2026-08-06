@@ -110,7 +110,9 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_deterministic_v5_quality_failure_is_not_retried(monkeypatch):
+async def test_deterministic_v5_quality_failure_retries_stricter_quality_profile(
+    monkeypatch,
+):
     import task_manager
 
     calls: list[dict] = []
@@ -118,12 +120,53 @@ async def test_deterministic_v5_quality_failure_is_not_retried(monkeypatch):
         "status": "failed_using_last_available",
         "quality": {"passed": False, "blocker_count": 2, "blockers": []},
     }
+    recovered = {
+        "status": "synchronized",
+        "quality": {"passed": True, "score": 96, "blockers": []},
+    }
+    initial_story = SimpleNamespace(
+        planner="deterministic_fallback",
+        planning_diagnostics={"compaction_profile": "semantic"},
+    )
+    fallback_story = SimpleNamespace(
+        planner="deterministic_fallback",
+        planning_diagnostics={"compaction_profile": "quality_fallback"},
+    )
+    fallback_allocation = SimpleNamespace(pages=[])
+    fallback_visual = SimpleNamespace(pages=[])
+    compaction_profiles: list[str] = []
 
     def rebuild(*_args, **kwargs):
         calls.append(kwargs)
-        return failed
+        return failed if len(calls) == 1 else recovered
 
     monkeypatch.setattr(task_manager, "rebuild_slide_deck_variant_safely", rebuild)
+    monkeypatch.setattr(
+        task_manager,
+        "fragment_course_document",
+        lambda _document: ["fragment"],
+    )
+    monkeypatch.setattr(
+        task_manager,
+        "compile_slide_story_plan_v2",
+        lambda *_args, **_kwargs: initial_story,
+    )
+
+    def compact(*_args, **kwargs):
+        compaction_profiles.append(kwargs.get("profile", ""))
+        return fallback_story
+
+    monkeypatch.setattr(task_manager, "compact_story_plan_v5", compact)
+    monkeypatch.setattr(
+        task_manager,
+        "allocation_from_story_plan_v5",
+        lambda *_args, **_kwargs: (fallback_allocation, []),
+    )
+
+    async def visual_planner(*_args, **_kwargs):
+        return fallback_visual
+
+    monkeypatch.setattr(task_manager, "plan_slide_visuals", visual_planner)
 
     result = await task_manager._rebuild_slide_variant_with_quality_fallback(
         document=SimpleNamespace(),
@@ -134,12 +177,17 @@ async def test_deterministic_v5_quality_failure_is_not_retried(monkeypatch):
         slide_schema="slide_deck_v5",
         allocation_plan=SimpleNamespace(pages=[]),
         visual_plan=SimpleNamespace(pages=[]),
-        story_plan=SimpleNamespace(planner="deterministic_fallback"),
+        story_plan=initial_story,
         progress_callback=lambda _event: None,
         checkpoint_callback=None,
         resume_slides=[],
     )
 
-    assert len(calls) == 1
-    assert result["used_deterministic_fallback"] is False
-    assert result["build"] is failed
+    assert len(calls) == 2
+    assert calls[1]["story_plan"] is fallback_story
+    assert calls[1]["allocation_plan"] is fallback_allocation
+    assert calls[1]["visual_plan"] is fallback_visual
+    assert compaction_profiles == ["quality_fallback"]
+    assert result["used_deterministic_fallback"] is True
+    assert result["build"] is recovered
+    assert result["initial_quality"] == failed["quality"]

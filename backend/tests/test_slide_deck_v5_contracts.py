@@ -123,6 +123,72 @@ def test_quality_contract_blocks_split_atoms_duplicate_copy_and_empty_answers() 
     assert "empty_answer" in codes
 
 
+def test_paired_answer_ids_satisfy_closed_question_mapping() -> None:
+    slide = _slide(
+        "slide:v5:practice:paired",
+        title="判断映射是否保持线性结构",
+        content="判断给定映射是否同时保持加法与数乘。",
+        scene_kind="practice_feedback",
+        block_type="exercise",
+    )
+    slide["blocks"][0]["metadata"].update({
+        "question_id": "question-linear",
+        "question_ids": ["question-linear"],
+        "question_mode": "closed",
+        "semantic_role": "prompt",
+    })
+    slide["blocks"].append({
+        "block_id": "answer-linear",
+        "type": "callout",
+        "title": "参考答案与判断依据",
+        "content": "",
+        "items": ["两项都成立，因此该映射是线性映射。"],
+        "metadata": {
+            "semantic_role": "answer",
+            "direct_answer": True,
+            "answer_for_question_ids": ["question-linear"],
+            "source_fragment_ids": ["fragment-answer"],
+        },
+    })
+
+    report = build_slide_deck_quality_v5([slide])
+
+    assert "answer_mapping_missing" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_semantic_repair_does_not_merge_past_final_body_budget() -> None:
+    first = _slide(
+        "slide:v5:dense:001",
+        title="第一组完整依据",
+        content="甲" * 150,
+    )
+    second = _slide(
+        "slide:v5:dense:002",
+        title="第二组待补充依据",
+        content=("乙" * 100) + "包括",
+    )
+    for slide, count in ((first, 150), (second, 102)):
+        slide["quality"].update({
+            "body_character_count": count,
+            "body_character_budget": 230,
+            "visible_item_count": 0,
+            "visible_item_budget": 5,
+        })
+
+    repaired, history = repair_semantic_slides_v5(
+        [first, second],
+        max_rounds=2,
+    )
+
+    assert len(repaired) == 2
+    assert not any(
+        item["action"] == "merge_sparse_or_dangling_page"
+        for item in history
+    )
+
+
 def test_continuation_requires_parent_link_and_visible_sequence() -> None:
     continuation = _slide(
         "slide:v5:episode-1:continuation",
@@ -417,6 +483,31 @@ def test_render_repair_changes_only_the_audited_page() -> None:
     assert len(repaired[0]["blocks"]) == 1
     assert len(repaired[0]["title"]) <= 24
     assert {item["page_id"] for item in history} == {"slide:v5:episode-1:001"}
+
+
+def test_render_repair_shortens_a_twenty_character_chinese_title() -> None:
+    slide = _slide(
+        "slide:v5:chapter:long-title",
+        title="线性映射的定义，并能判断给定映射是否线性",
+        content="什么样的映射不会破坏向量空间中的线性结构？",
+    )
+    assert len(slide["title"]) == 20
+    review = {
+        "issues": [{
+            "severity": "critical",
+            "code": "exported_title_unexpected_wrap",
+            "page": 1,
+        }],
+    }
+
+    repaired, history = repair_render_slides_v5(
+        [slide],
+        review,
+        round_index=1,
+    )
+
+    assert len(repaired[0]["title"]) <= 18
+    assert history[0]["actions"] == ["shorten_title_from_existing_copy"]
 
 
 def test_process_result_in_source_grounded_takeaway_satisfies_contract() -> None:
