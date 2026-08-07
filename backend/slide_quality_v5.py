@@ -41,11 +41,28 @@ _INTERNAL_LABEL_RE = re.compile(
     re.IGNORECASE,
 )
 _INTERNAL_PREFIX_RE = re.compile(
-    r"(?m)(^|\n)\s*(?:(?:本节|本页)(?:核心)?\s*)?"
-    r"知识规范(?:名称)?(?:为)?\s*[:：]\s*",
+    r"(?m)(^|\n)\s*(?:[*_`~]{1,3}\s*)?"
+    r"(?:(?:本节|本页)(?:核心)?\s*)?"
+    r"知识规范(?:名称)?(?:为)?"
+    r"(?:\s*[:：]\s*|\s*(?=$|\n))",
     re.IGNORECASE,
 )
 _DANGLING_END_RE = re.compile(r"(?:[：:，,、；;]|(?:以及|并且|包括|如下))\s*$")
+_DANGLING_SCAFFOLD_RE = re.compile(
+    r"(?:^|\s)(?:以下|如下|下面|平台切换|DPI\s*适配|权限|操作|步骤|"
+    r"代码|示例|原理|逻辑).*(?:[：:]|如下)\s*$",
+    re.IGNORECASE,
+)
+_PROCESS_RESULT_CUE_RE = re.compile(
+    r"(?:转换为|生成|得到|写入|读取|保存|持久化|保证|确保|输出|返回|"
+    r"更新|显示|触发|完成|实现|产生|恢复|归零|消失|可写|实例)",
+    re.IGNORECASE,
+)
+_WORKED_CONCLUSION_CUE_RE = re.compile(
+    r"(?:因此|所以|由此|导致|发现|分析|报错|错误|失败|结果|现象|"
+    r"触发|说明|无法)",
+    re.IGNORECASE,
+)
 _QUESTION_MARK_RE = re.compile(r"[?？]")
 _CLOSED_QUESTION_HINT_RE = re.compile(r"(?:选择|判断|哪一|哪个|是否|正确|错误|计算|求出)")
 _CONCLUSION_HINT_RE = re.compile(
@@ -217,6 +234,20 @@ def _longest_duplicate_length(left: str, right: str) -> int:
     ).size
 
 
+def _is_material_duplicate(
+    left: str,
+    right: str,
+    duplicate_length: int,
+) -> bool:
+    shorter_length = min(len(left), len(right))
+    if duplicate_length <= 20 or shorter_length <= 0:
+        return False
+    return bool(
+        duplicate_length >= 80
+        or duplicate_length / shorter_length >= 0.65
+    )
+
+
 def collect_v5_quality_issues(
     slides: list[dict[str, Any]],
     *,
@@ -385,7 +416,11 @@ def collect_v5_quality_issues(
             body,
             _clean_text(slide.get("takeaway")),
         ])
-        if scene == "worked_example":
+        open_discussion = any(
+            _question_mode(slide, block) == "open_discussion"
+            for block in questions
+        )
+        if scene == "worked_example" and not open_discussion:
             continuation_root = _clean_text(quality.get("continuation_of")) or page_id
             family_slides = [
                 slide_by_id.get(continuation_root, slide),
@@ -440,7 +475,16 @@ def collect_v5_quality_issues(
                 page_id,
                 message="比较页没有统一比较维度。",
             ))
-        if scene in {"process", "method"} and not (
+        has_process_structure = bool(
+            scene == "process"
+            or any(str(block.get("type") or "") == "process" for block in blocks)
+            or any(
+                metadata.get("process_step")
+                or metadata.get("step_index")
+                for metadata in metadata_values
+            )
+        )
+        if scene in {"process", "method"} and has_process_structure and not (
             quality.get("process_result")
             or any(meta.get("process_result") for meta in metadata_values)
             or any(_clean_text(block.get("title")) in {"结果", "产出", "结论"} for block in blocks)
@@ -491,7 +535,7 @@ def collect_v5_quality_issues(
         left_text = _normalize_visible(_duplicate_check_text(left))
         right_text = _normalize_visible(_duplicate_check_text(right))
         duplicate_length = _longest_duplicate_length(left_text, right_text)
-        if duplicate_length > 20:
+        if _is_material_duplicate(left_text, right_text, duplicate_length):
             issues.append(_issue(
                 "duplicate_visible_content",
                 _clean_text(right.get("unit_id")),
@@ -770,8 +814,59 @@ def _open_discussion_repair(slide: dict[str, Any]) -> bool:
 
 
 def _strip_internal_prefix(value: object) -> str:
-    cleaned = _INTERNAL_PREFIX_RE.sub(r"\1", str(value or ""))
+    cleaned, replacement_count = _INTERNAL_PREFIX_RE.subn(
+        r"\1",
+        str(value or ""),
+    )
+    if replacement_count:
+        cleaned = re.sub(r"(?:\s*[*_`~]{1,3})+\s*$", "", cleaned)
     return cleaned.strip()
+
+
+def _replacement_title_for_internal_label(slide: dict[str, Any]) -> str:
+    quality = slide.get("quality") or {}
+    try:
+        title_budget = max(12, int(quality.get("title_character_budget") or 24))
+    except (TypeError, ValueError):
+        title_budget = 24
+    continuation_of = _clean_text(quality.get("continuation_of"))
+    try:
+        continuation_index = int(quality.get("continuation_index") or 0)
+        continuation_total = int(quality.get("continuation_total") or 0)
+    except (TypeError, ValueError):
+        continuation_index = 0
+        continuation_total = 0
+    suffix = (
+        f"（续{continuation_index}/{continuation_total}）"
+        if (
+            continuation_of
+            and continuation_index >= 2
+            and continuation_total >= continuation_index
+        )
+        else ""
+    )
+    maximum = max(14, title_budget - len(suffix)) if suffix else title_budget
+    candidates = [
+        slide.get("takeaway"),
+        (slide.get("primary_claim_source") or {}).get("text"),
+        slide.get("key_message"),
+        *[
+            value
+            for block in slide.get("blocks") or []
+            for value in [
+                block.get("content"),
+                *(block.get("items") or []),
+            ]
+        ],
+    ]
+    for value in candidates:
+        candidate = _strip_internal_prefix(value)
+        if not _normalize_visible(candidate) or _INTERNAL_LABEL_RE.search(candidate):
+            continue
+        concise = _concise_existing_title(candidate, maximum=maximum)
+        if concise:
+            return f"{concise}{suffix}"
+    return ""
 
 
 def _repair_internal_labels(slide: dict[str, Any]) -> bool:
@@ -794,7 +889,109 @@ def _repair_internal_labels(slide: dict[str, Any]) -> bool:
         if updated_items != items:
             block["items"] = updated_items
             changed = True
+    title = _clean_text(slide.get("title"))
+    if not _normalize_visible(title) or _INTERNAL_LABEL_RE.search(title):
+        replacement = _replacement_title_for_internal_label(slide)
+        if replacement and replacement != title:
+            slide["title"] = replacement
+            changed = True
     return changed
+
+
+def _source_fragment_ids(block: dict[str, Any]) -> list[str]:
+    metadata = block.get("metadata") or {}
+    values = [
+        *(metadata.get("fragment_ids") or []),
+        *(metadata.get("source_fragment_ids") or []),
+    ]
+    source_fragment_id = _clean_text(metadata.get("source_fragment_id"))
+    if source_fragment_id:
+        values.append(source_fragment_id)
+    return list(dict.fromkeys(
+        _clean_text(value) for value in values if _clean_text(value)
+    ))
+
+
+def _repair_dangling_scaffold(slide: dict[str, Any]) -> bool:
+    blocks = list(slide.get("blocks") or [])
+    changed = False
+    while blocks:
+        block = blocks[-1]
+        if not _source_fragment_ids(block):
+            break
+        items = list(block.get("items") or [])
+        if items and _DANGLING_END_RE.search(_clean_text(items[-1])):
+            items.pop()
+            block["items"] = items
+            changed = True
+        elif (
+            _DANGLING_END_RE.search(_clean_text(block.get("content")))
+            and _DANGLING_SCAFFOLD_RE.search(_clean_text(block.get("content")))
+            and any(_normalize_visible(_block_text(item)) for item in blocks[:-1])
+        ):
+            block["content"] = ""
+            changed = True
+        else:
+            break
+        if not _normalize_visible(_block_text(block)):
+            blocks.pop()
+            continue
+        break
+    if changed:
+        slide["blocks"] = blocks
+    return changed
+
+
+def _source_bound_closure_candidate(
+    slide: dict[str, Any],
+    cue_pattern: re.Pattern[str],
+) -> tuple[str, list[str]]:
+    for block in reversed(list(slide.get("blocks") or [])):
+        fragment_ids = _source_fragment_ids(block)
+        if not fragment_ids:
+            continue
+        values = [
+            *list(block.get("items") or []),
+            block.get("content"),
+        ]
+        for value in reversed(values):
+            candidate = _clean_text(value)
+            if (
+                len(_normalize_visible(candidate)) >= 8
+                and not _DANGLING_END_RE.search(candidate)
+                and cue_pattern.search(candidate)
+            ):
+                return candidate, fragment_ids
+    return "", []
+
+
+def _bind_source_closure(slide: dict[str, Any]) -> bool:
+    scene = _clean_text(slide.get("scene_kind"))
+    quality = dict(slide.get("quality") or {})
+    if scene in {"process", "method"} and not quality.get("process_result"):
+        candidate, fragment_ids = _source_bound_closure_candidate(
+            slide,
+            _PROCESS_RESULT_CUE_RE,
+        )
+        if candidate:
+            quality["process_result"] = candidate
+            quality["process_result_source_fragment_ids"] = fragment_ids
+            slide["quality"] = quality
+            return True
+    if (
+        scene == "worked_example"
+        and not quality.get("worked_example_conclusion")
+    ):
+        candidate, fragment_ids = _source_bound_closure_candidate(
+            slide,
+            _WORKED_CONCLUSION_CUE_RE,
+        )
+        if candidate:
+            quality["worked_example_conclusion"] = candidate
+            quality["worked_example_conclusion_source_fragment_ids"] = fragment_ids
+            slide["quality"] = quality
+            return True
+    return False
 
 
 def _quality_metric(
@@ -998,6 +1195,20 @@ def repair_semantic_slides_v5(
                     "page_id": page_id,
                 })
                 changed = True
+            if _repair_dangling_scaffold(slide):
+                history.append({
+                    "round": round_index,
+                    "action": "remove_dangling_scaffold",
+                    "page_id": page_id,
+                })
+                changed = True
+            if _bind_source_closure(slide):
+                history.append({
+                    "round": round_index,
+                    "action": "bind_source_closure",
+                    "page_id": page_id,
+                })
+                changed = True
             key_message = _normalize_visible(slide.get("key_message"))
             block_body = _normalize_visible(" ".join(
                 _block_text(block) for block in slide.get("blocks") or []
@@ -1142,7 +1353,15 @@ def repair_semantic_slides_v5(
         for previous, slide in zip(repaired, repaired[1:]):
             previous_text = _normalize_visible(_duplicate_check_text(previous))
             current_text = _normalize_visible(_duplicate_check_text(slide))
-            if _longest_duplicate_length(previous_text, current_text) <= 20:
+            duplicate_length = _longest_duplicate_length(
+                previous_text,
+                current_text,
+            )
+            if not _is_material_duplicate(
+                previous_text,
+                current_text,
+                duplicate_length,
+            ):
                 continue
             current_key_message = _normalize_visible(slide.get("key_message"))
             if current_key_message and current_key_message in previous_text:
@@ -1155,7 +1374,15 @@ def repair_semantic_slides_v5(
                 })
                 changed = True
                 current_text = _normalize_visible(_duplicate_check_text(slide))
-                if _longest_duplicate_length(previous_text, current_text) <= 20:
+                duplicate_length = _longest_duplicate_length(
+                    previous_text,
+                    current_text,
+                )
+                if not _is_material_duplicate(
+                    previous_text,
+                    current_text,
+                    duplicate_length,
+                ):
                     continue
             if _clean_text(previous.get("scene_kind")) == "chapter_entry":
                 previous["key_message"] = ""

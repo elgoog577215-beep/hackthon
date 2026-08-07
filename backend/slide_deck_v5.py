@@ -92,6 +92,10 @@ _GENERIC_TITLES = {
     "未命名",
     "body",
     "content",
+    "说明结论如何从条件推出",
+    "建立本节核心概念与边界",
+    "把本节知识转化为可执行步骤",
+    "用来源案例展示判断与验证",
 }
 _CHAPTER_PREFIX = re.compile(
     r"^\s*(?:第\s*[一二三四五六七八九十百\d]+\s*[章节篇部]|"
@@ -99,7 +103,7 @@ _CHAPTER_PREFIX = re.compile(
     r"[一二三四五六七八九十百\d]+\s*[.、．:：])\s*"
 )
 _NUMBERED_SECTION_TITLE_PATTERN = re.compile(
-    r"^\s*\d+(?:\s*[.．]\s*\d+)+\s+\S+"
+    r"^\s*\d+(?:(?:\s*[.．]\s*\d+)+|\s*[.．])\s*\S+"
 )
 _ENUMERATION_PROMISE_PATTERN = re.compile(
     r"(?P<verb>分为|分成|可分为|包括|包含|共有|共计)"
@@ -125,6 +129,18 @@ _INLINE_ENUMERATION_MEMBER_PATTERN = re.compile(
 _RAW_TITLE_PATTERN = re.compile(
     r"(?:^\s*>?\s*(?:ID|graph|flowchart|sequenceDiagram|classDiagram)\s*[:\s]|"
     r"-->|```|^\s*\\(?:begin|frac|Delta|sum|int)\b)",
+    re.IGNORECASE,
+)
+_INTERNAL_TITLE_LABEL_PATTERN = re.compile(
+    r"(?:知识规范名称|source[_ ]?fragment[_ ]?id|answer[_ ]?summary|"
+    r"continuation_of|internal[_ ]?label|raw[_ ]?source)",
+    re.IGNORECASE,
+)
+_INTERNAL_TITLE_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:[*_`~]{1,3}\s*)?"
+    r"(?:(?:本节|本页)(?:核心)?\s*)?"
+    r"知识规范(?:名称)?(?:为)?"
+    r"(?:\s*[:：]\s*|\s*$)",
     re.IGNORECASE,
 )
 _TEMPLATE_LEAD_PATTERN = re.compile(
@@ -1613,7 +1629,10 @@ def compile_deck_outline_v5(
 
 def _meaningful_title(value: str) -> bool:
     cleaned = _clean_text(value)
-    if _RAW_TITLE_PATTERN.search(cleaned):
+    if (
+        _RAW_TITLE_PATTERN.search(cleaned)
+        or _INTERNAL_TITLE_LABEL_PATTERN.search(cleaned)
+    ):
         return False
     normalized = re.sub(
         r"[^\w\u4e00-\u9fff]+",
@@ -1626,6 +1645,13 @@ def _meaningful_title(value: str) -> bool:
 
 def _title_candidate(value: str) -> str:
     cleaned = _clean_text(value).strip("“”\"'")
+    cleaned, replacement_count = _INTERNAL_TITLE_PREFIX_PATTERN.subn(
+        "",
+        cleaned,
+        count=1,
+    )
+    if replacement_count:
+        cleaned = re.sub(r"(?:\s*[*_`~]{1,3})+\s*$", "", cleaned)
     cleaned = re.sub(
         r"^\s*(?:文本|标题|图示|图解|caption)\s*[:：]\s*",
         "",
@@ -1633,6 +1659,39 @@ def _title_candidate(value: str) -> str:
         flags=re.IGNORECASE,
     ).strip("“”\"'")
     return cleaned if _meaningful_title(cleaned) else ""
+
+
+def _title_with_continuation_sequence(
+    title: str,
+    quality: dict[str, Any],
+) -> str:
+    continuation_of = _clean_text(quality.get("continuation_of"))
+    try:
+        continuation_index = int(quality.get("continuation_index") or 0)
+        continuation_total = int(quality.get("continuation_total") or 0)
+    except (TypeError, ValueError):
+        return title
+    if (
+        not continuation_of
+        or continuation_index < 2
+        or continuation_total < continuation_index
+    ):
+        return title
+    suffix = f"（续{continuation_index}/{continuation_total}）"
+    base = re.sub(
+        r"\s*[（(]+\s*续(?:页)?\s*(?:\d+/\d+)?\s*[）)]+\s*$",
+        "",
+        _clean_text(title),
+    )
+    try:
+        title_budget = max(12, int(quality.get("title_character_budget") or 18))
+    except (TypeError, ValueError):
+        title_budget = 18
+    bounded = _bounded_title(
+        base or "本页核心判断",
+        limit=max(14, title_budget - len(suffix)),
+    )
+    return f"{bounded or '本页核心判断'}{suffix}"
 
 
 def _first_body_sentence(value: str) -> str:
@@ -1648,7 +1707,7 @@ def _strip_numbered_section_prefix(value: str) -> str:
     if not _is_numbered_section_title(cleaned):
         return cleaned
     return re.sub(
-        r"^\s*\d+(?:\s*[.．]\s*\d+)+\s*",
+        r"^\s*\d+(?:(?:\s*[.．]\s*\d+)+|\s*[.．])\s*",
         "",
         cleaned,
         count=1,
@@ -2023,6 +2082,40 @@ def _bounded_title(value: str, limit: int = 18) -> str:
         lead = cleaned.split(separator, 1)[0].strip()
         if 6 <= len(lead) <= limit:
             return lead
+    for suffix in (
+        "操作规范",
+        "基础流程",
+        "执行顺序",
+        "运行机制",
+        "路由机制",
+        "机制",
+        "规范",
+        "逻辑",
+    ):
+        if not cleaned.endswith(suffix):
+            continue
+        topic = cleaned[: -len(suffix)].rstrip("：:，,。！？!?；;、•· ")
+        if 6 <= len(topic) <= limit:
+            return topic
+    if len(cleaned) > limit and re.search(r"[A-Za-z]", cleaned):
+        source_topics = [
+            topic.lstrip("的之与和及")
+            for topic in re.findall(r"[\u3400-\u9fff]{2,}", cleaned)
+        ]
+        bounded_topics = [
+            topic
+            for topic in source_topics
+            if 4 <= len(topic) <= limit
+        ]
+        if bounded_topics:
+            return max(bounded_topics, key=len)
+    if "与" in cleaned:
+        lead = cleaned.split("与", 1)[0].rstrip("：:，,。！？!?；;、•· ")
+        if 6 <= len(lead) <= limit:
+            return lead
+        shortened_lead = _bounded_title(lead, limit=limit)
+        if shortened_lead != "本页核心判断":
+            return shortened_lead
     excerpt = cleaned[:limit]
     boundary = max(
         excerpt.rfind("，"),
@@ -2696,6 +2789,10 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
                 == "source_heading"
             ),
         )
+        updated["title"] = _title_with_continuation_sequence(
+            updated["title"],
+            quality,
+        )
         supporting_detail = _supporting_title_detail(
             original_title,
             updated["title"],
@@ -2703,9 +2800,29 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
         if supporting_detail and not _clean_text(updated.get("key_message")):
             updated["key_message"] = supporting_detail
             quality["title_detail_promoted"] = True
-        deduplicated_blocks, removed_lead = _remove_repeated_lead_sentence(
-            list(updated.get("blocks") or []),
-            updated["title"],
+        original_blocks = list(updated.get("blocks") or [])
+        source_bound_hero_claim = (
+            len(original_blocks) == 1
+            and bool(_clean_text(original_blocks[0].get("content")))
+            and not any(
+                _clean_text(item)
+                for item in original_blocks[0].get("items") or []
+            )
+            and not updated.get("visuals")
+            and _normalize_title_match(updated["title"])
+            == _normalize_title_match(
+                _first_body_sentence(
+                    _body_text_from_blocks(original_blocks)
+                )
+            )
+        )
+        deduplicated_blocks, removed_lead = (
+            (original_blocks, False)
+            if source_bound_hero_claim
+            else _remove_repeated_lead_sentence(
+                original_blocks,
+                updated["title"],
+            )
         )
         if removed_lead:
             updated["blocks"] = deduplicated_blocks
@@ -2738,7 +2855,7 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
             )
             and not updated.get("visuals")
         )
-        if (
+        if source_bound_hero_claim or (
             single_claim_block
             and _normalize_title_match(updated["title"])
             == _normalize_title_match(_first_body_sentence(body_text))
