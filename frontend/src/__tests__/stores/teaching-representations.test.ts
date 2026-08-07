@@ -11,6 +11,7 @@ vi.mock('@/utils/http', () => ({
 
 import {
   consumeTeachingRepresentationStream,
+  normalizedBuildFailure,
   preferredRepresentationForType,
   type TeachingRepresentation,
   useTeachingRepresentationsStore,
@@ -721,6 +722,67 @@ describe('teaching representation progressive build', () => {
     expect(store.buildStage).toBe('complete')
     expect(store.registry).toEqual(registry)
     expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/teaching-representations/slides-1/spec')
+  })
+
+  it('keeps legacy materializer slides private during a V5 build', async () => {
+    const registry = {
+      ...slideRegistry('slides-v5', 'r5'),
+      slide_deck_target_schema: 'slide_deck_v5',
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      { event: 'build_started', progress: 1, target_schema: 'slide_deck_v5' },
+      {
+        event: 'slide_upsert', progress: 30,
+        slide: { unit_id: 'slide:legacy-base', title: '旧版基础页', layout: 'concept' },
+      },
+      {
+        event: 'slide_reset', progress: 96, stage: 'v5_candidate',
+        engine_schema: 'slide_deck_v5', candidate_stage: 'final_contract',
+      },
+      {
+        event: 'slide_upsert', progress: 97,
+        engine_schema: 'slide_deck_v5', candidate_stage: 'final_contract',
+        slide: {
+          unit_id: 'slide:v5:final', title: '最终 V5 页面', layout: 'editorial-body',
+          quality: { resolved_layout: 'editorial-body' },
+        },
+      },
+      {
+        event: 'build_complete', progress: 100, registry,
+        build: { candidate_status: 'v5_ready' }, quality: { passed: true },
+      },
+    ])))
+    httpMock.get.mockResolvedValue({ data: { spec: {
+      ...slideSpec('slides-v5', '最终 V5 页面'),
+      payload: { compiler_version: 'same_source_compiler_v2:v5', content: {
+        schema_version: 'slide_deck_v5', title: '最终 V5 页面', slides: [],
+        candidate_status: 'v5_ready', quality_summary: { passed: true },
+      } },
+    } } })
+
+    const store = useTeachingRepresentationsStore()
+    await store.buildProgressive('course-1')
+
+    expect(store.liveSlides.map(slide => slide.unit_id)).toEqual(['slide:v5:final'])
+    expect(store.slideCandidateStatus).toBe('v5_ready')
+  })
+
+  it('preserves the complete structured V5 failure envelope', () => {
+    expect(normalizedBuildFailure({
+      stage: 'source_commit',
+      code: 'v5_source_revision_conflict',
+      message: '课程内容在 PPT 生成期间发生变化。',
+      retryable: true,
+      source_revision: 'doc-r1',
+      page_id: 'slide:v5:12',
+    })).toEqual({
+      stage: 'source_commit',
+      code: 'v5_source_revision_conflict',
+      message: '课程内容在 PPT 生成期间发生变化。',
+      retryable: true,
+      source_revision: 'doc-r1',
+      page_id: 'slide:v5:12',
+    })
   })
 
   it('keeps a quality-blocked build unpublished and exposes a useful error state', async () => {

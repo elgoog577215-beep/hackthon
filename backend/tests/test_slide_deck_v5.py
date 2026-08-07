@@ -368,6 +368,62 @@ def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() ->
     )
 
 
+def test_v5_only_streams_final_contract_candidate_slides() -> None:
+    events: list[dict] = []
+
+    content = compile_slide_deck_v5(
+        _document(1),
+        {},
+        story_plan=_story(1),
+        progress_callback=events.append,
+    )
+
+    candidate_events = [event for event in events if event.get("event") == "slide_upsert"]
+    reset_events = [event for event in events if event.get("event") == "slide_reset"]
+    assert reset_events == [{
+        "event": "slide_reset",
+        "progress": 96,
+        "stage": "v5_candidate",
+        "engine_schema": "slide_deck_v5",
+        "candidate_stage": "final_contract",
+    }]
+    assert len(candidate_events) == len(content["slides"])
+    assert [event["slide"] for event in candidate_events] == content["slides"]
+    assert all(
+        event.get("engine_schema") == "slide_deck_v5"
+        and event.get("candidate_stage") == "final_contract"
+        for event in candidate_events
+    )
+
+
+def test_v5_candidate_exposes_source_contract_dispositions_and_terminal_state() -> None:
+    document = _document(1)
+
+    content = compile_slide_deck_v5(
+        document,
+        {},
+        story_plan=_story(1),
+    )
+
+    assert content["ppt_source_contract_v1"]["source_document_revision"] == (
+        document.document_revision
+    )
+    assert content["candidate_status"] in {"v5_ready", "v5_needs_manual_edit"}
+    dispositions = content["source_dispositions"]
+    fragment_ids = {
+        str(item["fragment_id"])
+        for item in content.get("fragment_manifest") or []
+    }
+    assert {str(item["fragment_id"]) for item in dispositions} == fragment_ids
+    assert all(item["disposition"] in {
+        "rendered",
+        "rendered_in_safe_layout",
+        "moved_to_appendix",
+        "needs_manual_edit",
+        "intentionally_excluded_with_reason",
+    } for item in dispositions)
+
+
 def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() -> None:
     outline = compile_deck_outline_v5(_document(8), _story(8))
 

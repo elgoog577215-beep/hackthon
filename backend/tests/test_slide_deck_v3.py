@@ -1236,6 +1236,39 @@ def test_failed_variant_rebuild_emits_the_structured_terminal_quality(
     )
 
 
+def test_requested_v5_without_story_plan_fails_closed_with_actionable_reason(
+    tmp_path: Path,
+) -> None:
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    result = rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        requested_schema="slide_deck_v5",
+        story_plan=None,
+        progress_callback=events.append,
+    )
+
+    assert result["candidate_status"] == "v5_failed"
+    assert result["failure"] == {
+        "stage": "source_preflight",
+        "code": "v5_story_plan_missing",
+        "message": "V5 构建缺少课程级 story plan。",
+        "retryable": True,
+        "source_revision": document.document_revision,
+    }
+    assert events[-1]["event"] == "build_failed"
+    assert events[-1]["failure"] == result["failure"]
+    assert not any(event.get("event") == "slide_upsert" for event in events)
+    assert not repository.load(document.course_id).representations
+
+
 def test_v3_export_is_editable_widescreen_and_uses_variant_theme(tmp_path: Path) -> None:
     course = source_course()
     document = document_from_legacy_course(course)
