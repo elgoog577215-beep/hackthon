@@ -25,6 +25,7 @@ from course_knowledge_rebuild import (
     CourseKnowledgeRebuildError,
     CourseKnowledgeRebuildService,
 )
+from course_knowledge_refinement import KnowledgeRefinementService
 from course_knowledge_relocation import relocate_point_edit_candidate
 from course_downstream_rebuild import request_rebuild
 from course_repository import (
@@ -87,6 +88,12 @@ class PointEditRequest(BaseModel):
 
 class PointEditConfirmRequest(PointEditRequest):
     command_id: str = Field(min_length=1, max_length=200)
+
+
+class PointSplitProposalRequest(BaseModel):
+    """Ask the AI to evaluate one knowledge point for splitting."""
+
+    knowledge_id: str = Field(min_length=1, max_length=200)
 
 
 class PointEditRebuildRequest(PointEditRequest):
@@ -524,3 +531,34 @@ async def rebuild_downstream_for_point_edit(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     del proposed
     return {"status": "success", "rebuild": result}
+
+
+@router.post("/courses/{course_id}/knowledge-library/points/propose-split")
+async def propose_knowledge_split(
+    course_id: str,
+    body: PointSplitProposalRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Ask the AI whether a knowledge point should be split.
+
+    Returns a candidate, never a change. The proposal goes through the same
+    whitelist command, quality gate and identity check as a hand-authored edit,
+    and the active knowledge base is untouched until a teacher confirms.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+        result = await KnowledgeRefinementService().propose_split(
+            course, knowledge_id=body.knowledge_id, actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "success",
+        "proposal": result["proposal"],
+        "candidate": result.get("candidate"),
+    }
