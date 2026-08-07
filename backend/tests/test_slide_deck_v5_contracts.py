@@ -388,6 +388,29 @@ def test_repetitive_text_only_editorial_pages_block_publication() -> None:
     assert "repetitive_text_only_editorial_run" in codes
 
 
+def test_deck_allows_at_most_three_intentional_hero_claim_pages() -> None:
+    slides = []
+    for index in range(4):
+        slide = _slide(
+            f"slide:v5:hero-{index}:001",
+            title=f"Claim {index} is the one idea to remember",
+            content="",
+            episode_id=f"hero-{index}",
+        )
+        slide["quality"].update({
+            "requested_layout": "hero-claim",
+            "resolved_layout": "hero-claim",
+            "suppress_redundant_body": True,
+        })
+        slides.append(slide)
+
+    report = build_slide_deck_quality_v5(slides)
+
+    assert "hero_claim_page_limit_exceeded" in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
 def test_semantic_repair_removes_internal_labels_from_source_body_without_losing_text() -> None:
     slide = _slide(
         "slide:v5:episode-1:001",
