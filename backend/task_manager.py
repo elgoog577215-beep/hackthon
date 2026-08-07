@@ -3328,6 +3328,25 @@ class TaskManager:
             return False
         return self._publication_receipt(task) is not None
 
+    def _failed_node_report_entry(
+        self, task_id: str, node: dict[str, Any]
+    ) -> dict[str, Any]:
+        """One failed section, as the production stage renders it.
+
+        Carries the stable code alongside the raw text so the UI can explain the
+        failure and say whether continuing is worth attempting, instead of
+        printing a truncated exception string.
+        """
+        node_id = str(node.get("node_id") or "")
+        return {
+            "node_id": node_id,
+            "node_name": node.get("node_name", ""),
+            "error": node.get("error_summary", "Unknown error"),
+            "error_code": node.get("error_code") or "generation_failed",
+            "retryable": bool(node.get("error_retryable", True)),
+            "retry_count": self._node_retries.get(task_id, {}).get(node_id, 0),
+        }
+
     def _publication_receipt(self, task: dict[str, Any]) -> dict[str, Any] | None:
         if not task.get("workspace_id"):
             return None
@@ -6140,6 +6159,7 @@ class TaskManager:
                         raise
 
                     except Exception as e:
+                        failure = classify_generation_failure(e)
                         non_retryable = getattr(e, "retryable", True) is False
                         draft = existing_draft + "".join(accumulated)
                         if draft:
@@ -6191,6 +6211,8 @@ class TaskManager:
                             await self._set_node_status(
                                 task_id, course_id, node_id, NodeStatus.ERROR,
                                 error_summary=error_msg[:200],
+                                error_code=failure["code"],
+                                error_retryable=failure["retryable"],
                             )
 
                             self._add_log_entry(
@@ -6217,6 +6239,8 @@ class TaskManager:
                                         "node_id": node_id,
                                         "node_name": node_name,
                                         "error": error_msg[:200],
+                                        "error_code": failure["code"],
+                                        "retryable": failure["retryable"],
                                         "retry_count": retry_count,
                                     },
                                 )
@@ -7758,14 +7782,7 @@ class TaskManager:
                 "task_id": task_id,
                 "course_id": course_id,
                 "failed_nodes": [
-                    {
-                        "node_id": n.get("node_id", ""),
-                        "node_name": n.get("node_name", ""),
-                        "error": n.get("error_summary", "Unknown error"),
-                        "retry_count": self._node_retries.get(
-                            task_id, {}
-                        ).get(n.get("node_id", ""), 0),
-                    }
+                    self._failed_node_report_entry(task_id, n)
                     for n in failed_nodes
                 ],
                 "total_failed": len(failed_nodes),
@@ -7864,14 +7881,24 @@ class TaskManager:
         node_id: str,
         status: NodeStatus,
         error_summary: str | None = None,
+        error_code: str | None = None,
+        error_retryable: bool | None = None,
     ) -> None:
-        """Update a node's generation_status in course data."""
+        """Update a node's generation_status in course data.
+
+        ``error_summary`` stays the raw technical text; ``error_code`` is the
+        stable classification the UI explains the failure from.
+        """
         def update(course_data: dict[str, Any]) -> dict[str, Any]:
             for node in course_data.get("nodes", []):
                 if node.get("node_id") == node_id:
                     node["generation_status"] = status.value
                     if error_summary is not None:
                         node["error_summary"] = error_summary
+                    if error_code is not None:
+                        node["error_code"] = error_code
+                    if error_retryable is not None:
+                        node["error_retryable"] = error_retryable
                     break
             return course_data
 

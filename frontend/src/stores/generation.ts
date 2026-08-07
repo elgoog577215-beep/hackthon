@@ -414,6 +414,8 @@ export const useGenerationStore = defineStore('generation', {
             if (node) {
               node.generation_status = 'error'
               node.error_summary = (payload.error as string) || 'Unknown error'
+              if (payload.error_code) node.error_code = String(payload.error_code)
+              if (typeof payload.retryable === 'boolean') node.error_retryable = payload.retryable
             }
             if (this.currentGeneratingNodeId === payload.node_id) {
               this.currentGeneratingNodeId = null

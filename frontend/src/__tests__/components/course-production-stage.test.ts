@@ -243,6 +243,27 @@ describe('CourseProductionStage', () => {
     expect(wrapper.find('.formation-recovery__failures').exists()).toBe(false)
   })
 
+  it('失败小节各自显示可理解原因，不同小节可以有不同原因', () => {
+    const task: Task = {
+      ...interruptedTask,
+      failedNodes: [
+        {
+          node_id: 'L2-1-1', node_name: '波函数', error: 'RateLimitError: 429',
+          error_code: 'provider_rate_limited', retryable: true, retry_count: 3,
+        },
+        {
+          node_id: 'L2-2-3', node_name: '不确定性原理', error: 'payload too large',
+          error_code: 'generation_budget_exceeded', retryable: false, retry_count: 1,
+        },
+      ],
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+    const failures = wrapper.get('.formation-recovery__failures')
+
+    expect(failures.text()).toContain('请求过于频繁')
+    expect(failures.text()).toContain('超出单次生成的安全上限')
+  })
+
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {    const task: Task = {
       ...interruptedTask,
       currentPhase: 'teaching_plan_ready',

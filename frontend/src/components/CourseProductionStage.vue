@@ -183,6 +183,7 @@
               <li v-for="node in failedNodes" :key="node.node_id">
                 <span>{{ node.node_name || node.node_id }}</span>
                 <small v-if="node.retry_count">{{ t('courseGeneration.production.retriedTimes', '已重试 {count} 次').replace('{count}', String(node.retry_count)) }}</small>
+                <em v-if="nodeFailureReason(node)">{{ nodeFailureReason(node) }}</em>
               </li>
             </ul>
             <p>{{ t('courseGeneration.production.failedSectionsHelp', '其余小节已保存；继续时只重做这些小节。') }}</p>
@@ -518,6 +519,13 @@ const heartbeat = computed(() => props.task
   : { state: 'unknown' as const, ageSeconds: null })
 const isStalled = computed(() => heartbeat.value.state === 'stalled')
 const failedNodes = computed(() => props.task?.failedNodes || [])
+
+// Each failed section explains itself: one section can hit a rate limit while
+// another exceeds the input budget, and those need different next actions.
+function nodeFailureReason(node: { error_code?: string; error?: string }): string {
+  if (!node.error_code) return ''
+  return taskUserError({ errorCode: node.error_code, error: node.error }).message
+}
 const technicalError = computed(() => userError.value.technicalDetail)
 const terminalTitle = computed(() => {
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
@@ -1135,6 +1143,13 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   line-height:1.5;
 }
 .formation-recovery__failures li small { color:#a07a55; font-size:10px; }
+.formation-recovery__failures li em {
+  flex:1 1 100%;
+  color:#8a6b4f;
+  font-size:10px;
+  font-style:normal;
+  line-height:1.5;
+}
 .formation-recovery__failures p { margin:6px 0 0; color:#8a6b4f; font-size:10px; line-height:1.5; }
 .formation-recovery details { margin-top:8px; color:#8a6b4f; font-size:11px; }
 .formation-recovery summary { width:max-content; cursor:pointer; }

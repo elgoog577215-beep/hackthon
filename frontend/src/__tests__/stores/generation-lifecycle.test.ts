@@ -595,4 +595,36 @@ describe('course generation lifecycle reconciliation', () => {
     expect(englishStep).not.toContain('正在生成')
     await setLocale('zh')
   })
+
+  it('节点失败事件保留错误码与可重试标志，不只留截断的原始串', () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-node'
+    courses.nodes = [{
+      node_id: 'L2-1-1', parent_node_id: 'root', node_name: '波函数', node_level: 2,
+      node_content: '', node_type: 'original', generation_status: 'generating',
+      generated_chars: 0,
+    }] as any
+    generation.createTask('job-node', 'course-node', '量子力学')
+
+    generation.handleWSMessage({
+      type: 'task_error',
+      course_id: 'course-node',
+      task_id: 'job-node',
+      payload: {
+        node_id: 'L2-1-1',
+        node_name: '波函数',
+        error: 'RateLimitError: 429 too_many_requests',
+        error_code: 'provider_rate_limited',
+        retryable: true,
+        retry_count: 3,
+      },
+    } as any)
+
+    const node = courses.nodes[0] as any
+    expect(node.generation_status).toBe('error')
+    expect(node.error_code).toBe('provider_rate_limited')
+    expect(node.error_retryable).toBe(true)
+    expect(node.error_summary).toBe('RateLimitError: 429 too_many_requests')
+  })
 })

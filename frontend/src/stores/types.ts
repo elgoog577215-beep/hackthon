@@ -288,6 +288,9 @@ export interface Node {
   generation_config?: NodeGenerationConfig
   generated_chars: number
   error_summary?: string
+  /** Stable failure classification; the raw error_summary is technical detail. */
+  error_code?: string
+  error_retryable?: boolean
   difficulty_contract?: Record<string, unknown>
   generation_quality?: Record<string, unknown>
 }
@@ -315,6 +318,8 @@ export interface FailureReport {
     node_id: string
     node_name: string
     error: string
+    error_code?: string
+    retryable?: boolean
     retry_count: number
   }>
   total_failed: number
