@@ -411,6 +411,106 @@ def test_deck_allows_at_most_three_intentional_hero_claim_pages() -> None:
     }
 
 
+def test_chapter_boundaries_reset_text_only_layout_runs() -> None:
+    slides = [
+        _slide(
+            "slide:v5:chapter-a:001",
+            title="First claim",
+            content="A complete paragraph explains the first classroom claim with enough detail.",
+        ),
+        _slide(
+            "slide:v5:chapter-a:002",
+            title="Second claim",
+            content="A different paragraph explains the second classroom claim with enough detail.",
+        ),
+        {
+            **_slide(
+                "slide:v5:chapter-a:recap",
+                title="Chapter recap",
+                content="The first and second claims are connected.",
+                scene_kind="chapter_recap",
+            ),
+            "layout": "recap",
+            "quality": {
+                "requested_layout": "chapter-recap",
+                "resolved_layout": "chapter-recap",
+            },
+        },
+        {
+            **_slide(
+                "slide:v5:chapter-b:entry",
+                title="Chapter B",
+                content="",
+                scene_kind="chapter_entry",
+            ),
+            "layout": "chapter",
+            "quality": {
+                "requested_layout": "chapter-entry",
+                "resolved_layout": "chapter-entry",
+            },
+        },
+        _slide(
+            "slide:v5:chapter-b:001",
+            title="Third claim",
+            content="A third paragraph starts the next chapter with a complete independent claim.",
+        ),
+        _slide(
+            "slide:v5:chapter-b:002",
+            title="Fourth claim",
+            content="A fourth paragraph closes the local sequence with a complete independent claim.",
+        ),
+    ]
+
+    report = build_slide_deck_quality_v5(slides)
+
+    assert "repetitive_text_only_editorial_run" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_chapter_recap_may_repeat_the_preceding_claim_as_a_summary() -> None:
+    concept = _slide(
+        "slide:v5:chapter:concept",
+        title="Initialization order controls safe access",
+        content="Awake completes before Start, so references can be prepared before use.",
+    )
+    recap = {
+        **_slide(
+            "slide:v5:chapter:recap",
+            title="Chapter recap",
+            content="Awake completes before Start, so references can be prepared before use.",
+            scene_kind="chapter_recap",
+        ),
+        "layout": "recap",
+        "quality": {
+            "requested_layout": "chapter-recap",
+            "resolved_layout": "chapter-recap",
+        },
+    }
+
+    report = build_slide_deck_quality_v5([concept, recap])
+
+    assert "duplicate_visible_content" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_internal_label_cleanup_handles_continuation_suffixes() -> None:
+    slide = _slide(
+        "slide:v5:internal-continuation",
+        title="A complete source-backed title",
+        content="The continuation keeps one complete source-backed teaching claim.",
+    )
+    slide["key_message"] = "知识规范名称（续2/2）"
+
+    repaired, _history = repair_semantic_slides_v5([slide], max_rounds=2)
+
+    assert repaired[0]["key_message"] == ""
+    assert "raw_internal_label_visible" not in {
+        issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
 def test_semantic_repair_removes_internal_labels_from_source_body_without_losing_text() -> None:
     slide = _slide(
         "slide:v5:episode-1:001",

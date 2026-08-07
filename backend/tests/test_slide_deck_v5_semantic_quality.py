@@ -17,6 +17,7 @@ from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _normalize_concept_definition_slide_v5,
+    _structure_long_editorial_prose_v5,
     apply_page_contract_v5,
     compile_page_title_v5,
     split_mixed_intent_slides_v5,
@@ -755,6 +756,42 @@ def test_renderer_does_not_hard_cut_a_complete_compiled_heading() -> None:
     title = "碰撞回调事件的封装与分层处理模式以及性能裁剪策略"
 
     assert _heading_excerpt(title) == title
+
+
+def test_long_editorial_objective_is_structured_into_three_visible_points() -> None:
+    slide = {
+        "unit_id": "slide:v5:long-objective",
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "scene_kind": "concept",
+        "title": "Input System connects actions to movement",
+        "blocks": [{
+            "block_id": "objective",
+            "type": "statement",
+            "title": "",
+            "content": (
+                "This lesson configures the Input System and defines an Action Map. "
+                "Learners create Move and Jump actions with explicit bindings. "
+                "The final script reads action data and drives movement in the scene."
+            ),
+            "items": [],
+            "metadata": {"fragment_ids": ["fragment-objective"]},
+        }],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "editorial-body",
+            "resolved_layout": "editorial-body",
+        },
+    }
+
+    structured = _structure_long_editorial_prose_v5(slide)
+
+    assert structured["quality"]["requested_layout"] == "classification-3"
+    assert structured["blocks"][0]["type"] == "bullets"
+    assert len(structured["blocks"][0]["items"]) == 3
+    assert structured["blocks"][0]["metadata"]["fragment_ids"] == [
+        "fragment-objective"
+    ]
 
 
 def test_export_pairs_each_practice_question_with_its_answer() -> None:

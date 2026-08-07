@@ -753,6 +753,29 @@ def test_quality_fallback_compacts_sibling_concepts_into_one_presentation_page()
     } <= set(concept_episodes[0].beats[0].fragment_ids)
 
 
+def test_none_visual_does_not_occupy_a_visual_slot() -> None:
+    slide = {
+        "unit_id": "slide:v5:none-visual",
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "scene_kind": "concept",
+        "title": "One source claim remains text only",
+        "blocks": [{
+            "block_id": "claim",
+            "type": "statement",
+            "content": "One complete source-backed claim.",
+            "items": [],
+        }],
+        "visuals": [{"kind": "none", "alt_text": ""}],
+        "quality": {"requested_layout": "classification-3"},
+    }
+
+    contract = resolve_page_contract_v5(slide)
+
+    assert contract.visual_decision == "none"
+    assert contract.resolved_layout == "editorial-body"
+
+
 def test_v5_compaction_excludes_formula_without_source_explanation() -> None:
     document = CourseDocument(
         course_id="course-v5-formula-compaction",
