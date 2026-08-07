@@ -689,6 +689,70 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
     )
 
 
+def test_quality_fallback_compacts_sibling_concepts_into_one_presentation_page() -> None:
+    document = CourseDocument(
+        course_id="course-v5-presentation-native-fallback",
+        title="Presentation native fallback",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Chapter one",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="1.1 Runtime state",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    raw = [
+        ("heading-a", "heading", "State ownership"),
+        ("body-a", "paragraph", "One component owns the authoritative runtime state."),
+        ("heading-b", "heading", "State updates"),
+        ("body-b", "paragraph", "Commands update that state through one controlled path."),
+        ("heading-c", "heading", "State verification"),
+        ("body-c", "paragraph", "Observable output verifies the update after each command."),
+    ]
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate(raw)
+    ]
+
+    compact = compact_story_plan_v5(
+        document,
+        _story(1),
+        fragments,
+        profile="quality_fallback",
+    )
+    concept_episodes = [
+        episode
+        for episode in compact.chapters[0].episodes
+        if episode.scene_kind == "concept"
+    ]
+
+    assert len(concept_episodes) == 1
+    assert {
+        "body-a",
+        "body-b",
+        "body-c",
+    } <= set(concept_episodes[0].beats[0].fragment_ids)
+
+
 def test_v5_compaction_excludes_formula_without_source_explanation() -> None:
     document = CourseDocument(
         course_id="course-v5-formula-compaction",

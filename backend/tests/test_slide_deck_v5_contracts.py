@@ -366,6 +366,28 @@ def test_non_exempt_sparse_page_and_internal_labels_are_blockers() -> None:
     assert "sparse_non_exempt_page" in codes
 
 
+def test_repetitive_text_only_editorial_pages_block_publication() -> None:
+    slides = []
+    for index in range(6):
+        slide = _slide(
+            f"slide:v5:episode-{index}:001",
+            title=f"Concept {index} has a distinct instructional claim",
+            content=(
+                f"Concept {index} is explained as one uninterrupted prose paragraph "
+                "without a second information region, worked example, comparison, "
+                "process, question, or visual anchor for classroom presentation."
+            ),
+            episode_id=f"episode-{index}",
+        )
+        slides.append(slide)
+
+    report = build_slide_deck_quality_v5(slides)
+    codes = {issue["code"] for issue in report["blockers"]}
+
+    assert "text_only_editorial_ratio_exceeded" in codes
+    assert "repetitive_text_only_editorial_run" in codes
+
+
 def test_semantic_repair_removes_internal_labels_from_source_body_without_losing_text() -> None:
     slide = _slide(
         "slide:v5:episode-1:001",

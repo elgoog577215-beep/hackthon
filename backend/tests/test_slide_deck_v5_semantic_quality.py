@@ -5,6 +5,7 @@ from pptx import Presentation
 from slide_deck import SlideSpec
 from slide_deck_renderer import (
     _heading,
+    _heading_excerpt,
     _render_practice_feedback,
     _uses_visual_directed_renderer,
     _worked_example_labels,
@@ -672,7 +673,7 @@ def test_direct_answers_with_missing_question_identity_fail_the_contract() -> No
     }
 
 
-def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
+def test_repeated_episode_pages_keep_their_distinct_visible_heading() -> None:
     slides = _assign_heading_modes_v5([
         {
             "unit_id": "concept-1",
@@ -704,12 +705,12 @@ def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
 
     assert slides[0]["quality"]["heading_mode"] == "full"
     assert slides[0]["quality"]["section_label"] == "1.2 状态变量与过程量"
-    assert slides[1]["quality"]["heading_mode"] == "hidden"
+    assert slides[1]["quality"]["heading_mode"] == "full"
     assert slides[1]["quality"]["section_label"] == "1.2 状态变量与过程量"
     assert slides[1]["title"] == "温度和压力都是状态变量"
 
 
-def test_export_keeps_hidden_heading_as_metadata_only() -> None:
+def test_export_keeps_the_page_claim_visible_even_if_legacy_metadata_hides_it() -> None:
     presentation = Presentation()
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
     unit = SlideSpec.model_validate({
@@ -734,7 +735,13 @@ def test_export_keeps_hidden_heading_as_metadata_only() -> None:
         if getattr(shape, "has_text_frame", False)
     )
     assert "1.2 状态变量与过程量" in visible_text
-    assert "温度和压力都是状态变量" not in visible_text
+    assert "温度和压力都是状态变量" in visible_text
+
+
+def test_renderer_does_not_hard_cut_a_complete_compiled_heading() -> None:
+    title = "碰撞回调事件的封装与分层处理模式以及性能裁剪策略"
+
+    assert _heading_excerpt(title) == title
 
 
 def test_export_pairs_each_practice_question_with_its_answer() -> None:
