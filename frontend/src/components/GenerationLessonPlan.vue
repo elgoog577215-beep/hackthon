@@ -153,22 +153,40 @@
       <div class="generation-lesson-plan__review-grid">
         <section>
           <strong>{{ t('courseGeneration.lessonPlan.reviewDiff', '本次修改') }}</strong>
-          <ol>
-            <li v-for="operation in workbenchStore.review.diff.operations" :key="operation.operation_id">
+          <ol class="generation-lesson-plan__diff-list">
+            <li v-for="operation in groupedDiffOperations" :key="operation.operation_id">
+              <span class="generation-lesson-plan__diff-kind" :data-kind="operation.kind">
+                {{ diffKindLabel(operation.kind) }}
+              </span>
+              <span class="generation-lesson-plan__diff-where">{{ operation.location }}</span>
               <code>{{ operation.path }}</code>
+              <small v-if="operation.source === 'ai'">
+                {{ t('courseGeneration.lessonPlan.diffSourceAi', 'AI 建议') }}
+              </small>
             </li>
           </ol>
         </section>
         <section>
           <strong>{{ t('courseGeneration.lessonPlan.reviewImpact', '需要后续重建') }}</strong>
-          <ol>
-            <li v-for="item in workbenchStore.review.impact_report.needs_regeneration" :key="`${item.type}-${item.id}`">
-              <span>{{ item.reason }}</span>
-            </li>
-            <li v-if="!workbenchStore.review.impact_report.needs_regeneration.length" class="is-muted">
-              {{ t('courseGeneration.lessonPlan.reviewNoRebuild', '本次修改不会要求重建课程内容。') }}
-            </li>
-          </ol>
+          <div
+            v-for="group in impactGroups"
+            :key="group.key"
+            class="generation-lesson-plan__impact-group"
+          >
+            <span class="generation-lesson-plan__impact-heading" :data-group="group.key">
+              {{ group.label }}
+              <i>{{ group.items.length }}</i>
+            </span>
+            <ol>
+              <li v-for="item in group.items" :key="`${item.type}-${item.id}`">
+                <span class="generation-lesson-plan__impact-object">{{ objectTypeLabel(item.type) }}</span>
+                <span>{{ item.reason }}</span>
+              </li>
+            </ol>
+          </div>
+          <p v-if="!impactGroups.length" class="is-muted">
+            {{ t('courseGeneration.lessonPlan.reviewNoRebuild', '本次修改不会要求重建课程内容。') }}
+          </p>
         </section>
       </div>
       <footer>
@@ -1301,6 +1319,97 @@ function openOutlineEditor() {
   if (target) emit('open-outline-editor', target)
 }
 
+// 5.5 差异审阅：按新增/删除/替换分组，并把字段路径翻成教师看得懂的位置。
+// 只显示裸路径（sections/L2-1-1/teaching_modules/core/teaching_guidance）
+// 对教师没有意义——他需要知道「改的是第几节的哪个环节」。
+function diffKindOf(operation: { before?: unknown; after?: unknown }): 'added' | 'removed' | 'replaced' {
+  const empty = (value: unknown) => value === null || value === undefined || value === ''
+    || (Array.isArray(value) && value.length === 0)
+  if (empty(operation.before) && !empty(operation.after)) return 'added'
+  if (!empty(operation.before) && empty(operation.after)) return 'removed'
+  return 'replaced'
+}
+
+function diffKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    added: t('courseGeneration.lessonPlan.diffAdded', '新增'),
+    removed: t('courseGeneration.lessonPlan.diffRemoved', '删除'),
+    replaced: t('courseGeneration.lessonPlan.diffReplaced', '替换'),
+  }
+  return labels[kind] || kind
+}
+
+function sectionNameFor(nodeId: string): string {
+  return props.nodes?.find(node => node.node_id === nodeId)?.node_name || nodeId
+}
+
+// 路径 -> 「第几节 · 哪个部分」
+function locationForPath(path: string): string {
+  const parts = path.split('/')
+  if (parts[0] === 'overall') {
+    return t('courseGeneration.lessonPlan.overallTab', '教学大纲')
+  }
+  if (parts[0] === 'sections' && parts[1]) {
+    const section = sectionNameFor(parts[1])
+    if (parts[2] === 'teaching_modules') {
+      return parts[3]
+        ? `${section} · ${t('courseGeneration.lessonPlan.modules', '教学环节')} ${parts[3]}`
+        : `${section} · ${t('courseGeneration.lessonPlan.modules', '教学环节')}`
+    }
+    if (parts[2] === 'knowledge' && parts[3]) {
+      return `${section} · ${parts[3]}`
+    }
+    return section
+  }
+  return path
+}
+
+const groupedDiffOperations = computed(() => {
+  const operations = workbenchStore.review?.diff.operations || []
+  const order = { added: 0, replaced: 1, removed: 2 }
+  return [...operations]
+    .map(operation => ({
+      ...operation,
+      kind: diffKindOf(operation),
+      location: locationForPath(operation.path),
+    }))
+    .sort((left, right) => (order[left.kind] - order[right.kind])
+      || left.location.localeCompare(right.location))
+})
+
+// 5.6 影响审阅：五组分开展示，而不是只报「需要后续重建」一个数字。
+// 「保持不变」也要显示——教师需要区分「确认没事」与「漏了」。
+const IMPACT_GROUP_KEYS = ['needs_regeneration', 'stale', 'blocked', 'changed', 'unchanged'] as const
+
+function objectTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    section_content: t('courseGeneration.lessonPlan.objectSectionContent', '正文'),
+    practice: t('courseGeneration.lessonPlan.objectPractice', '练习'),
+    slide_deck: t('courseGeneration.lessonPlan.objectSlideDeck', '课件'),
+    lecture: t('courseGeneration.lessonPlan.objectLecture', '讲义'),
+    knowledge_binding: t('courseGeneration.lessonPlan.objectKnowledgeBinding', '知识绑定'),
+    teaching_plan: t('courseGeneration.lessonPlan.objectTeachingPlan', '教案'),
+    teaching_plan_section: t('courseGeneration.lessonPlan.objectTeachingPlan', '教案'),
+    teacher_projection: t('courseGeneration.lessonPlan.objectTeachingPlan', '教案'),
+  }
+  return labels[type] || type
+}
+
+const impactGroups = computed(() => {
+  const report = workbenchStore.review?.impact_report
+  if (!report) return []
+  const labels: Record<string, string> = {
+    needs_regeneration: t('courseGeneration.lessonPlan.impactNeedsRebuild', '待重建'),
+    stale: t('courseGeneration.lessonPlan.impactStale', '已过期'),
+    blocked: t('courseGeneration.lessonPlan.impactBlocked', '已阻断'),
+    changed: t('courseGeneration.lessonPlan.impactChanged', '已更新'),
+    unchanged: t('courseGeneration.lessonPlan.impactUnchanged', '保持不变'),
+  }
+  return IMPACT_GROUP_KEYS
+    .map(key => ({ key, label: labels[key], items: (report as any)[key] || [] }))
+    .filter(group => group.items.length)
+})
+
 const workbenchErrorMessage = computed(() => {
   const messages: Record<string, string> = {
     teaching_plan_base_conflict: t('courseGeneration.lessonPlan.errorConflict', '正式教案已更新，请重新载入后再编辑。'),
@@ -1941,6 +2050,20 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__review-blocked { display:flex; align-items:center; gap:7px; margin:14px 0 0; color:#a25e26; font-size:13px; line-height:1.55; }
 .generation-lesson-plan__review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:17px; }
 .generation-lesson-plan__review-grid > section { min-width:0; padding:13px 14px; border:1px solid #e1e4eb; border-radius:8px; background:#fff; }
+.generation-lesson-plan__diff-list li { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.generation-lesson-plan__diff-kind { padding:1px 7px; border-radius:999px; font-size:11px; background:#eef0f6; color:#5a6274; }
+.generation-lesson-plan__diff-kind[data-kind="added"] { background:#e8f5ec; color:#2f7d4f; }
+.generation-lesson-plan__diff-kind[data-kind="removed"] { background:#fdeceb; color:#b4453c; }
+.generation-lesson-plan__diff-kind[data-kind="replaced"] { background:#eef2fd; color:#4a5ba8; }
+.generation-lesson-plan__diff-where { font-size:12px; color:#3c4453; }
+.generation-lesson-plan__impact-group { margin-top:10px; }
+.generation-lesson-plan__impact-group:first-of-type { margin-top:0; }
+.generation-lesson-plan__impact-heading { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#5a6274; }
+.generation-lesson-plan__impact-heading i { font-style:normal; padding:0 6px; border-radius:999px; background:#eef0f6; font-size:11px; }
+.generation-lesson-plan__impact-heading[data-group="needs_regeneration"] { color:#9b6333; }
+.generation-lesson-plan__impact-heading[data-group="blocked"] { color:#b4453c; }
+.generation-lesson-plan__impact-heading[data-group="unchanged"] { color:#8b93a1; }
+.generation-lesson-plan__impact-object { padding:0 6px; border-radius:4px; background:#f4f6fa; font-size:11px; color:#5a6274; margin-right:6px; }
 .generation-lesson-plan__review-grid strong { color:#4b566a; font-size:12px; }
 .generation-lesson-plan__review-grid ol { display:grid; gap:7px; margin:10px 0 0; padding:0; list-style:none; }
 .generation-lesson-plan__review-grid li { color:#697386; font-size:12px; line-height:1.5; }
