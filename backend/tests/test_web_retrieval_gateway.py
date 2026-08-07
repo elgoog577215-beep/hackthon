@@ -205,6 +205,89 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
 
 
 @pytest.mark.asyncio
+async def test_searxng_provider_routes_image_search_and_preserves_media_metadata():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["form"] = parse_qs(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "results": [{
+                    "url": "https://commons.wikimedia.org/wiki/File:Heart_diagram.png",
+                    "title": "Heart diagram",
+                    "content": "Anatomical diagram of the human heart",
+                    "img_src": "https://upload.wikimedia.org/heart-diagram.png",
+                    "thumbnail_src": "https://upload.wikimedia.org/heart-diagram-thumb.png",
+                    "resolution": "1600 x 900",
+                    "img_format": "image/png",
+                    "engines": ["wikicommons.images"],
+                    "score": 8.5,
+                }]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SearXNGSearchProvider(
+            base_url="http://127.0.0.1:8080",
+            client=client,
+        )
+        results = await provider.search(
+            "human heart anatomy",
+            limit=4,
+            category="images",
+        )
+
+    assert captured["form"]["categories"] == ["images"]
+    assert results[0]["provider_metadata"] == {
+        "engines": ["wikicommons.images"],
+        "raw_score": 8.5,
+        "image_url": "https://upload.wikimedia.org/heart-diagram.png",
+        "thumbnail_url": "https://upload.wikimedia.org/heart-diagram-thumb.png",
+        "resolution": "1600 x 900",
+        "mime_type": "image/png",
+    }
+
+
+@pytest.mark.asyncio
+async def test_gateway_admits_safe_image_with_partial_title_match():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [{
+                    "url": "https://commons.wikimedia.org/wiki/File:Heart_diagram.png",
+                    "title": "Heart diagram",
+                    "img_src": "https://upload.wikimedia.org/heart-diagram.png",
+                    "engines": ["wikicommons.images"],
+                }]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        package = await RetrievalGateway(
+            provider=SearXNGSearchProvider(
+                base_url="http://127.0.0.1:8080",
+                client=client,
+            ),
+            cache_ttl_seconds=0,
+        ).retrieve(
+            RetrievalRequest(
+                purpose="ppt_image",
+                enabled=True,
+                queries=["human heart anatomy"],
+                category="images",
+            )
+        )
+
+    assert package["status"] == "completed"
+    assert package["sources"][0]["media_type"] == "image"
+    assert package["sources"][0]["provider_metadata"]["image_url"].startswith(
+        "https://upload.wikimedia.org/"
+    )
+
+
+@pytest.mark.asyncio
 async def test_searxng_programming_query_retries_broadly_only_after_empty_result():
     captured: list[dict[str, list[str]]] = []
 

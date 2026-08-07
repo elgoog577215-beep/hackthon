@@ -18,7 +18,7 @@ import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -52,6 +52,12 @@ PURPOSE_LIMITS: dict[str, dict[str, int | float]] = {
         "max_sources": 6,
         "concurrency": 3,
         "timeout_seconds": 8,
+    },
+    "ppt_image": {
+        "max_queries": 2,
+        "max_sources": 24,
+        "concurrency": 1,
+        "timeout_seconds": 20,
     },
 }
 
@@ -125,7 +131,13 @@ class SearchProvider(Protocol):
     @property
     def configured(self) -> bool: ...
 
-    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]: ...
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        category: Literal["general", "images"] = "general",
+    ) -> list[dict[str, Any]]: ...
 
 
 class ExaSearchProvider:
@@ -150,8 +162,16 @@ class ExaSearchProvider:
     def configured(self) -> bool:
         return bool(self.api_key.strip())
 
-    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        category: Literal["general", "images"] = "general",
+    ) -> list[dict[str, Any]]:
         if not self.configured:
+            raise RetrievalProviderError("not_configured")
+        if category != "general":
             raise RetrievalProviderError("not_configured")
         payload = {
             "query": _clip(query, 1000),
@@ -209,13 +229,22 @@ class SearXNGSearchProvider:
     def configured(self) -> bool:
         return bool(self.base_url)
 
-    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        category: Literal["general", "images"] = "general",
+    ) -> list[dict[str, Any]]:
         if not self.configured:
             raise RetrievalProviderError("not_configured")
+        search_categories = (
+            "images" if category == "images" else _search_categories(query)
+        )
         form = {
             "q": _clip(query, 1000),
             "format": "json",
-            "categories": _search_categories(query),
+            "categories": search_categories,
             "safesearch": "2",
             "language": "zh-CN" if _contains_cjk(query) else "en",
             "pageno": "1",
@@ -236,13 +265,16 @@ class SearXNGSearchProvider:
                 results = data.get("results") if isinstance(data, dict) else None
                 if not isinstance(results, list):
                     raise RetrievalProviderError("provider_error")
+                fallback_categories = (
+                    "images" if category == "images" else "general,science"
+                )
                 if not results and (
                     form["language"] != "all"
-                    or form["categories"] != "general,science"
+                    or form["categories"] != fallback_categories
                 ):
                     fallback_form = {
                         **form,
-                        "categories": "general,science",
+                        "categories": fallback_categories,
                         "language": "all",
                     }
                     response = await client.post(
@@ -280,10 +312,27 @@ class SearXNGSearchProvider:
             raw_score = raw.get("score")
             if isinstance(raw_score, (int, float)):
                 metadata["raw_score"] = raw_score
+            if category == "images":
+                image_url = str(raw.get("img_src") or "").strip()
+                thumbnail_url = str(raw.get("thumbnail_src") or "").strip()
+                resolution = str(raw.get("resolution") or "").strip()
+                mime_type = str(raw.get("img_format") or "").strip()
+                if image_url:
+                    metadata["image_url"] = image_url
+                if thumbnail_url:
+                    metadata["thumbnail_url"] = thumbnail_url
+                if resolution:
+                    metadata["resolution"] = resolution[:100]
+                if mime_type:
+                    metadata["mime_type"] = mime_type[:100]
             item = {
                 "url": raw.get("url"),
                 "title": raw.get("title"),
-                "content": raw.get("content") or raw.get("text"),
+                "content": (
+                    raw.get("content")
+                    or raw.get("text")
+                    or (raw.get("title") if category == "images" else None)
+                ),
                 "publishedDate": (
                     raw.get("publishedDate")
                     or raw.get("published_date")
@@ -308,8 +357,14 @@ class DisabledSearchProvider:
     def configured(self) -> bool:
         return False
 
-    async def search(self, query: str, *, limit: int) -> list[dict[str, Any]]:
-        del query, limit
+    async def search(
+        self,
+        query: str,
+        *,
+        limit: int,
+        category: Literal["general", "images"] = "general",
+    ) -> list[dict[str, Any]]:
+        del query, limit, category
         raise RetrievalProviderError("not_configured")
 
 
@@ -324,6 +379,7 @@ class RetrievalRequest:
     purpose: str
     enabled: bool
     queries: list[str]
+    category: Literal["general", "images"] = "general"
     max_queries: int | None = None
     max_sources: int | None = None
     timeout_seconds: float | None = None
@@ -425,6 +481,7 @@ class RetrievalGateway:
                     "namespace": self.cache_namespace,
                     "query": query,
                     "limit": per_query,
+                    "category": request.category,
                 })
                 cached = _QUERY_CACHE.get(cache_key)
                 if cached and cached[0] > time.monotonic():
@@ -432,7 +489,14 @@ class RetrievalGateway:
                 if cached:
                     _QUERY_CACHE.pop(cache_key, None)
                 try:
-                    results = await self.provider.search(query, limit=per_query)
+                    if request.category == "general":
+                        results = await self.provider.search(query, limit=per_query)
+                    else:
+                        results = await self.provider.search(
+                            query,
+                            limit=per_query,
+                            category=request.category,
+                        )
                     if self.cache_ttl_seconds > 0:
                         _QUERY_CACHE[cache_key] = (
                             time.monotonic() + self.cache_ttl_seconds,
@@ -473,6 +537,7 @@ class RetrievalGateway:
                     provider=self.provider.name,
                     tier_a_domains=self.tier_a_domains,
                     retrieved_at=now,
+                    category=request.category,
                 )
                 source["matched_query"] = query
                 key = str(source.get("canonical_url") or source.get("url") or source.get("content_hash"))
@@ -549,7 +614,11 @@ class RetrievalGateway:
             tier = str(source.get("trust_tier") or "tier_c")
             tier_counts[tier] = tier_counts.get(tier, 0) + 1
         fingerprint = request.request_fingerprint or _digest(
-            {"purpose": request.purpose, "queries": queries}
+            {
+                "purpose": request.purpose,
+                "category": request.category,
+                "queries": queries,
+            }
         )
         package_revision = max(1, int(request.revision))
         receipt = {
@@ -570,6 +639,7 @@ class RetrievalGateway:
             "policy_version": POLICY_VERSION,
             "provider": self.provider.name,
             "purpose": request.purpose,
+            "category": request.category,
             "status": status,
             "queries": queries,
             "sources": sources,
@@ -643,6 +713,7 @@ def classify_source(
     provider: str = "unknown",
     tier_a_domains: tuple[str, ...] | list[str] | None = None,
     retrieved_at: str | None = None,
+    category: Literal["general", "images"] = "general",
 ) -> dict[str, Any]:
     """Normalize a provider result into the public RetrievalSourceV1 contract."""
 
@@ -677,7 +748,8 @@ def classify_source(
         rejection_reasons.append("unsafe_url")
     if not excerpt:
         rejection_reasons.append("missing_excerpt")
-    if relevance < 0.55:
+    minimum_relevance = 0.25 if category == "images" else 0.55
+    if relevance < minimum_relevance:
         rejection_reasons.append("low_relevance")
     if has_injection:
         rejection_reasons.append("prompt_injection")
@@ -706,6 +778,28 @@ def classify_source(
         raw_score = raw_provider_metadata.get("raw_score")
         if isinstance(raw_score, (int, float)):
             provider_metadata["raw_score"] = float(raw_score)
+        for field_name in ("image_url", "thumbnail_url"):
+            raw_media_url = str(raw_provider_metadata.get(field_name) or "").strip()[:2000]
+            canonical_media_url, _, safe_media_url = _canonical_public_https_url(
+                raw_media_url
+            )
+            if safe_media_url:
+                provider_metadata[field_name] = canonical_media_url
+        resolution = _sanitize_untrusted(
+            str(raw_provider_metadata.get("resolution") or ""),
+            limit=100,
+        )
+        if resolution:
+            provider_metadata["resolution"] = resolution
+        mime_type = _sanitize_untrusted(
+            str(raw_provider_metadata.get("mime_type") or ""),
+            limit=100,
+        )
+        if mime_type:
+            provider_metadata["mime_type"] = mime_type
+    if category == "images" and not provider_metadata.get("image_url"):
+        rejection_reasons.append("missing_image_url")
+        trust_tier = "tier_c"
     source_id = "src_" + hashlib.sha256(
         f"{canonical_url}\n{content_hash}".encode()
     ).hexdigest()[:24]
@@ -722,6 +816,7 @@ def classify_source(
         "content_hash": content_hash,
         "provider": provider,
         "provider_metadata": provider_metadata,
+        "media_type": "image" if category == "images" else "document",
         "relevance": round(relevance, 4),
         "trust_tier": trust_tier,
         "license": license_name or None,

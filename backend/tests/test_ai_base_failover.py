@@ -67,8 +67,32 @@ class EmptyThenSuccessCompletions:
         return _success_stream()
 
 
+class AlwaysFailingCompletions:
+    def __init__(self, error_factory):
+        self.error_factory = error_factory
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs["model"])
+        raise self.error_factory()
+
+
+class SuccessfulCompletions:
+    def __init__(self):
+        self.calls = []
+        self.requests = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs["model"])
+        self.requests.append(kwargs)
+        return _success_stream()
+
+
 def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("MODELSCOPE_BASE_URL", raising=False)
+    monkeypatch.delenv("MODELSCOPE_MODEL", raising=False)
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     service.smart_models = list(models)
@@ -77,6 +101,155 @@ def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     service._model_failure_cache.clear()
     service._provider_failure = None
     return service
+
+
+def _make_service_with_modelscope_fallback(
+    monkeypatch,
+    primary_completions,
+    fallback_completions,
+    models=("model-a", "model-b"),
+):
+    monkeypatch.setenv("AI_API_KEY", "primary-test-key")
+    monkeypatch.setenv("AI_API_BASE", "https://primary.example.test/v1")
+    monkeypatch.setenv("MODELSCOPE_API_KEY", "fallback-test-key")
+    monkeypatch.setenv(
+        "MODELSCOPE_BASE_URL",
+        "https://api-inference.modelscope.cn/v1/",
+    )
+    monkeypatch.setenv("MODELSCOPE_MODEL", "deepseek-ai/DeepSeek-V4-Pro")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=primary_completions)
+    )
+    service.modelscope_fallback_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=fallback_completions)
+    )
+    service.smart_models = list(models)
+    service.fast_models = list(models)
+    service._working_model_cache.clear()
+    service._model_failure_cache.clear()
+    service._provider_failure = None
+    return service
+
+
+@pytest.mark.asyncio
+async def test_call_llm_uses_modelscope_only_after_primary_pool_is_exhausted(
+    monkeypatch,
+):
+    primary = AlwaysFailingCompletions(
+        lambda: _make_status_error(429, "insufficient_quota")
+    )
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+    )
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        json_mode=True,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert primary.calls == ["model-a", "model-b"]
+    assert fallback.calls == ["deepseek-ai/DeepSeek-V4-Pro"]
+    assert "response_format" not in fallback.requests[0]
+
+
+@pytest.mark.asyncio
+async def test_call_llm_does_not_touch_modelscope_when_primary_succeeds(
+    monkeypatch,
+):
+    primary = SuccessfulCompletions()
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+    )
+
+    result = await service._call_llm("hi", retry_count=1)
+
+    assert result == "ok-answer"
+    assert primary.calls == ["model-a"]
+    assert fallback.calls == []
+
+
+@pytest.mark.asyncio
+async def test_call_llm_uses_modelscope_after_primary_authentication_failure(
+    monkeypatch,
+):
+    primary = AlwaysFailingCompletions(
+        lambda: _make_status_error(401, "invalid api key")
+    )
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+    )
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert primary.calls == ["model-a"]
+    assert fallback.calls == ["deepseek-ai/DeepSeek-V4-Pro"]
+    assert service._provider_failure == "authentication_failed"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_can_run_with_only_modelscope_fallback_configured(
+    monkeypatch,
+):
+    primary = SuccessfulCompletions()
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+    )
+    service.api_key = None
+    service.client = None
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert primary.calls == []
+    assert fallback.calls == ["deepseek-ai/DeepSeek-V4-Pro"]
+
+
+@pytest.mark.asyncio
+async def test_stream_llm_uses_modelscope_after_primary_pool_is_exhausted(
+    monkeypatch,
+):
+    primary = AlwaysFailingCompletions(
+        lambda: httpx.ConnectTimeout("primary unavailable")
+    )
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+    )
+
+    chunks = []
+    async for chunk in service._stream_llm("hi"):
+        chunks.append(chunk)
+
+    assert "".join(chunks) == "ok-answer"
+    assert primary.calls == ["model-a", "model-b"]
+    assert fallback.calls == ["deepseek-ai/DeepSeek-V4-Pro"]
 
 
 @pytest.mark.asyncio

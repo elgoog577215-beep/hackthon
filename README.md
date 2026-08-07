@@ -93,7 +93,7 @@ notepad .env
 
 ## AI 提供方配置
 
-从 `.env.example` 创建 `.env`，只选择一个提供方并填写自己的密钥。不要提交 `.env` 或真实密钥。
+从 `.env.example` 创建 `.env`，选择一个主提供方并填写自己的密钥。可以额外配置一个仅在主模型池全部失败后启用的 ModelScope 兜底。不要提交 `.env` 或真实密钥。
 
 ### 官方 DeepSeek
 
@@ -120,6 +120,18 @@ AI_SLIDE_PLANNER_ENABLED=true
 # AI_MODEL_CANDIDATES=Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B,deepseek-ai/DeepSeek-V4-Flash
 # AI_MODEL_FAST_CANDIDATES=deepseek-ai/DeepSeek-V4-Flash,Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B
 ```
+
+### ModelScope 最后兜底
+
+主提供方仍使用上面的 `AI_*` 配置；以下凭据只在主模型池因额度、限流、连接故障或提供方鉴权故障而不可用时调用：
+
+```dotenv
+MODELSCOPE_API_KEY=your_modelscope_fallback_key
+MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/
+MODELSCOPE_MODEL=deepseek-ai/DeepSeek-V4-Pro
+```
+
+生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 
