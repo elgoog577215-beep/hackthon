@@ -1615,6 +1615,8 @@
       "noTeachingFlow": "这一节暂未形成教学环节。",
       "moduleComposerHelp": "勾选本节要用的教学环节；必需环节由学科模板规定，不能取消。",
       "moduleRequired": "必需",
+      "goToOutlineEditor": "去目录编辑器",
+      "outlineEditorUnavailable": "章节结构由课程目录维护。这门课程已发布，请在课程目录审阅阶段调整章节。",
       "moduleRequiredBlocked": "这是学科模板规定的必需教学环节，不能删除。",
       "knowledgeEyebrow": "知识与评价",
       "knowledgeTitle": "教到什么，怎样知道学会",

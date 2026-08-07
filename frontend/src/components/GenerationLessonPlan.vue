@@ -120,6 +120,14 @@
     <p v-if="showWorkbenchControls && workbenchStore.errorCode" class="generation-lesson-plan__workbench-error" role="alert">
       <TriangleAlert :size="16" />
       {{ workbenchErrorMessage }}
+      <button
+        v-if="outlineEditorTarget"
+        type="button"
+        class="generation-lesson-plan__error-action"
+        @click="openOutlineEditor"
+      >
+        {{ t('courseGeneration.lessonPlan.goToOutlineEditor', '去目录编辑器') }}
+      </button>
     </p>
 
     <section v-if="reviewOpen && workbenchStore.review" class="generation-lesson-plan__review" aria-live="polite">
@@ -1144,6 +1152,7 @@ const emit = defineEmits<{
   (event: 'select', node: Node): void
   (event: 'open-knowledge', knowledgeId: string): void
   (event: 'applied'): void
+  (event: 'open-outline-editor', target: { endpoint: string; revisionField: string }): void
 }>()
 
 const workbenchStore = useTeachingPlanWorkbenchStore()
@@ -1275,6 +1284,23 @@ const activeAiCandidate = computed(() => {
     candidate.draft_id === draftId && candidate.status === 'ready'
   ))
 })
+// 章节增删排序归目录真源。后端拒绝时会给出目录编辑器的 endpoint，
+// 这里据此渲染一个真的跳转入口——只显示一句「请去目录改」等于没说，
+// 教师并不知道目录编辑器在哪。
+const outlineEditorTarget = computed(() => {
+  if (workbenchStore.errorCode !== 'redirect_to_outline_edit') return null
+  const editor = workbenchStore.errorDetail?.outline_editor as
+    | { endpoint?: string; revision_field?: string }
+    | undefined
+  if (!editor?.endpoint) return null
+  return { endpoint: editor.endpoint, revisionField: editor.revision_field || '' }
+})
+
+function openOutlineEditor() {
+  const target = outlineEditorTarget.value
+  if (target) emit('open-outline-editor', target)
+}
+
 const workbenchErrorMessage = computed(() => {
   const messages: Record<string, string> = {
     teaching_plan_base_conflict: t('courseGeneration.lessonPlan.errorConflict', '正式教案已更新，请重新载入后再编辑。'),
@@ -1906,6 +1932,8 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__workbench-notice svg,.generation-lesson-plan__workbench-error svg { flex:none; margin-top:1px; }
 .generation-lesson-plan__workbench-notice p,.generation-lesson-plan__workbench-error { margin-top:0; margin-bottom:0; }
 .generation-lesson-plan__workbench-error { border-color:#ecd7c4; color:#9b6333; background:#fffaf5; }
+.generation-lesson-plan__error-action { margin-left:auto; padding:3px 10px; border:1px solid #e0c3a4; border-radius:7px; color:#9b6333; background:#fff; font-size:12px; cursor:pointer; white-space:nowrap; }
+.generation-lesson-plan__error-action:hover { background:#fdf3e9; }
 .generation-lesson-plan__review { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #cfd4e9; border-radius:8px; background:#fdfdff; box-shadow:0 12px 30px rgba(48,55,90,.07); }
 .generation-lesson-plan__review > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
 .generation-lesson-plan__review > header span { color:#5b64b8; font-size:11px; font-weight:800; letter-spacing:.06em; }

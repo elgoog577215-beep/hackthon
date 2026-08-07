@@ -1615,6 +1615,8 @@
       "noTeachingFlow": "No lesson stages have been planned for this section yet.",
       "moduleComposerHelp": "Select the lesson stages for this section. Required stages come from the subject template and cannot be removed.",
       "moduleRequired": "Required",
+      "goToOutlineEditor": "Open the outline editor",
+      "outlineEditorUnavailable": "Chapter structure is maintained by the course outline. This course is published; adjust chapters during outline review.",
       "moduleRequiredBlocked": "This lesson stage is required by the subject template and cannot be removed.",
       "knowledgeEyebrow": "Knowledge and assessment",
       "knowledgeTitle": "What to teach and how to know it was learned",

@@ -159,3 +159,71 @@ describe('教学环节增删入口', () => {
     expect(wrapper.find('.generation-lesson-plan__module-composer').exists()).toBe(false)
   })
 })
+
+describe('目录重定向的跳转入口', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('后端返回 redirect_to_outline_edit 时给出可点的跳转按钮并带上 endpoint', async () => {
+    vi.mocked(http.get).mockResolvedValue({ data: { workbench: workbench() } } as any)
+    const store = useTeachingPlanWorkbenchStore()
+    await store.load('course-1')
+
+    // 模拟后端 409 + details.outline_editor
+    vi.mocked(http.patch).mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: 'redirect_to_outline_edit',
+            message: '章节增删与排序请在目录编辑器中完成。',
+            course_id: 'course-1',
+            outline_revision_id: 'cdr_x',
+            outline_editor: {
+              endpoint: '/api/courses/course-1/blueprint',
+              revision_field: 'current_blueprint_revision_id',
+            },
+          },
+        },
+      },
+    })
+
+    const wrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan, activeNodeId: 'section-1', courseId: 'course-1' },
+    })
+    await store.patchDraft('course_plan/chapters', 'x').catch(() => {})
+    await wrapper.vm.$nextTick()
+
+    // store 必须留下 details，否则前端拿不到 endpoint
+    expect(store.errorCode).toBe('redirect_to_outline_edit')
+    expect((store.errorDetail as any).outline_editor.endpoint)
+      .toBe('/api/courses/course-1/blueprint')
+
+    const action = wrapper.find('.generation-lesson-plan__error-action')
+    expect(action.exists()).toBe(true)
+    await action.trigger('click')
+    const emitted = wrapper.emitted('open-outline-editor')
+    expect(emitted).toBeTruthy()
+    expect(emitted![0]![0]).toEqual({
+      endpoint: '/api/courses/course-1/blueprint',
+      revisionField: 'current_blueprint_revision_id',
+    })
+  })
+
+  it('普通错误不显示跳转按钮', async () => {
+    vi.mocked(http.get).mockResolvedValue({ data: { workbench: workbench() } } as any)
+    const store = useTeachingPlanWorkbenchStore()
+    await store.load('course-1')
+    vi.mocked(http.patch).mockRejectedValue({
+      response: { status: 409, data: { detail: { code: 'teaching_plan_base_conflict' } } },
+    })
+    const wrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan, activeNodeId: 'section-1', courseId: 'course-1' },
+    })
+    await store.patchDraft('overall/positioning', 'x').catch(() => {})
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.generation-lesson-plan__error-action').exists()).toBe(false)
+  })
+})
