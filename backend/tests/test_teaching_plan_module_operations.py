@@ -293,3 +293,51 @@ async def test_module_change_reaches_the_official_plan_only_after_apply() -> Non
     )
     assert [item["module_id"] for item in _official_modules(storage)] == ["warmup", "core"]
     assert applied["workbench"]["current_plan_revision_id"] != view["current_plan_revision_id"]
+
+
+@pytest.mark.asyncio
+async def test_downstream_rebuild_endpoint_reaches_the_repository_command() -> None:
+    """重建入口必须真的能提交到仓库命令。
+
+    纯单测最初漏掉了这条：execute_rebuild 本身 15 个用例全绿，但
+    rebuild_downstream 调 apply_metadata_command 时把关键字写成了 mutate
+    （真名是 mutation），真机一调就 500。这类"接线错"只有走完整条链才暴露，
+    所以这里从 service 层调进去，确保参数名对得上。
+    """
+    from downstream_rebuild import execute_rebuild
+    from teaching_plan_impact import build_downstream_state
+
+    storage = MemoryStorage(_course())
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+
+    # 先造出一份有待重建对象的下游状态
+    impact = {
+        "changed": [], "needs_regeneration": [
+            {"type": "slide_deck", "id": "section-1", "reason": "教案变更"},
+        ],
+        "stale": [], "unchanged": [], "blocked": [], "blocking": False,
+    }
+    raw = storage.course
+    raw.setdefault("teaching_plan_workbench", {})["downstream"] = build_downstream_state(
+        impact, plan_revision_id="tpr_seed",
+    )
+
+    result = await service.rebuild_downstream(
+        "course-1", actor="teacher-1", idempotency_key="rebuild-1",
+    )
+    assert result["receipts"], "必须返回逐对象回执"
+    # 回执与下游状态都要真的落盘，不能只在内存里
+    persisted = storage.course["teaching_plan_workbench"]
+    assert persisted.get("rebuild_receipts")
+    assert persisted["downstream"]["items"]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_without_downstream_work_is_rejected_clearly() -> None:
+    storage = MemoryStorage(_course())
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    with pytest.raises(TeachingPlanWorkbenchError) as error:
+        await service.rebuild_downstream(
+            "course-1", actor="teacher-1", idempotency_key="rebuild-empty",
+        )
+    assert error.value.code == "teaching_plan_no_downstream_work"

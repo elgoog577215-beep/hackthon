@@ -23,6 +23,7 @@ from course_generation_workflow import (
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_revisions import revision_vector_for_course
 from course_teaching_plan_projection import project_course_teaching_plan
+from downstream_rebuild import execute_rebuild, rebuild_summary
 from teaching_plan_impact import (
     build_downstream_state,
     build_impact_report,
@@ -2086,6 +2087,109 @@ class TeachingPlanWorkbenchService:
             mutation=mutation,
         )
         return {"receipt": receipt, "workbench": self.view(course_id, actor=actor)}
+
+    async def rebuild_downstream(
+        self,
+        course_id: str,
+        *,
+        actor: str,
+        idempotency_key: str,
+        only_types: list[str] | None = None,
+        only_ids: list[str] | None = None,
+        candidate_only: bool = True,
+    ) -> dict[str, Any]:
+        """按当前下游状态执行定向重建，并把逐对象回执写回课程。
+
+        这是 6.2–6.6 的执行入口。真正的重建仍由既有管线完成——本方法只负责
+        「按影响报告挑对象、调用对应管线、把结果折回下游状态」。教案侧与
+        知识侧共用 `downstream_rebuild.execute_rebuild`，不建平行重建机制。
+
+        默认 `candidate_only=True`：生成重建候选等教师确认，而不是直接覆盖
+        正式产物。教师确认这一步归既有的候选流程管。
+        """
+        self._require_feature_enabled()
+        raw = self.repository.load_raw(course_id)
+        document_revision = _text(raw.get("course_document_revision"))
+        state = _state(raw)
+        downstream = state.get("downstream") or {}
+        if not (downstream.get("items") or []):
+            raise TeachingPlanWorkbenchError(
+                "teaching_plan_no_downstream_work",
+                "当前没有待重建的下游对象。",
+            )
+
+        runners = self._rebuild_runners(course_id, raw)
+        result = execute_rebuild(
+            downstream,
+            runners=runners,
+            only_types=only_types,
+            only_ids=only_ids,
+            candidate_only=candidate_only,
+        )
+
+        def mutation(working: dict[str, Any]) -> None:
+            working_state = _state(working, create=True)
+            working_state["downstream"] = result["downstream"]
+            working_state["rebuild_receipts"] = result["receipts"]
+
+        await self.repository.apply_metadata_command(
+            course_id,
+            expected_document_revision=document_revision,
+            operation={
+                "command_id": f"teaching-plan-rebuild:{actor}:{idempotency_key}",
+                "operation": "rebuild_teaching_plan_downstream",
+                "actor": actor,
+                "summary": rebuild_summary(result),
+            },
+            mutation=mutation,
+        )
+        return {
+            "receipts": result["receipts"],
+            "counts": result["counts"],
+            "summary": rebuild_summary(result),
+            "workbench": self.view(course_id, actor=actor),
+        }
+
+    def _rebuild_runners(
+        self,
+        course_id: str,
+        raw: dict[str, Any],
+    ) -> dict[str, Any]:
+        """把既有重建管线包成执行器认识的形状。
+
+        刻意不在这里实现任何重建逻辑：表达走 representation_compiler 的
+        shadow-then-publish（失败时旧产物留在 stale 状态继续可读），
+        正文与练习目前没有可直接调用的定向重建入口，明确返回失败原因，
+        不假装成功。
+        """
+        def representation(entry: dict[str, Any]) -> dict[str, Any]:
+            if self.representation_repository is None:
+                return {"status": "failed", "error": "表达注册表不可用"}
+            try:
+                from course_document import CourseDocument
+                from representation_compiler import rebuild_core_representations_safely
+
+                document = CourseDocument.model_validate(raw["course_document"])
+                outcome = rebuild_core_representations_safely(
+                    document, raw, self.representation_repository,
+                )
+                revision = _text((outcome or {}).get("registry_revision"))
+                return {"status": "succeeded", "revision": revision}
+            except Exception as error:  # noqa: BLE001
+                return {"status": "failed", "error": str(error)}
+
+        def unsupported(entry: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "status": "failed",
+                "error": f"{entry['type']} 目前没有可用于定向重建的管线入口",
+            }
+
+        return {
+            "representation": representation,
+            "course_content": unsupported,
+            "practice": unsupported,
+            "knowledge": unsupported,
+        }
 
     def revision_diff(self, course_id: str, *, left: str, right: str) -> dict[str, Any]:
         raw = self.repository.load_raw(course_id)

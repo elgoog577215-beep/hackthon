@@ -365,3 +365,34 @@ async def restore_revision(
         }
     except Exception as exc:
         raise _error(exc) from exc
+
+
+class RebuildRequest(CommandRequest):
+    # 定向重建：不传就按整份下游状态里所有 rebuild_required 的对象来。
+    only_types: list[str] = Field(default_factory=list, max_length=16)
+    only_ids: list[str] = Field(default_factory=list, max_length=256)
+    # 默认生成候选等教师确认，而不是直接覆盖正式产物。
+    candidate_only: bool = True
+
+
+@router.post("/downstream/rebuild")
+async def rebuild_downstream(
+    course_id: str,
+    body: RebuildRequest,
+    request: Request,
+    service: TeachingPlanWorkbenchService = Depends(_service),
+) -> dict[str, Any]:
+    try:
+        return {
+            "status": "rebuilt",
+            **await service.rebuild_downstream(
+                course_id,
+                actor=_actor(request),
+                idempotency_key=body.idempotency_key,
+                only_types=body.only_types or None,
+                only_ids=body.only_ids or None,
+                candidate_only=body.candidate_only,
+            ),
+        }
+    except Exception as exc:
+        raise _error(exc) from exc
