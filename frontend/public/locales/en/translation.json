@@ -86,7 +86,17 @@
     "completingCourseLogic": "Completing course logic…",
     "previousVersionPageQuality": "Previous version slide quality",
     "build": "Generate full deck",
-    "untitledCourse": "Course presentation"
+    "untitledCourse": "Course presentation",
+    "targetSchema": "Target",
+    "candidateSchema": "Candidate",
+    "publishedSchema": "Published",
+    "schemaPending": "Pending",
+    "manualEditCandidate": "A complete V5 deck is ready; some slides need manual adjustment",
+    "manualEditPage": "This slide needs manual adjustment",
+    "manualEditPageHelp": "The content is complete and readable. Review this slide's layout before final use.",
+    "failureStage": "Failure stage",
+    "retryableFailure": "Retry available",
+    "nonRetryableFailure": "Check the input or system configuration"
   },
   "courseLibrary": {
     "eyebrow": "Course library",

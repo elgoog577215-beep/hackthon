@@ -183,6 +183,7 @@ from slide_deck_v4 import (
     build_signature_v4,
 )
 from slide_deck_v5 import (
+    SlideDeckV5BuildError,
     allocation_from_story_plan_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -464,6 +465,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
         | None
     ),
     resume_slides: list[dict[str, Any]],
+    source_revision_provider: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     """Retry a rejected V5 draft with the strict source-only plan.
 
@@ -529,6 +531,8 @@ async def _rebuild_slide_variant_with_quality_fallback(
         story_plan=story_plan,
         progress_callback=primary_progress,
         resume_slides=resume_slides,
+        requested_schema=slide_schema,
+        source_revision_provider=source_revision_provider,
     )
     initial_quality = build.get("quality") or {}
     if initial_quality.get("passed") or not fallback_allowed:
@@ -596,6 +600,8 @@ async def _rebuild_slide_variant_with_quality_fallback(
         story_plan=deterministic_story,
         progress_callback=progress_callback,
         resume_slides=[],
+        requested_schema=slide_schema,
+        source_revision_provider=source_revision_provider,
     )
     return {
         "build": fallback_build,
@@ -4558,7 +4564,10 @@ class TaskManager:
             else:
                 error_detail = (
                     exc.public_detail()
-                    if isinstance(exc, SlideStoryPlanPrerequisiteError)
+                    if isinstance(
+                        exc,
+                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError),
+                    )
                     else None
                 )
                 await self._update_task_status(
@@ -4775,6 +4784,13 @@ class TaskManager:
         )
         use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5"}
         source_revision = str(document.document_revision or "")
+        await self._record_representation_event(task_id, {
+            "event": "build_contract",
+            "progress": 2,
+            "stage": "source_preflight",
+            "target_schema": slide_schema,
+            "source_revision": source_revision,
+        })
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
         expected_signature = (
@@ -4849,6 +4865,17 @@ class TaskManager:
                     latest_slides = {}
                     continue
                 if event.get("event") != "slide_upsert" or not isinstance(event.get("slide"), dict):
+                    continue
+                if (
+                    slide_schema == "slide_deck_v5"
+                    and (
+                        event.get("engine_schema") != "slide_deck_v5"
+                        or event.get("candidate_stage") not in {
+                            "final_contract",
+                            "render_verified",
+                        }
+                    )
+                ):
                     continue
                 slide = deepcopy(event["slide"])
                 unit_id = str(slide.get("unit_id") or "")
@@ -5019,6 +5046,7 @@ class TaskManager:
             "fallback_reason": allocation_plan.fallback_reason,
             "estimated_slide_count": len(allocation_plan.pages),
             "variant_key": variant_key,
+            "target_schema": slide_schema,
         })
         loop = asyncio.get_running_loop()
 
@@ -5090,6 +5118,10 @@ class TaskManager:
             progress_callback=progress,
             checkpoint_callback=save_fallback_checkpoint,
             resume_slides=resume_slides,
+            source_revision_provider=lambda: str(
+                self._course_document_repository.load_document(course_id)[0].document_revision
+                or ""
+            ),
         )
         build = build_attempt["build"]
         allocation_plan = build_attempt["allocation_plan"]
@@ -5097,6 +5129,22 @@ class TaskManager:
         story_plan = build_attempt["story_plan"]
         quality = build.get("quality") or {}
         if not quality.get("passed"):
+            failure = build.get("failure") or {}
+            if slide_schema == "slide_deck_v5" and failure:
+                raise SlideDeckV5BuildError(
+                    stage=str(failure.get("stage") or "quality_gate"),
+                    code=str(failure.get("code") or "v5_quality_gate_failed"),
+                    message=str(
+                        failure.get("message")
+                        or "V5 候选未通过完整性或可读性门禁。"
+                    ),
+                    retryable=bool(failure.get("retryable")),
+                    source_revision=str(
+                        failure.get("source_revision") or source_revision
+                    ),
+                    chapter_id=str(failure.get("chapter_id") or ""),
+                    page_id=str(failure.get("page_id") or ""),
+                )
             raise RuntimeError("slide_deck_variant_quality_gate_failed")
         registry = teaching_representation_repository.load(course_id)
         result = {

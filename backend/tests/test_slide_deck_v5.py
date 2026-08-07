@@ -9,7 +9,7 @@ import pytest
 from pptx import Presentation
 
 import slide_deck_renderer
-from course_document import CourseDocument, CourseSection
+from course_document import CourseBlock, CourseDocument, CourseSection
 from slide_deck import SlideDeckContent, validate_slide_deck
 from slide_deck_renderer import (
     V5_LAYOUT_RENDERER_NAMES,
@@ -21,6 +21,7 @@ from slide_deck_v3 import (
     ContentFragmentV1,
     PlannedPageV2,
     SlideAllocationPlanV2,
+    fragment_course_document,
     slide_deck_variant_key,
 )
 from slide_deck_v4 import allocation_from_story_plan_v2
@@ -37,6 +38,7 @@ from slide_deck_v5 import (
     compile_deck_outline_v5,
     compile_page_title_v5,
     compile_slide_deck_v5,
+    finalize_v5_candidate_contract,
     finalize_v5_quality_report,
     repair_final_page_contracts_v5,
     resolve_page_contract_v5,
@@ -382,7 +384,7 @@ def test_v5_only_streams_final_contract_candidate_slides() -> None:
     reset_events = [event for event in events if event.get("event") == "slide_reset"]
     assert reset_events == [{
         "event": "slide_reset",
-        "progress": 96,
+        "progress": 97,
         "stage": "v5_candidate",
         "engine_schema": "slide_deck_v5",
         "candidate_stage": "final_contract",
@@ -397,12 +399,47 @@ def test_v5_only_streams_final_contract_candidate_slides() -> None:
 
 
 def test_v5_candidate_exposes_source_contract_dispositions_and_terminal_state() -> None:
-    document = _document(1)
+    document = _document(1).model_copy(update={
+        "blocks": [CourseBlock(
+            block_id="block-source-contract",
+            section_id="chapter-1",
+            position=0,
+            role="concept",
+            payload={
+                "markdown": (
+                    "系统边界决定系统与环境之间能够发生的交换。"
+                    "识别边界后，需要分别检查物质交换与能量交换，"
+                    "再根据两类交换是否存在判断系统类型。"
+                ),
+            },
+        )],
+    })
+    fragment = fragment_course_document(document)[0]
+    story = _story(1)
+    chapter = story.chapters[0]
+    source_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-source-contract",
+        "fragment_ids": [fragment.fragment_id],
+    })
+    story = story.model_copy(update={
+        "chapters": [chapter.model_copy(update={
+            "episodes": [
+                chapter.episodes[0],
+                TeachingEpisodeV2(
+                    episode_id="episode-source-contract",
+                    scene_kind="concept",
+                    teaching_job="解释系统边界的判断方法",
+                    beats=[source_beat],
+                ),
+                chapter.episodes[-1],
+            ],
+        })],
+    })
 
     content = compile_slide_deck_v5(
         document,
         {},
-        story_plan=_story(1),
+        story_plan=story,
     )
 
     assert content["ppt_source_contract_v1"]["source_document_revision"] == (
@@ -422,6 +459,86 @@ def test_v5_candidate_exposes_source_contract_dispositions_and_terminal_state() 
         "needs_manual_edit",
         "intentionally_excluded_with_reason",
     } for item in dispositions)
+
+
+def test_v5_readable_layout_warning_publishes_manual_edit_candidate() -> None:
+    content = compile_slide_deck_v5(
+        _document(1),
+        {},
+        story_plan=_story(1),
+    )
+    page_id = content["slides"][0]["unit_id"]
+    quality = {
+        **content["quality_report"],
+        "passed": True,
+        "status": "ready",
+        "blockers": [],
+        "warnings": [
+            *(content["quality_report"].get("warnings") or []),
+            {
+                "severity": "warning",
+                "dimension": "layout_export",
+                "code": "render_review_manual_adjustment",
+                "page_id": page_id,
+                "message": "本页内容完整，但建议人工微调视觉间距。",
+            },
+        ],
+    }
+
+    finalized = finalize_v5_candidate_contract(content, quality)
+
+    assert finalized["passed"] is True
+    assert finalized["candidate_status"] == "v5_needs_manual_edit"
+    assert content["candidate_status"] == "v5_needs_manual_edit"
+    assert content["manual_edit_required"] == [{
+        "page_id": page_id,
+        "reasons": [{
+            "code": "render_review_manual_adjustment",
+            "message": "本页内容完整，但建议人工微调视觉间距。",
+        }],
+    }]
+    assert content["slides"][0]["quality"]["manual_edit_required"] is True
+
+
+def test_v5_source_disposition_keeps_the_strongest_page_outcome() -> None:
+    content = {
+        "fragment_manifest": [{"fragment_id": "fragment-manual"}],
+        "allocation_plan": {"pages": []},
+        "exclusions": [],
+        "slides": [
+            {
+                "unit_id": "manual-page",
+                "blocks": [],
+                "quality": {
+                    "fragment_ids": ["fragment-manual"],
+                    "manual_edit_required": True,
+                    "manual_edit_reasons": [{
+                        "code": "layout_spacing",
+                        "message": "需要人工微调间距。",
+                    }],
+                },
+            },
+            {
+                "unit_id": "derived-recap",
+                "blocks": [],
+                "quality": {"fragment_ids": ["fragment-manual"]},
+            },
+        ],
+    }
+
+    finalize_v5_candidate_contract(content, {
+        "passed": True,
+        "score": 100,
+        "issues": [],
+        "warnings": [],
+        "blockers": [],
+    })
+
+    assert content["source_dispositions"] == [{
+        "fragment_id": "fragment-manual",
+        "disposition": "needs_manual_edit",
+        "page_id": "manual-page",
+    }]
 
 
 def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() -> None:

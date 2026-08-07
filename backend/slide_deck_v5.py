@@ -55,7 +55,7 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.21"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.22"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.12"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
@@ -1296,6 +1296,120 @@ def slide_deck_v5_enabled() -> bool:
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class SlideDeckV5BuildError(RuntimeError):
+    """Stable failure boundary shared by task, SSE, and durable recovery."""
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        code: str,
+        message: str,
+        retryable: bool,
+        source_revision: str,
+        chapter_id: str = "",
+        page_id: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.stage = stage
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.source_revision = source_revision
+        self.chapter_id = chapter_id
+        self.page_id = page_id
+
+    def public_detail(self) -> dict[str, Any]:
+        return {
+            "stage": self.stage,
+            "code": self.code,
+            "message": self.message,
+            "retryable": self.retryable,
+            "source_revision": self.source_revision,
+            **({"chapter_id": self.chapter_id} if self.chapter_id else {}),
+            **({"page_id": self.page_id} if self.page_id else {}),
+        }
+
+
+class PptSourceContractV1(_StrictModel):
+    schema_version: Literal["ppt_source_contract_v1"] = "ppt_source_contract_v1"
+    course_id: str
+    source_document_revision: str
+    source_fragment_ids: list[str] = Field(default_factory=list)
+    ordered_block_ids: list[str] = Field(default_factory=list)
+    story_plan_id: str
+    story_source_revisions: dict[str, str] = Field(default_factory=dict)
+    course_logic_revisions: dict[str, str] = Field(default_factory=dict)
+    contract_signature: str
+
+
+def build_ppt_source_contract_v1(
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    story: SlideStoryPlanV2,
+    fragments: list[ContentFragmentV1],
+) -> PptSourceContractV1:
+    source_revision = str(document.document_revision or "")
+    if not source_revision:
+        raise SlideDeckV5BuildError(
+            stage="source_preflight",
+            code="v5_source_revision_missing",
+            message="V5 构建无法确定课程源修订。",
+            retryable=False,
+            source_revision="",
+        )
+    story_revisions = {
+        key: str(value or "")
+        for key, value in story.source_revisions.model_dump(mode="json").items()
+    }
+    story_document_revision = str(
+        story_revisions.get("course_document_revision") or ""
+    )
+    if story_document_revision and story_document_revision != source_revision:
+        raise SlideDeckV5BuildError(
+            stage="source_preflight",
+            code="v5_story_source_revision_mismatch",
+            message="V5 story plan 与当前课程源修订不一致。",
+            retryable=True,
+            source_revision=source_revision,
+        )
+    teaching_plan = course_data.get("course_teaching_plan") or {}
+    knowledge = course_data.get("course_knowledge_base") or {}
+    coherence = course_data.get("course_coherence_contract") or {}
+    fields = {
+        "course_id": str(document.course_id or ""),
+        "source_document_revision": source_revision,
+        "source_fragment_ids": [fragment.fragment_id for fragment in fragments],
+        "ordered_block_ids": [block.block_id for block in document.blocks],
+        "story_plan_id": str(story.plan_id or ""),
+        "story_source_revisions": story_revisions,
+        "course_logic_revisions": {
+            "teaching_plan_revision": str(
+                teaching_plan.get("revision_id")
+                or course_data.get("teaching_plan_revision")
+                or story_revisions.get("teaching_plan_revision")
+                or ""
+            ),
+            "knowledge_base_revision": str(
+                knowledge.get("revision_id")
+                or course_data.get("knowledge_base_revision")
+                or story_revisions.get("knowledge_base_revision")
+                or ""
+            ),
+            "coherence_contract_revision": str(
+                coherence.get("revision_id")
+                or course_data.get("coherence_contract_revision")
+                or story_revisions.get("coherence_contract_revision")
+                or ""
+            ),
+        },
+    }
+    return PptSourceContractV1(
+        **fields,
+        contract_signature=stable_hash(fields, prefix="pptsourcev1_"),
+    )
 
 
 class DeckCoverV5(_StrictModel):
@@ -2750,6 +2864,24 @@ def _chapter_recap_slide(
     chapter: DeckChapterV5,
     source_slides: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    source_fragment_ids = list(dict.fromkeys(
+        str(fragment_id)
+        for slide in source_slides
+        for fragment_id in [
+            *((slide.get("quality") or {}).get("fragment_ids") or []),
+            *(
+                fragment_id
+                for block in slide.get("blocks") or []
+                for fragment_id in (
+                    (block.get("metadata") or {}).get(
+                        "source_fragment_ids"
+                    )
+                    or []
+                )
+            ),
+        ]
+        if str(fragment_id or "")
+    ))
     points: list[str] = []
     for slide in source_slides:
         slide_title = _clean_text(slide.get("title"))
@@ -2826,6 +2958,7 @@ def _chapter_recap_slide(
                 "source_slide_ids": [
                     str(slide.get("unit_id") or "") for slide in source_slides
                 ],
+                "source_fragment_ids": source_fragment_ids,
             },
         }],
         "speaker_notes": "",
@@ -2855,6 +2988,7 @@ def _chapter_recap_slide(
             "navigation_only": False,
             "retrieval_recap": True,
             "derived_density_compaction": True,
+            "fragment_ids": source_fragment_ids,
         },
     }
 
@@ -3773,7 +3907,12 @@ def _materialize_v5_structure(
         recap = (
             existing_recap
             if _recap_is_retrieval_ready(existing_recap)
-            else _chapter_recap_slide(chapter, body_slides)
+            else _chapter_recap_slide(
+                chapter,
+                [existing_recap, *body_slides]
+                if existing_recap
+                else body_slides,
+            )
         )
         if recap["unit_id"] not in used_units:
             result.append(recap)
@@ -4356,6 +4495,9 @@ def build_signature_v5(
             DOMAIN_PRESENTATION_PROFILE_VERSION
         ),
         "visual_planning_batch_version": VISUAL_PLANNING_BATCH_VERSION,
+        "candidate_contract_version": "ppt_v5_candidate_v1",
+        "quality_policy_version": "slide_deck_quality_v5",
+        "renderer_contract_version": "slide_layout_contract_v5",
         "web_image_retrieval": web_image_retrieval_signature,
     }
     return {
@@ -5032,6 +5174,221 @@ def finalize_v5_quality_report(
     return report
 
 
+def _source_dispositions_v5(
+    content: dict[str, Any],
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    visible: dict[str, dict[str, Any]] = {}
+    disposition_priority = {
+        "rendered": 0,
+        "moved_to_appendix": 1,
+        "rendered_in_safe_layout": 2,
+        "needs_manual_edit": 3,
+    }
+    allocation_pages = {
+        str(page.get("page_id") or ""): page
+        for page in (content.get("allocation_plan") or {}).get("pages") or []
+        if isinstance(page, dict)
+    }
+    for slide in slides:
+        page_id = str(slide.get("unit_id") or "")
+        quality = slide.get("quality") or {}
+        fragment_ids = list(dict.fromkeys([
+            *(quality.get("fragment_ids") or []),
+            *[
+                fragment_id
+                for block in slide.get("blocks") or []
+                for fragment_id in (
+                    (block.get("metadata") or {}).get("source_fragment_ids") or []
+                )
+            ],
+        ]))
+        page = allocation_pages.get(page_id) or {}
+        safe_layout = bool(
+            quality.get("safe_layout_applied")
+            or quality.get("layout_fallback_reason")
+            or (
+                quality.get("continuation_of")
+                and quality.get("resolved_layout") == "editorial-body"
+            )
+        )
+        manual = bool(quality.get("manual_edit_required"))
+        appendix = bool(page.get("appendix") or quality.get("appendix"))
+        for raw_fragment_id in fragment_ids:
+            fragment_id = str(raw_fragment_id or "")
+            if not fragment_id:
+                continue
+            disposition = (
+                "needs_manual_edit"
+                if manual
+                else "moved_to_appendix"
+                if appendix
+                else "rendered_in_safe_layout"
+                if safe_layout
+                else "rendered"
+            )
+            previous = visible.get(fragment_id)
+            if previous and disposition_priority.get(
+                str(previous.get("disposition") or "rendered"),
+                0,
+            ) >= disposition_priority[disposition]:
+                continue
+            visible[fragment_id] = {
+                "fragment_id": fragment_id,
+                "disposition": disposition,
+                "page_id": page_id,
+                **(
+                    {"reason": str(quality.get("safe_layout_reason") or "")}
+                    if safe_layout and quality.get("safe_layout_reason")
+                    else {}
+                ),
+            }
+    excluded = {
+        str(item.get("fragment_id") or ""): item
+        for item in content.get("exclusions") or []
+        if isinstance(item, dict) and str(item.get("fragment_id") or "")
+    }
+    dispositions: list[dict[str, Any]] = []
+    for fragment in content.get("fragment_manifest") or []:
+        fragment_id = str(fragment.get("fragment_id") or "")
+        if not fragment_id:
+            continue
+        if fragment_id in visible:
+            dispositions.append(visible[fragment_id])
+            continue
+        exclusion = excluded.get(fragment_id)
+        if exclusion is not None:
+            dispositions.append({
+                "fragment_id": fragment_id,
+                "disposition": "intentionally_excluded_with_reason",
+                "reason": str(
+                    exclusion.get("reason")
+                    or exclusion.get("message")
+                    or "explicit_source_exclusion"
+                ),
+            })
+    return dispositions
+
+
+def _apply_source_disposition_gate_v5(
+    content: dict[str, Any],
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    manifest_ids = {
+        str(item.get("fragment_id") or "")
+        for item in content.get("fragment_manifest") or []
+        if str(item.get("fragment_id") or "")
+    }
+    disposition_ids = {
+        str(item.get("fragment_id") or "")
+        for item in content.get("source_dispositions") or []
+        if str(item.get("fragment_id") or "")
+    }
+    missing = sorted(manifest_ids - disposition_ids)
+    if not missing:
+        return report
+    issue = {
+        "severity": "critical",
+        "dimension": "source_integrity",
+        "code": "source_disposition_missing",
+        "page_id": "deck",
+        "message": "V5 候选存在未说明处置方式的来源片段。",
+        "fragment_ids": missing,
+    }
+    updated = deepcopy(report)
+    updated["issues"] = [*(updated.get("issues") or []), issue]
+    updated["blockers"] = [*(updated.get("blockers") or []), issue]
+    updated["passed"] = False
+    updated["status"] = "blocked"
+    updated["score"] = max(0, int(updated.get("score") or 0) - 10)
+    if isinstance(updated.get("dimensions"), dict):
+        source_dimension = updated["dimensions"].setdefault("source_integrity", {})
+        source_dimension["passed"] = False
+        source_dimension["issue_count"] = int(
+            source_dimension.get("issue_count") or 0
+        ) + 1
+    return updated
+
+
+def finalize_v5_candidate_contract(
+    content: dict[str, Any],
+    quality: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Persist candidate terminal state and page-local manual edit reasons."""
+    report = deepcopy(quality or content.get("quality_report") or {})
+    slides = list(content.get("slides") or [])
+    page_by_id = {
+        str(slide.get("unit_id") or ""): slide for slide in slides
+    }
+    manual_by_page: dict[str, list[dict[str, Any]]] = {}
+    for index, slide in enumerate(slides, start=1):
+        page_id = str(slide.get("unit_id") or "")
+        slide_quality = slide.get("quality") or {}
+        if slide_quality.get("manual_edit_required"):
+            manual_by_page.setdefault(page_id, []).extend(
+                deepcopy(slide_quality.get("manual_edit_reasons") or [{
+                    "code": "manual_edit_required",
+                    "message": "该页面需要人工检查排版。",
+                }])
+            )
+        page_by_id.setdefault(str(index), slide)
+    for issue in report.get("warnings") or []:
+        if str(issue.get("dimension") or "") != "layout_export":
+            continue
+        raw_page_id = str(
+            issue.get("page_id") or issue.get("slide_id") or issue.get("page") or ""
+        )
+        slide = page_by_id.get(raw_page_id)
+        if slide is None:
+            continue
+        page_id = str(slide.get("unit_id") or "")
+        manual_by_page.setdefault(page_id, []).append({
+            "code": str(issue.get("code") or "render_review_warning"),
+            "message": str(issue.get("message") or "该页面需要人工检查排版。"),
+        })
+    manual_items: list[dict[str, Any]] = []
+    for page_id, reasons in manual_by_page.items():
+        slide = page_by_id.get(page_id)
+        if slide is None:
+            continue
+        unique_reasons = list({
+            (str(item.get("code") or ""), str(item.get("message") or "")): item
+            for item in reasons
+        }.values())
+        slide["quality"] = {
+            **(slide.get("quality") or {}),
+            "manual_edit_required": True,
+            "manual_edit_reasons": deepcopy(unique_reasons),
+        }
+        manual_items.append({
+            "page_id": page_id,
+            "reasons": deepcopy(unique_reasons),
+        })
+    content["source_dispositions"] = _source_dispositions_v5(content, slides)
+    report = _apply_source_disposition_gate_v5(content, report)
+    candidate_status = (
+        "v5_failed"
+        if not report.get("passed")
+        else "v5_needs_manual_edit"
+        if manual_items
+        else "v5_ready"
+    )
+    report["candidate_status"] = candidate_status
+    report["manual_edit_required_count"] = len(manual_items)
+    content["slides"] = slides
+    content["manual_edit_required"] = manual_items
+    content["candidate_status"] = candidate_status
+    content["quality_report"] = report
+    content["quality_summary"] = {
+        **(content.get("quality_summary") or {}),
+        "passed": bool(report.get("passed")),
+        "score": int(report.get("score") or 0),
+        "candidate_status": candidate_status,
+        "manual_edit_required_count": len(manual_items),
+    }
+    return report
+
+
 def compile_slide_deck_v5(
     document: CourseDocument,
     course_data: dict[str, Any],
@@ -5049,6 +5406,22 @@ def compile_slide_deck_v5(
         else SlideStoryPlanV2.model_validate(story_plan)
     )
     source_fragments = fragment_course_document(document)
+    source_contract = build_ppt_source_contract_v1(
+        document,
+        course_data,
+        story,
+        source_fragments,
+    )
+    internal_legacy_slide_event_count = 0
+
+    def internal_materializer_progress(payload: dict[str, Any]) -> None:
+        nonlocal internal_legacy_slide_event_count
+        if payload.get("event") == "slide_upsert":
+            internal_legacy_slide_event_count += 1
+            return
+        if progress_callback:
+            progress_callback(payload)
+
     configured_retrieval = WebImageRetrievalConfig.model_validate(
         (course_data.get("generation_request") or {}).get("web_image_retrieval") or {}
     )
@@ -5125,7 +5498,7 @@ def compile_slide_deck_v5(
         theme=resolved_story.theme,
         allocation_plan=resolved_allocation,
         visual_plan=visual_plan,
-        progress_callback=progress_callback,
+        progress_callback=internal_materializer_progress,
         resume_slides=mapped_resume,
         asset_repository=asset_repository,
         allow_generated_illustrations=False if retrieval_enabled else None,
@@ -5331,6 +5704,11 @@ def compile_slide_deck_v5(
     content.update({
         "schema_version": SLIDE_DECK_V5_SCHEMA,
         "slides": slides,
+        "allocation_plan": resolved_allocation.model_dump(mode="json"),
+        "exclusions": [
+            item.model_dump(mode="json")
+            for item in resolved_allocation.exclusions
+        ],
         "visual_asset_manifest": visual_asset_manifest,
         "story_plan": resolved_story.model_dump(mode="json"),
         "scene_manifest": [
@@ -5346,6 +5724,7 @@ def compile_slide_deck_v5(
         ],
         "deck_outline": outline.model_dump(mode="json"),
         "override_conflicts": override_conflicts,
+        "ppt_source_contract_v1": source_contract.model_dump(mode="json"),
         "build_signature": build_signature_v5(
             document=document,
             course_data=course_data,
@@ -5400,6 +5779,11 @@ def compile_slide_deck_v5(
             "prompt_contract_version": "slide_visual_plan_v1",
             "policy_version": visual_policy_version,
         },
+        "event_isolation": {
+            "internal_materializer_schema": "slide_deck_v3",
+            "suppressed_slide_upsert_count": internal_legacy_slide_event_count,
+            "public_candidate_schema": SLIDE_DECK_V5_SCHEMA,
+        },
     }
     content["quality_report"] = finalize_v5_quality_report(
         previous_quality=previous_quality,
@@ -5419,9 +5803,28 @@ def compile_slide_deck_v5(
         **summarize_v5_slide_counts(slides),
         "image_target_met": content["quality_report"]["image_target_met"],
     }
+    finalize_v5_candidate_contract(content)
     # Fail at the V5 compiler boundary, before rendering or publication, if a
     # future semantic transform leaks planner-only fields into SlideSpec.
     SlideDeckContent.model_validate(content)
+    if progress_callback:
+        progress_callback({
+            "event": "slide_reset",
+            "progress": 97,
+            "stage": "v5_candidate",
+            "engine_schema": SLIDE_DECK_V5_SCHEMA,
+            "candidate_stage": "final_contract",
+        })
+        for slide in content["slides"]:
+            progress_callback({
+                "event": "slide_upsert",
+                "progress": 97,
+                "stage": "v5_candidate",
+                "engine_schema": SLIDE_DECK_V5_SCHEMA,
+                "candidate_stage": "final_contract",
+                "candidate_status": content["candidate_status"],
+                "slide": deepcopy(slide),
+            })
     return content
 
 

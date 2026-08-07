@@ -1381,6 +1381,8 @@ def repair_render_slides_v5(
                 "resolved_layout": "editorial-body",
                 "major_region_count": 1,
                 "occupied_major_region_count": 1,
+                "safe_layout_applied": True,
+                "safe_layout_reason": "render_audit_capacity_fallback",
             }
             slide["composition"] = "statement"
             actions.append("switch_layout")

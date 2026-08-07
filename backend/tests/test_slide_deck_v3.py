@@ -1269,6 +1269,119 @@ def test_requested_v5_without_story_plan_fails_closed_with_actionable_reason(
     assert not repository.load(document.course_id).representations
 
 
+def test_requested_v5_rejects_source_revision_change_before_atomic_commit(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import representation_compiler
+
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    monkeypatch.setattr(
+        representation_compiler,
+        "compile_slide_deck_variant",
+        lambda *_args, **_kwargs: {
+            "status": "ready",
+            "quality": {"passed": True, "score": 100, "blockers": []},
+        },
+    )
+
+    result = rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        requested_schema="slide_deck_v5",
+        story_plan={"schema_version": "slide_story_plan_v2"},
+        progress_callback=events.append,
+        source_revision_provider=lambda: "newer-course-revision",
+    )
+
+    assert result["candidate_status"] == "v5_failed"
+    assert result["failure"]["code"] == "v5_source_revision_conflict"
+    assert result["failure"]["stage"] == "source_commit"
+    assert result["failure"]["retryable"] is True
+    assert events[-1]["event"] == "build_failed"
+    assert events[-1]["failure"] == result["failure"]
+    assert not repository.load(document.course_id).representations
+
+
+def test_requested_v5_rejects_a_non_v5_compiler_candidate(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import representation_compiler
+    from slide_deck_v5 import SlideDeckV5BuildError
+
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    monkeypatch.setattr(
+        representation_compiler,
+        "slide_deck_v5_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "compile_slide_deck_v5",
+        lambda *_args, **_kwargs: {
+            "schema_version": "slide_deck_v4",
+            "title": "invalid candidate",
+            "slides": [],
+            "quality_report": {},
+            "quality_summary": {},
+        },
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "export_structured_slide_deck",
+        lambda _content, path, **_kwargs: path,
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "audit_exported_pptx",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "issues": [],
+            "blockers": [],
+        },
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "validate_slide_deck_v5",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "score": 100,
+            "issues": [],
+            "blockers": [],
+        },
+    )
+
+    with pytest.raises(SlideDeckV5BuildError) as captured:
+        representation_compiler.compile_slide_deck_variant(
+            document,
+            course,
+            repository,
+            mode="teaching",
+            theme="qizhi-classroom",
+            requested_schema="slide_deck_v5",
+            story_plan={"schema_version": "slide_story_plan_v2"},
+        )
+
+    assert captured.value.public_detail() == {
+        "stage": "compiler",
+        "code": "v5_schema_mismatch",
+        "message": "V5 编译器返回了非 V5 候选。",
+        "retryable": False,
+        "source_revision": document.document_revision,
+    }
+    assert not repository.load(document.course_id).representations
+
+
 def test_v3_export_is_editable_widescreen_and_uses_variant_theme(tmp_path: Path) -> None:
     course = source_course()
     document = document_from_legacy_course(course)

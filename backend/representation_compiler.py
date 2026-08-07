@@ -41,8 +41,12 @@ from slide_deck_v4 import (
 )
 from slide_deck_v5 import (
     SLIDE_DECK_V5_COMPILER_VERSION,
+    SLIDE_DECK_V5_SCHEMA,
+    SlideDeckV5BuildError,
     build_signature_v5,
     compile_slide_deck_v5,
+    finalize_v5_candidate_contract,
+    repair_final_page_contracts_v5,
     slide_deck_v5_enabled,
     validate_slide_deck_v5,
 )
@@ -500,6 +504,7 @@ def compile_slide_deck_variant(
     variant_key_override: str | None = None,
     bundle_part: dict[str, Any] | None = None,
     binding_document: CourseDocument | None = None,
+    requested_schema: str | None = None,
 ) -> dict[str, Any]:
     """Compile and register one source-first PPT variant only."""
     now = datetime.now(timezone.utc).isoformat()
@@ -536,8 +541,38 @@ def compile_slide_deck_variant(
     )
     repository.register_plan(plan)
     compiler_version = SLIDE_DECK_V3_COMPILER_VERSION
-    if story_plan is not None:
-        use_v5 = slide_deck_v5_enabled()
+    requested = str(requested_schema or "")
+    if requested and requested not in {
+        "slide_deck_v3",
+        "slide_deck_v4",
+        SLIDE_DECK_V5_SCHEMA,
+    }:
+        raise ValueError(f"Unsupported requested slide schema: {requested}")
+    if requested == SLIDE_DECK_V5_SCHEMA and story_plan is None:
+        raise SlideDeckV5BuildError(
+            stage="source_preflight",
+            code="v5_story_plan_missing",
+            message="V5 构建缺少课程级 story plan。",
+            retryable=True,
+            source_revision=str(canonical_document.document_revision or ""),
+        )
+    if requested == SLIDE_DECK_V5_SCHEMA and not slide_deck_v5_enabled():
+        raise SlideDeckV5BuildError(
+            stage="source_preflight",
+            code="v5_engine_disabled",
+            message="V5 生成引擎当前未启用。",
+            retryable=False,
+            source_revision=str(canonical_document.document_revision or ""),
+        )
+    use_story_compiler = bool(
+        story_plan is not None
+        and requested not in {"slide_deck_v3"}
+    )
+    if use_story_compiler:
+        use_v5 = (
+            requested == SLIDE_DECK_V5_SCHEMA
+            or (not requested and slide_deck_v5_enabled())
+        )
         story_compiler = compile_slide_deck_v5 if use_v5 else compile_slide_deck_v4
         content = story_compiler(
             document,
@@ -573,7 +608,9 @@ def compile_slide_deck_variant(
                 )
                 if not round_history:
                     break
-                content["slides"] = repaired_slides
+                content["slides"] = repair_final_page_contracts_v5(
+                    repaired_slides
+                )
                 render_repair_history.extend(round_history)
                 if progress_callback:
                     progress_callback({
@@ -642,6 +679,39 @@ def compile_slide_deck_variant(
             resume_slides=resume_slides,
         )
         quality = validate_slide_deck_v3(content, course_data=course_data)
+    if requested and str(content.get("schema_version") or "") != requested:
+        if requested == SLIDE_DECK_V5_SCHEMA:
+            raise SlideDeckV5BuildError(
+                stage="compiler",
+                code="v5_schema_mismatch",
+                message="V5 编译器返回了非 V5 候选。",
+                retryable=False,
+                source_revision=str(canonical_document.document_revision or ""),
+            )
+        raise ValueError(
+            f"Requested {requested} but compiled {content.get('schema_version')}"
+        )
+    if str(content.get("schema_version") or "") == SLIDE_DECK_V5_SCHEMA:
+        quality = finalize_v5_candidate_contract(content, quality)
+        if progress_callback:
+            progress_callback({
+                "event": "slide_reset",
+                "progress": 99,
+                "stage": "v5_candidate",
+                "engine_schema": SLIDE_DECK_V5_SCHEMA,
+                "candidate_stage": "render_verified",
+                "candidate_status": content["candidate_status"],
+            })
+            for slide in content.get("slides") or []:
+                progress_callback({
+                    "event": "slide_upsert",
+                    "progress": 99,
+                    "stage": "v5_candidate",
+                    "engine_schema": SLIDE_DECK_V5_SCHEMA,
+                    "candidate_stage": "render_verified",
+                    "candidate_status": content["candidate_status"],
+                    "slide": deepcopy(slide),
+                })
     if bundle_part:
         content["bundle_part"] = deepcopy(bundle_part)
     content["quality_report"] = deepcopy(quality)
@@ -741,6 +811,11 @@ def compile_slide_deck_variant(
         "representation_id": representation_id,
         "spec_id": spec_id,
         "status": representation.status,
+        **(
+            {"candidate_status": str(content.get("candidate_status") or "v5_failed")}
+            if str(content.get("schema_version") or "") == SLIDE_DECK_V5_SCHEMA
+            else {}
+        ),
         "unit_count": len(content.get("slides") or []),
         "quality": quality,
     }
@@ -758,6 +833,8 @@ def rebuild_slide_deck_variant_safely(
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     resume_slides: list[dict[str, Any]] | None = None,
+    requested_schema: str | None = None,
+    source_revision_provider: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     """Publish one variant atomically and keep the last usable version on failure."""
     previous = repository.load(document.course_id)
@@ -773,6 +850,7 @@ def rebuild_slide_deck_variant_safely(
     try:
         if (
             allocation_plan is not None
+            and requested_schema != SLIDE_DECK_V5_SCHEMA
             and not (story_plan is not None and slide_deck_v5_enabled())
         ):
             preflight = slide_deck_preflight_quality(allocation_plan)
@@ -805,16 +883,55 @@ def rebuild_slide_deck_variant_safely(
                 story_plan=story_plan,
                 progress_callback=progress_callback,
                 resume_slides=resume_slides,
+                requested_schema=requested_schema,
             )
             if not build["quality"]["passed"]:
+                first_blocker = next(
+                    iter(build["quality"].get("blockers") or []),
+                    {},
+                )
+                failure = (
+                    {
+                        "stage": "quality_gate",
+                        "code": "v5_quality_gate_failed",
+                        "message": str(
+                            first_blocker.get("message")
+                            or "V5 候选未通过完整性或可读性门禁。"
+                        ),
+                        "retryable": True,
+                        "source_revision": str(document.document_revision or ""),
+                        **(
+                            {"page_id": str(
+                                first_blocker.get("page_id")
+                                or first_blocker.get("slide_id")
+                            )}
+                            if first_blocker.get("page_id")
+                            or first_blocker.get("slide_id")
+                            else {}
+                        ),
+                        **(
+                            {"reason_code": str(first_blocker.get("code"))}
+                            if first_blocker.get("code")
+                            else {}
+                        ),
+                    }
+                    if requested_schema == SLIDE_DECK_V5_SCHEMA
+                    else None
+                )
                 if progress_callback:
                     progress_callback({
                         "event": "build_blocked",
                         "progress": 100,
                         "quality": build["quality"],
+                        **({"failure": failure, **failure} if failure else {}),
                     })
                 return {
                     "status": "failed_using_last_available",
+                    **(
+                        {"candidate_status": "v5_failed", "failure": failure}
+                        if failure
+                        else {}
+                    ),
                     "variant_key": variant_key,
                     "quality": build["quality"],
                     "last_available": (
@@ -823,6 +940,30 @@ def rebuild_slide_deck_variant_safely(
                         else None
                     ),
                 }
+            if requested_schema == SLIDE_DECK_V5_SCHEMA:
+                try:
+                    current_source_revision = str(
+                        source_revision_provider()
+                        if source_revision_provider is not None
+                        else document.document_revision
+                        or ""
+                    )
+                except Exception as exc:
+                    raise SlideDeckV5BuildError(
+                        stage="source_commit",
+                        code="v5_source_revision_check_failed",
+                        message=f"提交 V5 候选前无法复核课程源修订：{exc}",
+                        retryable=True,
+                        source_revision=str(document.document_revision or ""),
+                    ) from exc
+                if current_source_revision != str(document.document_revision or ""):
+                    raise SlideDeckV5BuildError(
+                        stage="source_commit",
+                        code="v5_source_revision_conflict",
+                        message="课程内容在 PPT 生成期间发生变化。",
+                        retryable=True,
+                        source_revision=str(document.document_revision or ""),
+                    )
             candidate = shadow.load(document.course_id)
             published_variant = next((
                 item for item in candidate.representations
@@ -861,6 +1002,11 @@ def rebuild_slide_deck_variant_safely(
                 })
             return {
                 "status": "synchronized",
+                **(
+                    {"candidate_status": str(build["quality"].get("candidate_status") or "v5_ready")}
+                    if requested_schema == SLIDE_DECK_V5_SCHEMA
+                    else {}
+                ),
                 "variant_key": variant_key,
                 "quality": build["quality"],
                 "registry_revision": committed.registry_revision,
@@ -869,29 +1015,55 @@ def rebuild_slide_deck_variant_safely(
                 "reused_unit_count": len(resume_slides or []),
             }
     except Exception as exc:
+        v5_failure = (
+            exc.public_detail()
+            if isinstance(exc, SlideDeckV5BuildError)
+            else {
+                "stage": "compiler",
+                "code": "v5_unexpected_build_failure",
+                "message": str(exc),
+                "retryable": False,
+                "source_revision": str(document.document_revision or ""),
+            }
+            if requested_schema == SLIDE_DECK_V5_SCHEMA
+            else None
+        )
+        failure_code = str(
+            (v5_failure or {}).get("code") or "slide_variant_rebuild_failed"
+        )
         failure_quality = {
             "passed": False,
             "issues": [{
                 "severity": "critical",
-                "code": "slide_variant_rebuild_failed",
-                "message": str(exc),
+                "code": failure_code,
+                "message": str((v5_failure or {}).get("message") or exc),
             }],
             "blockers": [{
                 "severity": "critical",
-                "code": "slide_variant_rebuild_failed",
-                "message": str(exc),
+                "code": failure_code,
+                "message": str((v5_failure or {}).get("message") or exc),
             }],
         }
         if progress_callback:
             progress_callback({
                 "event": "build_failed",
                 "progress": 100,
-                "code": "slide_variant_rebuild_failed",
-                "message": str(exc),
+                "code": failure_code,
+                "message": str((v5_failure or {}).get("message") or exc),
                 "quality": deepcopy(failure_quality),
+                **(
+                    {"failure": deepcopy(v5_failure), **v5_failure}
+                    if v5_failure
+                    else {}
+                ),
             })
         return {
             "status": "failed_using_last_available",
+            **(
+                {"candidate_status": "v5_failed", "failure": v5_failure}
+                if v5_failure
+                else {}
+            ),
             "variant_key": variant_key,
             "quality": failure_quality,
             "last_available": (
