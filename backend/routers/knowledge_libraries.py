@@ -16,6 +16,7 @@ from course_knowledge_commands import (
     build_knowledge_candidate,
 )
 from course_knowledge_impact import knowledge_coverage_check
+from course_knowledge_impact_detail import build_impact_detail
 from course_knowledge_point_edits import (
     POINT_EDIT_OPERATIONS,
     build_point_edit_candidate,
@@ -425,3 +426,40 @@ async def relocate_point_edit(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "success", "relocation": result}
+
+
+@router.post("/courses/{course_id}/knowledge-library/points/impact-detail")
+async def point_edit_impact_detail(
+    course_id: str,
+    body: PointEditRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Expand a pending edit's impact into per-object, readable rows.
+
+    Same read-only preview path as `/preview-edit`, but returning *which*
+    objects are affected rather than only how many. Recomputed here instead of
+    cached on the candidate so the list always reflects the base on disk.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+        candidate, proposed = build_point_edit_candidate(
+            course,
+            knowledge_id=body.knowledge_id,
+            operation=body.operation,
+            value=body.value,
+            reason=body.reason,
+            actor=_actor(request),
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "status": "success",
+        "detail": build_impact_detail(
+            candidate["impact_report"], course_data=course, knowledge_base=proposed,
+        ),
+    }
