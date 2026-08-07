@@ -2849,6 +2849,22 @@
     "discard": "放弃候选",
     "applied": "知识修订已生效，下游产物已标记待重建。",
     "relocated": "知识库已变化，影响已按当前版本重新计算，请再次确认。",
-    "relocateConflict": "知识库已变化且无法自动衔接，请重新发起。"
+    "relocateConflict": "知识库已变化且无法自动衔接，请重新发起。",
+    "expandHint": "点计数可展开，查看具体是哪些正文块、练习和课件。",
+    "collapse": "收起",
+    "detailLoading": "正在读取明细",
+    "detailFailed": "明细读取失败，请重试",
+    "detailTruncated": "仅显示前一部分，完整列表请在重建后复核。",
+    "objectMissing": "该对象已不在当前课程中",
+    "showHistory": "查看修订历史",
+    "hideHistory": "收起修订历史",
+    "historyLoading": "正在读取修订历史",
+    "historyFailed": "修订历史读取失败，请重试",
+    "historyEmpty": "这门课程还没有知识修订记录",
+    "rebuild": "重建受影响产物",
+    "rebuilding": "正在请求重建",
+    "rebuildUnavailable": "下游重建管线尚未接入，本次未触发重建。",
+    "rebuildRequested": "已请求重建，可在任务中心查看进度。",
+    "rebuildFailed": "重建请求失败，请重试"
   }
 }

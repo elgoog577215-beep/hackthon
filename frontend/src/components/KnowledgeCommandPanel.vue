@@ -85,18 +85,73 @@
 
         <ul class="knowledge-command-impact">
           <li>
-            <span>{{ t('knowledgeCommands.needsRegeneration', '需重建') }}</span>
-            <strong>{{ impact.needsRegeneration }}</strong>
+            <button
+              type="button"
+              :disabled="!impact.needsRegeneration || busy"
+              @click="toggleDetail('needs_regeneration')"
+            >
+              <span>{{ t('knowledgeCommands.needsRegeneration', '需重建') }}</span>
+              <strong>{{ impact.needsRegeneration }}</strong>
+            </button>
           </li>
           <li>
-            <span>{{ t('knowledgeCommands.stale', '待复核') }}</span>
-            <strong>{{ impact.stale }}</strong>
+            <button
+              type="button"
+              :disabled="!impact.stale || busy"
+              @click="toggleDetail('stale')"
+            >
+              <span>{{ t('knowledgeCommands.stale', '待复核') }}</span>
+              <strong>{{ impact.stale }}</strong>
+            </button>
           </li>
           <li>
-            <span>{{ t('knowledgeCommands.blocked', '被阻断') }}</span>
-            <strong>{{ impact.blocked }}</strong>
+            <button
+              type="button"
+              :disabled="!impact.blocked || busy"
+              @click="toggleDetail('blocked')"
+            >
+              <span>{{ t('knowledgeCommands.blocked', '被阻断') }}</span>
+              <strong>{{ impact.blocked }}</strong>
+            </button>
           </li>
         </ul>
+
+        <p v-if="impact.needsRegeneration || impact.stale" class="knowledge-command-note">
+          {{ t('knowledgeCommands.expandHint', '点计数可展开，查看具体是哪些正文块、练习和课件。') }}
+        </p>
+
+        <!--
+          明细区：教师要能判断"这 52 个值不值得改"，就必须看到是哪些对象。
+          只在展开时才请求，避免每次预览都拉一份可能上百行的列表。
+        -->
+        <div v-if="openGroup" class="knowledge-command-detail">
+          <header>
+            <strong>{{ groupLabel(openGroup) }}</strong>
+            <button type="button" @click="openGroup = ''">
+              {{ t('knowledgeCommands.collapse', '收起') }}
+            </button>
+          </header>
+          <p v-if="detailLoading" class="knowledge-command-note">
+            {{ t('knowledgeCommands.detailLoading', '正在读取明细') }}
+          </p>
+          <p v-else-if="detailError" class="knowledge-command-error">{{ detailError }}</p>
+          <template v-else>
+            <ul class="knowledge-command-detail-list">
+              <li v-for="row in detailRows" :key="`${row.type}:${row.id}`">
+                <span class="knowledge-command-detail-kind">{{ row.type_label }}</span>
+                <span class="knowledge-command-detail-title">{{ row.title }}</span>
+                <span v-if="row.location" class="knowledge-command-detail-loc">{{ row.location }}</span>
+                <span v-if="row.excerpt" class="knowledge-command-detail-excerpt">{{ row.excerpt }}</span>
+                <span v-if="row.missing" class="knowledge-command-detail-missing">
+                  {{ t('knowledgeCommands.objectMissing', '该对象已不在当前课程中') }}
+                </span>
+              </li>
+            </ul>
+            <p v-if="detailTruncated" class="knowledge-command-note">
+              {{ t('knowledgeCommands.detailTruncated', '仅显示前一部分，完整列表请在重建后复核。') }}
+            </p>
+          </template>
+        </div>
 
         <p v-if="impact.dependents" class="knowledge-command-note">
           {{ t('knowledgeCommands.dependentPoints', '经知识关系受影响的知识点') }}：
@@ -130,6 +185,57 @@
         <CheckCircle2 :size="14" aria-hidden="true" />
         <span>{{ receiptText }}</span>
       </p>
+
+      <!--
+        重建入口只在知识修订生效后出现：没生效就没有"待重建"的下游产物。
+        它调用共享的重建命令接口，不自带重建实现。
+      -->
+      <div v-if="rebuildAvailable" class="knowledge-command-rebuild">
+        <button type="button" :disabled="rebuilding" @click="triggerRebuild">
+          <LoaderCircle v-if="rebuilding" :size="14" class="is-spinning" aria-hidden="true" />
+          <RefreshCw v-else :size="14" aria-hidden="true" />
+          {{ rebuilding
+            ? t('knowledgeCommands.rebuilding', '正在请求重建')
+            : t('knowledgeCommands.rebuild', '重建受影响产物') }}
+        </button>
+        <p v-if="rebuildNotice" class="knowledge-command-note">{{ rebuildNotice }}</p>
+        <ul v-if="rebuildTargets.length" class="knowledge-command-detail-list">
+          <li v-for="row in rebuildTargets" :key="`${row.type}:${row.id}`">
+            <span class="knowledge-command-detail-kind">{{ row.type }}</span>
+            <span class="knowledge-command-detail-title">{{ row.id }}</span>
+            <span class="knowledge-command-detail-loc">{{ row.owner }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <!--
+        修订历史：知识演进的可审计回执本来就存在（course_knowledge_revision_log），
+        此前只有 API、没有界面，教师无法回答"这个知识点上次是谁、为什么改的"。
+      -->
+      <div class="knowledge-command-history">
+        <button type="button" :disabled="busy" @click="toggleHistory">
+          <History :size="14" aria-hidden="true" />
+          {{ historyOpen
+            ? t('knowledgeCommands.hideHistory', '收起修订历史')
+            : t('knowledgeCommands.showHistory', '查看修订历史') }}
+        </button>
+        <template v-if="historyOpen">
+          <p v-if="historyLoading" class="knowledge-command-note">
+            {{ t('knowledgeCommands.historyLoading', '正在读取修订历史') }}
+          </p>
+          <p v-else-if="historyError" class="knowledge-command-error">{{ historyError }}</p>
+          <p v-else-if="!historyRows.length" class="knowledge-command-note">
+            {{ t('knowledgeCommands.historyEmpty', '这门课程还没有知识修订记录') }}
+          </p>
+          <ul v-else class="knowledge-command-history-list">
+            <li v-for="(entry, index) in historyRows" :key="entry.command_id || index">
+              <span class="knowledge-command-history-op">{{ operationLabelOf(entry.operation) }}</span>
+              <span class="knowledge-command-history-actor">{{ entry.actor }}</span>
+              <span class="knowledge-command-history-reason">{{ entry.reason }}</span>
+            </li>
+          </ul>
+        </template>
+      </div>
     </template>
   </section>
 </template>
@@ -141,7 +247,9 @@ import {
   CheckCircle2,
   Eye,
   FileSearch,
+  History,
   LoaderCircle,
+  RefreshCw,
   Wrench,
 } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
@@ -176,6 +284,20 @@ const previewing = ref(false)
 const confirming = ref(false)
 const errorText = ref('')
 const receiptText = ref('')
+const openGroup = ref('')
+const detailRows = ref<any[]>([])
+const detailTruncated = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const historyOpen = ref(false)
+const historyRows = ref<any[]>([])
+const historyLoading = ref(false)
+const historyError = ref('')
+const rebuildAvailable = ref(false)
+const rebuilding = ref(false)
+const rebuildNotice = ref('')
+const rebuildTargets = ref<any[]>([])
+const lastReceiptId = ref('')
 
 const busy = computed(() => previewing.value || confirming.value)
 const canPreview = computed(
@@ -228,6 +350,9 @@ watch(
     candidate.value = null
     errorText.value = ''
     receiptText.value = ''
+    rebuildAvailable.value = false
+    rebuildNotice.value = ''
+    rebuildTargets.value = []
   },
   { immediate: true },
 )
@@ -280,6 +405,7 @@ async function preview(): Promise<void> {
 
 async function confirm(): Promise<void> {
   if (!candidate.value?.confirmable || !props.point) return
+  const candidateId = String(candidate.value.candidate_id || '')
   confirming.value = true
   errorText.value = ''
   try {
@@ -297,6 +423,12 @@ async function confirm(): Promise<void> {
     candidate.value = null
     reason.value = ''
     receiptText.value = t('knowledgeCommands.applied', '知识修订已生效，下游产物已标记待重建。')
+    openGroup.value = ''
+    historyRows.value = []
+    rebuildAvailable.value = true
+    lastReceiptId.value = candidateId
+    rebuildNotice.value = ''
+    rebuildTargets.value = []
     emit('applied')
   } catch (error: any) {
     logger.error(error)
@@ -355,6 +487,110 @@ async function relocate(): Promise<boolean> {
 function discard(): void {
   candidate.value = null
   errorText.value = ''
+  openGroup.value = ''
+}
+
+function operationLabelOf(value: string): string {
+  if (value === 'revise_knowledge_point') return t('knowledgeCommands.opRevise', '修订知识陈述')
+  if (value === 'rename_knowledge_point') return t('knowledgeCommands.opRename', '重命名知识点')
+  return value
+}
+
+async function triggerRebuild(): Promise<void> {
+  if (!props.point) return
+  rebuilding.value = true
+  rebuildNotice.value = ''
+  try {
+    const response = await http.post(
+      `/api/courses/${props.courseId}/knowledge-library/points/rebuild-downstream`,
+      {
+        knowledge_id: props.point.knowledge_id,
+        operation: operation.value,
+        value: value.value.trim(),
+        reason: reason.value.trim(),
+        request_id: `rb-${props.point.knowledge_id}-${lastReceiptId.value}`,
+      },
+      { silentError: true },
+    )
+    const rebuild = response.data?.rebuild || {}
+    rebuildTargets.value = rebuild.targets || []
+    // 管线未接入时如实转达，不显示成"已重建"。
+    rebuildNotice.value = rebuild.status === 'executor_unavailable'
+      ? (rebuild.message || t('knowledgeCommands.rebuildUnavailable', '下游重建管线尚未接入，本次未触发重建。'))
+      : t('knowledgeCommands.rebuildRequested', '已请求重建，可在任务中心查看进度。')
+  } catch (error: any) {
+    logger.error(error)
+    rebuildNotice.value = errorMessage(
+      error,
+      t('knowledgeCommands.rebuildFailed', '重建请求失败，请重试'),
+    )
+  } finally {
+    rebuilding.value = false
+  }
+}
+
+async function toggleHistory(): Promise<void> {
+  historyOpen.value = !historyOpen.value
+  if (!historyOpen.value || historyRows.value.length) return
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const response = await http.get(
+      `/api/courses/${props.courseId}/knowledge-library/revisions`,
+      { silentError: true },
+    )
+    // 最近的改动最相关，倒序展示。
+    historyRows.value = [...(response.data?.revisions || [])].reverse()
+  } catch (error: any) {
+    logger.error(error)
+    historyError.value = errorMessage(
+      error,
+      t('knowledgeCommands.historyFailed', '修订历史读取失败，请重试'),
+    )
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function groupLabel(group: string): string {
+  if (group === 'needs_regeneration') return t('knowledgeCommands.needsRegeneration', '需重建')
+  if (group === 'stale') return t('knowledgeCommands.stale', '待复核')
+  return t('knowledgeCommands.blocked', '被阻断')
+}
+
+async function toggleDetail(group: string): Promise<void> {
+  if (openGroup.value === group) {
+    openGroup.value = ''
+    return
+  }
+  openGroup.value = group
+  if (!props.point) return
+  detailLoading.value = true
+  detailError.value = ''
+  detailRows.value = []
+  try {
+    const response = await http.post(
+      `/api/courses/${props.courseId}/knowledge-library/points/impact-detail`,
+      {
+        knowledge_id: props.point.knowledge_id,
+        operation: operation.value,
+        value: value.value.trim(),
+        reason: reason.value.trim(),
+      },
+      { silentError: true },
+    )
+    const detail = response.data?.detail || {}
+    detailRows.value = detail.groups?.[group] || []
+    detailTruncated.value = Boolean(detail.truncated?.[group])
+  } catch (error: any) {
+    logger.error(error)
+    detailError.value = errorMessage(
+      error,
+      t('knowledgeCommands.detailFailed', '明细读取失败，请重试'),
+    )
+  } finally {
+    detailLoading.value = false
+  }
 }
 </script>
 
@@ -383,9 +619,34 @@ function discard(): void {
 .knowledge-command-badge.is-ok { color:#1f7a4d; background:#e4f6ec; }
 .knowledge-command-badge.is-blocked { color:#9a3a2f; background:#fdecea; }
 .knowledge-command-note { margin:0; color:#8a8fa3; font-size:10.5px; }
-.knowledge-command-impact { display:flex; flex-wrap:wrap; gap:12px; margin:0; padding:0; list-style:none; }
-.knowledge-command-impact li { display:flex; align-items:baseline; gap:5px; color:#6b7189; font-size:10.5px; }
+.knowledge-command-impact { display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+.knowledge-command-impact li { flex:1 1 auto; }
+/* 计数是可点开的入口：给足触摸目标（>=32px 高），移动端也能点中。 */
+.knowledge-command-impact button { width:100%; min-height:34px; display:flex; align-items:baseline; justify-content:center; gap:5px; padding:4px 9px; border:1px solid #e6e3f5; border-radius:8px; color:#6b7189; background:#fff; font-size:10.5px; font-family:inherit; cursor:pointer; }
+.knowledge-command-impact button:hover:not(:disabled) { border-color:#c9c0ef; color:#5d46d7; }
+.knowledge-command-impact button:disabled { color:#b3b7c6; cursor:default; }
 .knowledge-command-impact strong { color:#3b3560; font-size:13px; }
+.knowledge-command-detail { display:flex; flex-direction:column; gap:6px; padding:8px 10px; border:1px solid #e6e3f5; border-radius:8px; background:#fbfbfe; }
+.knowledge-command-detail > header { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#453b7a; font-size:11px; }
+.knowledge-command-detail > header button { padding:2px 8px; border:1px solid #e1e3ed; border-radius:6px; color:#6b7189; background:#fff; font-size:10px; cursor:pointer; }
+.knowledge-command-detail-list { max-height:240px; overflow:auto; display:flex; flex-direction:column; gap:7px; margin:0; padding:0; list-style:none; }
+.knowledge-command-detail-list li { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; padding-bottom:6px; border-bottom:1px solid #eeecf8; }
+.knowledge-command-detail-list li:last-child { border-bottom:0; padding-bottom:0; }
+.knowledge-command-detail-kind { flex:0 0 auto; padding:1px 6px; border-radius:20px; color:#5d46d7; background:#eeebfd; font-size:9.5px; font-weight:700; }
+.knowledge-command-detail-title { flex:1 1 160px; color:#33304d; font-size:11px; font-weight:600; overflow-wrap:anywhere; }
+.knowledge-command-detail-loc { flex:0 0 auto; color:#8a8fa3; font-size:10px; }
+.knowledge-command-detail-excerpt { flex:1 1 100%; color:#8a8fa3; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.knowledge-command-detail-missing { flex:1 1 100%; color:#9a3a2f; font-size:10px; }
+.knowledge-command-rebuild { display:flex; flex-direction:column; gap:6px; padding:8px 10px; border:1px solid #dcefe3; border-radius:8px; background:#f6fbf8; }
+.knowledge-command-rebuild > button { min-height:30px; align-self:flex-start; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:1px solid #bfe3cd; border-radius:7px; color:#1f7a4d; background:#fff; font-size:10.5px; font-weight:700; cursor:pointer; }
+.knowledge-command-rebuild > button:disabled { color:#a8b5ad; cursor:not-allowed; }
+.knowledge-command-history { display:flex; flex-direction:column; gap:6px; }
+.knowledge-command-history > button { min-height:30px; align-self:flex-start; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #e1e3ed; border-radius:7px; color:#5d5a80; background:#fff; font-size:10.5px; font-weight:700; cursor:pointer; }
+.knowledge-command-history-list { display:flex; flex-direction:column; gap:6px; margin:0; padding:0; list-style:none; }
+.knowledge-command-history-list li { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px; font-size:10.5px; }
+.knowledge-command-history-op { padding:1px 6px; border-radius:20px; color:#1f7a4d; background:#e4f6ec; font-size:9.5px; font-weight:700; }
+.knowledge-command-history-actor { color:#6b7189; font-weight:600; }
+.knowledge-command-history-reason { flex:1 1 100%; color:#8a8fa3; overflow-wrap:anywhere; }
 .knowledge-command-issues { margin:0; padding-left:16px; color:#9a3a2f; font-size:10.5px; }
 .knowledge-command-error,
 .knowledge-command-receipt { display:flex; align-items:flex-start; gap:6px; margin:0; font-size:10.5px; }
@@ -393,4 +654,10 @@ function discard(): void {
 .knowledge-command-receipt { color:#1f7a4d; }
 .is-spinning { animation:knowledge-command-spin 1s linear infinite; }
 @keyframes knowledge-command-spin { to { transform:rotate(360deg); } }
+@media (max-width: 720px) {
+  .knowledge-command-panel { padding:12px; }
+  .knowledge-command-impact li { flex:1 1 100%; }
+  .knowledge-command-detail-list { max-height:200px; }
+  .knowledge-command-actions button { flex:1 1 auto; justify-content:center; }
+}
 </style>

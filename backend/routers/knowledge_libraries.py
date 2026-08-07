@@ -26,12 +26,14 @@ from course_knowledge_rebuild import (
     CourseKnowledgeRebuildService,
 )
 from course_knowledge_relocation import relocate_point_edit_candidate
+from course_downstream_rebuild import request_rebuild
 from course_repository import (
     CourseDocumentConflict,
     CourseDocumentNotFound,
     CourseDocumentRepository,
 )
 from dependencies import get_course_document_repository
+from teaching_plan_impact import build_downstream_state
 from learner_context import resolve_user_id
 
 router = APIRouter(tags=["knowledge_libraries"])
@@ -87,6 +89,13 @@ class PointEditConfirmRequest(PointEditRequest):
     command_id: str = Field(min_length=1, max_length=200)
 
 
+class PointEditRebuildRequest(PointEditRequest):
+    """Trigger a downstream rebuild for the objects this edit invalidated."""
+
+    request_id: str = Field(min_length=1, max_length=200)
+    object_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
 class PointEditRelocateRequest(PointEditRequest):
     """A pending candidate asking to be re-anchored onto the current base."""
 
@@ -103,6 +112,10 @@ def get_course_knowledge_command_service(
     course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
 ) -> CourseKnowledgeCommandService:
     return CourseKnowledgeCommandService(course_repository)
+
+
+def _text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _actor(request: Request) -> str:
@@ -463,3 +476,51 @@ async def point_edit_impact_detail(
             candidate["impact_report"], course_data=course, knowledge_base=proposed,
         ),
     }
+
+
+@router.post("/courses/{course_id}/knowledge-library/points/rebuild-downstream")
+async def rebuild_downstream_for_point_edit(
+    course_id: str,
+    body: PointEditRebuildRequest,
+    request: Request,
+    course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
+) -> dict:
+    """Ask the rebuild pipeline to rebuild the objects a knowledge edit invalidated.
+
+    Returns 200 with `status="executor_unavailable"` while the downstream
+    rebuild pipeline is still being built elsewhere. The teacher then sees the
+    exact object list that *would* be rebuilt, which is honest, instead of a
+    success toast for work nobody performed.
+    """
+    try:
+        course = course_repository.load_course_view(course_id)
+        candidate, proposed = build_point_edit_candidate(
+            course,
+            knowledge_id=body.knowledge_id,
+            operation=body.operation,
+            value=body.value,
+            reason=body.reason,
+            actor=_actor(request),
+        )
+        downstream = build_downstream_state(
+            candidate["impact_report"],
+            plan_revision_id=_text(
+                (course.get("course_teaching_plan") or {}).get("revision_id"),
+            ),
+            course_data=course,
+        )
+        result = await request_rebuild(
+            course_id,
+            downstream,
+            actor=_actor(request),
+            request_id=body.request_id,
+            object_ids=body.object_ids or None,
+        )
+    except KnowledgeCommandRejected as exc:
+        raise _command_error(exc) from exc
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    del proposed
+    return {"status": "success", "rebuild": result}

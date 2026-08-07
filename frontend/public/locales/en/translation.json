@@ -2849,6 +2849,22 @@
     "discard": "Discard candidate",
     "applied": "Knowledge revision applied; downstream artifacts are marked for rebuild.",
     "relocated": "The knowledge base changed; impact was recomputed against the current version. Please confirm again.",
-    "relocateConflict": "The knowledge base changed and the candidate cannot be carried over. Please start again."
+    "relocateConflict": "The knowledge base changed and the candidate cannot be carried over. Please start again.",
+    "expandHint": "Tap a count to see which blocks, questions and slides are affected.",
+    "collapse": "Collapse",
+    "detailLoading": "Loading details",
+    "detailFailed": "Could not load details. Please retry.",
+    "detailTruncated": "Showing the first part only; review the full list after rebuilding.",
+    "objectMissing": "This object is no longer in the course",
+    "showHistory": "View revision history",
+    "hideHistory": "Hide revision history",
+    "historyLoading": "Loading revision history",
+    "historyFailed": "Could not load revision history. Please retry.",
+    "historyEmpty": "This course has no knowledge revisions yet",
+    "rebuild": "Rebuild affected artifacts",
+    "rebuilding": "Requesting rebuild",
+    "rebuildUnavailable": "The downstream rebuild pipeline is not connected yet; nothing was rebuilt.",
+    "rebuildRequested": "Rebuild requested. Track progress in the task center.",
+    "rebuildFailed": "Rebuild request failed. Please retry."
   }
 }
