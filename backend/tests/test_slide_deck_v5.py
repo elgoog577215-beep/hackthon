@@ -1375,6 +1375,24 @@ def test_pptx_renderer_uses_resolved_layout_instead_of_requested_layout() -> Non
     two_column_renderer.assert_not_called()
 
 
+def test_pptx_renderer_rejects_a_final_v5_page_without_resolved_layout(
+    tmp_path: Path,
+) -> None:
+    content = compile_slide_deck_v5(
+        _document(1),
+        {},
+        story_plan=_story(1),
+    )
+    content["slides"][0]["quality"].pop("resolved_layout", None)
+
+    with pytest.raises(ValueError, match="v5_final_layout_missing"):
+        export_structured_slide_deck(
+            content,
+            tmp_path / "invalid-v5-layout.pptx",
+            require_quality=False,
+        )
+
+
 @pytest.mark.parametrize(
     ("resolved_layout", "renderer_name"),
     [
