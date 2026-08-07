@@ -227,3 +227,66 @@ describe('目录重定向的跳转入口', () => {
     expect(wrapper.find('.generation-lesson-plan__error-action').exists()).toBe(false)
   })
 })
+
+describe('教学环节拖拽排序', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('编辑态下环节可拖拽，拖放后按新顺序发出整组 module_id', async () => {
+    const multi = () => {
+      const w = workbench()
+      w.teaching_plan = {
+        ...plan,
+        sections: [{
+          ...plan.sections[0],
+          teaching_modules: [
+            { module_id: 'core', teaching_purpose: 'a', teaching_guidance: 'a', knowledge_names: [] },
+            { module_id: 'practice', teaching_purpose: 'b', teaching_guidance: 'b', knowledge_names: [] },
+            { module_id: 'warmup', teaching_purpose: 'c', teaching_guidance: 'c', knowledge_names: [] },
+          ],
+        }],
+      }
+      return w
+    }
+    const payload = multi()
+    vi.mocked(http.get).mockResolvedValue({ data: { workbench: payload } } as any)
+    vi.mocked(http.patch).mockResolvedValue({ data: { workbench: payload } } as any)
+    const store = useTeachingPlanWorkbenchStore()
+    await store.load('course-1')
+
+    const wrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan: payload.teaching_plan, activeNodeId: 'section-1', courseId: 'course-1' },
+    })
+    const tabs = wrapper.findAll('.generation-lesson-plan__view-switch button')
+    await tabs[1]!.trigger('click')
+
+    // .flow 下还有别的嵌套 li，只取直接子项
+    const items = wrapper.findAll('.generation-lesson-plan__flow > ol > li')
+    expect(items.length).toBe(3)
+    expect(items[0]!.attributes('draggable')).toBe('true')
+
+    // 把第 3 个（warmup）拖到第 1 个（core）的位置
+    await items[2]!.trigger('dragstart')
+    await items[0]!.trigger('drop')
+    await new Promise(r => setTimeout(r, 0))
+
+    const body = vi.mocked(http.patch).mock.calls.at(-1)![1] as any
+    expect(body.path).toBe('sections/section-1/teaching_modules')
+    expect(body.value).toEqual(['warmup', 'core', 'practice'])
+  })
+
+  it('非编辑态不可拖拽', async () => {
+    vi.mocked(http.get).mockResolvedValue({ data: { workbench: workbench({ draft: null }) } } as any)
+    const store = useTeachingPlanWorkbenchStore()
+    await store.load('course-1')
+    const wrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan, activeNodeId: 'section-1', courseId: 'course-1' },
+    })
+    const tabs = wrapper.findAll('.generation-lesson-plan__view-switch button')
+    await tabs[1]!.trigger('click')
+    const item = wrapper.find('.generation-lesson-plan__flow > ol > li')
+    expect(item.attributes('draggable')).toBe('false')
+  })
+})

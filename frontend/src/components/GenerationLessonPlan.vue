@@ -842,6 +842,13 @@
               <li
                 v-for="(module, moduleIndex) in selectedSection.plan.teaching_modules"
                 :key="module.module_id || moduleIndex"
+                :draggable="editing && Boolean(module.module_id)"
+                :class="{ 'is-drag-over': dragOverModuleId === module.module_id }"
+                @dragstart="startModuleDrag(module.module_id)"
+                @dragover.prevent="dragOverModuleId = module.module_id || ''"
+                @dragleave="dragOverModuleId === module.module_id && (dragOverModuleId = '')"
+                @drop.prevent="dropModule(module.module_id)"
+                @dragend="dragOverModuleId = ''; draggingModuleId = ''"
               >
                 <div class="generation-lesson-plan__module-index">
                   <span>{{ String(moduleIndex + 1).padStart(2, '0') }}</span>
@@ -1481,6 +1488,45 @@ const sectionModuleOptions = computed(() => {
   return workbenchStore.workbench?.section_module_options?.[sectionId] || []
 })
 
+// 环节拖拽排序：复用增删用的同一条有序 module_id 列表路径，
+// 所以排序天然保持 module_id 稳定、内容不重建（后端按 id 原样搬运）。
+const draggingModuleId = ref('')
+const dragOverModuleId = ref('')
+
+function startModuleDrag(moduleId?: string) {
+  if (!editing.value || !moduleId) return
+  draggingModuleId.value = moduleId
+}
+
+async function dropModule(targetId?: string) {
+  const sectionId = selectedSection.value?.node.node_id
+  const sourceId = draggingModuleId.value
+  dragOverModuleId.value = ''
+  draggingModuleId.value = ''
+  if (!sectionId || !sourceId || !targetId || sourceId === targetId) return
+
+  const current = (selectedSection.value?.plan?.teaching_modules || [])
+    .map(item => item.module_id)
+    .filter((id): id is string => Boolean(id))
+  const from = current.indexOf(sourceId)
+  const to = current.indexOf(targetId)
+  if (from < 0 || to < 0) return
+
+  const next = [...current]
+  next.splice(from, 1)
+  next.splice(to, 0, sourceId)
+
+  moduleOrderSaving.value = true
+  moduleOrderError.value = ''
+  try {
+    await workbenchStore.patchDraft(moduleOrderPath(sectionId), next)
+  } catch {
+    moduleOrderError.value = workbenchErrorMessage.value
+  } finally {
+    moduleOrderSaving.value = false
+  }
+}
+
 function moduleOrderPath(sectionId: string): string {
   return `sections/${sectionId}/teaching_modules`
 }
@@ -1936,6 +1982,9 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__block-heading > p { justify-self:end; max-width:510px; margin:0; color:#7a8393; font-size:13px; line-height:1.6; text-align:right; }
 .generation-lesson-plan__flow ol { display:grid; gap:0; margin:0; padding:0 0 0 7px; list-style:none; }
 .generation-lesson-plan__flow li { display:grid; grid-template-columns:44px minmax(0,1fr); gap:14px; }
+.generation-lesson-plan__flow li[draggable="true"] { cursor:grab; }
+.generation-lesson-plan__flow li[draggable="true"]:active { cursor:grabbing; }
+.generation-lesson-plan__flow li.is-drag-over { outline:2px dashed #b9c2d6; outline-offset:3px; border-radius:8px; }
 .generation-lesson-plan__module-index { display:grid; grid-template-rows:28px 1fr; justify-items:center; color:#5d63bd; font:700 12px/28px ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__module-index span { width:28px; height:28px; border:1px solid #cfd3ef; border-radius:50%; background:#f7f7ff; text-align:center; }
 .generation-lesson-plan__module-index i { width:1px; min-height:26px; background:#dfe2e9; }
