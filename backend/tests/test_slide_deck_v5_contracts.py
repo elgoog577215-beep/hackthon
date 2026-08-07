@@ -382,6 +382,186 @@ def test_semantic_repair_removes_internal_labels_from_source_body_without_losing
     }
 
 
+def test_semantic_repair_replaces_promoted_internal_titles_from_markdown_sources() -> None:
+    slides = [
+        _slide(
+            "slide:v5:898723642bdc07b279355281",
+            title="本节知识规范名称",
+            content=(
+                "Unity 开发环境初始化与工程目录结构规范。"
+                "学习者需完成以下可观察目标。"
+            ),
+        ),
+        _slide(
+            "slide:v5:29900c205643b89ca2458cc8",
+            title="知识规范名称",
+            content=(
+                "MonoBehaviour 脚本命名规范与生命周期回调执行顺序。"
+                "本节通过创建符合规范的脚本验证初始化时序。"
+            ),
+        ),
+        _slide(
+            "slide:v5:cac08a9027846cdfba776eef",
+            title="**知识规范名称",
+            content=(
+                "在脚本中实现 Awake、Start 和 Update 三个生命周期回调方法，"
+                "并观察日志执行顺序。"
+            ),
+        ),
+    ]
+    slides[0]["takeaway"] = "**Unity 开发环境初始化与工程目录结构规范**。"
+    for slide in slides[1:]:
+        slide["takeaway"] = (
+            "**知识规范名称：MonoBehaviour 脚本命名规范与生命周期回调执行顺序**"
+        )
+    slides[2]["quality"].update({
+        "continuation_of": slides[1]["unit_id"],
+        "continuation_index": 2,
+        "continuation_total": 2,
+    })
+
+    repaired, history = repair_semantic_slides_v5(slides, max_rounds=2)
+    report = build_slide_deck_quality_v5(repaired)
+
+    assert all(str(slide["title"]).strip("* ") for slide in repaired)
+    assert all("知识规范名称" not in str(slide["title"]) for slide in repaired)
+    assert all("知识规范名称" not in str(slide.get("takeaway") or "") for slide in repaired)
+    assert any(item["action"] == "replace_internal_label" for item in history)
+    assert "raw_internal_label_visible" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_semantic_repair_drops_a_source_bound_dangling_scaffold() -> None:
+    slide = _slide(
+        "slide:v5:source-scaffold",
+        title="切换平台会重建目标资源",
+        content=(
+            "切换目标平台会触发编译器、资源压缩算法与脚本后端的重构。"
+        ),
+        scene_kind="reasoning",
+    )
+    slide["blocks"][0]["metadata"]["fragment_ids"] = ["fragment-claim"]
+    slide["blocks"].append({
+        "block_id": "dangling-label",
+        "type": "process",
+        "title": "",
+        "content": "",
+        "items": ["平台切换操作："],
+        "metadata": {"fragment_ids": ["fragment-label"]},
+    })
+
+    repaired, history = repair_semantic_slides_v5([slide], max_rounds=2)
+    report = build_slide_deck_quality_v5(repaired)
+
+    assert repaired[0]["blocks"][0]["content"].startswith("切换目标平台")
+    assert all(
+        "平台切换操作" not in str(item)
+        for block in repaired[0]["blocks"]
+        for item in block.get("items") or []
+    )
+    assert any(item["action"] == "remove_dangling_scaffold" for item in history)
+    assert "dangling_fragment" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_semantic_repair_records_source_bound_process_and_example_closure() -> None:
+    process = _slide(
+        "slide:v5:process-result",
+        title="对象序列化为 JSON 字符串",
+        content=(
+            "使用 JsonUtility.ToJson 方法遍历对象的公共字段，"
+            "并将其转换为 JSON 字符串。"
+        ),
+        scene_kind="method",
+    )
+    process["blocks"][0]["metadata"]["fragment_ids"] = ["fragment-process"]
+    example = _slide(
+        "slide:v5:worked-conclusion",
+        title="初始化顺序会影响实例访问",
+        content=(
+            "案例中 PlayerController 先于 GameManager 初始化，"
+            "因此访问实例时会报错。"
+        ),
+        scene_kind="worked_example",
+        block_type="exercise",
+    )
+    example["blocks"][0]["metadata"].update({
+        "fragment_ids": ["fragment-example"],
+        "question_mode": "open_discussion",
+    })
+
+    repaired, history = repair_semantic_slides_v5(
+        [process, example],
+        max_rounds=2,
+    )
+    report = build_slide_deck_quality_v5(repaired)
+
+    assert repaired[0]["quality"]["process_result"]
+    assert repaired[1]["quality"]["worked_example_conclusion"]
+    assert any(item["action"] == "bind_source_closure" for item in history)
+    assert not {
+        "process_result_missing",
+        "worked_example_conclusion_missing",
+    }.intersection(issue["code"] for issue in report["issues"])
+
+
+def test_context_only_method_and_open_case_prompt_do_not_require_fake_results() -> None:
+    method_context = _slide(
+        "slide:v5:method-context",
+        title="线程安全单例需要考虑执行环境",
+        content=(
+            "Unity 主线程逻辑可能与网络包处理或后台计算交织，"
+            "标准懒汉式单例需考虑线程安全性。"
+        ),
+        scene_kind="method",
+    )
+    case_prompt = _slide(
+        "slide:v5:case-prompt",
+        title="粒子增多伴随帧率下降",
+        content=(
+            "随着粒子特效增多，帧率从 60 FPS 下降至 15 FPS，"
+            "并伴随周期性卡顿。"
+        ),
+        scene_kind="worked_example",
+        block_type="exercise",
+    )
+    case_prompt["blocks"][0]["metadata"]["question_mode"] = "open_discussion"
+
+    report = build_slide_deck_quality_v5([method_context, case_prompt])
+
+    assert not {
+        "process_result_missing",
+        "worked_example_conclusion_missing",
+    }.intersection(issue["code"] for issue in report["issues"])
+
+
+def test_duplicate_gate_allows_a_shared_technical_term_on_distinct_pages() -> None:
+    overview = _slide(
+        "slide:v5:profiler-overview",
+        title="发布清单连接诊断与回归",
+        content=(
+            "发布清单要求使用 Unity Profiler 的 Deep Profile 模式定位瓶颈，"
+            "并记录复现步骤、根因与修复方案。"
+        ),
+    )
+    diagnosis = _slide(
+        "slide:v5:profiler-diagnosis",
+        title="动态状态需要运行时诊断",
+        content=(
+            "静态分析无法覆盖动态状态，必须使用 Unity Profiler 的 Deep Profile "
+            "模式观察真实耗时。"
+        ),
+    )
+
+    report = build_slide_deck_quality_v5([overview, diagnosis])
+
+    assert "duplicate_visible_content" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_semantic_repair_completes_a_hard_truncated_title_from_source_copy() -> None:
     slide = _slide(
         "slide:v5:episode-1:001",

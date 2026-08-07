@@ -250,6 +250,89 @@ def test_long_foundation_claim_is_compressed_without_mid_word_truncation() -> No
     assert not title.endswith("最基")
 
 
+def test_title_compiler_rejects_markdown_internal_production_labels() -> None:
+    title = compile_page_title_v5(
+        explicit_title="本节知识规范名称",
+        primary_claim=(
+            "**知识规范名称：MonoBehaviour 脚本命名规范与生命周期回调执行顺序**"
+        ),
+        body_text=(
+            "MonoBehaviour 脚本命名规范与生命周期回调执行顺序。"
+            "本节通过创建符合规范的脚本验证初始化时序。"
+        ),
+        fallback_context="脚本生命周期",
+    )
+
+    assert title
+    assert "知识规范名称" not in title
+    assert "生命周期" in title or "MonoBehaviour" in title
+
+
+def test_title_compiler_prefers_source_heading_over_generic_teaching_job() -> None:
+    title = compile_page_title_v5(
+        explicit_title="说明结论如何从条件推出",
+        primary_claim="1. Inspector 参数实时热更机制",
+        body_text=(
+            "Unity 的 Inspector 面板不仅是属性查看器，"
+            "也是运行时参数控制台。"
+        ),
+        fallback_context="说明结论如何从条件推出",
+    )
+
+    assert title == "Inspector 参数实时热更机制"
+
+
+def test_page_contract_preserves_visible_sequence_for_continuation_titles() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "slide:v5:continuation:002",
+        "layout": "concept",
+        "title": "Collider Is Trigger 属性与碰撞事件路由机制",
+        "takeaway": "Collider Is Trigger 属性与碰撞事件路由机制",
+        "blocks": [{
+            "block_id": "conditions",
+            "type": "statement",
+            "title": "",
+            "content": "至少有一个物体必须挂载非运动学的 Rigidbody 组件。",
+            "items": [],
+        }],
+        "quality": {
+            "requested_layout": "editorial-body",
+            "continuation_of": "slide:v5:continuation:001",
+            "continuation_index": 2,
+            "continuation_total": 4,
+            "title_character_budget": 18,
+        },
+    })
+
+    assert slide["title"].startswith("属性与碰撞事件路由机制")
+    assert slide["title"].endswith("（续2/4）")
+
+
+def test_page_contract_keeps_the_only_source_claim_for_hero_quality_audit() -> None:
+    slide = apply_page_contract_v5({
+        "unit_id": "slide:v5:source-hero",
+        "layout": "concept",
+        "title": "建立本节核心概念与边界",
+        "key_message": "第 1 章概念",
+        "takeaway": "",
+        "blocks": [{
+            "block_id": "source-claim",
+            "type": "statement",
+            "title": "",
+            "content": "这是第 1 章的课程正文与方法说明。",
+            "items": [],
+            "metadata": {"source_fragment_ids": ["fragment-1"]},
+        }],
+        "visuals": [],
+        "quality": {"requested_layout": "editorial-body"},
+    })
+
+    assert slide["title"] == "这是第 1 章的课程正文与方法说明"
+    assert slide["blocks"][0]["content"].startswith("这是第 1 章")
+    assert slide["quality"]["resolved_layout"] == "hero-claim"
+    assert slide["quality"]["suppress_redundant_body"] is True
+
+
 def test_numbered_semantic_heading_recovers_an_incomplete_body_excerpt() -> None:
     title = compile_page_title_v5(
         explicit_title="卡诺循环（Carnot",
