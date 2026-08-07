@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
+from starlette.requests import Request
 
 from course_generation_workflow import (
     apply_teacher_classroom_contract,
@@ -10,11 +11,9 @@ from course_generation_workflow import (
     normalize_course_outline_contract,
 )
 from course_prompt_composer import CoursePromptComposer
-from course_type_contracts import resolve_course_type
-from course_type_contracts import CourseTypeNotEnabled
+from course_type_contracts import ENABLED_COURSE_TYPES, resolve_course_type
 from course_versioning import build_blueprint_draft
 from models import CourseGenerationRequest
-from fastapi import HTTPException
 from routers.courses import create_course_generation_job
 from task_manager import TaskManager
 
@@ -36,7 +35,15 @@ def _project_request(**overrides):
 
 def test_new_course_type_routes_legacy_fields_without_losing_compatibility():
     project = _project_request()
-    exam = CourseGenerationRequest(subject="教师资格考试", course_type="exam")
+    exam = CourseGenerationRequest.model_validate({
+        "subject": "教师资格考试",
+        "course_type": "exam",
+        "course_intent": {
+            "exam_name": "教师资格考试",
+            "exam_date": "2026-12-20",
+            "exam_scope": "教育知识与能力",
+        },
+    })
 
     assert project.course_purpose == "systematic"
     assert project.composition_style.value == "project_driven"
@@ -72,8 +79,15 @@ def test_non_default_legacy_purpose_still_has_priority():
         "composition_style": "project_driven",
     })
 
+    assert resolve_course_type(
+        course_purpose="exam_sprint",
+        composition_style="project_driven",
+    ) == ("exam", "course_purpose")
     assert request.course_type == "exam"
     assert request.course_purpose == "exam_sprint"
+    assert request.course_intent.exam_name == "期末复习"
+    assert request.course_intent.exam_date == ""
+    assert "course_type_resolved_from" not in request.model_dump(mode="json")
 
 
 def test_teacher_course_brief_becomes_the_generation_and_audience_contract():
@@ -166,33 +180,153 @@ def test_teacher_classroom_contract_is_seeded_into_the_official_teaching_plan():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("course_type", ["inquiry", "exam"])
-async def test_unreleased_course_types_are_rejected_before_a_job_is_created(course_type):
-    request = CourseGenerationRequest(subject="暂未开放课程", course_type=course_type)
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "subject": "生成式 AI 会如何改变大学评价",
+            "course_type": "inquiry",
+            "course_intent": {
+                "core_question": "生成式 AI 会如何改变大学评价？",
+                "desired_output": "形成带证据边界的判断报告",
+            },
+        },
+        {
+            "subject": "大学英语六级考试",
+            "course_type": "exam",
+            "course_intent": {
+                "exam_name": "大学英语六级考试",
+                "exam_date": "2026-12-20",
+                "exam_scope": "听力、阅读、翻译与写作",
+            },
+        },
+    ],
+)
+async def test_new_course_types_create_generation_jobs(payload):
+    request = CourseGenerationRequest.model_validate(payload)
 
     class FakeTaskManager:
-        called = False
+        snapshot = None
 
-        async def create_generation_job(self, _snapshot):
-            self.called = True
+        async def create_generation_job(self, snapshot):
+            self.snapshot = snapshot
+            return {"job_id": "job-1", "course_id": "course-1"}
 
     manager = FakeTaskManager()
-    with pytest.raises(HTTPException) as caught:
-        await create_course_generation_job(request, manager)
-    assert caught.value.status_code == 422
-    assert caught.value.detail["code"] == "course_type_not_enabled"
-    assert manager.called is False
+    result = await create_course_generation_job(
+        request,
+        Request({"type": "http", "headers": []}),
+        manager,
+    )
+
+    assert result["job_id"] == "job-1"
+    assert manager.snapshot["course_type"] == payload["course_type"]
+    assert manager.snapshot["course_intent"]["type"] == payload["course_type"]
 
 
-@pytest.mark.asyncio
-async def test_manager_also_rejects_unreleased_type_before_touching_storage():
-    manager = object.__new__(TaskManager)
-    with pytest.raises(CourseTypeNotEnabled) as caught:
-        await manager._create_generation_job({
-            "subject": "考试冲刺",
-            "course_type": "exam",
-        })
-    assert caught.value.code == "course_type_not_enabled"
+def test_all_four_course_types_are_enabled():
+    assert ENABLED_COURSE_TYPES == {"systematic", "project", "inquiry", "exam"}
+
+
+@pytest.mark.parametrize(
+    "payload, expected_message",
+    [
+        (
+            {"subject": "探究课程", "course_type": "inquiry"},
+            "必须提供 course_intent",
+        ),
+        (
+            {
+                "subject": "探究课程",
+                "course_type": "inquiry",
+                "course_intent": {"core_question": "为什么？"},
+            },
+            "必须提供 desired_output",
+        ),
+        (
+            {
+                "subject": "考试课程",
+                "course_type": "exam",
+                "course_intent": {
+                    "exam_name": "期末考试",
+                    "exam_scope": "第一至六章",
+                },
+            },
+            "必须提供 exam_date",
+        ),
+        (
+            {
+                "subject": "考试课程",
+                "course_type": "exam",
+                "course_intent": {
+                    "exam_name": "期末考试",
+                    "exam_date": "2026/12/20",
+                    "exam_scope": "第一至六章",
+                },
+            },
+            "YYYY-MM-DD",
+        ),
+    ],
+)
+def test_new_course_types_require_their_planner_inputs(payload, expected_message):
+    with pytest.raises(ValidationError, match=expected_message):
+        CourseGenerationRequest.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "course_type, course_intent, expected_stage, rationale_marker",
+    [
+        (
+            "inquiry",
+            {
+                "type": "inquiry",
+                "core_question": "生成式 AI 会如何改变大学评价？",
+                "existing_understanding": "它可能削弱传统作业的区分度",
+                "evidence_scope": "近三年高校实践与研究论文",
+                "desired_output": "形成带证据边界的判断报告",
+            },
+            "gather_evidence",
+            "待检验假设",
+        ),
+        (
+            "exam",
+            {
+                "type": "exam",
+                "exam_name": "大学英语六级考试",
+                "exam_date": "2026-12-20",
+                "exam_scope": "听力、阅读、翻译与写作",
+                "current_preparation": "长对话和写作较弱",
+            },
+            "mock_assessment",
+            "诊断题或模拟任务",
+        ),
+    ],
+)
+def test_new_course_type_briefs_compile_dedicated_planner_contracts(
+    course_type,
+    course_intent,
+    expected_stage,
+    rationale_marker,
+):
+    artifacts = build_course_generation_artifacts(
+        course_id=f"course-{course_type}",
+        topic="专项课程",
+        difficulty="intermediate",
+        style=None,
+        course_type=course_type,
+        course_intent=course_intent,
+    )
+    brief = artifacts["course_generation_brief"]
+
+    stage_ids = [
+        item["id"]
+        for item in brief["course_type_contract"]["required_planning_stages"]
+    ]
+    assert expected_stage in stage_ids
+    assert any(
+        rationale_marker in item
+        for item in brief["personalization_rationale"]
+    )
 
 
 @pytest.mark.asyncio

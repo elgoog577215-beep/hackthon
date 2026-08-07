@@ -25,6 +25,8 @@ COURSE_TYPES = {
 ENABLED_COURSE_TYPES = {
     COURSE_TYPE_SYSTEMATIC,
     COURSE_TYPE_PROJECT,
+    COURSE_TYPE_INQUIRY,
+    COURSE_TYPE_EXAM,
 }
 
 
@@ -68,6 +70,13 @@ COURSE_TYPE_CONTRACTS: dict[str, dict[str, Any]] = {
         "label": "问题探究",
         "organizing_question": "学习者要回答什么核心问题？",
         "planning_sequence": ["界定问题", "拆解子问题", "组织证据", "检验解释", "形成结论"],
+        "required_planning_stages": [
+            {"id": "define_question", "label": "界定核心问题"},
+            {"id": "decompose_questions", "label": "拆解子问题与假设"},
+            {"id": "gather_evidence", "label": "组织证据"},
+            {"id": "test_explanations", "label": "检验解释与反例"},
+            {"id": "form_conclusion", "label": "形成有边界的结论"},
+        ],
         "outline_requirements": [
             "目录由核心问题和子问题推进，不得伪装成带问号的普通章节目录",
             "区分已有认识、待验证假设、证据需求和阶段性结论",
@@ -79,6 +88,13 @@ COURSE_TYPE_CONTRACTS: dict[str, dict[str, Any]] = {
         "label": "考试冲刺",
         "organizing_question": "在限定时间内，哪些考纲能力最需要优先补齐？",
         "planning_sequence": ["考试范围", "当前准备度", "薄弱点", "复习优先级", "模拟验证"],
+        "required_planning_stages": [
+            {"id": "scope_diagnosis", "label": "考纲与准备度诊断"},
+            {"id": "priority_review", "label": "高优先级复习"},
+            {"id": "targeted_practice", "label": "薄弱点专项练习"},
+            {"id": "mock_assessment", "label": "限时模拟与反馈"},
+            {"id": "final_consolidation", "label": "考前巩固与策略"},
+        ],
         "outline_requirements": [
             "按考纲覆盖、剩余时间和薄弱程度确定优先级",
             "每个阶段包含复习目标、典型任务和检查方式",
@@ -278,6 +294,26 @@ def _compile_starting_profile(
             marker = f"待在项目任务中验证：{item}"
             if marker not in needs_validation:
                 needs_validation.append(marker)
+    elif course_type == COURSE_TYPE_INQUIRY:
+        understanding = str(
+            course_intent.get("existing_understanding") or ""
+        ).strip()
+        if understanding:
+            summary = str(profile.get("summary") or "").strip()
+            profile["summary"] = summary or understanding
+            marker = f"待通过证据检验的已有认识：{understanding}"
+            if marker not in needs_validation:
+                needs_validation.append(marker)
+    elif course_type == COURSE_TYPE_EXAM:
+        preparation = str(
+            course_intent.get("current_preparation") or ""
+        ).strip()
+        if preparation:
+            summary = str(profile.get("summary") or "").strip()
+            profile["summary"] = summary or preparation
+            marker = f"待通过诊断题或模拟任务验证的当前准备度：{preparation}"
+            if marker not in needs_validation:
+                needs_validation.append(marker)
     summary = str(profile.get("summary") or learner_profile_summary or "").strip()
     evidence_basis = str(profile.get("evidence_basis") or "self_reported").strip()
     if evidence_basis not in {"self_reported", "interview", "observed", "mixed"}:
@@ -324,6 +360,20 @@ def _personalization_rationale(
         result.append(
             f"所有个性化调整必须服务项目交付物：{intent.get('expected_deliverable')}"
         )
+    elif course_type == COURSE_TYPE_INQUIRY:
+        result.append(
+            "已有认识只能作为待检验假设；目录必须保留证据搜集、反例检验和结论边界。"
+        )
+        evidence_scope = str(intent.get("evidence_scope") or "").strip()
+        if evidence_scope:
+            result.append(f"探究证据必须优先覆盖用户指定范围：{evidence_scope}")
+    elif course_type == COURSE_TYPE_EXAM:
+        result.append(
+            "当前准备度只用于安排首轮优先级，必须通过诊断题或模拟任务校准。"
+        )
+        exam_date = str(intent.get("exam_date") or "").strip()
+        if exam_date:
+            result.append(f"复习节奏必须在考试日期 {exam_date} 前完成模拟与考前巩固。")
     return result
 
 

@@ -27,7 +27,29 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v25"
+PROMPT_CONTRACT_VERSION = "course_prompt_v26"
+
+
+def _course_type_planning_rules(brief: dict[str, Any]) -> str:
+    course_type = str(brief.get("course_type") or "systematic")
+    contract = brief.get("course_type_contract") or {}
+    required_stages = contract.get("required_planning_stages") or []
+    if course_type == "project":
+        return """9. 仅项目实战使用以下路径规则：起点不足时不得使用 `compressed`；未证实能力使用
+   `verify_in_project`，明确重点缺口使用 `focus`，阶段成果使用 `milestone`。
+10. `verify_in_project` 的理由必须指向可观察任务或检查点；`milestone` 必须指向交付物验收。
+11. `planning_stages` 使用空数组；项目阶段由里程碑和路径角色表达。"""
+    if required_stages:
+        stage_ids = [
+            str(item.get("id") or "").strip()
+            for item in required_stages
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        ]
+        return f"""9. 每章必须填写 `planning_stages` 数组，只允许使用 {json.dumps(stage_ids, ensure_ascii=False)}。
+10. 上述阶段必须全部覆盖并按给定顺序推进；同一阶段可以占多章，一章也可以连续承载多个阶段，但不得倒序。
+11. 学习路径角色只使用 `focus|standard|compressed`，不得把探究或复习任务伪装成项目里程碑。"""
+    return """9. 系统学习的 `planning_stages` 使用空数组，目录按知识先修关系推进。
+10. 学习路径角色只使用 `focus|standard|compressed`，不得出现项目专属角色。"""
 
 
 class CoursePromptComposer:
@@ -45,6 +67,7 @@ class CoursePromptComposer:
         detail_level: str = "full",
     ) -> str:
         """Build the small global decision used before parallel chapter expansion."""
+        planning_brief = brief
         profile_data = profile.to_dict()
         if detail_level != "full":
             compact_chars = 220 if detail_level == "compact" else 100
@@ -87,6 +110,7 @@ class CoursePromptComposer:
             )
         shape = brief.get("course_shape_constraints") or {}
         course_type_contract = brief.get("course_type_contract") or {}
+        planning_rules = _course_type_planning_rules(planning_brief)
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -131,10 +155,7 @@ class CoursePromptComposer:
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
 8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
-9. 起点状态为 `insufficient` 时不得使用 `compressed`；所有未证实能力使用
-   `verify_in_project`。只有明确的重点缺口使用 `focus`，项目阶段成果使用 `milestone`。
-10. `verify_in_project` 的 `path_reason` 必须指向可观察的项目任务、阶段成果或检查点；
-    `milestone` 必须指向项目交付物的阶段验收或最终验收。
+{planning_rules}
 
 ## JSON Schema
 {{
@@ -146,6 +167,7 @@ class CoursePromptComposer:
     {{
       "chapter_number": 1,
       "title": "章节名",
+      "planning_stages": ["专用规划器的一个或多个连续阶段；系统学习与项目实战为空数组"],
       "learning_focus": "本章独有的能力推进范围",
       "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
       "path_reason": "该章节为何以当前深度进入个人路径",
