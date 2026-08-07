@@ -2694,29 +2694,14 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     heading_mode = str(unit.quality.get("heading_mode") or "full")
-    if heading_mode == "hidden":
-        section_label = str(
-            unit.quality.get("section_label")
-            or unit.eyebrow
-            or unit.slide_purpose
-        )
-        _text(
-            slide,
-            section_label,
-            0.78,
-            0.55,
-            8.8,
-            0.38,
-            13,
-            theme["accent"],
-            bold=True,
-        )
-        _shape(slide, 0.78, 1.12, 0.72, 0.04, theme["accent"], radius=False)
-        _shape(slide, 1.58, 1.12, 0.08, 0.04, theme["green"], radius=False)
-        return
+    eyebrow = str(
+        unit.quality.get("section_label")
+        if heading_mode == "hidden"
+        else unit.eyebrow or unit.slide_purpose
+    )
     heading = _display_heading(unit)
     heading_size = 35
-    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.22, 11, theme["accent"], bold=True)
+    _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
     _text(
         slide, heading, 0.78, 0.70, 11.72, 1.16, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
@@ -2937,31 +2922,9 @@ def _is_generic_heading(value: str) -> bool:
 def _heading_excerpt(value: str, limit: int | None = None) -> str:
     """Choose a complete audience-facing title phrase without an ellipsis."""
     clean = " ".join(str(value or "").split()).strip("，,；;：:。… ")
-    if limit is None:
-        limit = 18 if re.search(r"[\u3400-\u9fff]", clean) else 42
-    if len(clean) <= limit:
-        return clean
-    excerpt = clean[:limit]
-    opening = max(excerpt.rfind("（"), excerpt.rfind("("))
-    closing = max(excerpt.rfind("）"), excerpt.rfind(")"))
-    if opening > closing and opening >= max(8, limit // 3):
-        excerpt = excerpt[:opening]
-    else:
-        punctuation = max(
-            excerpt.rfind("。"),
-            excerpt.rfind("；"),
-            excerpt.rfind("，"),
-            excerpt.rfind("："),
-            excerpt.rfind("）"),
-            excerpt.rfind(")"),
-        )
-        if punctuation >= max(10, limit // 2):
-            excerpt = excerpt[: punctuation + (1 if excerpt[punctuation] in "）)" else 0)]
-        else:
-            space = excerpt.rfind(" ")
-            if space >= max(10, limit // 2):
-                excerpt = excerpt[:space]
-    return excerpt.rstrip("，,；;：:。 ")
+    # V5 compiles and validates a complete audience-facing title before the
+    # renderer runs. A second character cut here can create dangling fragments.
+    return clean
 
 
 def _configure_font(font: Any, latin_font: str, east_asian_font: str = BODY_EAST_ASIAN_FONT) -> None:

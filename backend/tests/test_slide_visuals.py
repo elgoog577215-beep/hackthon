@@ -246,7 +246,9 @@ def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None
     )
 
     assert _display_heading(explicit_heading) == "🔍 深度原理/底层机制"
-    assert _display_heading(classification_heading) == "根据系统与环境之间的交互方式"
+    assert _display_heading(classification_heading) == (
+        "根据系统与环境之间的交互方式，热力学将系统分为三类"
+    )
 
 
 def test_dense_prose_relation_is_suppressed_when_it_repeats_the_source() -> None:

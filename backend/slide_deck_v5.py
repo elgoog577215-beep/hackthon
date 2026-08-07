@@ -55,9 +55,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.22"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.23"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.12"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.13"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -885,6 +885,22 @@ def compact_story_plan_v5(
             selected_groups: list[tuple[str, list[Any]]] = []
             if by_kind.get("concept"):
                 concept_group = list(by_kind["concept"][0])
+                if profile == "quality_fallback":
+                    for sibling_group in by_kind["concept"][1:]:
+                        merged = sorted(
+                            {
+                                item.fragment_id: item
+                                for item in [*concept_group, *sibling_group]
+                            }.values(),
+                            key=lambda item: item.ordinal,
+                        )
+                        if not _v5_fit_group(
+                            merged,
+                            limit=230,
+                            preserve_all=True,
+                        ):
+                            break
+                        concept_group = merged
                 if (
                     profile == "semantic"
                     and any(
@@ -967,6 +983,8 @@ def compact_story_plan_v5(
                         and fallback_kind in {"navigation", "feedback", "recap"}
                     ):
                         continue
+                    if profile == "quality_fallback" and fallback_kind == "concept":
+                        continue
                     selected_groups.append((fallback_kind, group))
                     if len(selected_groups) == 3:
                         break
@@ -1032,6 +1050,40 @@ def compact_story_plan_v5(
                         "statement",
                     ),
                 }[scene]
+                if scene == "concept":
+                    visible_fragments = [
+                        item
+                        for item in group
+                        if item.kind != "heading" and _clean_text(item.text)
+                    ]
+                    source_heading_count = sum(
+                        1 for item in group if item.kind == "heading"
+                    )
+                    region_count = max(
+                        source_heading_count,
+                        min(3, len(visible_fragments)),
+                    )
+                    if region_count >= 3:
+                        selection = (
+                            "classification-3",
+                            "concept-cards",
+                            "comparison",
+                        )
+                    elif region_count == 2:
+                        selection = (
+                            "balanced-two-column",
+                            "two-column",
+                            "comparison",
+                        )
+                    elif (
+                        len(visible_fragments) == 1
+                        and len(_clean_text(visible_fragments[0].text)) <= 90
+                    ):
+                        selection = (
+                            "hero-claim",
+                            "hero-statement",
+                            "statement",
+                        )
                 episode_id = stable_hash({
                     "chapter_id": chapter.chapter_id,
                     "section_id": section_id,
@@ -1999,7 +2051,7 @@ def _is_incomplete_visible_claim(value: str) -> bool:
         return False
     return clean.endswith((
         "的", "是指", "包括", "分为", "属于", "依赖于", "取决于",
-        "表达式为", "如果", "那么",
+        "表达式为", "如果", "那么", "以及", "并且", "如下", "到", "为",
     ))
 
 
@@ -2613,6 +2665,16 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         major_regions = 3
         if requested_layout != resolved_layout:
             fallback_reason = "classification_requires_three_regions"
+    elif requested_layout == "classification-3":
+        if 2 <= len(non_visual) <= 3:
+            resolved_layout = "classification-3"
+            resolved_composition = "statement"
+            major_regions = len(non_visual)
+        else:
+            resolved_layout = "editorial-body"
+            resolved_composition = "statement"
+            major_regions = 1
+            fallback_reason = "classification_region_count_mismatch"
     elif requested_layout == "hero-claim":
         resolved_layout = "hero-claim"
         resolved_composition = "statement"
@@ -3395,7 +3457,6 @@ def _assign_heading_modes_v5(
 ) -> list[dict[str, Any]]:
     """Separate metadata titles from visible headings across one episode."""
     result: list[dict[str, Any]] = []
-    seen_explanation_episodes: set[str] = set()
     labels_by_episode: dict[str, str] = {}
     labels_by_section: dict[str, str] = {}
     for source in slides:
@@ -3415,23 +3476,11 @@ def _assign_heading_modes_v5(
                 or labels_by_section.get(section_id, "")
             )
 
-        is_explanation = (
-            str(slide.get("layout") or "") == "concept"
-            and str(slide.get("scene_kind") or "")
-            not in {"practice_feedback", "transition"}
-        )
-        is_continuation = bool(
-            is_explanation
-            and episode_id
-            and episode_id in seen_explanation_episodes
-        )
-        quality["heading_mode"] = "hidden" if is_continuation else "full"
+        quality["heading_mode"] = "full"
         if label:
             quality["section_label"] = label
         slide["quality"] = quality
         result.append(slide)
-        if is_explanation and episode_id:
-            seen_explanation_episodes.add(episode_id)
     return result
 
 
@@ -4613,7 +4662,7 @@ def build_signature_v5(
         ),
         "visual_planning_batch_version": VISUAL_PLANNING_BATCH_VERSION,
         "candidate_contract_version": "ppt_v5_candidate_v1",
-        "quality_policy_version": "slide_deck_quality_v5",
+        "quality_policy_version": "slide_deck_quality_v5_presentation_native_v1",
         "renderer_contract_version": "slide_layout_contract_v5",
         "web_image_retrieval": web_image_retrieval_signature,
     }
@@ -5673,7 +5722,10 @@ def compile_slide_deck_v5(
                 "",
                 _clean_text(title),
             )
-            concise_base = base_title[:max(8, 18 - len(suffix))].rstrip("（(")
+            concise_base = _bounded_title(
+                base_title,
+                limit=max(8, 18 - len(suffix)),
+            )
             title = f"{concise_base}{suffix}"
         slide.update({
             "chapter_id": chapter_id,
@@ -5691,6 +5743,11 @@ def compile_slide_deck_v5(
             "mastery_criterion_refs": beat.mastery_criterion_refs,
             "layout_selection_reason": beat.layout_selection_reason,
         })
+        if episode.scene_kind not in {"chapter_entry", "chapter_recap"}:
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "requested_layout": beat.layout_intent,
+            }
     outline = compile_deck_outline_v5(document, resolved_story)
     slides = _materialize_v5_structure(
         list(content.get("slides") or []),
