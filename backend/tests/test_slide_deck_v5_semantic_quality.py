@@ -381,6 +381,19 @@ def test_complete_question_without_terminal_punctuation_is_not_blocked() -> None
     }
 
 
+def test_title_ending_in_a_dependent_conjunction_is_blocked() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "dependent-title",
+        "title": "碰撞回调事件的封装与分层处理模式以及",
+        "blocks": [],
+        "quality": {},
+    }])
+
+    assert "incomplete_title_claim" in {
+        issue["code"] for issue in issues
+    }
+
+
 def test_recap_excludes_question_morphology_and_instructional_prompts() -> None:
     chapter = DeckChapterV5(
         chapter_id="chapter-declarative",
