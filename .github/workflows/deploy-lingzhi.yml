@@ -60,9 +60,7 @@ jobs:
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
           MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
           MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
-          MODELSCOPE_MODEL: deepseek-ai/DeepSeek-V4-Pro
-          MODELSCOPE_MODEL_CANDIDATES: deepseek-ai/DeepSeek-V4-Pro,Qwen/Qwen3.5-35B-A3B,ZhipuAI/GLM-4.7-Flash
-          MODELSCOPE_MODEL_FAST_CANDIDATES: deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-35B-A3B,Qwen/Qwen3-8B,ZhipuAI/GLM-4.7-Flash
+          MODELSCOPE_MODEL: Qwen/Qwen3.5-35B-A3B
         run: |
           set -euo pipefail
           test -n "$MODELSCOPE_API_KEY"
@@ -92,7 +90,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             scripts/configure_modelscope_fallback.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "smart_models": os.environ["MODELSCOPE_MODEL_CANDIDATES"].split(","), "fast_models": os.environ["MODELSCOPE_MODEL_FAST_CANDIDATES"].split(",")}))' | ssh \
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"]}))' | ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
