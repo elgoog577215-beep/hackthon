@@ -875,7 +875,12 @@ def _render_visual_directed(
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme, heading_already_rendered=True)
         return
-    _render_editorial_body(slide, unit, theme)
+    _render_editorial_body(
+        slide,
+        unit,
+        theme,
+        heading_already_rendered=True,
+    )
 
 
 def _render_relational_visual(
@@ -1045,7 +1050,12 @@ def _render_formula_visual(
             "",
         )
     if not formula:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     supporting_blocks = [
         block
@@ -1866,6 +1876,9 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
 
 def _render_claim_only(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     """Render a promoted one-sentence claim once, without a duplicate body panel."""
+    if bool(unit.quality.get("presentation_sparse_promoted")):
+        _render_hero_statement(slide, unit, theme)
+        return
     _heading(slide, unit, theme)
     _shape(slide, 0.9, 2.25, 0.12, 3.35, theme["accent"], radius=False)
     _text(
@@ -1933,9 +1946,19 @@ def _render_classification_three(
 ) -> None:
     """Render exactly three peer concepts as equal semantic columns."""
     _heading(slide, unit, theme)
-    items = _all_items(unit)[:3]
+    items = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ][:3]
     if len(items) != 3:
-        _render_concept(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     accents = (theme["accent"], theme["green"], theme["amber"])
     for index, item in enumerate(items):
@@ -1976,11 +1999,18 @@ def _render_classification_three(
             )
 
 
-def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+def _render_editorial_body(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+    *,
+    heading_already_rendered: bool = False,
+) -> None:
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme)
         return
-    _heading(slide, unit, theme)
+    if not heading_already_rendered:
+        _heading(slide, unit, theme)
     values = [
         value
         for block in unit.blocks
@@ -2019,7 +2049,12 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
                 "\n\n".join(paragraphs[split_at:]),
             ]
     if len(values) < 2:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     labels = ("依据", "推论")
     colors = (
@@ -2060,7 +2095,12 @@ def _render_parallel_examples(
     _heading(slide, unit, theme)
     values = _all_items(unit)[:4]
     if len(values) < 2:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     gap = 0.28
     width = (11.55 - gap * (len(values) - 1)) / len(values)
@@ -2694,29 +2734,14 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     heading_mode = str(unit.quality.get("heading_mode") or "full")
-    if heading_mode == "hidden":
-        section_label = str(
-            unit.quality.get("section_label")
-            or unit.eyebrow
-            or unit.slide_purpose
-        )
-        _text(
-            slide,
-            section_label,
-            0.78,
-            0.55,
-            8.8,
-            0.38,
-            13,
-            theme["accent"],
-            bold=True,
-        )
-        _shape(slide, 0.78, 1.12, 0.72, 0.04, theme["accent"], radius=False)
-        _shape(slide, 1.58, 1.12, 0.08, 0.04, theme["green"], radius=False)
-        return
+    eyebrow = str(
+        unit.quality.get("section_label")
+        if heading_mode == "hidden"
+        else unit.eyebrow or unit.slide_purpose
+    )
     heading = _display_heading(unit)
     heading_size = 35
-    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.22, 11, theme["accent"], bold=True)
+    _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
     _text(
         slide, heading, 0.78, 0.70, 11.72, 1.16, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
@@ -2937,31 +2962,9 @@ def _is_generic_heading(value: str) -> bool:
 def _heading_excerpt(value: str, limit: int | None = None) -> str:
     """Choose a complete audience-facing title phrase without an ellipsis."""
     clean = " ".join(str(value or "").split()).strip("，,；;：:。… ")
-    if limit is None:
-        limit = 18 if re.search(r"[\u3400-\u9fff]", clean) else 42
-    if len(clean) <= limit:
-        return clean
-    excerpt = clean[:limit]
-    opening = max(excerpt.rfind("（"), excerpt.rfind("("))
-    closing = max(excerpt.rfind("）"), excerpt.rfind(")"))
-    if opening > closing and opening >= max(8, limit // 3):
-        excerpt = excerpt[:opening]
-    else:
-        punctuation = max(
-            excerpt.rfind("。"),
-            excerpt.rfind("；"),
-            excerpt.rfind("，"),
-            excerpt.rfind("："),
-            excerpt.rfind("）"),
-            excerpt.rfind(")"),
-        )
-        if punctuation >= max(10, limit // 2):
-            excerpt = excerpt[: punctuation + (1 if excerpt[punctuation] in "）)" else 0)]
-        else:
-            space = excerpt.rfind(" ")
-            if space >= max(10, limit // 2):
-                excerpt = excerpt[:space]
-    return excerpt.rstrip("，,；;：:。 ")
+    # V5 compiles and validates a complete audience-facing title before the
+    # renderer runs. A second character cut here can create dangling fragments.
+    return clean
 
 
 def _configure_font(font: Any, latin_font: str, east_asian_font: str = BODY_EAST_ASIAN_FONT) -> None:

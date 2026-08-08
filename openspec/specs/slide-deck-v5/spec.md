@@ -549,3 +549,83 @@ a page carrying the V5 final page contract.
 - **WHEN** browser preview, quality audit, or PPTX export resolves the page
 - **THEN** publication or export fails with a structured invariant error
 - **AND** neither `requested_layout` nor legacy `layout` is used as fallback
+
+### Requirement: Final V5 Pages Are Presentation Native
+
+The system SHALL publish teaching pages as source-bound visual regions rather
+than a sequence of prose documents placed on slide canvases.
+
+#### Scenario: A concept, method, or reasoning source is one long paragraph
+- **WHEN** the source contains two or three complete source-bound judgments
+- **THEN** the compiler exposes them as two or three visible semantic regions
+- **AND** the final page does not use `editorial-body`
+
+#### Scenario: A source contains exactly four peer regions
+- **WHEN** the regions do not express a causal or ordered process
+- **THEN** the final page uses a balanced 2x2 parallel composition
+- **AND** no region is hidden or collapsed into a singleton continuation
+
+#### Scenario: A source contains labeled error and inference pairs
+- **WHEN** three errors and their available inferences are present
+- **THEN** the final page renders three equal judgment regions
+- **AND** retains the source wording for every error and inference
+
+#### Scenario: A sparse source contains one intentional claim
+- **WHEN** the claim cannot be combined without changing its teaching intent
+- **THEN** it may use an explicit `hero-claim` page
+- **AND** no complete deck contains more than three such pages
+
+#### Scenario: A planned visual is `kind=none`
+- **WHEN** final layout occupancy and visual quality are evaluated
+- **THEN** the placeholder does not count as an effective visual region
+- **AND** it cannot justify a visual-directed layout
+
+### Requirement: Navigation And Continuation Copy Remains Complete
+
+The system SHALL preserve a complete visible teaching title and navigation
+mainline after every semantic and render repair pass.
+
+#### Scenario: Semantic repair empties a chapter entry mainline
+- **WHEN** the chapter outline still contains a learning objective or driving question
+- **THEN** the compiler restores a navigation statement from that outline
+- **AND** avoids copying an adjacent content page verbatim
+
+#### Scenario: A continuation page is rendered
+- **WHEN** a source unit spans more than one page
+- **THEN** every continuation title retains a complete source-bound base title
+- **AND** appends an explicit `续N/M` sequence without dangling conjunctions or hidden headings
+
+### Requirement: Render Repair Preserves Presentation Semantics
+
+The system SHALL repair only the failing capacity or renderer behavior and
+SHALL NOT convert every render issue into a prose-only safe page.
+
+#### Scenario: Two regions request a three-region classification layout
+- **WHEN** final contract resolution finds exactly two occupied semantic regions
+- **THEN** it selects `balanced-two-column`
+- **AND** the renderer does not add an empty third region
+
+#### Scenario: A three-region page mixes block content and list items
+- **WHEN** the final layout is `classification-3`
+- **THEN** the renderer treats block content and list items as peer regions
+- **AND** renders the page heading exactly once
+
+#### Scenario: Export audit finds a critical issue
+- **WHEN** deterministic repair cannot preserve the page's semantic regions and minimum 16pt body text
+- **THEN** the V5 candidate fails with the localized export issue
+- **AND** it is not silently replaced by an `editorial-body` page
+
+### Requirement: Presentation-Native Density Is A Publication Gate
+
+The system SHALL compute presentation density from final visible pages.
+
+#### Scenario: A final teaching deck contains prose-only editorial pages
+- **WHEN** more than 35 percent of eligible teaching pages are text-only editorial pages
+  or three such pages are consecutive within one chapter
+- **THEN** publication is blocked with a presentation-density issue
+- **AND** chapter boundaries reset the consecutive-page counter
+
+#### Scenario: A chapter recap repeats a preceding claim
+- **WHEN** the repetition is used as an explicit retrieval summary
+- **THEN** it is exempt from adjacent-content duplication
+- **AND** all other material adjacent duplication remains blocking

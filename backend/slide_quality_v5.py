@@ -33,6 +33,7 @@ _SPARSE_EXEMPT_LAYOUTS = {
     "classification-3",
     "chapter-recap",
     "course-synthesis",
+    "hero-claim",
 }
 _SPARSE_EXEMPT_SCENES = {"chapter_entry", "transition"}
 _INTERNAL_LABEL_RE = re.compile(
@@ -181,10 +182,44 @@ def _is_exempt_sparse_page(slide: dict[str, Any]) -> bool:
         layout in _SPARSE_EXEMPT_LAYOUTS
         or source_layout in _SPARSE_EXEMPT_LAYOUTS
         or _clean_text(slide.get("scene_kind")) in _SPARSE_EXEMPT_SCENES
-        or slide.get("visuals")
+        or _has_effective_visual(slide)
         or quality.get("sparse_exempt")
         or quality.get("interactive_page")
         or quality.get("formula_primary")
+    )
+
+
+def _resolved_layout(slide: dict[str, Any]) -> str:
+    quality = slide.get("quality") or {}
+    return _clean_text(
+        quality.get("resolved_layout")
+        or quality.get("requested_layout")
+        or slide.get("layout")
+    )
+
+
+def _has_effective_visual(slide: dict[str, Any]) -> bool:
+    return any(
+        _clean_text(visual.get("kind")) != "none"
+        and bool(
+            _clean_text(visual.get("kind"))
+            or visual.get("visual_id")
+            or visual.get("asset_id")
+            or visual.get("path")
+            or visual.get("url")
+            or visual.get("image_url")
+        )
+        for visual in slide.get("visuals") or []
+        if isinstance(visual, dict)
+    )
+
+
+def _is_text_only_editorial_page(slide: dict[str, Any]) -> bool:
+    return bool(
+        _resolved_layout(slide) == "editorial-body"
+        and not _has_effective_visual(slide)
+        and _clean_text(slide.get("scene_kind"))
+        not in {"chapter_entry", "chapter_recap", "transition", "navigation"}
     )
 
 
@@ -289,6 +324,21 @@ def collect_v5_quality_issues(
         normalized_body = _normalize_visible(body)
         title = _clean_text(slide.get("title"))
         normalized_title = _normalize_visible(title)
+
+        if (
+            _clean_text(slide.get("scene_kind")) == "chapter_entry"
+            and not _clean_text(
+                slide.get("key_message")
+                or slide.get("takeaway")
+                or body
+            )
+        ):
+            issues.append(_issue(
+                "chapter_entry_mainline_missing",
+                page_id,
+                dimension="layout_export",
+                message="章节入口页缺少本章主线，不能作为完整的教学导航页发布。",
+            ))
 
         if not page_id.startswith("slide:v5:"):
             issues.append(_issue(
@@ -532,6 +582,8 @@ def collect_v5_quality_issues(
                     message="标题没有表达本页独立判断。",
                 ))
     for left, right in zip(slides, slides[1:]):
+        if _clean_text(right.get("scene_kind")) == "chapter_recap":
+            continue
         left_text = _normalize_visible(_duplicate_check_text(left))
         right_text = _normalize_visible(_duplicate_check_text(right))
         duplicate_length = _longest_duplicate_length(left_text, right_text)
@@ -544,6 +596,80 @@ def collect_v5_quality_issues(
                 duplicate_character_count=duplicate_length,
                 previous_page_id=_clean_text(left.get("unit_id")),
             ))
+
+    instructional_slides = [
+        slide
+        for slide in slides
+        if _clean_text(slide.get("scene_kind"))
+        not in {"", "chapter_entry", "chapter_recap", "transition", "navigation"}
+        and _resolved_layout(slide)
+        not in {
+            "cover",
+            "cover-editorial",
+            "agenda-linear",
+            "chapter-entry",
+            "chapter-recap",
+        }
+    ]
+    text_only_editorial = [
+        slide for slide in instructional_slides if _is_text_only_editorial_page(slide)
+    ]
+    if (
+        len(instructional_slides) >= 6
+        and len(text_only_editorial) / len(instructional_slides) > 0.35
+    ):
+        issues.append(_issue(
+            "text_only_editorial_ratio_exceeded",
+            "deck",
+            dimension="layout_export",
+            message="纯正文 editorial 页面超过教学内容页的 35%。",
+            text_only_editorial_count=len(text_only_editorial),
+            instructional_slide_count=len(instructional_slides),
+        ))
+
+    current_run: list[dict[str, Any]] = []
+    text_only_page_ids = {
+        _clean_text(slide.get("unit_id")) for slide in text_only_editorial
+    }
+    for slide in slides:
+        if _clean_text(slide.get("unit_id")) in text_only_page_ids:
+            current_run.append(slide)
+            continue
+        if len(current_run) >= 3:
+            issues.append(_issue(
+                "repetitive_text_only_editorial_run",
+                _clean_text(current_run[0].get("unit_id")),
+                dimension="layout_export",
+                message="连续三页以上采用无视觉的单栏正文版式。",
+                run_length=len(current_run),
+                page_ids=[
+                    _clean_text(item.get("unit_id")) for item in current_run
+                ],
+            ))
+        current_run = []
+    if len(current_run) >= 3:
+        issues.append(_issue(
+            "repetitive_text_only_editorial_run",
+            _clean_text(current_run[0].get("unit_id")),
+            dimension="layout_export",
+            message="连续三页以上采用无视觉的单栏正文版式。",
+            run_length=len(current_run),
+            page_ids=[_clean_text(item.get("unit_id")) for item in current_run],
+        ))
+
+    hero_claim_pages = [
+        slide
+        for slide in instructional_slides
+        if _resolved_layout(slide) == "hero-claim"
+    ]
+    if len(hero_claim_pages) > 3:
+        issues.append(_issue(
+            "hero_claim_page_limit_exceeded",
+            "deck",
+            dimension="layout_export",
+            message="整套课件最多允许三页独立核心判断页。",
+            hero_claim_page_count=len(hero_claim_pages),
+        ))
 
     for raw in (render_review or {}).get("issues") or []:
         issue = deepcopy(raw)
@@ -814,9 +940,17 @@ def _open_discussion_repair(slide: dict[str, Any]) -> bool:
 
 
 def _strip_internal_prefix(value: object) -> str:
+    raw = str(value or "")
+    if re.fullmatch(
+        r"\s*(?:(?:本节|本页)(?:核心)?\s*)?"
+        r"知识规范(?:名称)?(?:为)?\s*[（(]\s*续\s*\d+/\d+\s*[）)]\s*",
+        raw,
+        re.IGNORECASE,
+    ):
+        return ""
     cleaned, replacement_count = _INTERNAL_PREFIX_RE.subn(
         r"\1",
-        str(value or ""),
+        raw,
     )
     if replacement_count:
         cleaned = re.sub(r"(?:\s*[*_`~]{1,3})+\s*$", "", cleaned)
@@ -1103,11 +1237,21 @@ def _merge_sparse_episode_pages(
             not _is_exempt_sparse_page(slide)
             and len(_normalize_visible(body)) < 18
         )
+        presentation_sparse = bool(
+            _is_text_only_editorial_page(slide)
+            and len(_normalize_visible(body)) < 90
+            and _visible_item_count(slide) <= 1
+        )
         dangling = bool(body and _DANGLING_END_RE.search(body))
         same_episode = bool(
             _clean_text(slide.get("episode_id"))
             and _clean_text(slide.get("episode_id"))
             == _clean_text(previous.get("episode_id"))
+        )
+        same_scene = bool(
+            _clean_text(slide.get("scene_kind"))
+            and _clean_text(slide.get("scene_kind"))
+            == _clean_text(previous.get("scene_kind"))
         )
         same_sparse_context = bool(
             _clean_text(slide.get("chapter_id"))
@@ -1118,8 +1262,8 @@ def _merge_sparse_episode_pages(
             == _clean_text(previous.get("scene_kind"))
         )
         if not (
-            (same_episode or same_sparse_context)
-            and (sparse or dangling)
+            ((same_episode and same_scene) or same_sparse_context)
+            and (sparse or presentation_sparse or dangling)
             and _merge_fits_page_contract(previous, slide)
         ):
             index += 1
