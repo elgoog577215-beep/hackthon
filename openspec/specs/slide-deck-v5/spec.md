@@ -766,6 +766,18 @@ title or a model prompt.
   confirmation before claiming subject-specific completeness
 - **AND** it does not silently apply an unrelated subject grammar
 
+#### Scenario: A migrated legacy course lacks subject pedagogy metadata
+- **WHEN** course-logic upgrade promotes an existing canonical course into the
+  V5 prerequisite contracts
+- **THEN** it derives a subject profile from the canonical title and existing
+  course evidence and persists that profile with the course module plan and
+  pedagogy quality contract
+- **AND** the formal teaching plan receives the matching subject-native lesson
+  modules before the knowledge base and coherence contract are compiled
+- **AND** the canonical course document and its revision remain unchanged
+- **AND** an ambiguous or internally conflicting subject classification cannot
+  be presented as subject-specific completeness
+
 ### Requirement: Characteristic Teaching Artifacts Are Non-Discardable
 
 The system SHALL distinguish optional prose from characteristic artifacts that
