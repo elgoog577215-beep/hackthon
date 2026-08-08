@@ -285,6 +285,14 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
     }
 
 
+def test_searxng_provider_default_timeout_allows_commons_image_search(monkeypatch):
+    monkeypatch.delenv("SEARXNG_REQUEST_TIMEOUT_SECONDS", raising=False)
+
+    provider = SearXNGSearchProvider(base_url="http://127.0.0.1:8080")
+
+    assert provider.timeout_seconds == 12.0
+
+
 @pytest.mark.asyncio
 async def test_gateway_admits_safe_image_with_partial_title_match():
     async def handler(_request: httpx.Request) -> httpx.Response:

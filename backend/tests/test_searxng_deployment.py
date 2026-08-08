@@ -46,11 +46,12 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "limiter: false" in settings
     assert "image_proxy: false" in settings
     assert "request_timeout: 3.0" in settings
-    assert "max_request_timeout: 4.0" in settings
+    assert "max_request_timeout: 12.0" in settings
     for engine in expected:
         assert f"- {engine}" in settings
     assert "name: wikicommons.images" in settings
     assert "categories: images" in settings
+    assert "timeout: 10.0" in settings
     assert "google" not in settings.lower()
 
 
@@ -81,6 +82,11 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "categories=general,science" not in script
     assert "--force-recreate" in script
     assert "for attempt in $(seq 1 3)" in script
+    assert "执行图片搜索冒烟" in script
+    assert "q=human heart anatomy" in script
+    assert "engines=wikicommons.images" in script
+    assert 'not payload.get("unresponsive_engines")' in script
+    assert 'SEARXNG_REQUEST_TIMEOUT_SECONDS" "12"' in script
 
 
 def test_provisioning_can_activate_retrieval_and_verify_application_health() -> None:
@@ -123,3 +129,12 @@ def test_production_diagnostics_asserts_all_product_retrieval_paths() -> None:
     assert "ai_teacher" in workflow
     assert "ppt_image" in workflow
     assert "SearXNG response must contain at least one result" in workflow
+
+
+def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "== searxng images direct ==" in workflow
+    assert "--data 'categories=images'" in workflow
+    assert "--data 'engines=wikicommons.images'" in workflow
+    assert 'p.get("unresponsive_engines")' in workflow
