@@ -128,10 +128,10 @@ AI_SLIDE_PLANNER_ENABLED=true
 ```dotenv
 MODELSCOPE_API_KEY=your_modelscope_fallback_key
 MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/
-MODELSCOPE_MODEL=deepseek-ai/DeepSeek-V4-Pro
+MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B
 ```
 
-生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
+Fast 与思考版共用 `MODELSCOPE_MODEL` 指定的同一个模型；两种模式通过思考开关、提示词、批大小和 token 预算控制速度与质量。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 
