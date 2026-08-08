@@ -834,6 +834,11 @@ async def run_production_smoke(
         if str((slide.get("quality") or {}).get("resolved_layout") or "")
         == "hero-claim"
     ]
+    task_activity_page_counts = Counter(
+        str((slide.get("quality") or {}).get("task_activity_id") or "")
+        for slide in slides
+        if str((slide.get("quality") or {}).get("task_activity_id") or "")
+    )
     artifact_editorial_fallbacks = [
         str(slide.get("unit_id") or "")
         for slide in code_slides
@@ -933,6 +938,9 @@ async def run_production_smoke(
             in {"full_width", "annotated_split"}
             for slide in code_slides
         ),
+        "task_activities_are_bounded": all(
+            count <= 4 for count in task_activity_page_counts.values()
+        ),
         "no_density_overflow": not bool(
             issue_codes
             & {
@@ -981,6 +989,11 @@ async def run_production_smoke(
             "slide_count": len(slides),
             "code_page_count": len(code_slides),
             "hero_claim_page_count": len(hero_claim_slides),
+            "task_activity_count": len(task_activity_page_counts),
+            "maximum_task_activity_page_count": max(
+                task_activity_page_counts.values(),
+                default=0,
+            ),
             "code_region_mode_counts": dict(Counter(
                 str((slide.get("quality") or {}).get("code_region_mode") or "")
                 for slide in code_slides
@@ -1062,6 +1075,17 @@ async def run_production_smoke(
                 ),
                 "code_region_mode": str(
                     (slide.get("quality") or {}).get("code_region_mode") or ""
+                ),
+                "task_activity_id_hash": (
+                    _private_id(str(
+                        (slide.get("quality") or {}).get("task_activity_id")
+                        or ""
+                    ))
+                    if (slide.get("quality") or {}).get("task_activity_id")
+                    else ""
+                ),
+                "task_prompt_mode": str(
+                    (slide.get("quality") or {}).get("task_prompt_mode") or ""
                 ),
                 "issue_codes": sorted({
                     str(item.get("code") or "unknown")

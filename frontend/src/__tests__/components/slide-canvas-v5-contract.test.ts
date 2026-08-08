@@ -443,6 +443,37 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.text()).toContain('盖子打开并有蒸汽逸出时呢？')
   })
 
+  it('uses the source-intent task label instead of a generic question label', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '创建性能诊断场景',
+          blocks: [{
+            block_id: 'task',
+            type: 'exercise',
+            items: ['截取 Profiler CPU 视图。'],
+          }],
+          quality: {
+            requested_layout: 'question-prompt',
+            resolved_layout: 'question-prompt',
+            prompt_label: '验收检查',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-question-prompt > small').text()).toBe('验收检查')
+    expect(wrapper.text()).not.toContain('先独立判断')
+  })
+
   it('does not reserve message space when a practice message is intentionally hidden', () => {
     const wrapper = mount(SlideCanvas, {
       props: {

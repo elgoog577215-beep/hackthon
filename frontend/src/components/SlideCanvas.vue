@@ -123,7 +123,7 @@
         class="deck-question-prompt"
         :data-has-message="showsStandaloneMessage"
       >
-        <small>先独立判断</small>
+        <small>{{ taskPromptLabel }}</small>
         <div class="deck-question-prompt__items">
           <MarkdownRenderer
             v-for="item in questionPromptItems"
@@ -365,6 +365,7 @@ interface Slide {
     heading_mode?: 'full' | 'hidden'
     section_label?: string
     feedback_mode?: 'paired' | 'shared_evidence'
+    prompt_label?: string
     final_page_contract_version?: string
     final_page_contract_v2?: Record<string, any>
     manual_edit_required?: boolean
@@ -449,6 +450,9 @@ const questionPromptItems = computed(() => (
   semanticItems.value.length
     ? semanticItems.value.slice(0, 3)
     : [props.slide.key_message || ''].filter(Boolean)
+))
+const taskPromptLabel = computed(() => (
+  String(props.slide.quality?.prompt_label || '先独立判断')
 ))
 const practicePromptBlock = computed(() => (
   (props.slide.blocks || []).find(block => (
