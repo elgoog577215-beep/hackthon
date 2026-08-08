@@ -170,6 +170,38 @@ def _semantic_atom_ids(slide: dict[str, Any]) -> set[str]:
     return {item for item in ids if item}
 
 
+def _is_ordered_task_atom_continuation(
+    slides: list[dict[str, Any]],
+) -> bool:
+    """Allow one source procedure atom to span explicit task continuation pages."""
+    if len(slides) < 2:
+        return False
+    qualities = [slide.get("quality") or {} for slide in slides]
+    activity_ids = {
+        _clean_text(quality.get("task_activity_id")) for quality in qualities
+    }
+    page_counts = {
+        int(quality.get("practice_page_count") or 0) for quality in qualities
+    }
+    page_indexes = sorted(
+        int(quality.get("practice_page_index") or 0) for quality in qualities
+    )
+    return bool(
+        len(activity_ids) == 1
+        and "" not in activity_ids
+        and len(page_counts) == 1
+        and 0 not in page_counts
+        and all(
+            _clean_text(quality.get("task_prompt_phase")) == "procedure"
+            and _clean_text(quality.get("semantic_atom_pagination_mode"))
+            == "ordered_task_continuation"
+            for quality in qualities
+        )
+        and page_indexes
+        == list(range(page_indexes[0], page_indexes[-1] + 1))
+    )
+
+
 def _is_exempt_sparse_page(slide: dict[str, Any]) -> bool:
     quality = slide.get("quality") or {}
     layout = _clean_text(
@@ -606,6 +638,16 @@ def collect_v5_quality_issues(
 
     for atom_id, pages in atom_pages.items():
         unique_pages = list(dict.fromkeys(pages))
+        atom_slides = [
+            slide_by_id[page_id]
+            for page_id in unique_pages
+            if page_id in slide_by_id
+        ]
+        if (
+            len(atom_slides) == len(unique_pages)
+            and _is_ordered_task_atom_continuation(atom_slides)
+        ):
+            continue
         if len(unique_pages) > 1:
             for page_id in unique_pages:
                 issues.append(_issue(

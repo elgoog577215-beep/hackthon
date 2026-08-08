@@ -56,9 +56,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.32"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.33"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.17"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.18"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -5266,6 +5266,9 @@ def _task_phase_page_v5(
         "feedback_mode": "task_only",
         "task_prompt_mode": task_mode,
         "task_prompt_phase": phase,
+        "semantic_atom_pagination_mode": (
+            "ordered_task_continuation" if is_procedure else ""
+        ),
         "prompt_label": prompt_label,
         "feedback_pair_count": 0,
         "feedback_evidence_count": 0,
