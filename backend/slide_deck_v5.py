@@ -56,7 +56,7 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.26"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.27"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.14"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
@@ -179,6 +179,7 @@ _V5_CODE_LINES_PER_PAGE = 18
 _V5_CODE_CHARACTERS_PER_PAGE = 1100
 _V5_CODE_FRAGMENTS_PER_PAGE = 8
 _V5_CODE_PAGES_PER_CHAPTER = 3
+_V5_PRACTICE_RENDERER_CHARACTER_RESERVE = 60
 _V5_SCENE_NARRATIVE_ROLE = {
     "chapter_entry": "orientation",
     "prerequisite_activation": "orientation",
@@ -5499,6 +5500,11 @@ def allocation_from_story_plan_v5(
         capacity = int(
             budget["characters"] or _V5_DEFAULT_DENSITY_BUDGET["characters"]
         )
+        if budget_layout in {"question-prompt", "practice-feedback"}:
+            capacity = max(
+                80,
+                capacity - _V5_PRACTICE_RENDERER_CHARACTER_RESERVE,
+            )
         item_capacity = int(
             budget["items"] or _V5_DEFAULT_DENSITY_BUDGET["items"]
         )

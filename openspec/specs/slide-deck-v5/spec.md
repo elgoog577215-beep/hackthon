@@ -630,6 +630,19 @@ The system SHALL compute presentation density from final visible pages.
 - **THEN** it is exempt from adjacent-content duplication
 - **AND** all other material adjacent duplication remains blocking
 
+#### Scenario: Practice rendering adds prompt and feedback labels
+- **WHEN** allocation estimates the body capacity of a practice-feedback page
+- **THEN** it reserves space for renderer-added labels and interaction chrome
+- **AND** the final visible page remains within the resolved layout budget
+
+#### Scenario: Structured source syntax ends with a semicolon or colon
+- **WHEN** the terminal punctuation belongs to code, a complete checklist row,
+  or another structured region rather than unfinished prose
+- **THEN** the quality gate does not classify that punctuation alone as a
+  dangling fragment
+- **AND** a bare instructional scaffold or genuinely unfinished clause remains
+  blocking
+
 ### Requirement: V5 Is A Course-Native Teaching Projection
 
 The system SHALL treat the canonical course document and formal teaching plan

@@ -656,6 +656,58 @@ def test_oversized_programming_source_uses_at_most_three_code_excerpt_pages() ->
     }
 
 
+def test_practice_allocation_reserves_renderer_feedback_chrome() -> None:
+    course = deepcopy(_course_with_teaching_plan())
+    blocks = course["nodes"][0]["content_blocks"]
+    next(
+        block for block in blocks if block["block_id"] == "block-practice"
+    )["content"] = "\n".join(
+        f"- Does condition {index} pass with the recorded result?"
+        for index in range(1, 8)
+    )
+    next(
+        block for block in blocks if block["block_id"] == "block-feedback"
+    )["content"] = "\n".join(
+        f"- Condition {index} passes only with matching evidence."
+        for index in range(1, 8)
+    )
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    allocation, _ = allocation_from_story_plan_v5(
+        document,
+        fragments,
+        story,
+    )
+    fragment_by_id = {
+        fragment.fragment_id: fragment for fragment in fragments
+    }
+    practice_pages = [
+        page
+        for page in allocation.pages
+        if any(
+            fragment_by_id[fragment_id].block_id
+            in {"block-practice", "block-feedback"}
+            for fragment_id in page.fragment_ids
+        )
+    ]
+
+    assert len(practice_pages) >= 4
+    assert all(
+        sum(
+            len(fragment_by_id[fragment_id].text)
+            for fragment_id in page.fragment_ids
+        ) <= 200
+        for page in practice_pages
+    )
+
+
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
     renderer_layouts = {
         str(layout["renderer_layout"])

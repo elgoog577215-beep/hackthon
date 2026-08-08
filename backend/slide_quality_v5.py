@@ -198,6 +198,49 @@ def _resolved_layout(slide: dict[str, Any]) -> str:
     )
 
 
+def _has_dangling_fragment(slide: dict[str, Any]) -> bool:
+    """Detect unfinished prose without treating code or list punctuation as prose."""
+    quality = slide.get("quality") or {}
+    artifact_kinds = {
+        _clean_text(item)
+        for item in quality.get("subject_artifact_kinds") or []
+    }
+    if _resolved_layout(slide) == "code" or "code" in artifact_kinds:
+        return False
+
+    structured_types = {
+        "callout",
+        "code",
+        "comparison",
+        "exercise",
+        "process",
+        "steps",
+        "table",
+    }
+    for block in reversed(list(slide.get("blocks") or [])):
+        items = [
+            _clean_text(item)
+            for item in block.get("items") or []
+            if _clean_text(item)
+        ]
+        if items:
+            terminal = items[-1]
+            return bool(
+                _DANGLING_SCAFFOLD_RE.search(terminal)
+                or re.search(r"(?:以及|并且|包括|如下)\s*$", terminal)
+            )
+        content = _clean_text(block.get("content"))
+        if not content:
+            continue
+        if _clean_text(block.get("type")) in structured_types:
+            return bool(
+                _DANGLING_SCAFFOLD_RE.search(content)
+                or re.search(r"(?:以及|并且|包括|如下)\s*$", content)
+            )
+        return bool(_DANGLING_END_RE.search(content))
+    return bool(_DANGLING_END_RE.search(_clean_text(slide.get("key_message"))))
+
+
 def _has_effective_visual(slide: dict[str, Any]) -> bool:
     return any(
         _clean_text(visual.get("kind")) != "none"
@@ -383,7 +426,7 @@ def collect_v5_quality_issues(
                 dimension="source_integrity",
                 message="页面暴露了内部生产字段或标签。",
             ))
-        if body and _DANGLING_END_RE.search(body):
+        if body and _has_dangling_fragment(slide):
             issues.append(_issue(
                 "dangling_fragment",
                 page_id,
@@ -1054,7 +1097,13 @@ def _repair_dangling_scaffold(slide: dict[str, Any]) -> bool:
         if not _source_fragment_ids(block):
             break
         items = list(block.get("items") or [])
-        if items and _DANGLING_END_RE.search(_clean_text(items[-1])):
+        if items and (
+            _DANGLING_SCAFFOLD_RE.search(_clean_text(items[-1]))
+            or re.search(
+                r"(?:以及|并且|包括|如下)\s*$",
+                _clean_text(items[-1]),
+            )
+        ):
             items.pop()
             block["items"] = items
             changed = True
@@ -1242,7 +1291,7 @@ def _merge_sparse_episode_pages(
             and len(_normalize_visible(body)) < 90
             and _visible_item_count(slide) <= 1
         )
-        dangling = bool(body and _DANGLING_END_RE.search(body))
+        dangling = bool(body and _has_dangling_fragment(slide))
         same_episode = bool(
             _clean_text(slide.get("episode_id"))
             and _clean_text(slide.get("episode_id"))

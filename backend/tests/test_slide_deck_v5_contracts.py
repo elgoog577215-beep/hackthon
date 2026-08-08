@@ -650,6 +650,59 @@ def test_semantic_repair_drops_a_source_bound_dangling_scaffold() -> None:
     }
 
 
+def test_quality_does_not_treat_code_semicolon_as_dangling_prose() -> None:
+    slide = _slide(
+        "slide:v5:code-semicolon",
+        title="Lifecycle callback",
+        content="void Start() { Debug.Log(\"ready\"); }",
+        scene_kind="method",
+        block_type="code",
+    )
+    slide["quality"].update({
+        "requested_layout": "code",
+        "resolved_layout": "code",
+        "subject_artifact_kinds": ["code"],
+    })
+
+    report = build_slide_deck_quality_v5([slide])
+
+    assert "dangling_fragment" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_allows_structured_practice_rows_to_end_with_semicolons() -> None:
+    slide = _slide(
+        "slide:v5:practice-semicolon",
+        title="Environment check",
+        content="",
+        scene_kind="practice_feedback",
+        block_type="exercise",
+    )
+    slide["blocks"][0].update({
+        "items": ["Confirm the editor version;", "Run the callback;"],
+        "metadata": {"semantic_role": "prompt"},
+    })
+    slide["blocks"].append({
+        "block_id": "practice-feedback",
+        "type": "callout",
+        "title": "Feedback",
+        "content": "",
+        "items": ["The callback ran in the expected order;"],
+        "metadata": {"semantic_role": "feedback"},
+    })
+    slide["quality"].update({
+        "requested_layout": "practice-feedback",
+        "resolved_layout": "practice-feedback",
+    })
+
+    report = build_slide_deck_quality_v5([slide])
+
+    assert "dangling_fragment" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_semantic_repair_records_source_bound_process_and_example_closure() -> None:
     process = _slide(
         "slide:v5:process-result",
