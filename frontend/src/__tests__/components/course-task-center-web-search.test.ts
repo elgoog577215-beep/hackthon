@@ -34,9 +34,18 @@ const READY_SUMMARY = {
   queries: ['线性代数 特征值 教学资料'],
   sources: [{
     asset_id: 'mat-1',
+    source_id: 'src_mit',
     url: 'https://ocw.mit.edu/linear-algebra',
     title: '线性代数公开讲义',
     domain: 'ocw.mit.edu',
+    credibility: 'high',
+    retrieved_at: '2026-08-05T00:00:00+00:00',
+  }, {
+    asset_id: 'mat-2',
+    source_id: 'src_openstax',
+    url: 'https://openstax.org/linear-algebra',
+    title: 'OpenStax 线性代数',
+    domain: 'openstax.org',
     credibility: 'high',
     retrieved_at: '2026-08-05T00:00:00+00:00',
   }],
@@ -145,5 +154,55 @@ describe('CourseTaskCenter 联网资料审阅', () => {
     expect(panel.text()).not.toContain('courseGeneration.materials')
     // 来源标题来自网页本身，允许非英文；只检查界面自身文案。
     expect(panel.find('.web-search-summary__hint').text()).not.toMatch(/[一-鿿]/)
+  })
+
+  it('每条来源都提供剔除按钮', async () => {
+    const wrapper = await render(READY_SUMMARY)
+    expect(wrapper.find('[data-testid="web-source-toggle-src_mit"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="web-source-toggle-src_openstax"]').exists()).toBe(true)
+  })
+
+  it('剔除只影响被点的那一条，其余保持不变', async () => {
+    const wrapper = await render(READY_SUMMARY)
+    await wrapper.find('[data-testid="web-source-toggle-src_mit"]').trigger('click')
+
+    const items = wrapper.findAll('.web-search-summary__sources li')
+    expect(items[0]!.attributes('data-excluded')).toBe('true')
+    expect(items[1]!.attributes('data-excluded')).toBe('false')
+  })
+
+  it('剔除后按钮变为可恢复，再点一次恢复', async () => {
+    const wrapper = await render(READY_SUMMARY)
+    const toggle = () => wrapper.find('[data-testid="web-source-toggle-src_mit"]')
+
+    await toggle().trigger('click')
+    expect(toggle().attributes('aria-pressed')).toBe('true')
+    expect(toggle().text()).toBe('恢复')
+
+    await toggle().trigger('click')
+    expect(toggle().attributes('aria-pressed')).toBe('false')
+    expect(toggle().text()).toBe('剔除这条')
+  })
+
+  it('剔除后提示教师将在下次生成生效，且暴露给父组件下发', async () => {
+    const wrapper = await render(READY_SUMMARY)
+    expect(wrapper.find('.web-search-summary__pending').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="web-source-toggle-src_mit"]').trigger('click')
+    expect(wrapper.find('.web-search-summary__pending').text()).toContain('下次生成')
+    expect((wrapper.vm as any).excludedWebSourceIds).toEqual(['src_mit'])
+  })
+
+  it('英文界面的剔除按钮无中文残留', async () => {
+    await setLocale('en')
+    const wrapper = await render(READY_SUMMARY)
+    const toggle = wrapper.find('[data-testid="web-source-toggle-src_mit"]')
+
+    expect(toggle.text()).toBe('Exclude this')
+    await toggle.trigger('click')
+    await flushPromises()
+    const after = wrapper.find('[data-testid="web-source-toggle-src_mit"]')
+    expect(after.text()).toBe('Restore')
+    expect(wrapper.find('.web-search-summary__pending').text()).not.toMatch(/[一-鿿]/)
   })
 })

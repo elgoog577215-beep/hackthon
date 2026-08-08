@@ -1965,32 +1965,27 @@
         "styleOnly": "仅参考讲法"
       },
       "webSearch": {
-        "label": "联网资料",
-        "subtitle": "从公开网页补充资料，来源与抓取时间可回溯",
-        "queries": "检索关键词",
-        "queriesHint": "关键词由教学需求推导，生成后可在报告中查看",
         "adopted": "已采用 {count} 条",
-        "rejectedCount": "已排除 {count} 条",
-        "none": "本次没有联网资料",
-        "degraded": "本次未获取联网资料，仅使用已导入资料",
-        "fetchedAt": "抓取时间",
-        "sourceUrl": "来源链接",
-        "trust": "可信度",
-        "exclude": "剔除这条",
-        "excluded": "已剔除",
-        "restore": "恢复",
-        "openSource": "打开原文",
-        "reviewTitle": "联网资料审阅",
-        "reviewHint": "采用前请确认出处与内容适用性；引用内容会保留出处，不作为原创产物。",
         "allowedDomains": "仅允许这些域名",
         "blockedDomains": "屏蔽这些域名",
+        "degraded": "本次未获取联网资料，仅使用已导入资料",
         "domainsPlaceholder": "每行一个域名，例如：edu.cn",
-        "maxResults": "最多采用条数",
-        "trustLevel": {
-          "high": "高",
-          "medium": "中",
-          "low": "低"
+        "exclude": "剔除这条",
+        "excludePending": "已剔除 {count} 条，将在下次生成时生效",
+        "excluded": "已剔除",
+        "fetchedAt": "抓取时间",
+        "fetchedAtValue": "抓取时间：{value}",
+        "gatewayError": {
+          "no_sources": "没有找到可用来源",
+          "not_configured": "联网检索服务未配置",
+          "privacy_blocked": "检索词含个人信息，已拦截",
+          "provider_error": "联网检索服务出错",
+          "timeout": "联网检索超时"
         },
+        "ingestHint": "联网结果会与导入资料同路解析并保留出处；关闭则只作为本次生成的引用，不落库。",
+        "ingestLabel": "把联网资料并入课程资料库",
+        "label": "联网资料",
+        "maxResults": "最多采用条数",
         "messageCode": {
           "web_search_disabled": "联网检索未开启",
           "web_search_ingest_skipped": "教师选择只引用不入库，联网资料未并入资料库",
@@ -2001,15 +1996,10 @@
           "web_search_ready": "联网资料已就绪",
           "web_search_unavailable": "联网检索不可用，已降级为仅用导入资料"
         },
-        "status": {
-          "disabled": "未开启",
-          "ingest_skipped": "仅引用不入库",
-          "no_queries": "无检索关键词",
-          "no_results": "无可用结果",
-          "provider_unavailable": "服务不可用",
-          "ready": "已就绪",
-          "unavailable_not_configured": "未配置"
-        },
+        "none": "本次没有联网资料",
+        "openSource": "打开原文",
+        "queries": "检索关键词",
+        "queriesHint": "关键词由教学需求推导，生成后可在报告中查看",
         "reason": {
           "duplicate_content": "与已有资料重复",
           "excluded_by_teacher": "教师已剔除",
@@ -2021,15 +2011,28 @@
           "prompt_injection": "含注入话术，已剔除",
           "unsafe_url": "链接不安全"
         },
-        "ingestLabel": "把联网资料并入课程资料库",
-        "ingestHint": "联网结果会与导入资料同路解析并保留出处；关闭则只作为本次生成的引用，不落库。",
-        "gatewayError": {
-          "no_sources": "没有找到可用来源",
-          "not_configured": "联网检索服务未配置",
-          "privacy_blocked": "检索词含个人信息，已拦截",
-          "provider_error": "联网检索服务出错",
-          "timeout": "联网检索超时"
-        }
+        "rejectedCount": "已排除 {count} 条",
+        "restore": "恢复",
+        "reviewHint": "采用前请确认出处与内容适用性；引用内容会保留出处，不作为原创产物。",
+        "reviewTitle": "联网资料审阅",
+        "sourceUrl": "来源链接",
+        "status": {
+          "disabled": "未开启",
+          "ingest_skipped": "仅引用不入库",
+          "no_queries": "无检索关键词",
+          "no_results": "无可用结果",
+          "provider_unavailable": "服务不可用",
+          "ready": "已就绪",
+          "unavailable_not_configured": "未配置"
+        },
+        "subtitle": "从公开网页补充资料，来源与抓取时间可回溯",
+        "trust": "可信度",
+        "trustLevel": {
+          "high": "高",
+          "medium": "中",
+          "low": "低"
+        },
+        "trustValue": "可信度：{value}"
       }
     },
     "grounding": {
