@@ -210,7 +210,7 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
 
 
 @pytest.mark.asyncio
-async def test_searxng_provider_keeps_general_queries_out_of_science_engines():
+async def test_searxng_provider_adds_science_fallback_for_education_queries():
     captured: list[dict[str, list[str]]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -234,9 +234,10 @@ async def test_searxng_provider_keeps_general_queries_out_of_science_engines():
         await provider.search("什么是面向对象编程 例子", limit=4)
 
     assert len(captured) == 1
-    assert captured[0]["categories"] == ["general"]
+    assert captured[0]["categories"] == ["general,science"]
     assert captured[0]["engines"] == [
-        "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,wikipedia"
+        "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,"
+        "wikipedia,arxiv,pubmed,openalex,crossref"
     ]
     assert captured[0]["timeout_limit"] == ["4"]
 
@@ -403,7 +404,7 @@ async def test_searxng_programming_query_retries_broadly_only_after_empty_result
         )
 
     assert len(captured) == 2
-    assert captured[0]["categories"] == ["general"]
+    assert captured[0]["categories"] == ["general,science"]
     assert captured[0]["language"] == ["zh-CN"]
     assert captured[1]["categories"] == ["general,science"]
     assert captured[1]["language"] == ["all"]

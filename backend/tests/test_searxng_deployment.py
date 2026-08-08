@@ -88,8 +88,7 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "format=json" in script
     assert 'assert payload.get("results")' in script
     assert "q=Unity MonoBehaviour GameObject 中文教程" in script
-    assert "categories=general" in script
-    assert "categories=general,science" not in script
+    assert "categories=general,science" in script
     assert "--force-recreate" in script
     assert "for attempt in $(seq 1 3)" in script
     assert "执行图片搜索冒烟" in script
