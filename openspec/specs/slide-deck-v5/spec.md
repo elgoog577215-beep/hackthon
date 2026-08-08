@@ -675,6 +675,10 @@ The system SHALL compute presentation density from final visible pages.
   or judgment-evidence column
 - **AND** adjacent underfilled task pages are consolidated without changing
   source order or dropping source fragment bindings
+- **AND** layout choices from an earlier generic story pass do not prevent task
+  items from being reflowed into phase-specific task pages
+- **AND** task overview and verification use prompt/checklist grammar while
+  operating steps use a readable vertical numbered sequence
 - **AND** one task activity uses no more than four readable pages
 
 #### Scenario: A task activity is consolidated after pagination
@@ -682,6 +686,8 @@ The system SHALL compute presentation density from final visible pages.
 - **THEN** their visible title sequence is renumbered against the final page
   count
 - **AND** every original task item remains visible exactly once
+- **AND** the final task phases remain ordered as overview, procedure, then
+  verification
 
 #### Scenario: Structured source syntax ends with a semicolon or colon
 - **WHEN** the terminal punctuation belongs to code, a complete checklist row,

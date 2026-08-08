@@ -56,9 +56,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.31"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.32"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.16"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.17"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -5120,92 +5120,231 @@ def _task_page_values_v5(slide: dict[str, Any]) -> list[str]:
     ]
 
 
-def _merge_task_page_pair_v5(
-    left: dict[str, Any],
-    right: dict[str, Any],
-) -> dict[str, Any] | None:
-    left_quality = dict(left.get("quality") or {})
-    right_quality = dict(right.get("quality") or {})
-    left_mode = _clean_text(left_quality.get("task_prompt_mode"))
-    if (
-        not left_mode
-        or left_mode != _clean_text(right_quality.get("task_prompt_mode"))
-        or _clean_text(left_quality.get("requested_layout"))
-        != _clean_text(right_quality.get("requested_layout"))
-        or _task_page_context_v5(left) != _task_page_context_v5(right)
-    ):
-        return None
-    left_blocks = list(left.get("blocks") or [])
-    right_blocks = list(right.get("blocks") or [])
-    if len(left_blocks) != 1 or len(right_blocks) != 1:
-        return None
-    left_values = _task_page_values_v5(left)
-    right_values = _task_page_values_v5(right)
-    values = [*left_values, *right_values]
-    item_limit = 5 if left_mode == "action" else 3
-    character_limit = 240 if left_mode == "action" else 220
-    if len(values) > item_limit or sum(len(value) for value in values) > character_limit:
-        return None
-    merged = deepcopy(left)
-    block = deepcopy(left_blocks[0])
-    block["content"] = ""
-    block["items"] = values
-    left_metadata = dict(block.get("metadata") or {})
-    right_metadata = dict((right_blocks[0].get("metadata") or {}))
-    for field in ("fragment_ids", "source_fragment_ids", "question_ids"):
-        combined = list(dict.fromkeys([
-            *list(left_metadata.get(field) or []),
-            *list(right_metadata.get(field) or []),
-        ]))
-        if combined:
-            left_metadata[field] = combined
-    block["metadata"] = left_metadata
-    if left_mode == "action" and len(values) > 1:
-        block["type"] = "process"
-        block["metadata"] = {
-            **left_metadata,
-            "semantic_role": "process_step",
-            "question_mode": "task",
-        }
-    merged["blocks"] = [block]
-    for field in (
-        "source_section_ids",
-        "source_block_ids",
-        "source_keys",
-        "learning_objective_ids",
-        "practice_task_ids",
-        "knowledge_refs",
-        "ability_refs",
-        "misconception_refs",
-        "mastery_refs",
-    ):
-        merged[field] = list(dict.fromkeys([
-            *list(left.get(field) or []),
-            *list(right.get(field) or []),
-        ]))
-    merged_quality = {
-        **left_quality,
-        "fragment_ids": list(dict.fromkeys([
-            *list(left_quality.get("fragment_ids") or []),
-            *list(right_quality.get("fragment_ids") or []),
-        ])),
-        "semantic_atom_ids": list(dict.fromkeys([
-            *list(left_quality.get("semantic_atom_ids") or []),
-            *list(right_quality.get("semantic_atom_ids") or []),
-        ])),
-        "combined_task_page_ids": list(dict.fromkeys([
-            *list(left_quality.get("combined_task_page_ids") or []),
-            _clean_text(right.get("unit_id")),
-            *list(right_quality.get("combined_task_page_ids") or []),
-        ])),
+_TASK_SOURCE_LIST_FIELDS = (
+    "source_section_ids",
+    "source_block_ids",
+    "source_keys",
+    "learning_objective_ids",
+    "practice_task_ids",
+    "knowledge_refs",
+    "ability_refs",
+    "misconception_refs",
+    "mastery_refs",
+)
+_TASK_METADATA_LIST_FIELDS = (
+    "fragment_ids",
+    "source_fragment_ids",
+    "question_ids",
+)
+
+
+def _partition_task_entries_v5(
+    entries: list[tuple[str, dict[str, Any]]],
+    *,
+    item_limit: int,
+    character_limit: int,
+) -> list[list[tuple[str, dict[str, Any]]]]:
+    """Reflow source task items without changing their visible order."""
+    groups: list[list[tuple[str, dict[str, Any]]]] = []
+    current: list[tuple[str, dict[str, Any]]] = []
+    current_characters = 0
+    for value, source in entries:
+        next_characters = current_characters + len(value)
+        if current and (
+            len(current) >= item_limit
+            or next_characters > character_limit
+        ):
+            groups.append(current)
+            current = []
+            current_characters = 0
+        current.append((value, source))
+        current_characters += len(value)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _task_phase_page_v5(
+    entries: list[tuple[str, dict[str, Any]]],
+    *,
+    phase: str,
+) -> dict[str, Any]:
+    """Compose one source-bound task page using phase-specific grammar."""
+    source_pages = list(dict.fromkeys(
+        id(source) for _, source in entries
+    ))
+    pages_by_identity = {id(source): source for _, source in entries}
+    pages = [pages_by_identity[identity] for identity in source_pages]
+    page = deepcopy(pages[0])
+    values = [value for value, _ in entries]
+    source_page_ids = [
+        _clean_text(source.get("unit_id")) for source in pages
+        if _clean_text(source.get("unit_id"))
+    ]
+    source_blocks = [
+        block
+        for source in pages
+        for block in source.get("blocks") or []
+    ]
+    block = deepcopy(source_blocks[0]) if source_blocks else {
+        "block_id": "task",
+        "title": "",
+        "content": "",
+        "items": [],
+        "metadata": {},
     }
-    if left_mode == "action" and len(values) > 1:
-        merged_quality.update({
-            "requested_layout": "process-sequence",
-            "prompt_label": "执行步骤",
-        })
-    merged["quality"] = merged_quality
-    return merged
+    metadata = dict(block.get("metadata") or {})
+    for field in _TASK_METADATA_LIST_FIELDS:
+        combined = list(dict.fromkeys(
+            str(value)
+            for source_block in source_blocks
+            for value in (source_block.get("metadata") or {}).get(field) or []
+            if str(value)
+        ))
+        if combined:
+            metadata[field] = combined
+    is_procedure = phase == "procedure"
+    task_mode = "verification" if phase == "verification" else "action"
+    requested_layout = "process-sequence" if is_procedure else "question-prompt"
+    prompt_label = {
+        "overview": "任务概览",
+        "procedure": "执行步骤",
+        "verification": "验收检查",
+    }[phase]
+    metadata.update({
+        "semantic_role": "process_step" if is_procedure else "prompt",
+        "question_mode": "task",
+    })
+    block.update({
+        "block_id": stable_hash(
+            {"phase": phase, "source_page_ids": source_page_ids, "values": values},
+            prefix="taskblockv5_",
+        ),
+        "type": "process" if is_procedure else "exercise",
+        "content": "",
+        "items": values,
+        "metadata": metadata,
+    })
+    page["unit_id"] = stable_hash(
+        {"phase": phase, "source_page_ids": source_page_ids, "values": values},
+        prefix="slide:v5:task:",
+    )
+    page["key_message"] = ""
+    page["takeaway"] = ""
+    page["blocks"] = [block]
+    optional_visual_count = sum(
+        len(source.get("visuals") or []) for source in pages
+    )
+    page["visuals"] = []
+    for field in _TASK_SOURCE_LIST_FIELDS:
+        page[field] = list(dict.fromkeys(
+            str(value)
+            for source in pages
+            for value in source.get(field) or []
+            if str(value)
+        ))
+    page["practice_source_revisions"] = {
+        str(key): value
+        for source in pages
+        for key, value in (source.get("practice_source_revisions") or {}).items()
+    }
+    qualities = [dict(source.get("quality") or {}) for source in pages]
+    quality = dict(qualities[0])
+    for field in (
+        "resolved_layout",
+        "resolved_composition",
+        "slot_bindings",
+        "visual_decision",
+        "layout_fallback_reason",
+        "major_region_count",
+        "occupied_major_region_count",
+        "final_page_contract_v2",
+    ):
+        quality.pop(field, None)
+    quality.update({
+        "requested_layout": requested_layout,
+        "feedback_mode": "task_only",
+        "task_prompt_mode": task_mode,
+        "task_prompt_phase": phase,
+        "prompt_label": prompt_label,
+        "feedback_pair_count": 0,
+        "feedback_evidence_count": 0,
+        "fragment_ids": list(dict.fromkeys(
+            str(value)
+            for source_quality in qualities
+            for value in source_quality.get("fragment_ids") or []
+            if str(value)
+        )),
+        "semantic_atom_ids": list(dict.fromkeys(
+            str(value)
+            for source_quality in qualities
+            for value in source_quality.get("semantic_atom_ids") or []
+            if str(value)
+        )),
+        "combined_task_page_ids": source_page_ids,
+        "task_optional_visual_count_suppressed": optional_visual_count,
+        "presentation_grammar": {
+            "presentation_intent": f"task_{phase}",
+            "visual_grammar": (
+                "ordered_procedure" if is_procedure else "task_prompt"
+            ),
+            "allowed_layouts": [requested_layout],
+            "forbidden_fallbacks": ["editorial-body", "hero-claim"],
+        },
+    })
+    page["quality"] = quality
+    return page
+
+
+def _recompose_task_activity_pages_v5(
+    run: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    action_pages = [
+        page for page in run
+        if _clean_text((page.get("quality") or {}).get("task_prompt_mode"))
+        == "action"
+    ]
+    verification_pages = [
+        page for page in run
+        if _clean_text((page.get("quality") or {}).get("task_prompt_mode"))
+        == "verification"
+    ]
+    result: list[dict[str, Any]] = []
+    procedure_pages = action_pages
+    if action_pages:
+        first_values = _task_page_values_v5(action_pages[0])
+        first_layout = _clean_text(
+            (action_pages[0].get("quality") or {}).get("requested_layout")
+        )
+        if len(first_values) == 1 and first_layout == "question-prompt":
+            result.append(_task_phase_page_v5(
+                [(first_values[0], action_pages[0])],
+                phase="overview",
+            ))
+            procedure_pages = action_pages[1:]
+    procedure_entries = [
+        (value, page)
+        for page in procedure_pages
+        for value in _task_page_values_v5(page)
+    ]
+    for group in _partition_task_entries_v5(
+        procedure_entries,
+        item_limit=4,
+        character_limit=240,
+    ):
+        result.append(_task_phase_page_v5(group, phase="procedure"))
+    verification_entries = [
+        (value, page)
+        for page in verification_pages
+        for value in _task_page_values_v5(page)
+    ]
+    for group in _partition_task_entries_v5(
+        verification_entries,
+        item_limit=3,
+        character_limit=220,
+    ):
+        result.append(_task_phase_page_v5(group, phase="verification"))
+    return result or [deepcopy(page) for page in run]
 
 
 def _task_activity_title_v5(slide: dict[str, Any]) -> str:
@@ -5243,14 +5382,7 @@ def _consolidate_task_activity_pages_v5(
                 break
             run.append(deepcopy(candidate))
             index += 1
-        packed: list[dict[str, Any]] = []
-        for candidate in run:
-            if packed:
-                merged = _merge_task_page_pair_v5(packed[-1], candidate)
-                if merged is not None:
-                    packed[-1] = merged
-                    continue
-            packed.append(candidate)
+        packed = _recompose_task_activity_pages_v5(run)
         root_id = _clean_text(packed[0].get("unit_id"))
         activity_id = stable_hash(
             {

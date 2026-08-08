@@ -12,6 +12,7 @@ from slide_deck_renderer import (
     _render_code,
     _render_editorial_body,
     _render_practice_feedback,
+    _render_process,
     _uses_visual_directed_renderer,
     _worked_example_labels,
     validate_theme,
@@ -705,6 +706,13 @@ def test_task_activity_pages_consolidate_by_visual_grammar_and_reindex() -> None
         slide["quality"]["practice_page_count"] == 4
         for slide in consolidated
     )
+    assert [slide["quality"]["task_prompt_phase"] for slide in consolidated] == [
+        "overview", "procedure", "procedure", "verification",
+    ]
+    assert [
+        len(slide["blocks"][0].get("items") or [])
+        for slide in consolidated
+    ] == [1, 4, 4, 2]
     assert consolidated[2]["quality"]["requested_layout"] == "process-sequence"
     assert consolidated[2]["blocks"][0]["type"] == "process"
     assert consolidated[0]["title"] == "场景构建：创建一个场景"
@@ -1153,6 +1161,46 @@ def test_code_renderer_uses_full_width_when_no_real_annotation_exists() -> None:
     assert "阅读线索" not in visible_text
     assert len(code_shapes) == 1
     assert code_shapes[0].width >= Inches(10.5)
+
+
+def test_task_process_renderer_uses_vertical_numbered_steps() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    items = [
+        "切换到 CPU 标签并开始录制。",
+        "定位最耗时的方法并记录调用路径。",
+        "修改脚本后重新运行场景，比较前后曲线。",
+    ]
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:task-procedure",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice",
+        "title": "性能诊断任务（续2/4）",
+        "blocks": [{
+            "block_id": "procedure",
+            "type": "process",
+            "items": items,
+            "metadata": {"semantic_role": "process_step"},
+        }],
+        "quality": {
+            "resolved_layout": "process-sequence",
+            "task_prompt_mode": "action",
+            "task_prompt_phase": "procedure",
+            "prompt_label": "执行步骤",
+        },
+    })
+
+    _render_process(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "执行步骤" in visible_text
+    assert all(item in visible_text for item in items)
+    assert all(f"{index:02d}" in visible_text for index in range(1, 4))
 
 
 def test_code_renderer_keeps_annotation_column_when_source_annotation_exists() -> None:

@@ -5,6 +5,8 @@
     :data-layout="visualLayout"
     :data-layout-contract="v5LayoutNames.has(visualLayout) ? layoutContract.schema_version : undefined"
     :data-heading-mode="headingMode"
+    :data-task-prompt-mode="slide.quality?.task_prompt_mode || undefined"
+    :data-task-prompt-phase="slide.quality?.task_prompt_phase || undefined"
     :data-theme="theme"
     :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
@@ -364,8 +366,10 @@ interface Slide {
     worked_step_labels?: string[]
     heading_mode?: 'full' | 'hidden'
     section_label?: string
-    feedback_mode?: 'paired' | 'shared_evidence'
+    feedback_mode?: 'paired' | 'shared_evidence' | 'task_only'
     prompt_label?: string
+    task_prompt_mode?: 'action' | 'verification'
+    task_prompt_phase?: 'overview' | 'procedure' | 'verification'
     final_page_contract_version?: string
     final_page_contract_v2?: Record<string, any>
     manual_edit_required?: boolean
@@ -1516,6 +1520,32 @@ function layoutLabel(value: string) {
   color:#fff;
   background:var(--deck-blue);
   font-size:.88em;
+}
+.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks {
+  inset:25% 5.5% 10.5%;
+  grid-template-columns:1fr;
+}
+.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks section {
+  padding:2.5% 3%;
+  border:0;
+  border-radius:0;
+  background:transparent;
+}
+.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol {
+  height:100%;
+  gap:0;
+}
+.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol li {
+  display:grid;
+  grid-template-columns:3.2cqw minmax(0,1fr);
+  align-items:center;
+  gap:1.5cqw;
+  min-height:0;
+  padding:.8cqw 0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol li:last-child {
+  border-bottom:0;
 }
 .deck-canvas__blocks pre {
   height:100%;
