@@ -1876,24 +1876,41 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
 
 
 def _render_claim_only(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
-    """Render a promoted one-sentence claim once, without a duplicate body panel."""
-    if bool(unit.quality.get("presentation_sparse_promoted")):
-        _render_hero_statement(slide, unit, theme)
-        return
-    _heading(slide, unit, theme)
-    _shape(slide, 0.9, 2.25, 0.12, 3.35, theme["accent"], radius=False)
+    """Render one intentional claim as the dominant object, exactly once."""
+    claim = " ".join(
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    )
+    claim = claim or unit.key_message or unit.takeaway or unit.title
     _text(
         slide,
-        unit.teaching_job or unit.eyebrow or "核心判断",
-        1.4,
-        2.3,
-        3.4,
-        0.38,
-        13,
+        unit.eyebrow or "核心判断",
+        0.82,
+        0.72,
+        3.0,
+        0.32,
+        12,
         theme["accent"],
         bold=True,
     )
-    _shape(slide, 1.4, 4.95, 4.25, 0.05, theme["chart_bg"], radius=False)
+    _shape(slide, 0.82, 1.28, 11.68, 0.018, theme["chart_bg"], radius=False)
+    _shape(slide, 0.9, 1.88, 0.12, 4.28, theme["accent"], radius=False)
+    _text(
+        slide,
+        claim,
+        1.4,
+        2.18,
+        10.25,
+        2.78,
+        29 if len(claim) <= 58 else 24,
+        theme["ink"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+    _shape(slide, 1.4, 5.48, 4.25, 0.05, theme["chart_bg"], radius=False)
 
 
 def _render_navigation_statement(
@@ -2267,15 +2284,24 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     code = _find_block(unit, "code")
-    _shape(slide, 0.76, 1.75, 7.48, 4.72, theme["code"], radius=True)
+    insight_blocks = [block for block in unit.blocks if block is not code]
+    items = [
+        item
+        for block in insight_blocks
+        for item in (block.items or [block.content])
+        if str(item or "").strip()
+    ][:5]
+    code_panel_width = 7.48 if items else 11.80
+    code_text_width = 6.9 if items else 11.18
+    _shape(slide, 0.76, 1.75, code_panel_width, 4.72, theme["code"], radius=True)
     language = str(code.metadata.get("language") or "code") if code else "code"
     _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(slide, code.content if code else "", 1.05, 2.48, 6.9, 3.6, 16, "F5F7FF", font="Aptos Mono")
-    insight_blocks = [block for block in unit.blocks if block is not code]
+    _text(slide, code.content if code else "", 1.05, 2.48, code_text_width, 3.6, 16, "F5F7FF", font="Aptos Mono")
+    if not items:
+        return
     _shape(slide, 8.52, 1.75, 4.04, 4.72, theme["canvas"], radius=True)
     _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, theme["green"], bold=True)
-    items = [item for block in insight_blocks for item in (block.items or [block.content]) if item][:5]
-    _bullets(slide, items or [unit.key_message], 8.86, 2.65, 3.32, 3.1, 16, theme["ink"], theme["green"])
+    _bullets(slide, items, 8.86, 2.65, 3.32, 3.1, 16, theme["ink"], theme["green"])
 
 
 def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:

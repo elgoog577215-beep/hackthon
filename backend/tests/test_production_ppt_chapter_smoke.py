@@ -1,8 +1,12 @@
 import json
 
+from pptx import Presentation
+from pptx.util import Inches
+
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
     SmokeFailure,
+    _pptx_presentation_mode_audit,
     _planned_scene_requirements,
     _source_disposition,
     build_chapter_document,
@@ -10,6 +14,8 @@ from production_ppt_chapter_smoke import (
     finalize_deferred_render,
     rank_programming_chapter_candidates,
 )
+from slide_deck import SlideSpec
+from slide_deck_renderer import _render_claim_only, _render_code, validate_theme
 
 
 def test_smoke_uses_final_source_bound_story_scenes() -> None:
@@ -241,3 +247,64 @@ def test_programming_smoke_rejects_requested_chapter_without_code() -> None:
         assert exc.code == "production_chapter_has_no_code_source"
     else:
         raise AssertionError("A programming smoke must not use a prose-only chapter")
+
+
+def test_smoke_audits_dominant_claim_and_full_width_code_export(tmp_path) -> None:
+    theme = validate_theme("qizhi-classroom")
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.333)
+    presentation.slide_height = Inches(7.5)
+    claim_model = {
+        "unit_id": "claim",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "title": "空间换时间",
+        "blocks": [{
+            "block_id": "claim-block",
+            "type": "statement",
+            "content": "对象池通过复用实例，以空间换取稳定的运行时间。",
+            "items": [],
+            "metadata": {},
+        }],
+        "quality": {
+            "resolved_layout": "hero-claim",
+            "hero_claim_display_mode": "dominant_canvas",
+        },
+    }
+    code_model = {
+        "unit_id": "code",
+        "position": 1,
+        "layout": "code",
+        "slide_purpose": "method",
+        "title": "生命周期回调顺序",
+        "blocks": [{
+            "block_id": "code-block",
+            "type": "code",
+            "content": "void Awake() {}\nvoid Start() {}",
+            "items": [],
+            "metadata": {"language": "csharp"},
+        }],
+        "quality": {
+            "resolved_layout": "code",
+            "code_region_mode": "full_width",
+        },
+    }
+    claim_slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    _render_claim_only(claim_slide, SlideSpec.model_validate(claim_model), theme)
+    code_slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    _render_code(code_slide, SlideSpec.model_validate(code_model), theme)
+    output = tmp_path / "presentation-modes.pptx"
+    presentation.save(output)
+
+    report = _pptx_presentation_mode_audit(
+        output,
+        [claim_model, code_model],
+    )
+
+    assert report == {
+        "passed": True,
+        "issues": [],
+        "hero_claim_page_count": 1,
+        "full_width_code_page_count": 1,
+    }

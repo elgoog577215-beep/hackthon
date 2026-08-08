@@ -580,7 +580,23 @@ than a sequence of prose documents placed on slide canvases.
 #### Scenario: A sparse source contains one intentional claim
 - **WHEN** the claim cannot be combined without changing its teaching intent
 - **THEN** it may use an explicit `hero-claim` page
+- **AND** browser preview and PPTX export render that claim as the dominant
+  full-canvas teaching object rather than a small label surrounded by unused
+  space
+- **AND** generic teaching-job scaffolding is not shown in place of the claim
 - **AND** no complete deck contains more than three such pages
+
+#### Scenario: A dedicated code page has no source-bound annotation
+- **WHEN** a selected code excerpt is the page's only occupied semantic region
+- **THEN** browser preview and PPTX export expand the code region to the
+  available teaching canvas
+- **AND** neither renderer emits an empty annotation or reading-hint column
+
+#### Scenario: A dedicated code page has source-bound annotation
+- **WHEN** an explanation, output, condition, or interpretation is bound to the
+  selected code excerpt
+- **THEN** the page may use a split code-and-annotation composition
+- **AND** both major regions contain visible source-grounded meaning
 
 #### Scenario: A planned visual is `kind=none`
 - **WHEN** final layout occupancy and visual quality are evaluated

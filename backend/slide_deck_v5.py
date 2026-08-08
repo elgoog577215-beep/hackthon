@@ -56,9 +56,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.29"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.30"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.14"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.15"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -3809,6 +3809,19 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
         "major_region_count": contract.major_region_count,
         "occupied_major_region_count": contract.occupied_major_region_count,
     })
+    if contract.resolved_layout == "hero-claim":
+        quality["hero_claim_display_mode"] = "dominant_canvas"
+    if contract.resolved_layout == "code":
+        support_items = [
+            str(value).strip()
+            for block in updated.get("blocks") or []
+            if str(block.get("type") or "") != "code"
+            for value in (block.get("items") or [block.get("content")])
+            if str(value or "").strip()
+        ]
+        quality["code_region_mode"] = (
+            "annotated_split" if support_items else "full_width"
+        )
     updated["quality"] = quality
     updated["composition"] = contract.resolved_composition
     if str(updated.get("layout") or "") not in {"cover", "roadmap", "chapter", "recap"}:
