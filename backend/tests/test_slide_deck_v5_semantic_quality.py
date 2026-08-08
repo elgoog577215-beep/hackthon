@@ -28,6 +28,7 @@ from slide_deck_v5 import (
     _structure_long_editorial_prose_v5,
     apply_page_contract_v5,
     compile_page_title_v5,
+    finalize_v5_quality_report,
     split_mixed_intent_slides_v5,
     v5_contract_issues,
 )
@@ -1082,6 +1083,104 @@ def test_editorial_fallback_does_not_render_the_heading_twice() -> None:
         if getattr(shape, "has_text_frame", False)
     ]
     assert visible.count(unit.title) == 1
+
+
+def test_required_programming_code_is_a_final_publication_gate() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={"passed": True, "issues": [], "blockers": []},
+        slides=[{
+            "unit_id": "concept-only",
+            "position": 0,
+            "layout": "concept",
+            "slide_purpose": "concept",
+            "scene_kind": "concept",
+            "title": "MonoBehaviour 生命周期",
+            "blocks": [{
+                "block_id": "body",
+                "type": "statement",
+                "content": "Awake、Start 和 Update 按生命周期顺序执行。",
+                "metadata": {},
+            }],
+            "visuals": [],
+            "quality": {
+                "passed": True,
+                "resolved_layout": "editorial-body",
+            },
+        }],
+        planner="ai",
+        fallback_reason="",
+        planning_diagnostics={
+            "subject_presentation_contract": {
+                "schema_version": "subject_presentation_contract_v1",
+                "profile_id": "engineering_programming",
+                "primary_mode": "programming_engineering",
+                "required_representation_kinds": ["code"],
+                "optional_representation_kinds": ["output", "debugging"],
+                "characteristic_fragment_ids": {"code": ["code-fragment"]},
+                "chapter_requirements": [{
+                    "chapter_id": "chapter-unity",
+                    "required_representation_kinds": ["code"],
+                    "minimum_artifact_count": 1,
+                }],
+                "classification_confidence": 0.96,
+                "classification_source": "course_generation_v16",
+                "evidence_conflicts": [],
+            },
+        },
+    )
+
+    issue = next(
+        item for item in report["issues"]
+        if item["code"] == "required_subject_representation_missing"
+    )
+    assert issue["severity"] == "critical"
+    assert issue["representation_kind"] == "code"
+    assert report["passed"] is False
+
+
+def test_presentation_grammar_mismatch_requires_manual_review() -> None:
+    contracted = apply_page_contract_v5({
+        "unit_id": "process-as-columns",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "method",
+        "scene_kind": "method",
+        "title": "回调按生命周期顺序执行",
+        "blocks": [
+            {
+                "block_id": "left",
+                "type": "statement",
+                "content": "Awake 完成初始化。",
+                "metadata": {},
+            },
+            {
+                "block_id": "right",
+                "type": "statement",
+                "content": "Update 每帧执行。",
+                "metadata": {},
+            },
+        ],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "balanced-two-column",
+            "presentation_grammar": {
+                "presentation_intent": "process",
+                "copy_voice": "ordered_instructional",
+                "information_structure": "sequence",
+                "visual_grammar": "control_flow",
+                "allowed_layouts": ["process-sequence", "figure-text"],
+                "forbidden_fallbacks": ["editorial-body", "balanced-two-column"],
+            },
+        },
+    })
+
+    issue = next(
+        item for item in contracted["quality"]["issues"]
+        if item["code"] == "presentation_grammar_mismatch"
+    )
+    assert issue["expected_grammar"] == "control_flow"
+    assert issue["observed_layout"] == "balanced-two-column"
+    assert contracted["quality"]["manual_edit_required"] is True
 
 
 def test_classification_renderer_uses_content_and_items_as_three_regions() -> None:

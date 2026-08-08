@@ -411,6 +411,11 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
 def test_new_programming_course_long_code_is_partitioned_before_story_layout_selection(
 ) -> None:
     course = deepcopy(_course_with_teaching_plan())
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "programming_engineering",
+        "confidence": 0.96,
+        "classification_source": "course_generation_v16",
+    }
     code_lines = [
         (
             f"public void Tick{index}(GameObject player) {{ "
@@ -450,6 +455,18 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
         theme="qizhi-classroom",
     )
 
+    subject_contract = story.planning_diagnostics[
+        "subject_presentation_contract"
+    ]
+    assert subject_contract["schema_version"] == (
+        "subject_presentation_contract_v1"
+    )
+    assert subject_contract["profile_id"] == "engineering_programming"
+    assert subject_contract["required_representation_kinds"] == ["code"]
+    assert {
+        fragment.fragment_id for fragment in code_fragments
+    } <= set(subject_contract["characteristic_fragment_ids"]["code"])
+
     assert any(
         code_fragment.fragment_id in beat.fragment_ids
         for chapter in story.chapters
@@ -475,11 +492,20 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
     assert decided_fragment_ids == {
         fragment.fragment_id for fragment in fragments
     }
-    assert {
+    allocated_code_ids = {
+        fragment_id
+        for page in allocation.pages
+        if page.layout == "code"
+        for fragment_id in page.fragment_ids
+    }
+    assert allocated_code_ids == {
         fragment.fragment_id for fragment in code_fragments
-    } <= {
+    }
+    assert not allocated_code_ids & {
         exclusion.fragment_id for exclusion in allocation.exclusions
     }
+    code_pages = [page for page in allocation.pages if page.layout == "code"]
+    assert 1 <= len(code_pages) <= 3
 
 
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
