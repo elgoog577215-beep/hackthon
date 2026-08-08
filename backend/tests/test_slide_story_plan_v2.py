@@ -937,6 +937,7 @@ def test_illegal_ai_claim_is_rejected_and_uses_deterministic_story() -> None:
 
     assert planned.planner == "deterministic_fallback"
     assert planned.fallback_reason == "invalid_or_failed_ai_story_plan"
+    assert "subject_presentation_contract" in planned.planning_diagnostics
     assert all(
         beat.primary_claim_source.text != "模型补造的课程观点"
         for chapter in planned.chapters
@@ -983,6 +984,9 @@ def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() 
     )
     assert all(item["semantic_unit_id"] for item in captured["fragments"])
     assert all("presentation_intent" in item for item in captured["fragments"])
+    assert planned.planning_diagnostics[
+        "subject_presentation_contract"
+    ] == captured["subject_presentation_contract"]
     assert all("evidence_refs" in item for item in captured["fragments"])
     assert all(
         "semantic_unit_ids" in beat

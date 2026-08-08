@@ -1613,6 +1613,7 @@ async def plan_slide_story_v2(
     )
     if fallback.mode != mode or fallback.theme != theme:
         raise ValueError("Story planning baseline does not match the requested variant")
+    baseline_diagnostics = deepcopy(fallback.planning_diagnostics or {})
     if ai_planner is None:
         fallback.fallback_reason = "no_ai_story_planner"
         return fallback
@@ -1933,6 +1934,7 @@ async def plan_slide_story_v2(
             if item[1] is not None
         ]
         diagnostics = {
+            **baseline_diagnostics,
             "chapter_count": chapter_count,
             "successful_chapter_count": chapter_count - len(chapter_failures),
             "failed_chapter_count": len(chapter_failures),
@@ -1971,6 +1973,7 @@ async def plan_slide_story_v2(
     except Exception as exc:
         fallback.fallback_reason = "invalid_or_failed_ai_story_plan"
         fallback.planning_diagnostics = {
+            **baseline_diagnostics,
             "chapter_count": len(fallback.chapters),
             "successful_chapter_count": 0,
             "failed_chapter_count": len(fallback.chapters),
