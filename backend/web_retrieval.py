@@ -263,10 +263,10 @@ class SearXNGSearchProvider:
         if configured_timeout is None:
             try:
                 configured_timeout = float(
-                    os.getenv("SEARXNG_REQUEST_TIMEOUT_SECONDS", "6")
+                    os.getenv("SEARXNG_REQUEST_TIMEOUT_SECONDS", "12")
                 )
             except ValueError:
-                configured_timeout = 6.0
+                configured_timeout = 12.0
         self.timeout_seconds = max(0.5, min(20.0, float(configured_timeout)))
         self._client = client
 
