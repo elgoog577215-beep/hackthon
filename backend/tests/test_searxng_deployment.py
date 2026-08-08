@@ -143,3 +143,12 @@ def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
     assert "--data 'timeout_limit=4'" in workflow
     assert "--data 'timeout_limit=12'" in workflow
     assert 'p.get("unresponsive_engines")' in workflow
+
+
+def test_production_diagnostics_probes_openverse_license_metadata() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "== openverse images direct ==" in workflow
+    assert "https://api.openverse.org/v1/images/" in workflow
+    assert "license=cc0,pdm,by" in workflow
+    assert 'item.get("license")' in workflow
