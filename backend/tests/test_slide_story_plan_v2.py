@@ -572,6 +572,90 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
     assert "public void Tick32" in visible_text
 
 
+def test_oversized_programming_source_uses_at_most_three_code_excerpt_pages() -> None:
+    course = deepcopy(_course_with_teaching_plan())
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "programming_engineering",
+        "confidence": 0.96,
+        "classification_source": "course_generation_v16",
+    }
+    code_lines = [
+        (
+            f"public void Tick{index}(GameObject player) {{ "
+            f"player.transform.position += velocity{index} * Time.deltaTime; }}"
+        )
+        for index in range(1, 121)
+    ]
+    concept = next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-concept"
+    )
+    concept["content"] = "```csharp\n" + "\n".join(code_lines) + "\n```"
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    code_fragment_ids = {
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.block_id == "block-concept" and fragment.kind == "code"
+    }
+
+    compact_story = compact_story_plan_v5(
+        document,
+        compile_slide_story_plan_v2(
+            document,
+            course,
+            fragments,
+            mode="teaching",
+            theme="qizhi-classroom",
+        ),
+        fragments,
+    )
+    allocation, _ = allocation_from_story_plan_v5(
+        document,
+        fragments,
+        compact_story,
+    )
+    code_pages = [page for page in allocation.pages if page.layout == "code"]
+    allocated_code_ids = {
+        fragment_id
+        for page in code_pages
+        for fragment_id in page.fragment_ids
+    }
+    excluded_code_ids = {
+        exclusion.fragment_id
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in code_fragment_ids
+    }
+
+    assert 1 <= len(code_pages) <= 3
+    assert allocated_code_ids
+    assert excluded_code_ids
+    assert allocated_code_ids | excluded_code_ids == code_fragment_ids
+    assert all(
+        exclusion.reason == "subject_artifact_redundant_after_chapter_coverage"
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in excluded_code_ids
+    )
+
+    content = compile_slide_deck_v5(
+        document,
+        course,
+        story_plan=compact_story,
+    )
+    assert len([
+        slide
+        for slide in content["slides"]
+        if "code" in (slide.get("quality") or {}).get(
+            "subject_artifact_kinds",
+            [],
+        )
+    ]) <= 3
+    assert "body_density_overflow" not in {
+        issue["code"] for issue in content["quality_report"]["blockers"]
+    }
+
+
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
     renderer_layouts = {
         str(layout["renderer_layout"])

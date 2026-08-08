@@ -56,7 +56,7 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.25"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.26"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.14"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
@@ -175,6 +175,10 @@ _V5_DENSITY_BUDGETS = {
 }
 _V5_MINIMUM_BODY_FONT_PT = 16
 _V5_MINIMUM_TITLE_FONT_PT = 35
+_V5_CODE_LINES_PER_PAGE = 18
+_V5_CODE_CHARACTERS_PER_PAGE = 1100
+_V5_CODE_FRAGMENTS_PER_PAGE = 8
+_V5_CODE_PAGES_PER_CHAPTER = 3
 _V5_SCENE_NARRATIVE_ROLE = {
     "chapter_entry": "orientation",
     "prerequisite_activation": "orientation",
@@ -766,6 +770,43 @@ def _compact_existing_episodes_v5(
     return selected
 
 
+def _v5_code_excerpt_group(
+    group: list[Any],
+    *,
+    maximum_pages: int,
+) -> list[Any]:
+    """Keep a readable, source-exact code excerpt within 1-3 pages."""
+    if maximum_pages <= 0:
+        return []
+    maximum_lines = _V5_CODE_LINES_PER_PAGE * maximum_pages
+    maximum_characters = _V5_CODE_CHARACTERS_PER_PAGE * maximum_pages
+    maximum_fragments = _V5_CODE_FRAGMENTS_PER_PAGE * maximum_pages
+    selected: list[Any] = []
+    line_count = 0
+    character_count = 0
+    for fragment in sorted(group, key=lambda item: item.ordinal):
+        if str(fragment.kind or "") != "code":
+            continue
+        text = str(fragment.text or "")
+        fragment_lines = max(1, len(text.splitlines()))
+        fragment_characters = len(text)
+        if selected and (
+            len(selected) >= maximum_fragments
+            or line_count + fragment_lines > maximum_lines
+            or character_count + fragment_characters > maximum_characters
+        ):
+            break
+        if not selected and (
+            fragment_lines > maximum_lines
+            or fragment_characters > maximum_characters
+        ):
+            return []
+        selected.append(fragment)
+        line_count += fragment_lines
+        character_count += fragment_characters
+    return selected
+
+
 def _subject_presentation_contract_v5(
     story: SlideStoryPlanV2,
 ) -> SubjectPresentationContractV1 | None:
@@ -943,6 +984,16 @@ def compact_story_plan_v5(
                 fragment_catalog,
             )
             section_ids = []
+        code_artifact_section_ids = [
+            section_id
+            for section_id in section_ids
+            if any(
+                artifact_kind_by_fragment.get(fragment.fragment_id) == "code"
+                for fragment in fragments_by_section.get(section_id, [])
+            )
+        ]
+        handled_code_sections: set[str] = set()
+        remaining_code_pages = _V5_CODE_PAGES_PER_CHAPTER
         for section_id in section_ids:
             groups = _v5_fragment_groups_for_profile(
                 fragments_by_section.get(section_id, []),
@@ -1187,18 +1238,79 @@ def compact_story_plan_v5(
                     raw_group,
                     artifact_kind_by_fragment,
                 )
-                group = (
-                    sorted(raw_group, key=lambda item: item.ordinal)
-                    if artifact_kinds
-                    else
-                    _v5_fit_practice_group(
-                        raw_group,
-                        semantic_by_fragment,
-                        limit=400,
+                artifact_excerpted = False
+                if "code" in artifact_kinds:
+                    if (
+                        section_id in handled_code_sections
+                        or remaining_code_pages <= 0
+                    ):
+                        continue
+                    remaining_sections = max(
+                        1,
+                        sum(
+                            candidate not in handled_code_sections
+                            for candidate in code_artifact_section_ids
+                        ),
                     )
-                    if kind == "practice" and profile == "semantic"
-                    else _v5_fit_group(raw_group, limit=230)
-                )
+                    section_page_budget = max(
+                        1,
+                        remaining_code_pages // remaining_sections,
+                    )
+                    group = _v5_code_excerpt_group(
+                        raw_group,
+                        maximum_pages=section_page_budget,
+                    )
+                    handled_code_sections.add(section_id)
+                    if group:
+                        code_line_count = sum(
+                            max(1, len(str(item.text or "").splitlines()))
+                            for item in group
+                        )
+                        code_character_count = sum(
+                            len(str(item.text or ""))
+                            for item in group
+                        )
+                        estimated_pages = max(
+                            1,
+                            (
+                                len(group)
+                                + _V5_CODE_FRAGMENTS_PER_PAGE
+                                - 1
+                            ) // _V5_CODE_FRAGMENTS_PER_PAGE,
+                            (
+                                code_line_count
+                                + _V5_CODE_LINES_PER_PAGE
+                                - 1
+                            ) // _V5_CODE_LINES_PER_PAGE,
+                            (
+                                code_character_count
+                                + _V5_CODE_CHARACTERS_PER_PAGE
+                                - 1
+                            ) // _V5_CODE_CHARACTERS_PER_PAGE,
+                        )
+                        remaining_code_pages = max(
+                            0,
+                            remaining_code_pages - estimated_pages,
+                        )
+                    artifact_excerpted = {
+                        item.fragment_id for item in group
+                    } != {
+                        item.fragment_id
+                        for item in raw_group
+                        if str(item.kind or "") == "code"
+                    }
+                else:
+                    group = (
+                        sorted(raw_group, key=lambda item: item.ordinal)
+                        if artifact_kinds
+                        else _v5_fit_practice_group(
+                            raw_group,
+                            semantic_by_fragment,
+                            limit=400,
+                        )
+                        if kind == "practice" and profile == "semantic"
+                        else _v5_fit_group(raw_group, limit=230)
+                    )
                 if not group:
                     continue
                 scene = {
@@ -1412,7 +1524,11 @@ def compact_story_plan_v5(
                     layout_intent=selection[0],
                     renderer_layout=selection[1],
                     layout_family=selection[2],
-                    layout_selection_reason="v5_semantic_grouping",
+                    layout_selection_reason=(
+                        "v5_subject_artifact_excerpt"
+                        if artifact_excerpted
+                        else "v5_semantic_grouping"
+                    ),
                     density="primary",
                     knowledge_refs=knowledge_refs,
                     prerequisite_refs=chapter.prerequisite_knowledge_names,
@@ -5153,25 +5269,40 @@ def _split_oversized_atom_v5(
     *,
     capacity: int,
     item_capacity: int,
+    line_capacity: int | None = None,
 ) -> list[list[ContentFragmentV1]]:
     visible_items = sum(item.kind == "list_item" for item in atom)
+    visible_lines = sum(
+        max(1, len(str(item.text or "").splitlines()))
+        for item in atom
+    )
     if (
         len(atom) <= 8
         and visible_items <= item_capacity
         and sum(len(item.text) for item in atom) <= capacity
+        and (line_capacity is None or visible_lines <= line_capacity)
     ):
         return [atom]
     chunks: list[list[ContentFragmentV1]] = []
     current: list[ContentFragmentV1] = []
     current_size = 0
     current_items = 0
+    current_lines = 0
     for fragment in atom:
         fragment_size = len(fragment.text)
         fragment_items = int(fragment.kind == "list_item")
+        fragment_lines = max(
+            1,
+            len(str(fragment.text or "").splitlines()),
+        )
         if current and (
             len(current) >= 8
             or current_size + fragment_size > capacity
             or current_items + fragment_items > item_capacity
+            or (
+                line_capacity is not None
+                and current_lines + fragment_lines > line_capacity
+            )
         ):
             if re.search(r"[：:]\s*$", _clean_text(current[-1].text)):
                 lead = current.pop()
@@ -5180,14 +5311,20 @@ def _split_oversized_atom_v5(
                 current = [lead]
                 current_size = len(lead.text)
                 current_items = int(lead.kind == "list_item")
+                current_lines = max(
+                    1,
+                    len(str(lead.text or "").splitlines()),
+                )
             else:
                 chunks.append(current)
                 current = []
                 current_size = 0
                 current_items = 0
+                current_lines = 0
         current.append(fragment)
         current_size += fragment_size
         current_items += fragment_items
+        current_lines += fragment_lines
     if current:
         chunks.append(current)
     return chunks
@@ -5198,12 +5335,14 @@ def _packed_semantic_pages_v5(
     *,
     capacity: int,
     item_capacity: int,
+    line_capacity: int | None = None,
 ) -> list[tuple[list[ContentFragmentV1], list[str], str, int]]:
     atoms = _semantic_atom_groups_v5(fragments)
     packed: list[tuple[list[ContentFragmentV1], list[str], str, int]] = []
     current: list[ContentFragmentV1] = []
     current_atom_ids: list[str] = []
     current_size = 0
+    current_lines = 0
     for atom in atoms:
         atom_id = stable_hash(
             [fragment.fragment_id for fragment in atom],
@@ -5213,6 +5352,7 @@ def _packed_semantic_pages_v5(
             atom,
             capacity=capacity,
             item_capacity=item_capacity,
+            line_capacity=line_capacity,
         )
         if len(chunks) > 1:
             if current:
@@ -5220,6 +5360,7 @@ def _packed_semantic_pages_v5(
                 current = []
                 current_atom_ids = []
                 current_size = 0
+                current_lines = 0
             for chunk_index, chunk in enumerate(chunks, start=1):
                 packed.append((
                     chunk,
@@ -5229,6 +5370,10 @@ def _packed_semantic_pages_v5(
                 ))
             continue
         atom_size = sum(len(item.text) for item in atom)
+        atom_lines = sum(
+            max(1, len(str(item.text or "").splitlines()))
+            for item in atom
+        )
         if current and (
             len(current) + len(atom) > 8
             or current_size + atom_size > capacity
@@ -5237,14 +5382,20 @@ def _packed_semantic_pages_v5(
                 + sum(item.kind == "list_item" for item in atom)
                 > item_capacity
             )
+            or (
+                line_capacity is not None
+                and current_lines + atom_lines > line_capacity
+            )
         ):
             packed.append((current, current_atom_ids, "", 0))
             current = []
             current_atom_ids = []
             current_size = 0
+            current_lines = 0
         current.extend(atom)
         current_atom_ids.append(atom_id)
         current_size += atom_size
+        current_lines += atom_lines
     if current:
         packed.append((current, current_atom_ids, "", 0))
     return packed
@@ -5355,6 +5506,14 @@ def allocation_from_story_plan_v5(
             beat_fragments,
             capacity=capacity,
             item_capacity=item_capacity,
+            line_capacity=(
+                _V5_CODE_LINES_PER_PAGE
+                if (
+                    beat.renderer_layout == "code"
+                    or "code" in beat.subject_artifact_kinds
+                )
+                else None
+            ),
         )
         continuation_totals = {
             token: sum(

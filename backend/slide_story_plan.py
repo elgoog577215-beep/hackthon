@@ -37,6 +37,7 @@ from slide_semantics import (
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
 V5_SEMANTIC_CORE_REASONS = frozenset({
     "v5_semantic_grouping",
+    "v5_subject_artifact_excerpt",
     "ai_source_bound_directive",
 })
 SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (

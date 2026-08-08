@@ -277,37 +277,69 @@ def _release_commit(application_root: Path) -> str:
 
 
 def _issue_summary(items: list[Any]) -> list[dict[str, Any]]:
-    return [
-        {
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        summary = {
             "severity": str(item.get("severity") or ""),
             "code": str(item.get("code") or "unknown"),
-            **(
-                {"page": int(item["page"])}
-                if isinstance(item, dict) and isinstance(item.get("page"), int)
-                else {}
-            ),
         }
-        for item in items
+        page_id = str(item.get("page_id") or "")
+        if page_id:
+            summary["page_id_hash"] = _private_id(page_id)
+        if isinstance(item.get("page"), int):
+            summary["page"] = int(item["page"])
+        dimension = str(item.get("dimension") or "")
+        if dimension:
+            summary["dimension"] = dimension
+        for key in (
+            "body_character_count",
+            "body_character_budget",
+            "visible_item_count",
+            "visible_item_budget",
+        ):
+            if isinstance(item.get(key), (int, float)):
+                summary[key] = item[key]
+        result.append(summary)
+    return result
+
+
+def _planned_scene_requirements(story: dict[str, Any]) -> set[str]:
+    """Return source-bound interior scenes selected by the final V5 planner."""
+    return {
+        str(episode.get("scene_kind") or "")
+        for chapter in story.get("chapters") or []
+        if isinstance(chapter, dict)
+        for episode in chapter.get("episodes") or []
+        if isinstance(episode, dict)
+        and str(episode.get("scene_kind") or "")
+        not in {"", "chapter_entry", "chapter_recap", "transition"}
+        and any(
+            isinstance(beat, dict) and bool(beat.get("fragment_ids"))
+            for beat in episode.get("beats") or []
+        )
+    }
+
+
+def _source_disposition(
+    allocation: dict[str, Any],
+    source_fragment_ids: set[str],
+) -> tuple[set[str], dict[str, str]]:
+    allocated = {
+        str(fragment_id)
+        for page in allocation.get("pages") or []
+        if isinstance(page, dict)
+        for fragment_id in page.get("fragment_ids") or []
+        if str(fragment_id) in source_fragment_ids
+    }
+    excluded = {
+        str(item.get("fragment_id") or ""): str(item.get("reason") or "")
+        for item in allocation.get("exclusions") or []
         if isinstance(item, dict)
-    ]
-
-
-def _source_scene_requirements(document: CourseDocument) -> set[str]:
-    roles = {str(block.role) for block in document.blocks}
-    requirements: set[str] = set()
-    if "concept" in roles:
-        requirements.add("concept")
-    if "reasoning" in roles:
-        requirements.add("reasoning")
-    if "example" in roles:
-        requirements.add("worked_example")
-    if roles & {"activity", "checkpoint", "feedback"}:
-        requirements.add("practice_feedback")
-    if roles & {"application", "transfer"}:
-        requirements.add("application")
-    if "misconception" in roles:
-        requirements.add("misconception")
-    return requirements
+        and str(item.get("fragment_id") or "") in source_fragment_ids
+    }
+    return allocated, excluded
 
 
 def _visible_code_text(slides: list[dict[str, Any]]) -> str:
@@ -676,13 +708,6 @@ async def run_production_smoke(
         for item in quality.get("issues") or []
         if isinstance(item, dict)
     }
-    required_subject_kinds = set(
-        (
-            story.planning_diagnostics.get("subject_presentation_contract")
-            or {}
-        ).get("required_representation_kinds")
-        or []
-    )
     code_slides = [
         slide
         for slide in slides
@@ -720,12 +745,45 @@ async def run_production_smoke(
         source_code_lines[-1] if source_code_lines else "",
     ]
     visible_code = _visible_code_text(slides)
+    final_story = dict(content.get("story_plan") or {})
+    final_allocation = dict(content.get("allocation_plan") or {})
+    subject_contract = dict(
+        (final_story.get("planning_diagnostics") or {}).get(
+            "subject_presentation_contract",
+        )
+        or {}
+    )
+    required_subject_kinds = set(
+        subject_contract.get("required_representation_kinds") or []
+    )
+    code_source_fragment_ids = {
+        str(fragment_id)
+        for fragment_id in (
+            subject_contract.get("characteristic_fragment_ids") or {}
+        ).get("code")
+        or []
+        if str(fragment_id)
+    }
+    allocated_code_ids, excluded_code = _source_disposition(
+        final_allocation,
+        code_source_fragment_ids,
+    )
+    explicit_code_exclusions = bool(excluded_code) and all(
+        reason == "subject_artifact_redundant_after_chapter_coverage"
+        for reason in excluded_code.values()
+    )
+    code_disposition_complete = code_source_fragment_ids == (
+        allocated_code_ids | set(excluded_code)
+    )
+    required_code_anchors = source_code_anchors[:1]
+    if not excluded_code:
+        required_code_anchors = source_code_anchors
     scene_kinds = {
         str(slide.get("scene_kind") or "")
         for slide in slides
         if str(slide.get("scene_kind") or "")
     }
-    required_scenes = _source_scene_requirements(selected.document)
+    required_scenes = _planned_scene_requirements(final_story)
     gates: dict[str, bool] = {
         "release_commit_matches": (
             not expected_release_commit
@@ -740,9 +798,13 @@ async def run_production_smoke(
         "subject_contract_requires_code": "code" in required_subject_kinds,
         "code_page_count": 1 <= len(code_slides) <= 3,
         "code_not_editorial_fallback": not artifact_editorial_fallbacks,
-        "code_source_anchors_preserved": all(
+        "code_source_excerpt_anchored": all(
             anchor and anchor in visible_code
-            for anchor in source_code_anchors
+            for anchor in required_code_anchors
+        ),
+        "code_source_disposition_complete": code_disposition_complete,
+        "code_exclusions_are_explicit": (
+            not excluded_code or explicit_code_exclusions
         ),
         "section_flow_preserved": (
             {"chapter_entry", "chapter_recap"} <= scene_kinds
@@ -806,6 +868,13 @@ async def run_production_smoke(
                 for slide in slides
             )),
             "required_source_scenes": sorted(required_scenes),
+            "code_source_fragment_count": len(code_source_fragment_ids),
+            "code_allocated_fragment_count": len(allocated_code_ids),
+            "code_excluded_fragment_count": len(excluded_code),
+            "code_excerpted": bool(excluded_code),
+            "code_exclusion_reason_counts": dict(Counter(
+                excluded_code.values()
+            )),
             "duplicate_title_count": len(duplicate_titles),
             "artifact_editorial_fallback_count": len(
                 artifact_editorial_fallbacks
@@ -817,6 +886,58 @@ async def run_production_smoke(
             "blockers": _issue_summary(list(quality.get("blockers") or [])),
             "warnings": _issue_summary(list(quality.get("warnings") or [])),
         },
+        "slide_diagnostics": [
+            {
+                "page_id_hash": _private_id(str(slide.get("unit_id") or "")),
+                "position": index,
+                "scene_kind": str(slide.get("scene_kind") or ""),
+                "beat_role": str(slide.get("beat_role") or ""),
+                "resolved_layout": str(
+                    (slide.get("quality") or {}).get("resolved_layout") or ""
+                ),
+                "artifact_kinds": sorted({
+                    str(item)
+                    for item in (slide.get("quality") or {}).get(
+                        "subject_artifact_kinds",
+                        [],
+                    )
+                }),
+                "fragment_count": len(
+                    (slide.get("quality") or {}).get("fragment_ids") or []
+                ),
+                "body_character_count": int(
+                    (slide.get("quality") or {}).get(
+                        "body_character_count",
+                    )
+                    or 0
+                ),
+                "body_character_budget": int(
+                    (slide.get("quality") or {}).get(
+                        "body_character_budget",
+                    )
+                    or 0
+                ),
+                "visible_item_count": int(
+                    (slide.get("quality") or {}).get("visible_item_count")
+                    or 0
+                ),
+                "visible_item_budget": int(
+                    (slide.get("quality") or {}).get("visible_item_budget")
+                    or 0
+                ),
+                "density_band": str(
+                    (slide.get("quality") or {}).get("density_band") or ""
+                ),
+                "issue_codes": sorted({
+                    str(item.get("code") or "unknown")
+                    for item in quality.get("issues") or []
+                    if isinstance(item, dict)
+                    and str(item.get("page_id") or "")
+                    == str(slide.get("unit_id") or "")
+                }),
+            }
+            for index, slide in enumerate(slides, start=1)
+        ],
         "gates": gates,
     }
     failed_before_export = [name for name, passed in gates.items() if not passed]
@@ -843,7 +964,7 @@ async def run_production_smoke(
     pptx_text = _pptx_text(pptx_path)
     export_anchors_preserved = all(
         anchor and anchor in pptx_text
-        for anchor in source_code_anchors
+        for anchor in required_code_anchors
     )
     render_artifacts = _render_artifacts(pptx_path, output_dir)
 

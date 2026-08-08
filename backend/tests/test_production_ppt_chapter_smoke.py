@@ -1,10 +1,60 @@
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
     SmokeFailure,
+    _planned_scene_requirements,
+    _source_disposition,
     build_chapter_document,
     extract_source_code_lines,
     rank_programming_chapter_candidates,
 )
+
+
+def test_smoke_uses_final_source_bound_story_scenes() -> None:
+    story = {
+        "chapters": [{
+            "episodes": [
+                {"scene_kind": "chapter_entry", "beats": []},
+                {
+                    "scene_kind": "concept",
+                    "beats": [{"fragment_ids": ["concept-1"]}],
+                },
+                {
+                    "scene_kind": "worked_example",
+                    "beats": [{"fragment_ids": []}],
+                },
+                {
+                    "scene_kind": "practice_feedback",
+                    "beats": [{"fragment_ids": ["feedback-1"]}],
+                },
+                {"scene_kind": "chapter_recap", "beats": []},
+            ],
+        }],
+    }
+
+    assert _planned_scene_requirements(story) == {
+        "concept",
+        "practice_feedback",
+    }
+
+
+def test_smoke_accepts_only_explicit_code_source_disposition() -> None:
+    allocation = {
+        "pages": [{"fragment_ids": ["code-1", "prose-1"]}],
+        "exclusions": [{
+            "fragment_id": "code-2",
+            "reason": "subject_artifact_redundant_after_chapter_coverage",
+        }],
+    }
+
+    allocated, excluded = _source_disposition(
+        allocation,
+        {"code-1", "code-2"},
+    )
+
+    assert allocated == {"code-1"}
+    assert excluded == {
+        "code-2": "subject_artifact_redundant_after_chapter_coverage",
+    }
 
 
 def _document() -> CourseDocument:
