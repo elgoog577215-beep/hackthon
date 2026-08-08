@@ -2270,12 +2270,12 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _shape(slide, 0.76, 1.75, 7.48, 4.72, theme["code"], radius=True)
     language = str(code.metadata.get("language") or "code") if code else "code"
     _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(slide, code.content if code else "", 1.05, 2.48, 6.9, 3.6, 13, "F5F7FF", font="Aptos Mono")
+    _text(slide, code.content if code else "", 1.05, 2.48, 6.9, 3.6, 16, "F5F7FF", font="Aptos Mono")
     insight_blocks = [block for block in unit.blocks if block is not code]
     _shape(slide, 8.52, 1.75, 4.04, 4.72, theme["canvas"], radius=True)
     _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, theme["green"], bold=True)
     items = [item for block in insight_blocks for item in (block.items or [block.content]) if item][:5]
-    _bullets(slide, items or [unit.key_message], 8.86, 2.65, 3.32, 3.1, 11, theme["ink"], theme["green"])
+    _bullets(slide, items or [unit.key_message], 8.86, 2.65, 3.32, 3.1, 16, theme["ink"], theme["green"])
 
 
 def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2380,7 +2380,7 @@ def _render_practice_feedback(
                 2.62,
                 question_width - 0.12,
                 1.02,
-                17 if len(prompt) <= 80 else 15,
+                17 if len(prompt) <= 80 else 16,
                 theme["ink"],
                 bold=True,
             )
@@ -2408,7 +2408,7 @@ def _render_practice_feedback(
                 4.78,
                 evidence_width - 0.12,
                 1.42,
-                16 if len(evidence) <= 80 else 14,
+                16,
                 theme["ink"],
             )
         return
@@ -2460,7 +2460,7 @@ def _render_practice_feedback(
             text_top,
             5.55,
             max(0.7, row_height - 1.0),
-            17 if len(prompt) <= 80 else 15,
+            17 if len(prompt) <= 80 else 16,
             theme["ink"],
             bold=True,
         )
@@ -2472,7 +2472,7 @@ def _render_practice_feedback(
                 text_top,
                 4.85,
                 max(0.7, row_height - 1.0),
-                16 if len(answer) <= 80 else 14,
+                16,
                 theme["ink"],
             )
 

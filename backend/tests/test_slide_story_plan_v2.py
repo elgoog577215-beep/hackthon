@@ -13,7 +13,7 @@ from representation_compiler import (
     rebuild_slide_deck_variant_bundle_safely,
     rebuild_slide_deck_variant_safely,
 )
-from slide_deck_renderer import export_structured_slide_deck
+from slide_deck_renderer import audit_exported_pptx, export_structured_slide_deck
 from slide_deck_v3 import (
     V3_LAYOUTS,
     fragment_course_document,
@@ -517,12 +517,23 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
         if page.layout == "code"
         for fragment_id in page.fragment_ids
     }
-    assert allocated_code_ids == {
+    source_code_ids = {
         fragment.fragment_id for fragment in code_fragments
     }
-    assert not allocated_code_ids & {
-        exclusion.fragment_id for exclusion in allocation.exclusions
+    excluded_code_ids = {
+        exclusion.fragment_id
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in source_code_ids
     }
+    assert allocated_code_ids
+    assert allocated_code_ids | excluded_code_ids == source_code_ids
+    assert not allocated_code_ids & excluded_code_ids
+    assert all(
+        exclusion.reason
+        == "subject_artifact_redundant_after_chapter_coverage"
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in excluded_code_ids
+    )
     code_pages = [page for page in allocation.pages if page.layout == "code"]
     assert 1 <= len(code_pages) <= 3
 
@@ -569,7 +580,15 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
         if hasattr(shape, "text")
     )
     assert "public void Tick1" in visible_text
-    assert "public void Tick32" in visible_text
+    if code_fragments[-1].fragment_id in allocated_code_ids:
+        assert "public void Tick32" in visible_text
+    export_audit = audit_exported_pptx(
+        output,
+        expected_slide_count=len(content["slides"]),
+    )
+    assert "exported_body_font_below_16pt" not in {
+        issue["code"] for issue in export_audit["issues"]
+    }
 
 
 def test_oversized_programming_source_uses_at_most_three_code_excerpt_pages() -> None:

@@ -671,7 +671,9 @@ async def run_production_smoke(
     )
     os.environ["SLIDE_WEB_IMAGE_RETRIEVAL_ENABLED"] = "false"
     os.environ["SLIDE_GENERATED_ILLUSTRATIONS_ENABLED"] = "false"
-    os.environ["SLIDE_LIBREOFFICE_AUDIT_ENABLED"] = "true"
+    os.environ["SLIDE_LIBREOFFICE_AUDIT_ENABLED"] = (
+        "false" if defer_render else "true"
+    )
 
     story_worker = _source_first_story_ai_worker()
     visual_worker = _source_first_slide_visual_ai_worker()
