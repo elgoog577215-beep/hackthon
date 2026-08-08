@@ -6,6 +6,7 @@ from pptx.util import Inches
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
     SmokeFailure,
+    _planner_failure_reason_code,
     _pptx_presentation_mode_audit,
     _planned_scene_requirements,
     _source_disposition,
@@ -44,6 +45,15 @@ def test_smoke_uses_final_source_bound_story_scenes() -> None:
         "concept",
         "practice_feedback",
     }
+
+
+def test_smoke_reports_provider_balance_failure_without_raw_request_data() -> None:
+    reason = _planner_failure_reason_code([{
+        "error_type": "RuntimeError",
+        "message": "Error code: 429 - insufficient balance; request_id=private",
+    }])
+
+    assert reason == "ai_provider_balance_exhausted"
 
 
 def test_smoke_accepts_only_explicit_code_source_disposition() -> None:
