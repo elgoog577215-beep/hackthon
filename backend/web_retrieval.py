@@ -90,6 +90,33 @@ _ACADEMIC_QUERY_TERMS = re.compile(
     r"研究|论文|学术|文献|期刊|临床|数学|物理|化学|生物|医学|线性代数|特征值",
     re.I,
 )
+_GENERIC_SEARCH_COMMAND_PATTERNS = (
+    re.compile(
+        r"(?:^|[\s,.;:!?，。；：！？、])"
+        r"(?:再|请|帮我|麻烦)?(?:联网|上网|网页|网络)?"
+        r"(?:搜索|检索|搜|查找|查询|查)(?:一下|下|一搜|一查)?",
+        re.I,
+    ),
+    re.compile(
+        r"(?:^|[\s,.;:!?，。；：！？、])(?:找|给|来)(?:点|些|一些|几个)?"
+        r"(?=\s*[\w\u3400-\u9fff])",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:please\s+)?(?:search|look\s+up|find|google|web\s+search)"
+        r"(?:\s+(?:the\s+web|online|for|me))*\b",
+        re.I,
+    ),
+)
+_GENERIC_QUESTION_FILLER_PATTERN = re.compile(
+    r"^(?:什么是|什么叫|何为|如何理解|请解释(?:一下)?|解释(?:一下)?|介绍(?:一下)?)"
+    r"\s*",
+    re.I,
+)
+_GENERIC_EXAMPLE_TERM_PATTERN = re.compile(
+    r"(?:例子|示例|案例|\bexamples?\b)",
+    re.I,
+)
 _RELEVANCE_NOISE_TOKENS = {
     "course",
     "curriculum",
@@ -461,14 +488,19 @@ class RetrievalGateway:
         )
         safe_queries: list[str] = []
         error_codes: list[str] = []
-        for raw_query in request.queries[:max_queries]:
+        for raw_query in request.queries:
             redacted = redact_outbound_query(raw_query)
             if redacted["blocked"]:
                 error_codes.append("privacy_blocked")
                 continue
             query = str(redacted["query"]).strip()
-            if query and query not in safe_queries:
-                safe_queries.append(query)
+            for variant in _shared_query_variants(query):
+                if variant and variant not in safe_queries:
+                    safe_queries.append(variant)
+                if len(safe_queries) >= max_queries:
+                    break
+            if len(safe_queries) >= max_queries:
+                break
 
         if not request.enabled:
             return self._package(
@@ -698,6 +730,30 @@ def resolve_retrieval_policy(payload: dict[str, Any] | None) -> dict[str, Any]:
             "source": "legacy_web_question_enrichment",
         }
     return {"enabled": False, "scopes": [], "source": "default_off"}
+
+
+def _shared_query_variants(query: str) -> list[str]:
+    """Normalize conversational search commands before provider dispatch."""
+
+    text = " ".join(str(query or "").replace("\r", " ").replace("\n", " ").split())
+    if not text:
+        return []
+    cleaned = text
+    for pattern in _GENERIC_SEARCH_COMMAND_PATTERNS:
+        cleaned = pattern.sub(" ", cleaned)
+    cleaned = _GENERIC_QUESTION_FILLER_PATTERN.sub("", cleaned.strip())
+    cleaned = re.sub(r"[\s,.;:!?，。；：！？、]+", " ", cleaned).strip()
+    if not cleaned or cleaned == text:
+        return [text]
+
+    variants = [cleaned]
+    if re.search(r"[\u3400-\u9fff]", cleaned):
+        tutorial_subject = _GENERIC_EXAMPLE_TERM_PATTERN.sub(" ", cleaned)
+        tutorial_subject = re.sub(r"\s+", " ", tutorial_subject).strip()
+        tutorial_query = f"{tutorial_subject} 教程" if tutorial_subject else ""
+        if tutorial_query and tutorial_query not in variants:
+            variants.append(tutorial_query)
+    return variants
 
 
 def redact_outbound_query(query: str) -> dict[str, Any]:

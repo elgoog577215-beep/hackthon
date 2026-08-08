@@ -127,6 +127,7 @@
       :open="generatorOpen"
       :mode="selectedMode"
       :theme="selectedTheme"
+      :web-image-retrieval="selectedWebImageRetrieval"
       :busy="store.building"
       :closable="Boolean(slideRepresentation)"
       :fragment-count="estimatedFragmentCount"
@@ -181,6 +182,7 @@ const generatorOpen = ref(false)
 const forceGeneratorBuild = ref(false)
 const selectedMode = ref<SlideDeckMode>('teaching')
 const selectedTheme = ref<V3Theme>('qizhi-classroom')
+const selectedWebImageRetrieval = ref(false)
 let workspaceAttempt = 0
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
@@ -487,6 +489,10 @@ async function rebuild() {
       mode: selectedMode.value,
       theme: selectedTheme.value,
       forceRebuild: true,
+      webImageRetrieval: {
+        enabled: selectedWebImageRetrieval.value,
+        mode: 'wide_safe',
+      },
     })
   } catch {
     return
@@ -511,7 +517,11 @@ function closeGenerator() {
   }
 }
 
-async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
+async function generateVariant(value: {
+  mode: SlideDeckMode
+  theme: V3Theme
+  webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+}) {
   if (!courseId.value || store.building) return
   if (slideEngineStatus.value === 'blocked') {
     generatorOpen.value = false
@@ -520,12 +530,14 @@ async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   }
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
+  selectedWebImageRetrieval.value = value.webImageRetrieval.enabled
   generatorOpen.value = false
   try {
     await store.buildSlideDeckVariant(courseId.value, {
       mode: value.mode,
       theme: value.theme,
       forceRebuild: forceGeneratorBuild.value,
+      webImageRetrieval: value.webImageRetrieval,
     })
   } catch {
     return

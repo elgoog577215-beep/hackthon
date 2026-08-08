@@ -596,6 +596,48 @@ async def test_gateway_overfetches_candidates_before_source_admission():
     assert package["sources"][0]["url"] == "https://example.edu/oop-examples"
 
 
+@pytest.mark.asyncio
+async def test_gateway_retries_generic_chinese_search_commands_with_tutorial_variant():
+    class RecordingProvider:
+        name = "recording"
+        configured = True
+
+        def __init__(self):
+            self.queries: list[str] = []
+
+        async def search(self, query: str, *, limit: int):
+            self.queries.append(query)
+            if query == "傅里叶变换 教程":
+                return [{
+                    "url": "https://example.edu/fourier-transform",
+                    "title": "傅里叶变换教程",
+                    "content": "傅里叶变换教程介绍频域、时域和信号分解。",
+                }]
+            return [{
+                "url": "https://example.edu/unrelated",
+                "title": "无关页面",
+                "content": "这是一篇与查询无关的旅游文章。",
+            }]
+
+    provider = RecordingProvider()
+    package = await RetrievalGateway(
+        provider=provider,
+        cache_ttl_seconds=0,
+    ).retrieve(
+        RetrievalRequest(
+            purpose="ai_teacher",
+            enabled=True,
+            queries=["请联网搜索一下什么是傅里叶变换，找点例子"],
+        )
+    )
+
+    assert "傅里叶变换 教程" in provider.queries
+    assert package["status"] == "completed"
+    assert package["sources"][0]["url"] == (
+        "https://example.edu/fourier-transform"
+    )
+
+
 def test_retrieval_policy_version_records_provider_upgrade():
     assert POLICY_VERSION == "web_retrieval_v2.1"
 
