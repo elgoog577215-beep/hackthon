@@ -106,7 +106,7 @@ jobs:
           REMOTE
 
   assessment-chain:
-    if: ${{ inputs.query == '__ASSESSMENT_CHAIN__' }}
+    if: ${{ inputs.query == '__ASSESSMENT_CHAIN__' || inputs.query == '__ASSESSMENT_FAST_DIAGNOSE__' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -117,6 +117,7 @@ jobs:
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          ASSESSMENT_DIAGNOSTIC_MODE: ${{ inputs.query }}
           LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
         run: |
           set -euo pipefail
@@ -173,7 +174,7 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "LINGZHI_DIAGNOSTIC_DIR='$remote_dir' bash -s" <<'REMOTE'
+            "LINGZHI_DIAGNOSTIC_DIR='$remote_dir' LINGZHI_DIAGNOSTIC_MODE='$ASSESSMENT_DIAGNOSTIC_MODE' bash -s" <<'REMOTE'
           set -euo pipefail
           set -a
           . /opt/lingzhi/state/.env
@@ -197,11 +198,13 @@ jobs:
             --reference "$LINGZHI_DIAGNOSTIC_DIR/reference.json" \
             --output "$LINGZHI_DIAGNOSTIC_DIR/fast.json"
 
-          timeout 900 /opt/lingzhi/.venv/bin/python \
-            "$LINGZHI_DIAGNOSTIC_DIR/diagnostic.py" run \
-            --profile deliberate \
-            --reference "$LINGZHI_DIAGNOSTIC_DIR/reference.json" \
-            --output "$LINGZHI_DIAGNOSTIC_DIR/deliberate.json"
+          if [ "$LINGZHI_DIAGNOSTIC_MODE" = "__ASSESSMENT_CHAIN__" ]; then
+            timeout 900 /opt/lingzhi/.venv/bin/python \
+              "$LINGZHI_DIAGNOSTIC_DIR/diagnostic.py" run \
+              --profile deliberate \
+              --reference "$LINGZHI_DIAGNOSTIC_DIR/reference.json" \
+              --output "$LINGZHI_DIAGNOSTIC_DIR/deliberate.json"
+          fi
           REMOTE
 
           install -d artifacts/production-assessment-chain

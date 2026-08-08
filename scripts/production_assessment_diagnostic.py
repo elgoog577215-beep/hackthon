@@ -192,6 +192,39 @@ def question_projection(
     }
 
 
+def generated_contract_projection(
+    practice_level: str,
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    solution = contract.get("solution_envelope") or {}
+    quality = contract.get("quality_report") or {}
+    return {
+        "practice_level": practice_level,
+        "question_type": contract.get("question_type"),
+        "difficulty": contract.get("difficulty"),
+        "prompt": contract.get("prompt"),
+        "options": deepcopy(contract.get("options") or []),
+        "input_contract": deepcopy(contract.get("input_contract") or {}),
+        "canonical_answer": deepcopy(solution.get("canonical_answer")),
+        "worked_solution": deepcopy(solution.get("worked_solution") or {}),
+        "rubric": deepcopy(solution.get("rubric") or []),
+        "validation_mode": solution.get("validation_mode"),
+        "quality": {
+            "passed": quality.get("passed"),
+            "status": quality.get("status"),
+            "score": quality.get("score"),
+            "decision": quality.get("decision"),
+            "issues": deepcopy(quality.get("issues") or []),
+        },
+        "risk_flags": deepcopy(contract.get("risk_flags") or []),
+        "review_required": bool(contract.get("review_required")),
+        "generation_status": contract.get("generation_status"),
+        "generation_audit_summary": deepcopy(
+            contract.get("generation_audit_summary") or {}
+        ),
+    }
+
+
 async def run_profile(profile: str, reference_path: Path) -> dict[str, Any]:
     course = diagnostic_course()
     reference = json.loads(reference_path.read_text(encoding="utf-8"))
@@ -205,6 +238,10 @@ async def run_profile(profile: str, reference_path: Path) -> dict[str, Any]:
     )
     elapsed_ms = int(round((time.perf_counter() - started) * 1000))
     audit = deepcopy(prepared.get("_assessment_generation_audit") or {})
+    generated_contracts = (
+        (prepared.get("_assessment_generated_contracts") or {}).get(NODE_ID)
+        or {}
+    )
     bundle = build_question_bank(prepared)
     selected = [
         item
@@ -289,6 +326,15 @@ async def run_profile(profile: str, reference_path: Path) -> dict[str, Any]:
         },
         "call_timings": deepcopy(audit.get("call_timings") or []),
         "physical_calls": physical_calls,
+        "generation_audit_items": deepcopy(audit.get("items") or []),
+        "generated_candidates": [
+            generated_contract_projection(practice_level, contract)
+            for practice_level, contract in sorted(
+                generated_contracts.items(),
+                key=lambda item: PRACTICE_ORDER.get(item[0], 99),
+            )
+            if isinstance(contract, dict)
+        ],
         "questions": questions,
     }
 
