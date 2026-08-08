@@ -74,7 +74,7 @@ jobs:
             || echo "Openverse unavailable from production host"
 
           echo "== searxng images direct =="
-          for engine in 'bing images' 'brave.images' 'duckduckgo images' 'google images' 'qwant images' 'baidu images' 'wikicommons.images'; do
+          for engine in 'pexels' 'unsplash' 'public domain image archive' 'bing images' 'baidu images' 'quark images' 'sogou images'; do
             echo "-- $engine --"
             curl -fsS --max-time 8 http://127.0.0.1:8080/search \
               --data 'q=human heart anatomy' \
@@ -84,7 +84,7 @@ jobs:
               --data 'language=all' \
               --data 'safesearch=2' \
               --data 'timeout_limit=7' \
-              | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("image_result_count", len(r)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src")} for x in r[:2]], ensure_ascii=False, indent=2))' \
+              | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("image_result_count", len(r)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "engines": x.get("engines")} for x in r[:2]], ensure_ascii=False, indent=2))' \
               || echo "$engine unavailable"
           done
 

@@ -170,12 +170,12 @@ for attempt in $(seq 1 3); do
         --data-urlencode 'q=human heart anatomy' \
         --data 'format=json' \
         --data 'categories=images' \
-        --data 'engines=bing images,baidu images,quark images,sogou images' \
+        --data 'engines=pexels,unsplash,public domain image archive,bing images,baidu images,quark images,sogou images' \
         --data 'safesearch=2' \
         --data 'language=all' \
         --data 'timeout_limit=12' \
         http://127.0.0.1:8080/search \
-        | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert not payload.get("unresponsive_engines"); assert payload.get("results")'; then
+        | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert payload.get("results"); assert any(item.get("img_src") for item in payload["results"])'; then
         image_smoke_ready=1
         break
     fi

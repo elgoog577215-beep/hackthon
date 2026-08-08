@@ -19,7 +19,9 @@ use_default_settings:
       - baidu images
       - quark images
       - sogou images
-      - wikicommons.images
+      - pexels
+      - unsplash
+      - public domain image archive
 
 general:
   debug: false
@@ -77,10 +79,9 @@ engines:
     disabled: false
   - name: sogou images
     disabled: false
-  - name: wikicommons.images
-    engine: wikicommons
-    shortcut: wci
-    categories: images
-    wc_search_type: image
-    timeout: 10.0
+  - name: pexels
+    disabled: false
+  - name: unsplash
+    disabled: false
+  - name: public domain image archive
     disabled: false

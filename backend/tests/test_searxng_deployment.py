@@ -64,8 +64,6 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "name: unsplash" in settings
     assert "name: public domain image archive" in settings
     assert "wikicommons.images" not in settings
-    assert "categories: images" in settings
-    assert "timeout: 10.0" in settings
     assert "google" not in settings.lower()
 
 
@@ -158,7 +156,10 @@ def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
     assert "--data 'categories=images'" in workflow
     assert "'bing images'" in workflow
     assert "'baidu images'" in workflow
-    assert "'wikicommons.images'" in workflow
+    assert "'pexels'" in workflow
+    assert "'unsplash'" in workflow
+    assert "'public domain image archive'" in workflow
+    assert "'wikicommons.images'" not in workflow
     assert '--data-urlencode "engines=$engine"' in workflow
     assert "--data 'timeout_limit=4'" in workflow
     assert "--data 'timeout_limit=7'" in workflow

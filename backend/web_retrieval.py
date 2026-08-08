@@ -1042,7 +1042,10 @@ def _search_engines(
     category: Literal["general", "images"],
 ) -> str:
     if category == "images":
-        return "bing images,baidu images,quark images,sogou images"
+        return (
+            "pexels,unsplash,public domain image archive,"
+            "bing images,baidu images,quark images,sogou images"
+        )
     engines = _GENERAL_SEARCH_ENGINES
     if _ACADEMIC_QUERY_TERMS.search(query):
         engines = (*engines, *_SCIENCE_SEARCH_ENGINES)
