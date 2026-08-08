@@ -53,7 +53,7 @@ async function mountPanel(point: PanelPoint | null = POINT) {
 
 async function fillAndPreview(wrapper: any, reason = '补充扩容触发条件的精确表述') {
   await wrapper.findAll('textarea')[1]!.setValue(reason)
-  await wrapper.get('.knowledge-command-actions button').trigger('click')
+  await wrapper.get('.knowledge-command-actions button.is-preview').trigger('click')
   await flushPromises()
 }
 
@@ -83,7 +83,7 @@ describe('知识维护面板', () => {
       POINT.statement,
     )
     // 没写理由 -> 预览按钮禁用。理由是审阅的前提，不能省。
-    expect(wrapper.get('.knowledge-command-actions button').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('button.is-preview').attributes('disabled')).toBeDefined()
   })
 
   it('预览调用定向编辑接口，只发送编辑描述而不是整个知识库', async () => {
@@ -419,17 +419,21 @@ describe('下游重建入口', () => {
     expect(wrapper.find('.knowledge-command-rebuild').exists()).toBe(false)
   })
 
-  it('管线未接入时如实告知，不显示成已重建', async () => {
+  it('重建执行后逐对象展示回执，成功与仍待重建都说清楚', async () => {
     httpMock.post
       .mockResolvedValueOnce({ data: { candidate: candidate() } })
       .mockResolvedValueOnce({ data: { receipt: { command_id: 'c1' } } })
       .mockResolvedValueOnce({
         data: {
           rebuild: {
-            status: 'executor_unavailable',
-            message: '下游重建管线尚未接入，本次未触发重建；以上为将要重建的对象清单。',
-            targets: [{ type: 'section_content', id: 'block-1', owner: 'block_regeneration' }],
-            counts: { targets: 1 },
+            status: 'executed',
+            summary: { content_changed: 1, stale: 1 },
+            receipts: [
+              { type: 'slide_deck', id: 'deck-1', outcome: 'content_changed', detail: '' },
+              { type: 'section_content', id: 'block-1', outcome: 'stale', detail: '正文暂无定向重建入口' },
+            ],
+            targets: [{ type: 'section_content', id: 'block-1', owner: 'course_content' }],
+            counts: { targets: 2 },
           },
         },
       })
@@ -439,21 +443,26 @@ describe('下游重建入口', () => {
     await wrapper.get('.knowledge-command-rebuild button').trigger('click')
     await flushPromises()
 
-    const url = httpMock.post.mock.calls[2]![0]
+    const [url, payload] = httpMock.post.mock.calls[2]!
     expect(url).toBe('/api/courses/course-1/knowledge-library/points/rebuild-downstream')
+    // 重建针对已确认的修订，只需 request_id，不重发编辑内容。
+    expect(payload).toHaveProperty('request_id')
+    expect(payload).not.toHaveProperty('value')
     const text = wrapper.get('.knowledge-command-rebuild').text()
-    expect(text).toContain('尚未接入')
-    expect(text).not.toContain('已请求重建')
-    // 仍列出将要重建的对象。
-    expect(text).toContain('block-1')
+    expect(text).toContain('重建完成')
+    expect(text).toContain('1 个已更新')
+    expect(text).toContain('1 个仍待重建')
+    // 逐对象回执可见，失败原因不被吞掉。
+    expect(text).toContain('已更新')
+    expect(text).toContain('正文暂无定向重建入口')
   })
 
-  it('管线接入后显示已请求重建', async () => {
+  it('没有可重建对象时如实说明，不假装执行过', async () => {
     httpMock.post
       .mockResolvedValueOnce({ data: { candidate: candidate() } })
       .mockResolvedValueOnce({ data: { receipt: { command_id: 'c1' } } })
       .mockResolvedValueOnce({
-        data: { rebuild: { status: 'requested', targets: [], counts: { targets: 2 } } },
+        data: { rebuild: { status: 'nothing_to_rebuild', targets: [], counts: { targets: 0 } } },
       })
     const wrapper = await mountPanel()
     await confirmed(wrapper)
@@ -461,7 +470,7 @@ describe('下游重建入口', () => {
     await wrapper.get('.knowledge-command-rebuild button').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('.knowledge-command-rebuild').text()).toContain('已请求重建')
+    expect(wrapper.get('.knowledge-command-rebuild').text()).toContain('没有需要重建')
   })
 })
 
@@ -514,5 +523,78 @@ describe('移动端与无障碍', () => {
       expect(match, `${selector} 缺少 min-height`).toBeTruthy()
       expect(Number(match![1])).toBeGreaterThanOrEqual(30)
     }
+  })
+})
+
+describe('AI 拆分建议', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => ({
+      ok: true,
+      json: async () => (String(input).includes('/en/') ? enMessages : zhMessages),
+    })))
+    await setLocale('zh')
+  })
+
+  const splitButton = (wrapper: any) => wrapper.get('button.is-propose')
+
+  it('AI 建议拆分时进入同一个候选区，仍需教师确认', async () => {
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        proposal: {
+          should_split: true,
+          reason: '包含判定条件与扩容动作两个独立命题',
+          parts: [
+            { knowledge_id: 'ckp_a', name: '容量耗尽的判定条件', statement: '元素数量等于容量即为容量耗尽。' },
+            { knowledge_id: 'ckp_b', name: '扩容前置检查', statement: '插入前必须确认是否已达容量上限。' },
+          ],
+        },
+        candidate: candidate({ operation: 'split_knowledge_point' }),
+      },
+    })
+    const wrapper = await mountPanel()
+
+    await splitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(httpMock.post.mock.calls[0]![0])
+      .toBe('/api/courses/course-1/knowledge-library/points/propose-split')
+    // 只传知识点 ID，不由前端决定拆成什么。
+    expect(httpMock.post.mock.calls[0]![1]).toEqual({ knowledge_id: 'ckp_capacity' })
+    const text = wrapper.text()
+    expect(text).toContain('两个独立命题')
+    expect(text).toContain('容量耗尽的判定条件')
+    // 关键：AI 的建议同样落进候选区，没有自动应用。
+    expect(wrapper.find('.knowledge-command-candidate').exists()).toBe(true)
+    expect(wrapper.emitted('applied')).toBeUndefined()
+  })
+
+  it('AI 判断无需拆分时如实告知，不产出候选', async () => {
+    httpMock.post.mockResolvedValueOnce({
+      data: { proposal: { should_split: false, reason: '只表达一个命题' }, candidate: null },
+    })
+    const wrapper = await mountPanel()
+
+    await splitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('只表达一个命题')
+    expect(wrapper.find('.knowledge-command-candidate').exists()).toBe(false)
+  })
+
+  it('AI 提了拆分但未过质量门时说明原因', async () => {
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        proposal: { should_split: true, reason: 'x', rejected_reason: 'too_few_valid_parts', parts: [] },
+        candidate: null,
+      },
+    })
+    const wrapper = await mountPanel()
+
+    await splitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('未通过质量门')
+    expect(wrapper.find('.knowledge-command-candidate').exists()).toBe(false)
   })
 })

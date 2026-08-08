@@ -15,7 +15,7 @@ from course_knowledge_commands import (
     KnowledgeCommandRejected,
     build_knowledge_candidate,
 )
-from course_knowledge_impact import knowledge_coverage_check
+from course_knowledge_impact import build_knowledge_impact_report, knowledge_coverage_check
 from course_knowledge_impact_detail import build_impact_detail
 from course_knowledge_point_edits import (
     POINT_EDIT_OPERATIONS,
@@ -26,6 +26,7 @@ from course_knowledge_rebuild import (
     CourseKnowledgeRebuildService,
 )
 from course_knowledge_refinement import KnowledgeRefinementService
+from course_knowledge_revisions import KnowledgeRevisionEvent, knowledge_revision_vector
 from course_knowledge_relocation import relocate_point_edit_candidate
 from course_downstream_rebuild import request_rebuild
 from course_repository import (
@@ -96,8 +97,8 @@ class PointSplitProposalRequest(BaseModel):
     knowledge_id: str = Field(min_length=1, max_length=200)
 
 
-class PointEditRebuildRequest(PointEditRequest):
-    """Trigger a downstream rebuild for the objects this edit invalidated."""
+class PointRebuildRequest(BaseModel):
+    """Rebuild what the latest confirmed knowledge revision invalidated."""
 
     request_id: str = Field(min_length=1, max_length=200)
     object_ids: list[str] = Field(default_factory=list, max_length=500)
@@ -488,40 +489,65 @@ async def point_edit_impact_detail(
 @router.post("/courses/{course_id}/knowledge-library/points/rebuild-downstream")
 async def rebuild_downstream_for_point_edit(
     course_id: str,
-    body: PointEditRebuildRequest,
+    body: PointRebuildRequest,
     request: Request,
     course_repository: CourseDocumentRepository = Depends(get_course_document_repository),
 ) -> dict:
-    """Ask the rebuild pipeline to rebuild the objects a knowledge edit invalidated.
+    """Rebuild the downstream artifacts an applied knowledge revision invalidated.
 
-    Returns 200 with `status="executor_unavailable"` while the downstream
-    rebuild pipeline is still being built elsewhere. The teacher then sees the
-    exact object list that *would* be rebuilt, which is honest, instead of a
-    success toast for work nobody performed.
+    Driven by the *committed* revision, not by re-deriving the edit: once the
+    teacher confirms, the edit is already in the knowledge base, so recomputing
+    it would hit the no-op guard. The impact is therefore taken from the last
+    recorded knowledge revision, which is exactly what the downstream artifacts
+    are now stale against.
     """
     try:
         course = course_repository.load_course_view(course_id)
-        candidate, proposed = build_point_edit_candidate(
-            course,
-            knowledge_id=body.knowledge_id,
-            operation=body.operation,
-            value=body.value,
-            reason=body.reason,
-            actor=_actor(request),
+        active = course.get("course_knowledge_base") or {}
+        log = [
+            entry for entry in course.get("course_knowledge_revision_log") or []
+            if isinstance(entry, dict)
+        ]
+        if not log:
+            raise HTTPException(status_code=409, detail={
+                "code": "knowledge_revision_missing",
+                "message": "当前课程还没有已确认的知识修订，无需重建。",
+            })
+        latest = log[-1]
+        changed_ids = sorted({
+            key.partition(":")[2]
+            for key in latest.get("changed_source_keys") or []
+            if str(key).startswith("point:")
+        })
+        event = KnowledgeRevisionEvent(
+            event_id=_text(latest.get("command_id")) or "rebuild",
+            course_id=course_id,
+            operation=_text(latest.get("operation")) or "update_knowledge",
+            previous=knowledge_revision_vector(active),
+            current=knowledge_revision_vector(active),
+            changed_source_keys=[f"point:{item}" for item in changed_ids],
+            created_at=_text(latest.get("committed_at")),
+        )
+        report = build_knowledge_impact_report(
+            event, course_data=course, knowledge_base=active,
         )
         downstream = build_downstream_state(
-            candidate["impact_report"],
+            report,
             plan_revision_id=_text(
                 (course.get("course_teaching_plan") or {}).get("revision_id"),
             ),
             course_data=course,
         )
+        from teaching_representations import teaching_representation_repository
+
         result = await request_rebuild(
             course_id,
             downstream,
             actor=_actor(request),
             request_id=body.request_id,
             object_ids=body.object_ids or None,
+            course_data=course,
+            representation_repository=teaching_representation_repository,
         )
     except KnowledgeCommandRejected as exc:
         raise _command_error(exc) from exc
@@ -529,7 +555,6 @@ async def rebuild_downstream_for_point_edit(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    del proposed
     return {"status": "success", "rebuild": result}
 
 

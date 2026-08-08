@@ -777,63 +777,66 @@ def test_relocate_reports_conflict_when_same_field_moved() -> None:
 # --- 下游重建触发（HTTP 边界） -----------------------------------------------
 
 
-def test_rebuild_downstream_reports_executor_unavailable_with_full_target_list() -> None:
-    """重建管线未接入时诚实返回，并给出将要重建的对象清单。
+def test_rebuild_downstream_executes_through_the_shared_chain() -> None:
+    """重建走共用执行链，逐对象回执，不再是"管线未接入"。
 
-    这是当前真实状态：lz-lesson-plan 分支还没有重建执行链。返回像成功一样的
-    结果会让教师以为已经重建了。
+    没有定向重建入口的类型（正文/练习）如实记为失败，教师看得到原因，
+    而不是收到一个什么都没做的成功提示。
     """
     course = _canonical_course()
     client, storage = _client(course)
 
-    response = client.post(
-        "/api/courses/course-1/knowledge-library/points/rebuild-downstream",
+    # 重建针对的是"已确认的修订"，所以先确认一次。
+    client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit",
         json={
+            "command_id": "cmd-before-rebuild",
             "knowledge_id": _point_id(course, "容量耗尽判定"),
             "operation": "revise_knowledge_point",
             "value": "长度等于容量时，插入前必须先扩容。",
             "reason": "表述更精确",
-            "request_id": "req-1",
         },
+    )
+    saves_after_confirm = storage.save_count
+    response = client.post(
+        "/api/courses/course-1/knowledge-library/points/rebuild-downstream",
+        json={"request_id": "req-1"},
     )
 
     assert response.status_code == 200
     rebuild = response.json()["rebuild"]
-    assert rebuild["status"] == "executor_unavailable"
-    assert rebuild["executor_available"] is False
+    assert rebuild["status"] == "executed"
     assert rebuild["counts"]["targets"] >= 1
-    assert rebuild["targets"]
-    # 触发重建不得改动知识库本身。
-    assert storage.save_count == 0
+    assert rebuild["receipts"], "共用执行器必须给出逐对象回执"
+    assert "summary" in rebuild
+    # 触发重建不得再改动知识库本身。
+    assert storage.save_count == saves_after_confirm
 
 
 def test_rebuild_downstream_honours_object_selection() -> None:
     """教师只勾选部分对象时，计划里只包含这些对象。"""
     course = _canonical_course()
     client, _ = _client(course)
-    full = client.post(
-        "/api/courses/course-1/knowledge-library/points/rebuild-downstream",
+    client.post(
+        "/api/courses/course-1/knowledge-library/points/confirm-edit",
         json={
+            "command_id": "cmd-before-rebuild",
             "knowledge_id": _point_id(course, "容量耗尽判定"),
             "operation": "revise_knowledge_point",
             "value": "长度等于容量时，插入前必须先扩容。",
             "reason": "表述更精确",
-            "request_id": "req-1",
         },
+    )
+    full = client.post(
+        "/api/courses/course-1/knowledge-library/points/rebuild-downstream",
+        json={"request_id": "req-1"},
     ).json()["rebuild"]
     assert full["counts"]["targets"] >= 1
     chosen = full["targets"][0]["id"]
 
     narrowed = client.post(
         "/api/courses/course-1/knowledge-library/points/rebuild-downstream",
-        json={
-            "knowledge_id": _point_id(course, "容量耗尽判定"),
-            "operation": "revise_knowledge_point",
-            "value": "长度等于容量时，插入前必须先扩容。",
-            "reason": "表述更精确",
-            "request_id": "req-2",
-            "object_ids": [chosen],
-        },
+        json={"request_id": "req-2", "object_ids": [chosen]},
     ).json()["rebuild"]
 
     assert [row["id"] for row in narrowed["targets"]] == [chosen]

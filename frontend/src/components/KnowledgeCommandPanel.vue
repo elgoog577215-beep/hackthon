@@ -54,8 +54,34 @@
         <span>{{ errorText }}</span>
       </p>
 
+      <!--
+        AI 拆分建议：模型只提建议，产出的仍是待确认候选，走同一套质量门。
+        与手工编辑共用下方的候选区，避免两套确认语义。
+      -->
       <div class="knowledge-command-actions">
-        <button type="button" :disabled="!canPreview" @click="preview">
+        <button type="button" class="is-propose" :disabled="busy" @click="proposeSplit">
+          <LoaderCircle v-if="proposing" :size="14" class="is-spinning" aria-hidden="true" />
+          <Scissors v-else :size="14" aria-hidden="true" />
+          {{ proposing
+            ? t('knowledgeCommands.proposing', 'AI 正在判断')
+            : t('knowledgeCommands.proposeSplit', '让 AI 判断是否该拆分') }}
+        </button>
+      </div>
+
+      <p v-if="splitVerdict" class="knowledge-command-note">{{ splitVerdict }}</p>
+
+      <ul v-if="splitParts.length" class="knowledge-command-detail-list">
+        <li v-for="part in splitParts" :key="part.knowledge_id">
+          <span class="knowledge-command-detail-kind is-ok">
+            {{ t('knowledgeCommands.newNode', '新知识点') }}
+          </span>
+          <span class="knowledge-command-detail-title">{{ part.name }}</span>
+          <span class="knowledge-command-detail-excerpt">{{ part.statement }}</span>
+        </li>
+      </ul>
+
+      <div class="knowledge-command-actions">
+        <button type="button" class="is-preview" :disabled="!canPreview" @click="preview">
           <LoaderCircle v-if="previewing" :size="14" class="is-spinning" aria-hidden="true" />
           <Eye v-else :size="14" aria-hidden="true" />
           {{ previewing
@@ -199,7 +225,16 @@
             : t('knowledgeCommands.rebuild', '重建受影响产物') }}
         </button>
         <p v-if="rebuildNotice" class="knowledge-command-note">{{ rebuildNotice }}</p>
-        <ul v-if="rebuildTargets.length" class="knowledge-command-detail-list">
+        <ul v-if="rebuildReceipts.length" class="knowledge-command-detail-list">
+          <li v-for="row in rebuildReceipts" :key="`${row.type}:${row.id}`">
+            <span :class="['knowledge-command-detail-kind', receiptClass(row.outcome)]">
+              {{ outcomeLabel(row.outcome) }}
+            </span>
+            <span class="knowledge-command-detail-title">{{ row.id }}</span>
+            <span v-if="row.detail" class="knowledge-command-detail-excerpt">{{ row.detail }}</span>
+          </li>
+        </ul>
+        <ul v-else-if="rebuildTargets.length" class="knowledge-command-detail-list">
           <li v-for="row in rebuildTargets" :key="`${row.type}:${row.id}`">
             <span class="knowledge-command-detail-kind">{{ row.type }}</span>
             <span class="knowledge-command-detail-title">{{ row.id }}</span>
@@ -250,6 +285,7 @@ import {
   History,
   LoaderCircle,
   RefreshCw,
+  Scissors,
   Wrench,
 } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
@@ -297,9 +333,13 @@ const rebuildAvailable = ref(false)
 const rebuilding = ref(false)
 const rebuildNotice = ref('')
 const rebuildTargets = ref<any[]>([])
+const rebuildReceipts = ref<any[]>([])
 const lastReceiptId = ref('')
+const proposing = ref(false)
+const splitVerdict = ref('')
+const splitParts = ref<any[]>([])
 
-const busy = computed(() => previewing.value || confirming.value)
+const busy = computed(() => previewing.value || confirming.value || proposing.value)
 const canPreview = computed(
   () => !busy.value && Boolean(props.point) && reason.value.trim().length > 0 && value.value.trim().length > 0,
 )
@@ -353,6 +393,9 @@ watch(
     rebuildAvailable.value = false
     rebuildNotice.value = ''
     rebuildTargets.value = []
+    rebuildReceipts.value = []
+    splitVerdict.value = ''
+    splitParts.value = []
   },
   { immediate: true },
 )
@@ -429,6 +472,7 @@ async function confirm(): Promise<void> {
     lastReceiptId.value = candidateId
     rebuildNotice.value = ''
     rebuildTargets.value = []
+    rebuildReceipts.value = []
     emit('applied')
   } catch (error: any) {
     logger.error(error)
@@ -496,6 +540,44 @@ function operationLabelOf(value: string): string {
   return value
 }
 
+async function proposeSplit(): Promise<void> {
+  if (!props.point) return
+  proposing.value = true
+  errorText.value = ''
+  splitVerdict.value = ''
+  splitParts.value = []
+  try {
+    const response = await http.post(
+      `/api/courses/${props.courseId}/knowledge-library/points/propose-split`,
+      { knowledge_id: props.point.knowledge_id },
+      { silentError: true, timeout: 180000 },
+    )
+    const proposal = response.data?.proposal || {}
+    const proposed = response.data?.candidate || null
+    if (proposed) {
+      // AI 的建议进入与手工编辑同一个候选区，教师照样要看影响、再确认。
+      candidate.value = proposed
+      splitParts.value = proposal.parts || []
+      splitVerdict.value = proposal.reason
+        || t('knowledgeCommands.splitSuggested', 'AI 建议拆分该知识点。')
+    } else if (proposal.should_split) {
+      splitVerdict.value = t('knowledgeCommands.splitRejected', 'AI 提出了拆分，但未通过质量门：')
+        + (proposal.rejected_reason || '')
+    } else {
+      splitVerdict.value = proposal.reason
+        || t('knowledgeCommands.splitNotNeeded', 'AI 判断该知识点无需拆分。')
+    }
+  } catch (error: any) {
+    logger.error(error)
+    errorText.value = errorMessage(
+      error,
+      t('knowledgeCommands.proposeFailed', 'AI 判断失败，请重试'),
+    )
+  } finally {
+    proposing.value = false
+  }
+}
+
 async function triggerRebuild(): Promise<void> {
   if (!props.point) return
   rebuilding.value = true
@@ -503,21 +585,24 @@ async function triggerRebuild(): Promise<void> {
   try {
     const response = await http.post(
       `/api/courses/${props.courseId}/knowledge-library/points/rebuild-downstream`,
-      {
-        knowledge_id: props.point.knowledge_id,
-        operation: operation.value,
-        value: value.value.trim(),
-        reason: reason.value.trim(),
-        request_id: `rb-${props.point.knowledge_id}-${lastReceiptId.value}`,
-      },
+      { request_id: `rb-${props.point.knowledge_id}-${lastReceiptId.value}` },
       { silentError: true },
     )
     const rebuild = response.data?.rebuild || {}
     rebuildTargets.value = rebuild.targets || []
-    // 管线未接入时如实转达，不显示成"已重建"。
-    rebuildNotice.value = rebuild.status === 'executor_unavailable'
-      ? (rebuild.message || t('knowledgeCommands.rebuildUnavailable', '下游重建管线尚未接入，本次未触发重建。'))
-      : t('knowledgeCommands.rebuildRequested', '已请求重建，可在任务中心查看进度。')
+    rebuildReceipts.value = rebuild.receipts || []
+    // 逐对象如实转达：成功几个、仍待重建几个，都要让教师看到。
+    if (rebuild.status === 'executed') {
+      const summary = rebuild.summary || {}
+      rebuildNotice.value = t('knowledgeCommands.rebuildDone', '重建完成')
+        + `：${summary.content_changed || 0} ${t('knowledgeCommands.rebuiltUnit', '个已更新')}`
+        + `，${summary.stale || 0} ${t('knowledgeCommands.stillStaleUnit', '个仍待重建')}`
+    } else if (rebuild.status === 'nothing_to_rebuild') {
+      rebuildNotice.value = t('knowledgeCommands.rebuildNothing', '当前没有需要重建的下游对象。')
+    } else {
+      rebuildNotice.value = rebuild.message
+        || t('knowledgeCommands.rebuildUnavailable', '下游重建管线尚未接入，本次未触发重建。')
+    }
   } catch (error: any) {
     logger.error(error)
     rebuildNotice.value = errorMessage(
@@ -550,6 +635,20 @@ async function toggleHistory(): Promise<void> {
   } finally {
     historyLoading.value = false
   }
+}
+
+function outcomeLabel(outcome: string): string {
+  if (outcome === 'content_changed') return t('knowledgeCommands.outcomeChanged', '已更新')
+  if (outcome === 'source_verified') return t('knowledgeCommands.outcomeVerified', '已核对')
+  if (outcome === 'blocked') return t('knowledgeCommands.outcomeBlocked', '被阻断')
+  if (outcome === 'unchanged') return t('knowledgeCommands.outcomeUnchanged', '未受影响')
+  return t('knowledgeCommands.outcomeStale', '仍待重建')
+}
+
+function receiptClass(outcome: string): string {
+  return outcome === 'content_changed' || outcome === 'source_verified'
+    ? 'is-ok'
+    : 'is-pending'
 }
 
 function groupLabel(group: string): string {

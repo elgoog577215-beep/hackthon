@@ -2981,6 +2981,22 @@
     "rebuilding": "Requesting rebuild",
     "rebuildUnavailable": "The downstream rebuild pipeline is not connected yet; nothing was rebuilt.",
     "rebuildRequested": "Rebuild requested. Track progress in the task center.",
-    "rebuildFailed": "Rebuild request failed. Please retry."
+    "rebuildFailed": "Rebuild request failed. Please retry.",
+    "rebuildDone": "Rebuild finished",
+    "rebuiltUnit": "updated",
+    "stillStaleUnit": "still pending",
+    "rebuildNothing": "Nothing downstream needs rebuilding right now.",
+    "outcomeChanged": "Updated",
+    "outcomeVerified": "Verified",
+    "outcomeBlocked": "Blocked",
+    "outcomeUnchanged": "Unaffected",
+    "outcomeStale": "Still pending",
+    "proposeSplit": "Ask AI whether to split",
+    "proposing": "AI is evaluating",
+    "splitSuggested": "AI suggests splitting this knowledge point.",
+    "splitNotNeeded": "AI found no need to split this knowledge point.",
+    "splitRejected": "AI proposed a split but it failed the quality gate: ",
+    "newNode": "New node",
+    "proposeFailed": "AI evaluation failed. Please retry."
   }
 }

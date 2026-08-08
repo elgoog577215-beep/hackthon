@@ -2981,6 +2981,22 @@
     "rebuilding": "正在请求重建",
     "rebuildUnavailable": "下游重建管线尚未接入，本次未触发重建。",
     "rebuildRequested": "已请求重建，可在任务中心查看进度。",
-    "rebuildFailed": "重建请求失败，请重试"
+    "rebuildFailed": "重建请求失败，请重试",
+    "rebuildDone": "重建完成",
+    "rebuiltUnit": "个已更新",
+    "stillStaleUnit": "个仍待重建",
+    "rebuildNothing": "当前没有需要重建的下游对象。",
+    "outcomeChanged": "已更新",
+    "outcomeVerified": "已核对",
+    "outcomeBlocked": "被阻断",
+    "outcomeUnchanged": "未受影响",
+    "outcomeStale": "仍待重建",
+    "proposeSplit": "让 AI 判断是否该拆分",
+    "proposing": "AI 正在判断",
+    "splitSuggested": "AI 建议拆分该知识点。",
+    "splitNotNeeded": "AI 判断该知识点无需拆分。",
+    "splitRejected": "AI 提出了拆分，但未通过质量门：",
+    "newNode": "新知识点",
+    "proposeFailed": "AI 判断失败，请重试"
   }
 }

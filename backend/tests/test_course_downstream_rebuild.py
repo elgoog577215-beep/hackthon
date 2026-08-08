@@ -1,8 +1,8 @@
-"""下游重建命令接口测试。
+"""下游重建接线测试。
 
-这里刻意不测"重建成功"，因为重建执行链还不存在（lz-lesson-plan 分支上
-record_rebuild_outcome 至今没有生产调用方）。要测的是：接口约定成立、
-计划正确、执行器缺席时诚实报告而不是假装成功。
+重建执行链已由 lz-lesson-plan 提供（downstream_rebuild.execute_rebuild），
+本模块只是知识侧的适配器。要测的是：计划挑对了对象、真的委派给了共用
+执行器、以及没有可用管线时如实报告失败而不是假装重建过。
 """
 
 from __future__ import annotations
@@ -69,11 +69,21 @@ def test_plan_selects_only_rebuildable_states() -> None:
 
 def test_type_without_owning_pipeline_is_skipped_with_reason() -> None:
     """没有管线认领的类型要说出来，不能假装排进了队列。"""
+    downstream = _downstream()
+    downstream["items"].append(
+        {"type": "totally_unknown", "id": "x-1", "state": "rebuild_required"},
+    )
+    plan = plan_rebuild(downstream)
+    assert {row["id"]: row["skip_reason"] for row in plan["skipped"]}["x-1"] == (
+        "no_owning_pipeline"
+    )
+
     plan = plan_rebuild(_downstream())
 
     skipped = {row["id"]: row["skip_reason"] for row in plan["skipped"]}
-    assert skipped["c-1"] == "no_owning_pipeline"
-    assert "mastery_criterion" not in REBUILD_OWNERS
+    # mastery_criterion 由 practice 管线负责（与共用执行器的 pipeline_for 对齐）
+    assert REBUILD_OWNERS["mastery_criterion"] == "practice"
+    assert "c-1" not in skipped
 
 
 def test_selection_narrows_the_plan() -> None:
@@ -89,26 +99,39 @@ def test_plan_groups_targets_by_owning_pipeline() -> None:
     plan = plan_rebuild(_downstream())
 
     assert plan["counts"]["by_owner"] == {
-        "block_regeneration": 1,
-        "question_bank_rebuild": 1,
-        "representation_compiler": 1,
+        "course_content": 1,
+        "practice": 2,      # q-1 与 mastery_criterion c-1
+        "representation": 1,
     }
 
 
-async def test_missing_executor_reports_honestly_instead_of_succeeding() -> None:
-    """执行器未接入时必须明说，绝不能返回像成功一样的结果。"""
+async def test_delegates_to_the_shared_executor_and_reports_per_object() -> None:
+    """默认走共用执行链，逐对象回执，不再返回"管线未接入"。"""
     assert current_executor() is None
 
     result = await request_rebuild(
         "course-1", _downstream(), actor="teacher-1", request_id="r-1",
+        course_data={"course_document": {}},
     )
 
-    assert result["status"] == "executor_unavailable"
-    assert result["counts"]["targets"] == 3
-    assert "尚未接入" in result["message"]
-    assert result["executor_available"] is False
-    # 仍然给出完整清单：教师至少知道将会重建什么。
-    assert result["targets"]
+    assert result["status"] == "executed"
+    assert result["receipts"], "共用执行器必须给出逐对象回执"
+    # 没有可用管线的对象记为失败/阻断，而不是被悄悄跳过。
+    outcomes = {row["id"]: row["outcome"] for row in result["receipts"]}
+    assert outcomes["block-1"] in {"stale", "blocked"}
+    assert "summary" in result
+
+
+async def test_nothing_to_rebuild_is_stated_not_faked() -> None:
+    """没有可重建对象时明说，不返回像执行过一样的结果。"""
+    result = await request_rebuild(
+        "course-1",
+        {"items": [{"type": "section_content", "id": "b", "state": "current"}]},
+        actor="teacher-1", request_id="r-1", course_data={},
+    )
+
+    assert result["status"] == "nothing_to_rebuild"
+    assert result["counts"]["targets"] == 0
 
 
 async def test_registered_executor_receives_only_planned_targets() -> None:
@@ -121,12 +144,12 @@ async def test_registered_executor_receives_only_planned_targets() -> None:
     )
 
     assert result["status"] == "requested"
-    assert result["receipt"]["accepted"] == 3
+    assert result["receipt"]["accepted"] == 4
     assert len(executor.calls) == 1
     call = executor.calls[0]
     assert call["course_id"] == "course-1"
     assert call["actor"] == "teacher-1"
-    assert {row["id"] for row in call["items"]} == {"block-1", "q-1", "deck-1"}
+    assert {row["id"] for row in call["items"]} == {"block-1", "q-1", "deck-1", "c-1"}
 
 
 def test_snapshot_is_stable() -> None:

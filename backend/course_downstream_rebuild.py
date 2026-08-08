@@ -1,50 +1,52 @@
-"""The seam between "this needs rebuilding" and "rebuild it".
+"""The knowledge side's entry into the shared downstream rebuild chain.
 
-`teaching_plan_impact.build_downstream_state` decides *what* needs rebuilding
-and `record_rebuild_outcome` folds a result back in. The executor between them
-does not exist yet: as of this writing `record_rebuild_outcome` has no
-production caller on any branch, and the lesson-plan branch states in
-`teaching_plan_workbench` that "rebuilds stay with their own pipelines".
+`teaching_plan_impact.build_downstream_state` decides *what* needs rebuilding.
+`downstream_rebuild.execute_rebuild` (contributed by the teaching-plan side)
+决定 *how* — it walks the work list, calls the owning pipeline for each object,
+and folds every result back through `record_rebuild_outcome`.
 
-So this module defines the command interface and nothing else. It deliberately
-does **not** dispatch to `BlockRegenerationService`, the question-bank rebuild
-job, or `rebuild_core_representations_safely`. Writing that fan-out here would
-mean inventing a second rebuild mechanism next to the one the lesson-plan owner
-is building, and would unilaterally fix the write-back contract for a state
-machine we share. A button that quietly does its own thing is worse than a
-button that says the pipeline is not ready.
+This module is the knowledge side's adapter onto that shared executor. It does
+not implement rebuilding: a second executor would give the same course block
+two rebuild paths, two failure semantics and two "last usable artifact"
+records, which is exactly what both sides agreed to avoid.
 
-What this does provide:
+What stays here:
 
-- `DownstreamRebuildExecutor`: the protocol an executor implements.
-- `register_downstream_rebuild_executor`: how the real one gets plugged in.
-- `plan_rebuild`: the read-only plan — exactly which objects would be rebuilt,
-  grouped by type, derived from the downstream state rather than re-derived.
-- An explicit `executor_unavailable` result so the UI can say "not yet wired"
-  instead of appearing to succeed.
-
-When the executor lands, the only change here should be that
-`request_rebuild` finds a registered implementation and returns its receipt.
+- `plan_rebuild`: a read-only preview grouped by owning pipeline, so the
+  teacher can see what a rebuild would touch before pressing anything.
+- Runner construction for the knowledge chain, reusing the same pipelines the
+  teaching-plan side uses.
+- The honest `executor_unavailable` path, kept for the case where the shared
+  executor is not importable — a button that silently does nothing is worse
+  than one that says why.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 REBUILD_PLAN_SCHEMA = "course_downstream_rebuild_plan_v1"
 
 # Downstream item types that a rebuild can target, mapped to the pipeline that
-# owns them. The mapping is documentation of the agreed division of labour, not
-# a dispatch table — this module never calls any of them.
+# owns them. Kept aligned with `downstream_rebuild.pipeline_for` — the shared
+# executor is the authority; this table only drives the preview grouping.
 REBUILD_OWNERS = {
-    "section_content": "block_regeneration",
-    "practice": "question_bank_rebuild",
-    "slide_deck": "representation_compiler",
-    "lesson_plan": "representation_compiler",
-    "handout": "representation_compiler",
-    "practice_sheet": "representation_compiler",
-    "outline": "representation_compiler",
-    "diagram": "representation_compiler",
+    "section_content": "course_content",
+    "course_document": "course_content",
+    "block": "course_content",
+    "practice": "practice",
+    "question": "practice",
+    "mastery_criterion": "practice",
+    "slide_deck": "representation",
+    "lecture": "representation",
+    "handout": "representation",
+    "lesson_plan": "representation",
+    "teaching_representation": "representation",
+    "knowledge_binding": "knowledge",
+    "knowledge_point": "knowledge",
 }
 
 # Only these states are worth acting on. `current` needs nothing; `blocked`
@@ -152,6 +154,56 @@ def plan_rebuild(
     }
 
 
+def build_knowledge_rebuild_runners(
+    course_data: dict[str, Any],
+    *,
+    representation_repository: Any = None,
+) -> dict[str, Any]:
+    """Wrap the existing pipelines in the shape the shared executor expects.
+
+    Same pipelines the teaching-plan side wires, for the same reason: a course
+    block rebuilt because its knowledge changed and one rebuilt because its
+    plan changed must go through identical code, or "last usable artifact"
+    stops meaning one thing.
+
+    Content and practice have no targeted rebuild entry point yet, so their
+    runners fail loudly. The executor turns that into a per-object receipt the
+    teacher can read, which beats reporting a rebuild that never happened.
+    """
+
+    def representation(_entry: dict[str, Any]) -> dict[str, Any]:
+        if representation_repository is None:
+            return {"status": "failed", "error": "表达注册表不可用"}
+        try:
+            from course_document import CourseDocument
+            from representation_compiler import rebuild_core_representations_safely
+
+            document = CourseDocument.model_validate(course_data["course_document"])
+            outcome = rebuild_core_representations_safely(
+                document, course_data, representation_repository,
+            )
+            return {
+                "status": "succeeded",
+                "revision": str((outcome or {}).get("registry_revision") or ""),
+            }
+        except Exception as error:  # noqa: BLE001 - one object must not abort the batch
+            logger.warning("Representation rebuild failed: %s", error)
+            return {"status": "failed", "error": str(error)}
+
+    def unsupported(entry: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": "failed",
+            "error": f"{entry.get('type')} 目前没有可用于定向重建的管线入口",
+        }
+
+    return {
+        "representation": representation,
+        "course_content": unsupported,
+        "practice": unsupported,
+        "knowledge": unsupported,
+    }
+
+
 async def request_rebuild(
     course_id: str,
     downstream: dict[str, Any],
@@ -159,31 +211,58 @@ async def request_rebuild(
     actor: str,
     request_id: str,
     object_ids: list[str] | None = None,
+    course_data: dict[str, Any] | None = None,
+    representation_repository: Any = None,
+    candidate_only: bool = True,
 ) -> dict[str, Any]:
-    """Ask the rebuild pipeline to rebuild the planned objects.
+    """Run the shared executor over the objects this knowledge edit invalidated.
 
-    With no executor registered this returns the plan plus
-    `status="executor_unavailable"`. That is the honest answer today: the
-    teacher sees exactly what would be rebuilt and that the pipeline is not
-    connected, rather than a success message for work nobody performed.
+    Defaults to `candidate_only=True`: a rebuild produces candidates for the
+    teacher to confirm rather than overwriting published artifacts outright.
+    That keeps the knowledge chain consistent with the rest of the product —
+    AI- or command-driven changes are proposed, never silently applied.
     """
     plan = plan_rebuild(downstream, object_ids=object_ids)
-    if _executor is None:
+
+    if _executor is not None:
+        receipt = await _executor.rebuild_downstream(
+            course_id, items=plan["targets"], actor=actor, request_id=request_id,
+        )
+        return {**plan, "status": "requested", "receipt": receipt}
+
+    try:
+        from downstream_rebuild import execute_rebuild, rebuild_summary
+    except ImportError as error:  # pragma: no cover - shared chain always present
+        logger.warning("Shared rebuild chain unavailable: %s", error)
         return {
             **plan,
             "status": "executor_unavailable",
-            "message": (
-                "下游重建管线尚未接入，本次未触发重建；"
-                "以上为将要重建的对象清单。"
-            ),
+            "message": "下游重建管线尚未接入，本次未触发重建；以上为将要重建的对象清单。",
         }
-    receipt = await _executor.rebuild_downstream(
-        course_id,
-        items=plan["targets"],
-        actor=actor,
-        request_id=request_id,
+
+    if not plan["targets"]:
+        return {
+            **plan,
+            "status": "nothing_to_rebuild",
+            "message": "当前没有需要重建的下游对象。",
+        }
+
+    result = execute_rebuild(
+        downstream,
+        runners=build_knowledge_rebuild_runners(
+            course_data or {}, representation_repository=representation_repository,
+        ),
+        only_ids=[row["id"] for row in plan["targets"]],
+        candidate_only=candidate_only,
     )
-    return {**plan, "status": "requested", "receipt": receipt}
+    return {
+        **plan,
+        "status": "executed",
+        "receipts": result["receipts"],
+        "rebuild_counts": result["counts"],
+        "summary": rebuild_summary(result),
+        "downstream": result["downstream"],
+    }
 
 
 def rebuild_plan_snapshot(plan: dict[str, Any]) -> dict[str, Any]:
