@@ -15,6 +15,7 @@ from slide_deck_renderer import (
     _render_process,
     _uses_visual_directed_renderer,
     _worked_example_labels,
+    audit_exported_pptx,
     validate_theme,
 )
 from slide_deck_v5 import (
@@ -1174,7 +1175,7 @@ def test_code_renderer_uses_full_width_when_no_real_annotation_exists() -> None:
     assert code_shapes[0].width >= Inches(10.5)
 
 
-def test_task_process_renderer_uses_vertical_numbered_steps() -> None:
+def test_task_process_renderer_uses_vertical_numbered_steps(tmp_path) -> None:
     presentation = Presentation()
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
     items = [
@@ -1212,6 +1213,12 @@ def test_task_process_renderer_uses_vertical_numbered_steps() -> None:
     assert "执行步骤" in visible_text
     assert all(item in visible_text for item in items)
     assert all(f"{index:02d}" in visible_text for index in range(1, 4))
+    output = tmp_path / "task-procedure.pptx"
+    presentation.save(output)
+    audit = audit_exported_pptx(output, expected_slide_count=1)
+    assert "exported_text_overlap" not in {
+        issue["code"] for issue in audit["issues"]
+    }
 
 
 def test_code_renderer_keeps_annotation_column_when_source_annotation_exists() -> None:
