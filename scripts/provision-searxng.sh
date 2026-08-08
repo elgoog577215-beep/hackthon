@@ -147,6 +147,7 @@ for attempt in $(seq 1 3); do
         --data 'categories=general' \
         --data 'safesearch=2' \
         --data 'language=zh-CN' \
+        --data 'timeout_limit=4' \
         http://127.0.0.1:8080/search \
         | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert payload.get("results")'; then
         smoke_ready=1
@@ -172,6 +173,7 @@ for attempt in $(seq 1 3); do
         --data 'engines=wikicommons.images' \
         --data 'safesearch=2' \
         --data 'language=all' \
+        --data 'timeout_limit=12' \
         http://127.0.0.1:8080/search \
         | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert not payload.get("unresponsive_engines"); assert payload.get("results")'; then
         image_smoke_ready=1

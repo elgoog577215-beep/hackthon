@@ -294,6 +294,7 @@ class SearXNGSearchProvider:
             "safesearch": "2",
             "language": "zh-CN" if _contains_cjk(query) else "en",
             "pageno": "1",
+            "timeout_limit": "12" if category == "images" else "4",
         }
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
