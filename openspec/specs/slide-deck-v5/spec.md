@@ -666,6 +666,23 @@ The system SHALL compute presentation density from final visible pages.
 - **THEN** it reserves space for renderer-added labels and interaction chrome
 - **AND** the final visible page remains within the resolved layout budget
 
+#### Scenario: A practical lab mixes an assignment, operating steps, and checks
+- **WHEN** source-bound practice copy asks the learner to create, run, inspect,
+  modify, or verify an artifact rather than answer a closed question
+- **THEN** V5 preserves the activity as an overview, ordered procedure, and
+  verification sequence using their corresponding visual grammars
+- **AND** it does not attach unrelated conceptual prose as a synthetic answer
+  or judgment-evidence column
+- **AND** adjacent underfilled task pages are consolidated without changing
+  source order or dropping source fragment bindings
+- **AND** one task activity uses no more than four readable pages
+
+#### Scenario: A task activity is consolidated after pagination
+- **WHEN** several source-safe pages are recomposed into fewer final pages
+- **THEN** their visible title sequence is renumbered against the final page
+  count
+- **AND** every original task item remains visible exactly once
+
 #### Scenario: Structured source syntax ends with a semicolon or colon
 - **WHEN** the terminal punctuation belongs to code, a complete checklist row,
   or another structured region rather than unfinished prose

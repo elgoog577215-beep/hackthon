@@ -20,6 +20,7 @@ from slide_deck_v5 import (
     DeckChapterV5,
     _assign_heading_modes_v5,
     _chapter_recap_slide,
+    _consolidate_task_activity_pages_v5,
     _disambiguate_duplicate_titles_v5,
     _enrich_practice_feedback_slides_v5,
     _normalize_concept_definition_slide_v5,
@@ -584,6 +585,165 @@ def test_prompt_only_practice_fails_the_v5_contract_without_feedback() -> None:
     assert "practice_feedback_missing_answer" in {
         issue["code"] for issue in v5_contract_issues([practice])
     }
+
+
+def test_action_task_does_not_receive_unrelated_generic_feedback() -> None:
+    slides = [
+        {
+            "unit_id": "cpu-concept",
+            "chapter_id": "chapter-1",
+            "knowledge_refs": ["cpu"],
+            "scene_kind": "concept",
+            "blocks": [{
+                "block_id": "cpu-fact",
+                "type": "statement",
+                "content": "CPU 调度是基于指令执行的。",
+            }],
+            "quality": {},
+        },
+        {
+            "unit_id": "profiler-task",
+            "chapter_id": "chapter-1",
+            "source_section_ids": ["lesson-profiler"],
+            "knowledge_refs": ["cpu"],
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": "创建性能诊断场景",
+            "blocks": [{
+                "block_id": "task",
+                "type": "exercise",
+                "items": [
+                    "切换到 CPU 标签并勾选 Deep Profile。",
+                    "点击 Play 运行场景并录制至少 5 秒。",
+                ],
+            }],
+            "quality": {"requested_layout": "question-prompt"},
+        },
+    ]
+
+    enriched = _enrich_practice_feedback_slides_v5(slides)
+    task = enriched[-1]
+
+    assert task["quality"]["feedback_mode"] == "task_only"
+    assert task["quality"]["task_prompt_mode"] == "action"
+    assert task["quality"]["requested_layout"] == "process-sequence"
+    assert task["quality"]["prompt_label"] == "执行步骤"
+    assert len(task["blocks"]) == 1
+    assert "CPU 调度是基于指令执行的" not in str(task["blocks"])
+    assert "practice_feedback_missing_answer" not in {
+        issue["code"] for issue in v5_contract_issues([task])
+    }
+
+
+def test_task_activity_pages_consolidate_by_visual_grammar_and_reindex() -> None:
+    def page(
+        index: int,
+        *,
+        mode: str,
+        layout: str,
+        items: list[str],
+    ) -> dict:
+        return {
+            "unit_id": f"task-page-{index}",
+            "position": index,
+            "chapter_id": "chapter-1",
+            "source_section_ids": ["lesson-profiler"],
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": "创建一个场景",
+            "blocks": [{
+                "block_id": f"task-block-{index}",
+                "type": "process" if layout == "process-sequence" else "exercise",
+                "items": items,
+                "metadata": {
+                    "semantic_role": (
+                        "process_step" if layout == "process-sequence" else "prompt"
+                    ),
+                    "question_mode": "task",
+                },
+            }],
+            "quality": {
+                "requested_layout": layout,
+                "feedback_mode": "task_only",
+                "task_prompt_mode": mode,
+                "fragment_ids": [f"fragment-{index}"],
+            },
+        }
+
+    source = [
+        page(0, mode="action", layout="question-prompt", items=[
+            "场景构建：创建一个场景，制造可复现的性能问题。",
+        ]),
+        page(1, mode="action", layout="process-sequence", items=["切换 CPU 标签。", "开始录制。"]),
+        page(2, mode="action", layout="process-sequence", items=["观察曲线。", "定位热点。", "保存结果。"]),
+        page(3, mode="action", layout="process-sequence", items=["切换 Memory 标签。"]),
+        page(4, mode="action", layout="process-sequence", items=["定位持续增长对象。", "完成修复验证。"]),
+        page(5, mode="verification", layout="question-prompt", items=["是否截取了 CPU 视图？"]),
+        page(6, mode="verification", layout="question-prompt", items=["是否指出了持续增长对象？"]),
+    ]
+
+    consolidated = _consolidate_task_activity_pages_v5(source)
+
+    assert len(consolidated) == 4
+    assert [
+        item
+        for slide in consolidated
+        for block in slide["blocks"]
+        for item in block.get("items") or []
+    ] == [
+        item
+        for slide in source
+        for block in slide["blocks"]
+        for item in block.get("items") or []
+    ]
+    assert [slide["quality"]["practice_page_index"] for slide in consolidated] == [
+        1, 2, 3, 4,
+    ]
+    assert all(
+        slide["quality"]["practice_page_count"] == 4
+        for slide in consolidated
+    )
+    assert consolidated[2]["quality"]["requested_layout"] == "process-sequence"
+    assert consolidated[2]["blocks"][0]["type"] == "process"
+    assert consolidated[0]["title"] == "场景构建：创建一个场景"
+    assert consolidated[-1]["title"].endswith("（续4/4）")
+
+
+def test_task_activity_over_four_pages_is_a_critical_contract_failure() -> None:
+    slides = [
+        {
+            "unit_id": f"task-page-{index}",
+            "position": index,
+            "chapter_id": "chapter-1",
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": f"任务（续{index + 1}/5）",
+            "blocks": [{
+                "block_id": f"task-block-{index}",
+                "type": "exercise",
+                "items": [f"执行任务 {index + 1}"],
+                "metadata": {"question_mode": "task"},
+            }],
+            "quality": {
+                "feedback_mode": "task_only",
+                "task_prompt_mode": "action",
+                "task_activity_id": "task-activity-1",
+            },
+        }
+        for index in range(5)
+    ]
+
+    issues = v5_contract_issues(slides)
+
+    assert any(
+        issue["code"] == "task_activity_page_limit_exceeded"
+        and issue["severity"] == "critical"
+        and issue["page_count"] == 5
+        for issue in issues
+    )
 
 
 def test_generated_practice_answers_are_bound_to_stable_question_ids() -> None:

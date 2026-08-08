@@ -56,9 +56,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.30"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.31"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.15"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.16"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -4655,6 +4655,30 @@ def _practice_block_values(block: dict[str, Any]) -> list[str]:
     ]
 
 
+_PRACTICE_ACTION_CUE = re.compile(
+    r"^(?:场景构建|内存诊断|修复验证|切换|点击|尝试|创建|运行|录制|"
+    r"观察|寻找|定位|修改|重新|截取|记录|配置|打开|关闭|执行|"
+    r"build|create|open|switch|click|run|record|observe|locate|modify|verify)",
+    re.IGNORECASE,
+)
+_PRACTICE_VERIFICATION_CUE = re.compile(
+    r"(?:你是否|是否能|能否|有没有|did\s+you|can\s+you)",
+    re.IGNORECASE,
+)
+
+
+def _practice_task_mode(values: list[str]) -> str:
+    clean_values = [_clean_text(value) for value in values if _clean_text(value)]
+    if not clean_values:
+        return ""
+    if all(_PRACTICE_VERIFICATION_CUE.search(value) for value in clean_values):
+        return "verification"
+    if any(re.search(r"[?？]", value) for value in clean_values):
+        return ""
+    action_count = sum(bool(_PRACTICE_ACTION_CUE.search(value)) for value in clean_values)
+    return "action" if action_count >= max(1, (len(clean_values) + 1) // 2) else ""
+
+
 def _practice_question_ids(slide: dict[str, Any], count: int) -> list[str]:
     quality = slide.get("quality") or {}
     declared_ids = [
@@ -4903,6 +4927,32 @@ def _enrich_practice_feedback_slides_v5(
             result.append(slide)
             continue
 
+        task_mode = _practice_task_mode(prompt_values)
+        if not direct_answers and task_mode:
+            prompt["metadata"] = {
+                **(prompt.get("metadata") or {}),
+                "question_mode": "task",
+            }
+            requested_layout = "question-prompt"
+            prompt_label = "验收检查" if task_mode == "verification" else "执行任务"
+            if task_mode == "action" and len(prompt_values) > 1:
+                prompt["type"] = "process"
+                prompt["metadata"]["semantic_role"] = "process_step"
+                requested_layout = "process-sequence"
+                prompt_label = "执行步骤"
+            slide["blocks"] = [prompt]
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "requested_layout": requested_layout,
+                "feedback_mode": "task_only",
+                "task_prompt_mode": task_mode,
+                "prompt_label": prompt_label,
+                "feedback_pair_count": 0,
+                "feedback_evidence_count": 0,
+            }
+            result.append(slide)
+            continue
+
         evidence, source_ids = _grounded_feedback_evidence(slide, result)
         if evidence:
             paired_evidence = evidence[:len(prompt_values)] if prompt_values else evidence[:1]
@@ -5048,6 +5098,189 @@ def _split_practice_feedback_capacity_v5(
             }
             result.append(page)
     return result
+
+
+def _task_page_context_v5(slide: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
+    section_ids = tuple(sorted({
+        _clean_text(value)
+        for value in [
+            *(slide.get("source_section_ids") or []),
+            slide.get("section_id"),
+        ]
+        if _clean_text(value)
+    }))
+    return (_clean_text(slide.get("chapter_id")), section_ids)
+
+
+def _task_page_values_v5(slide: dict[str, Any]) -> list[str]:
+    return [
+        value
+        for block in slide.get("blocks") or []
+        for value in _practice_block_values(block)
+    ]
+
+
+def _merge_task_page_pair_v5(
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> dict[str, Any] | None:
+    left_quality = dict(left.get("quality") or {})
+    right_quality = dict(right.get("quality") or {})
+    left_mode = _clean_text(left_quality.get("task_prompt_mode"))
+    if (
+        not left_mode
+        or left_mode != _clean_text(right_quality.get("task_prompt_mode"))
+        or _clean_text(left_quality.get("requested_layout"))
+        != _clean_text(right_quality.get("requested_layout"))
+        or _task_page_context_v5(left) != _task_page_context_v5(right)
+    ):
+        return None
+    left_blocks = list(left.get("blocks") or [])
+    right_blocks = list(right.get("blocks") or [])
+    if len(left_blocks) != 1 or len(right_blocks) != 1:
+        return None
+    left_values = _task_page_values_v5(left)
+    right_values = _task_page_values_v5(right)
+    values = [*left_values, *right_values]
+    item_limit = 5 if left_mode == "action" else 3
+    character_limit = 240 if left_mode == "action" else 220
+    if len(values) > item_limit or sum(len(value) for value in values) > character_limit:
+        return None
+    merged = deepcopy(left)
+    block = deepcopy(left_blocks[0])
+    block["content"] = ""
+    block["items"] = values
+    left_metadata = dict(block.get("metadata") or {})
+    right_metadata = dict((right_blocks[0].get("metadata") or {}))
+    for field in ("fragment_ids", "source_fragment_ids", "question_ids"):
+        combined = list(dict.fromkeys([
+            *list(left_metadata.get(field) or []),
+            *list(right_metadata.get(field) or []),
+        ]))
+        if combined:
+            left_metadata[field] = combined
+    block["metadata"] = left_metadata
+    if left_mode == "action" and len(values) > 1:
+        block["type"] = "process"
+        block["metadata"] = {
+            **left_metadata,
+            "semantic_role": "process_step",
+            "question_mode": "task",
+        }
+    merged["blocks"] = [block]
+    for field in (
+        "source_section_ids",
+        "source_block_ids",
+        "source_keys",
+        "learning_objective_ids",
+        "practice_task_ids",
+        "knowledge_refs",
+        "ability_refs",
+        "misconception_refs",
+        "mastery_refs",
+    ):
+        merged[field] = list(dict.fromkeys([
+            *list(left.get(field) or []),
+            *list(right.get(field) or []),
+        ]))
+    merged_quality = {
+        **left_quality,
+        "fragment_ids": list(dict.fromkeys([
+            *list(left_quality.get("fragment_ids") or []),
+            *list(right_quality.get("fragment_ids") or []),
+        ])),
+        "semantic_atom_ids": list(dict.fromkeys([
+            *list(left_quality.get("semantic_atom_ids") or []),
+            *list(right_quality.get("semantic_atom_ids") or []),
+        ])),
+        "combined_task_page_ids": list(dict.fromkeys([
+            *list(left_quality.get("combined_task_page_ids") or []),
+            _clean_text(right.get("unit_id")),
+            *list(right_quality.get("combined_task_page_ids") or []),
+        ])),
+    }
+    if left_mode == "action" and len(values) > 1:
+        merged_quality.update({
+            "requested_layout": "process-sequence",
+            "prompt_label": "执行步骤",
+        })
+    merged["quality"] = merged_quality
+    return merged
+
+
+def _task_activity_title_v5(slide: dict[str, Any]) -> str:
+    first = next(iter(_task_page_values_v5(slide)), "")
+    match = re.match(r"^([^：:]{2,10}[：:])\s*([^，,。；;]{2,18})", first)
+    candidate = f"{match.group(1)}{match.group(2)}" if match else first
+    return _bounded_title(candidate, limit=24) or _bounded_title(
+        _clean_text(slide.get("title")),
+        limit=24,
+    )
+
+
+def _consolidate_task_activity_pages_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Turn a fragmented lab into overview, steps, and verification pages."""
+    consolidated: list[dict[str, Any]] = []
+    index = 0
+    while index < len(slides):
+        source = slides[index]
+        source_quality = source.get("quality") or {}
+        if not _clean_text(source_quality.get("task_prompt_mode")):
+            consolidated.append(source)
+            index += 1
+            continue
+        context = _task_page_context_v5(source)
+        run: list[dict[str, Any]] = []
+        while index < len(slides):
+            candidate = slides[index]
+            quality = candidate.get("quality") or {}
+            if (
+                not _clean_text(quality.get("task_prompt_mode"))
+                or _task_page_context_v5(candidate) != context
+            ):
+                break
+            run.append(deepcopy(candidate))
+            index += 1
+        packed: list[dict[str, Any]] = []
+        for candidate in run:
+            if packed:
+                merged = _merge_task_page_pair_v5(packed[-1], candidate)
+                if merged is not None:
+                    packed[-1] = merged
+                    continue
+            packed.append(candidate)
+        root_id = _clean_text(packed[0].get("unit_id"))
+        activity_id = stable_hash(
+            {
+                "root_id": root_id,
+                "source_page_ids": [
+                    _clean_text(item.get("unit_id")) for item in run
+                ],
+            },
+            prefix="taskactivityv5_",
+        )
+        base_title = _task_activity_title_v5(packed[0]) or "课堂任务"
+        page_count = len(packed)
+        for page_index, page in enumerate(packed, start=1):
+            suffix = "" if page_index == 1 else f"（续{page_index}/{page_count}）"
+            page["title"] = f"{_bounded_title(base_title, limit=max(14, 24 - len(suffix)))}{suffix}"
+            quality = dict(page.get("quality") or {})
+            quality.update({
+                "task_activity_id": activity_id,
+                "task_activity_consolidated": len(packed) < len(run),
+                "practice_page_index": page_index,
+                "practice_page_count": page_count,
+                "continuation_of": root_id if page_index > 1 else "",
+                "continuation_index": page_index if page_index > 1 else 0,
+                "continuation_total": page_count,
+            })
+            page["quality"] = quality
+            consolidated.append(page)
+    for position, slide in enumerate(consolidated):
+        slide["position"] = position
+    return consolidated
 
 
 def _materialize_v5_structure(
@@ -5888,6 +6121,7 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if (
             str(slide.get("scene_kind") or "") == "practice_feedback"
             and str(slide.get("beat_role") or "") == "prompt"
+            and str(quality.get("feedback_mode") or "") != "task_only"
             and not _practice_has_feedback(slide)
         ):
             issues.append({
@@ -6174,6 +6408,25 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             })
         if requested in {"two-column", "positive-negative"} and resolved == "editorial-body":
             continue
+    task_activity_pages: dict[str, list[str]] = {}
+    for slide in slides:
+        activity_id = _clean_text(
+            (slide.get("quality") or {}).get("task_activity_id")
+        )
+        if activity_id:
+            task_activity_pages.setdefault(activity_id, []).append(
+                _clean_text(slide.get("unit_id"))
+            )
+    for activity_id, page_ids in task_activity_pages.items():
+        if len(page_ids) <= 4:
+            continue
+        issues.append({
+            "severity": "critical",
+            "code": "task_activity_page_limit_exceeded",
+            "page_id": page_ids[0],
+            "task_activity_id": activity_id,
+            "page_count": len(page_ids),
+        })
     return issues
 
 
@@ -7137,6 +7390,7 @@ def compile_slide_deck_v5(
             }
     slides = _enrich_practice_feedback_slides_v5(slides)
     slides = _split_practice_feedback_capacity_v5(slides)
+    slides = _consolidate_task_activity_pages_v5(slides)
     slides = [
         _normalize_concept_definition_slide_v5(slide)
         for slide in slides

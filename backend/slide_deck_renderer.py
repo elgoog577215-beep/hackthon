@@ -2157,7 +2157,17 @@ def _render_question_prompt(
         for index, value in enumerate(values, start=1)
     ) or unit.key_message or unit.takeaway
     _shape(slide, 0.92, 2.18, 0.11, 3.5, theme["accent"], radius=False)
-    _text(slide, "先独立判断", 1.42, 2.24, 2.4, 0.34, 13, theme["accent"], bold=True)
+    _text(
+        slide,
+        str(unit.quality.get("prompt_label") or "先独立判断"),
+        1.42,
+        2.24,
+        2.4,
+        0.34,
+        13,
+        theme["accent"],
+        bold=True,
+    )
     _text(
         slide,
         prompt,
