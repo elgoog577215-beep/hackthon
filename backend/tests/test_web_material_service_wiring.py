@@ -147,3 +147,18 @@ def test_ingest_model_normalizes_comma_separated_exclusions():
     )
     assert payload.excluded_source_ids == ["src_a", "src_b"]
     assert payload.excluded_urls == []
+
+
+def test_persisted_course_carries_web_summary_for_teacher_panel():
+    """真实生成后教师端面板要能拿到联网汇总。
+
+    产物层设了 web_material_search，但落库的 course_data 曾漏掉这一键，
+    导致真实生成完成后审阅面板无数据（2026-08-08 真实跑通时发现）。
+    """
+    import inspect
+
+    import course_service
+
+    source = inspect.getsource(course_service.CourseService.build_course_draft)
+    # 两处 course_data 构造块都必须带上这一键。
+    assert source.count('"web_material_search": artifacts.get(') == 2

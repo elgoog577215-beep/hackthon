@@ -362,6 +362,7 @@ class CourseService(AIBase):
             "asset_preferences",
             "web_question_enrichment",
             "web_material_ingest",
+            "web_material_search",
             "requirements",
             "subject_pedagogy_profile",
             "difficulty_profile",
@@ -749,6 +750,9 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": artifacts.get("evidence_coverage_plan", {}),
+            "web_material_search": artifacts.get(
+                "web_material_search", {"enabled": False}
+            ),
             "subject_pedagogy_profile": profile.to_dict(),
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
@@ -978,6 +982,10 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": evidence_coverage_plan,
+            # 教师端审阅面板消费这份汇总；不带过来会导致真实生成后面板无数据。
+            "web_material_search": artifacts.get(
+                "web_material_search", {"enabled": False}
+            ),
             "course_blueprint": outline_blueprint,
             "course_outline_constraint_report": plan_constraint_report,
             "blueprint_validation_report": validate_blueprint(outline_blueprint),
