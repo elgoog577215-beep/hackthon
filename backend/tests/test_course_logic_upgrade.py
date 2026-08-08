@@ -274,3 +274,28 @@ def test_upgrade_recovers_missing_objective_from_existing_section_summary():
         "能够说明热力学第一定律及其在封闭系统能量分析中的应用"
     )
     assert course == before
+
+
+def test_upgrade_preserves_math_pedagogy_in_teaching_plan():
+    course = migrated_course_missing_logic()
+    course["course_name"] = "线性代数：理论与应用"
+    before = deepcopy(course)
+    repository = CourseDocumentRepository(MemoryStorage(course))
+
+    result = compile_course_logic_upgrade(
+        repository.load_course_view("course-legacy-logic")
+    )
+
+    updates = result["updates"]
+    assert updates["subject_pedagogy_profile"]["primary_mode"] == "math_formal"
+    module_ids = {
+        module["module_id"]
+        for section in updates["course_teaching_plan"]["sections"]
+        for module in section["teaching_modules"]
+    }
+    assert {
+        "math_intuition",
+        "math_formalization",
+        "math_worked_example",
+    }.issubset(module_ids)
+    assert course == before
