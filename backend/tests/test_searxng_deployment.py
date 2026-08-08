@@ -119,6 +119,7 @@ def test_normal_deploy_preflights_searxng_before_stopping_application() -> None:
     assert "WEB_RETRIEVAL_PROVIDER" in script
     assert "SEARXNG_BASE_URL" in script
     assert "format=json" in script
+    assert "timeout_limit=4" in script
 
 
 def test_production_diagnostics_asserts_all_product_retrieval_paths() -> None:
