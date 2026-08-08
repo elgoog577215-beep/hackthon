@@ -201,6 +201,18 @@ def export_structured_slide_deck(
     """Render the same slide spec used by the browser preview into editable PPTX."""
     deck = SlideDeckContent.model_validate(content)
     payload = deck.model_dump(mode="json")
+    if deck.schema_version == "slide_deck_v5":
+        for unit in deck.slides:
+            quality = unit.quality or {}
+            if not quality.get("resolved_layout"):
+                raise ValueError(
+                    f"v5_final_layout_missing:{unit.unit_id}"
+                )
+            if str(quality["resolved_layout"]) not in V5_LAYOUT_RENDERER_NAMES:
+                raise ValueError(
+                    "v5_final_layout_unsupported:"
+                    f"{unit.unit_id}:{quality['resolved_layout']}"
+                )
     if require_quality:
         if deck.schema_version == "slide_deck_v5":
             from slide_deck_v5 import (

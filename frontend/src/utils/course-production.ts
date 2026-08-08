@@ -62,26 +62,26 @@ export function courseProductionStageStatus(task: Task | undefined, index: numbe
   return 'active'
 }
 
-function courseProductionStageName(task?: Task): string {
-  const isProject = task?.courseType === 'project'
-  const names: Record<CourseProductionStageKey, string> = {
-    requirements: isProject
-      ? t('courseGeneration.lifecycle.projectRequirements', '项目需求')
-      : t('courseGeneration.lifecycle.requirements', '需求'),
-    outline: isProject
-      ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
-      : t('courseGeneration.lifecycle.outline', '目录'),
-    teaching: isProject
-      ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
-      : t('courseGeneration.lifecycle.teaching', '教案与知识库'),
-    content: isProject
-      ? t('courseGeneration.lifecycle.projectContent', '项目课程')
-      : t('courseGeneration.lifecycle.content', '正文生成'),
-    release: isProject
-      ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
-      : t('courseGeneration.lifecycle.release', '确认发布'),
+export function courseProductionStageLabel(
+  task: Task | undefined,
+  stage: CourseProductionStageKey,
+): string {
+  const prefixes = { project: 'project', inquiry: 'inquiry', exam: 'exam' } as const
+  const prefix = prefixes[task?.courseType as keyof typeof prefixes] || ''
+  const baseLabels: Record<CourseProductionStageKey, string> = {
+    requirements: t('courseGeneration.lifecycle.requirements', '需求'),
+    outline: t('courseGeneration.lifecycle.outline', '目录'),
+    teaching: t('courseGeneration.lifecycle.teaching', '教案与知识库'),
+    content: t('courseGeneration.lifecycle.content', '正文生成'),
+    release: t('courseGeneration.lifecycle.release', '确认发布'),
   }
-  return names[courseProductionStageKey(task)]
+  if (!prefix) return baseLabels[stage]
+  const typedKey = `${prefix}${stage[0]!.toUpperCase()}${stage.slice(1)}`
+  return t(`courseGeneration.lifecycle.${typedKey}`, baseLabels[stage])
+}
+
+function courseProductionStageName(task?: Task): string {
+  return courseProductionStageLabel(task, courseProductionStageKey(task))
 }
 
 function replace(template: string, values: Record<string, string | number>): string {

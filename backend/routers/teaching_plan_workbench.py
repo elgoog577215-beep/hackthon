@@ -45,14 +45,18 @@ class CommandRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
+class InitializeBaselineRequest(CommandRequest):
+    base_course_document_revision: str = Field(default="", max_length=200)
+
+
 class AICandidateRequest(BaseModel):
-    paths: list[str] = Field(min_length=1, max_length=12)
+    paths: list[str] = Field(min_length=1, max_length=96)
     instruction: str = Field(min_length=1, max_length=3000)
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class CandidateCommandRequest(CommandRequest):
-    operation_ids: list[str] = Field(default_factory=list, max_length=12)
+    operation_ids: list[str] = Field(default_factory=list, max_length=96)
 
 
 def _service(repository=Depends(get_course_document_repository)) -> TeachingPlanWorkbenchService:
@@ -89,6 +93,26 @@ async def get_workbench(
     try:
         return {"status": "success", "workbench": service.view(course_id, actor=_actor(request))}
     except Exception as exc:  # Convert domain conflicts into a stable API contract.
+        raise _error(exc) from exc
+
+
+@router.post("/baseline")
+async def initialize_baseline(
+    course_id: str,
+    body: InitializeBaselineRequest,
+    request: Request,
+    service: TeachingPlanWorkbenchService = Depends(_service),
+) -> dict[str, Any]:
+    try:
+        return {
+            "status": "initialized",
+            **await service.initialize_baseline(
+                course_id,
+                actor=_actor(request),
+                **body.model_dump(),
+            ),
+        }
+    except Exception as exc:
         raise _error(exc) from exc
 
 

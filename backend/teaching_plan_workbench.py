@@ -18,10 +18,13 @@ from uuid import uuid4
 from course_document import CourseDocument, stable_hash
 from course_generation_workflow import (
     apply_course_teaching_plan,
+    build_course_knowledge_scope_contract,
+    compile_course_teaching_plan_modules,
     validate_course_teaching_plan,
 )
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_revisions import revision_vector_for_course
+from course_teaching_plan_v3 import promote_course_teaching_plan_v3
 from course_teaching_plan_projection import project_course_teaching_plan
 from teaching_plan_impact import (
     build_downstream_state,
@@ -647,7 +650,12 @@ def _diff_between(
     return {"schema_version": "teaching_plan_diff_v1", "operations": entries}
 
 
-def _baseline_revision(raw: dict[str, Any], state: dict[str, Any]) -> None:
+def _baseline_revision(
+    raw: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    created_by: str = "generation",
+) -> None:
     revisions = state.setdefault("revisions", [])
     if not isinstance(revisions, list):
         revisions = []
@@ -667,9 +675,55 @@ def _baseline_revision(raw: dict[str, Any], state: dict[str, Any]) -> None:
         "snapshot": source,
         "change_set_id": "",
         "quality_report": _validate(source),
-        "created_by": "generation",
+        "created_by": created_by,
         "created_at": _now(),
     })
+
+
+def _initializable_sections(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    plan = raw.get("course_plan")
+    if not isinstance(plan, dict):
+        return []
+    return [
+        deepcopy(section)
+        for chapter in plan.get("chapters") or []
+        if isinstance(chapter, dict)
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict) and _text(section.get("node_id"))
+    ]
+
+
+def _compile_initial_teaching_plan(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    plan = raw.get("course_plan")
+    sections = _initializable_sections(raw)
+    if not isinstance(plan, dict) or not sections:
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_initialization_unavailable",
+            "当前课程缺少可用于建立教案基线的结构化目录。",
+        )
+    scope = build_course_knowledge_scope_contract(plan)
+    outline_revision_id = _text(scope.get("revision_id"))
+    compiled = compile_course_teaching_plan_modules(
+        {"sections": sections},
+        sections=sections,
+    )
+    official = promote_course_teaching_plan_v3(
+        compiled,
+        outline_revision_id=outline_revision_id,
+    )
+    official = compile_course_teaching_plan_modules(official, sections=sections)
+    report = validate_course_teaching_plan(
+        official,
+        sections=sections,
+        expected_outline_revision_id=outline_revision_id or None,
+    )
+    if not report.get("passed"):
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_initialization_blocked",
+            "当前目录还不能建立可编辑教案，请先修复目录中的结构问题。",
+            details={"validation": report},
+        )
+    return official, report
 
 
 def _public_draft(draft: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -723,7 +777,14 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 for suffix in ("statement", "capability"):
                     path = f"sections/{section_id}/knowledge/{name}/{suffix}"
                     fields.append({"path": path, **field_permission(path)})
-    return fields
+    readable_fields = []
+    for field in fields:
+        try:
+            field["value_hash"] = _value_hash(_read_path(snapshot, field["path"]))
+        except TeachingPlanWorkbenchError:
+            continue
+        readable_fields.append(field)
+    return readable_fields
 
 
 def _candidate_prompt(
@@ -847,7 +908,15 @@ class TeachingPlanWorkbenchService:
         state = _state(raw)
         current_revision = _current_plan_revision(raw)
         is_canonical = self.repository.is_canonical(raw)
+        can_initialize = bool(
+            is_canonical
+            and self.feature_enabled
+            and not current_revision
+            and _initializable_sections(raw)
+        )
         draft = (state.get("drafts") or {}).get(actor)
+        if isinstance(draft, dict) and isinstance(draft.get("snapshot"), dict):
+            snapshot = deepcopy(draft["snapshot"])
         revisions = [
             {
                 key: deepcopy(value)
@@ -863,9 +932,11 @@ class TeachingPlanWorkbenchService:
             "actor": actor,
             "enabled": self.feature_enabled,
             "available": bool(current_revision and is_canonical and self.feature_enabled),
+            "can_initialize": can_initialize,
             "read_only_reason": (
                 "" if current_revision and is_canonical and self.feature_enabled
                 else "教案工作台当前未启用，只能查看正式教案。" if not self.feature_enabled
+                else "当前课程可以从已发布目录建立可编辑教案基线。" if can_initialize
                 else "当前课程尚未迁移为可修订的结构化课程；现可阅读，迁移后可编辑。"
             ),
             "current_plan_revision_id": current_revision,
@@ -887,7 +958,102 @@ class TeachingPlanWorkbenchService:
                 if isinstance(item, dict) and item.get("actor") == actor
             ],
             "downstream": deepcopy(state.get("downstream") or {}),
-            "editable_fields": _editable_fields(snapshot) if is_canonical else [],
+            "editable_fields": (
+                _editable_fields(snapshot)
+                if current_revision and is_canonical
+                else []
+            ),
+        }
+
+    async def initialize_baseline(
+        self,
+        course_id: str,
+        *,
+        actor: str,
+        idempotency_key: str,
+        base_course_document_revision: str,
+    ) -> dict[str, Any]:
+        self._require_feature_enabled()
+        raw = self.repository.load_raw(course_id)
+        command_id = f"teaching-plan-initialize:{actor}:{idempotency_key}"
+        existing_receipt = self.repository.receipt_for_command(course_id, command_id)
+        if existing_receipt:
+            return {
+                "workbench": self.view(course_id, actor=actor),
+                "receipt": existing_receipt,
+            }
+        if not self.repository.is_canonical(raw):
+            raise TeachingPlanWorkbenchError(
+                "teaching_plan_readonly_legacy",
+                "当前课程需要先迁移为结构化课程。",
+            )
+        current_revision = _current_plan_revision(raw)
+        if current_revision:
+            return {
+                "workbench": self.view(course_id, actor=actor),
+                "receipt": {},
+            }
+        document_revision = _text(raw.get("course_document_revision"))
+        if base_course_document_revision and base_course_document_revision != document_revision:
+            raise TeachingPlanWorkbenchError(
+                "course_document_base_conflict",
+                "课程正文已更新，请重新载入后再建立教案基线。",
+                details={"current_course_document_revision": document_revision},
+            )
+        official, report = _compile_initial_teaching_plan(raw)
+
+        def mutation(working: dict[str, Any]) -> None:
+            if _current_plan_revision(working):
+                raise TeachingPlanWorkbenchError(
+                    "teaching_plan_base_conflict",
+                    "正式教案已由其他操作建立，请重新载入。",
+                    details={
+                        "current_plan_revision_id": _current_plan_revision(working),
+                    },
+                )
+            working["course_teaching_plan"] = deepcopy(official)
+            working["course_plan"] = apply_course_teaching_plan(
+                deepcopy(working.get("course_plan") or {}),
+                official,
+            )
+            working.setdefault("generation_stage_artifacts", {})[
+                "course_teaching_plan"
+            ] = {
+                "status": "completed",
+                "semantic_status": "deterministic_baseline",
+                "schema_version": official.get("schema_version"),
+                "revision_id": official.get("revision_id"),
+                "source_outline_revision_id": official.get(
+                    "source_outline_revision_id",
+                ),
+                "validation_report": deepcopy(report),
+                "strategy": "explicit_course_plan_upgrade",
+                "model_call_count": 0,
+            }
+            working["teaching_plan_migration"] = {
+                "schema_version": "teaching_plan_migration_v1",
+                "source": "published_course_plan",
+                "revision_id": official.get("revision_id"),
+                "actor": actor,
+                "created_at": _now(),
+            }
+            state = _state(working, create=True)
+            _baseline_revision(working, state, created_by="migration")
+
+        receipt = await self.repository.apply_metadata_command(
+            course_id,
+            expected_document_revision=document_revision,
+            operation={
+                "command_id": command_id,
+                "operation": "initialize_teaching_plan_baseline",
+                "reason": "从已发布课程目录显式建立可编辑教案基线",
+                "actor": actor,
+            },
+            mutation=mutation,
+        )
+        return {
+            "workbench": self.view(course_id, actor=actor),
+            "receipt": receipt,
         }
 
     async def create_draft(
@@ -1006,10 +1172,22 @@ class TeachingPlanWorkbenchService:
             after = _write_path(snapshot, path, value)
             if before == after:
                 return
+            existing_operation = next(
+                (
+                    item for item in draft.get("operations") or []
+                    if isinstance(item, dict) and item.get("path") == path
+                ),
+                None,
+            )
+            official_before = (
+                deepcopy(existing_operation.get("before"))
+                if isinstance(existing_operation, dict)
+                else _read_path(_source_snapshot(working), path)
+            )
             operation = {
                 "operation_id": _new_id("tpo_"),
                 "path": path,
-                "before": before,
+                "before": official_before,
                 "after": after,
                 "source": "manual",
                 "permission": field_permission(path)["state"],
@@ -1019,7 +1197,8 @@ class TeachingPlanWorkbenchService:
                 item for item in draft.get("operations") or []
                 if isinstance(item, dict) and item.get("path") != path
             ]
-            operations.append(operation)
+            if official_before != after:
+                operations.append(operation)
             draft["snapshot"] = snapshot
             draft["operations"] = operations
             draft["changed_paths"] = [item.get("path") for item in operations]
@@ -1231,6 +1410,7 @@ class TeachingPlanWorkbenchService:
             if not selected:
                 raise TeachingPlanWorkbenchError("teaching_plan_ai_no_selection", "请至少选择一项 AI 建议。")
             snapshot = deepcopy(draft.get("snapshot") or {})
+            official_snapshot = _source_snapshot(working)
             merged = [item for item in draft.get("operations") or [] if isinstance(item, dict)]
             for operation in selected:
                 path = _text(operation.get("path"))
@@ -1239,8 +1419,23 @@ class TeachingPlanWorkbenchService:
                     candidate["status"] = "stale"
                     raise TeachingPlanWorkbenchError("teaching_plan_ai_stale", "草稿字段已变化，请重新生成 AI 候选。")
                 after = _write_path(snapshot, path, operation.get("after"))
+                existing_operation = next(
+                    (item for item in merged if item.get("path") == path),
+                    None,
+                )
+                official_before = (
+                    deepcopy(existing_operation.get("before"))
+                    if isinstance(existing_operation, dict)
+                    else _read_path(official_snapshot, path)
+                )
                 merged = [item for item in merged if item.get("path") != path]
-                merged.append({**operation, "after": after, "accepted_at": _now()})
+                if official_before != after:
+                    merged.append({
+                        **operation,
+                        "before": official_before,
+                        "after": after,
+                        "accepted_at": _now(),
+                    })
             draft["snapshot"] = snapshot
             draft["operations"] = merged
             draft["changed_paths"] = [item.get("path") for item in merged]

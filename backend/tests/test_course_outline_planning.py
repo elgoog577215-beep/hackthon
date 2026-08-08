@@ -171,6 +171,88 @@ def test_unspecified_course_rejects_six_section_skeleton():
     }
 
 
+def test_dedicated_course_planner_requires_complete_ordered_stages():
+    shape = {"chapter_count": 5, "section_count": 15}
+    contract = {
+        "required_planning_stages": [
+            {"id": "define_question"},
+            {"id": "decompose_questions"},
+            {"id": "gather_evidence"},
+            {"id": "test_explanations"},
+            {"id": "form_conclusion"},
+        ],
+    }
+    fingerprint = outline_request_fingerprint(
+        topic="生成式 AI 会如何改变大学评价",
+        audience="undergraduate",
+        brief={"course_shape_constraints": shape, "course_type_contract": contract},
+        difficulty_profile={"level": "intermediate"},
+    )
+    skeleton = normalize_outline_skeleton(
+        {
+            "course_title": "生成式 AI 与大学评价",
+            "chapters": [
+                {
+                    "title": f"探究阶段 {index}",
+                    "planning_stages": [stage["id"]],
+                    "section_count": 3,
+                }
+                for index, stage in enumerate(
+                    contract["required_planning_stages"],
+                    start=1,
+                )
+            ],
+        },
+        topic="生成式 AI 会如何改变大学评价",
+        request_fingerprint=fingerprint,
+    )
+
+    passed = validate_outline_skeleton(
+        skeleton,
+        shape_constraints=shape,
+        request_fingerprint=fingerprint,
+        course_type_contract=contract,
+    )
+    assert passed["passed"] is True
+
+    skeleton["chapters"][2]["planning_stages"] = ["form_conclusion"]
+    failed = validate_outline_skeleton(
+        skeleton,
+        shape_constraints=shape,
+        request_fingerprint=fingerprint,
+        course_type_contract=contract,
+    )
+    assert failed["passed"] is False
+    assert {
+        issue["code"] for issue in failed["issues"]
+    } >= {
+        "outline_skeleton:incomplete_planning_stages",
+        "outline_skeleton:planning_stage_order_mismatch",
+    }
+
+    compact = normalize_outline_skeleton(
+        {
+            "course_title": "一章完成探究闭环",
+            "chapters": [{
+                "title": "完整探究",
+                "planning_stages": [
+                    item["id"] for item in contract["required_planning_stages"]
+                ],
+                "section_count": 1,
+            }],
+        },
+        topic="生成式 AI 会如何改变大学评价",
+        request_fingerprint=fingerprint,
+    )
+    compact_report = validate_outline_skeleton(
+        compact,
+        shape_constraints={"chapter_count": 1, "section_count": 1},
+        request_fingerprint=fingerprint,
+        course_type_contract=contract,
+    )
+    assert compact_report["passed"] is True
+
+
 def test_large_outline_is_split_per_chapter_and_locally_assembled():
     shape = {"chapter_count": 8, "section_count": 48}
     fingerprint = outline_request_fingerprint(

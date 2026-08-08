@@ -54,6 +54,53 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Configure ModelScope last-resort provider
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
+          MODELSCOPE_MODEL: deepseek-ai/DeepSeek-V4-Pro
+        run: |
+          set -euo pipefail
+          test -n "$MODELSCOPE_API_KEY"
+
+          remote_script="$(ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "mktemp /tmp/lingzhi-configure-modelscope.XXXXXX.py")"
+          cleanup_remote_script() {
+            ssh \
+              -i ~/.ssh/lingzhi_deploy \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+              "rm -f -- '$remote_script'" || true
+          }
+          trap cleanup_remote_script EXIT
+
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/configure_modelscope_fallback.py \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"]}))' | ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "python3 '$remote_script'"
+
+          cleanup_remote_script
+          trap - EXIT
+
       - name: Upload release artifact
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
