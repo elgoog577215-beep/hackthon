@@ -616,6 +616,7 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
     assert [episode.scene_kind for episode in chapter.episodes] == [
         "chapter_entry",
         "concept",
+        "method",
         "worked_example",
         "practice_feedback",
         "chapter_recap",
@@ -626,8 +627,12 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
         for beat in episode.beats
         for fragment_id in beat.fragment_ids
     }
-    assert {"core-body", "case-body", "practice-body"} <= selected_ids
-    assert "method-body" not in selected_ids
+    assert {
+        "core-body",
+        "method-body",
+        "case-body",
+        "practice-body",
+    } <= selected_ids
     allocation, _ = allocation_from_story_plan_v2(
         document,
         fragments,
@@ -638,14 +643,14 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
         for page in allocation.pages
         if page.fragment_ids
     ]
-    assert len(teaching_pages) == 3
+    assert 4 <= len(teaching_pages) <= 6
     assert all(
         exclusion.reason == "v5_semantic_core"
         for exclusion in allocation.exclusions
     )
-    assert {
+    assert "method-body" not in {
         exclusion.fragment_id for exclusion in allocation.exclusions
-    } >= {"method-heading", "method-body"}
+    }
     refined = compact.model_copy(update={
         "planner": "ai",
         "chapters": [
@@ -682,9 +687,9 @@ def test_v5_story_compaction_selects_complete_semantic_groups_per_section() -> N
     )
 
     assert not any(page.appendix for page in refined_allocation.pages)
-    assert {
+    assert "method-body" not in {
         exclusion.fragment_id for exclusion in refined_allocation.exclusions
-    } >= {"method-heading", "method-body"}
+    }
     assert all(
         exclusion.reason == "v5_semantic_core"
         for exclusion in refined_allocation.exclusions

@@ -731,6 +731,7 @@ V5_LAYOUT_RENDERER_NAMES = {
     "classification-3": "_render_classification_three",
     "process-sequence": "_render_process",
     "formula-explanation": "_render_editorial_body",
+    "code": "_render_code",
     "figure-text": "_render_visual_directed",
     "diagram-full": "_render_visual_directed",
     "worked-example": "_render_worked_example",

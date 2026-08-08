@@ -629,3 +629,194 @@ The system SHALL compute presentation density from final visible pages.
 - **WHEN** the repetition is used as an explicit retrieval summary
 - **THEN** it is exempt from adjacent-content duplication
 - **AND** all other material adjacent duplication remains blocking
+
+### Requirement: V5 Is A Course-Native Teaching Projection
+
+The system SHALL treat the canonical course document and formal teaching plan
+as the teaching narrative authority. V5 may compress and visually reorganize
+that narrative for projection, but SHALL NOT independently reconstruct a
+different sequence of claims from disconnected source fragments.
+
+#### Scenario: A course section already forms a complete teaching loop
+- **WHEN** its ordered source blocks express concept, explanation, example or
+  artifact, learner action, and feedback
+- **THEN** V5 preserves that relative teaching order in one or more adjacent
+  teaching episodes
+- **AND** every page remains traceable to the source section, module instance,
+  semantic unit, and source fragment IDs that established the loop
+
+#### Scenario: Course prose is too dense for direct projection
+- **WHEN** the canonical section cannot fit readable slide budgets verbatim
+- **THEN** V5 selects complete source-bound judgments and artifacts while
+  preserving the section's teaching intent and dependencies
+- **AND** it does not copy the entire prose document onto slides or replace it
+  with an unrelated slide-only narrative
+
+#### Scenario: Adjacent source modules depend on one another
+- **WHEN** an example, runnable artifact, output, modification, or feedback
+  depends on an earlier concept or action
+- **THEN** the story plan records the dependency in one teaching episode chain
+- **AND** compaction cannot separate the dependent page from all of its
+  prerequisite context
+
+#### Scenario: Source fragments come from different course topics
+- **WHEN** they do not share one section-level teaching episode or an explicit
+  transition in the formal teaching plan
+- **THEN** they cannot be combined merely to fill a page
+- **AND** a visible transition is required before the deck changes topics
+
+### Requirement: Every V5 Build Has A Subject Presentation Contract
+
+The system SHALL compile a typed subject presentation contract after source
+fragmentation and semantic normalization, and before V5 story compaction. The
+contract SHALL use the persisted pedagogy profile, subject modules, lesson
+archetypes, and source artifact evidence instead of relying only on a course
+title or a model prompt.
+
+#### Scenario: A programming and engineering course contains runnable code
+- **WHEN** code, execution output, mechanism, modification, debugging, testing,
+  or architecture evidence is present in the canonical course
+- **THEN** the contract marks the applicable evidence as characteristic
+  teaching artifacts
+- **AND** the story plan preserves at least one complete source-bound
+  implementation loop per applicable chapter
+
+#### Scenario: A non-programming subject is compiled
+- **WHEN** its subject profile requires formulas, derivations, experiment data,
+  source excerpts, timelines, dialogues, cases, charts, or another domain
+  representation
+- **THEN** the contract records the required and optional representation kinds,
+  minimum chapter coverage, and supported page compositions
+- **AND** generic text layouts alone cannot satisfy a required representation
+
+#### Scenario: Subject classification is uncertain
+- **WHEN** the persisted profile has low confidence or conflicts with module and
+  source artifact evidence
+- **THEN** the compiler records `subject_profile_evidence_conflict` or requests
+  confirmation before claiming subject-specific completeness
+- **AND** it does not silently apply an unrelated subject grammar
+
+### Requirement: Characteristic Teaching Artifacts Are Non-Discardable
+
+The system SHALL distinguish optional prose from characteristic artifacts that
+are required by the subject presentation contract. A characteristic artifact
+cannot receive a generic semantic-core exclusion merely because it exceeds a
+text page budget or loses a competition between three source groups.
+
+#### Scenario: A code, formula, table, diagram, dataset, or source excerpt is long
+- **WHEN** the artifact is required for the current teaching episode
+- **THEN** V5 paginates it at a semantically safe boundary and retains its
+  explanation, conditions, and expected result on adjacent pages
+- **AND** it does not replace the artifact with a prose paraphrase
+
+#### Scenario: The source contains more characteristic artifacts than the deck needs
+- **WHEN** the subject coverage minimum is already satisfied by stronger,
+  complete teaching loops
+- **THEN** additional artifacts may be intentionally excluded with a specific
+  pedagogical reason
+- **AND** the disposition cannot be the undifferentiated
+  `v5_semantic_core` reason
+
+#### Scenario: A required artifact is missing or invalid
+- **WHEN** the course lacks the source evidence required by its subject contract,
+  or the artifact cannot pass the applicable syntax, structure, or binding gate
+- **THEN** the candidate ends as `v5_failed` or `v5_needs_manual_edit` according
+  to whether the defect changes teaching correctness
+- **AND** the failure identifies the missing or invalid representation and its
+  source section
+
+### Requirement: Subject Fidelity Is A Final Publication Gate
+
+The system SHALL evaluate the final visible deck against the subject
+presentation contract after semantic and render repair.
+
+#### Scenario: A programming course publishes without code
+- **WHEN** the canonical source contains valid runnable code but no final page
+  renders a code artifact
+- **THEN** publication is blocked with `required_subject_representation_missing`
+- **AND** generic concept, column, or diagram pages do not satisfy the code
+  requirement
+
+#### Scenario: Render repair would erase a characteristic artifact
+- **WHEN** a required code, formula, data, source, or experiment page fails a
+  capacity or export check
+- **THEN** repair preserves the artifact through semantic pagination or returns
+  a localized failure
+- **AND** it cannot convert the page to `editorial-body` and still publish
+
+#### Scenario: Optional decorative media is unavailable
+- **WHEN** subject-critical source artifacts remain readable and complete
+- **THEN** missing decorative imagery is a warning rather than a subject
+  fidelity blocker
+- **AND** the final report distinguishes optional visual richness from required
+  disciplinary representation
+
+### Requirement: Every Semantic Region Has An Intent-Specific Presentation Grammar
+
+The system SHALL assign every visible semantic region a typed presentation
+grammar derived from its teaching intent and the course subject presentation
+contract. The grammar SHALL define `presentation_intent`, `copy_voice`,
+`information_structure`, `visual_grammar`, `allowed_layouts`, and
+`forbidden_fallbacks`. These local grammars SHALL remain inside one coherent
+deck-level visual system for typography, color, spacing, grid, and navigation;
+they SHALL NOT become arbitrary per-block template changes.
+
+#### Scenario: A page explains a concept or definition
+- **WHEN** the dominant teaching intent is to establish meaning, boundary, or
+  relationship
+- **THEN** the copy uses concise explanatory or judgment language and includes
+  the applicable boundary, example, or counterexample
+- **AND** the visual grammar uses hierarchy, relationship, or a structurally
+  justified concept composition rather than a raw prose dump
+
+#### Scenario: A page explains a mechanism, cause, or process
+- **WHEN** the source expresses causality, execution order, state change, data
+  movement, or procedural steps
+- **THEN** the copy preserves explicit connectors such as cause, condition,
+  consequence, and sequence
+- **AND** the visual grammar uses the applicable causal, control-flow,
+  data-flow, state, or sequence composition rather than unordered peer cards
+
+#### Scenario: A page teaches through code, formula, data, evidence, or a source artifact
+- **WHEN** a characteristic artifact carries the teaching meaning
+- **THEN** the artifact is the dominant visible object and its annotations,
+  result, or interpretation remain source-bound and adjacent
+- **AND** the page cannot satisfy the intent by paraphrasing the artifact into
+  generic body text
+
+#### Scenario: A page compares alternatives or corrects a misconception
+- **WHEN** the teaching intent is comparison, diagnosis, correction, or
+  verification
+- **THEN** the copy uses consistent comparison axes or the explicit sequence
+  of symptom, cause, correction, and verification
+- **AND** the visual grammar uses a paired, matrix, before-and-after, or
+  diagnostic composition instead of scattered paragraphs
+
+#### Scenario: Practice and feedback are presented
+- **WHEN** a learner-facing region is a task, exercise, check, answer, rubric,
+  or remediation
+- **THEN** task copy is actionable and withholds the direct answer, while
+  feedback copy is diagnostic and names the applicable criterion or error
+- **AND** task and feedback regions are visually distinguishable and cannot be
+  collapsed into the same generic content card
+
+#### Scenario: A page provides navigation or recap
+- **WHEN** the dominant intent is orientation, transition, retrieval, or recap
+- **THEN** the copy is brief and points to the course thread being entered,
+  left, or recalled
+- **AND** the region does not introduce a new concept through long-form prose
+
+#### Scenario: One page receives incompatible semantic jobs
+- **WHEN** semantic regions cannot share one dominant teaching intent or one
+  coherent reading order
+- **THEN** the story planner splits them across pages or retains only the
+  source-authorized teaching episode
+- **AND** it does not combine unrelated regions merely to reduce whitespace
+
+#### Scenario: Final expression does not match teaching intent
+- **WHEN** the rendered copy voice, information structure, visual grammar, or
+  layout is incompatible with the assigned presentation intent
+- **THEN** the quality gate records `presentation_grammar_mismatch` with the
+  page, region, expected grammar, and observed fallback
+- **AND** a mismatch that erases or changes required teaching meaning blocks
+  publication, while a non-critical mismatch requires explicit manual review

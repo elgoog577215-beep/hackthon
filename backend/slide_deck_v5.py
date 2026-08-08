@@ -32,6 +32,7 @@ from slide_semantics import (
     DOMAIN_PRESENTATION_PROFILE_VERSION,
     PPT_SEMANTIC_COMPILER_VERSION,
     FinalPageContractV2,
+    SubjectPresentationContractV1,
     TeachingEpisodeContractV2,
     compile_ppt_semantic_units,
     semantic_group_kind,
@@ -55,9 +56,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.24"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.25"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.13"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.14"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _VISUAL_REQUIRED_LAYOUTS = {
@@ -163,6 +164,8 @@ _V5_DENSITY_BUDGETS = {
     "question-prompt": {"characters": 220, "items": 4, "title": 24},
     "process-sequence": {"characters": 240, "items": 5, "title": 24},
     "formula-explanation": {"characters": 280, "items": 4, "title": 24},
+    "code": {"characters": 1200, "items": 24, "title": 24},
+    "table": {"characters": 520, "items": 12, "title": 24},
     "figure-text": {"characters": 320, "items": 5, "title": 24},
     "diagram-full": {"characters": 0, "items": 0, "title": 24},
     "worked-example": {"characters": 230, "items": 3, "title": 24},
@@ -763,6 +766,59 @@ def _compact_existing_episodes_v5(
     return selected
 
 
+def _subject_presentation_contract_v5(
+    story: SlideStoryPlanV2,
+) -> SubjectPresentationContractV1 | None:
+    raw = (story.planning_diagnostics or {}).get(
+        "subject_presentation_contract"
+    )
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return SubjectPresentationContractV1.model_validate(raw)
+    except ValueError:
+        return None
+
+
+def _subject_artifact_fragment_kinds_v5(
+    contract: SubjectPresentationContractV1 | None,
+) -> dict[str, str]:
+    if contract is None:
+        return {}
+    return {
+        fragment_id: kind
+        for kind, fragment_ids in contract.characteristic_fragment_ids.items()
+        for fragment_id in fragment_ids
+    }
+
+
+def _group_subject_artifact_kinds_v5(
+    group: list[Any],
+    artifact_kind_by_fragment: dict[str, str],
+) -> list[str]:
+    return list(dict.fromkeys(
+        artifact_kind_by_fragment.get(str(item.fragment_id), "")
+        for item in group
+        if artifact_kind_by_fragment.get(str(item.fragment_id), "")
+    ))
+
+
+def _subject_artifact_layout_v5(
+    artifact_kinds: list[str],
+) -> tuple[str, str, str] | None:
+    if "code" in artifact_kinds:
+        return ("code-focus", "code", "evidence")
+    if "formula" in artifact_kinds:
+        return ("formula-focus", "formula", "evidence")
+    if "table" in artifact_kinds or "data" in artifact_kinds:
+        return ("table-evidence", "table", "evidence")
+    if "diagram" in artifact_kinds or "architecture" in artifact_kinds:
+        return ("diagram-full", "diagram-full", "diagram")
+    if "image" in artifact_kinds:
+        return ("figure-text", "image-split", "evidence")
+    return None
+
+
 def compact_story_plan_v5(
     document: CourseDocument,
     story_plan: SlideStoryPlanV2 | dict[str, Any],
@@ -770,7 +826,7 @@ def compact_story_plan_v5(
     *,
     profile: str = "semantic",
 ) -> SlideStoryPlanV2:
-    """Select three complete, source-bound teaching groups per source section.
+    """Select a complete, source-bound teaching loop per source section.
 
     Detailed source fragments remain available as explicit coverage decisions
     instead of being copied into dense appendix slides.
@@ -803,6 +859,19 @@ def compact_story_plan_v5(
         fragment.fragment_id: fragment
         for fragment in source_fragments
     }
+    block_catalog = {block.block_id: block for block in document.blocks}
+    section_catalog = {
+        section.section_id: section for section in document.sections
+    }
+    subject_contract = _subject_presentation_contract_v5(story)
+    artifact_kind_by_fragment = _subject_artifact_fragment_kinds_v5(
+        subject_contract
+    )
+    required_artifact_kinds = set(
+        subject_contract.required_representation_kinds
+        if subject_contract is not None
+        else []
+    )
     compact_chapters = []
     for chapter in story.chapters:
         original_episodes = chapter.episodes
@@ -861,6 +930,13 @@ def compact_story_plan_v5(
                     [],
                 )
             )
+            and not any(
+                fragment.fragment_id in artifact_kind_by_fragment
+                for fragment in fragments_by_section.get(
+                    chapter.chapter_id,
+                    [],
+                )
+            )
         ):
             teaching_episodes = _compact_existing_episodes_v5(
                 original_episodes,
@@ -883,6 +959,95 @@ def compact_story_plan_v5(
                     [],
                 ).append(group)
             selected_groups: list[tuple[str, list[Any]]] = []
+            protected_group_fragment_sets: set[frozenset[str]] = set()
+
+            def add_selected_group(kind: str, group: list[Any]) -> None:
+                fragment_ids = {item.fragment_id for item in group}
+                if not fragment_ids or any(
+                    fragment_ids
+                    & {item.fragment_id for item in selected_group}
+                    for _selected_kind, selected_group in selected_groups
+                ):
+                    return
+                selected_groups.append((kind, list(group)))
+
+            # Subject-critical artifacts compete before generic prose. Preserve
+            # one complete source group for every required kind present in this
+            # section; allocation performs the safe 1-N page pagination later.
+            selected_artifact_groups: list[list[Any]] = []
+            for artifact_kind in sorted(required_artifact_kinds):
+                artifact_group = next(
+                    (
+                        group
+                        for group in groups
+                        if artifact_kind in _group_subject_artifact_kinds_v5(
+                            group,
+                            artifact_kind_by_fragment,
+                        )
+                    ),
+                    None,
+                )
+                if artifact_group is not None:
+                    add_selected_group("subject_artifact", artifact_group)
+                    selected_artifact_groups.append(artifact_group)
+                    protected_group_fragment_sets.add(frozenset(
+                        str(item.fragment_id) for item in artifact_group
+                    ))
+            optional_artifact_kinds = set(
+                subject_contract.optional_representation_kinds
+                if subject_contract is not None
+                else []
+            )
+            for artifact_group in selected_artifact_groups:
+                artifact_index = next(
+                    (
+                        index
+                        for index, candidate in enumerate(groups)
+                        if candidate is artifact_group
+                    ),
+                    -1,
+                )
+                if artifact_index < 0:
+                    continue
+                companion = next(
+                    (
+                        candidate
+                        for candidate in groups[
+                            artifact_index + 1:artifact_index + 4
+                        ]
+                        if (
+                            set(_group_subject_artifact_kinds_v5(
+                                candidate,
+                                artifact_kind_by_fragment,
+                            ))
+                            & optional_artifact_kinds
+                            or _v5_group_kind_for_profile(
+                                candidate,
+                                semantic_by_fragment,
+                                profile=profile,
+                            )
+                            in {
+                                "feedback",
+                                "practice",
+                                "misconception",
+                                "application",
+                            }
+                        )
+                    ),
+                    None,
+                )
+                if companion is not None:
+                    add_selected_group(
+                        _v5_group_kind_for_profile(
+                            companion,
+                            semantic_by_fragment,
+                            profile=profile,
+                        ),
+                        companion,
+                    )
+                    protected_group_fragment_sets.add(frozenset(
+                        str(item.fragment_id) for item in companion
+                    ))
             if by_kind.get("concept"):
                 concept_group = list(by_kind["concept"][0])
                 if profile == "quality_fallback":
@@ -920,7 +1085,7 @@ def compact_story_plan_v5(
                         if _v5_required_enumeration_fragments(merged):
                             concept_group = merged
                             break
-                selected_groups.append(("concept", concept_group))
+                add_selected_group("concept", concept_group)
             second = next(
                 (
                     (kind, by_kind[kind][0])
@@ -945,7 +1110,7 @@ def compact_story_plan_v5(
                 None,
             )
             if second:
-                selected_groups.append(second)
+                add_selected_group(*second)
             if by_kind.get("practice"):
                 practice_group = list(by_kind["practice"][0])
                 if profile == "semantic" and by_kind.get("feedback"):
@@ -957,8 +1122,9 @@ def compact_story_plan_v5(
                         }.values(),
                         key=lambda item: item.ordinal,
                     )
-                selected_groups.append(("practice", practice_group))
-            if len(selected_groups) < 3:
+                add_selected_group("practice", practice_group)
+            selection_target = max(4, len(selected_groups))
+            if len(selected_groups) < selection_target:
                 used_fragment_ids = {
                     item.fragment_id
                     for _kind, group in selected_groups
@@ -985,11 +1151,46 @@ def compact_story_plan_v5(
                         continue
                     if profile == "quality_fallback" and fallback_kind == "concept":
                         continue
-                    selected_groups.append((fallback_kind, group))
-                    if len(selected_groups) == 3:
+                    add_selected_group(fallback_kind, group)
+                    if len(selected_groups) == selection_target:
                         break
-            for group_index, (kind, raw_group) in enumerate(selected_groups[:3]):
+            if len(selected_groups) > 4:
+                prioritized = sorted(
+                    selected_groups,
+                    key=lambda item: (
+                        0
+                        if frozenset(
+                            str(fragment.fragment_id)
+                            for fragment in item[1]
+                        ) in protected_group_fragment_sets
+                        else 1
+                        if item[0] == "concept"
+                        else 2
+                        if item[0] == "practice"
+                        else 3,
+                        min(
+                            (fragment.ordinal for fragment in item[1]),
+                            default=0,
+                        ),
+                    ),
+                )
+                selected_groups = prioritized[:4]
+            selected_groups = sorted(
+                selected_groups,
+                key=lambda item: min(
+                    (fragment.ordinal for fragment in item[1]),
+                    default=0,
+                ),
+            )
+            for group_index, (kind, raw_group) in enumerate(selected_groups):
+                artifact_kinds = _group_subject_artifact_kinds_v5(
+                    raw_group,
+                    artifact_kind_by_fragment,
+                )
                 group = (
+                    sorted(raw_group, key=lambda item: item.ordinal)
+                    if artifact_kinds
+                    else
                     _v5_fit_practice_group(
                         raw_group,
                         semantic_by_fragment,
@@ -1007,7 +1208,15 @@ def compact_story_plan_v5(
                     "method": "method",
                     "reasoning": "reasoning",
                     "misconception": "misconception",
-                }.get(kind, "concept")
+                }.get(kind, "worked_example" if artifact_kinds else "concept")
+                if artifact_kinds:
+                    scene = (
+                        "method"
+                        if "code" in artifact_kinds
+                        else "reasoning"
+                        if "formula" in artifact_kinds
+                        else "concept"
+                    )
                 role = (
                     "prompt"
                     if scene in {"worked_example", "practice_feedback"}
@@ -1050,6 +1259,11 @@ def compact_story_plan_v5(
                         "statement",
                     ),
                 }[scene]
+                artifact_selection = _subject_artifact_layout_v5(
+                    artifact_kinds
+                )
+                if artifact_selection is not None:
+                    selection = artifact_selection
                 if scene == "concept":
                     visible_fragments = [
                         item
@@ -1101,6 +1315,20 @@ def compact_story_plan_v5(
                     for item in group
                     if item.fragment_id in semantic_by_fragment
                 }.values())
+                dominant_semantic_unit = next(
+                    (
+                        semantic_by_fragment[item.fragment_id]
+                        for item in group
+                        if (
+                            item.fragment_id in semantic_by_fragment
+                            and artifact_kind_by_fragment.get(
+                                item.fragment_id,
+                                "",
+                            ) in artifact_kinds
+                        )
+                    ),
+                    group_semantic_units[0] if group_semantic_units else None,
+                )
                 bound_question_ids, bound_answer_ids = (
                     _v5_bound_question_ids(
                         group,
@@ -1130,6 +1358,27 @@ def compact_story_plan_v5(
                         ),
                         text=str(claim_fragment.text or ""),
                         fragment_id=claim_fragment.fragment_id,
+                    ),
+                    audience_facing_title=(
+                        _clean_text(
+                            (
+                                getattr(
+                                    block_catalog.get(claim_fragment.block_id),
+                                    "payload",
+                                    {},
+                                )
+                                or {}
+                            ).get("title")
+                        )
+                        or _clean_text(
+                            getattr(
+                                section_catalog.get(claim_fragment.section_id),
+                                "title",
+                                "",
+                            )
+                        )
+                        if artifact_kinds
+                        else ""
                     ),
                     fragment_ids=[item.fragment_id for item in group],
                     semantic_unit_ids=[
@@ -1168,6 +1417,17 @@ def compact_story_plan_v5(
                     knowledge_refs=knowledge_refs,
                     prerequisite_refs=chapter.prerequisite_knowledge_names,
                     mastery_criterion_refs=mastery_refs,
+                    presentation_intent=(
+                        dominant_semantic_unit.presentation_intent
+                        if dominant_semantic_unit is not None
+                        else ""
+                    ),
+                    presentation_grammar=(
+                        dominant_semantic_unit.presentation_grammar
+                        if dominant_semantic_unit is not None
+                        else None
+                    ),
+                    subject_artifact_kinds=artifact_kinds,
                 )
                 teaching_episodes.append(TeachingEpisodeV2(
                     episode_id=episode_id,
@@ -1304,6 +1564,7 @@ def compact_story_plan_v5(
                 episode_id=episode.episode_id,
                 section_id=episode_units[0].section_id,
                 presentation_intent=presentation_intent,
+                presentation_grammar=episode_units[0].presentation_grammar,
                 semantic_unit_ids=[
                     unit.semantic_unit_id for unit in episode_units
                 ],
@@ -1884,12 +2145,19 @@ def _normalize_title_match(value: Any) -> str:
 
 def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
     quality = slide.get("quality") or {}
+    is_code_artifact = "code" in {
+        str(item)
+        for item in quality.get("subject_artifact_kinds") or []
+        if str(item)
+    }
     resolved_layout = str(
         quality.get("resolved_layout")
         or quality.get("requested_layout")
         or slide.get("layout")
         or "editorial-body"
     )
+    if is_code_artifact:
+        resolved_layout = "code"
     budget = _V5_DENSITY_BUDGETS.get(
         resolved_layout,
         _V5_DEFAULT_DENSITY_BUDGET,
@@ -1897,7 +2165,8 @@ def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
     suppress_body = bool(quality.get("suppress_redundant_body"))
     body_values = []
     if not suppress_body:
-        body_values.append(_clean_text(slide.get("key_message")))
+        if not is_code_artifact:
+            body_values.append(_clean_text(slide.get("key_message")))
         for block in slide.get("blocks") or []:
             metadata = block.get("metadata") or {}
             comparison_rows = (
@@ -2968,6 +3237,13 @@ def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
             (block.get("metadata") or {}).get("semantic_role") or ""
         )
         items = [_clean_text(item) for item in block.get("items") or [] if _clean_text(item)]
+        if block_type == "code":
+            bindings.append(SlotBindingV5(
+                slot_id=f"code-{block_index + 1}",
+                semantic_role="code_artifact",
+                source_block_id=block_id,
+            ))
+            continue
         if block_type == "process":
             for item_index, _item in enumerate(items):
                 bindings.append(SlotBindingV5(
@@ -3079,6 +3355,24 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         resolved_layout = "chapter-entry"
         resolved_composition = "statement"
         major_regions = 1
+    elif requested_layout in {"code", "code-focus"} or "code" in {
+        str(item)
+        for item in quality.get("subject_artifact_kinds") or []
+        if str(item)
+    }:
+        if any(item.semantic_role == "code_artifact" for item in non_visual):
+            resolved_layout = "code"
+            resolved_composition = "code-explanation"
+            major_regions = 2
+        elif has_visual:
+            resolved_layout = "figure-text"
+            resolved_composition = "split-visual"
+            major_regions = 2
+        else:
+            resolved_layout = "editorial-body"
+            resolved_composition = "statement"
+            major_regions = 1
+            fallback_reason = "required_code_visual_missing"
     elif (
         requested_layout == "parallel-examples"
         or scene_kind == "application"
@@ -3274,6 +3568,81 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
     )
 
 
+def _apply_presentation_grammar_gate_v5(
+    slide: dict[str, Any],
+    quality: dict[str, Any],
+) -> None:
+    grammar = quality.get("presentation_grammar") or {}
+    if not isinstance(grammar, dict) or not grammar.get("presentation_intent"):
+        return
+    for key in ("issues", "blockers"):
+        quality[key] = [
+            item
+            for item in quality.get(key) or []
+            if str((item or {}).get("code") or "")
+            != "presentation_grammar_mismatch"
+        ]
+    resolved_layout = str(quality.get("resolved_layout") or "")
+    allowed_layouts = {
+        str(item) for item in grammar.get("allowed_layouts") or [] if str(item)
+    }
+    forbidden_fallbacks = {
+        str(item)
+        for item in grammar.get("forbidden_fallbacks") or []
+        if str(item)
+    }
+    mismatch = bool(
+        resolved_layout
+        and (
+            (allowed_layouts and resolved_layout not in allowed_layouts)
+            or resolved_layout in forbidden_fallbacks
+        )
+    )
+    if not mismatch:
+        return
+    artifact_kinds = [
+        str(item)
+        for item in quality.get("subject_artifact_kinds") or []
+        if str(item)
+    ]
+    artifact_erased = bool(
+        artifact_kinds
+        and (
+            resolved_layout == "editorial-body"
+            or (
+                any(
+                    kind in {"code", "formula", "table", "diagram", "image"}
+                    for kind in artifact_kinds
+                )
+                and not slide.get("visuals")
+            )
+        )
+    )
+    issue = {
+        "severity": "critical" if artifact_erased else "major",
+        "dimension": "layout_export",
+        "code": "presentation_grammar_mismatch",
+        "page_id": str(slide.get("unit_id") or ""),
+        "region": "page",
+        "presentation_intent": str(grammar.get("presentation_intent") or ""),
+        "expected_grammar": str(grammar.get("visual_grammar") or ""),
+        "allowed_layouts": sorted(allowed_layouts),
+        "observed_layout": resolved_layout,
+        "observed_fallback": str(quality.get("layout_fallback_reason") or ""),
+        "message": "The final page layout does not express its assigned teaching intent.",
+    }
+    quality["issues"] = [*(quality.get("issues") or []), issue]
+    if artifact_erased:
+        quality["blockers"] = [*(quality.get("blockers") or []), issue]
+        quality["passed"] = False
+    else:
+        quality["manual_edit_required"] = True
+        quality["manual_edit_reasons"] = list(dict.fromkeys([
+            *(quality.get("manual_edit_reasons") or []),
+            "presentation_grammar_mismatch",
+        ]))
+
+
 def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     updated = deepcopy(slide)
     updated["blocks"] = _promote_item_group_labels(
@@ -3440,6 +3809,7 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
             })
             updated["composition"] = "statement"
     quality.update(_page_density_metrics(updated))
+    _apply_presentation_grammar_gate_v5(updated, quality)
     return updated
 
 
@@ -5050,12 +5420,18 @@ def allocation_from_story_plan_v5(
             pages.append(page)
             page_beats[page_id] = beat
     leftovers = [item for item in fragments if item.fragment_id not in allocated]
+    subject_contract = _subject_presentation_contract_v5(story_plan)
+    artifact_kind_by_fragment = _subject_artifact_fragment_kinds_v5(
+        subject_contract
+    )
     exclusions = [
         FragmentExclusionV1(
             fragment_id=item.fragment_id,
             reason=(
                 "mode_concise"
                 if story_plan.mode == "concise"
+                else "subject_artifact_redundant_after_chapter_coverage"
+                if item.fragment_id in artifact_kind_by_fragment
                 else "v5_semantic_core"
             ),
         )
@@ -5148,6 +5524,8 @@ def _bind_question_feedback_v5(
             if _block_visible_text(block)
         )
         for prompt in prompts:
+            if (prompt.get("quality") or {}).get("subject_artifact_kinds"):
+                continue
             blocks = prompt.get("blocks") or []
             if not blocks:
                 continue
@@ -5652,10 +6030,136 @@ def _v5_semantic_issue(issue: dict[str, Any]) -> bool:
                 "fragment_",
                 "knowledge_",
                 "official_",
+                "required_subject_",
                 "source_",
+                "subject_",
             )
         )
     )
+
+
+def _visible_subject_representation_kinds_v5(
+    slides: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, set[str]]]:
+    visible: set[str] = set()
+    by_chapter: dict[str, set[str]] = {}
+    for slide in slides:
+        chapter_id = str(slide.get("chapter_id") or "")
+        kinds = {
+            str(item)
+            for item in (slide.get("quality") or {}).get(
+                "subject_artifact_kinds"
+            )
+            or []
+            if str(item)
+        }
+        for block in slide.get("blocks") or []:
+            block_type = str(block.get("type") or "")
+            if block_type in {"code", "formula", "table"}:
+                kinds.add(block_type)
+            if (block.get("metadata") or {}).get("formula"):
+                kinds.add("formula")
+        for visual in slide.get("visuals") or []:
+            visual_kind = str((visual or {}).get("kind") or "")
+            if visual_kind == "code":
+                kinds.add("code")
+            elif visual_kind == "formula":
+                kinds.add("formula")
+            elif visual_kind == "table":
+                kinds.add("table")
+            elif visual_kind in {"rule_diagram", "relational_diagram"}:
+                kinds.add("diagram")
+            elif visual_kind in {
+                "source_image",
+                "retrieved_image",
+                "generated_illustration",
+            }:
+                kinds.add("image")
+        visible.update(kinds)
+        if chapter_id:
+            by_chapter.setdefault(chapter_id, set()).update(kinds)
+    return visible, by_chapter
+
+
+def _subject_fidelity_issues_v5(
+    slides: list[dict[str, Any]],
+    planning_diagnostics: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    diagnostics = planning_diagnostics or {}
+    raw = diagnostics.get("subject_presentation_contract")
+    if raw is None:
+        return []
+    try:
+        contract = SubjectPresentationContractV1.model_validate(raw)
+    except ValueError as exc:
+        return [{
+            "severity": "critical",
+            "dimension": "source_integrity",
+            "code": "subject_presentation_contract_invalid",
+            "target": "deck",
+            "message": str(exc)[:300],
+        }]
+    visible, visible_by_chapter = _visible_subject_representation_kinds_v5(
+        slides
+    )
+    issues: list[dict[str, Any]] = []
+    for kind in contract.required_representation_kinds:
+        if kind in visible:
+            continue
+        issues.append({
+            "severity": "critical",
+            "dimension": "source_integrity",
+            "code": "required_subject_representation_missing",
+            "target": "deck",
+            "representation_kind": kind,
+            "profile_id": contract.profile_id,
+            "message": (
+                f"The final deck does not render the required {kind} "
+                "representation from the canonical course."
+            ),
+        })
+    for requirement in contract.chapter_requirements:
+        chapter_visible = visible_by_chapter.get(requirement.chapter_id, set())
+        for kind in requirement.required_representation_kinds:
+            if kind not in visible or kind in chapter_visible:
+                continue
+            issues.append({
+                "severity": "critical",
+                "dimension": "teaching_closure",
+                "code": "required_subject_chapter_coverage_missing",
+                "target": requirement.chapter_id,
+                "chapter_id": requirement.chapter_id,
+                "representation_kind": kind,
+                "minimum_artifact_count": requirement.minimum_artifact_count,
+                "message": (
+                    f"Chapter {requirement.chapter_id} does not render its "
+                    f"required {kind} teaching artifact."
+                ),
+            })
+    for conflict in contract.evidence_conflicts:
+        issues.append({
+            "severity": "major",
+            "dimension": "source_integrity",
+            "code": str(conflict or "subject_profile_evidence_conflict"),
+            "target": "deck",
+            "profile_id": contract.profile_id,
+            "message": "The persisted subject profile conflicts with source evidence.",
+        })
+    for kind in contract.missing_recommended_representation_kinds:
+        issues.append({
+            "severity": "major",
+            "dimension": "source_integrity",
+            "code": "required_subject_source_missing",
+            "target": "deck",
+            "representation_kind": kind,
+            "profile_id": contract.profile_id,
+            "responsibility": "course_generation",
+            "message": (
+                f"The {contract.profile_id} course source has no {kind} artifact; "
+                "manual course-content review is required."
+            ),
+        })
+    return issues
 
 
 def finalize_v5_quality_report(
@@ -5852,6 +6356,7 @@ def finalize_v5_quality_report(
             *v5_contract_issues(slides),
             *planning_issues,
             *visual_planning_issues,
+            *_subject_fidelity_issues_v5(slides, planning_diagnostics),
         ],
         coverage_report=coverage_report,
     )
@@ -6165,17 +6670,11 @@ def compile_slide_deck_v5(
         (course_data.get("generation_request") or {}).get("web_image_retrieval") or {}
     )
     retrieval_enabled = configured_retrieval.enabled or web_image_retrieval_enabled()
-    has_source_bound_beats = any(
-        beat.fragment_ids
-        for chapter in story.chapters
-        for episode in chapter.episodes
-        for beat in episode.beats
-    )
-    resolved_story = (
-        story
-        if has_source_bound_beats
-        else compact_story_plan_v5(document, story, source_fragments)
-    )
+    # Source binding is not the same as a compiled V5 story. The V2 planner can
+    # bind every split source fragment to its own beat (notably long code), which
+    # would otherwise leak through as one sparse page per fragment. Compaction is
+    # idempotent for V5 semantic-core stories and preserves AI layout directives.
+    resolved_story = compact_story_plan_v5(document, story, source_fragments)
     resolved_allocation, page_beats = allocation_from_story_plan_v5(
         document,
         source_fragments,
@@ -6316,6 +6815,24 @@ def compile_slide_deck_v5(
             "mastery_criterion_refs": beat.mastery_criterion_refs,
             "layout_selection_reason": beat.layout_selection_reason,
         })
+        if beat.presentation_grammar is not None:
+            grammar_payload = beat.presentation_grammar.model_dump(mode="json")
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "presentation_intent": beat.presentation_intent,
+                "presentation_grammar": grammar_payload,
+                "subject_artifact_kinds": list(beat.subject_artifact_kinds),
+            }
+            for block in slide.get("blocks") or []:
+                block["metadata"] = {
+                    **(block.get("metadata") or {}),
+                    "presentation_intent": beat.presentation_intent,
+                    "copy_voice": grammar_payload["copy_voice"],
+                    "information_structure": grammar_payload[
+                        "information_structure"
+                    ],
+                    "visual_grammar": grammar_payload["visual_grammar"],
+                }
         if episode.scene_kind not in {"chapter_entry", "chapter_recap"}:
             slide["quality"] = {
                 **(slide.get("quality") or {}),
@@ -6358,7 +6875,9 @@ def compile_slide_deck_v5(
             if scene_kind == "practice_feedback"
             else None
         )
-        if scene_layout:
+        if scene_layout and not (
+            (slide.get("quality") or {}).get("subject_artifact_kinds")
+        ):
             slide["quality"] = {
                 **(slide.get("quality") or {}),
                 "requested_layout": scene_layout,
@@ -6395,6 +6914,41 @@ def compile_slide_deck_v5(
     slides = _restore_chapter_entry_mainlines_v5(slides, outline.chapters)
     slides = [apply_page_contract_v5(slide) for slide in slides]
     slides = _assign_heading_modes_v5(slides)
+    final_subject_contract = _subject_presentation_contract_v5(resolved_story)
+    if final_subject_contract is not None and (
+        final_subject_contract.evidence_conflicts
+        or final_subject_contract.missing_recommended_representation_kinds
+    ):
+        review_slide = next(
+            (
+                slide
+                for slide in slides
+                if str(slide.get("scene_kind") or "")
+                not in {"chapter_entry", "chapter_recap"}
+            ),
+            slides[0] if slides else None,
+        )
+        if review_slide is not None:
+            review_reasons = [
+                *final_subject_contract.evidence_conflicts,
+                *[
+                    f"required_subject_source_missing:{kind}"
+                    for kind in (
+                        final_subject_contract
+                        .missing_recommended_representation_kinds
+                    )
+                ],
+            ]
+            review_slide["quality"] = {
+                **(review_slide.get("quality") or {}),
+                "manual_edit_required": True,
+                "manual_edit_reasons": list(dict.fromkeys([
+                    *((review_slide.get("quality") or {}).get(
+                        "manual_edit_reasons"
+                    ) or []),
+                    *review_reasons,
+                ])),
+            }
     if progress_callback:
         progress_callback({
             "event": "semantic_repair",

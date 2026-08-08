@@ -7,6 +7,7 @@ from slide_deck_v3 import fragment_course_document
 from slide_deck_v5 import compact_story_plan_v5
 from slide_semantics import (
     compile_ppt_semantic_units,
+    compile_subject_presentation_contract_v1,
     resolve_domain_presentation_profile,
 )
 from slide_story_plan import (
@@ -190,6 +191,43 @@ def test_subject_profiles_extend_one_generic_intent_protocol(
     assert profile.profile_id == profile_id
     assert unit.domain_profile_id == profile_id
     assert unit.presentation_intent == intent
+
+
+@pytest.mark.parametrize(
+    ("primary_mode", "module_id", "required_kind"),
+    [
+        ("natural_science", "science_experiment_design", "experiment"),
+        ("humanities_social", "humanities_source", "source_excerpt"),
+        ("business_career", "business_case", "case"),
+    ],
+)
+def test_subject_contract_preserves_non_programming_course_artifacts(
+    primary_mode: str,
+    module_id: str,
+    required_kind: str,
+) -> None:
+    document = _document(_block(
+        f"artifact-{required_kind}",
+        module_id=module_id,
+        role="example",
+        content=f"Source-backed {required_kind} artifact.",
+        position=0,
+    ))
+    fragments = fragment_course_document(document)
+    units = compile_ppt_semantic_units(document, fragments)
+
+    contract = compile_subject_presentation_contract_v1(
+        document,
+        {"subject_pedagogy_profile": {"primary_mode": primary_mode}},
+        units,
+        fragments,
+    )
+
+    assert required_kind in contract.required_representation_kinds
+    assert contract.characteristic_fragment_ids[required_kind]
+    assert contract.chapter_requirements[0].required_representation_kinds == [
+        required_kind
+    ]
 
 
 def test_feedback_binds_to_the_preceding_learner_action() -> None:

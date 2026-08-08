@@ -54,6 +54,11 @@
       "pptx_renderer": "_render_editorial_body"
     },
     {
+      "layout": "code",
+      "browser_composition": "code",
+      "pptx_renderer": "_render_code"
+    },
+    {
       "layout": "figure-text",
       "browser_composition": "visual-with-source",
       "pptx_renderer": "_render_visual_directed"

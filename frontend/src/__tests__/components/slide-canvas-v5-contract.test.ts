@@ -29,6 +29,7 @@ describe('SlideCanvas V5 final page contract', () => {
       'classification-3',
       'process-sequence',
       'formula-explanation',
+      'code',
       'figure-text',
       'diagram-full',
       'worked-example',

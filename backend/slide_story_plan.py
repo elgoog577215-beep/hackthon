@@ -7,6 +7,7 @@ import inspect
 import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -27,7 +28,9 @@ from slide_layout_registry import (
     select_layout_v2,
 )
 from slide_semantics import (
+    PresentationGrammarV1,
     compile_ppt_semantic_units,
+    compile_subject_presentation_contract_v1,
     semantic_unit_index,
 )
 
@@ -139,6 +142,9 @@ class StoryBeatV2(_StrictModel):
         default_factory=list,
         max_length=4,
     )
+    presentation_intent: str = ""
+    presentation_grammar: PresentationGrammarV1 | None = None
+    subject_artifact_kinds: list[str] = Field(default_factory=list)
 
 
 class StoryBeatDirectiveV2(_StrictModel):
@@ -799,8 +805,13 @@ def compile_slide_story_plan_v2(
     fragments_by_block: dict[str, list[ContentFragmentV1]] = defaultdict(list)
     for fragment in sorted(fragments, key=lambda item: item.ordinal):
         fragments_by_block[fragment.block_id].append(fragment)
-    semantic_by_fragment = semantic_unit_index(
-        compile_ppt_semantic_units(document, fragments)
+    semantic_units = compile_ppt_semantic_units(document, fragments)
+    semantic_by_fragment = semantic_unit_index(semantic_units)
+    subject_contract = compile_subject_presentation_contract_v1(
+        document,
+        course_data,
+        semantic_units,
+        fragments,
     )
     plan_by_section = {
         str(section.get("node_id") or ""): section
@@ -1011,6 +1022,11 @@ def compile_slide_story_plan_v2(
         communication_brief=brief,
         source_revisions=revisions,
         chapters=stories,
+        planning_diagnostics={
+            "subject_presentation_contract": subject_contract.model_dump(
+                mode="json"
+            ),
+        },
     )
 
 
@@ -1759,6 +1775,12 @@ async def plan_slide_story_v2(
                 "course_teaching_plan_projection": chapter_projection,
                 "source_revisions": fallback.source_revisions.model_dump(
                     mode="json",
+                ),
+                "subject_presentation_contract": deepcopy(
+                    (fallback.planning_diagnostics or {}).get(
+                        "subject_presentation_contract"
+                    )
+                    or {}
                 ),
                 "allowed_scene_kinds": list(_SCENE_ORDER),
                 "layout_registry": registry_summary_v2(),
