@@ -6554,6 +6554,45 @@ def _apply_source_disposition_gate_v5(
     return updated
 
 
+def _manual_edit_reason_v5(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        reason = deepcopy(value)
+        reason["code"] = str(reason.get("code") or "manual_edit_required")
+        reason["message"] = str(
+            reason.get("message")
+            or "该页面需要人工检查版式与学科表达。"
+        )
+        return reason
+
+    raw = str(value or "manual_edit_required").strip()
+    code, separator, detail = raw.partition(":")
+    code = code or "manual_edit_required"
+    messages = {
+        "presentation_grammar_mismatch": (
+            "页面版式未完全匹配教学意图，请手动检查视觉表达。"
+        ),
+        "subject_profile_evidence_conflict": (
+            "课程学科画像与章节内容证据不一致，请手动确认学科表达。"
+        ),
+        "manual_edit_required": "该页面需要人工检查版式与学科表达。",
+    }
+    if code == "required_subject_source_missing" and separator and detail:
+        return {
+            "code": code,
+            "message": (
+                f"课程原文缺少建议的 {detail} 学科工件，请手动补充或确认。"
+            ),
+            "representation_kind": detail,
+        }
+    return {
+        "code": code,
+        "message": messages.get(
+            code,
+            "该页面需要人工检查版式与学科表达。",
+        ),
+    }
+
+
 def finalize_v5_candidate_contract(
     content: dict[str, Any],
     quality: dict[str, Any] | None = None,
@@ -6575,6 +6614,11 @@ def finalize_v5_candidate_contract(
                     "message": "该页面需要人工检查排版。",
                 }])
             )
+        if page_id in manual_by_page:
+            manual_by_page[page_id] = [
+                _manual_edit_reason_v5(reason)
+                for reason in manual_by_page[page_id]
+            ]
         page_by_id.setdefault(str(index), slide)
     for issue in report.get("warnings") or []:
         if str(issue.get("dimension") or "") != "layout_export":
@@ -6595,6 +6639,7 @@ def finalize_v5_candidate_contract(
         slide = page_by_id.get(page_id)
         if slide is None:
             continue
+        reasons = [_manual_edit_reason_v5(item) for item in reasons]
         unique_reasons = list({
             (str(item.get("code") or ""), str(item.get("message") or "")): item
             for item in reasons

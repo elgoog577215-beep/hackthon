@@ -543,6 +543,49 @@ def test_v5_source_disposition_keeps_the_strongest_page_outcome() -> None:
     }]
 
 
+def test_v5_candidate_normalizes_string_manual_edit_reasons() -> None:
+    content = {
+        "fragment_manifest": [],
+        "allocation_plan": {"pages": []},
+        "exclusions": [],
+        "slides": [{
+            "unit_id": "subject-review-page",
+            "blocks": [],
+            "quality": {
+                "manual_edit_required": True,
+                "manual_edit_reasons": [
+                    "presentation_grammar_mismatch",
+                    "required_subject_source_missing:code",
+                ],
+            },
+        }],
+    }
+
+    report = finalize_v5_candidate_contract(content, {
+        "passed": True,
+        "score": 100,
+        "issues": [],
+        "warnings": [],
+        "blockers": [],
+    })
+
+    assert report["candidate_status"] == "v5_needs_manual_edit"
+    assert content["manual_edit_required"] == [{
+        "page_id": "subject-review-page",
+        "reasons": [
+            {
+                "code": "presentation_grammar_mismatch",
+                "message": "页面版式未完全匹配教学意图，请手动检查视觉表达。",
+            },
+            {
+                "code": "required_subject_source_missing",
+                "message": "课程原文缺少建议的 code 学科工件，请手动补充或确认。",
+                "representation_kind": "code",
+            },
+        ],
+    }]
+
+
 def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() -> None:
     outline = compile_deck_outline_v5(_document(8), _story(8))
 
