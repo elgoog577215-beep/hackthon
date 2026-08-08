@@ -303,6 +303,8 @@ def test_ppt_image_retrieval_uses_shared_gateway_and_hydrates_commons_license(
     assert captured["metadata_params"]["titles"] == "File:Heart diagram.png"
     assert str(captured["metadata_headers"]["User-Agent"]).startswith("LingzhiPPTV5/")
     assert asset is not None
+    assert asset.source_provider == "searxng"
+    assert asset.license == "CC BY 4.0"
 
 
 def test_hydrate_shared_image_candidates_accepts_public_domain_archive_without_api() -> None:
@@ -334,5 +336,3 @@ def test_hydrate_shared_image_candidates_accepts_public_domain_archive_without_a
     assert candidates[0].asset_url == "https://images.pdimagearchive.org/heart.jpg"
     assert candidates[0].source_page_url == "https://pdimagearchive.org/images/heart"
     assert candidates[0].license == "Public Domain"
-    assert asset.source_provider == "searxng"
-    assert asset.license == "CC BY 4.0"

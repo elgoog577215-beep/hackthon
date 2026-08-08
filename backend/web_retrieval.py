@@ -341,6 +341,16 @@ class SearXNGSearchProvider:
             if owns_client:
                 await client.aclose()
 
+        if category == "images":
+            results = sorted(
+                results,
+                key=lambda raw: (
+                    0
+                    if isinstance(raw, dict)
+                    and "public domain image archive" in (raw.get("engines") or [])
+                    else 1
+                ),
+            )
         normalized: list[dict[str, Any]] = []
         for raw in results:
             if not isinstance(raw, dict):
@@ -386,6 +396,8 @@ class SearXNGSearchProvider:
                     or raw.get("pubdate")
                 ),
             }
+            if "public domain image archive" in normalized_engines:
+                item["license"] = "Public Domain"
             if metadata:
                 item["provider_metadata"] = metadata
             normalized.append(item)
