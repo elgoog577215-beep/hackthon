@@ -16,6 +16,7 @@ from production_ppt_chapter_smoke import (
     build_chapter_document,
     build_subject_artifact_gate_summary,
     choose_cross_domain_sample,
+    course_is_eligible_for_sample,
     extract_source_code_lines,
     finalize_deferred_render,
     rank_programming_chapter_candidates,
@@ -404,6 +405,21 @@ def test_cross_domain_sample_selector_returns_distinct_primary_modes() -> None:
     assert (
         first.course_view["subject_pedagogy_profile"]["primary_mode"]
         != second.course_view["subject_pedagogy_profile"]["primary_mode"]
+    )
+
+
+def test_cross_domain_read_only_smoke_can_use_online_drafts_but_programming_cannot() -> None:
+    assert course_is_eligible_for_sample(
+        is_published=False,
+        sample_profile="cross_domain",
+    )
+    assert not course_is_eligible_for_sample(
+        is_published=False,
+        sample_profile="programming",
+    )
+    assert course_is_eligible_for_sample(
+        is_published=True,
+        sample_profile="programming",
     )
 
 
