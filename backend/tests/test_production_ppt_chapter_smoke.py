@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.util import Inches
@@ -12,10 +13,13 @@ from production_ppt_chapter_smoke import (
     _source_disposition,
     build_chapter_document,
     build_subject_artifact_gate_summary,
+    choose_cross_domain_sample,
     extract_source_code_lines,
     finalize_deferred_render,
     rank_programming_chapter_candidates,
     rank_subject_chapter_candidates,
+    ChapterCandidate,
+    SelectedProductionChapter,
 )
 from slide_deck import SlideSpec
 from slide_deck_renderer import _render_claim_only, _render_code, validate_theme
@@ -357,6 +361,66 @@ def test_cross_domain_subject_gate_requires_source_backed_artifact_on_slides() -
         "subject_artifacts_not_editorial_fallback": True,
     }
     assert summary["missing_slide_artifact_kinds"] == ["table"]
+
+
+def test_cross_domain_sample_selector_returns_distinct_primary_modes() -> None:
+    document = _document()
+
+    def selected(
+        course_id: str,
+        primary_mode: str,
+        artifact_kinds: tuple[str, ...],
+    ) -> SelectedProductionChapter:
+        return SelectedProductionChapter(
+            course_id=course_id,
+            chapter=ChapterCandidate(
+                chapter_id="chapter-code",
+                section_ids=("chapter-code", "lesson-code"),
+                source_role_count=3,
+                code_character_count=0,
+                source_block_count=3,
+                subject_artifact_kinds=artifact_kinds,
+                subject_artifact_fragment_count=len(artifact_kinds),
+            ),
+            document=document,
+            course_view={
+                "subject_pedagogy_profile": {"primary_mode": primary_mode}
+            },
+            source_digest="digest",
+            baseline_story={},
+        )
+
+    accepted = [
+        selected("math-weaker", "math_formal", ("formula",)),
+        selected("math-stronger", "math_formal", ("formula", "table")),
+        selected("history", "humanities_social", ("source_excerpt",)),
+    ]
+
+    first = choose_cross_domain_sample(accepted, sample_index=0)
+    second = choose_cross_domain_sample(accepted, sample_index=1)
+
+    assert first.course_id == "math-stronger"
+    assert second.course_id == "history"
+    assert (
+        first.course_view["subject_pedagogy_profile"]["primary_mode"]
+        != second.course_view["subject_pedagogy_profile"]["primary_mode"]
+    )
+
+
+def test_production_workflow_can_run_two_read_only_cross_domain_samples() -> None:
+    workflow = (
+        Path(__file__).parents[2]
+        / ".github"
+        / "workflows"
+        / "production-ppt-chapter-smoke.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "sample_profile:" in workflow
+    assert "sample_count:" in workflow
+    assert "--sample-profile" in workflow
+    assert "--sample-index" in workflow
+    assert "PYTHONPATH=/opt/lingzhi/hackthon/backend" in workflow
+    assert "production-ppt-smoke/sample-" in workflow
 
 
 def test_smoke_audits_dominant_claim_and_full_width_code_export(tmp_path) -> None:
