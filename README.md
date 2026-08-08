@@ -131,7 +131,7 @@ MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/
 MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B
 ```
 
-Fast 与思考版共用 `MODELSCOPE_MODEL` 指定的同一个模型；两种模式通过思考开关、提示词、批大小和 token 预算控制速度与质量。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
+Fast 与思考版共用 `MODELSCOPE_MODEL` 指定的同一个模型。Fast 会关闭所有模型思考请求，将同一章节的三道题合并生成，共享课程上下文只发送一次；本地校验后，失败题最多执行一次原子批量修复。Fast 的生成、修复、独立求解和评审调用分别限制在 45、35、35、30 秒，且每个逻辑调用只允许一次供应商请求。思考版保留更完整的候选内容、独立求解和选择性思考，以换取复杂题质量。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 
