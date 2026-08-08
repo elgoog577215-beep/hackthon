@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   retrieval:
-    if: ${{ inputs.query != '__ASSESSMENT_CHAIN__' && inputs.query != '__MODEL_CAPACITY_PROBE__' }}
+    if: ${{ inputs.query != '__ASSESSMENT_CHAIN__' && inputs.query != '__ASSESSMENT_FAST_DIAGNOSE__' && inputs.query != '__MODEL_CAPACITY_PROBE__' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -117,7 +117,6 @@ jobs:
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-          ASSESSMENT_DIAGNOSTIC_MODE: ${{ inputs.query }}
           LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
         run: |
           set -euo pipefail
@@ -133,6 +132,7 @@ jobs:
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          ASSESSMENT_DIAGNOSTIC_MODE: ${{ inputs.query }}
         run: |
           set -euo pipefail
           remote_dir="$(ssh \
