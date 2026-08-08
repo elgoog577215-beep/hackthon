@@ -3312,6 +3312,7 @@ class CourseService(AIBase):
             skeleton,
             shape_constraints=shape_constraints,
             request_fingerprint=request_fingerprint,
+            course_type_contract=brief.get("course_type_contract") or {},
         )
         skeleton_is_current = bool(
             isinstance(raw_skeleton, dict)
@@ -3418,6 +3419,7 @@ class CourseService(AIBase):
                 skeleton,
                 shape_constraints=shape_constraints,
                 request_fingerprint=request_fingerprint,
+                course_type_contract=brief.get("course_type_contract") or {},
             )
             if (
                 not skeleton_report.get("passed")
@@ -3504,6 +3506,7 @@ class CourseService(AIBase):
                         skeleton,
                         shape_constraints=shape_constraints,
                         request_fingerprint=request_fingerprint,
+                        course_type_contract=brief.get("course_type_contract") or {},
                     )
             skeleton_failure_reason = (
                 failure_reason

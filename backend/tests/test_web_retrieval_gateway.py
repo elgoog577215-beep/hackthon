@@ -205,6 +205,89 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
 
 
 @pytest.mark.asyncio
+async def test_searxng_provider_routes_image_search_and_preserves_media_metadata():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["form"] = parse_qs(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "results": [{
+                    "url": "https://commons.wikimedia.org/wiki/File:Heart_diagram.png",
+                    "title": "Heart diagram",
+                    "content": "Anatomical diagram of the human heart",
+                    "img_src": "https://upload.wikimedia.org/heart-diagram.png",
+                    "thumbnail_src": "https://upload.wikimedia.org/heart-diagram-thumb.png",
+                    "resolution": "1600 x 900",
+                    "img_format": "image/png",
+                    "engines": ["wikicommons.images"],
+                    "score": 8.5,
+                }]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SearXNGSearchProvider(
+            base_url="http://127.0.0.1:8080",
+            client=client,
+        )
+        results = await provider.search(
+            "human heart anatomy",
+            limit=4,
+            category="images",
+        )
+
+    assert captured["form"]["categories"] == ["images"]
+    assert results[0]["provider_metadata"] == {
+        "engines": ["wikicommons.images"],
+        "raw_score": 8.5,
+        "image_url": "https://upload.wikimedia.org/heart-diagram.png",
+        "thumbnail_url": "https://upload.wikimedia.org/heart-diagram-thumb.png",
+        "resolution": "1600 x 900",
+        "mime_type": "image/png",
+    }
+
+
+@pytest.mark.asyncio
+async def test_gateway_admits_safe_image_with_partial_title_match():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [{
+                    "url": "https://commons.wikimedia.org/wiki/File:Heart_diagram.png",
+                    "title": "Heart diagram",
+                    "img_src": "https://upload.wikimedia.org/heart-diagram.png",
+                    "engines": ["wikicommons.images"],
+                }]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        package = await RetrievalGateway(
+            provider=SearXNGSearchProvider(
+                base_url="http://127.0.0.1:8080",
+                client=client,
+            ),
+            cache_ttl_seconds=0,
+        ).retrieve(
+            RetrievalRequest(
+                purpose="ppt_image",
+                enabled=True,
+                queries=["human heart anatomy"],
+                category="images",
+            )
+        )
+
+    assert package["status"] == "completed"
+    assert package["sources"][0]["media_type"] == "image"
+    assert package["sources"][0]["provider_metadata"]["image_url"].startswith(
+        "https://upload.wikimedia.org/"
+    )
+
+
+@pytest.mark.asyncio
 async def test_searxng_programming_query_retries_broadly_only_after_empty_result():
     captured: list[dict[str, list[str]]] = []
 
@@ -415,6 +498,66 @@ async def test_searxng_raw_score_cannot_bypass_local_relevance_threshold():
     assert package["receipt"]["error_codes"] == ["no_sources"]
     assert package["rejected_sources"][0]["relevance"] < 0.55
     assert package["rejected_sources"][0]["provider_metadata"]["raw_score"] == 999.0
+
+
+@pytest.mark.asyncio
+async def test_gateway_overfetches_candidates_before_source_admission():
+    class OrderedProvider:
+        name = "ordered"
+        configured = True
+
+        def __init__(self):
+            self.requested_limits: list[int] = []
+
+        async def search(self, query: str, *, limit: int):
+            self.requested_limits.append(limit)
+            results = [
+                {
+                    "url": "https://example.edu/unrelated",
+                    "title": "Unrelated reference",
+                    "content": "A recipe for bread.",
+                },
+                {
+                    "url": "http://example.com/oop",
+                    "title": "Object oriented programming examples",
+                    "content": "Object oriented programming examples with classes.",
+                },
+                {
+                    "url": "https://example.edu/empty",
+                    "title": "Object oriented programming",
+                    "content": "",
+                },
+                {
+                    "url": "https://example.edu/oop-examples",
+                    "title": "Object oriented programming examples",
+                    "content": (
+                        "Object oriented programming examples use classes, "
+                        "objects, inheritance, encapsulation, and polymorphism."
+                    ),
+                },
+            ]
+            return results[:limit]
+
+    provider = OrderedProvider()
+    package = await RetrievalGateway(
+        provider=provider,
+        cache_ttl_seconds=0,
+    ).retrieve(
+        RetrievalRequest(
+            purpose="ai_teacher",
+            enabled=True,
+            queries=[
+                "object oriented programming examples",
+                "course object oriented programming examples",
+            ],
+            max_sources=2,
+        )
+    )
+
+    assert package["status"] == "completed"
+    assert provider.requested_limits
+    assert min(provider.requested_limits) > 1
+    assert package["sources"][0]["url"] == "https://example.edu/oop-examples"
 
 
 def test_retrieval_policy_version_records_provider_upgrade():

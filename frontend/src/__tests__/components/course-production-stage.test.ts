@@ -122,6 +122,25 @@ describe('CourseProductionStage', () => {
     expect(lifecycle.text()).toContain('导出与发布')
   })
 
+  it.each([
+    ['inquiry', '问题路径 · 进行中', '确认问题路径后'],
+    ['exam', '冲刺计划 · 进行中', '确认冲刺计划后'],
+  ] as const)('%s 课程使用专属生产阶段语义', (courseType, stageLabel, nextStep) => {
+    const task: Task = {
+      ...interruptedTask,
+      courseType,
+      status: 'running',
+      error: undefined,
+      currentPhase: 'outline_generation',
+    }
+    const wrapper = mount(CourseProductionStage, {
+      props: { task, courseName: '专属规划课程' },
+    })
+
+    expect(wrapper.text()).toContain(stageLabel)
+    expect(wrapper.text()).toContain(nextStep)
+  })
+
   it('标题下方用可播报的实时阶段摘要取代静态说明', async () => {
     const task: Task = {
       ...interruptedTask,

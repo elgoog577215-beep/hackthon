@@ -12,6 +12,7 @@ export type SlideDeckTheme =
   | 'qingfeng-classroom'
   | 'academic-bluegray'
 export type SlideDeckPreviewSource = 'draft' | 'published'
+export type SlideDeckCandidateStatus = '' | 'v5_ready' | 'v5_needs_manual_edit' | 'v5_failed'
 
 export interface SlideDeckBuildOptions {
   mode: SlideDeckMode
@@ -101,13 +102,25 @@ export interface TeachingRepresentationBuildEvent {
   asset_id?: string
   completed?: number
   total?: number
+  target_schema?: string
+  engine_schema?: string
+  candidate_stage?: string
+  candidate_status?: string
+  failure?: Partial<TeachingRepresentationBuildFailure>
+  source_revision?: string
+  chapter_id?: string
+  page_id?: string
 }
 
 export interface TeachingRepresentationBuildFailure {
+  stage?: string
   code: string
   message: string
   action?: string
   retryable: boolean
+  source_revision?: string
+  chapter_id?: string
+  page_id?: string
 }
 
 export class TeachingRepresentationBuildError extends Error {
@@ -174,6 +187,12 @@ export function normalizedBuildFailure(
     : value && typeof value === 'object' && !(value instanceof Error)
       ? value as Partial<TeachingRepresentationBuildFailure>
       : {}
+  const context = {
+    ...(explicit.stage ? { stage: String(explicit.stage) } : {}),
+    ...(explicit.source_revision ? { source_revision: String(explicit.source_revision) } : {}),
+    ...(explicit.chapter_id ? { chapter_id: String(explicit.chapter_id) } : {}),
+    ...(explicit.page_id ? { page_id: String(explicit.page_id) } : {}),
+  }
   const rawMessage = String(
     explicit.message
     || (value instanceof Error ? value.message : typeof value === 'string' ? value : '')
@@ -191,6 +210,7 @@ export function normalizedBuildFailure(
   if (courseLogicCode) {
     const preset = COURSE_LOGIC_FAILURES[courseLogicCode]!
     return {
+      ...context,
       code: courseLogicCode,
       message: explicit.message ? String(explicit.message) : preset.message,
       action: explicit.action ? String(explicit.action) : preset.action,
@@ -216,11 +236,12 @@ export function normalizedBuildFailure(
   }
   const code = explicitCode || 'teaching_representation_build_failed'
   return {
+    ...context,
     code,
     message: explicit.message
       ? String(explicit.message)
       : '课件生成遇到异常，请稍后重试。',
-    action: explicit.action ? String(explicit.action) : undefined,
+    ...(explicit.action ? { action: String(explicit.action) } : {}),
     retryable: explicit.retryable ?? true,
   }
 }
@@ -296,6 +317,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     publishedSlideQuality: null as Record<string, any> | null,
     draftSlideQuality: null as Record<string, any> | null,
     slidePreviewSource: 'published' as SlideDeckPreviewSource,
+    slideTargetSchema: '',
+    slideCandidateSchema: '',
+    slidePublishedSchema: '',
+    slideCandidateStatus: '' as SlideDeckCandidateStatus,
     liveSlides: [] as Array<Record<string, any>>,
     buildProgress: 0,
     buildStage: '',
@@ -337,6 +362,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.publishedSlideQuality = null
       this.draftSlideQuality = null
       this.slidePreviewSource = 'published'
+      this.slideTargetSchema = ''
+      this.slideCandidateSchema = ''
+      this.slidePublishedSchema = ''
+      this.slideCandidateStatus = ''
       this.liveSlides = []
       this.buildProgress = 0
       this.buildStage = ''
@@ -362,6 +391,12 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         const response = await http.get(`/api/courses/${courseId}/teaching-representations`)
         if (!isCurrentRequest()) return null
         this.registry = response.data.registry
+        this.slideTargetSchema = String(this.registry?.slide_deck_target_schema || '')
+        this.slideCandidateSchema = String(this.registry?.slide_deck_candidate_schema || '')
+        this.slidePublishedSchema = String(this.registry?.slide_deck_published_schema || '')
+        this.slideCandidateStatus = String(
+          this.registry?.slide_deck_candidate_status || '',
+        ) as SlideDeckCandidateStatus
         const available = this.representations
         if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
           this.selectedId = available[0]?.representation_id || ''
@@ -417,6 +452,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.draftSlideQuality = null
       this.slidePreviewSource = 'published'
       this.slideQuality = this.publishedSlideQuality
+      this.slideTargetSchema = String(
+        this.registry?.slide_deck_target_schema || this.slideTargetSchema || '',
+      )
+      this.slideCandidateSchema = ''
+      this.slideCandidateStatus = ''
       let durableMonitorStarted = false
       try {
         const response = await fetch(
@@ -458,6 +498,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             }
           }
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
+          if (event.target_schema) this.slideTargetSchema = String(event.target_schema)
+          if (event.candidate_status) {
+            this.slideCandidateStatus = event.candidate_status as SlideDeckCandidateStatus
+          }
           if (event.stage) this.buildStage = event.stage
           if (event.event === 'story_plan') this.buildStage = 'story_plan'
           if (event.event === 'chapter_plan') this.buildStage = 'chapter_plan'
@@ -468,7 +512,23 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.event === 'asset_progress' || event.event === 'asset_ready') {
             this.buildStage = 'asset_compilation'
           }
+          if (
+            event.event === 'slide_reset'
+            && event.engine_schema === 'slide_deck_v5'
+            && ['final_contract', 'render_verified'].includes(String(event.candidate_stage || ''))
+          ) {
+            this.liveSlides = []
+            this.slideCandidateSchema = 'slide_deck_v5'
+            this.buildStage = event.stage || 'v5_candidate'
+          }
           if (event.event === 'slide_upsert' && event.slide) {
+            const strictV5 = this.slideTargetSchema === 'slide_deck_v5'
+            const acceptedV5Candidate = (
+              event.engine_schema === 'slide_deck_v5'
+              && ['final_contract', 'render_verified'].includes(String(event.candidate_stage || ''))
+            )
+            if (strictV5 && !acceptedV5Candidate) return
+            if (acceptedV5Candidate) this.slideCandidateSchema = 'slide_deck_v5'
             this.buildStage = 'slide_build'
             if (this.slidePreviewSource !== 'draft') {
               this.slidePreviewSource = 'draft'
@@ -498,6 +558,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.event === 'image_search') this.buildStage = 'image_search'
           if (event.event === 'render_repair') this.buildStage = 'render_repair'
           if (event.event === 'repair_progress') this.buildStage = 'repair_progress'
+          if (event.event === 'quality_fallback') {
+            this.buildStage = 'quality_fallback'
+            this.liveSlides = []
+            this.draftSlideQuality = null
+            this.buildFailure = null
+            this.buildError = ''
+            if (this.publishedSlideQuality) {
+              this.slidePreviewSource = 'published'
+              this.slideQuality = this.publishedSlideQuality
+            }
+          }
           if (event.event === 'build_blocked') {
             const failure = normalizedBuildFailure(event, event.quality)
             this.settleFailedSlideDraft(event.quality)
@@ -547,6 +618,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         const completed = completedRef.value
         if (!completed?.registry) throw new Error('Teaching representation build ended without a registry')
         this.registry = completed.registry
+        this.slideTargetSchema = String(
+          completed.target_schema
+          || completed.registry?.slide_deck_target_schema
+          || this.slideTargetSchema
+          || '',
+        )
+        this.slideCandidateStatus = String(
+          completed.build?.candidate_status
+          || this.slideCandidateStatus
+          || '',
+        ) as SlideDeckCandidateStatus
         this.quality = completed.quality || null
         this.slidePreviewSource = 'published'
         this.publishedSlideQuality = completed.quality || this.draftSlideQuality
@@ -719,6 +801,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.draftSlideQuality = null
       this.publishedSlideQuality = publishedQuality
       this.slideQuality = publishedQuality
+      this.slidePublishedSchema = String(publishedContent?.schema_version || '')
+      this.slideCandidateStatus = String(
+        publishedContent?.candidate_status || this.slideCandidateStatus || '',
+      ) as SlideDeckCandidateStatus
       if (quality) this.quality = quality
     },
     settleFailedSlideDraft(quality?: Record<string, any>) {
@@ -852,6 +938,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
       this.selectedSpec = spec
       if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(spec?.payload?.content?.schema_version)) {
+        this.slidePublishedSchema = String(spec?.payload?.content?.schema_version || '')
+        this.slideCandidateStatus = String(
+          spec?.payload?.content?.candidate_status || this.slideCandidateStatus || '',
+        ) as SlideDeckCandidateStatus
         const summary = spec?.payload.content.quality_summary
         if (summary) {
           this.publishedSlideQuality = summary

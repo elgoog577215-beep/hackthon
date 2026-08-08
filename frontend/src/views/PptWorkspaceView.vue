@@ -83,6 +83,10 @@
         :bundle-parts="activeBundleParts"
         :active-bundle-part-id="slideRepresentation?.representation_id || ''"
         :engine-status="slideEngineStatus"
+        :target-schema="store.slideTargetSchema || String(store.registry?.slide_deck_target_schema || '')"
+        :candidate-schema="store.slideCandidateSchema || String(content?.schema_version || '')"
+        :published-schema="store.slidePublishedSchema || String(content?.schema_version || '')"
+        :candidate-status="store.slideCandidateStatus || String(content?.candidate_status || '')"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -326,6 +330,7 @@ const stageLabel = computed(() => ({
   image_search: '正在检索并核验教学图片',
   render_repair: '正在修复导出版式问题',
   repair_progress: '正在定向修复问题页面',
+  quality_fallback: t('pptWorkspace.qualityFallbackStage', 'AI 草稿未通过检查，正在切换稳定生成方案'),
   bundle_plan: '正在按章节拆分课件',
   bundle_part_build: '正在逐册生成课件',
   paused: '已暂停，可从保存点继续',

@@ -19,6 +19,16 @@
         <small class="slide-workbench__engine-status" :data-state="engineStatus">
           {{ engineStatusLabel }}
         </small>
+        <small class="slide-workbench__schema-facts" data-testid="ppt-schema-facts">
+          {{ t('pptWorkspace.targetSchema', '目标') }} {{ schemaLabel(targetSchema) }} ·
+          {{ t('pptWorkspace.candidateSchema', '候选') }} {{ schemaLabel(candidateSchema) }} ·
+          {{ t('pptWorkspace.publishedSchema', '已发布') }} {{ schemaLabel(publishedSchema) }}
+        </small>
+        <small
+          v-if="candidateStatus === 'v5_needs_manual_edit'"
+          class="slide-workbench__manual-status"
+          data-testid="ppt-manual-edit-status"
+        >{{ t('pptWorkspace.manualEditCandidate', '完整 V5 已生成，部分页面需要人工调整') }}</small>
         <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
           {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
         </small>
@@ -168,6 +178,13 @@
           <div>
             <strong>{{ failureReceiptTitle }}</strong>
             <p v-if="failureReceiptMessage">{{ failureReceiptMessage }}</p>
+            <code v-if="buildFailure?.code">{{ buildFailure.code }}</code>
+            <small v-if="buildFailure?.stage">
+              {{ t('pptWorkspace.failureStage', '失败阶段') }}：{{ buildFailure.stage }} ·
+              {{ buildFailure.retryable
+                ? t('pptWorkspace.retryableFailure', '可以重试')
+                : t('pptWorkspace.nonRetryableFailure', '需要检查输入或系统配置') }}
+            </small>
             <p v-if="logicUpgradeError" class="slide-inspector__action-error">{{ logicUpgradeError }}</p>
             <button v-if="generationBlocked" type="button" class="slide-inspector__action" :disabled="logicUpgrading" @click="emit('upgrade-course-logic')">
               {{ logicUpgrading ? t('pptWorkspace.completingCourseLogic', '正在补全课程逻辑…') : t('pptWorkspace.completeCourseLogic', '补全课程逻辑') }}
@@ -176,6 +193,13 @@
           </div>
         </section>
         <template v-if="activeSlide">
+          <section v-if="activeSlide.quality?.manual_edit_required" class="slide-inspector__receipt" data-state="manual_edit_required">
+            <TriangleAlert :size="15" />
+            <div>
+              <strong>{{ t('pptWorkspace.manualEditPage', '本页需要人工调整') }}</strong>
+              <p>{{ activeSlide.quality?.manual_edit_reasons?.[0]?.message || t('pptWorkspace.manualEditPageHelp', '内容完整且可阅读，请在发布前检查本页排版。') }}</p>
+            </div>
+          </section>
           <section>
             <header><span>{{ pageQualityLabel }}</span><b :data-passed="slideQualityPassed">{{ slideQualityPassed ? t('teachingRepresentations.slides.passed', '通过') : t('teachingRepresentations.slides.review', '检查') }}</b></header>
             <dl>
@@ -442,6 +466,8 @@ interface Slide {
     character_count?: number
     issues?: Array<Record<string, any>>
     resolved_layout?: string
+    manual_edit_required?: boolean
+    manual_edit_reasons?: Array<Record<string, any>>
   }
 }
 
@@ -467,6 +493,10 @@ const props = withDefaults(defineProps<{
   bundleParts?: Array<{ representationId: string; label: string }>
   activeBundlePartId?: string
   engineStatus?: 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  targetSchema?: string
+  candidateSchema?: string
+  publishedSchema?: string
+  candidateStatus?: string
 }>(), {
   standalone: false,
   mode: 'teaching',
@@ -475,6 +505,10 @@ const props = withDefaults(defineProps<{
   bundleParts: () => [],
   activeBundlePartId: '',
   engineStatus: 'unknown',
+  targetSchema: '',
+  candidateSchema: '',
+  publishedSchema: '',
+  candidateStatus: '',
   buildFailure: null,
   logicUpgrading: false,
   logicUpgradeError: '',
@@ -553,6 +587,13 @@ const engineStatusLabel = computed(() => ({
   blocked: '课程逻辑未就绪',
   unknown: '引擎状态读取中',
 }[props.engineStatus]))
+const schemaLabel = (value: string) => {
+  const normalized = String(value || '')
+  if (normalized === 'slide_deck_v5') return 'V5'
+  if (normalized === 'slide_deck_v4') return 'V4'
+  if (normalized === 'slide_deck_v3') return 'V3'
+  return t('pptWorkspace.schemaPending', '等待中')
+}
 const qualityPassed = computed(() => props.quality?.passed === true)
 const generationBlocked = computed(() => (
   props.engineStatus === 'blocked'
@@ -632,17 +673,43 @@ const advisoryQualityIssues = computed(() => (
 const failureIssueSummary = computed(() => {
   const issues = blockingQualityIssues.value
   if (!issues.length) return ''
-  const firstCode = issues[0]?.code
-  if (!firstCode) return ''
-  const matching = issues.filter(issue => issue.code === firstCode)
-  const pageCount = new Set(matching.map(issue => issue.slide)).size
-  const label = ({
-    body_density_overflow: '正文过密',
-    slide_title_overflow: '标题过长',
-    visible_item_overflow: '项目过多',
-    mixed_narrative_jobs: '页面叙事混杂',
-  } as Record<string, string>)[firstCode] || '质量检查阻断'
-  return `${label} · ${pageCount} 页`
+  const reportedTotal = Number(props.quality?.blocker_count || 0)
+  const total = Number.isFinite(reportedTotal) && reportedTotal > 0
+    ? reportedTotal
+    : issues.length
+  const returned = issues.length
+  const counts = issues.reduce((result, issue) => {
+    result.set(issue.code, (result.get(issue.code) || 0) + 1)
+    return result
+  }, new Map<string, number>())
+  const issueLabels: Record<string, string> = {
+    dangling_fragment: t('pptWorkspace.qualityIssueLabels.danglingFragment', '残句'),
+    continuation_sequence_missing: t('pptWorkspace.qualityIssueLabels.continuationSequence', '续页序号'),
+    process_result_missing: t('pptWorkspace.qualityIssueLabels.processResult', '过程结果'),
+    raw_internal_label_visible: t('pptWorkspace.qualityIssueLabels.internalLabel', '内部标签'),
+    worked_example_conclusion_missing: t('pptWorkspace.qualityIssueLabels.exampleConclusion', '例题结论'),
+    semantic_atom_split: t('pptWorkspace.qualityIssueLabels.semanticSplit', '语义拆页'),
+    duplicate_title: t('pptWorkspace.qualityIssueLabels.duplicateTitle', '重复标题'),
+    body_density_overflow: t('pptWorkspace.qualityIssueLabels.bodyDensity', '正文过密'),
+    slide_title_overflow: t('pptWorkspace.qualityIssueLabels.titleOverflow', '标题过长'),
+    visible_item_overflow: t('pptWorkspace.qualityIssueLabels.itemOverflow', '项目过多'),
+    mixed_narrative_jobs: t('pptWorkspace.qualityIssueLabels.mixedNarrative', '页面叙事混杂'),
+  }
+  const groups = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([code, count]) => `${issueLabels[code] || code} ${count}`)
+    .join(t('pptWorkspace.qualityIssueSeparator', '、'))
+  const summaryTemplate = returned < total
+    ? t(
+        'pptWorkspace.qualityBlockerSummaryPartial',
+        '质量检查阻断 · {total} 项（当前返回 {returned} 项）',
+      )
+    : t('pptWorkspace.qualityBlockerSummary', '质量检查阻断 · {total} 项')
+  const summary = summaryTemplate
+    .replace('{total}', String(total))
+    .replace('{returned}', String(returned))
+  return groups ? `${summary}：${groups}` : summary
 })
 const failureReceiptTitle = computed(() => (
   generationBlocked.value
@@ -725,6 +792,7 @@ const stageLabel = computed(() => ({
   image_search: '正在检索并核验教学图片',
   render_repair: '正在修复导出版式问题',
   repair_progress: '正在定向修复问题页面',
+  quality_fallback: t('pptWorkspace.qualityFallbackStage', 'AI 草稿未通过检查，正在切换稳定生成方案'),
   complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
 }[props.stage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
 
@@ -1130,6 +1198,8 @@ function classificationLabel(value: string) {
 .slide-workbench__engine-status { padding:4px 7px; border:1px solid #bfd1ff; border-radius:999px; color:#2449a8; background:#edf3ff; font-size:9px; font-weight:800; }
 .slide-workbench__engine-status[data-state="slide_deck_v3"] { border-color:#ecd09c; color:#85520a; background:#fff7e6; }
 .slide-workbench__engine-status[data-state="blocked"] { border-color:#efb6b6; color:#a12828; background:#fff0f0; }
+.slide-workbench__schema-facts { color:#667085; font-size:9px; font-weight:700; }
+.slide-workbench__manual-status { padding:4px 7px; border:1px solid #f1c36d; border-radius:999px; color:#92400e; background:#fffbeb; font-size:9px; font-weight:800; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
 .slide-workbench__part-selector { min-height:34px; max-width:110px; padding:0 28px 0 10px; border:1px solid var(--lz-border); border-radius:9px; color:#536174; background:#fff; font-size:11px; font-weight:800; outline:none; }
@@ -1174,6 +1244,7 @@ function classificationLabel(value: string) {
 .slide-inspector__analyzing { display:flex; align-items:center; gap:7px; margin-top:9px; padding:9px; border-left:3px solid #2556d8; color:#315486; background:#eef4ff; font-size:8px; line-height:1.45; }
 .slide-inspector__confirmation { margin-top:9px; padding:9px; border-left:3px solid #8b5cf6; background:#f7f3ff; }.slide-inspector__confirmation > strong { display:flex; align-items:center; gap:5px; color:#6d28d9; font-size:9px; }.objective-diff { display:grid; grid-template-columns:minmax(0,1fr) 12px minmax(0,1fr); gap:4px; margin-top:7px; color:#64748b; font-size:8px; line-height:1.4; }.objective-diff i { color:#8b5cf6; font-style:normal; }.objective-diff b { color:#4c1d95; }.slide-inspector__confirmation > p { margin:6px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
 .slide-inspector__receipt { display:grid; grid-template-columns:18px minmax(0,1fr); gap:6px; margin-top:9px; padding:9px; border-left:3px solid #10b981; color:#047857; background:#ecfdf5; }.slide-inspector__receipt[data-state="failed_using_last_available"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }.slide-inspector__receipt strong { display:block; font-size:9px; }.slide-inspector__receipt p { margin:3px 0 0; color:#64748b; font-size:8px; line-height:1.45; }
+.slide-inspector__receipt[data-state="manual_edit_required"] { border-left-color:#f59e0b; color:#92400e; background:#fffbeb; }
 .slide-inspector__action { min-height:27px; margin-top:8px; padding:0 10px; border:0; border-radius:7px; color:#fff; background:#c2410c; font-size:9px; font-weight:800; cursor:pointer; }.slide-inspector__action:disabled { cursor:wait; opacity:.65; }.slide-inspector__action-error { color:#b42318 !important; }
 .slide-inspector__receipt ul { display:grid; gap:3px; margin:7px 0 0; padding:0; list-style:none; }.slide-inspector__receipt li { display:flex; justify-content:space-between; gap:8px; color:#526174; font-size:8px; }.slide-inspector__receipt li b { color:#047857; }
 .slide-inspector__edit-actions { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }.slide-inspector__edit-actions button { min-height:29px; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0 8px; border:1px solid var(--lz-border); border-radius:6px; color:var(--lz-text-secondary); background:#fff; font-size:8px; cursor:pointer; }.slide-inspector__edit-actions button.semantic { color:#fff; border-color:#6366f1; background:#6366f1; }.slide-inspector__edit-actions button:disabled { opacity:.45; cursor:not-allowed; }.slide-inspector output { display:block; margin-top:8px; color:#047857; font-size:8px; }.slide-inspector details { padding:13px 0; color:var(--lz-text-secondary); font-size:9px; }.slide-inspector summary { color:var(--lz-text-strong); font-weight:700; cursor:pointer; }.slide-inspector details p { white-space:pre-line; line-height:1.55; }

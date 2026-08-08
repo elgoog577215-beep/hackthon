@@ -202,6 +202,7 @@ GET 正式教案 + 当前修订向量
 
 ```text
 GET  /api/courses/{course_id}/teaching-plan/workbench
+POST /api/courses/{course_id}/teaching-plan/baseline
 POST /api/courses/{course_id}/teaching-plan/drafts
 PATCH /api/courses/{course_id}/teaching-plan/drafts/{draft_id}
 POST /api/courses/{course_id}/teaching-plan/validate
@@ -247,7 +248,9 @@ ready_to_apply → applying → applied | conflict | failed
 
 ## 9. 兼容与迁移
 
-- 已有课程读取没有 `course_teaching_plan` 时，继续显示现有“暂无结构化教案/已有学习目标”状态，不伪造可编辑字段。
+- 已有课程读取没有 `course_teaching_plan` 时，继续显示“暂无结构化教案/已有学习目标”状态，不伪造可编辑字段，也不因打开页面自动写入。
+- canonical 历史课程若已发布目录包含稳定小节，可由教师显式触发确定性 V3 基线编译；该动作不调用模型、不改正文，并记录迁移来源、质量报告、幂等回执和首个正式修订。
+- 缺少稳定结构化目录或编译质量未通过时继续只读，不提供绕过目录真源的编辑入口。
 - 历史 V2 教案先通过现有兼容读取归一化为 V3 投影；第一次正式编辑前创建基线 `TeachingPlanRevision`，不静默改写旧课程。
 - 旧课程若缺少稳定知识绑定，只允许编辑描述性字段；知识结构编辑需要先完成知识绑定补全。
 - 取消、失败或删除草稿不影响正式课程、历史修订和已发布教学表达。

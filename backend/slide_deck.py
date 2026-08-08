@@ -167,6 +167,15 @@ class SlideDeckContent(_StrictModel):
     override_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     quality_summary: dict[str, Any] = Field(default_factory=dict)
     quality_report: dict[str, Any] = Field(default_factory=dict)
+    ppt_source_contract_v1: dict[str, Any] = Field(default_factory=dict)
+    source_dispositions: list[dict[str, Any]] = Field(default_factory=list)
+    candidate_status: Literal[
+        "",
+        "v5_ready",
+        "v5_needs_manual_edit",
+        "v5_failed",
+    ] = ""
+    manual_edit_required: list[dict[str, Any]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_slide_order(self) -> SlideDeckContent:
