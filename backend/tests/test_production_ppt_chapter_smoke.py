@@ -1,3 +1,5 @@
+import json
+
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
     SmokeFailure,
@@ -5,6 +7,7 @@ from production_ppt_chapter_smoke import (
     _source_disposition,
     build_chapter_document,
     extract_source_code_lines,
+    finalize_deferred_render,
     rank_programming_chapter_candidates,
 )
 
@@ -55,6 +58,72 @@ def test_smoke_accepts_only_explicit_code_source_disposition() -> None:
     assert excluded == {
         "code-2": "subject_artifact_redundant_after_chapter_coverage",
     }
+
+
+def test_deferred_render_finalizer_promotes_only_matching_page_count(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "chapter-smoke.pptx").write_bytes(b"pptx")
+    (tmp_path / "report.json").write_text(
+        json.dumps({
+            "status": "passed_pending_render",
+            "chain": {"candidate_status": "v5_ready"},
+            "deck": {"slide_count": 3},
+            "gates": {"quality_gate": True},
+            "export": {"pptx_bytes": 4},
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "production_ppt_chapter_smoke._render_artifacts",
+        lambda _pptx, _output: {
+            "pdf_bytes": 100,
+            "rendered_page_count": 3,
+            "contact_sheet_bytes": 50,
+        },
+    )
+
+    report = finalize_deferred_render(tmp_path)
+
+    assert report["status"] == "passed"
+    assert report["gates"]["rendered_page_count_matches"] is True
+    assert report["render_verification"] == {
+        "status": "passed",
+        "executor": "isolated_ci_runner",
+    }
+
+
+def test_deferred_render_finalizer_blocks_page_count_mismatch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "chapter-smoke.pptx").write_bytes(b"pptx")
+    (tmp_path / "report.json").write_text(
+        json.dumps({
+            "status": "passed_pending_render",
+            "chain": {"candidate_status": "v5_needs_manual_edit"},
+            "deck": {"slide_count": 3},
+            "gates": {"quality_gate": True},
+            "export": {"pptx_bytes": 4},
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "production_ppt_chapter_smoke._render_artifacts",
+        lambda _pptx, _output: {
+            "pdf_bytes": 100,
+            "rendered_page_count": 2,
+            "contact_sheet_bytes": 50,
+        },
+    )
+
+    report = finalize_deferred_render(tmp_path)
+
+    assert report["status"] == "failed"
+    assert report["failure"]["failed_gates"] == [
+        "rendered_page_count_matches",
+    ]
 
 
 def _document() -> CourseDocument:

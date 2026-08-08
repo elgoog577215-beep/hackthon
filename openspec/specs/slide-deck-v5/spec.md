@@ -622,6 +622,14 @@ SHALL NOT convert every render issue into a prose-only safe page.
 - **THEN** the V5 candidate fails with the localized export issue
 - **AND** it is not silently replaced by an `editorial-body` page
 
+#### Scenario: The production application host lacks render QA binaries
+- **WHEN** the deployed chain has passed semantic and PPTX structural gates but
+  LibreOffice or PDF rasterization is unavailable on the application host
+- **THEN** the result remains `passed_pending_render` and the private PPTX is
+  rendered by an isolated CI runner using the same checked-in QA logic
+- **AND** publication evidence is marked passed only after the rendered page
+  count matches and the render artifacts are retained with the report
+
 ### Requirement: Presentation-Native Density Is A Publication Gate
 
 The system SHALL compute presentation density from final visible pages.

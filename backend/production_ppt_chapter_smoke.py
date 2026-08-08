@@ -637,6 +637,7 @@ async def run_production_smoke(
     expected_release_commit: str,
     requested_course_id: str = "",
     requested_chapter_id: str = "",
+    defer_render: bool = False,
 ) -> dict[str, Any]:
     from course_repository import CourseDocumentRepository
     from slide_deck_renderer import audit_exported_pptx, export_structured_slide_deck
@@ -966,17 +967,12 @@ async def run_production_smoke(
         anchor and anchor in pptx_text
         for anchor in required_code_anchors
     )
-    render_artifacts = _render_artifacts(pptx_path, output_dir)
-
     repository = CourseDocumentRepository(storage)
     source_after = _stable_digest(repository.load_raw(selected.course_id))
     export_gates = {
         "pptx_created": pptx_path.is_file() and pptx_path.stat().st_size > 0,
         "pptx_audit": bool(export_audit.get("passed")),
         "pptx_code_anchors_preserved": export_anchors_preserved,
-        "rendered_page_count_matches": (
-            int(render_artifacts["rendered_page_count"]) == len(slides)
-        ),
         "production_course_unchanged": source_after == selected.source_digest,
     }
     report["gates"].update(export_gates)
@@ -986,7 +982,6 @@ async def run_production_smoke(
         "audit_reviewer": export_audit.get("reviewer"),
         "passed": bool(export_audit.get("passed")),
         "issues": _issue_summary(list(export_audit.get("issues") or [])),
-        **render_artifacts,
     }
     failed = [
         name
@@ -1000,9 +995,83 @@ async def run_production_smoke(
             "failed_gates": failed,
         }
         return report
+    if defer_render:
+        report["status"] = "passed_pending_render"
+        report["render_verification"] = {
+            "status": "pending",
+            "executor": "isolated_ci_runner",
+        }
+        return report
+
+    render_artifacts = _render_artifacts(pptx_path, output_dir)
+    report["gates"]["rendered_page_count_matches"] = (
+        int(render_artifacts["rendered_page_count"]) == len(slides)
+    )
+    report["export"].update(render_artifacts)
+    if not report["gates"]["rendered_page_count_matches"]:
+        report["status"] = "failed"
+        report["failure"] = {
+            "code": "production_v5_render_gate_failed",
+            "failed_gates": ["rendered_page_count_matches"],
+        }
+        return report
     report["status"] = (
         "passed_with_manual_edit"
         if content.get("candidate_status") == "v5_needs_manual_edit"
+        else "passed"
+    )
+    return report
+
+
+def finalize_deferred_render(output_dir: Path) -> dict[str, Any]:
+    report_path = output_dir / "report.json"
+    pptx_path = output_dir / "chapter-smoke.pptx"
+    if not report_path.is_file() or not pptx_path.is_file():
+        raise SmokeFailure(
+            "deferred_render_artifacts_missing",
+            "Deferred render QA requires both report.json and chapter-smoke.pptx.",
+        )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if str(report.get("status") or "") != "passed_pending_render":
+        raise SmokeFailure(
+            "deferred_render_status_invalid",
+            "Deferred render QA can finalize only a pending render report.",
+            details={"status": str(report.get("status") or "")},
+        )
+    expected_slide_count = int(
+        (report.get("deck") or {}).get("slide_count") or 0
+    )
+    if expected_slide_count <= 0:
+        raise SmokeFailure(
+            "deferred_render_slide_count_missing",
+            "The pending report does not contain a valid expected slide count.",
+        )
+
+    render_artifacts = _render_artifacts(pptx_path, output_dir)
+    rendered_count_matches = (
+        int(render_artifacts["rendered_page_count"])
+        == expected_slide_count
+    )
+    report.setdefault("gates", {})["rendered_page_count_matches"] = (
+        rendered_count_matches
+    )
+    report.setdefault("export", {}).update(render_artifacts)
+    report["render_verification"] = {
+        "status": "passed" if rendered_count_matches else "failed",
+        "executor": "isolated_ci_runner",
+    }
+    if not rendered_count_matches:
+        report["status"] = "failed"
+        report["failure"] = {
+            "code": "production_v5_render_gate_failed",
+            "failed_gates": ["rendered_page_count_matches"],
+        }
+        return report
+    report.pop("failure", None)
+    report["status"] = (
+        "passed_with_manual_edit"
+        if (report.get("chain") or {}).get("candidate_status")
+        == "v5_needs_manual_edit"
         else "passed"
     )
     return report
@@ -1023,6 +1092,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-release-commit", default="")
     parser.add_argument("--course-id", default="")
     parser.add_argument("--chapter-id", default="")
+    parser.add_argument("--defer-render", action="store_true")
+    parser.add_argument("--finalize-deferred-render", action="store_true")
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir).resolve()
@@ -1032,13 +1103,17 @@ def main(argv: list[str] | None = None) -> int:
         else Path(__file__).resolve().parent.parent
     )
     try:
-        report = asyncio.run(run_production_smoke(
-            application_root=application_root,
-            output_dir=output_dir,
-            expected_release_commit=str(args.expected_release_commit or ""),
-            requested_course_id=str(args.course_id or ""),
-            requested_chapter_id=str(args.chapter_id or ""),
-        ))
+        if args.finalize_deferred_render:
+            report = finalize_deferred_render(output_dir)
+        else:
+            report = asyncio.run(run_production_smoke(
+                application_root=application_root,
+                output_dir=output_dir,
+                expected_release_commit=str(args.expected_release_commit or ""),
+                requested_course_id=str(args.course_id or ""),
+                requested_chapter_id=str(args.chapter_id or ""),
+                defer_render=bool(args.defer_render),
+            ))
     except SmokeFailure as exc:
         report = {
             "schema_version": "production_ppt_chapter_smoke_v1",
