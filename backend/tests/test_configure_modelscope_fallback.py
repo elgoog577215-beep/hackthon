@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "configure_modelscope_fallback.py"
+DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "deploy-lingzhi.yml"
 
 
 def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
@@ -31,18 +32,7 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
         input=json.dumps({
             "api_key": secret,
             "base_url": "https://api-inference.modelscope.cn/v1/",
-            "model": "deepseek-ai/DeepSeek-V4-Pro",
-            "smart_models": [
-                "deepseek-ai/DeepSeek-V4-Pro",
-                "Qwen/Qwen3.5-35B-A3B",
-                "ZhipuAI/GLM-4.7-Flash",
-            ],
-            "fast_models": [
-                "deepseek-ai/DeepSeek-V4-Flash-0731",
-                "Qwen/Qwen3.5-35B-A3B",
-                "Qwen/Qwen3-8B",
-                "ZhipuAI/GLM-4.7-Flash",
-            ],
+            "model": "Qwen/Qwen3.5-35B-A3B",
         }),
         text=True,
         capture_output=True,
@@ -59,17 +49,9 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
         "MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/"
         in content
     )
-    assert "MODELSCOPE_MODEL=deepseek-ai/DeepSeek-V4-Pro" in content
-    assert (
-        "MODELSCOPE_MODEL_CANDIDATES="
-        "deepseek-ai/DeepSeek-V4-Pro,Qwen/Qwen3.5-35B-A3B,"
-        "ZhipuAI/GLM-4.7-Flash"
-    ) in content
-    assert (
-        "MODELSCOPE_MODEL_FAST_CANDIDATES="
-        "deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-35B-A3B,"
-        "Qwen/Qwen3-8B,ZhipuAI/GLM-4.7-Flash"
-    ) in content
+    assert "MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B" in content
+    assert "MODELSCOPE_MODEL_CANDIDATES=" not in content
+    assert "MODELSCOPE_MODEL_FAST_CANDIDATES=" not in content
     assert secret not in result.stdout
     assert secret not in result.stderr
 
@@ -99,7 +81,7 @@ def test_configure_modelscope_fallback_rejects_untrusted_endpoint(tmp_path):
     assert env_file.read_text(encoding="utf-8") == "AI_API_KEY=primary-key\n"
 
 
-def test_configure_modelscope_fallback_rejects_invalid_candidate_atomically(
+def test_configure_modelscope_fallback_rejects_invalid_model_atomically(
     tmp_path,
 ):
     env_file = tmp_path / ".env"
@@ -116,9 +98,7 @@ def test_configure_modelscope_fallback_rejects_invalid_candidate_atomically(
         input=json.dumps({
             "api_key": "fallback-secret-value",
             "base_url": "https://api-inference.modelscope.cn/v1/",
-            "model": "deepseek-ai/DeepSeek-V4-Pro",
-            "smart_models": ["deepseek-ai/DeepSeek-V4-Pro"],
-            "fast_models": ["bad model; rm -rf /"],
+            "model": "bad model; rm -rf /",
         }),
         text=True,
         capture_output=True,
@@ -127,3 +107,11 @@ def test_configure_modelscope_fallback_rejects_invalid_candidate_atomically(
 
     assert result.returncode != 0
     assert env_file.read_text(encoding="utf-8") == original
+
+
+def test_deploy_workflow_provisions_one_qwen_model():
+    workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-35B-A3B" in workflow
+    assert "MODELSCOPE_MODEL_CANDIDATES" not in workflow
+    assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
