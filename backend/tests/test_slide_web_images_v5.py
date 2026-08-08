@@ -303,5 +303,36 @@ def test_ppt_image_retrieval_uses_shared_gateway_and_hydrates_commons_license(
     assert captured["metadata_params"]["titles"] == "File:Heart diagram.png"
     assert str(captured["metadata_headers"]["User-Agent"]).startswith("LingzhiPPTV5/")
     assert asset is not None
+
+
+def test_hydrate_shared_image_candidates_accepts_public_domain_archive_without_api() -> None:
+    class NetworkMustNotBeUsed:
+        def get(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("public-domain result must not require Commons API")
+
+    candidates = slide_web_images.hydrate_shared_image_candidates_v5(
+        {
+            "sources": [{
+                "url": "https://pdimagearchive.org/images/heart",
+                "title": "Model of the Heart of a Human Embryo",
+                "excerpt": "Public-domain anatomical heart model",
+                "matched_query": "human heart anatomy",
+                "provider_metadata": {
+                    "engines": ["public domain image archive"],
+                    "image_url": "https://images.pdimagearchive.org/heart.jpg",
+                    "thumbnail_url": (
+                        "https://images.pdimagearchive.org/heart.jpg?fit=max&h=360&w=360"
+                    ),
+                },
+            }]
+        },
+        client=NetworkMustNotBeUsed(),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].provider == "searxng"
+    assert candidates[0].asset_url == "https://images.pdimagearchive.org/heart.jpg"
+    assert candidates[0].source_page_url == "https://pdimagearchive.org/images/heart"
+    assert candidates[0].license == "Public Domain"
     assert asset.source_provider == "searxng"
     assert asset.license == "CC BY 4.0"
