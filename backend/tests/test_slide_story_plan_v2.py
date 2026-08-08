@@ -25,7 +25,11 @@ from slide_deck_v4 import (
     build_signature_v4,
     compile_slide_deck_v4,
 )
-from slide_deck_v5 import allocation_from_story_plan_v5, compact_story_plan_v5
+from slide_deck_v5 import (
+    allocation_from_story_plan_v5,
+    compact_story_plan_v5,
+    compile_slide_deck_v5,
+)
 from slide_layout_registry import registry_summary_v2, select_layout_v2
 from slide_story_plan import (
     STORY_BEAT_TEXT_CAPACITY,
@@ -409,6 +413,7 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
 
 
 def test_new_programming_course_long_code_is_partitioned_before_story_layout_selection(
+    tmp_path,
 ) -> None:
     course = deepcopy(_course_with_teaching_plan())
     course["subject_pedagogy_profile"] = {
@@ -429,6 +434,20 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
         if block["block_id"] == "block-concept"
     )
     concept["content"] = "```csharp\n" + "\n".join(code_lines) + "\n```"
+    next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-practice"
+    )["content"] = (
+        "请判断 PlayerController 是否应在 Update 中读取方向输入，并说明依据。"
+    )
+    next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-feedback"
+    )["content"] = (
+        "应在 Update 中读取输入，再把物理移动交给 FixedUpdate 执行。"
+    )
     document = document_from_legacy_course(course)
 
     fragments = fragment_course_document(document)
@@ -506,6 +525,51 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
     }
     code_pages = [page for page in allocation.pages if page.layout == "code"]
     assert 1 <= len(code_pages) <= 3
+
+    content = compile_slide_deck_v5(
+        document,
+        course,
+        story_plan=story,
+    )
+    assert content["schema_version"] == "slide_deck_v5"
+    assert not {
+        issue["code"]
+        for issue in content["quality_report"]["blockers"]
+    } & {
+        "body_density_overflow",
+        "duplicate_title",
+        "presentation_grammar_mismatch",
+        "required_subject_representation_missing",
+    }
+    final_code_pages = [
+        slide
+        for slide in content["slides"]
+        if "code" in (slide.get("quality") or {}).get(
+            "subject_artifact_kinds",
+            [],
+        )
+    ]
+    assert 1 <= len(final_code_pages) <= 3
+    assert all(
+        slide["quality"]["resolved_layout"] == "code"
+        for slide in final_code_pages
+    )
+
+    output = export_structured_slide_deck(
+        content,
+        tmp_path / "programming-v5.pptx",
+        require_quality=False,
+    )
+    rendered = Presentation(output)
+    assert len(rendered.slides) == len(content["slides"])
+    visible_text = "\n".join(
+        shape.text
+        for slide in rendered.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+    assert "public void Tick1" in visible_text
+    assert "public void Tick32" in visible_text
 
 
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
