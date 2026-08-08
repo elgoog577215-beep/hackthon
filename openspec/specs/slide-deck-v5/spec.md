@@ -709,6 +709,15 @@ text page budget or loses a competition between three source groups.
   explanation, conditions, and expected result on adjacent pages
 - **AND** it does not replace the artifact with a prose paraphrase
 
+#### Scenario: A programming chapter contains more source code than a presentation can teach legibly
+- **WHEN** complete code coverage would exceed three dedicated code pages in one
+  chapter
+- **THEN** V5 renders a source-exact teaching excerpt on one to three code pages
+  while preserving the selected excerpt's source order
+- **AND** every omitted code fragment is recorded as
+  `subject_artifact_redundant_after_chapter_coverage` instead of being silently
+  discarded or converted to editorial prose
+
 #### Scenario: The source contains more characteristic artifacts than the deck needs
 - **WHEN** the subject coverage minimum is already satisfied by stronger,
   complete teaching loops
