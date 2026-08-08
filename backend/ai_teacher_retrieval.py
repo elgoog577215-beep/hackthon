@@ -32,6 +32,11 @@ _SEARCH_COMMAND_PATTERNS = (
         re.I,
     ),
 )
+_QUESTION_FILLER_PATTERN = re.compile(
+    r"^(?:什么是|什么叫|何为|如何理解|请解释(?:一下)?|解释(?:一下)?|介绍(?:一下)?)"
+    r"\s*",
+    re.I,
+)
 
 
 def build_ai_teacher_queries(
@@ -196,6 +201,8 @@ def _search_intent_term(value: str) -> str:
     text = _safe_term(value)
     for pattern in _SEARCH_COMMAND_PATTERNS:
         text = pattern.sub(" ", text)
+    text = text.strip()
+    text = _QUESTION_FILLER_PATTERN.sub("", text)
     text = re.sub(r"[\s,.;:!?，。；：！？、]+", " ", text).strip()
     return text[:1000] or _safe_term(value)
 
