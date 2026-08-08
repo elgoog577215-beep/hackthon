@@ -41,8 +41,6 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
         "baidu images",
         "quark images",
         "sogou images",
-        "pexels",
-        "unsplash",
         "public domain image archive",
     }
 
@@ -60,9 +58,9 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "name: baidu images" in settings
     assert "name: quark images" in settings
     assert "name: sogou images" in settings
-    assert "name: pexels" in settings
-    assert "name: unsplash" in settings
     assert "name: public domain image archive" in settings
+    assert "name: pexels" not in settings
+    assert "name: unsplash" not in settings
     assert "wikicommons.images" not in settings
     assert "google" not in settings.lower()
 
@@ -97,7 +95,7 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "执行图片搜索冒烟" in script
     assert "q=human heart anatomy" in script
     assert (
-        "engines=pexels,unsplash,public domain image archive,"
+        "engines=public domain image archive,"
         "bing images,baidu images,quark images,sogou images"
     ) in script
     assert "timeout_limit=4" in script
@@ -162,10 +160,7 @@ def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
     assert 'p.get("unresponsive_engines")' in workflow
 
 
-def test_production_diagnostics_probes_openverse_license_metadata() -> None:
+def test_production_diagnostics_skips_blocked_openverse_endpoint() -> None:
     workflow = _read(".github/workflows/production-diagnostics.yml")
 
-    assert "== openverse images direct ==" in workflow
-    assert "https://api.openverse.org/v1/images/" in workflow
-    assert "license=cc0,pdm,by" in workflow
-    assert 'item.get("license")' in workflow
+    assert "api.openverse.org" not in workflow
