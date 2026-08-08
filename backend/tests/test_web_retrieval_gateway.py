@@ -190,6 +190,10 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
         "q": [query],
         "format": ["json"],
         "categories": ["general,science"],
+        "engines": [
+            "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,"
+            "wikipedia,arxiv,pubmed,openalex,crossref"
+        ],
         "safesearch": ["2"],
         "language": [expected_language],
         "pageno": ["1"],
@@ -202,6 +206,37 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
         "raw_score": 42.0,
     }
     assert "score" not in results[0]
+
+
+@pytest.mark.asyncio
+async def test_searxng_provider_keeps_general_queries_out_of_science_engines():
+    captured: list[dict[str, list[str]]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(parse_qs(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "results": [{
+                    "url": "https://example.edu/oop",
+                    "title": "Object-oriented programming",
+                    "content": "Classes and objects.",
+                }]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = SearXNGSearchProvider(
+            base_url="http://127.0.0.1:8080",
+            client=client,
+        )
+        await provider.search("什么是面向对象编程 例子", limit=4)
+
+    assert len(captured) == 1
+    assert captured[0]["categories"] == ["general"]
+    assert captured[0]["engines"] == [
+        "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,wikipedia"
+    ]
 
 
 @pytest.mark.asyncio
@@ -239,6 +274,7 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
         )
 
     assert captured["form"]["categories"] == ["images"]
+    assert captured["form"]["engines"] == ["wikicommons.images"]
     assert results[0]["provider_metadata"] == {
         "engines": ["wikicommons.images"],
         "raw_score": 8.5,
