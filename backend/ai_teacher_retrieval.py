@@ -117,10 +117,7 @@ def merge_ai_teacher_retrieval(
 
     merged = deepcopy(context_package)
     web_sources: list[dict[str, Any]] = []
-    for index, source in enumerate(
-        admitted_sources(retrieval_package),
-        start=1,
-    ):
+    for index, source in enumerate(_ai_teacher_sources(retrieval_package), start=1):
         citation_id = f"S{index}"
         web_sources.append(
             {
@@ -154,6 +151,27 @@ def merge_ai_teacher_retrieval(
         "source_count": len(web_sources),
     }
     return merged
+
+
+def _ai_teacher_sources(
+    retrieval_package: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tier_a = admitted_sources(retrieval_package)
+    if tier_a:
+        return tier_a
+    # AI-teacher replies can cite a small number of gateway-filtered tier B
+    # references when primary sources are unavailable. Tier C sources remain
+    # excluded, and the original trust tier stays visible to the caller.
+    tier_b = [
+        source
+        for source in retrieval_package.get("sources") or []
+        if source.get("trust_tier") == "tier_b"
+    ]
+    return sorted(
+        tier_b,
+        key=lambda source: float(source.get("relevance") or 0),
+        reverse=True,
+    )[:2]
 
 
 def should_retrieve_for_message(

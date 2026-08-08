@@ -139,6 +139,17 @@ def test_web_sources_are_numbered_and_visible_without_private_context():
     assert "student@example.com" not in prompt
 
 
+def test_ai_teacher_uses_filtered_tier_b_sources_when_no_tier_a_exists():
+    package = _package()
+    package["sources"][0]["trust_tier"] = "tier_b"
+
+    merged = merge_ai_teacher_retrieval(_context(), package)
+
+    web = next(item for item in merged["sources"] if item["type"] == "web")
+    assert web["trust_tier"] == "tier_b"
+    assert merged["web_retrieval"]["source_count"] == 1
+
+
 def test_failed_retrieval_keeps_local_context_and_explicit_receipt():
     local = _context()
     merged = merge_ai_teacher_retrieval(local, _package("failed_fallback_local"))
