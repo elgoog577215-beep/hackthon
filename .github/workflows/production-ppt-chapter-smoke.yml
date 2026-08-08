@@ -97,6 +97,7 @@ jobs:
             --application-root /opt/lingzhi/hackthon
             --output-dir "$REMOTE_OUTPUT_DIR"
             --expected-release-commit "$EXPECTED_RELEASE_COMMIT"
+            --defer-render
           )
           if [ -n "$SMOKE_COURSE_ID" ]; then
             args+=(--course-id "$SMOKE_COURSE_ID")
@@ -125,6 +126,25 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -r "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$REMOTE_OUTPUT_DIR/." \
             production-ppt-smoke/
+
+      - name: Finalize render QA on isolated runner
+        id: render-qa
+        if: steps.smoke.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice \
+            poppler-utils \
+            fonts-noto-cjk
+          python3 -m pip install --disable-pip-version-check \
+            "pydantic>=2,<3" \
+            "pillow>=10,<13" \
+            "python-pptx>=1,<2"
+          PYTHONUTF8=1 python3 backend/production_ppt_chapter_smoke.py \
+            --output-dir production-ppt-smoke \
+            --finalize-deferred-render
 
       - name: Upload private smoke artifacts
         if: always()
@@ -159,9 +179,11 @@ jobs:
         if: always()
         env:
           SMOKE_STEP_OUTCOME: ${{ steps.smoke.outcome }}
+          RENDER_QA_OUTCOME: ${{ steps.render-qa.outcome }}
         run: |
           set -euo pipefail
           test "$SMOKE_STEP_OUTCOME" = "success"
+          test "$RENDER_QA_OUTCOME" = "success"
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -170,7 +192,7 @@ jobs:
               Path("production-ppt-smoke/report.json").read_text(encoding="utf-8")
           )
           status = str(report.get("status") or "")
-          if not status.startswith("passed"):
+          if status not in {"passed", "passed_with_manual_edit"}:
               raise SystemExit(
                   "Production PPT chapter smoke failed: "
                   + json.dumps(report.get("failure") or {}, ensure_ascii=False)
