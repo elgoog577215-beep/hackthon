@@ -778,6 +778,17 @@ title or a model prompt.
 - **AND** an ambiguous or internally conflicting subject classification cannot
   be presented as subject-specific completeness
 
+#### Scenario: A canonical legacy section is an empty generation placeholder
+- **WHEN** the website generation chain produces replacement Markdown for a
+  canonical section that has no active course block
+- **THEN** the result may be inserted as a new versioned course block using the
+  current document revision as an optimistic lock
+- **AND** provider errors, empty output, or undersized output are not persisted
+- **AND** a section that already has active content remains restricted to the
+  reviewed block-regeneration workflow
+- **AND** the subsequent course-logic upgrade still evaluates the repaired
+  source through the teaching-plan, knowledge-base, and coherence gates
+
 ### Requirement: Characteristic Teaching Artifacts Are Non-Discardable
 
 The system SHALL distinguish optional prose from characteristic artifacts that

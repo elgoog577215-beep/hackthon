@@ -81,7 +81,10 @@ async def test_generated_content_can_fill_one_empty_canonical_section():
     assert len(after.blocks) == 1
     assert after.blocks[0].section_id == "section-3-1"
     assert after.blocks[0].payload["markdown"] == markdown
-    assert after.blocks[0].objective_refs == ["objective-3-1"]
+    section = next(
+        item for item in before.sections if item.section_id == "section-3-1"
+    )
+    assert after.blocks[0].objective_refs == [section.objective_id]
     assert storage.save_count == 2
 
 
@@ -92,7 +95,10 @@ async def test_generated_content_cannot_overwrite_nonempty_canonical_section():
         repository=repository,
         course_id="course-empty-section",
         section_id="section-3-1",
-        markdown="## 定义\n\n第一版网站链路生成正文。",
+        markdown=(
+            "## 定义\n\n第一版网站链路生成正文，包含数学定义、"
+            "成立条件与一个完整例题，并逐步解释计算依据与结果检查。"
+        ),
         actor="teacher-1",
     )
     before = deepcopy(storage.course)
@@ -105,7 +111,10 @@ async def test_generated_content_cannot_overwrite_nonempty_canonical_section():
             repository=repository,
             course_id="course-empty-section",
             section_id="section-3-1",
-            markdown="## 定义\n\n不应覆盖已有正文。",
+            markdown=(
+                "## 定义\n\n不应覆盖已有正文；即使新结果足够长，"
+                "也必须进入块级重生成审阅流程后才能替换。"
+            ),
             actor="teacher-1",
         )
 
