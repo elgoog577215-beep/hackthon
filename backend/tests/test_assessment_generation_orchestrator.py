@@ -9,8 +9,8 @@ from ai_base import AIProviderRequestError
 from assessment_orchestrator import (
     AssessmentGenerationOrchestrator,
     UniversalAssessmentModel,
-    _SemanticEvaluationBatcher,
     _batch_generation_prompt,
+    _SemanticEvaluationBatcher,
 )
 from question_bank import approved_formal_tasks, build_question_bank
 

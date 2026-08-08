@@ -6,7 +6,6 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-
 AssessmentGenerationProfile = Literal["fast", "deliberate"]
 AssessmentGenerationScope = Literal[
     "full_generation",
