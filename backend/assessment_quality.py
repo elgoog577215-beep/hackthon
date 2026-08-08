@@ -661,7 +661,6 @@ def _code_rendering_valid(
         in {
             "output_prediction",
             "debugging_trace",
-            "state_trace_transfer",
         }
         or references_visible_code
         or raw_code_lines >= 2
@@ -690,6 +689,19 @@ def _has_substantive_code(value: str) -> bool:
         )
         or re.search(
             r"^\s*[A-Za-z_]\w*\s*=(?!=)",
+            value,
+            flags=re.MULTILINE,
+        )
+        or re.search(
+            r"^\s*(?:(?:public|private|protected|internal|static|"
+            r"virtual|override|async)\s+)*(?:void|bool|int|long|float|"
+            r"double|string|Vector[234]|Quaternion|Rigidbody|Transform|"
+            r"[A-Z]\w*)\s+[A-Za-z_]\w*\s*(?:\(|=)",
+            value,
+            flags=re.MULTILINE,
+        )
+        or re.search(
+            r"^\s*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\s*\(",
             value,
             flags=re.MULTILINE,
         )
