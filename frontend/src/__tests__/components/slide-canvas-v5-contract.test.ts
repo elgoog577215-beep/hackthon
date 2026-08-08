@@ -296,8 +296,10 @@ describe('SlideCanvas V5 final page contract', () => {
       },
     })
 
-    expect(wrapper.find('.deck-claim-only').exists()).toBe(true)
+    expect(wrapper.find('.deck-hero-claim').exists()).toBe(true)
+    expect(wrapper.find('.deck-claim-only').exists()).toBe(false)
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+    expect(wrapper.find('.deck-hero-claim strong').text()).toContain('只验证加法保持不够')
   })
 
   it.each([

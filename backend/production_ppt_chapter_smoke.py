@@ -374,6 +374,108 @@ def _pptx_text(path: Path) -> str:
     )
 
 
+def _pptx_presentation_mode_audit(
+    path: Path,
+    slides: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Verify that semantic single-region layouts stay single-region in PPTX."""
+    from pptx import Presentation
+
+    presentation = Presentation(path)
+    issues: list[dict[str, Any]] = []
+    for page, (model, rendered) in enumerate(
+        zip(slides, presentation.slides),
+        start=1,
+    ):
+        quality = dict(model.get("quality") or {})
+        resolved_layout = str(quality.get("resolved_layout") or "")
+        text_shapes = [
+            shape
+            for shape in rendered.shapes
+            if getattr(shape, "has_text_frame", False)
+            and str(shape.text or "").strip()
+        ]
+        if resolved_layout == "hero-claim":
+            claim = next(
+                (
+                    str(value).strip()
+                    for block in model.get("blocks") or []
+                    for value in (block.get("items") or [block.get("content")])
+                    if str(value or "").strip()
+                ),
+                str(
+                    model.get("key_message")
+                    or model.get("takeaway")
+                    or model.get("title")
+                    or ""
+                ).strip(),
+            )
+            anchor = re.sub(r"\s+", "", claim)[:12]
+            dominant = any(
+                anchor
+                and anchor in re.sub(r"\s+", "", str(shape.text or ""))
+                and int(shape.height) / 914400 >= 1.5
+                for shape in text_shapes
+            )
+            if not dominant:
+                issues.append({
+                    "severity": "critical",
+                    "code": "exported_hero_claim_not_dominant",
+                    "page": page,
+                })
+        if resolved_layout != "code":
+            continue
+        mode = str(quality.get("code_region_mode") or "")
+        code = next(
+            (
+                str(block.get("content") or "")
+                for block in model.get("blocks") or []
+                if str(block.get("type") or "") == "code"
+            ),
+            "",
+        )
+        anchor = next(
+            (line.strip() for line in code.splitlines() if line.strip()),
+            "",
+        )
+        code_shapes = [
+            shape
+            for shape in text_shapes
+            if anchor and anchor in str(shape.text or "")
+        ]
+        visible_text = "\n".join(str(shape.text or "") for shape in text_shapes)
+        if mode == "full_width" and (
+            not code_shapes
+            or max(int(shape.width) / 914400 for shape in code_shapes) < 10.5
+            or "阅读线索" in visible_text
+        ):
+            issues.append({
+                "severity": "critical",
+                "code": "exported_code_single_region_not_full_width",
+                "page": page,
+            })
+        if mode == "annotated_split" and "阅读线索" not in visible_text:
+            issues.append({
+                "severity": "critical",
+                "code": "exported_code_annotation_region_missing",
+                "page": page,
+            })
+    return {
+        "passed": not issues,
+        "issues": issues,
+        "hero_claim_page_count": sum(
+            str((slide.get("quality") or {}).get("resolved_layout") or "")
+            == "hero-claim"
+            for slide in slides
+        ),
+        "full_width_code_page_count": sum(
+            str((slide.get("quality") or {}).get("code_region_mode") or "")
+            == "full_width"
+            for slide in slides
+        ),
+    }
+
+
 def _render_artifacts(pptx_path: Path, output_dir: Path) -> dict[str, Any]:
     from PIL import Image, ImageDraw
 
@@ -726,6 +828,12 @@ async def run_production_smoke(
             for block in slide.get("blocks") or []
         )
     ]
+    hero_claim_slides = [
+        slide
+        for slide in slides
+        if str((slide.get("quality") or {}).get("resolved_layout") or "")
+        == "hero-claim"
+    ]
     artifact_editorial_fallbacks = [
         str(slide.get("unit_id") or "")
         for slide in code_slides
@@ -815,6 +923,16 @@ async def run_production_smoke(
         ),
         "titles_unique": not duplicate_titles,
         "no_sparse_page_blocker": "sparse_non_exempt_page" not in issue_codes,
+        "hero_claims_use_dominant_canvas": all(
+            str((slide.get("quality") or {}).get("hero_claim_display_mode") or "")
+            == "dominant_canvas"
+            for slide in hero_claim_slides
+        ),
+        "code_regions_adapt_to_source_content": all(
+            str((slide.get("quality") or {}).get("code_region_mode") or "")
+            in {"full_width", "annotated_split"}
+            for slide in code_slides
+        ),
         "no_density_overflow": not bool(
             issue_codes
             & {
@@ -862,6 +980,11 @@ async def run_production_smoke(
         "deck": {
             "slide_count": len(slides),
             "code_page_count": len(code_slides),
+            "hero_claim_page_count": len(hero_claim_slides),
+            "code_region_mode_counts": dict(Counter(
+                str((slide.get("quality") or {}).get("code_region_mode") or "")
+                for slide in code_slides
+            )),
             "resolved_layout_counts": dict(Counter(
                 str((slide.get("quality") or {}).get("resolved_layout") or "")
                 for slide in slides
@@ -931,6 +1054,15 @@ async def run_production_smoke(
                 "density_band": str(
                     (slide.get("quality") or {}).get("density_band") or ""
                 ),
+                "hero_claim_display_mode": str(
+                    (slide.get("quality") or {}).get(
+                        "hero_claim_display_mode",
+                    )
+                    or ""
+                ),
+                "code_region_mode": str(
+                    (slide.get("quality") or {}).get("code_region_mode") or ""
+                ),
                 "issue_codes": sorted({
                     str(item.get("code") or "unknown")
                     for item in quality.get("issues") or []
@@ -964,6 +1096,7 @@ async def run_production_smoke(
         pptx_path,
         expected_slide_count=len(slides),
     )
+    presentation_mode_audit = _pptx_presentation_mode_audit(pptx_path, slides)
     pptx_text = _pptx_text(pptx_path)
     export_anchors_preserved = all(
         anchor and anchor in pptx_text
@@ -974,6 +1107,7 @@ async def run_production_smoke(
     export_gates = {
         "pptx_created": pptx_path.is_file() and pptx_path.stat().st_size > 0,
         "pptx_audit": bool(export_audit.get("passed")),
+        "pptx_presentation_modes": bool(presentation_mode_audit.get("passed")),
         "pptx_code_anchors_preserved": export_anchors_preserved,
         "production_course_unchanged": source_after == selected.source_digest,
     }
@@ -984,6 +1118,7 @@ async def run_production_smoke(
         "audit_reviewer": export_audit.get("reviewer"),
         "passed": bool(export_audit.get("passed")),
         "issues": _issue_summary(list(export_audit.get("issues") or [])),
+        "presentation_modes": presentation_mode_audit,
     }
     failed = [
         name

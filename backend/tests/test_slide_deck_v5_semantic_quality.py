@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pptx import Presentation
+from pptx.util import Inches
 
 from slide_deck import SlideSpec
 from slide_deck_renderer import (
@@ -8,6 +9,7 @@ from slide_deck_renderer import (
     _heading_excerpt,
     _render_claim_only,
     _render_classification_three,
+    _render_code,
     _render_editorial_body,
     _render_practice_feedback,
     _uses_visual_directed_renderer,
@@ -932,7 +934,7 @@ def test_promoted_hero_renderer_shows_the_source_claim() -> None:
             "items": [],
             "metadata": {},
         }],
-        "quality": {"presentation_sparse_promoted": True},
+        "quality": {"resolved_layout": "hero-claim"},
     })
 
     _render_claim_only(slide, unit, validate_theme("qizhi-classroom"))
@@ -943,6 +945,94 @@ def test_promoted_hero_renderer_shows_the_source_claim() -> None:
         if getattr(shape, "has_text_frame", False)
     )
     assert "脚本动态调整 UI 适配参数" in visible_text
+    assert "建立本节核心概念与边界" not in visible_text
+    claim_shapes = [
+        shape
+        for shape in slide.shapes
+        if (
+            getattr(shape, "has_text_frame", False)
+            and "脚本动态调整 UI 适配参数" in shape.text
+        )
+    ]
+    assert len(claim_shapes) == 1
+    assert claim_shapes[0].height >= Inches(1.5)
+
+
+def test_code_renderer_uses_full_width_when_no_real_annotation_exists() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:code-only",
+        "position": 0,
+        "layout": "code",
+        "slide_purpose": "method",
+        "title": "生命周期回调顺序",
+        "key_message": "",
+        "blocks": [{
+            "block_id": "code",
+            "type": "code",
+            "content": "void Awake() {}\nvoid Start() {}\nvoid Update() {}",
+            "items": [],
+            "metadata": {"language": "csharp"},
+        }],
+        "quality": {"resolved_layout": "code"},
+    })
+
+    _render_code(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    code_shapes = [
+        shape
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and "void Awake" in shape.text
+    ]
+    assert "阅读线索" not in visible_text
+    assert len(code_shapes) == 1
+    assert code_shapes[0].width >= Inches(10.5)
+
+
+def test_code_renderer_keeps_annotation_column_when_source_annotation_exists() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:annotated-code",
+        "position": 0,
+        "layout": "code",
+        "slide_purpose": "method",
+        "title": "生命周期回调顺序",
+        "key_message": "",
+        "blocks": [
+            {
+                "block_id": "code",
+                "type": "code",
+                "content": "void Awake() {}\nvoid Start() {}",
+                "items": [],
+                "metadata": {"language": "csharp"},
+            },
+            {
+                "block_id": "annotation",
+                "type": "bullets",
+                "content": "",
+                "items": ["Awake 先于 Start 执行。"],
+                "metadata": {},
+            },
+        ],
+        "quality": {"resolved_layout": "code"},
+    })
+
+    _render_code(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "阅读线索" in visible_text
+    assert "Awake 先于 Start 执行" in visible_text
 
 
 def test_empty_chapter_entry_restores_its_outline_learning_objective() -> None:
