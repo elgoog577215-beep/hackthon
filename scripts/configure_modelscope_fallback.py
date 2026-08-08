@@ -16,6 +16,8 @@ ENVIRONMENT_KEYS = (
     "MODELSCOPE_API_KEY",
     "MODELSCOPE_BASE_URL",
     "MODELSCOPE_MODEL",
+    "MODELSCOPE_MODEL_CANDIDATES",
+    "MODELSCOPE_MODEL_FAST_CANDIDATES",
 )
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 TRUSTED_MODELSCOPE_HOST = "api-inference.modelscope.cn"
@@ -28,6 +30,25 @@ def _single_line(value: object, field: str) -> str:
     return normalized
 
 
+def _validated_models(
+    value: object,
+    field: str,
+    legacy_model: str,
+) -> list[str]:
+    candidates = [legacy_model] if value is None else value
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError(f"{field} must be a non-empty array")
+
+    validated: list[str] = []
+    for index, candidate in enumerate(candidates):
+        model = _single_line(candidate, f"{field}[{index}]")
+        if not MODEL_PATTERN.fullmatch(model):
+            raise ValueError(f"{field}[{index}] contains unsupported characters")
+        if model not in validated:
+            validated.append(model)
+    return validated
+
+
 def _validated_settings(payload: object) -> dict[str, str]:
     if not isinstance(payload, dict):
         raise ValueError("configuration payload must be an object")
@@ -35,6 +56,16 @@ def _validated_settings(payload: object) -> dict[str, str]:
     api_key = _single_line(payload.get("api_key"), "api_key")
     base_url = _single_line(payload.get("base_url"), "base_url")
     model = _single_line(payload.get("model"), "model")
+    smart_models = _validated_models(
+        payload.get("smart_models"),
+        "smart_models",
+        model,
+    )
+    fast_models = _validated_models(
+        payload.get("fast_models"),
+        "fast_models",
+        model,
+    )
 
     parsed = urlparse(base_url)
     if (
@@ -54,6 +85,8 @@ def _validated_settings(payload: object) -> dict[str, str]:
         "MODELSCOPE_API_KEY": api_key,
         "MODELSCOPE_BASE_URL": base_url,
         "MODELSCOPE_MODEL": model,
+        "MODELSCOPE_MODEL_CANDIDATES": ",".join(smart_models),
+        "MODELSCOPE_MODEL_FAST_CANDIDATES": ",".join(fast_models),
     }
 
 

@@ -77,6 +77,19 @@ DEFAULT_FAST_MODELS = [
     "Qwen/Qwen3.5-397B-A17B",
 ]
 
+DEFAULT_MODELSCOPE_SMART_MODELS = [
+    "deepseek-ai/DeepSeek-V4-Pro",
+    "Qwen/Qwen3.5-35B-A3B",
+    "ZhipuAI/GLM-4.7-Flash",
+]
+
+DEFAULT_MODELSCOPE_FAST_MODELS = [
+    "deepseek-ai/DeepSeek-V4-Flash-0731",
+    "Qwen/Qwen3.5-35B-A3B",
+    "Qwen/Qwen3-8B",
+    "ZhipuAI/GLM-4.7-Flash",
+]
+
 
 class AIProviderUnavailable(RuntimeError):
     """Provider-wide failure that cannot be repaired by retrying another model."""
@@ -132,10 +145,21 @@ class AIBase:
             "MODELSCOPE_BASE_URL",
             "https://api-inference.modelscope.cn/v1",
         ).rstrip("/")
-        self.modelscope_fallback_models = (
-            _parse_model_list(os.getenv("MODELSCOPE_MODEL"))
-            or ["deepseek-ai/DeepSeek-V4-Pro"]
+        legacy_modelscope_models = _parse_model_list(
+            os.getenv("MODELSCOPE_MODEL")
         )
+        self.modelscope_fallback_smart_models = (
+            _parse_model_list(os.getenv("MODELSCOPE_MODEL_CANDIDATES"))
+            or legacy_modelscope_models
+            or DEFAULT_MODELSCOPE_SMART_MODELS
+        )
+        self.modelscope_fallback_fast_models = (
+            _parse_model_list(os.getenv("MODELSCOPE_MODEL_FAST_CANDIDATES"))
+            or legacy_modelscope_models
+            or DEFAULT_MODELSCOPE_FAST_MODELS
+        )
+        # Keep the legacy attribute for integrations that inspect the smart pool.
+        self.modelscope_fallback_models = self.modelscope_fallback_smart_models
         smart_models = (
             _parse_model_list(os.getenv("AI_MODEL_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL"))
@@ -467,28 +491,39 @@ class AIBase:
         """Backward-compatible spelling for callers using the older helper."""
         self._cool_down_model(model_id, error, api_base)
 
-    def _modelscope_fallback_models_for(self) -> list[str]:
+    def _modelscope_fallback_models_for(
+        self,
+        use_fast_model: bool = False,
+    ) -> list[str]:
+        configured_models = (
+            self.modelscope_fallback_fast_models
+            if use_fast_model
+            else self.modelscope_fallback_smart_models
+        )
         now = time.monotonic()
         available = [
             model
-            for model in self.modelscope_fallback_models
+            for model in configured_models
             if self._model_failure_cache.get(
                 (self.modelscope_fallback_api_base, model),
                 0,
             ) <= now
         ]
-        for model in self.modelscope_fallback_models:
+        for model in configured_models:
             failure_key = (self.modelscope_fallback_api_base, model)
             if self._model_failure_cache.get(failure_key, 0) <= now:
                 self._model_failure_cache.pop(failure_key, None)
         return available
 
-    def _modelscope_fallback_available(self) -> bool:
+    def _modelscope_fallback_available(
+        self,
+        use_fast_model: bool = False,
+    ) -> bool:
         return bool(
             self.modelscope_fallback_api_key
             and self.modelscope_fallback_client
             and not self._modelscope_fallback_failure
-            and self._modelscope_fallback_models_for()
+            and self._modelscope_fallback_models_for(use_fast_model)
         )
 
     @staticmethod
@@ -1013,10 +1048,11 @@ class AIBase:
         raise_on_failure: bool,
         json_mode: bool,
         model_role: str | None,
+        use_fast_model: bool,
         on_stream_activity: Callable[[], None] | None,
         telemetry_sink: Callable[[dict], None] | None,
     ) -> str | None:
-        if not self._modelscope_fallback_available():
+        if not self._modelscope_fallback_available(use_fast_model):
             if raise_on_failure:
                 raise AIProviderUnavailable(
                     self._modelscope_fallback_failure
@@ -1029,7 +1065,7 @@ class AIBase:
         )
         last_error: Exception | None = None
         attempts = 0
-        for model_id in self._modelscope_fallback_models_for():
+        for model_id in self._modelscope_fallback_models_for(use_fast_model):
             if max_attempts is not None and attempts >= max_attempts:
                 break
             for attempt in range(retry_count):
@@ -1241,9 +1277,10 @@ class AIBase:
         enable_thinking: bool,
         max_tokens: int | None,
         max_attempts: int | None,
+        use_fast_model: bool,
         on_stream_activity: Callable[[], None] | None,
     ) -> AsyncIterator[str]:
-        if not self._modelscope_fallback_available():
+        if not self._modelscope_fallback_available(use_fast_model):
             raise AIProviderUnavailable(
                 self._modelscope_fallback_failure
                 or "modelscope_fallback_unavailable"
@@ -1254,7 +1291,7 @@ class AIBase:
         )
         last_error: Exception | None = None
         attempts = 0
-        for model_id in self._modelscope_fallback_models_for():
+        for model_id in self._modelscope_fallback_models_for(use_fast_model):
             if max_attempts is not None and attempts >= max_attempts:
                 break
             attempts += 1
@@ -1417,7 +1454,7 @@ class AIBase:
             return None
         if (
             self._provider_failure
-            and not self._modelscope_fallback_available()
+            and not self._modelscope_fallback_available(use_fast_model)
         ):
             if raise_on_failure:
                 raise AIProviderUnavailable(self._provider_failure)
@@ -1656,7 +1693,9 @@ class AIBase:
             if self._provider_failure:
                 break
 
-        if fallback_eligible and self._modelscope_fallback_available():
+        if fallback_eligible and self._modelscope_fallback_available(
+            use_fast_model
+        ):
             return await self._call_modelscope_fallback(
                 prompt=prompt,
                 system_prompt=system_prompt,
@@ -1668,6 +1707,7 @@ class AIBase:
                 raise_on_failure=raise_on_failure,
                 json_mode=json_mode,
                 model_role=model_role,
+                use_fast_model=use_fast_model,
                 on_stream_activity=on_stream_activity,
                 telemetry_sink=telemetry_sink,
             )
@@ -1723,7 +1763,7 @@ class AIBase:
             raise AIProviderUnavailable("not_configured")
         if (
             self._provider_failure
-            and not self._modelscope_fallback_available()
+            and not self._modelscope_fallback_available(use_fast_model)
         ):
             raise AIProviderUnavailable(self._provider_failure)
 
@@ -1823,13 +1863,16 @@ class AIBase:
             if self._provider_failure:
                 break
 
-        if fallback_eligible and self._modelscope_fallback_available():
+        if fallback_eligible and self._modelscope_fallback_available(
+            use_fast_model
+        ):
             async for chunk in self._stream_modelscope_fallback(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 enable_thinking=enable_thinking,
                 max_tokens=max_tokens,
                 max_attempts=max_attempts,
+                use_fast_model=use_fast_model,
                 on_stream_activity=on_stream_activity,
             ):
                 yield chunk
