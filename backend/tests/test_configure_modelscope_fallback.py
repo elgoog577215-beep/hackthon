@@ -32,6 +32,17 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
             "api_key": secret,
             "base_url": "https://api-inference.modelscope.cn/v1/",
             "model": "deepseek-ai/DeepSeek-V4-Pro",
+            "smart_models": [
+                "deepseek-ai/DeepSeek-V4-Pro",
+                "Qwen/Qwen3.5-35B-A3B",
+                "ZhipuAI/GLM-4.7-Flash",
+            ],
+            "fast_models": [
+                "deepseek-ai/DeepSeek-V4-Flash-0731",
+                "Qwen/Qwen3.5-35B-A3B",
+                "Qwen/Qwen3-8B",
+                "ZhipuAI/GLM-4.7-Flash",
+            ],
         }),
         text=True,
         capture_output=True,
@@ -49,6 +60,16 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
         in content
     )
     assert "MODELSCOPE_MODEL=deepseek-ai/DeepSeek-V4-Pro" in content
+    assert (
+        "MODELSCOPE_MODEL_CANDIDATES="
+        "deepseek-ai/DeepSeek-V4-Pro,Qwen/Qwen3.5-35B-A3B,"
+        "ZhipuAI/GLM-4.7-Flash"
+    ) in content
+    assert (
+        "MODELSCOPE_MODEL_FAST_CANDIDATES="
+        "deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-35B-A3B,"
+        "Qwen/Qwen3-8B,ZhipuAI/GLM-4.7-Flash"
+    ) in content
     assert secret not in result.stdout
     assert secret not in result.stderr
 
@@ -76,3 +97,33 @@ def test_configure_modelscope_fallback_rejects_untrusted_endpoint(tmp_path):
 
     assert result.returncode != 0
     assert env_file.read_text(encoding="utf-8") == "AI_API_KEY=primary-key\n"
+
+
+def test_configure_modelscope_fallback_rejects_invalid_candidate_atomically(
+    tmp_path,
+):
+    env_file = tmp_path / ".env"
+    original = "AI_API_KEY=primary-key\n"
+    env_file.write_text(original, encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--env-file",
+            str(env_file),
+        ],
+        input=json.dumps({
+            "api_key": "fallback-secret-value",
+            "base_url": "https://api-inference.modelscope.cn/v1/",
+            "model": "deepseek-ai/DeepSeek-V4-Pro",
+            "smart_models": ["deepseek-ai/DeepSeek-V4-Pro"],
+            "fast_models": ["bad model; rm -rf /"],
+        }),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert env_file.read_text(encoding="utf-8") == original

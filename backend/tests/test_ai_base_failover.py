@@ -93,6 +93,8 @@ def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("MODELSCOPE_BASE_URL", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL", raising=False)
+    monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
+    monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     service.smart_models = list(models)
@@ -108,6 +110,8 @@ def _make_service_with_modelscope_fallback(
     primary_completions,
     fallback_completions,
     models=("model-a", "model-b"),
+    fallback_smart_models=None,
+    fallback_fast_models=None,
 ):
     monkeypatch.setenv("AI_API_KEY", "primary-test-key")
     monkeypatch.setenv("AI_API_BASE", "https://primary.example.test/v1")
@@ -117,6 +121,20 @@ def _make_service_with_modelscope_fallback(
         "https://api-inference.modelscope.cn/v1/",
     )
     monkeypatch.setenv("MODELSCOPE_MODEL", "deepseek-ai/DeepSeek-V4-Pro")
+    if fallback_smart_models is None:
+        monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
+    else:
+        monkeypatch.setenv(
+            "MODELSCOPE_MODEL_CANDIDATES",
+            ",".join(fallback_smart_models),
+        )
+    if fallback_fast_models is None:
+        monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
+    else:
+        monkeypatch.setenv(
+            "MODELSCOPE_MODEL_FAST_CANDIDATES",
+            ",".join(fallback_fast_models),
+        )
     service = AIBase()
     service.client = SimpleNamespace(
         chat=SimpleNamespace(completions=primary_completions)
@@ -130,6 +148,108 @@ def _make_service_with_modelscope_fallback(
     service._model_failure_cache.clear()
     service._provider_failure = None
     return service
+
+
+@pytest.mark.asyncio
+async def test_modelscope_fallback_routes_fast_and_smart_calls_to_separate_pools(
+    monkeypatch,
+):
+    primary = SuccessfulCompletions()
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        fallback_smart_models=(
+            "deepseek-ai/DeepSeek-V4-Pro",
+            "Qwen/Qwen3.5-35B-A3B",
+        ),
+        fallback_fast_models=(
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "Qwen/Qwen3.5-35B-A3B",
+        ),
+    )
+    service.api_key = None
+    service.client = None
+
+    fast_result = await service._call_llm(
+        "fast",
+        use_fast_model=True,
+        retry_count=1,
+        raise_on_failure=True,
+    )
+    smart_result = await service._call_llm(
+        "smart",
+        use_fast_model=False,
+        retry_count=1,
+        raise_on_failure=True,
+    )
+
+    assert fast_result == "ok-answer"
+    assert smart_result == "ok-answer"
+    assert fallback.calls == [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "deepseek-ai/DeepSeek-V4-Pro",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_modelscope_fast_pool_moves_to_next_candidate_on_quota(
+    monkeypatch,
+):
+    primary = SuccessfulCompletions()
+    fallback = SequencedCompletions(
+        lambda: _make_status_error(429, "insufficient_quota"),
+        failing_model="deepseek-ai/DeepSeek-V4-Flash-0731",
+    )
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        fallback_smart_models=("deepseek-ai/DeepSeek-V4-Pro",),
+        fallback_fast_models=(
+            "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "Qwen/Qwen3.5-35B-A3B",
+            "Qwen/Qwen3-8B",
+        ),
+    )
+    service.api_key = None
+    service.client = None
+
+    result = await service._call_llm(
+        "fast",
+        use_fast_model=True,
+        retry_count=1,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert fallback.calls == [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "Qwen/Qwen3.5-35B-A3B",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_modelscope_stream_uses_fast_candidate_pool(monkeypatch):
+    primary = SuccessfulCompletions()
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        fallback_smart_models=("deepseek-ai/DeepSeek-V4-Pro",),
+        fallback_fast_models=("deepseek-ai/DeepSeek-V4-Flash-0731",),
+    )
+    service.api_key = None
+    service.client = None
+
+    chunks = []
+    async for chunk in service._stream_llm("fast", use_fast_model=True):
+        chunks.append(chunk)
+
+    assert "".join(chunks) == "ok-answer"
+    assert fallback.calls == ["deepseek-ai/DeepSeek-V4-Flash-0731"]
 
 
 @pytest.mark.asyncio
