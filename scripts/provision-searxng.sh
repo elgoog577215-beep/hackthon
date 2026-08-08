@@ -144,7 +144,7 @@ for attempt in $(seq 1 3); do
         --request POST \
         --data-urlencode 'q=Unity MonoBehaviour GameObject 中文教程' \
         --data 'format=json' \
-        --data 'categories=general' \
+        --data 'categories=general,science' \
         --data 'safesearch=2' \
         --data 'language=zh-CN' \
         --data 'timeout_limit=4' \

@@ -1044,9 +1044,10 @@ def _contains_cjk(value: str) -> bool:
 
 
 def _search_categories(query: str) -> str:
-    """Route explicit academic intent to science engines; keep product docs general."""
+    """Keep science sources available when general engines are blocked or throttled."""
 
-    return "general,science" if _ACADEMIC_QUERY_TERMS.search(query) else "general"
+    del query
+    return "general,science"
 
 
 def _search_engines(
@@ -1058,9 +1059,8 @@ def _search_engines(
             "public domain image archive,"
             "bing images,baidu images,quark images,sogou images"
         )
-    engines = _GENERAL_SEARCH_ENGINES
-    if _ACADEMIC_QUERY_TERMS.search(query):
-        engines = (*engines, *_SCIENCE_SEARCH_ENGINES)
+    del query
+    engines = (*_GENERAL_SEARCH_ENGINES, *_SCIENCE_SEARCH_ENGINES)
     return ",".join(engines)
 
 
