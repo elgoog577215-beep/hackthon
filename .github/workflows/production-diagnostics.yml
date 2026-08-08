@@ -64,7 +64,7 @@ jobs:
             --data 'safesearch=2' \
             | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2))'
 
-          echo "== gateway =="
+          echo "== raw gateway =="
           set -a
           . /opt/lingzhi/state/.env
           set +a
@@ -74,21 +74,26 @@ jobs:
           import json
           import os
 
+          from ai_teacher_retrieval import build_ai_teacher_queries
           from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 
           query = os.environ.get("LINGZHI_DIAGNOSTIC_QUERY", "")
 
-          async def main():
+          async def retrieve(queries):
               gateway, feature = configured_retrieval_gateway("diagnostic-user")
               package = await gateway.retrieve(RetrievalRequest(
                   purpose="ai_teacher",
                   enabled=True,
-                  queries=[query],
+                  queries=queries,
               ))
-              print(json.dumps({
+              return feature, package
+
+          def summarize(feature, package):
+              return {
                   "feature": feature,
                   "provider": package.get("provider"),
                   "status": package.get("status"),
+                  "queries": package.get("queries"),
                   "receipt": package.get("receipt"),
                   "sources": [
                       {
@@ -109,7 +114,31 @@ jobs:
                       }
                       for item in (package.get("rejected_sources") or [])[:5]
                   ],
-              }, ensure_ascii=False, indent=2))
+              }
+
+          async def main():
+              raw_feature, raw_package = await retrieve([query])
+              print(json.dumps(summarize(raw_feature, raw_package), ensure_ascii=False, indent=2))
+
+              print("== ai teacher gateway ==")
+              course = {
+                  "course_id": "diagnostic-course",
+                  "course_name": "",
+                  "nodes": [
+                      {
+                          "node_id": "diagnostic-node",
+                          "node_name": "",
+                          "learning_objective": "",
+                      }
+                  ],
+              }
+              ai_queries = build_ai_teacher_queries(
+                  course,
+                  question=query,
+                  node_id="diagnostic-node",
+              )
+              ai_feature, ai_package = await retrieve(ai_queries)
+              print(json.dumps(summarize(ai_feature, ai_package), ensure_ascii=False, indent=2))
 
           asyncio.run(main())
           PY
