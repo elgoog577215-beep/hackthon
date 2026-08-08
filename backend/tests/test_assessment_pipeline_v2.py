@@ -723,6 +723,89 @@ def test_quality_gate_accepts_substantive_unity_csharp_fence():
     }
 
 
+def test_quality_gate_accepts_typed_unity_csharp_methods():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "```csharp\n"
+        "void Update() {\n"
+        "    float move = Input.GetAxis(\"Horizontal\") * 5f;\n"
+        "    transform.Translate(move * Vector3.right);\n"
+        "}\n\n"
+        "void FixedUpdate() {\n"
+        "    rigidbody.AddForce(Vector3.right * 10f);\n"
+        "}\n"
+        "```"
+    )
+    task = "根据上述代码定位帧率依赖，并给出修复后的回调分配。"
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["hard_gates"]["code_rendering"] is True
+    assert "CODE_MATERIAL_NOT_RENDERABLE" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_state_trace_transfer_can_use_visible_states_without_code():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "策略A在 Update 读取玩家位置；策略B在 FixedUpdate 读取；"
+        "策略C在 LateUpdate 读取。玩家由物理引擎移动，渲染帧率为60Hz，"
+        "固定时间步为50Hz。"
+    )
+    task = (
+        "跟踪一帧内玩家与相机的状态变化，判断哪种策略能避免"
+        "位置滞后，并解释其余策略的状态差异。"
+    )
+    contract["question_type"] = "state_trace_transfer"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["hard_gates"]["code_rendering"] is True
+    assert "CODE_MATERIAL_NOT_RENDERABLE" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_debugging_trace_cannot_publish_with_only_a_code_placeholder():
     contract, objective, slot = _quality_contract()
     contract = deepcopy(contract)
