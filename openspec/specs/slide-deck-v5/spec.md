@@ -688,6 +688,9 @@ The system SHALL compute presentation density from final visible pages.
 - **AND** every original task item remains visible exactly once
 - **AND** the final task phases remain ordered as overview, procedure, then
   verification
+- **AND** a source procedure atom may span pages only when every affected page
+  belongs to the same explicitly ordered task continuation; all other semantic
+  atom splits remain blocking failures
 
 #### Scenario: Structured source syntax ends with a semicolon or colon
 - **WHEN** the terminal punctuation belongs to code, a complete checklist row,

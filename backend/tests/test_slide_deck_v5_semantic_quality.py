@@ -36,6 +36,7 @@ from slide_deck_v5 import (
     split_mixed_intent_slides_v5,
     v5_contract_issues,
 )
+from slide_quality_v5 import collect_v5_quality_issues
 
 
 def test_standalone_micro_transition_is_folded_into_previous_page_metadata() -> None:
@@ -670,6 +671,13 @@ def test_task_activity_pages_consolidate_by_visual_grammar_and_reindex() -> None
                 "feedback_mode": "task_only",
                 "task_prompt_mode": mode,
                 "fragment_ids": [f"fragment-{index}"],
+                "semantic_atom_ids": [
+                    "task-overview"
+                    if index == 0
+                    else "task-verification"
+                    if mode == "verification"
+                    else "task-procedure"
+                ],
             },
         }
 
@@ -717,6 +725,9 @@ def test_task_activity_pages_consolidate_by_visual_grammar_and_reindex() -> None
     assert consolidated[2]["blocks"][0]["type"] == "process"
     assert consolidated[0]["title"] == "场景构建：创建一个场景"
     assert consolidated[-1]["title"].endswith("（续4/4）")
+    assert "semantic_atom_split" not in {
+        issue["code"] for issue in collect_v5_quality_issues(consolidated)
+    }
 
 
 def test_task_activity_over_four_pages_is_a_critical_contract_failure() -> None:
