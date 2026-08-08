@@ -19,8 +19,6 @@ use_default_settings:
       - baidu images
       - quark images
       - sogou images
-      - pexels
-      - unsplash
       - public domain image archive
 
 general:
@@ -78,10 +76,6 @@ engines:
   - name: quark images
     disabled: false
   - name: sogou images
-    disabled: false
-  - name: pexels
-    disabled: false
-  - name: unsplash
     disabled: false
   - name: public domain image archive
     disabled: false

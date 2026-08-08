@@ -1055,7 +1055,7 @@ def _search_engines(
 ) -> str:
     if category == "images":
         return (
-            "pexels,unsplash,public domain image archive,"
+            "public domain image archive,"
             "bing images,baidu images,quark images,sogou images"
         )
     engines = _GENERAL_SEARCH_ENGINES

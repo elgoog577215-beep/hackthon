@@ -65,14 +65,6 @@ jobs:
             --data 'timeout_limit=4' \
             | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2)); r or sys.exit("SearXNG response must contain at least one result")'
 
-          echo "== openverse images direct =="
-          curl -fsS --max-time 8 --get https://api.openverse.org/v1/images/ \
-            --data-urlencode 'q=human heart anatomy' \
-            --data 'license=cc0,pdm,by' \
-            --data 'page_size=3' \
-            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("openverse_result_count", len(r)); print(json.dumps([{"title": item.get("title"), "foreign_landing_url": item.get("foreign_landing_url"), "url": item.get("url"), "license": item.get("license")} for item in r], ensure_ascii=False, indent=2))' \
-            || echo "Openverse unavailable from production host"
-
           echo "== searxng images direct =="
           curl -fsS --max-time 8 http://127.0.0.1:8080/search \
             --data 'q=human heart anatomy' \
