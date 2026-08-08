@@ -472,7 +472,7 @@ class RetrievalGateway:
 
         semaphore = asyncio.Semaphore(concurrency)
         per_query = max(1, min(max_sources, (max_sources + len(safe_queries) - 1) // len(safe_queries)))
-        candidate_limit = min(24, max(per_query, max_sources, per_query * 4))
+        candidate_limit = min(24, max(12, max_sources * 4, per_query * 8))
 
         async def run(
             query: str,
@@ -481,7 +481,7 @@ class RetrievalGateway:
                 cache_key = _digest({
                     "namespace": self.cache_namespace,
                     "query": query,
-                    "limit": per_query,
+                    "limit": candidate_limit,
                     "category": request.category,
                 })
                 cached = _QUERY_CACHE.get(cache_key)
