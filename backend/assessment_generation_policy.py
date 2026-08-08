@@ -14,7 +14,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v1"
+    "assessment_generation_policy_v2"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -90,7 +90,9 @@ class AssessmentGenerationPolicy:
     ) -> AssessmentModelCallPolicy:
         resolved_context = context or {}
         decision = requires_deliberation(stage, resolved_context)
-        if self.profile == "deliberate":
+        if self.profile == "fast":
+            decision = DeliberationDecision(False)
+        else:
             if stage == "review":
                 decision = DeliberationDecision(False)
             elif stage == "generate" and resolved_context.get(
@@ -134,14 +136,14 @@ def resolve_assessment_generation_policy(
             max_generation_attempts=2,
             generation_batch_size=3,
             solution_batch_size=2,
-            max_provider_attempts=2,
+            max_provider_attempts=1,
             compact_candidate=True,
             prefer_local_solver=True,
             stage_timeouts={
-                "generate": 90.0,
-                "repair": 75.0,
-                "solve": 60.0,
-                "review": 45.0,
+                "generate": 45.0,
+                "repair": 35.0,
+                "solve": 35.0,
+                "review": 30.0,
             },
         )
     return AssessmentGenerationPolicy(
