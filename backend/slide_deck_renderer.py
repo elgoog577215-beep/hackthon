@@ -2286,19 +2286,19 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             slide,
             str(unit.quality.get("prompt_label") or "执行步骤"),
             0.86,
-            1.72,
+            1.9,
             2.0,
-            0.3,
+            0.22,
             12,
             theme["accent"],
             bold=True,
         )
         weights = [max(1, min(3, math.ceil(len(item) / 70))) for item in items]
         total_weight = max(1, sum(weights))
-        available_height = 4.18
+        available_height = 4.0
         gap = 0.08
         usable_height = available_height - gap * max(0, len(items) - 1)
-        y = 2.08
+        y = 2.22
         for index, (item, weight) in enumerate(zip(items, weights), start=1):
             height = usable_height * weight / total_weight
             _shape(slide, 0.86, y, 0.58, height, theme["accent_soft"], radius=True)
