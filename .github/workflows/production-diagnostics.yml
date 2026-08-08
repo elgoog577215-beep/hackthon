@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   retrieval:
-    if: ${{ inputs.query != '__ASSESSMENT_CHAIN__' }}
+    if: ${{ inputs.query != '__ASSESSMENT_CHAIN__' && inputs.query != '__MODEL_CAPACITY_PROBE__' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -222,5 +222,105 @@ jobs:
         with:
           name: production-assessment-chain-${{ github.run_id }}
           path: artifacts/production-assessment-chain/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  model-capacity-probe:
+    if: ${{ inputs.query == '__MODEL_CAPACITY_PROBE__' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout diagnostic source
+        uses: actions/checkout@v4
+
+      - name: Configure production SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
+          chmod 600 ~/.ssh/lingzhi_deploy
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Probe production ModelScope candidates
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          remote_dir="$(ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "mktemp -d /tmp/lingzhi-model-capacity-probe.XXXXXX")"
+          cleanup_remote_dir() {
+            case "$remote_dir" in
+              /tmp/lingzhi-model-capacity-probe.*) ;;
+              *)
+                echo "Refusing to remove unexpected remote path" >&2
+                return 1
+                ;;
+            esac
+            ssh \
+              -i ~/.ssh/lingzhi_deploy \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+              "rm -rf -- '$remote_dir'" || true
+          }
+          trap cleanup_remote_dir EXIT
+
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/production_model_capacity_probe.py \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/probe.py"
+
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_DIAGNOSTIC_DIR='$remote_dir' bash -s" <<'REMOTE'
+          set -euo pipefail
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          test -n "${MODELSCOPE_API_KEY:-}"
+          export PYTHONUTF8=1
+          export LINGZHI_MODEL_PROBE_OUTPUT="$LINGZHI_DIAGNOSTIC_DIR/model-capacity.json"
+          /opt/lingzhi/.venv/bin/python "$LINGZHI_DIAGNOSTIC_DIR/probe.py"
+          REMOTE
+
+          install -d artifacts/production-model-capacity
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/model-capacity.json" \
+            artifacts/production-model-capacity/
+
+          cleanup_remote_dir
+          trap - EXIT
+
+      - name: Upload capacity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-model-capacity-${{ github.run_id }}
+          path: artifacts/production-model-capacity/model-capacity.json
           if-no-files-found: error
           retention-days: 7
