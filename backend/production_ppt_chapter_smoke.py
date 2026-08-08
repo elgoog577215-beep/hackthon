@@ -100,6 +100,7 @@ class SelectedProductionChapter:
     course_view: dict[str, Any]
     source_digest: str
     baseline_story: Any
+    is_published: bool = True
     fragments: list[Any] = field(default_factory=list)
     rejected_candidate_codes: list[str] = field(default_factory=list)
 
@@ -390,6 +391,16 @@ def choose_cross_domain_sample(
             },
         )
     return ranked[sample_index]
+
+
+def course_is_eligible_for_sample(
+    *,
+    is_published: bool,
+    sample_profile: str,
+) -> bool:
+    """Keep programming regression published-only; allow read-only draft diversity."""
+
+    return bool(is_published) or sample_profile == "cross_domain"
 
 
 def build_chapter_document(
@@ -813,7 +824,11 @@ def _select_production_chapter(
     for course_id in course_ids:
         try:
             summary = summaries.get(course_id) or {}
-            if not summary or not bool(summary.get("is_published")):
+            is_published = bool(summary.get("is_published"))
+            if not summary or not course_is_eligible_for_sample(
+                is_published=is_published,
+                sample_profile=sample_profile,
+            ):
                 raise SmokeFailure(
                     "production_course_not_published",
                     "The production course is not published.",
@@ -937,6 +952,7 @@ def _select_production_chapter(
                     course_view=chapter_view,
                     source_digest=_stable_digest(raw_before),
                     baseline_story=baseline,
+                    is_published=is_published,
                     fragments=fragments,
                 ))
         except SmokeFailure as exc:
@@ -1301,6 +1317,7 @@ async def run_production_smoke(
                 )
                 or ""
             ),
+            "is_published": selected.is_published,
             "section_count": len(selected.document.sections),
             "block_count": len(selected.document.blocks),
             "source_role_count": selected.chapter.source_role_count,
