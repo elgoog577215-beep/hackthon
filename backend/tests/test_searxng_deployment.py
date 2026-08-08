@@ -147,6 +147,14 @@ def test_production_diagnostics_asserts_all_product_retrieval_paths() -> None:
     assert "SearXNG response must contain at least one result" in workflow
 
 
+def test_production_diagnostics_downloads_a_licensed_ppt_asset() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "hydrate_shared_image_candidates_v5" in workflow
+    assert "download_retrieved_image_v5" in workflow
+    assert "ppt_public_domain_asset" in workflow
+
+
 def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
     workflow = _read(".github/workflows/production-diagnostics.yml")
 
