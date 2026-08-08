@@ -65,6 +65,13 @@ jobs:
             --data 'timeout_limit=4' \
             | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2)); r or sys.exit("SearXNG response must contain at least one result")'
 
+          echo "== openverse images direct =="
+          curl -fsS --max-time 20 --get https://api.openverse.org/v1/images/ \
+            --data-urlencode 'q=human heart anatomy' \
+            --data 'license=cc0,pdm,by' \
+            --data 'page_size=3' \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("openverse_result_count", len(r)); print(json.dumps([{"title": item.get("title"), "foreign_landing_url": item.get("foreign_landing_url"), "url": item.get("url"), "license": item.get("license")} for item in r], ensure_ascii=False, indent=2))'
+
           echo "== searxng images direct =="
           curl -fsS --max-time 12 http://127.0.0.1:8080/search \
             --data 'q=human heart anatomy' \
@@ -75,13 +82,6 @@ jobs:
             --data 'safesearch=2' \
             --data 'timeout_limit=12' \
             | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("image_result_count", len(r)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src")} for x in r[:5]], ensure_ascii=False, indent=2))'
-
-          echo "== openverse images direct =="
-          curl -fsS --max-time 20 --get https://api.openverse.org/v1/images/ \
-            --data-urlencode 'q=human heart anatomy' \
-            --data 'license=cc0,pdm,by' \
-            --data 'page_size=3' \
-            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("openverse_result_count", len(r)); print(json.dumps([{"title": item.get("title"), "foreign_landing_url": item.get("foreign_landing_url"), "url": item.get("url"), "license": item.get("license")} for item in r], ensure_ascii=False, indent=2))'
 
           echo "== product retrieval matrix: course, assessment, ai_teacher, ppt_image =="
           set -a
