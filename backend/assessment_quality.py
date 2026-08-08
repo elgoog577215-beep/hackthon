@@ -610,13 +610,13 @@ def _code_rendering_valid(
     )
     has_fenced_code = bool(
         re.search(
-            r"```(?:python|javascript|js|typescript|ts|java|cpp|c)\s*\n",
+            r"```(?:python|javascript|js|typescript|ts|java|csharp|cs|cpp|c)\s*\n",
             combined,
             flags=re.IGNORECASE,
         )
     )
     fenced_blocks = re.findall(
-        r"```(?:python|javascript|js|typescript|ts|java|cpp|c)"
+        r"```(?:python|javascript|js|typescript|ts|java|csharp|cs|cpp|c)"
         r"\s*\n([\s\S]*?)```",
         combined,
         flags=re.IGNORECASE,

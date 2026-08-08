@@ -680,6 +680,49 @@ def test_question_that_references_code_requires_a_visible_fenced_block():
     }
 
 
+def test_quality_gate_accepts_substantive_unity_csharp_fence():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        f"{contract['question_spec']['stimulus']['rendered_text']}\n"
+        "```csharp\n"
+        "void FixedUpdate() {\n"
+        "    velocity = Vector3.right * speed;\n"
+        "    rb.AddForce(velocity);\n"
+        "}\n"
+        "```"
+    )
+    task = (
+        f"{contract['question_spec']['task']['rendered_text']} "
+        "并根据上述代码说明 FixedUpdate 的作用。"
+    )
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["hard_gates"]["code_rendering"] is True
+    assert "CODE_MATERIAL_NOT_RENDERABLE" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_debugging_trace_cannot_publish_with_only_a_code_placeholder():
     contract, objective, slot = _quality_contract()
     contract = deepcopy(contract)
