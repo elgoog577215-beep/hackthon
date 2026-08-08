@@ -158,6 +158,7 @@ def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
     assert "--data 'timeout_limit=4'" in workflow
     assert "--data 'timeout_limit=7'" in workflow
     assert "image_engine_counts" in workflow
+    assert "public_domain_results" in workflow
     assert 'p.get("unresponsive_engines")' in workflow
 
 
