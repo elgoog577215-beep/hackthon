@@ -266,6 +266,24 @@ def _private_id(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
+def _planner_failure_reason_code(value: Any) -> str:
+    """Classify provider failures without copying credentials or request IDs."""
+    text = json.dumps(value, ensure_ascii=False, default=str).lower()
+    if not text or text in {"{}", "[]", "null"}:
+        return ""
+    if "insufficient balance" in text or "insufficient_balance" in text:
+        return "ai_provider_balance_exhausted"
+    if "429" in text or "rate limit" in text or "too many requests" in text:
+        return "ai_provider_rate_limited"
+    if "401" in text or "403" in text or "authentication" in text:
+        return "ai_provider_authentication_failed"
+    if "timeout" in text or "timed out" in text:
+        return "ai_provider_timeout"
+    if "validation" in text or "invalid_response" in text:
+        return "ai_planner_response_invalid"
+    return "ai_planner_failed"
+
+
 def _release_commit(application_root: Path) -> str:
     release_file = application_root / ".release-commit"
     if not release_file.is_file():
@@ -799,6 +817,21 @@ async def run_production_smoke(
         selected.fragments,
         ai_planner=visual_worker,
     )
+    story_failure_reason_code = _planner_failure_reason_code(
+        (story.planning_diagnostics or {}).get("chapter_failures")
+        or (story.planning_diagnostics or {}).get("deck_failure")
+    )
+    visual_failure_reason_code = _planner_failure_reason_code(
+        (visual_plan.deck_brief or {}).get("failed_visual_batches")
+    )
+    planner_failure_reason_codes = list(dict.fromkeys(
+        code
+        for code in (
+            story_failure_reason_code,
+            visual_failure_reason_code,
+        )
+        if code
+    ))
     content = compile_slide_deck_v5(
         selected.document,
         selected.course_view,
@@ -841,12 +874,12 @@ async def run_production_smoke(
     )
     task_activity_phases: dict[str, list[str]] = {}
     for slide in slides:
-        quality = slide.get("quality") or {}
-        activity_id = str(quality.get("task_activity_id") or "")
+        slide_quality = slide.get("quality") or {}
+        activity_id = str(slide_quality.get("task_activity_id") or "")
         if not activity_id:
             continue
         task_activity_phases.setdefault(activity_id, []).append(
-            str(quality.get("task_prompt_phase") or "")
+            str(slide_quality.get("task_prompt_phase") or "")
         )
     phase_order = {"overview": 0, "procedure": 1, "verification": 2}
     artifact_editorial_fallbacks = [
@@ -995,6 +1028,7 @@ async def run_production_smoke(
             "story_planner_available": story_worker is not None,
             "story_planner": story.planner,
             "story_fallback_reason": story.fallback_reason,
+            "story_failure_reason_code": story_failure_reason_code,
             "visual_planner_available": visual_worker is not None,
             "visual_planner": str(
                 (visual_plan.deck_brief or {}).get("planner") or ""
@@ -1002,6 +1036,7 @@ async def run_production_smoke(
             "visual_fallback_reason": str(
                 (visual_plan.deck_brief or {}).get("fallback_reason") or ""
             ),
+            "visual_failure_reason_code": visual_failure_reason_code,
         },
         "deck": {
             "slide_count": len(slides),
@@ -1129,6 +1164,11 @@ async def run_production_smoke(
         report["failure"] = {
             "code": "production_v5_semantic_gate_failed",
             "failed_gates": failed_before_export,
+            **(
+                {"external_reason_codes": planner_failure_reason_codes}
+                if planner_failure_reason_codes
+                else {}
+            ),
         }
         return report
 
