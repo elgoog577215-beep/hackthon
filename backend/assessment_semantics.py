@@ -7,13 +7,12 @@ checks that must run before an independent solver is invoked.
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 from typing import Any
 
 from assessment_diversity import compile_diversity_plan
 from course_versioning import stable_hash
-
 
 QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v1"
 SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v1"
