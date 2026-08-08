@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   retrieval:
+    if: ${{ inputs.query != '__ASSESSMENT_CHAIN__' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -103,3 +104,123 @@ jobs:
           asyncio.run(main())
           PY
           REMOTE
+
+  assessment-chain:
+    if: ${{ inputs.query == '__ASSESSMENT_CHAIN__' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout diagnostic source
+        uses: actions/checkout@v4
+
+      - name: Configure production SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
+          chmod 600 ~/.ssh/lingzhi_deploy
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run in-memory Unity assessment chain
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          remote_dir="$(ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "mktemp -d /tmp/lingzhi-assessment-diagnostic.XXXXXX")"
+          cleanup_remote_dir() {
+            case "$remote_dir" in
+              /tmp/lingzhi-assessment-diagnostic.*) ;;
+              *)
+                echo "Refusing to remove unexpected remote path" >&2
+                return 1
+                ;;
+            esac
+            ssh \
+              -i ~/.ssh/lingzhi_deploy \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+              "rm -rf -- '$remote_dir'" || true
+          }
+          trap cleanup_remote_dir EXIT
+
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/production_assessment_diagnostic.py \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/diagnostic.py"
+
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_DIAGNOSTIC_DIR='$remote_dir' bash -s" <<'REMOTE'
+          set -euo pipefail
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          test -n "${MODELSCOPE_API_KEY:-}"
+          test -n "${MODELSCOPE_MODEL:-}"
+          unset AI_API_KEY
+          export AI_THINKING_ENABLED=true
+          export PYTHONUTF8=1
+          export PYTHONPATH=/opt/lingzhi/hackthon/backend
+          cd /opt/lingzhi/hackthon/backend
+
+          /opt/lingzhi/.venv/bin/python \
+            "$LINGZHI_DIAGNOSTIC_DIR/diagnostic.py" prepare \
+            --reference "$LINGZHI_DIAGNOSTIC_DIR/reference.json" \
+            --output "$LINGZHI_DIAGNOSTIC_DIR/retrieval.json"
+
+          timeout 900 /opt/lingzhi/.venv/bin/python \
+            "$LINGZHI_DIAGNOSTIC_DIR/diagnostic.py" run \
+            --profile fast \
+            --reference "$LINGZHI_DIAGNOSTIC_DIR/reference.json" \
+            --output "$LINGZHI_DIAGNOSTIC_DIR/fast.json"
+
+          timeout 900 /opt/lingzhi/.venv/bin/python \
+            "$LINGZHI_DIAGNOSTIC_DIR/diagnostic.py" run \
+            --profile deliberate \
+            --reference "$LINGZHI_DIAGNOSTIC_DIR/reference.json" \
+            --output "$LINGZHI_DIAGNOSTIC_DIR/deliberate.json"
+          REMOTE
+
+          install -d artifacts/production-assessment-chain
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_dir/*.json" \
+            artifacts/production-assessment-chain/
+
+          cleanup_remote_dir
+          trap - EXIT
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-assessment-chain-${{ github.run_id }}
+          path: artifacts/production-assessment-chain/*.json
+          if-no-files-found: error
+          retention-days: 7
