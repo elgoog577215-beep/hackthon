@@ -766,6 +766,146 @@ def test_quality_gate_accepts_typed_unity_csharp_methods():
     }
 
 
+def test_quality_gate_rejects_incorrect_unity_fixedupdate_timing_facts():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "某 Unity 角色在 Update 和 FixedUpdate 中重复移动：\n\n"
+        "```csharp\n"
+        "public float speed = 10f;\n"
+        "void Update() {\n"
+        "    rb.MovePosition(rb.position + Vector3.forward * speed);\n"
+        "}\n"
+        "void FixedUpdate() {\n"
+        "    rb.MovePosition(rb.position + Vector3.forward * speed);\n"
+        "}\n"
+        "```"
+    )
+    task = "分析 60 FPS 下的执行轨迹，并修复物理移动逻辑。"
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+    contract["solution_envelope"]["canonical_answer"] = {
+        "trace": "每帧移动两次",
+        "diagnosis": "重复调用",
+        "result_check": "仅保留 FixedUpdate",
+    }
+    contract["solution_envelope"]["worked_solution"] = {
+        "schema_version": "worked_solution_v1",
+        "summary": "两个回调重复调用 MovePosition，导致移动距离翻倍。",
+        "steps": [
+            {
+                "title": "执行轨迹",
+                "explanation": (
+                    "在 60 FPS 下，Update 每秒运行 60 次，"
+                    "FixedUpdate 默认也至少运行 60 次。"
+                ),
+                "calculation": (
+                    "单帧总位移 = speed + speed = 2 * speed。"
+                ),
+                "result": "速度翻倍。",
+            },
+            {
+                "title": "修复",
+                "explanation": "删除 Update 中的物理操作。",
+                "result": "只在 FixedUpdate 中移动。",
+            },
+        ],
+        "final_answer": {
+            "trace": "每帧移动两次",
+            "diagnosis": "重复调用",
+            "result_check": "仅保留 FixedUpdate",
+        },
+        "checks": ["确认每帧只移动一次"],
+    }
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    issue_codes = {issue["code"] for issue in report["issues"]}
+    assert report["passed"] is False
+    assert report["decision"] == "repair"
+    assert "UNITY_FIXEDUPDATE_RATE_INVALID" in issue_codes
+    assert "UNITY_SPEED_STEP_MISMATCH" in issue_codes
+
+
+def test_quality_gate_accepts_correct_unity_fixed_step_facts():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "某 Unity 角色按每秒速度移动：\n\n"
+        "```csharp\n"
+        "public float speed = 10f;\n"
+        "void FixedUpdate() {\n"
+        "    Vector3 step = Vector3.forward * speed * Time.fixedDeltaTime;\n"
+        "    rb.MovePosition(rb.position + step);\n"
+        "}\n"
+        "```"
+    )
+    task = "说明默认固定时间步下的调用频率与单步位移。"
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+    contract["solution_envelope"]["canonical_answer"] = {
+        "rate": "50 Hz",
+        "step": "speed * Time.fixedDeltaTime",
+    }
+    contract["solution_envelope"]["worked_solution"] = {
+        "schema_version": "worked_solution_v1",
+        "summary": "默认 fixedDeltaTime 为 0.02 秒，所以物理步通常为 50 Hz。",
+        "steps": [
+            {
+                "title": "计算",
+                "explanation": "每次 FixedUpdate 按固定时间步推进。",
+                "calculation": "10 * 0.02 = 0.2",
+                "result": "每个物理步移动 0.2 个单位。",
+            }
+        ],
+        "final_answer": {
+            "rate": "50 Hz",
+            "step": "speed * Time.fixedDeltaTime",
+        },
+        "checks": ["50 * 0.2 = 10 个单位/秒"],
+    }
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    issue_codes = {issue["code"] for issue in report["issues"]}
+    assert "UNITY_FIXEDUPDATE_RATE_INVALID" not in issue_codes
+    assert "UNITY_SPEED_STEP_MISMATCH" not in issue_codes
+
+
 def test_state_trace_transfer_can_use_visible_states_without_code():
     contract, objective, slot = _quality_contract()
     contract = deepcopy(contract)
