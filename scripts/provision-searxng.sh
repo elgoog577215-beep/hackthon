@@ -170,7 +170,7 @@ for attempt in $(seq 1 3); do
         --data-urlencode 'q=human heart anatomy' \
         --data 'format=json' \
         --data 'categories=images' \
-        --data 'engines=wikicommons.images' \
+        --data 'engines=bing images,baidu images,quark images,sogou images' \
         --data 'safesearch=2' \
         --data 'language=all' \
         --data 'timeout_limit=12' \
