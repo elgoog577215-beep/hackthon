@@ -154,15 +154,10 @@ def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
 
     assert "== searxng images direct ==" in workflow
     assert "--data 'categories=images'" in workflow
-    assert "'bing images'" in workflow
-    assert "'baidu images'" in workflow
-    assert "'pexels'" in workflow
-    assert "'unsplash'" in workflow
-    assert "'public domain image archive'" in workflow
     assert "'wikicommons.images'" not in workflow
-    assert '--data-urlencode "engines=$engine"' in workflow
     assert "--data 'timeout_limit=4'" in workflow
     assert "--data 'timeout_limit=7'" in workflow
+    assert "image_engine_counts" in workflow
     assert 'p.get("unresponsive_engines")' in workflow
 
 
