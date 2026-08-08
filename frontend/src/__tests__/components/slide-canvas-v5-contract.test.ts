@@ -459,6 +459,8 @@ describe('SlideCanvas V5 final page contract', () => {
             requested_layout: 'question-prompt',
             resolved_layout: 'question-prompt',
             prompt_label: '验收检查',
+            task_prompt_mode: 'verification',
+            task_prompt_phase: 'verification',
           },
         },
       },
@@ -472,6 +474,8 @@ describe('SlideCanvas V5 final page contract', () => {
 
     expect(wrapper.find('.deck-question-prompt > small').text()).toBe('验收检查')
     expect(wrapper.text()).not.toContain('先独立判断')
+    expect(wrapper.get('.deck-canvas').attributes('data-task-prompt-mode')).toBe('verification')
+    expect(wrapper.get('.deck-canvas').attributes('data-task-prompt-phase')).toBe('verification')
   })
 
   it('does not reserve message space when a practice message is intentionally hidden', () => {

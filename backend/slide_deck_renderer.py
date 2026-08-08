@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import shutil
@@ -2280,6 +2281,53 @@ def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
 def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     items = _all_items(unit)[:5] or [block.content for block in unit.blocks if block.content][:5]
+    if str(unit.quality.get("task_prompt_mode") or "") == "action":
+        _text(
+            slide,
+            str(unit.quality.get("prompt_label") or "执行步骤"),
+            0.86,
+            1.72,
+            2.0,
+            0.3,
+            12,
+            theme["accent"],
+            bold=True,
+        )
+        weights = [max(1, min(3, math.ceil(len(item) / 70))) for item in items]
+        total_weight = max(1, sum(weights))
+        available_height = 4.18
+        gap = 0.08
+        usable_height = available_height - gap * max(0, len(items) - 1)
+        y = 2.08
+        for index, (item, weight) in enumerate(zip(items, weights), start=1):
+            height = usable_height * weight / total_weight
+            _shape(slide, 0.86, y, 0.58, height, theme["accent_soft"], radius=True)
+            _text(
+                slide,
+                f"{index:02d}",
+                0.86,
+                y + max(0.08, (height - 0.22) / 2),
+                0.58,
+                0.22,
+                11,
+                theme["accent"],
+                bold=True,
+                align="center",
+                font="Aptos Mono",
+            )
+            _text(
+                slide,
+                item,
+                1.72,
+                y + 0.08,
+                10.25,
+                max(0.36, height - 0.16),
+                17 if len(item) <= 80 else 16,
+                theme["ink"],
+                bold=len(item) <= 80,
+            )
+            y += height + gap
+        return
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
     for index, item in enumerate(items):
         x = 0.82 + index * (width + 0.24)
