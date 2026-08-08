@@ -487,6 +487,16 @@ def _planner_failure_reason_code(value: Any) -> str:
     return "ai_planner_failed"
 
 
+def _selection_rejection_code(exc: Exception) -> str:
+    """Return a stable prerequisite code without copying private course data."""
+
+    if type(exc).__name__ == "SlideStoryPlanPrerequisiteError":
+        code = str(getattr(exc, "code", "") or "")
+        if code:
+            return code
+    return type(exc).__name__
+
+
 def _release_commit(application_root: Path) -> str:
     release_file = application_root / ".release-commit"
     if not release_file.is_file():
@@ -982,7 +992,7 @@ def _select_production_chapter(
             if requested_course_id:
                 raise
         except Exception as exc:
-            rejected_codes.append(type(exc).__name__)
+            rejected_codes.append(_selection_rejection_code(exc))
             if requested_course_id:
                 raise SmokeFailure(
                     "production_course_selection_failed",
@@ -1000,7 +1010,7 @@ def _select_production_chapter(
             (
                 "No published canonical programming chapter passed V5 prerequisites."
                 if sample_profile == "programming"
-                else "No published canonical non-programming chapter passed V5 prerequisites."
+                else "No canonical non-programming chapter passed V5 prerequisites."
             ),
             details={
                 "rejection_counts": dict(Counter(rejected_codes)),
