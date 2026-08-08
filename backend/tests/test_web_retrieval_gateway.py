@@ -276,7 +276,9 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
         )
 
     assert captured["form"]["categories"] == ["images"]
-    assert captured["form"]["engines"] == ["wikicommons.images"]
+    assert captured["form"]["engines"] == [
+        "bing images,baidu images,quark images,sogou images"
+    ]
     assert captured["form"]["timeout_limit"] == ["12"]
     assert results[0]["provider_metadata"] == {
         "engines": ["wikicommons.images"],
