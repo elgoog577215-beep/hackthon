@@ -41,7 +41,9 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
         "baidu images",
         "quark images",
         "sogou images",
-        "wikicommons.images",
+        "pexels",
+        "unsplash",
+        "public domain image archive",
     }
 
     assert "formats:\n      - json" in settings
@@ -53,12 +55,15 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "max_request_timeout: 12.0" in settings
     for engine in expected:
         assert f"- {engine}" in settings
-    assert "name: wikicommons.images" in settings
     assert "name: bing images" in settings
     assert "base_url: https://cn.bing.com" in settings
     assert "name: baidu images" in settings
     assert "name: quark images" in settings
     assert "name: sogou images" in settings
+    assert "name: pexels" in settings
+    assert "name: unsplash" in settings
+    assert "name: public domain image archive" in settings
+    assert "wikicommons.images" not in settings
     assert "categories: images" in settings
     assert "timeout: 10.0" in settings
     assert "google" not in settings.lower()
@@ -93,10 +98,13 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "for attempt in $(seq 1 3)" in script
     assert "执行图片搜索冒烟" in script
     assert "q=human heart anatomy" in script
-    assert "engines=bing images,baidu images,quark images,sogou images" in script
+    assert (
+        "engines=pexels,unsplash,public domain image archive,"
+        "bing images,baidu images,quark images,sogou images"
+    ) in script
     assert "timeout_limit=4" in script
     assert "timeout_limit=12" in script
-    assert 'not payload.get("unresponsive_engines")' in script
+    assert 'any(item.get("img_src") for item in payload["results"])' in script
     assert 'SEARXNG_REQUEST_TIMEOUT_SECONDS" "12"' in script
 
 

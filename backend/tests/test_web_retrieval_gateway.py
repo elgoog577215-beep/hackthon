@@ -277,6 +277,7 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
 
     assert captured["form"]["categories"] == ["images"]
     assert captured["form"]["engines"] == [
+        "pexels,unsplash,public domain image archive,"
         "bing images,baidu images,quark images,sogou images"
     ]
     assert captured["form"]["timeout_limit"] == ["12"]
