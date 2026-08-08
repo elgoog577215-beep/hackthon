@@ -142,6 +142,51 @@ def test_output_prediction_accepts_concrete_observable_result():
     assert report["material_bindings"]
 
 
+def test_output_prediction_accepts_unity_csharp_observable_phenomenon():
+    contract = _contract(
+        question_type="output_prediction",
+        stimulus=(
+            "```csharp\n"
+            "void Update() { transform.position += Vector3.right; }\n"
+            "```"
+        ),
+        task="预测帧率波动时会产生什么运行现象，并说明回调顺序。",
+        canonical_answer="A",
+        options=[
+            {"id": "A", "text": "移动速度随帧率变化"},
+            {"id": "B", "text": "移动速度保持恒定"},
+        ],
+    )
+
+    report = evaluate_question_semantic_preflight(contract)
+
+    assert report["passed"] is True
+    assert report["checks"]["learner_visible_code"] is True
+    assert report["checks"]["observable_result_requested"] is True
+
+
+def test_state_trace_transfer_accepts_chinese_state_tracking_sequence():
+    contract = _contract(
+        question_type="state_trace_transfer",
+        stimulus=(
+            "```csharp\n"
+            "void FixedUpdate() { rb.AddForce(Vector3.right); }\n"
+            "void LateUpdate() { camera.position = rb.position; }\n"
+            "```"
+        ),
+        task="给出修复后的状态跟踪序列，并标明每一步的回调顺序。",
+        canonical_answer={
+            "trace": ["FixedUpdate applies force", "LateUpdate follows"],
+        },
+    )
+
+    report = evaluate_question_semantic_preflight(contract)
+
+    assert report["passed"] is True
+    assert report["checks"]["observable_state_transfer"] is True
+    assert report["checks"]["material_binding_valid"] is True
+
+
 def test_debugging_trace_rejects_false_error_premise():
     contract = _contract(
         question_type="debugging_trace",
