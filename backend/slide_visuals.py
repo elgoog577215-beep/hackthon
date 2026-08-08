@@ -1266,11 +1266,26 @@ def validate_visual_plan(
                 if excerpt and _normalized_grounding_text(excerpt) not in _normalized_grounding_text(source_text):
                     raise ValueError("Visual table row is not a source excerpt")
         if page.visual_anchor.kind == "coordinate_plot":
+            points = page.visual_anchor.parameters.get("points") or []
             labels = page.visual_anchor.parameters.get("point_labels") or []
+            if len(points) < 2 or len(labels) != len(points):
+                raise ValueError("Coordinate visual data is incomplete")
             for label in labels:
                 excerpt = str(label).rstrip("…")
                 if excerpt and _normalized_grounding_text(excerpt) not in _normalized_grounding_text(source_text):
                     raise ValueError("Coordinate label is not a source excerpt")
+        if page.visual_anchor.kind == "chart":
+            values = [
+                value
+                for series in page.visual_anchor.parameters.get("series") or []
+                for value in series.get("values") or []
+            ]
+            if not values or not all(
+                isinstance(value, (int, float)) for value in values
+            ):
+                raise ValueError("Chart visual data is incomplete")
+            if any(str(value) not in source_text for value in values):
+                raise ValueError("Chart visual data is not source-bound")
         if page.visual_anchor.kind == "formula":
             formula = str(page.visual_anchor.parameters.get("formula") or "")
             if (

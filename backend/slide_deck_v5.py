@@ -56,7 +56,7 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.27"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.28"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
 FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.14"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
@@ -5474,6 +5474,7 @@ def allocation_from_story_plan_v5(
         allocated.update(item.fragment_id for item in beat_fragments)
         completed_units.append((*unit[:-1], beat_fragments))
 
+    emitted_code_pages_by_chapter: dict[str, int] = {}
     for (
         _source_ordinal,
         _chapter_index,
@@ -5521,6 +5522,35 @@ def allocation_from_story_plan_v5(
                 else None
             ),
         )
+        if (
+            beat.renderer_layout == "code"
+            or "code" in beat.subject_artifact_kinds
+        ):
+            emitted_count = emitted_code_pages_by_chapter.get(
+                chapter.chapter_id,
+                0,
+            )
+            remaining_code_pages = max(
+                0,
+                _V5_CODE_PAGES_PER_CHAPTER - emitted_count,
+            )
+            if len(packed) > remaining_code_pages:
+                retained_ids = {
+                    fragment.fragment_id
+                    for chunk, _atoms, _continuation, _index in packed[
+                        :remaining_code_pages
+                    ]
+                    for fragment in chunk
+                }
+                allocated.difference_update(
+                    fragment.fragment_id
+                    for fragment in beat_fragments
+                    if fragment.fragment_id not in retained_ids
+                )
+                packed = packed[:remaining_code_pages]
+            emitted_code_pages_by_chapter[chapter.chapter_id] = (
+                emitted_count + len(packed)
+            )
         continuation_totals = {
             token: sum(
                 1

@@ -192,6 +192,13 @@ The system SHALL compute the final page layout after visual assets are resolved.
 - **AND** ambiguous pages resolve to `none` and reflow to a complete text-native
   composition without an empty visual region
 
+#### Scenario: One AI-planned optional visual is structurally invalid
+- **WHEN** a chart lacks numeric source data or another page-level visual fails
+  its source and structure contract
+- **THEN** V5 rejects that page's visual before final compilation and uses the
+  deterministic source-bound visual decision for that page
+- **AND** valid visual decisions from the same batch remain usable
+
 ### Requirement: Web and PPT Render the Same Final Contract
 
 The system SHALL make `resolved_layout` and `resolved_composition` authoritative
@@ -730,6 +737,14 @@ text page budget or loses a competition between three source groups.
 - **AND** every omitted code fragment is recorded as
   `subject_artifact_redundant_after_chapter_coverage` instead of being silently
   discarded or converted to editorial prose
+
+#### Scenario: Final semantic pagination expands a code excerpt
+- **WHEN** semantic-atom boundaries would split the selected excerpt into more
+  than three final code pages
+- **THEN** the final allocator retains the first three source-ordered pages and
+  applies the same explicit disposition to overflow fragments
+- **AND** no later compiler or renderer stage may re-expand the chapter beyond
+  the three-page code contract
 
 #### Scenario: The source contains more characteristic artifacts than the deck needs
 - **WHEN** the subject coverage minimum is already satisfied by stronger,
