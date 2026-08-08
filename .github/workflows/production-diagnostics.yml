@@ -66,15 +66,14 @@ jobs:
             | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2)); r or sys.exit("SearXNG response must contain at least one result")'
 
           echo "== searxng images direct =="
-          curl -fsS --max-time 12 http://127.0.0.1:8080/search \
+          curl -fsS --max-time 8 http://127.0.0.1:8080/search \
             --data 'q=human heart anatomy' \
             --data 'format=json' \
             --data 'categories=images' \
-            --data 'engines=wikicommons.images' \
             --data 'language=all' \
             --data 'safesearch=2' \
-            --data 'timeout_limit=12' \
-            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("image_result_count", len(r)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src")} for x in r[:5]], ensure_ascii=False, indent=2))'
+            --data 'timeout_limit=7' \
+            | python3 -c 'import collections,json,sys; p=json.load(sys.stdin); r=p.get("results") or []; counts=collections.Counter(e for x in r for e in (x.get("engines") or [])); pd=[x for x in r if "public domain image archive" in (x.get("engines") or [])]; print("image_result_count", len(r)); print("image_engine_counts", json.dumps(counts, ensure_ascii=False, sort_keys=True)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print("public_domain_results", json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "thumbnail_src": x.get("thumbnail_src"), "engines": x.get("engines")} for x in pd[:5]], ensure_ascii=False, indent=2)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "engines": x.get("engines")} for x in r[:5]], ensure_ascii=False, indent=2))'
 
           echo "== product retrieval matrix: course, assessment, ai_teacher, ppt_image =="
           set -a

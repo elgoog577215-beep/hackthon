@@ -276,7 +276,10 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
         )
 
     assert captured["form"]["categories"] == ["images"]
-    assert captured["form"]["engines"] == ["wikicommons.images"]
+    assert captured["form"]["engines"] == [
+        "public domain image archive,"
+        "bing images,baidu images,quark images,sogou images"
+    ]
     assert captured["form"]["timeout_limit"] == ["12"]
     assert results[0]["provider_metadata"] == {
         "engines": ["wikicommons.images"],
@@ -286,6 +289,40 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
         "resolution": "1600 x 900",
         "mime_type": "image/png",
     }
+
+
+@pytest.mark.asyncio
+async def test_searxng_provider_prioritizes_public_domain_images_before_limit():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "url": "https://stock.example/paid-heart",
+                        "title": "Paid heart image",
+                        "img_src": "https://stock.example/paid-heart.jpg",
+                        "engines": ["quark images"],
+                    },
+                    {
+                        "url": "https://pdimagearchive.org/images/heart",
+                        "title": "Public domain heart",
+                        "img_src": "https://images.pdimagearchive.org/heart.jpg",
+                        "engines": ["public domain image archive"],
+                    },
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        results = await SearXNGSearchProvider(
+            base_url="http://127.0.0.1:8080",
+            client=client,
+        ).search("human heart", limit=1, category="images")
+
+    assert len(results) == 1
+    assert results[0]["url"] == "https://pdimagearchive.org/images/heart"
+    assert results[0]["license"] == "Public Domain"
 
 
 def test_searxng_provider_default_timeout_allows_commons_image_search(monkeypatch):
