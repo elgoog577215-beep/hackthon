@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import traceback
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -928,6 +929,14 @@ def main(argv: list[str] | None = None) -> int:
             },
         }
     except Exception as exc:
+        trace = [
+            {
+                "file": Path(frame.filename).name,
+                "line": frame.lineno,
+                "function": frame.name,
+            }
+            for frame in traceback.extract_tb(exc.__traceback__)[-8:]
+        ]
         report = {
             "schema_version": "production_ppt_chapter_smoke_v1",
             "status": "failed",
@@ -935,7 +944,10 @@ def main(argv: list[str] | None = None) -> int:
                 "code": "production_ppt_chapter_smoke_unhandled",
                 "message": "The production chapter smoke raised an unhandled error.",
                 "exception_type": type(exc).__name__,
-                "details": {"error": str(exc)[:500]},
+                "details": {
+                    "error": str(exc)[:500],
+                    "trace": trace,
+                },
             },
         }
     _write_report(output_dir, report)
