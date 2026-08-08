@@ -13,6 +13,7 @@ from production_ppt_chapter_smoke import (
     _planner_failure_reason_code,
     _pptx_presentation_mode_audit,
     _source_disposition,
+    _selection_rejection_code,
     build_chapter_document,
     build_subject_artifact_gate_summary,
     choose_cross_domain_sample,
@@ -25,6 +26,7 @@ from production_ppt_chapter_smoke import (
 )
 from slide_deck import SlideSpec
 from slide_deck_renderer import _render_claim_only, _render_code, validate_theme
+from slide_story_plan import SlideStoryPlanPrerequisiteError
 
 
 def test_smoke_uses_final_source_bound_story_scenes() -> None:
@@ -62,6 +64,16 @@ def test_smoke_reports_provider_balance_failure_without_raw_request_data() -> No
     }])
 
     assert reason == "ai_provider_balance_exhausted"
+
+
+def test_smoke_reports_typed_v5_prerequisite_code_without_course_content() -> None:
+    error = SlideStoryPlanPrerequisiteError(
+        "private technical detail",
+        code="course_teaching_plan_not_ready",
+        user_message="public action",
+    )
+
+    assert _selection_rejection_code(error) == "course_teaching_plan_not_ready"
 
 
 def test_smoke_accepts_only_explicit_code_source_disposition() -> None:
