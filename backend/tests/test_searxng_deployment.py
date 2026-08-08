@@ -123,3 +123,12 @@ def test_production_diagnostics_asserts_all_product_retrieval_paths() -> None:
     assert "ai_teacher" in workflow
     assert "ppt_image" in workflow
     assert "SearXNG response must contain at least one result" in workflow
+
+
+def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "== searxng images direct ==" in workflow
+    assert "--data 'categories=images'" in workflow
+    assert "--data 'engines=wikicommons.images'" in workflow
+    assert 'p.get("unresponsive_engines")' in workflow
