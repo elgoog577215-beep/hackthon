@@ -197,6 +197,7 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
         "safesearch": ["2"],
         "language": [expected_language],
         "pageno": ["1"],
+        "timeout_limit": ["4"],
     }
     assert len(results) == 1
     assert results[0]["content"].startswith("Linear algebra")
@@ -237,6 +238,7 @@ async def test_searxng_provider_keeps_general_queries_out_of_science_engines():
     assert captured[0]["engines"] == [
         "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,wikipedia"
     ]
+    assert captured[0]["timeout_limit"] == ["4"]
 
 
 @pytest.mark.asyncio
@@ -275,6 +277,7 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
 
     assert captured["form"]["categories"] == ["images"]
     assert captured["form"]["engines"] == ["wikicommons.images"]
+    assert captured["form"]["timeout_limit"] == ["12"]
     assert results[0]["provider_metadata"] == {
         "engines": ["wikicommons.images"],
         "raw_score": 8.5,

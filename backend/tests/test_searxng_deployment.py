@@ -85,6 +85,8 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "执行图片搜索冒烟" in script
     assert "q=human heart anatomy" in script
     assert "engines=wikicommons.images" in script
+    assert "timeout_limit=4" in script
+    assert "timeout_limit=12" in script
     assert 'not payload.get("unresponsive_engines")' in script
     assert 'SEARXNG_REQUEST_TIMEOUT_SECONDS" "12"' in script
 
@@ -137,4 +139,6 @@ def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
     assert "== searxng images direct ==" in workflow
     assert "--data 'categories=images'" in workflow
     assert "--data 'engines=wikicommons.images'" in workflow
+    assert "--data 'timeout_limit=4'" in workflow
+    assert "--data 'timeout_limit=12'" in workflow
     assert 'p.get("unresponsive_engines")' in workflow
