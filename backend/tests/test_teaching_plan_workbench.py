@@ -340,6 +340,72 @@ async def test_patch_rejects_readonly_identifier_and_stale_base() -> None:
 
 
 @pytest.mark.asyncio
+async def test_repeated_field_edits_keep_the_official_before_value_and_revert_cleanly() -> None:
+    storage = MemoryStorage(_course())
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    view = service.view("course-1", actor="teacher-1")
+    field = next(
+        item for item in view["editable_fields"]
+        if item["path"] == "overall/positioning"
+    )
+    assert field["value_hash"]
+    created = await service.create_draft(
+        "course-1",
+        actor="teacher-1",
+        idempotency_key="create-repeat",
+        base_plan_revision_id=view["current_plan_revision_id"],
+        base_course_document_revision=view["course_document_revision"],
+    )
+    draft_id = created["draft"]["draft_id"]
+
+    first = await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="overall/positioning",
+        value="先观察图像，再理解变化率",
+        expected_value_hash=field["value_hash"],
+        base_plan_revision_id=view["current_plan_revision_id"],
+        idempotency_key="repeat-1",
+    )
+    current_field = next(
+        item for item in first["editable_fields"]
+        if item["path"] == "overall/positioning"
+    )
+    second = await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="overall/positioning",
+        value="先比较真实变化，再形成函数表达",
+        expected_value_hash=current_field["value_hash"],
+        base_plan_revision_id=view["current_plan_revision_id"],
+        idempotency_key="repeat-2",
+    )
+    operation = second["draft"]["operations"][0]
+    assert operation["before"] == "从变化率建立函数直觉"
+    assert operation["after"] == "先比较真实变化，再形成函数表达"
+
+    latest_field = next(
+        item for item in second["editable_fields"]
+        if item["path"] == "overall/positioning"
+    )
+    reverted = await service.patch_draft(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        path="overall/positioning",
+        value="从变化率建立函数直觉",
+        expected_value_hash=latest_field["value_hash"],
+        base_plan_revision_id=view["current_plan_revision_id"],
+        idempotency_key="repeat-revert",
+    )
+    assert reverted["draft"]["operations"] == []
+    assert reverted["draft"]["changed_paths"] == []
+    assert storage.course["course_plan"]["positioning"] == "从变化率建立函数直觉"
+
+
+@pytest.mark.asyncio
 async def test_new_draft_edit_supersedes_old_change_set_and_empty_review_is_rejected() -> None:
     storage = MemoryStorage(_course())
     service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
@@ -592,6 +658,66 @@ async def test_v2_plan_creates_a_baseline_without_rewriting_the_official_plan() 
     assert storage.course["course_teaching_plan"]["schema_version"] == "course_teaching_plan_v2"
 
 
+@pytest.mark.asyncio
+async def test_missing_plan_can_be_explicitly_initialized_from_published_outline() -> None:
+    course = _course()
+    outline_section = course["course_plan"]["chapters"][0]["sections"][0]
+    outline_section.update(deepcopy(course["course_teaching_plan"]["sections"][0]))
+    course.pop("course_teaching_plan")
+    storage = MemoryStorage(course)
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+
+    before = service.view("course-1", actor="teacher-1")
+    assert before["available"] is False
+    assert before["can_initialize"] is True
+
+    initialized = await service.initialize_baseline(
+        "course-1",
+        actor="teacher-1",
+        idempotency_key="initialize-1",
+        base_course_document_revision=before["course_document_revision"],
+    )
+    workbench = initialized["workbench"]
+    assert workbench["available"] is True
+    assert workbench["can_initialize"] is False
+    assert workbench["teaching_plan"]["status"] == "completed"
+    assert len(workbench["teaching_plan"]["sections"]) == 1
+    assert workbench["revisions"][0]["created_by"] == "migration"
+    assert storage.course["course_teaching_plan"]["schema_version"] == "course_teaching_plan_v3"
+    assert storage.course["teaching_plan_migration"]["source"] == "published_course_plan"
+    assert initialized["receipt"]["revision_change"]["added_source_keys"] == [
+        "course_teaching_plan"
+    ]
+
+    repeated = await service.initialize_baseline(
+        "course-1",
+        actor="teacher-1",
+        idempotency_key="initialize-1",
+        base_course_document_revision=before["course_document_revision"],
+    )
+    assert repeated["receipt"] == initialized["receipt"]
+    assert len(repeated["workbench"]["revisions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_plan_without_structured_outline_cannot_be_initialized() -> None:
+    course = _course()
+    course.pop("course_teaching_plan")
+    course["course_plan"] = {"course_title": "一次函数", "chapters": []}
+    storage = MemoryStorage(course)
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    view = service.view("course-1", actor="teacher-1")
+    assert view["can_initialize"] is False
+    with pytest.raises(TeachingPlanWorkbenchError) as unavailable:
+        await service.initialize_baseline(
+            "course-1",
+            actor="teacher-1",
+            idempotency_key="initialize-unavailable",
+            base_course_document_revision=view["course_document_revision"],
+        )
+    assert unavailable.value.code == "teaching_plan_initialization_unavailable"
+
+
 def test_legacy_course_is_readable_but_never_exposes_editable_fields() -> None:
     course = _course()
     for key in (
@@ -655,3 +781,29 @@ def test_workbench_router_smoke_covers_draft_review_and_apply() -> None:
     )
     assert applied.status_code == 200
     assert applied.json()["workbench"]["current_plan_revision_id"] != workbench["current_plan_revision_id"]
+
+
+def test_workbench_router_can_initialize_a_missing_plan_baseline() -> None:
+    from routers import teaching_plan_workbench as workbench_router
+
+    course = _course()
+    outline_section = course["course_plan"]["chapters"][0]["sections"][0]
+    outline_section.update(deepcopy(course["course_teaching_plan"]["sections"][0]))
+    course.pop("course_teaching_plan")
+    storage = MemoryStorage(course)
+    repository = CourseDocumentRepository(storage)
+    app = FastAPI()
+    app.include_router(workbench_router.router, prefix="/api")
+    app.dependency_overrides[workbench_router.get_course_document_repository] = lambda: repository
+    client = TestClient(app)
+    headers = {"X-User-Id": "teacher-api-test"}
+    base_path = "/api/courses/course-1/teaching-plan"
+
+    initial = client.get(f"{base_path}/workbench", headers=headers).json()["workbench"]
+    initialized = client.post(f"{base_path}/baseline", headers=headers, json={
+        "base_course_document_revision": initial["course_document_revision"],
+        "idempotency_key": "api-initialize",
+    })
+    assert initialized.status_code == 200
+    assert initialized.json()["workbench"]["available"] is True
+    assert initialized.json()["receipt"]["operation"] == "initialize_teaching_plan_baseline"

@@ -121,6 +121,24 @@ _DEFAULT_TIER_A_DOMAINS = (
     "openstax.org",
     "pubmed.ncbi.nlm.nih.gov",
 )
+_GENERAL_SEARCH_ENGINES = (
+    "duckduckgo",
+    "bing",
+    "baidu",
+    "brave",
+    "startpage",
+    "qwant",
+    "yahoo",
+    "sogou",
+    "quark",
+    "wikipedia",
+)
+_SCIENCE_SEARCH_ENGINES = (
+    "arxiv",
+    "pubmed",
+    "openalex",
+    "crossref",
+)
 
 
 class SearchProvider(Protocol):
@@ -245,6 +263,7 @@ class SearXNGSearchProvider:
             "q": _clip(query, 1000),
             "format": "json",
             "categories": search_categories,
+            "engines": _search_engines(query, category),
             "safesearch": "2",
             "language": "zh-CN" if _contains_cjk(query) else "en",
             "pageno": "1",
@@ -472,6 +491,7 @@ class RetrievalGateway:
 
         semaphore = asyncio.Semaphore(concurrency)
         per_query = max(1, min(max_sources, (max_sources + len(safe_queries) - 1) // len(safe_queries)))
+        candidate_limit = min(24, max(12, max_sources * 4, per_query * 8))
 
         async def run(
             query: str,
@@ -480,7 +500,7 @@ class RetrievalGateway:
                 cache_key = _digest({
                     "namespace": self.cache_namespace,
                     "query": query,
-                    "limit": per_query,
+                    "limit": candidate_limit,
                     "category": request.category,
                 })
                 cached = _QUERY_CACHE.get(cache_key)
@@ -490,11 +510,11 @@ class RetrievalGateway:
                     _QUERY_CACHE.pop(cache_key, None)
                 try:
                     if request.category == "general":
-                        results = await self.provider.search(query, limit=per_query)
+                        results = await self.provider.search(query, limit=candidate_limit)
                     else:
                         results = await self.provider.search(
                             query,
-                            limit=per_query,
+                            limit=candidate_limit,
                             category=request.category,
                         )
                     if self.cache_ttl_seconds > 0:
@@ -958,6 +978,18 @@ def _search_categories(query: str) -> str:
     """Route explicit academic intent to science engines; keep product docs general."""
 
     return "general,science" if _ACADEMIC_QUERY_TERMS.search(query) else "general"
+
+
+def _search_engines(
+    query: str,
+    category: Literal["general", "images"],
+) -> str:
+    if category == "images":
+        return "wikicommons.images"
+    engines = _GENERAL_SEARCH_ENGINES
+    if _ACADEMIC_QUERY_TERMS.search(query):
+        engines = (*engines, *_SCIENCE_SEARCH_ENGINES)
+    return ",".join(engines)
 
 
 def _canonical_public_https_url(url: str) -> tuple[str, str, bool]:

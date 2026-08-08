@@ -206,6 +206,7 @@ import {
   courseProductionRecoveryDetail,
   courseProductionStageIndex,
   courseProductionStageKey,
+  courseProductionStageLabel,
   courseProductionStageStatus,
   type CourseProductionStageKey,
 } from '../utils/course-production'
@@ -249,7 +250,7 @@ type GrowthChapter = {
 }
 
 const expandedChapterIds = ref<Set<string>>(new Set())
-const isProjectCourse = computed(() => props.task?.courseType === 'project')
+const courseType = computed(() => props.task?.courseType || 'systematic')
 const stageIndex = computed(() => courseProductionStageIndex(props.task))
 const stageKey = computed(() => courseProductionStageKey(props.task))
 const stageStatus = computed(() => courseProductionStageStatus(props.task, stageIndex.value))
@@ -396,23 +397,12 @@ function growthSectionStateLabel(state: GrowthSectionStatus) {
   return t('courseGeneration.workspace.waiting', '等待生成')
 }
 
-const stageLabels = computed<Record<CourseProductionStageKey, string>>(() => ({
-  requirements: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectRequirements', '项目需求')
-    : t('courseGeneration.lifecycle.requirements', '需求'),
-  outline: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
-    : t('courseGeneration.lifecycle.outline', '目录'),
-  teaching: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
-    : t('courseGeneration.lifecycle.teaching', '教案与知识库'),
-  content: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectContent', '项目课程')
-    : t('courseGeneration.lifecycle.content', '正文生成'),
-  release: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
-    : t('courseGeneration.lifecycle.release', '确认发布'),
-}))
+const stageLabels = computed<Record<CourseProductionStageKey, string>>(() => Object.fromEntries(
+  ['requirements', 'outline', 'teaching', 'content', 'release'].map(stage => [
+    stage,
+    courseProductionStageLabel(props.task, stage as CourseProductionStageKey),
+  ]),
+) as Record<CourseProductionStageKey, string>)
 const statusLabels = computed(() => ({
   active: t('courseGeneration.lifecycle.inProgress', '进行中'),
   review: t('courseGeneration.lifecycle.needsConfirmation', '待确认'),
@@ -472,21 +462,36 @@ const savedItems = computed(() => {
 const savedSummary = computed(() => savedItems.value.length
   ? t('courseGeneration.production.savedInline', '已保存：{items}').replace('{items}', savedItems.value.join(' · '))
   : '')
-const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => isProjectCourse.value
-  ? {
+const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => {
+  if (courseType.value === 'project') return {
       requirements: t('courseGeneration.production.projectRequirementsNext', '项目需求确定后立即形成第一版个人路径，后续学习证据仍可继续校准它。'),
       outline: t('courseGeneration.production.projectOutlineNext', '确认个人路径后，系统会为每个项目节点生成能力与知识安排。'),
       teaching: t('courseGeneration.production.projectTeachingNext', '确认能力与知识安排后，课程会沿项目依赖逐节生成。'),
       content: t('courseGeneration.production.projectContentNext', '所有项目课程内容完成后，系统检查它们能否共同支撑最终交付物。'),
       release: t('courseGeneration.production.projectReleaseNext', '确认后，当前页面会原地切换为你的项目学习现场。'),
     }
-  : {
+  if (courseType.value === 'inquiry') return {
+    requirements: t('courseGeneration.production.inquiryRequirementsNext', '问题与结论形态确定后，系统会先形成问题树和证据路径。'),
+    outline: t('courseGeneration.production.inquiryOutlineNext', '确认问题路径后，系统会为每个阶段生成证据方法、反例检验与判断标准。'),
+    teaching: t('courseGeneration.production.inquiryTeachingNext', '确认证据与方法后，课程会沿问题依赖逐节生成。'),
+    content: t('courseGeneration.production.inquiryContentNext', '所有探究内容完成后，系统检查证据、反例与结论边界是否闭合。'),
+    release: t('courseGeneration.production.inquiryReleaseNext', '确认后，当前页面会原地切换为问题探究学习现场。'),
+  }
+  if (courseType.value === 'exam') return {
+    requirements: t('courseGeneration.production.examRequirementsNext', '考试日期与范围确定后，系统会形成按时间和薄弱点排序的冲刺计划。'),
+    outline: t('courseGeneration.production.examOutlineNext', '确认冲刺计划后，系统会为每个阶段生成考点、专项练习和检查标准。'),
+    teaching: t('courseGeneration.production.examTeachingNext', '确认考点与练习后，课程会按复习优先级逐节生成。'),
+    content: t('courseGeneration.production.examContentNext', '所有冲刺内容完成后，系统检查考纲覆盖、模拟验证和考前巩固是否完整。'),
+    release: t('courseGeneration.production.examReleaseNext', '确认后，当前页面会原地切换为考试冲刺学习现场。'),
+  }
+  return {
       requirements: t('courseGeneration.production.requirementsNext', '需求确认后立即生成课程目录；不会再增加额外确认门。'),
       outline: t('courseGeneration.production.outlineNext', '目录确认后，系统生成全课教案与知识库；教案等待你确认后才开始正文。'),
       teaching: t('courseGeneration.production.teachingNext', '确认全课教案后，正文会按依赖波次并行生成，并把已完成内容立即显示出来。'),
       content: t('courseGeneration.production.contentNext', '所有小节完成后进入确定性发布检查，不追加 AI 返工循环。'),
       release: t('courseGeneration.production.releaseNext', '确认发布后，当前页面会原地切换为正式学习现场。'),
-    })
+    }
+})
 const footerHint = computed(() => nextDetails.value[stageKey.value])
 const recoveryDetail = computed(() => courseProductionRecoveryDetail(props.task))
 const technicalError = computed(() => String(props.task?.error || '').trim())

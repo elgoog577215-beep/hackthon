@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 
 import course_evolution
 import learner_model_service
@@ -13,13 +14,13 @@ from learner_model import (
 )
 
 
-def _self_report(statement: str, *, created_at: str = "2026-07-15T00:00:00+00:00", event_id: str = "evt-1") -> dict:
+def _self_report(statement: str, *, created_at: str | None = None, event_id: str = "evt-1") -> dict:
     return {
         "event_id": event_id,
         "event_type": "learner_self_reported",
         "course_id": "course-1",
         "node_id": "block-1",
-        "created_at": created_at,
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
         "evidence": {"statement": statement},
     }
 
@@ -73,7 +74,7 @@ def test_pure_repetition_without_strength_or_diversity_does_not_trigger():
 
 
 def test_stale_evidence_is_discounted_by_recency():
-    fresh = evaluate_evidence_trigger([_self_report("完全看不懂", created_at="2026-07-15T00:00:00+00:00")])
+    fresh = evaluate_evidence_trigger([_self_report("完全看不懂")])
     stale = evaluate_evidence_trigger([_self_report("完全看不懂", created_at="2020-01-01T00:00:00+00:00")])
     assert fresh["score"] > stale["score"]
 

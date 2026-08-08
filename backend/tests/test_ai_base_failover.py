@@ -476,6 +476,7 @@ async def test_call_llm_raise_on_failure_surfaces_error_after_all_candidates(mon
 @pytest.mark.asyncio
 async def test_call_llm_strict_mode_reports_missing_provider(monkeypatch):
     monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
     service = AIBase()
 
     with pytest.raises(AIProviderUnavailable, match="not_configured"):
