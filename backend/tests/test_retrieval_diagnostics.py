@@ -65,6 +65,7 @@ async def test_retrieval_matrix_covers_every_product_purpose() -> None:
         request for request in gateway.requests if request.purpose == "ppt_image"
     )
     assert ppt_request.category == "images"
+    assert ppt_request.queries == ["human heart anatomy"]
 
 
 @pytest.mark.asyncio
