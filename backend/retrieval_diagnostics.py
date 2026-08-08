@@ -42,7 +42,7 @@ async def run_retrieval_matrix(
         RetrievalRequest(
             purpose="ppt_image",
             enabled=True,
-            queries=["object oriented programming UML class diagram"],
+            queries=["human heart anatomy"],
             category="images",
         ),
     )
