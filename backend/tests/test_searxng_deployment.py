@@ -111,3 +111,15 @@ def test_normal_deploy_preflights_searxng_before_stopping_application() -> None:
     assert "WEB_RETRIEVAL_PROVIDER" in script
     assert "SEARXNG_BASE_URL" in script
     assert "format=json" in script
+
+
+def test_production_diagnostics_asserts_all_product_retrieval_paths() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "run_retrieval_matrix" in workflow
+    assert "assert_retrieval_feature" in workflow
+    assert "course" in workflow
+    assert "assessment" in workflow
+    assert "ai_teacher" in workflow
+    assert "ppt_image" in workflow
+    assert "SearXNG response must contain at least one result" in workflow
