@@ -69,12 +69,24 @@ class ChapterCandidate:
     source_role_count: int
     code_character_count: int
     source_block_count: int
+    subject_artifact_kinds: tuple[str, ...] = ()
+    subject_artifact_fragment_count: int = 0
 
     @property
     def rank(self) -> tuple[int, int, int, int]:
         return (
             self.source_role_count,
             min(self.code_character_count, 6000),
+            len(self.section_ids),
+            -self.source_block_count,
+        )
+
+    @property
+    def subject_rank(self) -> tuple[int, int, int, int, int]:
+        return (
+            len(self.subject_artifact_kinds),
+            self.subject_artifact_fragment_count,
+            self.source_role_count,
             len(self.section_ids),
             -self.source_block_count,
         )
@@ -211,6 +223,133 @@ def rank_programming_chapter_candidates(
             "No production programming chapter with source-backed code was found.",
         )
     return sorted(candidates, key=lambda item: item.rank, reverse=True)
+
+
+def rank_subject_chapter_candidates(
+    document: CourseDocument,
+    course_view: dict[str, Any],
+    *,
+    requested_chapter_id: str = "",
+) -> list[ChapterCandidate]:
+    """Rank non-programming chapters by source-backed subject artifacts."""
+
+    from slide_deck_v3 import fragment_course_document
+    from slide_semantics import (
+        compile_ppt_semantic_units,
+        compile_subject_presentation_contract_v1,
+    )
+
+    parent_by_id = {
+        section.section_id: section.parent_section_id
+        for section in document.sections
+    }
+    root_ids = sorted({
+        _chapter_root_id(section_id, parent_by_id)
+        for section_id in parent_by_id
+    })
+    if requested_chapter_id and requested_chapter_id not in root_ids:
+        raise SmokeFailure(
+            "production_chapter_not_found",
+            "The requested production chapter is not a chapter root.",
+        )
+
+    candidates: list[ChapterCandidate] = []
+    roots = [requested_chapter_id] if requested_chapter_id else root_ids
+    for root_id in roots:
+        chapter_document = build_chapter_document(document, root_id)
+        fragments = fragment_course_document(chapter_document)
+        semantic_units = compile_ppt_semantic_units(chapter_document, fragments)
+        contract = compile_subject_presentation_contract_v1(
+            chapter_document,
+            course_view,
+            semantic_units,
+            fragments,
+        )
+        required_kinds = tuple(sorted(set(
+            contract.required_representation_kinds
+        )))
+        if not required_kinds:
+            continue
+        characteristic_ids = {
+            fragment_id
+            for kind in required_kinds
+            for fragment_id in contract.characteristic_fragment_ids.get(kind, [])
+        }
+        blocks = list(chapter_document.blocks)
+        roles = {
+            str(block.role)
+            for block in blocks
+            if str(block.role) in SOURCE_LOOP_ROLES
+        }
+        candidates.append(ChapterCandidate(
+            chapter_id=root_id,
+            section_ids=tuple(
+                section.section_id for section in chapter_document.sections
+            ),
+            source_role_count=len(roles),
+            code_character_count=sum(
+                len(line) for line in extract_source_code_lines(chapter_document)
+            ),
+            source_block_count=len(blocks),
+            subject_artifact_kinds=required_kinds,
+            subject_artifact_fragment_count=len(characteristic_ids),
+        ))
+
+    if not candidates:
+        if requested_chapter_id:
+            raise SmokeFailure(
+                "production_chapter_has_no_subject_artifact",
+                "The requested production chapter has no source-backed subject artifact.",
+            )
+        raise SmokeFailure(
+            "production_subject_chapter_not_found",
+            "No production chapter with a source-backed subject artifact was found.",
+        )
+    return sorted(candidates, key=lambda item: item.subject_rank, reverse=True)
+
+
+def build_subject_artifact_gate_summary(
+    *,
+    required_kinds: set[str],
+    characteristic_fragment_ids: dict[str, set[str]],
+    slide_artifact_kinds: set[str],
+    allocated_fragment_ids: set[str],
+    excluded_fragment_reasons: dict[str, str],
+    editorial_fallback_kinds: set[str],
+) -> dict[str, Any]:
+    """Build subject-neutral evidence gates without inventing course content."""
+
+    required_source_ids = {
+        fragment_id
+        for kind in required_kinds
+        for fragment_id in characteristic_fragment_ids.get(kind, set())
+    }
+    missing_slide_kinds = sorted(required_kinds - slide_artifact_kinds)
+    missing_disposition_ids = sorted(
+        required_source_ids
+        - (allocated_fragment_ids | set(excluded_fragment_reasons))
+    )
+    invalid_exclusions = sorted(
+        fragment_id
+        for fragment_id, reason in excluded_fragment_reasons.items()
+        if reason != "subject_artifact_redundant_after_chapter_coverage"
+    )
+    editorial_required_kinds = sorted(
+        required_kinds & editorial_fallback_kinds
+    )
+    return {
+        "gates": {
+            "subject_contract_has_required_artifact": bool(required_kinds),
+            "required_subject_artifacts_present": not missing_slide_kinds,
+            "subject_source_disposition_complete": not missing_disposition_ids,
+            "subject_exclusions_are_explicit": not invalid_exclusions,
+            "subject_artifacts_not_editorial_fallback": not editorial_required_kinds,
+        },
+        "missing_slide_artifact_kinds": missing_slide_kinds,
+        "missing_disposition_fragment_ids": missing_disposition_ids,
+        "invalid_exclusion_fragment_ids": invalid_exclusions,
+        "editorial_fallback_artifact_kinds": editorial_required_kinds,
+    }
 
 
 def build_chapter_document(
