@@ -182,7 +182,7 @@ def _is_exempt_sparse_page(slide: dict[str, Any]) -> bool:
         layout in _SPARSE_EXEMPT_LAYOUTS
         or source_layout in _SPARSE_EXEMPT_LAYOUTS
         or _clean_text(slide.get("scene_kind")) in _SPARSE_EXEMPT_SCENES
-        or slide.get("visuals")
+        or _has_effective_visual(slide)
         or quality.get("sparse_exempt")
         or quality.get("interactive_page")
         or quality.get("formula_primary")
@@ -200,7 +200,15 @@ def _resolved_layout(slide: dict[str, Any]) -> str:
 
 def _has_effective_visual(slide: dict[str, Any]) -> bool:
     return any(
-        _clean_text(visual.get("kind")) not in {"", "none"}
+        _clean_text(visual.get("kind")) != "none"
+        and bool(
+            _clean_text(visual.get("kind"))
+            or visual.get("visual_id")
+            or visual.get("asset_id")
+            or visual.get("path")
+            or visual.get("url")
+            or visual.get("image_url")
+        )
         for visual in slide.get("visuals") or []
         if isinstance(visual, dict)
     )
@@ -316,6 +324,21 @@ def collect_v5_quality_issues(
         normalized_body = _normalize_visible(body)
         title = _clean_text(slide.get("title"))
         normalized_title = _normalize_visible(title)
+
+        if (
+            _clean_text(slide.get("scene_kind")) == "chapter_entry"
+            and not _clean_text(
+                slide.get("key_message")
+                or slide.get("takeaway")
+                or body
+            )
+        ):
+            issues.append(_issue(
+                "chapter_entry_mainline_missing",
+                page_id,
+                dimension="layout_export",
+                message="章节入口页缺少本章主线，不能作为完整的教学导航页发布。",
+            ))
 
         if not page_id.startswith("slide:v5:"):
             issues.append(_issue(
@@ -559,6 +582,8 @@ def collect_v5_quality_issues(
                     message="标题没有表达本页独立判断。",
                 ))
     for left, right in zip(slides, slides[1:]):
+        if _clean_text(right.get("scene_kind")) == "chapter_recap":
+            continue
         left_text = _normalize_visible(_duplicate_check_text(left))
         right_text = _normalize_visible(_duplicate_check_text(right))
         duplicate_length = _longest_duplicate_length(left_text, right_text)
@@ -606,7 +631,7 @@ def collect_v5_quality_issues(
     text_only_page_ids = {
         _clean_text(slide.get("unit_id")) for slide in text_only_editorial
     }
-    for slide in instructional_slides:
+    for slide in slides:
         if _clean_text(slide.get("unit_id")) in text_only_page_ids:
             current_run.append(slide)
             continue
@@ -915,9 +940,17 @@ def _open_discussion_repair(slide: dict[str, Any]) -> bool:
 
 
 def _strip_internal_prefix(value: object) -> str:
+    raw = str(value or "")
+    if re.fullmatch(
+        r"\s*(?:(?:本节|本页)(?:核心)?\s*)?"
+        r"知识规范(?:名称)?(?:为)?\s*[（(]\s*续\s*\d+/\d+\s*[）)]\s*",
+        raw,
+        re.IGNORECASE,
+    ):
+        return ""
     cleaned, replacement_count = _INTERNAL_PREFIX_RE.subn(
         r"\1",
-        str(value or ""),
+        raw,
     )
     if replacement_count:
         cleaned = re.sub(r"(?:\s*[*_`~]{1,3})+\s*$", "", cleaned)

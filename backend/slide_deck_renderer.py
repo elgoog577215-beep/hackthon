@@ -875,7 +875,12 @@ def _render_visual_directed(
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme, heading_already_rendered=True)
         return
-    _render_editorial_body(slide, unit, theme)
+    _render_editorial_body(
+        slide,
+        unit,
+        theme,
+        heading_already_rendered=True,
+    )
 
 
 def _render_relational_visual(
@@ -1045,7 +1050,12 @@ def _render_formula_visual(
             "",
         )
     if not formula:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     supporting_blocks = [
         block
@@ -1866,6 +1876,9 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
 
 def _render_claim_only(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     """Render a promoted one-sentence claim once, without a duplicate body panel."""
+    if bool(unit.quality.get("presentation_sparse_promoted")):
+        _render_hero_statement(slide, unit, theme)
+        return
     _heading(slide, unit, theme)
     _shape(slide, 0.9, 2.25, 0.12, 3.35, theme["accent"], radius=False)
     _text(
@@ -1933,9 +1946,19 @@ def _render_classification_three(
 ) -> None:
     """Render exactly three peer concepts as equal semantic columns."""
     _heading(slide, unit, theme)
-    items = _all_items(unit)[:3]
+    items = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ][:3]
     if len(items) != 3:
-        _render_concept(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     accents = (theme["accent"], theme["green"], theme["amber"])
     for index, item in enumerate(items):
@@ -1976,11 +1999,18 @@ def _render_classification_three(
             )
 
 
-def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+def _render_editorial_body(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+    *,
+    heading_already_rendered: bool = False,
+) -> None:
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme)
         return
-    _heading(slide, unit, theme)
+    if not heading_already_rendered:
+        _heading(slide, unit, theme)
     values = [
         value
         for block in unit.blocks
@@ -2019,7 +2049,12 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
                 "\n\n".join(paragraphs[split_at:]),
             ]
     if len(values) < 2:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     labels = ("依据", "推论")
     colors = (
@@ -2060,7 +2095,12 @@ def _render_parallel_examples(
     _heading(slide, unit, theme)
     values = _all_items(unit)[:4]
     if len(values) < 2:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     gap = 0.28
     width = (11.55 - gap * (len(values) - 1)) / len(values)

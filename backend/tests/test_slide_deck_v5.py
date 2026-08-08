@@ -26,9 +26,11 @@ from slide_deck_v3 import (
 )
 from slide_deck_v4 import allocation_from_story_plan_v2
 from slide_deck_v5 import (
+    _bounded_title,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
+    _title_with_continuation_sequence,
     _v5_fragment_groups_for_profile,
     _v5_group_kind_for_profile,
     allocation_from_story_plan_v5,
@@ -1306,6 +1308,22 @@ def test_diagram_full_with_source_text_resolves_to_figure_text() -> None:
     assert contract.layout_fallback_reason == "diagram_full_with_source_text"
 
 
+def test_editorial_body_with_an_effective_visual_resolves_to_figure_text() -> None:
+    contract = resolve_page_contract_v5({
+        "layout": "concept",
+        "blocks": [{
+            "block_id": "explanation",
+            "type": "rich_text",
+            "content": "来源解释与图示共同构成这一页的完整论证。",
+            "items": [],
+        }],
+        "visuals": [{"kind": "relational_diagram", "visual_id": "diagram-1"}],
+        "quality": {"requested_layout": "editorial-body"},
+    })
+
+    assert contract.resolved_layout == "figure-text"
+
+
 def test_one_prompt_block_cannot_fabricate_a_practice_feedback_region() -> None:
     contract = resolve_page_contract_v5({
         "layout": "practice",
@@ -1345,6 +1363,40 @@ def test_three_sibling_items_select_a_classification_layout() -> None:
         "classification_item",
     ]
     assert contract.occupied_major_region_count == 3
+
+
+def test_two_regions_requested_as_classification_use_two_column_layout() -> None:
+    contract = resolve_page_contract_v5({
+        "layout": "concept",
+        "composition": "statement",
+        "visuals": [],
+        "blocks": [
+            {"block_id": "left", "type": "statement", "content": "输入条件"},
+            {"block_id": "right", "type": "statement", "content": "输出结果"},
+        ],
+        "quality": {"requested_layout": "classification-3"},
+    })
+
+    assert contract.resolved_layout == "balanced-two-column"
+    assert contract.major_region_count == 2
+
+
+def test_four_sibling_items_select_a_two_by_two_parallel_layout() -> None:
+    contract = resolve_page_contract_v5({
+        "layout": "concept",
+        "composition": "statement",
+        "visuals": [],
+        "blocks": [{
+            "block_id": "four-points",
+            "type": "bullets",
+            "content": "",
+            "items": ["输入", "处理", "输出", "验证"],
+        }],
+        "quality": {"requested_layout": "classification-3"},
+    })
+
+    assert contract.resolved_layout == "parallel-examples"
+    assert contract.occupied_major_region_count == 4
 
 
 @pytest.mark.parametrize(
@@ -2978,6 +3030,26 @@ def test_chapter_recap_uses_claims_and_a_retrieval_prompt_not_slide_titles() -> 
 )
 def test_concise_title_uses_complete_existing_phrases(source: str, expected: str) -> None:
     assert _concise_existing_title(source, maximum=18) == expected
+
+
+def test_bounded_title_keeps_a_complete_capability_phrase() -> None:
+    assert _bounded_title(
+        "能够编写脚本动态调整 UI 适配参数，以应对非标准屏幕比例。",
+        limit=24,
+    ) == "编写脚本动态调整 UI 适配参数"
+    assert _bounded_title(
+        "编写脚本动态调整 UI 适配参数",
+        limit=18,
+    ) == "编写脚本动态调整 UI 适配参数"
+    assert _title_with_continuation_sequence(
+        "编写脚本动态调整 UI 适配参数",
+        {
+            "continuation_of": "slide:v5:root",
+            "continuation_index": 2,
+            "continuation_total": 2,
+            "title_character_budget": 18,
+        },
+    ) == "编写脚本动态调整 UI 适配参数（续2/2）"
 
 
 def test_quality_gate_blocks_mixed_question_and_chapter_transition() -> None:

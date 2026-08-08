@@ -7,6 +7,7 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 
 from slide_deck_renderer import audit_exported_pptx, audit_rendered_slide_images
+from slide_deck_v5 import _page_density_metrics
 from slide_quality_v5 import (
     build_slide_deck_quality_v5,
     repair_render_slides_v5,
@@ -468,6 +469,28 @@ def test_chapter_boundaries_reset_text_only_layout_runs() -> None:
     }
 
 
+def test_chapter_entry_without_a_mainline_is_a_publication_blocker() -> None:
+    entry = _slide(
+        "slide:v5:chapter-entry",
+        title="交互逻辑与物理系统基础",
+        content="",
+        scene_kind="chapter_entry",
+    )
+    entry["blocks"] = []
+    entry["key_message"] = ""
+    entry["takeaway"] = ""
+    entry["quality"].update({
+        "requested_layout": "chapter-entry",
+        "resolved_layout": "chapter-entry",
+    })
+
+    report = build_slide_deck_quality_v5([entry])
+
+    assert "chapter_entry_mainline_missing" in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
 def test_chapter_recap_may_repeat_the_preceding_claim_as_a_summary() -> None:
     concept = _slide(
         "slide:v5:chapter:concept",
@@ -508,6 +531,22 @@ def test_internal_label_cleanup_handles_continuation_suffixes() -> None:
     assert repaired[0]["key_message"] == ""
     assert "raw_internal_label_visible" not in {
         issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
+def test_complete_continuation_title_fits_the_presentation_heading_contract() -> None:
+    slide = _slide(
+        "slide:v5:episode-1:continuation",
+        title="生命周期回调的触发时序逻辑（续2/2）",
+        content="生命周期回调遵循初始化、帧更新与销毁阶段的明确触发顺序。",
+    )
+
+    report = build_slide_deck_quality_v5([slide])
+    density = _page_density_metrics(slide)
+
+    assert density["title_character_count"] <= density["title_character_budget"]
+    assert "slide_title_overflow" not in {
+        issue["code"] for issue in report["issues"]
     }
 
 
