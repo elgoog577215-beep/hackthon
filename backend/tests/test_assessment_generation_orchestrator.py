@@ -337,6 +337,21 @@ class BatchRepairAwareModel(ProfileAwareBatchModel):
         }
 
 
+class PartialBatchRepairModel(BatchRepairAwareModel):
+    async def repair_candidate_batch(
+        self,
+        items: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        repaired = await super().repair_candidate_batch(
+            items,
+            call_policy=call_policy,
+        )
+        first_slot_id = str(items[0]["slot_id"])
+        return {first_slot_id: repaired[first_slot_id]}
+
+
 def _proposal(answer: float, context: dict) -> dict:
     slot = context["assessment_slot"]
     mode = slot["input_mode"]
@@ -987,6 +1002,29 @@ async def test_fast_profile_batches_all_failed_repairs_once():
         for timing in audit["call_timings"]
     )
     assert audit["failure_count"] == 0
+
+
+async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
+    prepared = await AssessmentGenerationOrchestrator(
+        model=PartialBatchRepairModel()
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+
+    contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
+    audit = prepared["_assessment_generation_audit"]
+    assert {
+        contract["generation_status"]
+        for contract in contracts.values()
+    } == {"discarded"}
+    assert audit["failure_count"] == 3
+    assert audit["batch_repair_fallback_count"] == 1
+    assert all(
+        item["final_decision"] == "discard"
+        for item in audit["items"]
+    )
 
 
 def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
