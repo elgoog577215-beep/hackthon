@@ -92,19 +92,19 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'hero-claim'"
+        class="deck-hero-claim"
+      >
+        <i></i>
+        <strong>{{ semanticItems[0] || slide.key_message || slide.takeaway || slide.title }}</strong>
+      </div>
+
+      <div
         v-else-if="slide.quality?.suppress_redundant_body"
         class="deck-claim-only"
       >
         <i></i>
         <small>{{ slide.teaching_job || slide.eyebrow || '核心判断' }}</small>
-      </div>
-
-      <div
-        v-else-if="visualLayout === 'hero-claim'"
-        class="deck-hero-claim"
-      >
-        <i></i>
-        <strong>{{ slide.key_message || slide.takeaway || slide.title }}</strong>
       </div>
 
       <div
