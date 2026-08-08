@@ -848,16 +848,15 @@ def test_quality_gate_accepts_correct_unity_fixed_step_facts():
     contract, objective, slot = _quality_contract()
     contract = deepcopy(contract)
     stimulus = (
-        "某 Unity 角色按每秒速度移动：\n\n"
+        "某 Unity 角色把每秒速度直接当成单步位移：\n\n"
         "```csharp\n"
         "public float speed = 10f;\n"
         "void FixedUpdate() {\n"
-        "    Vector3 step = Vector3.forward * speed * Time.fixedDeltaTime;\n"
-        "    rb.MovePosition(rb.position + step);\n"
+        "    rb.MovePosition(rb.position + Vector3.forward * speed);\n"
         "}\n"
         "```"
     )
-    task = "说明默认固定时间步下的调用频率与单步位移。"
+    task = "找出错误，并说明默认固定时间步下的调用频率与正确单步位移。"
     contract["question_type"] = "debugging_trace"
     contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
     contract["question_spec"]["task"]["rendered_text"] = task

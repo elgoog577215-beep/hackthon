@@ -51,6 +51,8 @@ _REPAIRABLE_HARD_CODES = {
     "OBSERVABLE_RESULT_MISSING",
     "DISTRACTOR_NOT_SAME_QUESTION",
     "MATERIAL_BINDING_INVALID",
+    "UNITY_FIXEDUPDATE_RATE_INVALID",
+    "UNITY_SPEED_STEP_MISMATCH",
 }
 
 
@@ -193,6 +195,9 @@ def evaluate_question_contract_quality(
             continue
         code, message = hard_issue_map[check]
         issues.append(_issue(code, "critical", message))
+    unity_fact_issues = _unity_lifecycle_fact_issues(contract)
+    hard_checks["unity_lifecycle_facts"] = not unity_fact_issues
+    issues.extend(unity_fact_issues)
     issues.extend([
         deepcopy(issue)
         for issue in semantic_preflight.get("issues") or []
@@ -706,6 +711,128 @@ def _has_substantive_code(value: str) -> bool:
             flags=re.MULTILINE,
         )
     )
+
+
+def _unity_lifecycle_fact_issues(
+    contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Reject high-confidence Unity timing contradictions without another LLM call."""
+    spec = contract.get("question_spec") or {}
+    question_text = "\n".join([
+        str(contract.get("prompt") or ""),
+        str((spec.get("stimulus") or {}).get("rendered_text") or ""),
+        str((spec.get("task") or {}).get("rendered_text") or ""),
+        *[
+            str(value)
+            for value in contract.get("input_materials") or []
+        ],
+    ])
+    solution_text = "\n".join(
+        _nested_text_values(contract.get("solution_envelope") or {})
+    )
+    combined = f"{question_text}\n{solution_text}".casefold()
+    if (
+        "fixedupdate" not in combined
+        or not any(
+            marker in combined
+            for marker in ("unity", "moveposition", "rigidbody")
+        )
+    ):
+        return []
+
+    issues: list[dict[str, Any]] = []
+    invalid_rate_patterns = (
+        r"fixedupdate[^。；;\n]{0,40}(?:默认|通常|至少)"
+        r"[^。；;\n]{0,24}(?:60\s*(?:hz|次)|每秒\s*60)",
+        r"(?:默认|通常)[^。；;\n]{0,24}fixedupdate"
+        r"[^。；;\n]{0,24}(?:60\s*(?:hz|次)|每秒\s*60)",
+        r"fixedupdate[^.;\n]{0,40}(?:default|normally|at least)"
+        r"[^.;\n]{0,24}60\s*(?:hz|times)",
+    )
+    if any(
+        re.search(pattern, solution_text, flags=re.IGNORECASE)
+        for pattern in invalid_rate_patterns
+    ):
+        issues.append(
+            _issue(
+                "UNITY_FIXEDUPDATE_RATE_INVALID",
+                "critical",
+                (
+                    "解答把默认 FixedUpdate 频率描述为 60 Hz；"
+                    "默认 fixedDeltaTime 通常为 0.02 秒，即 50 Hz。"
+                ),
+                evidence={
+                    "expected_default_fixed_delta_time": 0.02,
+                    "expected_default_rate_hz": 50,
+                },
+            )
+        )
+
+    csharp_blocks = re.findall(
+        r"```(?:csharp|cs)\s*\n([\s\S]*?)```",
+        question_text,
+        flags=re.IGNORECASE,
+    )
+    has_unscaled_speed_step = any(
+        _has_unscaled_moveposition_speed_step(block)
+        for block in csharp_blocks
+    )
+    if (
+        has_unscaled_speed_step
+        and "fixeddeltatime" not in solution_text.casefold()
+    ):
+        issues.append(
+            _issue(
+                "UNITY_SPEED_STEP_MISMATCH",
+                "critical",
+                (
+                    "题面把 speed 直接作为 MovePosition 的单次位移，"
+                    "但解答未用 Time.fixedDeltaTime 将每秒速度换算为单步位移。"
+                ),
+                evidence={
+                    "required_term": "Time.fixedDeltaTime",
+                },
+            )
+        )
+    return issues
+
+
+def _has_unscaled_moveposition_speed_step(value: str) -> bool:
+    if not re.search(
+        r"\b(?:public|private|protected|internal)?\s*float\s+speed\b",
+        value,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    calls = re.findall(
+        r"\bMovePosition\s*\(([^;\n]{1,400})\)\s*;",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return any(
+        ".position" in call.casefold()
+        and re.search(r"\bspeed\b", call, flags=re.IGNORECASE)
+        and "fixeddeltatime" not in call.casefold()
+        for call in calls
+    )
+
+
+def _nested_text_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [
+            text
+            for child in value.values()
+            for text in _nested_text_values(child)
+        ]
+    if isinstance(value, (list, tuple, set)):
+        return [
+            text
+            for child in value
+            for text in _nested_text_values(child)
+        ]
+    return []
 
 
 def _looks_like_source_dump(
