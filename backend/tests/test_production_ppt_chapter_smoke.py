@@ -11,9 +11,11 @@ from production_ppt_chapter_smoke import (
     _planned_scene_requirements,
     _source_disposition,
     build_chapter_document,
+    build_subject_artifact_gate_summary,
     extract_source_code_lines,
     finalize_deferred_render,
     rank_programming_chapter_candidates,
+    rank_subject_chapter_candidates,
 )
 from slide_deck import SlideSpec
 from slide_deck_renderer import _render_claim_only, _render_code, validate_theme
@@ -257,6 +259,104 @@ def test_programming_smoke_rejects_requested_chapter_without_code() -> None:
         assert exc.code == "production_chapter_has_no_code_source"
     else:
         raise AssertionError("A programming smoke must not use a prose-only chapter")
+
+
+def test_cross_domain_smoke_ranks_formula_backed_chapter_without_requiring_code() -> None:
+    document = CourseDocument(
+        course_id="course-math-online",
+        title="Online mathematics course",
+        document_revision="cdr_math_online",
+        sections=[
+            CourseSection(
+                section_id="chapter-formula",
+                title="Functions and change",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="lesson-formula",
+                parent_section_id="chapter-formula",
+                title="Linear rate",
+                position=1,
+                level=2,
+            ),
+            CourseSection(
+                section_id="chapter-reading",
+                title="Historical background",
+                position=2,
+                level=1,
+            ),
+        ],
+        blocks=[
+            CourseBlock(
+                block_id="math-concept",
+                section_id="lesson-formula",
+                position=0,
+                kind="rich_text",
+                role="concept",
+                payload={"markdown": "The slope expresses a constant rate of change."},
+            ),
+            CourseBlock(
+                block_id="math-formula",
+                section_id="lesson-formula",
+                position=1,
+                kind="formula",
+                role="example",
+                payload={"markdown": "$$y = mx + b$$"},
+            ),
+            CourseBlock(
+                block_id="math-practice",
+                section_id="lesson-formula",
+                position=2,
+                kind="practice_ref",
+                role="checkpoint",
+                payload={"markdown": "Find the slope from two points."},
+            ),
+            CourseBlock(
+                block_id="history-reading",
+                section_id="chapter-reading",
+                position=0,
+                kind="rich_text",
+                role="concept",
+                payload={"markdown": "This chapter contains only background prose."},
+            ),
+        ],
+    )
+    course_view = {
+        "subject_pedagogy_profile": {
+            "primary_mode": "math_formal",
+            "classification_confidence": 0.95,
+        }
+    }
+
+    candidates = rank_subject_chapter_candidates(document, course_view)
+
+    assert [item.chapter_id for item in candidates] == ["chapter-formula"]
+    assert candidates[0].subject_artifact_kinds == ("formula",)
+    assert candidates[0].subject_artifact_fragment_count == 1
+
+
+def test_cross_domain_subject_gate_requires_source_backed_artifact_on_slides() -> None:
+    summary = build_subject_artifact_gate_summary(
+        required_kinds={"formula", "table"},
+        characteristic_fragment_ids={
+            "formula": {"formula-1"},
+            "table": {"table-1"},
+        },
+        slide_artifact_kinds={"formula"},
+        allocated_fragment_ids={"formula-1", "table-1"},
+        excluded_fragment_reasons={},
+        editorial_fallback_kinds=set(),
+    )
+
+    assert summary["gates"] == {
+        "subject_contract_has_required_artifact": True,
+        "required_subject_artifacts_present": False,
+        "subject_source_disposition_complete": True,
+        "subject_exclusions_are_explicit": True,
+        "subject_artifacts_not_editorial_fallback": True,
+    }
+    assert summary["missing_slide_artifact_kinds"] == ["table"]
 
 
 def test_smoke_audits_dominant_claim_and_full_width_code_export(tmp_path) -> None:
