@@ -71,6 +71,7 @@ class ChapterCandidate:
     source_block_count: int
     subject_artifact_kinds: tuple[str, ...] = ()
     subject_artifact_fragment_count: int = 0
+    subject_profile_id: str = ""
 
     @property
     def rank(self) -> tuple[int, int, int, int]:
@@ -294,6 +295,7 @@ def rank_subject_chapter_candidates(
             source_block_count=len(blocks),
             subject_artifact_kinds=required_kinds,
             subject_artifact_fragment_count=len(characteristic_ids),
+            subject_profile_id=str(contract.profile_id or "generic"),
         ))
 
     if not candidates:
@@ -368,9 +370,14 @@ def choose_cross_domain_sample(
             )
             or ""
         )
-        current = strongest_by_mode.get(primary_mode)
+        subject_mode = str(item.chapter.subject_profile_id or primary_mode)
+        if subject_mode == "generic":
+            subject_mode = "generic:" + ",".join(
+                item.chapter.subject_artifact_kinds
+            )
+        current = strongest_by_mode.get(subject_mode)
         if current is None or item.chapter.subject_rank > current.chapter.subject_rank:
-            strongest_by_mode[primary_mode] = item
+            strongest_by_mode[subject_mode] = item
     ranked = sorted(
         strongest_by_mode.values(),
         key=lambda item: (
@@ -401,6 +408,12 @@ def course_is_eligible_for_sample(
     """Keep programming regression published-only; allow read-only draft diversity."""
 
     return bool(is_published) or sample_profile == "cross_domain"
+
+
+def course_is_cross_domain_candidate(primary_mode: str) -> bool:
+    """Allow general courses to be classified later from source artifacts."""
+
+    return str(primary_mode or "") not in PROGRAMMING_MODES
 
 
 def build_chapter_document(
@@ -854,10 +867,7 @@ def _select_production_chapter(
                         "The production course is not classified as programming engineering.",
                     )
             elif sample_profile == "cross_domain":
-                if primary_mode in PROGRAMMING_MODES or primary_mode in {
-                    "",
-                    "general",
-                }:
+                if not course_is_cross_domain_candidate(primary_mode):
                     raise SmokeFailure(
                         "production_course_not_cross_domain_candidate",
                         "The production course is not a classified non-programming sample.",
@@ -889,6 +899,18 @@ def _select_production_chapter(
                     requested_chapter_id=requested_chapter_id,
                 )
             )
+            if sample_profile == "cross_domain":
+                candidates = [
+                    candidate
+                    for candidate in candidates
+                    if candidate.subject_profile_id != "engineering_programming"
+                    and "code" not in candidate.subject_artifact_kinds
+                ]
+                if not candidates:
+                    raise SmokeFailure(
+                        "production_course_only_has_programming_artifacts",
+                        "The production course only exposes programming subject artifacts.",
+                    )
             for candidate in candidates:
                 chapter_document = build_chapter_document(
                     document,
@@ -1318,6 +1340,7 @@ async def run_production_smoke(
                 or ""
             ),
             "is_published": selected.is_published,
+            "subject_profile_id": selected.chapter.subject_profile_id,
             "section_count": len(selected.document.sections),
             "block_count": len(selected.document.blocks),
             "source_role_count": selected.chapter.source_role_count,
