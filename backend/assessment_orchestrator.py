@@ -1005,8 +1005,10 @@ class _CandidateRepairBatcher:
         key: tuple[bool, tuple[str, ...]],
     ) -> None:
         async with self._lock:
-            pending = self._pending.get(key, [
-            ])[ :self.generation_policy.generation_batch_size]
+            all_pending = self._pending.get(key, [])
+            pending = all_pending[
+                :self.generation_policy.generation_batch_size
+            ]
             if not pending:
                 self._timers.pop(key, None)
                 return
@@ -1037,7 +1039,8 @@ class _CandidateRepairBatcher:
                     call_policy=call_policy,
                 ),
             )
-            for item, future in zip(items, futures):
+            candidates: list[dict[str, Any]] = []
+            for item in items:
                 candidate = (
                     repaired.get(str(item["slot_id"]) or "")
                     if isinstance(repaired, dict)
@@ -1047,6 +1050,8 @@ class _CandidateRepairBatcher:
                     raise AIProviderRequestError(
                         "invalid_assessment_batch_repair_slot"
                     )
+                candidates.append(candidate)
+            for future, candidate in zip(futures, candidates):
                 if not future.done():
                     future.set_result(candidate)
         except Exception as exc:
