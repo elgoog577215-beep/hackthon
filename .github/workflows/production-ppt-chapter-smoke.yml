@@ -13,6 +13,19 @@ on:
         required: false
         default: ""
         type: string
+      sample_profile:
+        description: "Programming regression or diverse non-programming subject evidence"
+        required: true
+        default: "programming"
+        type: choice
+        options:
+          - programming
+          - cross_domain
+      sample_count:
+        description: "Number of distinct subject modes to sample (cross-domain supports 1-2)"
+        required: true
+        default: "1"
+        type: string
 
 permissions:
   contents: read
@@ -28,6 +41,13 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Resolve deployed release target
+        id: release
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          printf 'sha=%s\n' "$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
 
       - name: Configure production SSH
         env:
@@ -70,44 +90,86 @@ jobs:
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-          EXPECTED_RELEASE_COMMIT: ${{ github.sha }}
+          EXPECTED_RELEASE_COMMIT: ${{ steps.release.outputs.sha }}
           SMOKE_COURSE_ID: ${{ inputs.course_id }}
           SMOKE_CHAPTER_ID: ${{ inputs.chapter_id }}
+          SMOKE_SAMPLE_PROFILE: ${{ inputs.sample_profile }}
+          SMOKE_SAMPLE_COUNT: ${{ inputs.sample_count }}
           REMOTE_OUTPUT_DIR: ${{ steps.remote-output.outputs.path }}
         run: |
           set -euo pipefail
           remote_expected="$(printf '%q' "$EXPECTED_RELEASE_COMMIT")"
           remote_course="$(printf '%q' "$SMOKE_COURSE_ID")"
           remote_chapter="$(printf '%q' "$SMOKE_CHAPTER_ID")"
+          remote_profile="$(printf '%q' "$SMOKE_SAMPLE_PROFILE")"
+          remote_count="$(printf '%q' "$SMOKE_SAMPLE_COUNT")"
           remote_output="$(printf '%q' "$REMOTE_OUTPUT_DIR")"
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            backend/production_ppt_chapter_smoke.py \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$REMOTE_OUTPUT_DIR/smoke-harness.py"
           ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "EXPECTED_RELEASE_COMMIT=$remote_expected SMOKE_COURSE_ID=$remote_course SMOKE_CHAPTER_ID=$remote_chapter REMOTE_OUTPUT_DIR=$remote_output bash -s" <<'REMOTE'
+            "EXPECTED_RELEASE_COMMIT=$remote_expected SMOKE_COURSE_ID=$remote_course SMOKE_CHAPTER_ID=$remote_chapter SMOKE_SAMPLE_PROFILE=$remote_profile SMOKE_SAMPLE_COUNT=$remote_count REMOTE_OUTPUT_DIR=$remote_output bash -s" <<'REMOTE'
           set -euo pipefail
           systemctl is-active --quiet lingzhi
           curl -fsS --max-time 5 http://127.0.0.1:7862/api/health >/dev/null
           set -a
           . /opt/lingzhi/state/.env
           set +a
-          args=(
-            --application-root /opt/lingzhi/hackthon
-            --output-dir "$REMOTE_OUTPUT_DIR"
-            --expected-release-commit "$EXPECTED_RELEASE_COMMIT"
-            --defer-render
-          )
-          if [ -n "$SMOKE_COURSE_ID" ]; then
-            args+=(--course-id "$SMOKE_COURSE_ID")
+          run_sample() {
+            local output_dir="$1"
+            local sample_index="$2"
+            local args=(
+              --application-root /opt/lingzhi/hackthon
+              --output-dir "$output_dir"
+              --expected-release-commit "$EXPECTED_RELEASE_COMMIT"
+              --sample-profile "$SMOKE_SAMPLE_PROFILE"
+              --sample-index "$sample_index"
+              --defer-render
+            )
+            if [ -n "$SMOKE_COURSE_ID" ]; then
+              args+=(--course-id "$SMOKE_COURSE_ID")
+            fi
+            if [ -n "$SMOKE_CHAPTER_ID" ]; then
+              args+=(--chapter-id "$SMOKE_CHAPTER_ID")
+            fi
+            PYTHONPATH=/opt/lingzhi/hackthon/backend \
+              PYTHONUTF8=1 /opt/lingzhi/.venv/bin/python \
+              "$REMOTE_OUTPUT_DIR/smoke-harness.py" "${args[@]}"
+          }
+
+          smoke_status=0
+          if [ "$SMOKE_SAMPLE_PROFILE" = "cross_domain" ]; then
+            case "$SMOKE_SAMPLE_COUNT" in
+              1|2) ;;
+              *) printf 'Cross-domain sample_count must be 1 or 2\n' >&2; exit 2 ;;
+            esac
+            if [ -n "$SMOKE_COURSE_ID" ] || [ -n "$SMOKE_CHAPTER_ID" ]; then
+              printf 'Cross-domain sampling selects production courses automatically\n' >&2
+              exit 2
+            fi
+            for sample_index in $(seq 0 $((SMOKE_SAMPLE_COUNT - 1))); do
+              sample_number=$(printf '%02d' $((sample_index + 1)))
+              run_sample "$REMOTE_OUTPUT_DIR/sample-$sample_number" "$sample_index" \
+                || smoke_status=1
+            done
+          else
+            if [ "$SMOKE_SAMPLE_COUNT" != "1" ]; then
+              printf 'Programming sample_count must be 1\n' >&2
+              exit 2
+            fi
+            run_sample "$REMOTE_OUTPUT_DIR" 0 || smoke_status=1
           fi
-          if [ -n "$SMOKE_CHAPTER_ID" ]; then
-            args+=(--chapter-id "$SMOKE_CHAPTER_ID")
-          fi
-          cd /opt/lingzhi/hackthon/backend
-          PYTHONUTF8=1 /opt/lingzhi/.venv/bin/python \
-            production_ppt_chapter_smoke.py "${args[@]}"
+          rm -f -- "$REMOTE_OUTPUT_DIR/smoke-harness.py"
+          exit "$smoke_status"
           REMOTE
 
       - name: Download smoke artifacts
@@ -129,8 +191,10 @@ jobs:
 
       - name: Finalize render QA on isolated runner
         id: render-qa
-        if: steps.smoke.outcome == 'success'
+        if: always()
         continue-on-error: true
+        env:
+          SMOKE_SAMPLE_PROFILE: ${{ inputs.sample_profile }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -142,9 +206,36 @@ jobs:
             "pydantic>=2,<3" \
             "pillow>=10,<13" \
             "python-pptx>=1,<2"
-          PYTHONUTF8=1 python3 backend/production_ppt_chapter_smoke.py \
-            --output-dir production-ppt-smoke \
-            --finalize-deferred-render
+          finalize_status=0
+          if [ "$SMOKE_SAMPLE_PROFILE" = "cross_domain" ]; then
+            for sample_dir in production-ppt-smoke/sample-*; do
+              if [ ! -d "$sample_dir" ]; then
+                finalize_status=1
+                continue
+              fi
+              report_status=$(python3 -c \
+                'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("status", ""))' \
+                "$sample_dir/report.json")
+              if [ "$report_status" = "passed_pending_render" ]; then
+                PYTHONUTF8=1 python3 backend/production_ppt_chapter_smoke.py \
+                  --output-dir "$sample_dir" \
+                  --finalize-deferred-render || finalize_status=1
+              else
+                finalize_status=1
+              fi
+            done
+          else
+            report_status=$(python3 -c \
+              'import json; print(json.load(open("production-ppt-smoke/report.json", encoding="utf-8")).get("status", ""))')
+            if [ "$report_status" = "passed_pending_render" ]; then
+              PYTHONUTF8=1 python3 backend/production_ppt_chapter_smoke.py \
+                --output-dir production-ppt-smoke \
+                --finalize-deferred-render || finalize_status=1
+            else
+              finalize_status=1
+            fi
+          fi
+          exit "$finalize_status"
 
       - name: Upload private smoke artifacts
         if: always()
@@ -180,31 +271,45 @@ jobs:
         env:
           SMOKE_STEP_OUTCOME: ${{ steps.smoke.outcome }}
           RENDER_QA_OUTCOME: ${{ steps.render-qa.outcome }}
+          SMOKE_SAMPLE_PROFILE: ${{ inputs.sample_profile }}
         run: |
           set -euo pipefail
-          test "$SMOKE_STEP_OUTCOME" = "success"
-          test "$RENDER_QA_OUTCOME" = "success"
           python3 - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          report = json.loads(
-              Path("production-ppt-smoke/report.json").read_text(encoding="utf-8")
-          )
-          status = str(report.get("status") or "")
-          if status not in {"passed", "passed_with_manual_edit"}:
+          root = Path("production-ppt-smoke")
+          if os.environ.get("SMOKE_SAMPLE_PROFILE") == "cross_domain":
+              report_paths = sorted(root.glob("sample-*/report.json"))
+          else:
+              report_paths = [root / "report.json"]
+          if not report_paths:
+              raise SystemExit("Production PPT smoke produced no reports")
+          failed = []
+          for report_path in report_paths:
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              status = str(report.get("status") or "")
+              summary = {
+                  "sample": report_path.parent.name,
+                  "status": status,
+                  "release_commit": report.get("release_commit"),
+                  "source": report.get("source"),
+                  "chain": report.get("chain"),
+                  "deck": report.get("deck"),
+                  "quality": report.get("quality"),
+                  "export": report.get("export"),
+                  "gates": report.get("gates"),
+                  "failure": report.get("failure"),
+              }
+              print(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
+              if status not in {"passed", "passed_with_manual_edit"}:
+                  failed.append(summary)
+          if failed:
               raise SystemExit(
                   "Production PPT chapter smoke failed: "
-                  + json.dumps(report.get("failure") or {}, ensure_ascii=False)
+                  + json.dumps(failed, ensure_ascii=False)
               )
-          print(json.dumps({
-              "status": status,
-              "release_commit": report.get("release_commit"),
-              "source": report.get("source"),
-              "chain": report.get("chain"),
-              "deck": report.get("deck"),
-              "quality": report.get("quality"),
-              "export": report.get("export"),
-              "gates": report.get("gates"),
-          }, ensure_ascii=False, indent=2, sort_keys=True))
           PY
+          test "$SMOKE_STEP_OUTCOME" = "success"
+          test "$RENDER_QA_OUTCOME" = "success"

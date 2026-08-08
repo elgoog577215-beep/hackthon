@@ -352,6 +352,46 @@ def build_subject_artifact_gate_summary(
     }
 
 
+def choose_cross_domain_sample(
+    accepted: list[SelectedProductionChapter],
+    *,
+    sample_index: int,
+) -> SelectedProductionChapter:
+    """Choose one strongest sample per primary mode, then select by index."""
+
+    strongest_by_mode: dict[str, SelectedProductionChapter] = {}
+    for item in accepted:
+        primary_mode = str(
+            (item.course_view.get("subject_pedagogy_profile") or {}).get(
+                "primary_mode"
+            )
+            or ""
+        )
+        current = strongest_by_mode.get(primary_mode)
+        if current is None or item.chapter.subject_rank > current.chapter.subject_rank:
+            strongest_by_mode[primary_mode] = item
+    ranked = sorted(
+        strongest_by_mode.values(),
+        key=lambda item: (
+            item.chapter.subject_rank,
+            _private_id(item.course_id),
+            _private_id(item.chapter.chapter_id),
+        ),
+        reverse=True,
+    )
+    if sample_index < 0 or sample_index >= len(ranked):
+        raise SmokeFailure(
+            "production_cross_domain_sample_unavailable",
+            "Production does not have enough distinct non-programming subject samples.",
+            details={
+                "requested_sample_index": sample_index,
+                "available_distinct_primary_modes": len(ranked),
+                "available_primary_modes": sorted(strongest_by_mode),
+            },
+        )
+    return ranked[sample_index]
+
+
 def build_chapter_document(
     document: CourseDocument,
     chapter_id: str,
@@ -736,6 +776,8 @@ def _select_production_chapter(
     *,
     requested_course_id: str,
     requested_chapter_id: str,
+    sample_profile: str = "programming",
+    sample_index: int = 0,
 ) -> SelectedProductionChapter:
     from course_repository import CourseDocumentRepository
     from slide_deck_v3 import fragment_course_document
@@ -790,10 +832,26 @@ def _select_production_chapter(
                 )
                 or ""
             )
-            if primary_mode not in PROGRAMMING_MODES:
+            if sample_profile == "programming":
+                if primary_mode not in PROGRAMMING_MODES:
+                    raise SmokeFailure(
+                        "production_course_not_programming",
+                        "The production course is not classified as programming engineering.",
+                    )
+            elif sample_profile == "cross_domain":
+                if primary_mode in PROGRAMMING_MODES or primary_mode in {
+                    "",
+                    "general",
+                }:
+                    raise SmokeFailure(
+                        "production_course_not_cross_domain_candidate",
+                        "The production course is not a classified non-programming sample.",
+                    )
+            else:
                 raise SmokeFailure(
-                    "production_course_not_programming",
-                    "The production course is not classified as programming engineering.",
+                    "production_sample_profile_invalid",
+                    "The production sample profile is not supported.",
+                    details={"sample_profile": sample_profile},
                 )
             if resolve_slide_deck_schema(
                 course_view,
@@ -804,9 +862,17 @@ def _select_production_chapter(
                     "production_course_not_v5_eligible",
                     "The production course did not resolve to the V5 chain.",
                 )
-            candidates = rank_programming_chapter_candidates(
-                document,
-                requested_chapter_id=requested_chapter_id,
+            candidates = (
+                rank_programming_chapter_candidates(
+                    document,
+                    requested_chapter_id=requested_chapter_id,
+                )
+                if sample_profile == "programming"
+                else rank_subject_chapter_candidates(
+                    document,
+                    course_view,
+                    requested_chapter_id=requested_chapter_id,
+                )
             )
             for candidate in candidates:
                 chapter_document = build_chapter_document(
@@ -837,10 +903,21 @@ def _select_production_chapter(
                     semantic_units,
                     fragments,
                 )
-                if "code" not in subject_contract.required_representation_kinds:
+                if (
+                    sample_profile == "programming"
+                    and "code" not in subject_contract.required_representation_kinds
+                ):
                     raise SmokeFailure(
                         "production_programming_contract_missing_code",
                         "The programming chapter did not compile a required code contract.",
+                    )
+                if (
+                    sample_profile == "cross_domain"
+                    and not subject_contract.required_representation_kinds
+                ):
+                    raise SmokeFailure(
+                        "production_cross_domain_contract_missing_artifact",
+                        "The cross-domain chapter did not compile a subject artifact contract.",
                     )
                 baseline = compact_story_plan_v5(
                     chapter_document,
@@ -877,14 +954,26 @@ def _select_production_chapter(
 
     if not accepted:
         raise SmokeFailure(
-            "production_programming_sample_unavailable",
-            "No published canonical programming chapter passed V5 prerequisites.",
+            (
+                "production_programming_sample_unavailable"
+                if sample_profile == "programming"
+                else "production_cross_domain_sample_unavailable"
+            ),
+            (
+                "No published canonical programming chapter passed V5 prerequisites."
+                if sample_profile == "programming"
+                else "No published canonical non-programming chapter passed V5 prerequisites."
+            ),
             details={
                 "rejection_counts": dict(Counter(rejected_codes)),
                 "course_count": len(course_ids),
             },
         )
-    selected = max(accepted, key=lambda item: item.chapter.rank)
+    selected = (
+        max(accepted, key=lambda item: item.chapter.rank)
+        if sample_profile == "programming"
+        else choose_cross_domain_sample(accepted, sample_index=sample_index)
+    )
     selected.rejected_candidate_codes = rejected_codes
     return selected
 
@@ -896,6 +985,8 @@ async def run_production_smoke(
     expected_release_commit: str,
     requested_course_id: str = "",
     requested_chapter_id: str = "",
+    sample_profile: str = "programming",
+    sample_index: int = 0,
     defer_render: bool = False,
 ) -> dict[str, Any]:
     from course_repository import CourseDocumentRepository
@@ -927,6 +1018,8 @@ async def run_production_smoke(
     selected = _select_production_chapter(
         requested_course_id=requested_course_id,
         requested_chapter_id=requested_chapter_id,
+        sample_profile=sample_profile,
+        sample_index=sample_index,
     )
     os.environ["SLIDE_WEB_IMAGE_RETRIEVAL_ENABLED"] = "false"
     os.environ["SLIDE_GENERATED_ILLUSTRATIONS_ENABLED"] = "false"
@@ -1054,6 +1147,52 @@ async def run_production_smoke(
     required_subject_kinds = set(
         subject_contract.get("required_representation_kinds") or []
     )
+    characteristic_fragment_ids = {
+        str(kind): {
+            str(fragment_id)
+            for fragment_id in fragment_ids or []
+            if str(fragment_id)
+        }
+        for kind, fragment_ids in (
+            subject_contract.get("characteristic_fragment_ids") or {}
+        ).items()
+    }
+    required_subject_fragment_ids = {
+        fragment_id
+        for kind in required_subject_kinds
+        for fragment_id in characteristic_fragment_ids.get(kind, set())
+    }
+    allocated_subject_ids, excluded_subject = _source_disposition(
+        final_allocation,
+        required_subject_fragment_ids,
+    )
+    slide_artifact_kinds = {
+        str(kind)
+        for slide in slides
+        for kind in (
+            (slide.get("quality") or {}).get("subject_artifact_kinds") or []
+        )
+        if str(kind)
+    }
+    editorial_fallback_kinds = {
+        str(kind)
+        for slide in slides
+        if str((slide.get("quality") or {}).get("resolved_layout") or "")
+        == "editorial-body"
+        for kind in (
+            (slide.get("quality") or {}).get("subject_artifact_kinds") or []
+        )
+        if str(kind)
+    }
+    subject_gate_summary = build_subject_artifact_gate_summary(
+        required_kinds=required_subject_kinds,
+        characteristic_fragment_ids=characteristic_fragment_ids,
+        slide_artifact_kinds=slide_artifact_kinds,
+        allocated_fragment_ids=allocated_subject_ids,
+        excluded_fragment_reasons=excluded_subject,
+        editorial_fallback_kinds=editorial_fallback_kinds,
+    )
+    subject_evidence_gate_names = set(subject_gate_summary["gates"])
     code_source_fragment_ids = {
         str(fragment_id)
         for fragment_id in (
@@ -1093,17 +1232,6 @@ async def run_production_smoke(
             "v5_needs_manual_edit",
         },
         "quality_gate": bool(quality.get("passed")),
-        "subject_contract_requires_code": "code" in required_subject_kinds,
-        "code_page_count": 1 <= len(code_slides) <= 3,
-        "code_not_editorial_fallback": not artifact_editorial_fallbacks,
-        "code_source_excerpt_anchored": all(
-            anchor and anchor in visible_code
-            for anchor in required_code_anchors
-        ),
-        "code_source_disposition_complete": code_disposition_complete,
-        "code_exclusions_are_explicit": (
-            not excluded_code or explicit_code_exclusions
-        ),
         "section_flow_preserved": (
             {"chapter_entry", "chapter_recap"} <= scene_kinds
             and required_scenes <= scene_kinds
@@ -1114,11 +1242,6 @@ async def run_production_smoke(
             str((slide.get("quality") or {}).get("hero_claim_display_mode") or "")
             == "dominant_canvas"
             for slide in hero_claim_slides
-        ),
-        "code_regions_adapt_to_source_content": all(
-            str((slide.get("quality") or {}).get("code_region_mode") or "")
-            in {"full_width", "annotated_split"}
-            for slide in code_slides
         ),
         "task_activities_are_bounded": all(
             count <= 4 for count in task_activity_page_counts.values()
@@ -1140,10 +1263,34 @@ async def run_production_smoke(
             }
         ),
     }
+    if sample_profile == "programming":
+        gates.update({
+            "subject_contract_requires_code": "code" in required_subject_kinds,
+            "code_page_count": 1 <= len(code_slides) <= 3,
+            "code_not_editorial_fallback": not artifact_editorial_fallbacks,
+            "code_source_excerpt_anchored": all(
+                anchor and anchor in visible_code
+                for anchor in required_code_anchors
+            ),
+            "code_source_disposition_complete": code_disposition_complete,
+            "code_exclusions_are_explicit": (
+                not excluded_code or explicit_code_exclusions
+            ),
+            "code_regions_adapt_to_source_content": all(
+                str((slide.get("quality") or {}).get("code_region_mode") or "")
+                in {"full_width", "annotated_split"}
+                for slide in code_slides
+            ),
+        })
+    else:
+        gates.update(subject_gate_summary["gates"])
 
     report: dict[str, Any] = {
         "schema_version": "production_ppt_chapter_smoke_v1",
         "status": "running",
+        "sample_profile": sample_profile,
+        "sample_index": sample_index,
+        "subject_evidence_gate_names": sorted(subject_evidence_gate_names),
         "release_commit": release_commit,
         "source": {
             "course_id_hash": _private_id(selected.course_id),
@@ -1159,6 +1306,10 @@ async def run_production_smoke(
             "source_role_count": selected.chapter.source_role_count,
             "source_code_line_count": len(source_code_lines),
             "source_code_character_count": selected.chapter.code_character_count,
+            "required_subject_artifact_kinds": sorted(required_subject_kinds),
+            "source_subject_artifact_fragment_count": len(
+                required_subject_fragment_ids
+            ),
             "read_only_digest": selected.source_digest,
         },
         "chain": {
@@ -1212,6 +1363,15 @@ async def run_production_smoke(
             "duplicate_title_count": len(duplicate_titles),
             "artifact_editorial_fallback_count": len(
                 artifact_editorial_fallbacks
+            ),
+            "present_subject_artifact_kinds": sorted(slide_artifact_kinds),
+            "missing_subject_artifact_kinds": list(
+                subject_gate_summary["missing_slide_artifact_kinds"]
+            ),
+            "subject_allocated_fragment_count": len(allocated_subject_ids),
+            "subject_excluded_fragment_count": len(excluded_subject),
+            "subject_editorial_fallback_kinds": list(
+                subject_gate_summary["editorial_fallback_artifact_kinds"]
             ),
         },
         "quality": {
@@ -1297,7 +1457,15 @@ async def run_production_smoke(
         ],
         "gates": gates,
     }
-    failed_before_export = [name for name, passed in gates.items() if not passed]
+    failed_before_export = [
+        name
+        for name, passed in gates.items()
+        if not passed
+        and (
+            sample_profile == "programming"
+            or name not in subject_evidence_gate_names
+        )
+    ]
     if failed_before_export:
         report["status"] = "failed"
         report["failure"] = {
@@ -1335,9 +1503,10 @@ async def run_production_smoke(
         "pptx_created": pptx_path.is_file() and pptx_path.stat().st_size > 0,
         "pptx_audit": bool(export_audit.get("passed")),
         "pptx_presentation_modes": bool(presentation_mode_audit.get("passed")),
-        "pptx_code_anchors_preserved": export_anchors_preserved,
         "production_course_unchanged": source_after == selected.source_digest,
     }
+    if sample_profile == "programming":
+        export_gates["pptx_code_anchors_preserved"] = export_anchors_preserved
     report["gates"].update(export_gates)
     report["export"] = {
         "pptx_bytes": pptx_path.stat().st_size,
@@ -1351,6 +1520,10 @@ async def run_production_smoke(
         name
         for name, passed in report["gates"].items()
         if not passed
+        and (
+            sample_profile == "programming"
+            or name not in subject_evidence_gate_names
+        )
     ]
     if failed:
         report["status"] = "failed"
@@ -1377,6 +1550,18 @@ async def run_production_smoke(
         report["failure"] = {
             "code": "production_v5_render_gate_failed",
             "failed_gates": ["rendered_page_count_matches"],
+        }
+        return report
+    failed_subject_evidence = [
+        name
+        for name in sorted(subject_evidence_gate_names)
+        if not report["gates"].get(name, False)
+    ]
+    if sample_profile == "cross_domain" and failed_subject_evidence:
+        report["status"] = "failed"
+        report["failure"] = {
+            "code": "production_v5_subject_evidence_gate_failed",
+            "failed_gates": failed_subject_evidence,
         }
         return report
     report["status"] = (
@@ -1431,6 +1616,21 @@ def finalize_deferred_render(output_dir: Path) -> dict[str, Any]:
             "failed_gates": ["rendered_page_count_matches"],
         }
         return report
+    failed_subject_evidence = [
+        name
+        for name in report.get("subject_evidence_gate_names") or []
+        if not (report.get("gates") or {}).get(str(name), False)
+    ]
+    if (
+        str(report.get("sample_profile") or "") == "cross_domain"
+        and failed_subject_evidence
+    ):
+        report["status"] = "failed"
+        report["failure"] = {
+            "code": "production_v5_subject_evidence_gate_failed",
+            "failed_gates": sorted(str(name) for name in failed_subject_evidence),
+        }
+        return report
     report.pop("failure", None)
     report["status"] = (
         "passed_with_manual_edit"
@@ -1456,6 +1656,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-release-commit", default="")
     parser.add_argument("--course-id", default="")
     parser.add_argument("--chapter-id", default="")
+    parser.add_argument(
+        "--sample-profile",
+        choices=("programming", "cross_domain"),
+        default="programming",
+    )
+    parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--defer-render", action="store_true")
     parser.add_argument("--finalize-deferred-render", action="store_true")
     args = parser.parse_args(argv)
@@ -1476,6 +1682,8 @@ def main(argv: list[str] | None = None) -> int:
                 expected_release_commit=str(args.expected_release_commit or ""),
                 requested_course_id=str(args.course_id or ""),
                 requested_chapter_id=str(args.chapter_id or ""),
+                sample_profile=str(args.sample_profile or "programming"),
+                sample_index=int(args.sample_index or 0),
                 defer_render=bool(args.defer_render),
             ))
     except SmokeFailure as exc:

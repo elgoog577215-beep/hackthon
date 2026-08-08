@@ -6,10 +6,12 @@ from pptx.util import Inches
 
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
+    ChapterCandidate,
+    SelectedProductionChapter,
     SmokeFailure,
+    _planned_scene_requirements,
     _planner_failure_reason_code,
     _pptx_presentation_mode_audit,
-    _planned_scene_requirements,
     _source_disposition,
     build_chapter_document,
     build_subject_artifact_gate_summary,
@@ -18,8 +20,6 @@ from production_ppt_chapter_smoke import (
     finalize_deferred_render,
     rank_programming_chapter_candidates,
     rank_subject_chapter_candidates,
-    ChapterCandidate,
-    SelectedProductionChapter,
 )
 from slide_deck import SlideSpec
 from slide_deck_renderer import _render_claim_only, _render_code, validate_theme
