@@ -118,6 +118,7 @@ def test_ai_teacher_queries_strip_web_search_command_words():
     )
 
     assert queries[0] == "面向对象编程 例子"
+    assert queries[1] == "面向对象编程 教程"
     joined = " ".join(queries)
     assert "联网搜索" not in joined
     assert "找点" not in joined

@@ -37,6 +37,10 @@ _QUESTION_FILLER_PATTERN = re.compile(
     r"\s*",
     re.I,
 )
+_EXAMPLE_QUERY_TERM_PATTERN = re.compile(
+    r"(?:例子|示例|案例|\bexamples?\b)",
+    re.I,
+)
 
 
 def build_ai_teacher_queries(
@@ -63,6 +67,9 @@ def build_ai_teacher_queries(
     objective = _safe_term(str(node.get("learning_objective") or ""))
     search_question = _search_intent_term(current_question)
     queries = [search_question] if search_question else []
+    tutorial_variant = _tutorial_search_variant(search_question)
+    if tutorial_variant and tutorial_variant not in queries:
+        queries.append(tutorial_variant)
     primary = _join(course_name, node_name, objective, search_question)
     if primary and primary not in queries:
         queries.append(primary)
@@ -205,6 +212,16 @@ def _search_intent_term(value: str) -> str:
     text = _QUESTION_FILLER_PATTERN.sub("", text)
     text = re.sub(r"[\s,.;:!?，。；：！？、]+", " ", text).strip()
     return text[:1000] or _safe_term(value)
+
+
+def _tutorial_search_variant(value: str) -> str:
+    if not re.search(r"[\u3400-\u9fff]", value):
+        return ""
+    text = _EXAMPLE_QUERY_TERM_PATTERN.sub(" ", value)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or text == value:
+        return ""
+    return _join(text, "教程")
 
 
 def _join(*values: str) -> str:
