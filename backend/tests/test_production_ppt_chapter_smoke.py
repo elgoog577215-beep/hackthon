@@ -16,6 +16,7 @@ from production_ppt_chapter_smoke import (
     build_chapter_document,
     build_subject_artifact_gate_summary,
     choose_cross_domain_sample,
+    course_is_cross_domain_candidate,
     course_is_eligible_for_sample,
     extract_source_code_lines,
     finalize_deferred_render,
@@ -339,6 +340,7 @@ def test_cross_domain_smoke_ranks_formula_backed_chapter_without_requiring_code(
     assert [item.chapter_id for item in candidates] == ["chapter-formula"]
     assert candidates[0].subject_artifact_kinds == ("formula",)
     assert candidates[0].subject_artifact_fragment_count == 1
+    assert candidates[0].subject_profile_id == "math_formal"
 
 
 def test_cross_domain_subject_gate_requires_source_backed_artifact_on_slides() -> None:
@@ -421,6 +423,13 @@ def test_cross_domain_read_only_smoke_can_use_online_drafts_but_programming_cann
         is_published=True,
         sample_profile="programming",
     )
+
+
+def test_cross_domain_selection_allows_general_until_source_artifacts_classify_it() -> None:
+    assert course_is_cross_domain_candidate("general")
+    assert course_is_cross_domain_candidate("math_formal")
+    assert not course_is_cross_domain_candidate("programming_engineering")
+    assert not course_is_cross_domain_candidate("engineering_programming")
 
 
 def test_production_workflow_can_run_two_read_only_cross_domain_samples() -> None:
