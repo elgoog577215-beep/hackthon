@@ -472,6 +472,7 @@ class RetrievalGateway:
 
         semaphore = asyncio.Semaphore(concurrency)
         per_query = max(1, min(max_sources, (max_sources + len(safe_queries) - 1) // len(safe_queries)))
+        candidate_limit = min(24, max(per_query, max_sources, per_query * 4))
 
         async def run(
             query: str,
@@ -490,11 +491,11 @@ class RetrievalGateway:
                     _QUERY_CACHE.pop(cache_key, None)
                 try:
                     if request.category == "general":
-                        results = await self.provider.search(query, limit=per_query)
+                        results = await self.provider.search(query, limit=candidate_limit)
                     else:
                         results = await self.provider.search(
                             query,
-                            limit=per_query,
+                            limit=candidate_limit,
                             category=request.category,
                         )
                     if self.cache_ttl_seconds > 0:

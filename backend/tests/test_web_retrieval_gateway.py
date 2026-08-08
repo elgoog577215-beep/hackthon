@@ -500,6 +500,66 @@ async def test_searxng_raw_score_cannot_bypass_local_relevance_threshold():
     assert package["rejected_sources"][0]["provider_metadata"]["raw_score"] == 999.0
 
 
+@pytest.mark.asyncio
+async def test_gateway_overfetches_candidates_before_source_admission():
+    class OrderedProvider:
+        name = "ordered"
+        configured = True
+
+        def __init__(self):
+            self.requested_limits: list[int] = []
+
+        async def search(self, query: str, *, limit: int):
+            self.requested_limits.append(limit)
+            results = [
+                {
+                    "url": "https://example.edu/unrelated",
+                    "title": "Unrelated reference",
+                    "content": "A recipe for bread.",
+                },
+                {
+                    "url": "http://example.com/oop",
+                    "title": "Object oriented programming examples",
+                    "content": "Object oriented programming examples with classes.",
+                },
+                {
+                    "url": "https://example.edu/empty",
+                    "title": "Object oriented programming",
+                    "content": "",
+                },
+                {
+                    "url": "https://example.edu/oop-examples",
+                    "title": "Object oriented programming examples",
+                    "content": (
+                        "Object oriented programming examples use classes, "
+                        "objects, inheritance, encapsulation, and polymorphism."
+                    ),
+                },
+            ]
+            return results[:limit]
+
+    provider = OrderedProvider()
+    package = await RetrievalGateway(
+        provider=provider,
+        cache_ttl_seconds=0,
+    ).retrieve(
+        RetrievalRequest(
+            purpose="ai_teacher",
+            enabled=True,
+            queries=[
+                "object oriented programming examples",
+                "course object oriented programming examples",
+            ],
+            max_sources=2,
+        )
+    )
+
+    assert package["status"] == "completed"
+    assert provider.requested_limits
+    assert min(provider.requested_limits) > 1
+    assert package["sources"][0]["url"] == "https://example.edu/oop-examples"
+
+
 def test_retrieval_policy_version_records_provider_upgrade():
     assert POLICY_VERSION == "web_retrieval_v2.1"
 
