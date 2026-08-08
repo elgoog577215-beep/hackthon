@@ -41,6 +41,12 @@ _EXAMPLE_QUERY_TERM_PATTERN = re.compile(
     r"(?:例子|示例|案例|\bexamples?\b)",
     re.I,
 )
+_ENGLISH_QUERY_VARIANTS = (
+    (
+        re.compile(r"面向对象(?:编程|程序设计)"),
+        "object oriented programming",
+    ),
+)
 
 
 def build_ai_teacher_queries(
@@ -70,6 +76,9 @@ def build_ai_teacher_queries(
     tutorial_variant = _tutorial_search_variant(search_question)
     if tutorial_variant and tutorial_variant not in queries:
         queries.append(tutorial_variant)
+    english_variant = _english_search_variant(search_question)
+    if english_variant and english_variant not in queries:
+        queries.append(english_variant)
     primary = _join(course_name, node_name, objective, search_question)
     if primary and primary not in queries:
         queries.append(primary)
@@ -222,6 +231,14 @@ def _tutorial_search_variant(value: str) -> str:
     if not text or text == value:
         return ""
     return _join(text, "教程")
+
+
+def _english_search_variant(value: str) -> str:
+    for pattern, translation in _ENGLISH_QUERY_VARIANTS:
+        if pattern.search(value):
+            suffix = "examples" if _EXAMPLE_QUERY_TERM_PATTERN.search(value) else ""
+            return _join(translation, suffix)
+    return ""
 
 
 def _join(*values: str) -> str:
