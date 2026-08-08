@@ -84,10 +84,18 @@ jobs:
           import asyncio
           import json
           import os
+          import tempfile
+
+          import requests
 
           from retrieval_diagnostics import (
               assert_retrieval_feature,
               run_retrieval_matrix,
+          )
+          from slide_web_images import (
+              download_retrieved_image_v5,
+              hydrate_shared_image_candidates_v5,
+              search_shared_web_images_v5,
           )
           from web_retrieval import configured_retrieval_gateway
 
@@ -100,5 +108,37 @@ jobs:
               print(json.dumps(result, ensure_ascii=False, indent=2))
 
           asyncio.run(main())
+
+          gateway, _ = configured_retrieval_gateway("diagnostic-ppt-user")
+          package = search_shared_web_images_v5(
+              ["human heart anatomy"],
+              gateway=gateway,
+          )
+          with requests.Session() as client:
+              candidates = hydrate_shared_image_candidates_v5(package, client=client)
+              errors = []
+              with tempfile.TemporaryDirectory(prefix="lingzhi-ppt-smoke-") as output_dir:
+                  downloaded = None
+                  selected = None
+                  for candidate in candidates:
+                      try:
+                          downloaded = download_retrieved_image_v5(
+                              candidate,
+                              client=client,
+                              output_dir=output_dir,
+                          )
+                          selected = candidate
+                          break
+                      except Exception as exc:
+                          errors.append(type(exc).__name__)
+                  if downloaded is None or selected is None:
+                      raise RuntimeError(
+                          "PPT public-domain asset download failed: " + ",".join(errors)
+                      )
+                  print("ppt_public_domain_asset", json.dumps({
+                      "source_page_url": selected.source_page_url,
+                      "license": selected.license,
+                      "bytes": downloaded.stat().st_size,
+                  }, ensure_ascii=False))
           PY
           REMOTE
