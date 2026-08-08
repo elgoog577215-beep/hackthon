@@ -163,6 +163,31 @@ def test_output_prediction_accepts_unity_csharp_observable_phenomenon():
     assert report["checks"]["observable_result_requested"] is True
 
 
+def test_output_prediction_accepts_chinese_predicted_final_state():
+    contract = _contract(
+        question_type="output_prediction",
+        stimulus=(
+            "```csharp\n"
+            "void Update() { transform.Translate(Vector3.forward * 10f); }\n"
+            "```"
+        ),
+        task=(
+            "基于上述代码和帧率波动的场景，预测物体在视觉上的最终运动状态，"
+            "并指出导致该状态的关键调用机制。"
+        ),
+        canonical_answer="A",
+        options=[
+            {"id": "A", "text": "移动速度随帧率变化"},
+            {"id": "B", "text": "移动速度保持恒定"},
+        ],
+    )
+
+    report = evaluate_question_semantic_preflight(contract)
+
+    assert report["passed"] is True
+    assert report["checks"]["observable_result_requested"] is True
+
+
 def test_state_trace_transfer_accepts_chinese_state_tracking_sequence():
     contract = _contract(
         question_type="state_trace_transfer",
@@ -229,6 +254,36 @@ def test_debugging_trace_requires_location_repair_and_retest_evidence():
     report = evaluate_question_semantic_preflight(contract)
 
     assert report["passed"] is True
+
+
+def test_debugging_trace_accepts_chinese_diagnosis_repair_and_verification():
+    contract = _contract(
+        question_type="debugging_trace",
+        stimulus=(
+            "```csharp\n"
+            "void Update() { rb.velocity = Vector3.right; }\n"
+            "```"
+        ),
+        task=(
+            "诊断代码缺陷并提交修正方案，说明运行时错误现象、根本原因、"
+            "修改后的代码片段以及验证方法。"
+        ),
+        canonical_answer={
+            "trace": "角色移动时高频抖动，且受 FPS 影响速度不稳定。",
+            "diagnosis": (
+                "根本原因是 Rigidbody 物理属性在 Update 中被重复覆盖。"
+            ),
+            "result_check": (
+                "将 velocity 修改为在 FixedUpdate 中设置，"
+                "验证多帧录制无速度叠加。"
+            ),
+        },
+    )
+
+    report = evaluate_question_semantic_preflight(contract)
+
+    assert report["passed"] is True
+    assert report["checks"]["repair_evidence_present"] is True
 
 
 class _ReviewerCountingModel:
