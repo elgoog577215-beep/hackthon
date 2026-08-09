@@ -851,6 +851,22 @@ text page budget or loses a competition between three source groups.
 - **AND** AI completion alone cannot mark a required subject artifact as a valid
   exclusion
 
+#### Scenario: A chapter root owns required artifacts and also has child sections
+- **WHEN** the subject presentation contract binds a required formula, table,
+  diagram, code, or other characteristic artifact to the chapter root section
+- **THEN** V5 includes the chapter root in deterministic source compaction even
+  when the chapter also contains second-level teaching sections
+- **AND** child-section traversal cannot make root-owned characteristic artifacts
+  disappear from the candidate deck
+
+#### Scenario: Required artifacts are nested below the chapter's direct children
+- **WHEN** a canonical chapter contains subject-bearing sections at depth three
+  or deeper
+- **THEN** V5 traverses every source-ordered descendant without assuming a fixed
+  section depth or a subject-specific hierarchy
+- **AND** required artifacts in nested sections compete under the same subject
+  presentation contract as artifacts in direct child sections
+
 #### Scenario: A required artifact is missing or invalid
 - **WHEN** the course lacks the source evidence required by its subject contract,
   or the artifact cannot pass the applicable syntax, structure, or binding gate
