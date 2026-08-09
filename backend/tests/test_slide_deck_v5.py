@@ -18,10 +18,10 @@ from slide_deck_renderer import (
     export_structured_slide_deck,
 )
 from slide_deck_v3 import (
+    V3_LAYOUTS,
     ContentFragmentV1,
     PlannedPageV2,
     SlideAllocationPlanV2,
-    V3_LAYOUTS,
     fragment_course_document,
     slide_deck_variant_key,
 )
@@ -30,8 +30,8 @@ from slide_deck_v5 import (
     _bounded_title,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
-    _subject_artifact_layout_v5,
     _split_practice_feedback_capacity_v5,
+    _subject_artifact_layout_v5,
     _title_with_continuation_sequence,
     _v5_fragment_groups_for_profile,
     _v5_group_kind_for_profile,
