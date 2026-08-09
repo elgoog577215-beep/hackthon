@@ -146,6 +146,17 @@ configured and the explicit planner kill switch is not disabled.
 - **AND** compilation preserves the accepted AI decisions through final
   materialization
 
+#### Scenario: One chapter exceeds a safe provider request
+- **WHEN** one chapter contains more beats or serialized source context than a
+  single bounded story-planning request may carry
+- **THEN** the planner partitions that chapter into ordered beat batches
+- **AND** each batch includes only its owned source fragments, teaching-plan
+  sections, compatible layouts, and subject-artifact bindings
+- **AND** accepted directives are merged back into the original chapter and beat
+  order before allocation
+- **AND** no course title, course ID, subject name, fixed formula, or fixed
+  chapter structure controls the batching decision
+
 #### Scenario: AI returns an invalid or failed refinement
 - **WHEN** the configured provider times out, invents an ID, changes source
   claims, or returns an invalid contract
@@ -157,6 +168,13 @@ configured and the explicit planner kill switch is not disabled.
   warning instead of presenting the fallback as an AI-quality result
 - **AND** provider availability alone does not block a deterministic deck that
   passes every source, semantic, capacity, composition, and rendering gate
+
+#### Scenario: Opaque source identifiers contain HTTP-like digits
+- **WHEN** a failed planning batch contains page, chapter, request, or fragment
+  identifiers whose text happens to include `401`, `403`, or `429`
+- **THEN** provider failure classification ignores those opaque identifiers
+- **AND** authentication, rate-limit, balance, and timeout reason codes are
+  derived only from explicit diagnostic fields
 
 #### Scenario: Every chapter refinement request fails
 - **WHEN** all chapter-scoped AI requests time out or return invalid contracts
@@ -434,6 +452,20 @@ data-driven profile registry outside the core renderer.
 - **THEN** common block roles and explicit source structures select a safe
   generic intent
 - **AND** the build does not fail because a subject-specific rule is absent
+
+### Requirement: V5 Semantic Layouts Use Registered Allocation Renderers
+
+The system SHALL resolve every V5 semantic layout through the shared layout
+registry before constructing the internal source-allocation plan.
+
+#### Scenario: A subject artifact selects a V5 semantic layout
+- **WHEN** code, formula, table, diagram, image, or another registered artifact
+  selects a V5 layout ID
+- **THEN** the allocation page uses that registry entry's compatible internal
+  `renderer_layout`
+- **AND** the final V5 page retains the semantic layout ID for final composition
+  instead of publishing an older schema or passing an unregistered layout into
+  the internal allocator
 
 ### Requirement: Practice And Feedback Form One Interaction Contract
 

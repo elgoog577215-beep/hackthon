@@ -268,7 +268,66 @@ def _private_id(value: str) -> str:
 
 def _planner_failure_reason_code(value: Any) -> str:
     """Classify provider failures without copying credentials or request IDs."""
-    text = json.dumps(value, ensure_ascii=False, default=str).lower()
+    diagnostic_fields = {
+        "code",
+        "detail",
+        "details",
+        "error",
+        "error_message",
+        "error_type",
+        "exception",
+        "failure",
+        "failure_category",
+        "http_status",
+        "http_status_code",
+        "message",
+        "reason",
+        "status",
+        "status_code",
+        "type",
+        "validation_errors",
+    }
+    diagnostic_values: list[str] = []
+
+    def collect_diagnostics(item: Any, *, inside_diagnostic: bool = False) -> None:
+        if isinstance(item, dict):
+            for raw_key, child in item.items():
+                key = str(raw_key).strip().lower()
+                if (
+                    key == "id"
+                    or key.endswith("_id")
+                    or key.endswith("_ids")
+                    or key in {
+                        "batch_index",
+                        "chapter_index",
+                        "index",
+                        "page_index",
+                        "position",
+                        "sample_index",
+                    }
+                ):
+                    continue
+                child_is_diagnostic = inside_diagnostic or key in diagnostic_fields
+                if isinstance(child, (dict, list, tuple)):
+                    collect_diagnostics(
+                        child,
+                        inside_diagnostic=child_is_diagnostic,
+                    )
+                elif child_is_diagnostic and child is not None:
+                    diagnostic_values.append(str(child))
+            return
+        if isinstance(item, (list, tuple)):
+            for child in item:
+                collect_diagnostics(
+                    child,
+                    inside_diagnostic=inside_diagnostic,
+                )
+            return
+        if inside_diagnostic and item is not None:
+            diagnostic_values.append(str(item))
+
+    collect_diagnostics(value)
+    text = " ".join(diagnostic_values).lower()
     if not text or text in {"{}", "[]", "null"}:
         return ""
     if "insufficient balance" in text or "insufficient_balance" in text:

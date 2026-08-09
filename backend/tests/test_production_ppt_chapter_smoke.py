@@ -6,9 +6,9 @@ from pptx.util import Inches
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
     SmokeFailure,
+    _planned_scene_requirements,
     _planner_failure_reason_code,
     _pptx_presentation_mode_audit,
-    _planned_scene_requirements,
     _source_disposition,
     build_chapter_document,
     extract_source_code_lines,
@@ -54,6 +54,28 @@ def test_smoke_reports_provider_balance_failure_without_raw_request_data() -> No
     }])
 
     assert reason == "ai_provider_balance_exhausted"
+
+
+def test_smoke_failure_classifier_ignores_opaque_identifier_digits() -> None:
+    reason = _planner_failure_reason_code([{
+        "batch_index": 1,
+        "chapter_ids": ["chapter-429-observability"],
+        "page_ids": ["page-401-lifecycle"],
+        "failure_category": "ValueError",
+        "message": "Visual batch contained no valid requested pages",
+    }])
+
+    assert reason == "ai_planner_failed"
+
+
+def test_smoke_reports_authentication_only_from_explicit_failure_diagnostics() -> None:
+    reason = _planner_failure_reason_code([{
+        "page_ids": ["page-safe"],
+        "failure_category": "AuthenticationError",
+        "message": "Error code: 401 - invalid api key",
+    }])
+
+    assert reason == "ai_provider_authentication_failed"
 
 
 def test_smoke_accepts_only_explicit_code_source_disposition() -> None:
