@@ -6,9 +6,9 @@ from pptx.util import Inches
 from course_document import CourseBlock, CourseDocument, CourseSection
 from production_ppt_chapter_smoke import (
     SmokeFailure,
+    _planned_scene_requirements,
     _planner_failure_reason_code,
     _pptx_presentation_mode_audit,
-    _planned_scene_requirements,
     _source_disposition,
     build_chapter_document,
     extract_source_code_lines,
