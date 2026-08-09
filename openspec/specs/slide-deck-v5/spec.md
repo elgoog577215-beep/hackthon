@@ -112,6 +112,17 @@ continuation pages.
   parent semantic atom IDs as provenance
 - **AND** no question or its bound answer is split across pages
 
+#### Scenario: Final normalization expands source-native labeled groups
+- **WHEN** Markdown group labels are promoted into more than six complete visible
+  blocks on one materialized page
+- **THEN** V5 treats every promoted block as an indivisible source-native region
+  and evenly partitions the regions across continuation pages before final schema
+  validation
+- **AND** every page contains at most six blocks while preserving source order,
+  block content, source fragment bindings, and stable continuation provenance
+- **AND** no promoted group is truncated, dropped, or replaced by a prose-only
+  fallback merely to satisfy the block-capacity limit
+
 ### Requirement: AI Refines the Compact Source-Bound Story
 
 The system SHALL refine the deterministic V5 compact story with chapter-scoped,

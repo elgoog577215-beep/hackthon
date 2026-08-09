@@ -2897,6 +2897,48 @@ def test_final_repair_discards_stale_intermediate_capacity_findings() -> None:
     } & {issue["code"] for issue in report["issues"]}
 
 
+def test_final_repair_paginates_promoted_groups_without_losing_content() -> None:
+    labels = [f"Math relation {index}" for index in range(1, 9)]
+    grouped_items = [
+        value
+        for index, label in enumerate(labels, start=1)
+        for value in (f"**{label}**", f"Source-backed explanation {index}")
+    ]
+
+    slides = repair_final_page_contracts_v5([{
+        "unit_id": "slide:v5:math-groups",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "teach",
+        "title": "Eight related mathematical statements",
+        "blocks": [{
+            "block_id": "math-groups",
+            "type": "bullets",
+            "title": "",
+            "content": "",
+            "items": grouped_items,
+            "metadata": {"source_fragment_ids": ["fragment-math-groups"]},
+        }],
+        "quality": {"requested_layout": "parallel-examples"},
+    }])
+
+    assert [len(slide["blocks"]) for slide in slides] == [4, 4]
+    assert [
+        block["title"]
+        for slide in slides
+        for block in slide["blocks"]
+    ] == labels
+    assert len({slide["unit_id"] for slide in slides}) == 2
+    assert slides[1]["quality"]["continuation_of"] == slides[0]["unit_id"]
+    assert slides[1]["quality"]["continuation_index"] == 2
+    assert slides[1]["quality"]["continuation_total"] == 2
+    SlideDeckContent.model_validate({
+        "schema_version": "slide_deck_v5",
+        "title": "Math capacity regression",
+        "slides": slides,
+    })
+
+
 def test_v5_reports_course_input_semantic_gaps_without_blocking_safe_pages() -> None:
     slide = apply_page_contract_v5({
         "unit_id": "slide:v5:safe-concept",
