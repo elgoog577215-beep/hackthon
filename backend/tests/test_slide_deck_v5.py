@@ -1061,6 +1061,110 @@ def test_ai_refinement_missing_required_formula_is_recompacted_from_source() -> 
     } <= set(formula_beats[0].fragment_ids)
 
 
+def test_v5_compaction_includes_required_formula_from_chapter_root() -> None:
+    document = CourseDocument(
+        course_id="course-v5-root-formula",
+        title="Root formula recovery",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Linear transformations",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="Geometric interpretation",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id="root-formula-heading",
+            section_id="chapter-1",
+            block_id="chapter-1-body",
+            kind="heading",
+            text="Matrix representation",
+            ordinal=0,
+            source_hash="hash-root-heading",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="root-formula",
+            section_id="chapter-1",
+            block_id="chapter-1-body",
+            kind="formula",
+            text=r"$$ T(x) = Ax $$",
+            ordinal=1,
+            source_hash="hash-root-formula",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="root-formula-explanation",
+            section_id="chapter-1",
+            block_id="chapter-1-body",
+            kind="paragraph",
+            text="The matrix A records the action of T in the selected basis.",
+            ordinal=2,
+            source_hash="hash-root-explanation",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="child-prose",
+            section_id="section-1",
+            block_id="section-1-body",
+            kind="paragraph",
+            text="The image of each basis vector determines the transformation.",
+            ordinal=3,
+            source_hash="hash-child-prose",
+            role="concept",
+            source_kind="course_block",
+        ),
+    ]
+    story = _story(1).model_copy(update={
+        "planning_diagnostics": {
+            "subject_presentation_contract": {
+                "schema_version": "subject_presentation_contract_v1",
+                "profile_id": "math_formal",
+                "primary_mode": "math_formal",
+                "required_representation_kinds": ["formula"],
+                "optional_representation_kinds": ["diagram", "table"],
+                "characteristic_fragment_ids": {
+                    "formula": ["root-formula"],
+                },
+                "chapter_requirements": [{
+                    "chapter_id": "chapter-1",
+                    "required_representation_kinds": ["formula"],
+                    "minimum_artifact_count": 1,
+                }],
+                "classification_confidence": 1.0,
+                "classification_source": "test",
+            },
+        },
+    })
+
+    compact = compact_story_plan_v5(document, story, fragments)
+    formula_beats = [
+        beat
+        for episode in compact.chapters[0].episodes[1:-1]
+        for beat in episode.beats
+        if "formula" in beat.subject_artifact_kinds
+    ]
+
+    assert len(formula_beats) == 1
+    assert {
+        "root-formula",
+        "root-formula-explanation",
+    } <= set(formula_beats[0].fragment_ids)
+
+
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
     document = CourseDocument(
         course_id="course-enumeration",
