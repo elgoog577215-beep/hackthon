@@ -18,6 +18,7 @@ from slide_deck_renderer import (
     export_structured_slide_deck,
 )
 from slide_deck_v3 import (
+    V3_LAYOUTS,
     ContentFragmentV1,
     PlannedPageV2,
     SlideAllocationPlanV2,
@@ -30,6 +31,7 @@ from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
+    _subject_artifact_layout_v5,
     _title_with_continuation_sequence,
     _v5_fragment_groups_for_profile,
     _v5_group_kind_for_profile,
@@ -47,6 +49,7 @@ from slide_deck_v5 import (
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
+from slide_layout_registry import registry_summary_v2
 from slide_quality_v5 import _concise_existing_title, build_slide_deck_quality_v5
 from slide_story_plan import (
     ChapterStoryV2,
@@ -1163,6 +1166,145 @@ def test_v5_compaction_includes_required_formula_from_chapter_root() -> None:
         "root-formula",
         "root-formula-explanation",
     } <= set(formula_beats[0].fragment_ids)
+
+
+def test_v5_compaction_includes_required_table_from_nested_section() -> None:
+    document = CourseDocument(
+        course_id="course-v5-nested-table",
+        title="Customer operations",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Retention planning",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="Cohort review",
+                position=1,
+                level=2,
+            ),
+            CourseSection(
+                section_id="detail-1",
+                parent_section_id="section-1",
+                title="Channel comparison",
+                position=2,
+                level=3,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id="section-prose",
+            section_id="section-1",
+            block_id="section-1-body",
+            kind="paragraph",
+            text="Compare customer groups before selecting a retention action.",
+            ordinal=0,
+            source_hash="hash-section-prose",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="table-heading",
+            section_id="detail-1",
+            block_id="detail-1-body",
+            kind="heading",
+            text="Retention by acquisition channel",
+            ordinal=1,
+            source_hash="hash-table-heading",
+            role="case",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="retention-table",
+            section_id="detail-1",
+            block_id="detail-1-body",
+            kind="table",
+            text="| Channel | Retained | Churned |\n| --- | ---: | ---: |\n| Referral | 72 | 18 |",
+            ordinal=2,
+            source_hash="hash-retention-table",
+            role="case",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="table-explanation",
+            section_id="detail-1",
+            block_id="detail-1-body",
+            kind="paragraph",
+            text="Referral customers show the strongest retention in this cohort.",
+            ordinal=3,
+            source_hash="hash-table-explanation",
+            role="case",
+            source_kind="course_block",
+        ),
+    ]
+    story = _story(1).model_copy(update={
+        "planning_diagnostics": {
+            "subject_presentation_contract": {
+                "schema_version": "subject_presentation_contract_v1",
+                "profile_id": "business_career",
+                "primary_mode": "business_career",
+                "required_representation_kinds": ["table"],
+                "optional_representation_kinds": ["case", "data"],
+                "characteristic_fragment_ids": {
+                    "table": ["retention-table"],
+                },
+                "chapter_requirements": [{
+                    "chapter_id": "chapter-1",
+                    "required_representation_kinds": ["table"],
+                    "minimum_artifact_count": 1,
+                }],
+                "classification_confidence": 1.0,
+                "classification_source": "test",
+            },
+        },
+    })
+
+    compact = compact_story_plan_v5(document, story, fragments)
+    table_beats = [
+        beat
+        for episode in compact.chapters[0].episodes[1:-1]
+        for beat in episode.beats
+        if "table" in beat.subject_artifact_kinds
+    ]
+
+    assert len(table_beats) == 1
+    assert {
+        "retention-table",
+        "table-explanation",
+    } <= set(table_beats[0].fragment_ids)
+
+
+@pytest.mark.parametrize(
+    ("artifact_kinds", "expected_layout_id"),
+    [
+        (["code"], "code-focus"),
+        (["formula"], "formula-focus"),
+        (["table"], "table-evidence"),
+        (["diagram"], "diagram-full"),
+        (["image"], "figure-text"),
+    ],
+)
+def test_v5_subject_artifact_layouts_use_registered_allocation_renderers(
+    artifact_kinds: list[str],
+    expected_layout_id: str,
+) -> None:
+    definitions = {
+        str(item["layout_id"]): item for item in registry_summary_v2()
+    }
+
+    selection = _subject_artifact_layout_v5(artifact_kinds)
+
+    assert selection is not None
+    layout_id, renderer_layout, _layout_family = selection
+    assert layout_id == expected_layout_id
+    assert layout_id in definitions
+    assert renderer_layout == definitions[layout_id]["renderer_layout"]
+    assert renderer_layout in V3_LAYOUTS
 
 
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:

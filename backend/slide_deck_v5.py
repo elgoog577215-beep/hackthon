@@ -24,6 +24,7 @@ from slide_deck_v3 import (
     slide_deck_variant_key,
     validate_allocation_plan,
 )
+from slide_layout_registry import SLIDE_LAYOUT_REGISTRY_V2
 from slide_quality_v5 import (
     build_slide_deck_quality_v5,
     repair_semantic_slides_v5,
@@ -56,9 +57,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.37"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.39"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.21"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.23"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _SLIDE_BLOCK_CAPACITY = 6
@@ -851,16 +852,60 @@ def _subject_artifact_layout_v5(
     artifact_kinds: list[str],
 ) -> tuple[str, str, str] | None:
     if "code" in artifact_kinds:
-        return ("code-focus", "code", "evidence")
-    if "formula" in artifact_kinds:
-        return ("formula-focus", "formula", "evidence")
-    if "table" in artifact_kinds or "data" in artifact_kinds:
-        return ("table-evidence", "table", "evidence")
-    if "diagram" in artifact_kinds or "architecture" in artifact_kinds:
-        return ("diagram-full", "diagram-full", "diagram")
-    if "image" in artifact_kinds:
-        return ("figure-text", "image-split", "evidence")
-    return None
+        layout_id, layout_family = "code-focus", "evidence"
+    elif "formula" in artifact_kinds:
+        layout_id, layout_family = "formula-focus", "evidence"
+    elif "table" in artifact_kinds or "data" in artifact_kinds:
+        layout_id, layout_family = "table-evidence", "evidence"
+    elif "diagram" in artifact_kinds or "architecture" in artifact_kinds:
+        layout_id, layout_family = "diagram-full", "diagram"
+    elif "image" in artifact_kinds:
+        layout_id, layout_family = "figure-text", "evidence"
+    else:
+        return None
+    definition = next(
+        (
+            item
+            for item in SLIDE_LAYOUT_REGISTRY_V2
+            if item.layout_id == layout_id
+        ),
+        None,
+    )
+    if definition is None:
+        raise ValueError(
+            f"V5 subject artifact layout is not registered: {layout_id}"
+        )
+    return (layout_id, definition.renderer_layout, layout_family)
+
+
+def _chapter_descendant_section_ids_v5(
+    document: CourseDocument,
+    chapter_id: str,
+) -> list[str]:
+    """Return every source-ordered descendant without assuming a fixed depth."""
+    section_catalog = {
+        str(section.section_id): section for section in document.sections
+    }
+    descendants: list[str] = []
+    for section in sorted(document.sections, key=lambda item: item.position):
+        section_id = str(section.section_id)
+        if section_id == chapter_id:
+            continue
+        current = section
+        visited: set[str] = {section_id}
+        while current.parent_section_id is not None:
+            parent_id = str(current.parent_section_id)
+            if parent_id == chapter_id:
+                descendants.append(section_id)
+                break
+            if parent_id in visited:
+                break
+            visited.add(parent_id)
+            parent = section_catalog.get(parent_id)
+            if parent is None:
+                break
+            current = parent
+    return descendants
 
 
 def compact_story_plan_v5(
@@ -956,12 +1001,10 @@ def compact_story_plan_v5(
             for episode in original_episodes
             for ref in episode.mastery_criterion_refs
         ))
-        section_ids = [
-            section.section_id
-            for section in sorted(document.sections, key=lambda item: item.position)
-            if section.parent_section_id == chapter.chapter_id
-            and section.level == 2
-        ]
+        section_ids = _chapter_descendant_section_ids_v5(
+            document,
+            chapter.chapter_id,
+        )
         chapter_root_has_required_artifact = any(
             artifact_kind_by_fragment.get(str(fragment.fragment_id), "")
             in required_artifact_kinds
