@@ -56,9 +56,9 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.35"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.36"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.19"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.20"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
 
 _SLIDE_BLOCK_CAPACITY = 6
@@ -888,10 +888,21 @@ def compact_story_plan_v5(
         for episode in chapter.episodes[1:-1]
         for beat in episode.beats
     ]
+    subject_contract = _subject_presentation_contract_v5(story)
+    required_artifact_kinds = set(
+        subject_contract.required_representation_kinds
+        if subject_contract is not None
+        else []
+    )
+    selected_artifact_kinds = {
+        kind
+        for beat in interior_beats
+        for kind in beat.subject_artifact_kinds
+    }
     if interior_beats and all(
         beat.layout_selection_reason in V5_SEMANTIC_CORE_REASONS
         for beat in interior_beats
-    ):
+    ) and required_artifact_kinds <= selected_artifact_kinds:
         return story
     source_fragments = fragments or fragment_course_document(document)
     semantic_units = compile_ppt_semantic_units(document, source_fragments)
@@ -907,14 +918,8 @@ def compact_story_plan_v5(
     section_catalog = {
         section.section_id: section for section in document.sections
     }
-    subject_contract = _subject_presentation_contract_v5(story)
     artifact_kind_by_fragment = _subject_artifact_fragment_kinds_v5(
         subject_contract
-    )
-    required_artifact_kinds = set(
-        subject_contract.required_representation_kinds
-        if subject_contract is not None
-        else []
     )
     compact_chapters = []
     for chapter in story.chapters:
@@ -2775,6 +2780,32 @@ def _promote_item_group_labels(
     blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Turn markdown-only list labels into real semantic block headings."""
+    def child_atom_metadata(
+        source_block: dict[str, Any],
+        *,
+        child_key: str,
+        label: str,
+        items: list[str],
+    ) -> dict[str, Any]:
+        metadata = dict(source_block.get("metadata") or {})
+        parent_atom_id = _clean_text(metadata.get("semantic_atom_id"))
+        if not parent_atom_id:
+            return metadata
+        metadata.update({
+            "parent_semantic_atom_id": parent_atom_id,
+            "semantic_atom_id": stable_hash(
+                {
+                    "parent_semantic_atom_id": parent_atom_id,
+                    "source_block_id": str(source_block.get("block_id") or ""),
+                    "child_key": child_key,
+                    "label": label,
+                    "items": items,
+                },
+                prefix="sematomv5_group_",
+            ),
+        })
+        return metadata
+
     promoted: list[dict[str, Any]] = []
     for source_block in blocks:
         items = list(source_block.get("items") or [])
@@ -2792,6 +2823,12 @@ def _promote_item_group_labels(
         if prefix_items:
             prefix = deepcopy(source_block)
             prefix["items"] = prefix_items
+            prefix["metadata"] = child_atom_metadata(
+                source_block,
+                child_key="prefix",
+                label=_clean_text(source_block.get("title")),
+                items=prefix_items,
+            )
             promoted.append(prefix)
 
         for label_index, (item_index, label) in enumerate(labels):
@@ -2818,7 +2855,12 @@ def _promote_item_group_labels(
             )
             group["items"] = group_items
             group["metadata"] = {
-                **(source_block.get("metadata") or {}),
+                **child_atom_metadata(
+                    source_block,
+                    child_key=f"group:{label_index + 1}",
+                    label=label,
+                    items=group_items,
+                ),
                 "source_group_label": label,
             }
             promoted.append(group)
@@ -3993,6 +4035,33 @@ def _paginate_slide_block_capacity_v5(
             original_continuation_of = _clean_text(
                 quality.get("continuation_of")
             )
+            original_atom_ids = list(dict.fromkeys([
+                _clean_text(quality.get("semantic_atom_id")),
+                *[
+                    _clean_text(atom_id)
+                    for atom_id in quality.get("semantic_atom_ids") or []
+                ],
+                *[
+                    _clean_text(
+                        (block.get("metadata") or {}).get(
+                            "parent_semantic_atom_id"
+                        )
+                    )
+                    for block in page_blocks
+                ],
+            ]))
+            original_atom_ids = [
+                atom_id for atom_id in original_atom_ids if atom_id
+            ]
+            page_atom_ids = list(dict.fromkeys(
+                _clean_text(
+                    (block.get("metadata") or {}).get("semantic_atom_id")
+                )
+                for block in page_blocks
+            ))
+            page_atom_ids = [
+                atom_id for atom_id in page_atom_ids if atom_id
+            ]
             for field in (
                 "resolved_layout",
                 "resolved_composition",
@@ -4025,6 +4094,17 @@ def _paginate_slide_block_capacity_v5(
                     else int(quality.get("continuation_total") or 0)
                 ),
             })
+            if any(
+                _clean_text(
+                    (block.get("metadata") or {}).get(
+                        "parent_semantic_atom_id"
+                    )
+                )
+                for block in page_blocks
+            ):
+                quality.pop("semantic_atom_id", None)
+                quality["semantic_atom_ids"] = page_atom_ids
+                quality["parent_semantic_atom_ids"] = original_atom_ids
             page["quality"] = quality
             if page_index > 1:
                 page["title"] = _title_with_continuation_sequence(
