@@ -966,6 +966,101 @@ def test_ai_refinement_keeps_formula_and_source_explanation_on_one_page() -> Non
     } <= set(formula_pages[0].fragment_ids)
 
 
+def test_ai_refinement_missing_required_formula_is_recompacted_from_source() -> None:
+    document = CourseDocument(
+        course_id="course-v5-required-formula",
+        title="Required formula recovery",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Linear relations",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="Matrix action",
+                position=1,
+                level=2,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id=fragment_id,
+            section_id="section-1",
+            block_id="section-1-body",
+            kind=kind,  # type: ignore[arg-type]
+            text=text,
+            ordinal=index,
+            source_hash=f"hash-{index}",
+            role="concept",
+            source_kind="course_block",
+        )
+        for index, (fragment_id, kind, text) in enumerate([
+            ("prose", "paragraph", "A linear map preserves addition and scaling."),
+            ("formula-heading", "heading", "Matrix representation"),
+            ("formula", "formula", r"$$ T(x) = Ax $$"),
+            ("formula-explanation", "paragraph", "The matrix A records the action of T."),
+        ])
+    ]
+    story = _story(1)
+    chapter = story.chapters[0]
+    prose_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-ai-prose-only",
+        "fragment_ids": ["prose"],
+        "layout_selection_reason": "ai_source_bound_directive",
+    })
+    refined = story.model_copy(update={
+        "planner": "ai",
+        "planning_diagnostics": {
+            "subject_presentation_contract": {
+                "schema_version": "subject_presentation_contract_v1",
+                "profile_id": "math_formal",
+                "primary_mode": "math_formal",
+                "required_representation_kinds": ["formula"],
+                "optional_representation_kinds": ["diagram", "table"],
+                "characteristic_fragment_ids": {"formula": ["formula"]},
+                "chapter_requirements": [{
+                    "chapter_id": "chapter-1",
+                    "required_representation_kinds": ["formula"],
+                    "minimum_artifact_count": 1,
+                }],
+                "classification_confidence": 1.0,
+                "classification_source": "test",
+            },
+        },
+        "chapters": [chapter.model_copy(update={
+            "episodes": [
+                chapter.episodes[0],
+                TeachingEpisodeV2(
+                    episode_id="episode-ai-prose-only",
+                    scene_kind="concept",
+                    teaching_job="Explain the source prose",
+                    beats=[prose_beat],
+                ),
+                chapter.episodes[-1],
+            ],
+        })],
+    })
+
+    recompacted = compact_story_plan_v5(document, refined, fragments)
+    formula_beats = [
+        beat
+        for episode in recompacted.chapters[0].episodes[1:-1]
+        for beat in episode.beats
+        if "formula" in beat.subject_artifact_kinds
+    ]
+
+    assert len(formula_beats) == 1
+    assert {
+        "formula",
+        "formula-explanation",
+    } <= set(formula_beats[0].fragment_ids)
+
+
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
     document = CourseDocument(
         course_id="course-enumeration",
@@ -2917,9 +3012,15 @@ def test_final_repair_paginates_promoted_groups_without_losing_content() -> None
             "title": "",
             "content": "",
             "items": grouped_items,
-            "metadata": {"source_fragment_ids": ["fragment-math-groups"]},
+            "metadata": {
+                "semantic_atom_id": "atom-math-groups",
+                "source_fragment_ids": ["fragment-math-groups"],
+            },
         }],
-        "quality": {"requested_layout": "parallel-examples"},
+        "quality": {
+            "requested_layout": "parallel-examples",
+            "semantic_atom_ids": ["atom-math-groups"],
+        },
     }])
 
     assert [len(slide["blocks"]) for slide in slides] == [4, 4]
@@ -2932,6 +3033,19 @@ def test_final_repair_paginates_promoted_groups_without_losing_content() -> None
     assert slides[1]["quality"]["continuation_of"] == slides[0]["unit_id"]
     assert slides[1]["quality"]["continuation_index"] == 2
     assert slides[1]["quality"]["continuation_total"] == 2
+    atom_sets = [
+        set(slide["quality"]["semantic_atom_ids"])
+        for slide in slides
+    ]
+    assert atom_sets[0].isdisjoint(atom_sets[1])
+    assert all(
+        slide["quality"]["parent_semantic_atom_ids"] == ["atom-math-groups"]
+        for slide in slides
+    )
+    quality = build_slide_deck_quality_v5(slides)
+    assert "semantic_atom_split" not in {
+        issue["code"] for issue in quality["issues"]
+    }
     SlideDeckContent.model_validate({
         "schema_version": "slide_deck_v5",
         "title": "Math capacity regression",
