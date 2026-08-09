@@ -1381,6 +1381,8 @@
       "savedPlan": "Whole-course plan",
       "savedLessons": "{count} lesson sections",
       "savedInline": "Saved: {items}",
+      "fallbackProvider": "Switched to the backup model service",
+      "fallbackProviderHelp": "The primary model service is temporarily unavailable, so this content is being produced by the backup. Completed work is unaffected, and calls return to the primary automatically once it recovers.",
       "failedSections": "Unfinished sections ({count})",
       "retriedTimes": "Retried {count}×",
       "failedSectionsHelp": "Every other section is saved; continuing regenerates only these.",

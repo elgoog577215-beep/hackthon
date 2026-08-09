@@ -58,6 +58,7 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
+from ai_provider_route import provider_route_snapshot
 from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
@@ -3471,6 +3472,9 @@ class TaskManager:
             view["quality"] = public_quality
         view["logs"] = deepcopy((task.get("logs") or [])[-PUBLIC_TASK_LOG_LIMIT:])
         view["recovery"] = self._task_recovery_summary(task)
+        # Which provider is currently serving calls. Process-wide, not per task:
+        # one AIBase client is shared by every concurrent job.
+        view["provider_route"] = provider_route_snapshot()
         return view
 
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -7129,6 +7133,7 @@ class TaskManager:
                 "error": task.get("error"),
                 "error_code": task.get("error_code"),
                 "error_user_message": task.get("error_user_message"),
+                "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
                 "current_nodes": current_nodes,

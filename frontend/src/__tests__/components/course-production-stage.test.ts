@@ -283,6 +283,33 @@ describe('CourseProductionStage', () => {
     expect(failures.text()).toContain('超出单次生成的安全上限')
   })
 
+  it('切换到备用模型服务时明确告知教师，主链正常时不打扰', async () => {
+    // The switch happens inside ai_base and used to be a server log only: the
+    // teacher had no way to know the course came from the backup service.
+    const wrapper = mount(CourseProductionStage, {
+      props: { task: interruptedTask, courseName: '量子力学' },
+    })
+    expect(wrapper.find('[data-testid="provider-fallback-notice"]').exists()).toBe(false)
+
+    await wrapper.setProps({
+      task: {
+        ...interruptedTask,
+        providerRoute: { route: 'fallback', fallback_endpoint: 'https://backup.test/v1', switch_count: 1 },
+      },
+    })
+    const notice = wrapper.get('[data-testid="provider-fallback-notice"]')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain('已切换备用模型服务')
+    expect(notice.text()).toContain('主服务恢复后会自动切回')
+    // The endpoint is operator detail; it must not be shown to the teacher.
+    expect(notice.text()).not.toContain('backup.test')
+
+    await wrapper.setProps({
+      task: { ...interruptedTask, providerRoute: { route: 'primary' } },
+    })
+    expect(wrapper.find('[data-testid="provider-fallback-notice"]').exists()).toBe(false)
+  })
+
   it('教案确认后启动正文失败时按正文阶段显示中断', () => {    const task: Task = {
       ...interruptedTask,
       currentPhase: 'teaching_plan_ready',

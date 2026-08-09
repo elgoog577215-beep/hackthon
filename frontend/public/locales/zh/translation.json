@@ -1381,6 +1381,8 @@
       "savedPlan": "全课教案",
       "savedLessons": "{count} 节正文",
       "savedInline": "已保存：{items}",
+      "fallbackProvider": "已切换备用模型服务",
+      "fallbackProviderHelp": "主模型服务暂时不可用，当前内容由备用服务生成；已完成内容不受影响，主服务恢复后会自动切回。",
       "failedSections": "未完成的小节（{count}）",
       "retriedTimes": "已重试 {count} 次",
       "failedSectionsHelp": "其余小节已保存；继续时只重做这些小节。",

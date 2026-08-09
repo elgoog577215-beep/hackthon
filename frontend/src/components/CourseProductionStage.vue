@@ -27,6 +27,18 @@
           <Clock3 :size="15" />
           {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
         </p>
+        <p
+          v-if="usingFallbackProvider"
+          class="formation-fallback-alert"
+          role="status"
+          data-testid="provider-fallback-notice"
+        >
+          <Route :size="15" />
+          <span>
+            <strong>{{ t('courseGeneration.production.fallbackProvider', '已切换备用模型服务') }}</strong>
+            {{ t('courseGeneration.production.fallbackProviderHelp', '主模型服务暂时不可用，当前内容由备用服务生成；已完成内容不受影响，主服务恢复后会自动切回。') }}
+          </span>
+        </p>
       </header>
 
       <section class="formation-outline" :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')">
@@ -215,7 +227,7 @@
 import { computed, ref, watch } from 'vue'
 import {
   Check, ChevronDown, CircleDashed, CirclePause, Clock3, Database, GitBranch,
-  GitCompareArrows, LoaderCircle, RotateCw, Sprout, TriangleAlert,
+  GitCompareArrows, LoaderCircle, RotateCw, Route, Sprout, TriangleAlert,
 } from 'lucide-vue-next'
 import type { Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
@@ -523,6 +535,8 @@ const heartbeat = computed(() => props.task
   ? taskHeartbeatState(props.task)
   : { state: 'unknown' as const, ageSeconds: null })
 const isStalled = computed(() => heartbeat.value.state === 'stalled')
+// Process-wide: one provider serves every job, so this is not per-course state.
+const usingFallbackProvider = computed(() => props.task?.providerRoute?.route === 'fallback')
 const failedNodes = computed(() => props.task?.failedNodes || [])
 
 // Each failed section explains itself: one section can hit a rate limit while
@@ -608,6 +622,20 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
   line-height:1.5;
 }
 .formation-heartbeat-alert svg { flex:0 0 auto; margin-top:1px; }
+.formation-sheet__header p.formation-fallback-alert {
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  margin:10px 0 0;
+  padding:10px 12px;
+  border-radius:8px;
+  color:#4f55b5;
+  background:#f1f2fb;
+  font-size:11px;
+  line-height:1.5;
+}
+.formation-fallback-alert svg { flex:0 0 auto; margin-top:1px; }
+.formation-fallback-alert strong { margin-right:5px; font-weight:800; }
 .formation-outline { padding:0 26px; }
 .formation-outline > header {
   display:flex;

@@ -538,6 +538,14 @@ export interface Task {
     errorUserMessage?: string
     /** Sections that failed generation, as reported by the backend failure report. */
     failedNodes?: FailureReport['failed_nodes']
+    /** Which AI provider is currently serving calls (process-wide, not per task). */
+    providerRoute?: {
+        route: 'primary' | 'fallback'
+        switched_at?: string | null
+        reason_code?: string | null
+        fallback_endpoint?: string | null
+        switch_count?: number
+    }
     recovery?: TaskRecovery
     publicationAllowed?: boolean
     qualityStatus?: string

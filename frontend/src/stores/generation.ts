@@ -269,6 +269,9 @@ export const useGenerationStore = defineStore('generation', {
         if (task_id) localTask.id = task_id
         if (payload.heartbeat_at) localTask.heartbeatAt = String(payload.heartbeat_at)
         if (payload.updated_at) localTask.updatedAt = String(payload.updated_at)
+        if (payload.provider_route) {
+          localTask.providerRoute = payload.provider_route as Task['providerRoute']
+        }
         const phase = String(payload.current_phase || payload.phase || '')
         if (phase) {
           localTask.currentPhase = phase
@@ -865,6 +868,9 @@ export const useGenerationStore = defineStore('generation', {
               ? String(backendTask.error_user_message)
               : undefined
             if (backendTask.heartbeat_at) localTask.heartbeatAt = String(backendTask.heartbeat_at)
+            if (backendTask.provider_route) {
+              localTask.providerRoute = backendTask.provider_route as Task['providerRoute']
+            }
             if (backendTask.updated_at) localTask.updatedAt = String(backendTask.updated_at)
             if (typeof backendTask.publication_allowed === 'boolean') {
               localTask.publicationAllowed = backendTask.publication_allowed
