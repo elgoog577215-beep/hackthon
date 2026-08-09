@@ -32,6 +32,21 @@ _SEARCH_COMMAND_PATTERNS = (
         re.I,
     ),
 )
+_QUESTION_FILLER_PATTERN = re.compile(
+    r"^(?:什么是|什么叫|何为|如何理解|请解释(?:一下)?|解释(?:一下)?|介绍(?:一下)?)"
+    r"\s*",
+    re.I,
+)
+_EXAMPLE_QUERY_TERM_PATTERN = re.compile(
+    r"(?:例子|示例|案例|\bexamples?\b)",
+    re.I,
+)
+_ENGLISH_QUERY_VARIANTS = (
+    (
+        re.compile(r"面向对象(?:编程|程序设计)"),
+        "object oriented programming",
+    ),
+)
 
 
 def build_ai_teacher_queries(
@@ -58,6 +73,12 @@ def build_ai_teacher_queries(
     objective = _safe_term(str(node.get("learning_objective") or ""))
     search_question = _search_intent_term(current_question)
     queries = [search_question] if search_question else []
+    tutorial_variant = _tutorial_search_variant(search_question)
+    if tutorial_variant and tutorial_variant not in queries:
+        queries.append(tutorial_variant)
+    english_variant = _english_search_variant(search_question)
+    if english_variant and english_variant not in queries:
+        queries.append(english_variant)
     primary = _join(course_name, node_name, objective, search_question)
     if primary and primary not in queries:
         queries.append(primary)
@@ -117,10 +138,7 @@ def merge_ai_teacher_retrieval(
 
     merged = deepcopy(context_package)
     web_sources: list[dict[str, Any]] = []
-    for index, source in enumerate(
-        admitted_sources(retrieval_package),
-        start=1,
-    ):
+    for index, source in enumerate(_ai_teacher_sources(retrieval_package), start=1):
         citation_id = f"S{index}"
         web_sources.append(
             {
@@ -156,6 +174,27 @@ def merge_ai_teacher_retrieval(
     return merged
 
 
+def _ai_teacher_sources(
+    retrieval_package: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tier_a = admitted_sources(retrieval_package)
+    if tier_a:
+        return tier_a
+    # AI-teacher replies can cite a small number of gateway-filtered tier B
+    # references when primary sources are unavailable. Tier C sources remain
+    # excluded, and the original trust tier stays visible to the caller.
+    tier_b = [
+        source
+        for source in retrieval_package.get("sources") or []
+        if source.get("trust_tier") == "tier_b"
+    ]
+    return sorted(
+        tier_b,
+        key=lambda source: float(source.get("relevance") or 0),
+        reverse=True,
+    )[:2]
+
+
 def should_retrieve_for_message(
     conversation: dict[str, Any] | None,
     *,
@@ -178,8 +217,28 @@ def _search_intent_term(value: str) -> str:
     text = _safe_term(value)
     for pattern in _SEARCH_COMMAND_PATTERNS:
         text = pattern.sub(" ", text)
+    text = text.strip()
+    text = _QUESTION_FILLER_PATTERN.sub("", text)
     text = re.sub(r"[\s,.;:!?，。；：！？、]+", " ", text).strip()
     return text[:1000] or _safe_term(value)
+
+
+def _tutorial_search_variant(value: str) -> str:
+    if not re.search(r"[\u3400-\u9fff]", value):
+        return ""
+    text = _EXAMPLE_QUERY_TERM_PATTERN.sub(" ", value)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or text == value:
+        return ""
+    return _join(text, "教程")
+
+
+def _english_search_variant(value: str) -> str:
+    for pattern, translation in _ENGLISH_QUERY_VARIANTS:
+        if pattern.search(value):
+            suffix = "examples" if _EXAMPLE_QUERY_TERM_PATTERN.search(value) else ""
+            return _join(translation, suffix)
+    return ""
 
 
 def _join(*values: str) -> str:

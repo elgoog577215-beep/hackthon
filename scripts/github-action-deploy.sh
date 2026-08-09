@@ -396,6 +396,7 @@ preflight_retrieval_runtime() {
         --data 'categories=general,science' \
         --data 'safesearch=2' \
         --data 'language=en' \
+        --data 'timeout_limit=4' \
         "$base_url/search" \
         | "$VENV/bin/python" -c '
 import json

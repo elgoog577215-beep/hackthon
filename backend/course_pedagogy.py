@@ -665,6 +665,7 @@ def resolve_pedagogy_profile(
     """根据学习成果和行为信号构造可解释教学画像。"""
     explicit_primary = parse_mode(requested_mode, allow_auto=True)
     explicit_secondary = parse_mode(requested_secondary_mode, allow_auto=True)
+    subject_text = subject.lower()
     text = " ".join([subject, requirements, _joined_material_text(materials)]).lower()
     scores: dict[PedagogyMode, float] = {}
     evidence_by_mode: dict[PedagogyMode, list[str]] = {}
@@ -673,8 +674,17 @@ def resolve_pedagogy_profile(
         outcome_score, outcomes = _signal_score(text, template.outcome_signals, 4.0)
         action_score, actions = _signal_score(text, template.action_signals, 3.0)
         topic_score, topics = _signal_score(text, template.topic_signals, 2.0)
-        scores[mode] = outcome_score + action_score + topic_score
-        evidence_by_mode[mode] = _dedupe(outcomes + actions + topics)
+        title_score, title_topics = _signal_score(
+            subject_text,
+            template.topic_signals,
+            3.0,
+        )
+        scores[mode] = (
+            outcome_score + action_score + topic_score + title_score
+        )
+        evidence_by_mode[mode] = _dedupe(
+            outcomes + actions + topics + title_topics
+        )
 
     ranked = sorted(scores, key=lambda mode: scores[mode], reverse=True)
     user_locked = explicit_primary is not None

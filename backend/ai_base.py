@@ -138,7 +138,7 @@ class AIBase:
         ).rstrip("/")
         self.modelscope_fallback_models = (
             _parse_model_list(os.getenv("MODELSCOPE_MODEL"))
-            or ["deepseek-ai/DeepSeek-V4-Pro"]
+            or ["Qwen/Qwen3.5-35B-A3B"]
         )
         smart_models = (
             _parse_model_list(os.getenv("AI_MODEL_CANDIDATES"))

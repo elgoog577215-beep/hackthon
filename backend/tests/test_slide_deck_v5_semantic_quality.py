@@ -1,26 +1,43 @@
 from __future__ import annotations
 
 from pptx import Presentation
+from pptx.util import Inches
 
 from slide_deck import SlideSpec
 from slide_deck_renderer import (
     _heading,
+    _heading_excerpt,
+    _render_claim_only,
+    _render_classification_three,
+    _render_code,
+    _render_editorial_body,
     _render_practice_feedback,
+    _render_process,
     _uses_visual_directed_renderer,
     _worked_example_labels,
+    audit_exported_pptx,
     validate_theme,
 )
 from slide_deck_v5 import (
     DeckChapterV5,
     _assign_heading_modes_v5,
     _chapter_recap_slide,
+    _consolidate_task_activity_pages_v5,
+    _disambiguate_duplicate_titles_v5,
     _enrich_practice_feedback_slides_v5,
     _normalize_concept_definition_slide_v5,
+    _promote_sparse_single_claim_v5,
+    _restore_chapter_entry_mainlines_v5,
+    _strip_instructional_scaffolding_v5,
+    _structure_labeled_reasoning_pairs_v5,
+    _structure_long_editorial_prose_v5,
     apply_page_contract_v5,
     compile_page_title_v5,
+    finalize_v5_quality_report,
     split_mixed_intent_slides_v5,
     v5_contract_issues,
 )
+from slide_quality_v5 import collect_v5_quality_issues
 
 
 def test_standalone_micro_transition_is_folded_into_previous_page_metadata() -> None:
@@ -380,6 +397,45 @@ def test_complete_question_without_terminal_punctuation_is_not_blocked() -> None
     }
 
 
+def test_title_ending_in_a_dependent_conjunction_is_blocked() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "dependent-title",
+        "title": "碰撞回调事件的封装与分层处理模式以及",
+        "blocks": [],
+        "quality": {},
+    }])
+
+    assert "incomplete_title_claim" in {
+        issue["code"] for issue in issues
+    }
+
+
+def test_title_ending_in_a_single_character_after_a_connector_is_blocked() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "hard-cut-title",
+        "title": "精准定位运行时性能瓶颈与逻",
+        "blocks": [],
+        "quality": {},
+    }])
+
+    assert "incomplete_title_claim" in {
+        issue["code"] for issue in issues
+    }
+
+
+def test_bare_instructional_scaffold_is_not_a_publishable_title() -> None:
+    issues = v5_contract_issues([{
+        "unit_id": "scaffold-title",
+        "title": "本节课的目标是",
+        "blocks": [],
+        "quality": {},
+    }])
+
+    assert "incomplete_title_claim" in {
+        issue["code"] for issue in issues
+    }
+
+
 def test_recap_excludes_question_morphology_and_instructional_prompts() -> None:
     chapter = DeckChapterV5(
         chapter_id="chapter-declarative",
@@ -534,6 +590,182 @@ def test_prompt_only_practice_fails_the_v5_contract_without_feedback() -> None:
     }
 
 
+def test_action_task_does_not_receive_unrelated_generic_feedback() -> None:
+    slides = [
+        {
+            "unit_id": "cpu-concept",
+            "chapter_id": "chapter-1",
+            "knowledge_refs": ["cpu"],
+            "scene_kind": "concept",
+            "blocks": [{
+                "block_id": "cpu-fact",
+                "type": "statement",
+                "content": "CPU 调度是基于指令执行的。",
+            }],
+            "quality": {},
+        },
+        {
+            "unit_id": "profiler-task",
+            "chapter_id": "chapter-1",
+            "source_section_ids": ["lesson-profiler"],
+            "knowledge_refs": ["cpu"],
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": "创建性能诊断场景",
+            "blocks": [{
+                "block_id": "task",
+                "type": "exercise",
+                "items": [
+                    "切换到 CPU 标签并勾选 Deep Profile。",
+                    "点击 Play 运行场景并录制至少 5 秒。",
+                ],
+            }],
+            "quality": {"requested_layout": "question-prompt"},
+        },
+    ]
+
+    enriched = _enrich_practice_feedback_slides_v5(slides)
+    task = enriched[-1]
+
+    assert task["quality"]["feedback_mode"] == "task_only"
+    assert task["quality"]["task_prompt_mode"] == "action"
+    assert task["quality"]["requested_layout"] == "process-sequence"
+    assert task["quality"]["prompt_label"] == "执行步骤"
+    assert len(task["blocks"]) == 1
+    assert "CPU 调度是基于指令执行的" not in str(task["blocks"])
+    assert "practice_feedback_missing_answer" not in {
+        issue["code"] for issue in v5_contract_issues([task])
+    }
+
+
+def test_task_activity_pages_consolidate_by_visual_grammar_and_reindex() -> None:
+    def page(
+        index: int,
+        *,
+        mode: str,
+        layout: str,
+        items: list[str],
+    ) -> dict:
+        return {
+            "unit_id": f"task-page-{index}",
+            "position": index,
+            "chapter_id": "chapter-1",
+            "source_section_ids": ["lesson-profiler"],
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": "创建一个场景",
+            "blocks": [{
+                "block_id": f"task-block-{index}",
+                "type": "process" if layout == "process-sequence" else "exercise",
+                "items": items,
+                "metadata": {
+                    "semantic_role": (
+                        "process_step" if layout == "process-sequence" else "prompt"
+                    ),
+                    "question_mode": "task",
+                },
+            }],
+            "quality": {
+                "requested_layout": layout,
+                "feedback_mode": "task_only",
+                "task_prompt_mode": mode,
+                "fragment_ids": [f"fragment-{index}"],
+                "semantic_atom_ids": [
+                    "task-overview"
+                    if index == 0
+                    else "task-verification"
+                    if mode == "verification"
+                    else "task-procedure"
+                ],
+            },
+        }
+
+    source = [
+        page(0, mode="action", layout="question-prompt", items=[
+            "场景构建：创建一个场景，制造可复现的性能问题。",
+        ]),
+        page(1, mode="action", layout="process-sequence", items=["切换 CPU 标签。", "开始录制。"]),
+        page(2, mode="action", layout="process-sequence", items=["观察曲线。", "定位热点。", "保存结果。"]),
+        page(3, mode="action", layout="process-sequence", items=["切换 Memory 标签。"]),
+        page(4, mode="action", layout="process-sequence", items=["定位持续增长对象。", "完成修复验证。"]),
+        page(5, mode="verification", layout="question-prompt", items=["是否截取了 CPU 视图？"]),
+        page(6, mode="verification", layout="question-prompt", items=["是否指出了持续增长对象？"]),
+    ]
+
+    consolidated = _consolidate_task_activity_pages_v5(source)
+
+    assert len(consolidated) == 4
+    assert [
+        item
+        for slide in consolidated
+        for block in slide["blocks"]
+        for item in block.get("items") or []
+    ] == [
+        item
+        for slide in source
+        for block in slide["blocks"]
+        for item in block.get("items") or []
+    ]
+    assert [slide["quality"]["practice_page_index"] for slide in consolidated] == [
+        1, 2, 3, 4,
+    ]
+    assert all(
+        slide["quality"]["practice_page_count"] == 4
+        for slide in consolidated
+    )
+    assert [slide["quality"]["task_prompt_phase"] for slide in consolidated] == [
+        "overview", "procedure", "procedure", "verification",
+    ]
+    assert [
+        len(slide["blocks"][0].get("items") or [])
+        for slide in consolidated
+    ] == [1, 4, 4, 2]
+    assert consolidated[2]["quality"]["requested_layout"] == "process-sequence"
+    assert consolidated[2]["blocks"][0]["type"] == "process"
+    assert consolidated[0]["title"] == "场景构建：创建一个场景"
+    assert consolidated[-1]["title"].endswith("（续4/4）")
+    assert "semantic_atom_split" not in {
+        issue["code"] for issue in collect_v5_quality_issues(consolidated)
+    }
+
+
+def test_task_activity_over_four_pages_is_a_critical_contract_failure() -> None:
+    slides = [
+        {
+            "unit_id": f"task-page-{index}",
+            "position": index,
+            "chapter_id": "chapter-1",
+            "layout": "practice",
+            "scene_kind": "practice_feedback",
+            "beat_role": "prompt",
+            "title": f"任务（续{index + 1}/5）",
+            "blocks": [{
+                "block_id": f"task-block-{index}",
+                "type": "exercise",
+                "items": [f"执行任务 {index + 1}"],
+                "metadata": {"question_mode": "task"},
+            }],
+            "quality": {
+                "feedback_mode": "task_only",
+                "task_prompt_mode": "action",
+                "task_activity_id": "task-activity-1",
+            },
+        }
+        for index in range(5)
+    ]
+
+    issues = v5_contract_issues(slides)
+
+    assert any(
+        issue["code"] == "task_activity_page_limit_exceeded"
+        and issue["severity"] == "critical"
+        and issue["page_count"] == 5
+        for issue in issues
+    )
+
+
 def test_generated_practice_answers_are_bound_to_stable_question_ids() -> None:
     enriched = _enrich_practice_feedback_slides_v5([{
         "unit_id": "generated-practice",
@@ -672,7 +904,7 @@ def test_direct_answers_with_missing_question_identity_fail_the_contract() -> No
     }
 
 
-def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
+def test_repeated_episode_pages_keep_their_distinct_visible_heading() -> None:
     slides = _assign_heading_modes_v5([
         {
             "unit_id": "concept-1",
@@ -704,12 +936,12 @@ def test_repeated_episode_pages_do_not_force_a_new_visible_heading() -> None:
 
     assert slides[0]["quality"]["heading_mode"] == "full"
     assert slides[0]["quality"]["section_label"] == "1.2 状态变量与过程量"
-    assert slides[1]["quality"]["heading_mode"] == "hidden"
+    assert slides[1]["quality"]["heading_mode"] == "full"
     assert slides[1]["quality"]["section_label"] == "1.2 状态变量与过程量"
     assert slides[1]["title"] == "温度和压力都是状态变量"
 
 
-def test_export_keeps_hidden_heading_as_metadata_only() -> None:
+def test_export_keeps_the_page_claim_visible_even_if_legacy_metadata_hides_it() -> None:
     presentation = Presentation()
     slide = presentation.slides.add_slide(presentation.slide_layouts[6])
     unit = SlideSpec.model_validate({
@@ -734,7 +966,606 @@ def test_export_keeps_hidden_heading_as_metadata_only() -> None:
         if getattr(shape, "has_text_frame", False)
     )
     assert "1.2 状态变量与过程量" in visible_text
-    assert "温度和压力都是状态变量" not in visible_text
+    assert "温度和压力都是状态变量" in visible_text
+
+
+def test_renderer_does_not_hard_cut_a_complete_compiled_heading() -> None:
+    title = "碰撞回调事件的封装与分层处理模式以及性能裁剪策略"
+
+    assert _heading_excerpt(title) == title
+
+
+def test_long_editorial_objective_is_structured_into_three_visible_points() -> None:
+    slide = {
+        "unit_id": "slide:v5:long-objective",
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "scene_kind": "concept",
+        "title": "Input System connects actions to movement",
+        "blocks": [{
+            "block_id": "objective",
+            "type": "statement",
+            "title": "",
+            "content": (
+                "This lesson configures the Input System and defines an Action Map. "
+                "Learners create Move and Jump actions with explicit bindings. "
+                "The final script reads action data and drives movement in the scene."
+            ),
+            "items": [],
+            "metadata": {"fragment_ids": ["fragment-objective"]},
+        }],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "editorial-body",
+            "resolved_layout": "editorial-body",
+        },
+    }
+
+    structured = _structure_long_editorial_prose_v5(slide)
+
+    assert structured["quality"]["requested_layout"] == "classification-3"
+    assert structured["blocks"][0]["type"] == "bullets"
+    assert len(structured["blocks"][0]["items"]) == 3
+    assert structured["blocks"][0]["metadata"]["fragment_ids"] == [
+        "fragment-objective"
+    ]
+
+
+def test_enumeration_scaffolding_is_removed_before_rendering_cards() -> None:
+    slide = {
+        "unit_id": "slide:v5:objectives",
+        "title": "本页核心判断",
+        "scene_kind": "concept",
+        "blocks": [{
+            "block_id": "objectives",
+            "type": "bullets",
+            "content": "本节聚焦于构建与发布配置。完成本节后，你将能够：",
+            "items": ["切换目标平台", "校验依赖", "输出发布清单"],
+            "metadata": {"fragment_ids": ["fragment-objectives"]},
+        }],
+        "quality": {"requested_layout": "classification-3"},
+    }
+
+    cleaned = _strip_instructional_scaffolding_v5(slide)
+
+    assert cleaned["blocks"][0]["content"] == ""
+    assert cleaned["blocks"][0]["metadata"]["fragment_ids"] == [
+        "fragment-objectives"
+    ]
+    assert cleaned["quality"]["instructional_scaffolding_suppressed"] is True
+
+
+def test_long_method_paragraph_becomes_two_source_bound_regions() -> None:
+    slide = {
+        "unit_id": "slide:v5:method-prose",
+        "title": "线程安全单例",
+        "scene_kind": "method",
+        "blocks": [{
+            "block_id": "method",
+            "type": "statement",
+            "content": (
+                "单例负责管理跨场景共享的全局资源。"
+                "多线程访问时必须通过同步机制保护初始化过程，避免创建重复实例。"
+            ),
+            "items": [],
+            "metadata": {"fragment_ids": ["fragment-method"]},
+        }],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "editorial-body",
+            "resolved_layout": "editorial-body",
+        },
+    }
+
+    structured = _structure_long_editorial_prose_v5(slide)
+
+    assert structured["quality"]["requested_layout"] == "balanced-two-column"
+    assert len(structured["blocks"][0]["items"]) == 2
+
+
+def test_sparse_single_concept_claim_becomes_an_intentional_hero_page() -> None:
+    slide = {
+        "unit_id": "slide:v5:single-claim",
+        "title": "适配非标准屏幕比例",
+        "scene_kind": "concept",
+        "blocks": [{
+            "block_id": "claim",
+            "type": "bullets",
+            "content": "",
+            "items": ["脚本动态调整 UI 适配参数，以应对非标准屏幕比例。"],
+            "metadata": {"fragment_ids": ["fragment-claim"]},
+        }],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "classification-3",
+            "resolved_layout": "editorial-body",
+        },
+    }
+
+    promoted = _promote_sparse_single_claim_v5(slide)
+
+    assert promoted["quality"]["requested_layout"] == "hero-claim"
+    assert promoted["quality"]["suppress_redundant_body"] is True
+    assert promoted["key_message"] == (
+        "脚本动态调整 UI 适配参数，以应对非标准屏幕比例。"
+    )
+    assert promoted["blocks"][0]["type"] == "statement"
+    assert promoted["blocks"][0]["items"] == []
+    assert promoted["blocks"][0]["metadata"]["fragment_ids"] == [
+        "fragment-claim"
+    ]
+
+
+def test_promoted_hero_renderer_shows_the_source_claim() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:promoted-hero",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "concept",
+        "title": "适配非标准屏幕比例",
+        "key_message": "脚本动态调整 UI 适配参数，以应对非标准屏幕比例。",
+        "teaching_job": "建立本节核心概念与边界",
+        "blocks": [{
+            "block_id": "claim",
+            "type": "statement",
+            "content": "脚本动态调整 UI 适配参数，以应对非标准屏幕比例。",
+            "items": [],
+            "metadata": {},
+        }],
+        "quality": {"resolved_layout": "hero-claim"},
+    })
+
+    _render_claim_only(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "脚本动态调整 UI 适配参数" in visible_text
+    assert "建立本节核心概念与边界" not in visible_text
+    claim_shapes = [
+        shape
+        for shape in slide.shapes
+        if (
+            getattr(shape, "has_text_frame", False)
+            and "脚本动态调整 UI 适配参数" in shape.text
+        )
+    ]
+    assert len(claim_shapes) == 1
+    assert claim_shapes[0].height >= Inches(1.5)
+
+
+def test_code_renderer_uses_full_width_when_no_real_annotation_exists() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:code-only",
+        "position": 0,
+        "layout": "code",
+        "slide_purpose": "method",
+        "title": "生命周期回调顺序",
+        "key_message": "",
+        "blocks": [{
+            "block_id": "code",
+            "type": "code",
+            "content": "void Awake() {}\nvoid Start() {}\nvoid Update() {}",
+            "items": [],
+            "metadata": {"language": "csharp"},
+        }],
+        "quality": {"resolved_layout": "code"},
+    })
+
+    _render_code(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    code_shapes = [
+        shape
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False) and "void Awake" in shape.text
+    ]
+    assert "阅读线索" not in visible_text
+    assert len(code_shapes) == 1
+    assert code_shapes[0].width >= Inches(10.5)
+
+
+def test_task_process_renderer_uses_vertical_numbered_steps(tmp_path) -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    items = [
+        "切换到 CPU 标签并开始录制。",
+        "定位最耗时的方法并记录调用路径。",
+        "修改脚本后重新运行场景，比较前后曲线。",
+    ]
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:task-procedure",
+        "position": 0,
+        "layout": "practice",
+        "slide_purpose": "practice",
+        "title": "性能诊断任务（续2/4）",
+        "blocks": [{
+            "block_id": "procedure",
+            "type": "process",
+            "items": items,
+            "metadata": {"semantic_role": "process_step"},
+        }],
+        "quality": {
+            "resolved_layout": "process-sequence",
+            "task_prompt_mode": "action",
+            "task_prompt_phase": "procedure",
+            "prompt_label": "执行步骤",
+        },
+    })
+
+    _render_process(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "执行步骤" in visible_text
+    assert all(item in visible_text for item in items)
+    assert all(f"{index:02d}" in visible_text for index in range(1, 4))
+    output = tmp_path / "task-procedure.pptx"
+    presentation.save(output)
+    audit = audit_exported_pptx(output, expected_slide_count=1)
+    assert "exported_text_overlap" not in {
+        issue["code"] for issue in audit["issues"]
+    }
+
+
+def test_code_renderer_keeps_annotation_column_when_source_annotation_exists() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:annotated-code",
+        "position": 0,
+        "layout": "code",
+        "slide_purpose": "method",
+        "title": "生命周期回调顺序",
+        "key_message": "",
+        "blocks": [
+            {
+                "block_id": "code",
+                "type": "code",
+                "content": "void Awake() {}\nvoid Start() {}",
+                "items": [],
+                "metadata": {"language": "csharp"},
+            },
+            {
+                "block_id": "annotation",
+                "type": "bullets",
+                "content": "",
+                "items": ["Awake 先于 Start 执行。"],
+                "metadata": {},
+            },
+        ],
+        "quality": {"resolved_layout": "code"},
+    })
+
+    _render_code(slide, unit, validate_theme("qizhi-classroom"))
+
+    visible_text = "\n".join(
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "阅读线索" in visible_text
+    assert "Awake 先于 Start 执行" in visible_text
+
+
+def test_empty_chapter_entry_restores_its_outline_learning_objective() -> None:
+    chapter = DeckChapterV5(
+        chapter_id="chapter-input",
+        agenda_id="agenda-input",
+        position=0,
+        eyebrow="第03章",
+        title="交互逻辑与物理系统基础",
+        driving_question="配置输入系统并完成角色移动控制。",
+        learning_objective="配置输入系统并完成角色移动控制。",
+    )
+    slide = {
+        "unit_id": "slide:v5:chapter:chapter-input",
+        "chapter_id": "chapter-input",
+        "scene_kind": "chapter_entry",
+        "title": chapter.title,
+        "key_message": "",
+        "quality": {"requested_layout": "chapter-entry"},
+    }
+
+    restored = _restore_chapter_entry_mainlines_v5([slide], [chapter])
+
+    assert restored[0]["key_message"] == chapter.learning_objective
+
+
+def test_restored_chapter_entry_uses_navigation_copy_when_objective_repeats_next_page() -> None:
+    chapter = DeckChapterV5(
+        chapter_id="chapter-input",
+        agenda_id="agenda-input",
+        position=0,
+        eyebrow="第三章",
+        title="交互逻辑与物理系统基础",
+        driving_question="配置输入系统并完成角色移动控制。",
+        learning_objective="配置输入系统并完成角色移动控制。",
+    )
+    entry = {
+        "unit_id": "slide:v5:chapter:chapter-input",
+        "chapter_id": "chapter-input",
+        "scene_kind": "chapter_entry",
+        "title": chapter.title,
+        "key_message": "",
+        "blocks": [],
+        "quality": {"requested_layout": "chapter-entry"},
+    }
+    first_content_page = {
+        "unit_id": "slide:v5:first-content",
+        "chapter_id": "chapter-input",
+        "scene_kind": "concept",
+        "title": "输入系统配置",
+        "key_message": chapter.learning_objective,
+        "blocks": [],
+        "quality": {"requested_layout": "hero-claim"},
+    }
+
+    restored = _restore_chapter_entry_mainlines_v5(
+        [entry, first_content_page],
+        [chapter],
+    )
+
+    assert restored[0]["key_message"] != chapter.learning_objective
+    assert chapter.title in restored[0]["key_message"]
+    assert restored[0]["quality"]["chapter_entry_mainline_restored"] is True
+
+
+def test_labeled_error_and_inference_sequence_becomes_three_peer_regions() -> None:
+    slide = {
+        "unit_id": "slide:v5:reasoning-errors",
+        "scene_kind": "reasoning",
+        "title": "典型错误与推导依据",
+        "blocks": [{
+            "block_id": "reasoning-errors",
+            "type": "process",
+            "content": "",
+            "items": [
+                "错误 1：只关注 CPU 总耗时，忽略了 GC Pause。",
+                "推导：需在 Memory 标签页验证垃圾回收。",
+                "错误 2：把初始化代码误判为每帧瓶颈。",
+                "推导：检查时间轴，区分一次性开销与每帧开销。",
+                "错误 3：修复后未做回归测试，导致旧功能失效。",
+            ],
+            "metadata": {"source_fragment_ids": ["fragment-errors"]},
+        }],
+        "visuals": [{
+            "visual_id": "visual-errors",
+            "kind": "relational_diagram",
+            "alt_text": "错误与推导关系图",
+        }],
+        "quality": {
+            "requested_layout": "editorial-body",
+            "resolved_layout": "figure-text",
+        },
+    }
+
+    structured = _structure_labeled_reasoning_pairs_v5(slide)
+    contracted = apply_page_contract_v5(structured)
+
+    assert structured["blocks"][0]["type"] == "bullets"
+    assert len(structured["blocks"][0]["items"]) == 3
+    assert structured["quality"]["requested_layout"] == "classification-3"
+    assert contracted["quality"]["resolved_layout"] == "classification-3"
+    assert all(
+        text in " ".join(structured["blocks"][0]["items"])
+        for text in ("错误 1", "推导", "错误 3")
+    )
+
+
+def test_editorial_fallback_does_not_render_the_heading_twice() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:editorial-fallback",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "teach",
+        "eyebrow": "核心概念",
+        "title": "生命周期回调执行顺序",
+        "blocks": [{
+            "block_id": "body",
+            "type": "statement",
+            "content": "Awake 完成初始化，Start 在首次 Update 前执行。",
+        }],
+        "quality": {"resolved_layout": "editorial-body"},
+    })
+    theme = validate_theme("qingfeng-classroom")
+
+    _heading(slide, unit, theme)
+    _render_editorial_body(
+        slide,
+        unit,
+        theme,
+        heading_already_rendered=True,
+    )
+
+    visible = [
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    ]
+    assert visible.count(unit.title) == 1
+
+
+def test_required_programming_code_is_a_final_publication_gate() -> None:
+    report = finalize_v5_quality_report(
+        previous_quality={"passed": True, "issues": [], "blockers": []},
+        slides=[{
+            "unit_id": "concept-only",
+            "position": 0,
+            "layout": "concept",
+            "slide_purpose": "concept",
+            "scene_kind": "concept",
+            "title": "MonoBehaviour 生命周期",
+            "blocks": [{
+                "block_id": "body",
+                "type": "statement",
+                "content": "Awake、Start 和 Update 按生命周期顺序执行。",
+                "metadata": {},
+            }],
+            "visuals": [],
+            "quality": {
+                "passed": True,
+                "resolved_layout": "editorial-body",
+            },
+        }],
+        planner="ai",
+        fallback_reason="",
+        planning_diagnostics={
+            "subject_presentation_contract": {
+                "schema_version": "subject_presentation_contract_v1",
+                "profile_id": "engineering_programming",
+                "primary_mode": "programming_engineering",
+                "required_representation_kinds": ["code"],
+                "optional_representation_kinds": ["output", "debugging"],
+                "characteristic_fragment_ids": {"code": ["code-fragment"]},
+                "chapter_requirements": [{
+                    "chapter_id": "chapter-unity",
+                    "required_representation_kinds": ["code"],
+                    "minimum_artifact_count": 1,
+                }],
+                "classification_confidence": 0.96,
+                "classification_source": "course_generation_v16",
+                "evidence_conflicts": [],
+            },
+        },
+    )
+
+    issue = next(
+        item for item in report["issues"]
+        if item["code"] == "required_subject_representation_missing"
+    )
+    assert issue["severity"] == "critical"
+    assert issue["representation_kind"] == "code"
+    assert report["passed"] is False
+
+
+def test_presentation_grammar_mismatch_requires_manual_review() -> None:
+    contracted = apply_page_contract_v5({
+        "unit_id": "process-as-columns",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "method",
+        "scene_kind": "method",
+        "title": "回调按生命周期顺序执行",
+        "blocks": [
+            {
+                "block_id": "left",
+                "type": "statement",
+                "content": "Awake 完成初始化。",
+                "metadata": {},
+            },
+            {
+                "block_id": "right",
+                "type": "statement",
+                "content": "Update 每帧执行。",
+                "metadata": {},
+            },
+        ],
+        "visuals": [],
+        "quality": {
+            "requested_layout": "balanced-two-column",
+            "presentation_grammar": {
+                "presentation_intent": "process",
+                "copy_voice": "ordered_instructional",
+                "information_structure": "sequence",
+                "visual_grammar": "control_flow",
+                "allowed_layouts": ["process-sequence", "figure-text"],
+                "forbidden_fallbacks": ["editorial-body", "balanced-two-column"],
+            },
+        },
+    })
+
+    issue = next(
+        item for item in contracted["quality"]["issues"]
+        if item["code"] == "presentation_grammar_mismatch"
+    )
+    assert issue["expected_grammar"] == "control_flow"
+    assert issue["observed_layout"] == "balanced-two-column"
+    assert contracted["quality"]["manual_edit_required"] is True
+
+
+def test_classification_renderer_uses_content_and_items_as_three_regions() -> None:
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    unit = SlideSpec.model_validate({
+        "unit_id": "slide:v5:mixed-classification",
+        "position": 0,
+        "layout": "concept",
+        "slide_purpose": "teach",
+        "eyebrow": "核心概念",
+        "title": "三项判断",
+        "blocks": [
+            {
+                "block_id": "definition",
+                "type": "statement",
+                "content": "第一项判断",
+            },
+            {
+                "block_id": "details",
+                "type": "bullets",
+                "items": ["第二项判断", "第三项判断"],
+            },
+        ],
+        "quality": {"resolved_layout": "classification-3"},
+    })
+
+    _render_classification_three(
+        slide,
+        unit,
+        validate_theme("qingfeng-classroom"),
+    )
+
+    visible_shapes = [
+        shape.text
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    ]
+    visible = "\n".join(visible_shapes)
+    assert visible_shapes.count(unit.title) == 1
+    assert all(value in visible for value in ("第一项判断", "第二项判断", "第三项判断"))
+
+
+def test_duplicate_source_heading_uses_the_next_pages_source_question() -> None:
+    first = {
+        "unit_id": "slide:v5:first",
+        "title": "预制体源文件与实例化对象",
+        "scene_kind": "concept",
+        "blocks": [{"content": "学习者需要完成三个可观察目标。", "items": []}],
+        "quality": {"resolved_layout": "classification-3"},
+    }
+    second = {
+        "unit_id": "slide:v5:second",
+        "title": "预制体源文件与实例化对象",
+        "scene_kind": "concept",
+        "blocks": [{
+            "content": "为什么变体能保持独立性又同步更新？变体保存父级引用与局部覆盖表。",
+            "items": [],
+        }],
+        "quality": {"resolved_layout": "editorial-body"},
+    }
+
+    resolved = _disambiguate_duplicate_titles_v5([first, second])
+
+    assert resolved[0]["title"] == "预制体源文件与实例化对象"
+    assert resolved[1]["title"] == "为什么变体能保持独立性又同步更新"
+    assert resolved[1]["blocks"][0]["content"] == (
+        "变体保存父级引用与局部覆盖表。"
+    )
 
 
 def test_export_pairs_each_practice_question_with_its_answer() -> None:

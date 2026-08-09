@@ -29,6 +29,7 @@ describe('SlideCanvas V5 final page contract', () => {
       'classification-3',
       'process-sequence',
       'formula-explanation',
+      'code',
       'figure-text',
       'diagram-full',
       'worked-example',
@@ -295,8 +296,10 @@ describe('SlideCanvas V5 final page contract', () => {
       },
     })
 
-    expect(wrapper.find('.deck-claim-only').exists()).toBe(true)
+    expect(wrapper.find('.deck-hero-claim').exists()).toBe(true)
+    expect(wrapper.find('.deck-claim-only').exists()).toBe(false)
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+    expect(wrapper.find('.deck-hero-claim strong').text()).toContain('只验证加法保持不够')
   })
 
   it.each([
@@ -438,6 +441,41 @@ describe('SlideCanvas V5 final page contract', () => {
 
     expect(wrapper.text()).toContain('盖子没有打开时属于哪类系统？')
     expect(wrapper.text()).toContain('盖子打开并有蒸汽逸出时呢？')
+  })
+
+  it('uses the source-intent task label instead of a generic question label', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          title: '创建性能诊断场景',
+          blocks: [{
+            block_id: 'task',
+            type: 'exercise',
+            items: ['截取 Profiler CPU 视图。'],
+          }],
+          quality: {
+            requested_layout: 'question-prompt',
+            resolved_layout: 'question-prompt',
+            prompt_label: '验收检查',
+            task_prompt_mode: 'verification',
+            task_prompt_phase: 'verification',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.deck-question-prompt > small').text()).toBe('验收检查')
+    expect(wrapper.text()).not.toContain('先独立判断')
+    expect(wrapper.get('.deck-canvas').attributes('data-task-prompt-mode')).toBe('verification')
+    expect(wrapper.get('.deck-canvas').attributes('data-task-prompt-phase')).toBe('verification')
   })
 
   it('does not reserve message space when a practice message is intentionally hidden', () => {

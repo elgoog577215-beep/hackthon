@@ -358,19 +358,53 @@ def hydrate_shared_image_candidates_v5(
     *,
     client: Any,
 ) -> list[RetrievedImageCandidate]:
-    """Hydrate SearXNG Commons hits with authoritative license metadata."""
+    """Hydrate license-safe SearXNG image hits with source attribution."""
 
     sources_by_title: dict[str, dict[str, Any]] = {}
     requested_titles: list[str] = []
+    candidates: list[RetrievedImageCandidate] = []
     for source in package.get("sources") or []:
         if not isinstance(source, dict):
             continue
+        provider_metadata = source.get("provider_metadata") or {}
+        engines = (
+            provider_metadata.get("engines")
+            if isinstance(provider_metadata, dict)
+            else []
+        )
+        if "public domain image archive" in (engines or []):
+            source_url = str(source.get("url") or "")
+            asset_url = str(provider_metadata.get("image_url") or "")
+            source_host = (urlparse(source_url).hostname or "").lower()
+            asset_host = (urlparse(asset_url).hostname or "").lower()
+            if (
+                source_host in {"pdimagearchive.org", "www.pdimagearchive.org"}
+                and asset_host == "images.pdimagearchive.org"
+                and safe_retrieval_url(source_url)
+                and safe_retrieval_url(asset_url)
+            ):
+                title = str(source.get("title") or "")
+                excerpt = str(source.get("excerpt") or "")
+                query = str(source.get("matched_query") or "")
+                candidates.append(RetrievedImageCandidate(
+                    provider="searxng",
+                    asset_url=asset_url,
+                    source_page_url=source_url,
+                    title=title,
+                    creator=(title.rsplit(" by ", 1)[1] if " by " in title else ""),
+                    license="Public Domain",
+                    license_url="https://creativecommons.org/publicdomain/mark/1.0/",
+                    query=query,
+                    canonical_terms=[query] if query else [],
+                    matched_terms=(title + " " + excerpt).split(),
+                    authority_score=0.95,
+                ))
         title = _commons_title_from_gateway_source(source)
         if title:
             sources_by_title[title.casefold()] = source
             requested_titles.append(title)
     if not sources_by_title:
-        return []
+        return candidates
 
     response = client.get(
         "https://commons.wikimedia.org/w/api.php",
@@ -386,7 +420,6 @@ def hydrate_shared_image_candidates_v5(
     )
     response.raise_for_status()
     pages = (response.json().get("query") or {}).get("pages") or {}
-    candidates: list[RetrievedImageCandidate] = []
     for item in pages.values():
         title_with_namespace = str(item.get("title") or "")
         source = sources_by_title.get(title_with_namespace.casefold())

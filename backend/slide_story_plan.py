@@ -7,6 +7,7 @@ import inspect
 import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -27,13 +28,16 @@ from slide_layout_registry import (
     select_layout_v2,
 )
 from slide_semantics import (
+    PresentationGrammarV1,
     compile_ppt_semantic_units,
+    compile_subject_presentation_contract_v1,
     semantic_unit_index,
 )
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
 V5_SEMANTIC_CORE_REASONS = frozenset({
     "v5_semantic_grouping",
+    "v5_subject_artifact_excerpt",
     "ai_source_bound_directive",
 })
 SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (
@@ -139,6 +143,9 @@ class StoryBeatV2(_StrictModel):
         default_factory=list,
         max_length=4,
     )
+    presentation_intent: str = ""
+    presentation_grammar: PresentationGrammarV1 | None = None
+    subject_artifact_kinds: list[str] = Field(default_factory=list)
 
 
 class StoryBeatDirectiveV2(_StrictModel):
@@ -799,8 +806,13 @@ def compile_slide_story_plan_v2(
     fragments_by_block: dict[str, list[ContentFragmentV1]] = defaultdict(list)
     for fragment in sorted(fragments, key=lambda item: item.ordinal):
         fragments_by_block[fragment.block_id].append(fragment)
-    semantic_by_fragment = semantic_unit_index(
-        compile_ppt_semantic_units(document, fragments)
+    semantic_units = compile_ppt_semantic_units(document, fragments)
+    semantic_by_fragment = semantic_unit_index(semantic_units)
+    subject_contract = compile_subject_presentation_contract_v1(
+        document,
+        course_data,
+        semantic_units,
+        fragments,
     )
     plan_by_section = {
         str(section.get("node_id") or ""): section
@@ -1011,6 +1023,11 @@ def compile_slide_story_plan_v2(
         communication_brief=brief,
         source_revisions=revisions,
         chapters=stories,
+        planning_diagnostics={
+            "subject_presentation_contract": subject_contract.model_dump(
+                mode="json"
+            ),
+        },
     )
 
 
@@ -1597,6 +1614,7 @@ async def plan_slide_story_v2(
     )
     if fallback.mode != mode or fallback.theme != theme:
         raise ValueError("Story planning baseline does not match the requested variant")
+    baseline_diagnostics = deepcopy(fallback.planning_diagnostics or {})
     if ai_planner is None:
         fallback.fallback_reason = "no_ai_story_planner"
         return fallback
@@ -1760,6 +1778,12 @@ async def plan_slide_story_v2(
                 "source_revisions": fallback.source_revisions.model_dump(
                     mode="json",
                 ),
+                "subject_presentation_contract": deepcopy(
+                    (fallback.planning_diagnostics or {}).get(
+                        "subject_presentation_contract"
+                    )
+                    or {}
+                ),
                 "allowed_scene_kinds": list(_SCENE_ORDER),
                 "layout_registry": registry_summary_v2(),
                 "beat_catalog": beat_catalog,
@@ -1911,6 +1935,7 @@ async def plan_slide_story_v2(
             if item[1] is not None
         ]
         diagnostics = {
+            **baseline_diagnostics,
             "chapter_count": chapter_count,
             "successful_chapter_count": chapter_count - len(chapter_failures),
             "failed_chapter_count": len(chapter_failures),
@@ -1949,6 +1974,7 @@ async def plan_slide_story_v2(
     except Exception as exc:
         fallback.fallback_reason = "invalid_or_failed_ai_story_plan"
         fallback.planning_diagnostics = {
+            **baseline_diagnostics,
             "chapter_count": len(fallback.chapters),
             "successful_chapter_count": 0,
             "failed_chapter_count": len(fallback.chapters),

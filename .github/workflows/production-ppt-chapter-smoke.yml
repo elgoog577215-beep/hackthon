@@ -1,0 +1,210 @@
+name: Production PPT Chapter Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      course_id:
+        description: "Optional production course ID; blank selects a published programming course"
+        required: false
+        default: ""
+        type: string
+      chapter_id:
+        description: "Optional chapter root ID; blank selects the strongest code-backed chapter"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lingzhi-production
+  cancel-in-progress: false
+
+jobs:
+  chapter-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure production SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
+          chmod 600 ~/.ssh/lingzhi_deploy
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Create isolated production output directory
+        id: remote-output
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          remote_dir="$(ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "mktemp -d /tmp/lingzhi-ppt-chapter-smoke.XXXXXX")"
+          case "$remote_dir" in
+            /tmp/lingzhi-ppt-chapter-smoke.*) ;;
+            *) printf 'Unexpected remote output path\n' >&2; exit 1 ;;
+          esac
+          printf 'path=%s\n' "$remote_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Run deployed read-only V5 chapter chain
+        id: smoke
+        continue-on-error: true
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          EXPECTED_RELEASE_COMMIT: ${{ github.sha }}
+          SMOKE_COURSE_ID: ${{ inputs.course_id }}
+          SMOKE_CHAPTER_ID: ${{ inputs.chapter_id }}
+          REMOTE_OUTPUT_DIR: ${{ steps.remote-output.outputs.path }}
+        run: |
+          set -euo pipefail
+          remote_expected="$(printf '%q' "$EXPECTED_RELEASE_COMMIT")"
+          remote_course="$(printf '%q' "$SMOKE_COURSE_ID")"
+          remote_chapter="$(printf '%q' "$SMOKE_CHAPTER_ID")"
+          remote_output="$(printf '%q' "$REMOTE_OUTPUT_DIR")"
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "EXPECTED_RELEASE_COMMIT=$remote_expected SMOKE_COURSE_ID=$remote_course SMOKE_CHAPTER_ID=$remote_chapter REMOTE_OUTPUT_DIR=$remote_output bash -s" <<'REMOTE'
+          set -euo pipefail
+          systemctl is-active --quiet lingzhi
+          curl -fsS --max-time 5 http://127.0.0.1:7862/api/health >/dev/null
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          args=(
+            --application-root /opt/lingzhi/hackthon
+            --output-dir "$REMOTE_OUTPUT_DIR"
+            --expected-release-commit "$EXPECTED_RELEASE_COMMIT"
+            --defer-render
+          )
+          if [ -n "$SMOKE_COURSE_ID" ]; then
+            args+=(--course-id "$SMOKE_COURSE_ID")
+          fi
+          if [ -n "$SMOKE_CHAPTER_ID" ]; then
+            args+=(--chapter-id "$SMOKE_CHAPTER_ID")
+          fi
+          cd /opt/lingzhi/hackthon/backend
+          PYTHONUTF8=1 /opt/lingzhi/.venv/bin/python \
+            production_ppt_chapter_smoke.py "${args[@]}"
+          REMOTE
+
+      - name: Download smoke artifacts
+        if: always()
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          REMOTE_OUTPUT_DIR: ${{ steps.remote-output.outputs.path }}
+        run: |
+          set -euo pipefail
+          install -d production-ppt-smoke
+          scp \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -r "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$REMOTE_OUTPUT_DIR/." \
+            production-ppt-smoke/
+
+      - name: Finalize render QA on isolated runner
+        id: render-qa
+        if: steps.smoke.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice \
+            poppler-utils \
+            fonts-noto-cjk
+          python3 -m pip install --disable-pip-version-check \
+            "pydantic>=2,<3" \
+            "pillow>=10,<13" \
+            "python-pptx>=1,<2"
+          PYTHONUTF8=1 python3 backend/production_ppt_chapter_smoke.py \
+            --output-dir production-ppt-smoke \
+            --finalize-deferred-render
+
+      - name: Upload private smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-ppt-chapter-smoke-${{ github.run_id }}
+          path: production-ppt-smoke/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove isolated production output
+        if: always()
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          REMOTE_OUTPUT_DIR: ${{ steps.remote-output.outputs.path }}
+        run: |
+          set -euo pipefail
+          case "$REMOTE_OUTPUT_DIR" in
+            /tmp/lingzhi-ppt-chapter-smoke.*) ;;
+            *) printf 'Refusing to remove unexpected path\n' >&2; exit 1 ;;
+          esac
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "case '$REMOTE_OUTPUT_DIR' in /tmp/lingzhi-ppt-chapter-smoke.*) rm -rf -- '$REMOTE_OUTPUT_DIR' ;; *) exit 1 ;; esac"
+
+      - name: Enforce smoke result
+        if: always()
+        env:
+          SMOKE_STEP_OUTCOME: ${{ steps.smoke.outcome }}
+          RENDER_QA_OUTCOME: ${{ steps.render-qa.outcome }}
+        run: |
+          set -euo pipefail
+          test "$SMOKE_STEP_OUTCOME" = "success"
+          test "$RENDER_QA_OUTCOME" = "success"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path("production-ppt-smoke/report.json").read_text(encoding="utf-8")
+          )
+          status = str(report.get("status") or "")
+          if status not in {"passed", "passed_with_manual_edit"}:
+              raise SystemExit(
+                  "Production PPT chapter smoke failed: "
+                  + json.dumps(report.get("failure") or {}, ensure_ascii=False)
+              )
+          print(json.dumps({
+              "status": status,
+              "release_commit": report.get("release_commit"),
+              "source": report.get("source"),
+              "chain": report.get("chain"),
+              "deck": report.get("deck"),
+              "quality": report.get("quality"),
+              "export": report.get("export"),
+              "gates": report.get("gates"),
+          }, ensure_ascii=False, indent=2, sort_keys=True))
+          PY

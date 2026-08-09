@@ -93,6 +93,8 @@ def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("MODELSCOPE_BASE_URL", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL", raising=False)
+    monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
+    monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     service.smart_models = list(models)
@@ -108,6 +110,7 @@ def _make_service_with_modelscope_fallback(
     primary_completions,
     fallback_completions,
     models=("model-a", "model-b"),
+    fallback_model="deepseek-ai/DeepSeek-V4-Pro",
 ):
     monkeypatch.setenv("AI_API_KEY", "primary-test-key")
     monkeypatch.setenv("AI_API_BASE", "https://primary.example.test/v1")
@@ -116,7 +119,9 @@ def _make_service_with_modelscope_fallback(
         "MODELSCOPE_BASE_URL",
         "https://api-inference.modelscope.cn/v1/",
     )
-    monkeypatch.setenv("MODELSCOPE_MODEL", "deepseek-ai/DeepSeek-V4-Pro")
+    monkeypatch.setenv("MODELSCOPE_MODEL", fallback_model)
+    monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
+    monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
     service = AIBase()
     service.client = SimpleNamespace(
         chat=SimpleNamespace(completions=primary_completions)
@@ -130,6 +135,63 @@ def _make_service_with_modelscope_fallback(
     service._model_failure_cache.clear()
     service._provider_failure = None
     return service
+
+
+@pytest.mark.asyncio
+async def test_modelscope_fallback_uses_one_model_for_fast_and_smart_calls(
+    monkeypatch,
+):
+    primary = SuccessfulCompletions()
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        fallback_model="Qwen/Qwen3.5-35B-A3B",
+    )
+    service.api_key = None
+    service.client = None
+
+    fast_result = await service._call_llm(
+        "fast",
+        use_fast_model=True,
+        retry_count=1,
+        raise_on_failure=True,
+    )
+    smart_result = await service._call_llm(
+        "smart",
+        use_fast_model=False,
+        retry_count=1,
+        raise_on_failure=True,
+    )
+
+    assert fast_result == "ok-answer"
+    assert smart_result == "ok-answer"
+    assert fallback.calls == [
+        "Qwen/Qwen3.5-35B-A3B",
+        "Qwen/Qwen3.5-35B-A3B",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_modelscope_stream_uses_unified_qwen_model(monkeypatch):
+    primary = SuccessfulCompletions()
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        fallback_model="Qwen/Qwen3.5-35B-A3B",
+    )
+    service.api_key = None
+    service.client = None
+
+    chunks = []
+    async for chunk in service._stream_llm("fast", use_fast_model=True):
+        chunks.append(chunk)
+
+    assert "".join(chunks) == "ok-answer"
+    assert fallback.calls == ["Qwen/Qwen3.5-35B-A3B"]
 
 
 @pytest.mark.asyncio

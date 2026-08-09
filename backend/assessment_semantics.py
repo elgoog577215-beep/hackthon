@@ -7,13 +7,12 @@ checks that must run before an independent solver is invoked.
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 from typing import Any
 
 from assessment_diversity import compile_diversity_plan
 from course_versioning import stable_hash
-
 
 QUESTION_DESIGN_BRIEF_SCHEMA = "question_design_brief_v1"
 SEMANTIC_PREFLIGHT_SCHEMA = "question_semantic_preflight_v1"
@@ -29,12 +28,14 @@ SEMANTIC_HARD_CODES = {
 }
 
 _CODE_FENCE_RE = re.compile(
-    r"```(?:python|py|javascript|js|typescript|ts|java|cpp|c\+\+|c)\s*\n"
+    r"```(?:python|py|javascript|js|typescript|ts|java|csharp|cs|cpp|c\+\+|c)\s*\n"
     r"(?P<body>[\s\S]*?)```",
     re.IGNORECASE,
 )
 _OUTPUT_ACTION_RE = re.compile(
-    r"(输出|打印|返回值|异常|变量状态|对象身份|调用顺序|执行顺序|"
+    r"(输出|打印|返回值|异常|变量状态|对象身份|调用顺序|调用序列|执行顺序|执行轨迹|"
+    r"状态跟踪|状态序列|状态迁移|状态变化|回调顺序|运行现象|产生(?:什么)?现象|"
+    r"预测[^，。；\n]{0,40}(?:状态|结果|现象|顺序)|"
     r"最终值|运行结果|状态变化|predict\s+(?:the\s+)?output|"
     r"print(?:ed)?\s+output|what\s+(?:is|will be)\s+"
     r"(?:printed|returned)|trace)",

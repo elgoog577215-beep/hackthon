@@ -14,6 +14,10 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
 )
 from course_knowledge_map import compile_course_knowledge_map
+from course_pedagogy import (
+    attach_module_plans_to_plan,
+    coerce_persisted_profile,
+)
 from slide_story_plan import course_supports_slide_deck_v4
 
 
@@ -38,6 +42,29 @@ def compile_course_logic_upgrade(course_data: dict[str, Any]) -> dict[str, Any]:
     issues = _promotion_issues(sections)
     if issues:
         raise CourseLogicUpgradeError("; ".join(issues))
+    pedagogy_profile = coerce_persisted_profile(course_data)
+    pedagogy_plan = attach_module_plans_to_plan(
+        {
+            "chapters": [{
+                "title": str(course_data.get("course_name") or ""),
+                "sections": [
+                    {
+                        **deepcopy(section),
+                        "title": str(
+                            section.get("title")
+                            or section.get("node_name")
+                            or ""
+                        ),
+                        "key_points": _strings(section.get("key_points"))
+                        or _knowledge_names(section),
+                    }
+                    for section in sections
+                ],
+            }],
+        },
+        pedagogy_profile,
+    )
+    sections = pedagogy_plan["chapters"][0]["sections"]
     recovered_section_count = sum(
         bool(section.get("_course_logic_recovered"))
         for section in sections
@@ -98,6 +125,15 @@ def compile_course_logic_upgrade(course_data: dict[str, Any]) -> dict[str, Any]:
                 normalized.get("knowledge_structure") or []
             )
     working["course_teaching_plan"] = teaching_plan
+    working["subject_pedagogy_profile"] = deepcopy(
+        pedagogy_plan["subject_pedagogy_profile"]
+    )
+    working["course_module_plan"] = deepcopy(
+        pedagogy_plan["course_module_plan"]
+    )
+    working["pedagogy_quality_contract"] = deepcopy(
+        pedagogy_plan["pedagogy_quality_contract"]
+    )
     stage_artifacts = deepcopy(working.get("generation_stage_artifacts") or {})
     stage_artifacts["course_teaching_plan"] = {
         "schema_version": teaching_plan["schema_version"],
@@ -170,6 +206,13 @@ def compile_course_logic_upgrade(course_data: dict[str, Any]) -> dict[str, Any]:
         "coherence_contract_revision_id": coherence_contract["revision_id"],
     }
     updates = {
+        "subject_pedagogy_profile": deepcopy(
+            working["subject_pedagogy_profile"]
+        ),
+        "course_module_plan": deepcopy(working["course_module_plan"]),
+        "pedagogy_quality_contract": deepcopy(
+            working["pedagogy_quality_contract"]
+        ),
         "course_teaching_plan": teaching_plan,
         "course_knowledge_map": course_map,
         "course_knowledge_base": knowledge_base,
