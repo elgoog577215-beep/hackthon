@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 SlideSceneKind = Literal[
     "chapter_entry",
     "prerequisite_activation",
@@ -347,6 +346,21 @@ SLIDE_LAYOUT_REGISTRY_V2: tuple[LayoutDefinitionV2, ...] = (
         density=820,
         items=10,
         evidence=["table", "chart"],
+        assets=1,
+    ),
+    _layout(
+        "diagram-full",
+        "knowledge-map",
+        "全幅关系图",
+        "diagram",
+        ["concept", "reasoning", "method", "application"],
+        slots=[
+            ("diagram", ["diagram"], True),
+            ("explanation", ["text"], False),
+        ],
+        density=650,
+        items=6,
+        evidence=["diagram", "architecture"],
         assets=1,
     ),
     _layout(
