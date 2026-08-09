@@ -173,6 +173,67 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.emitted('upgrade-course-logic')).toHaveLength(1)
   })
 
+  it('shows V5 schema facts, manual-edit guidance, and structured hard failures', async () => {
+    const manualSlides = [
+      slides[0]!,
+      {
+        ...slides[1]!,
+        quality: {
+          ...slides[1]!.quality,
+          manual_edit_required: true,
+          manual_edit_reasons: [{
+            code: 'render_review_manual_adjustment',
+            message: '本页内容完整，但建议人工微调视觉间距。',
+          }],
+        },
+      },
+    ]
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-v5',
+        deckTitle: '高等代数',
+        slides: manualSlides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'source_commit',
+        error: 'v5_source_revision_conflict',
+        previewSource: 'published',
+        buildFailure: {
+          stage: 'source_commit',
+          code: 'v5_source_revision_conflict',
+          message: '课程内容在 PPT 生成期间发生变化。',
+          retryable: true,
+          source_revision: 'revision-1',
+        },
+        quality: { passed: true },
+        targetSchema: 'slide_deck_v5',
+        candidateSchema: 'slide_deck_v5',
+        publishedSchema: 'slide_deck_v3',
+        candidateStatus: 'v5_needs_manual_edit',
+      },
+    })
+
+    expect(wrapper.get('[data-testid="ppt-schema-facts"]').text()).toContain(
+      '目标 V5 · 候选 V5 · 已发布 V3',
+    )
+    expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain(
+      '部分页面需要人工调整',
+    )
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain(
+      'v5_source_revision_conflict',
+    )
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain(
+      '失败阶段：source_commit · 可以重试',
+    )
+
+    await wrapper.findAll('.slide-thumbnails > button')[1]!.trigger('click')
+    expect(wrapper.find('[data-state="manual_edit_required"]').text()).toContain(
+      '本页内容完整，但建议人工微调视觉间距。',
+    )
+  })
+
   it('uses the same structured slide spec for thumbnails, canvas, and source inspection', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
@@ -292,6 +353,33 @@ describe('SlideDeckWorkbench', () => {
     expect(preview.findAll('li[data-severity="critical"]')).toHaveLength(1)
     expect(preview.findAll('li[data-severity="minor"]')).toHaveLength(1)
     expect(preview.find('.slide-workbench__failed-preview-advisories').exists()).toBe(true)
+  })
+
+  it('shows the backend blocker total instead of presenting the first issue code as the whole failure', () => {
+    const blockers = [
+      ...Array.from({ length: 9 }, (_, index) => ({
+        severity: 'critical', code: 'dangling_fragment', page_id: `slide:dangling:${index}`,
+        message: 'Page ends with an incomplete fragment.',
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        severity: 'critical', code: 'continuation_sequence_missing', page_id: `slide:continuation:${index}`,
+        message: 'Continuation numbering is missing.',
+      })),
+    ]
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: 'Quality summary', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'build_blocked',
+        error: 'quality_gate_failed', previewSource: 'published',
+        quality: { passed: false, blocker_count: 99, blockers },
+      },
+    })
+
+    const receipt = wrapper.find('.slide-inspector__receipt').text()
+    expect(receipt).toContain('99')
+    expect(receipt).toContain('15')
+    expect(receipt).toContain('9')
+    expect(receipt).toContain('6')
   })
 
   it('restores export when a successful rebuild changes the preview from draft to published', async () => {

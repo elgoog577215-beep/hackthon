@@ -123,6 +123,72 @@ def test_quality_contract_blocks_split_atoms_duplicate_copy_and_empty_answers() 
     assert "empty_answer" in codes
 
 
+def test_paired_answer_ids_satisfy_closed_question_mapping() -> None:
+    slide = _slide(
+        "slide:v5:practice:paired",
+        title="判断映射是否保持线性结构",
+        content="判断给定映射是否同时保持加法与数乘。",
+        scene_kind="practice_feedback",
+        block_type="exercise",
+    )
+    slide["blocks"][0]["metadata"].update({
+        "question_id": "question-linear",
+        "question_ids": ["question-linear"],
+        "question_mode": "closed",
+        "semantic_role": "prompt",
+    })
+    slide["blocks"].append({
+        "block_id": "answer-linear",
+        "type": "callout",
+        "title": "参考答案与判断依据",
+        "content": "",
+        "items": ["两项都成立，因此该映射是线性映射。"],
+        "metadata": {
+            "semantic_role": "answer",
+            "direct_answer": True,
+            "answer_for_question_ids": ["question-linear"],
+            "source_fragment_ids": ["fragment-answer"],
+        },
+    })
+
+    report = build_slide_deck_quality_v5([slide])
+
+    assert "answer_mapping_missing" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_semantic_repair_does_not_merge_past_final_body_budget() -> None:
+    first = _slide(
+        "slide:v5:dense:001",
+        title="第一组完整依据",
+        content="甲" * 150,
+    )
+    second = _slide(
+        "slide:v5:dense:002",
+        title="第二组待补充依据",
+        content=("乙" * 100) + "包括",
+    )
+    for slide, count in ((first, 150), (second, 102)):
+        slide["quality"].update({
+            "body_character_count": count,
+            "body_character_budget": 230,
+            "visible_item_count": 0,
+            "visible_item_budget": 5,
+        })
+
+    repaired, history = repair_semantic_slides_v5(
+        [first, second],
+        max_rounds=2,
+    )
+
+    assert len(repaired) == 2
+    assert not any(
+        item["action"] == "merge_sparse_or_dangling_page"
+        for item in history
+    )
+
+
 def test_continuation_requires_parent_link_and_visible_sequence() -> None:
     continuation = _slide(
         "slide:v5:episode-1:continuation",
@@ -139,6 +205,110 @@ def test_continuation_requires_parent_link_and_visible_sequence() -> None:
 
     assert "continuation_sequence_missing" in {
         issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_semantic_repair_restores_continuation_sequence_after_title_repair() -> None:
+    root = _slide(
+        "slide:v5:episode-1:root",
+        title="纵隔四分法的平面划分依据",
+        content="前三个区域分别说明其位置与主要结构。" * 20,
+    )
+    continuation = _slide(
+        "slide:v5:episode-1:continuation",
+        title="纵隔四分法的平面划分依据",
+        content="后纵隔位于心包后壁与脊柱之间。" * 20,
+    )
+    continuation["quality"].update({
+        "continuation_of": root["unit_id"],
+        "continuation_index": 2,
+        "continuation_total": 2,
+        "title_character_budget": 18,
+    })
+
+    repaired, _history = repair_semantic_slides_v5(
+        [root, continuation],
+        max_rounds=2,
+    )
+
+    assert repaired[1]["title"].endswith("（续2/2）")
+    assert "continuation_sequence_missing" not in {
+        issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
+def test_semantic_repair_renumbers_duplicate_continuation_children() -> None:
+    root = _slide(
+        "slide:v5:episode-1:root",
+        title="纵隔四分法的平面划分依据",
+        content="纵隔划分的来源说明。" * 30,
+    )
+    children = []
+    for number, content in enumerate((
+        "前纵隔与中纵隔分别说明其边界。",
+        "后纵隔位于心包后壁与脊柱之间。",
+    ), start=1):
+        child = _slide(
+            f"slide:v5:episode-1:continuation-{number}",
+            title="纵隔四分法的平面划分依据（续2/2）",
+            content=content * 20,
+        )
+        child["quality"].update({
+            "continuation_of": root["unit_id"],
+            "continuation_index": 2,
+            "continuation_total": 2,
+            "title_character_budget": 18,
+        })
+        children.append(child)
+
+    repaired, _history = repair_semantic_slides_v5(
+        [root, *children],
+        max_rounds=2,
+    )
+
+    assert [slide["quality"]["continuation_index"] for slide in repaired] == [
+        1,
+        2,
+        3,
+    ]
+    assert repaired[1]["title"].endswith("（续2/3）")
+    assert repaired[2]["title"].endswith("（续3/3）")
+
+
+def test_grounded_practice_feedback_is_not_accidental_duplicate_copy() -> None:
+    concept = _slide(
+        "slide:v5:episode-1:concept",
+        title="四层结构形成稳定定位顺序",
+        content="皮层、浅筋膜、深筋膜与肌层构成由浅入深的定位顺序。",
+    )
+    practice = _slide(
+        "slide:v5:episode-2:practice",
+        title="核对四层结构的绘制顺序",
+        content="请核对绘图中四层结构的顺序。",
+        episode_id="episode-2",
+        scene_kind="practice_feedback",
+        block_type="exercise",
+    )
+    practice["blocks"][0]["metadata"].update({
+        "question_mode": "open_discussion",
+        "semantic_role": "prompt",
+    })
+    practice["blocks"].append({
+        "block_id": "slide:v5:episode-2:practice:feedback",
+        "type": "callout",
+        "title": "判断依据",
+        "content": "皮层、浅筋膜、深筋膜与肌层构成由浅入深的定位顺序。",
+        "items": [],
+        "metadata": {
+            "semantic_role": "feedback",
+            "grounded": True,
+        },
+    })
+
+    report = build_slide_deck_quality_v5([concept, practice])
+
+    assert "duplicate_visible_content" not in {
+        issue["code"] for issue in report["issues"]
     }
 
 
@@ -209,6 +379,186 @@ def test_semantic_repair_removes_internal_labels_from_source_body_without_losing
     assert any(item["action"] == "replace_internal_label" for item in history)
     assert "raw_internal_label_visible" not in {
         issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
+def test_semantic_repair_replaces_promoted_internal_titles_from_markdown_sources() -> None:
+    slides = [
+        _slide(
+            "slide:v5:898723642bdc07b279355281",
+            title="本节知识规范名称",
+            content=(
+                "Unity 开发环境初始化与工程目录结构规范。"
+                "学习者需完成以下可观察目标。"
+            ),
+        ),
+        _slide(
+            "slide:v5:29900c205643b89ca2458cc8",
+            title="知识规范名称",
+            content=(
+                "MonoBehaviour 脚本命名规范与生命周期回调执行顺序。"
+                "本节通过创建符合规范的脚本验证初始化时序。"
+            ),
+        ),
+        _slide(
+            "slide:v5:cac08a9027846cdfba776eef",
+            title="**知识规范名称",
+            content=(
+                "在脚本中实现 Awake、Start 和 Update 三个生命周期回调方法，"
+                "并观察日志执行顺序。"
+            ),
+        ),
+    ]
+    slides[0]["takeaway"] = "**Unity 开发环境初始化与工程目录结构规范**。"
+    for slide in slides[1:]:
+        slide["takeaway"] = (
+            "**知识规范名称：MonoBehaviour 脚本命名规范与生命周期回调执行顺序**"
+        )
+    slides[2]["quality"].update({
+        "continuation_of": slides[1]["unit_id"],
+        "continuation_index": 2,
+        "continuation_total": 2,
+    })
+
+    repaired, history = repair_semantic_slides_v5(slides, max_rounds=2)
+    report = build_slide_deck_quality_v5(repaired)
+
+    assert all(str(slide["title"]).strip("* ") for slide in repaired)
+    assert all("知识规范名称" not in str(slide["title"]) for slide in repaired)
+    assert all("知识规范名称" not in str(slide.get("takeaway") or "") for slide in repaired)
+    assert any(item["action"] == "replace_internal_label" for item in history)
+    assert "raw_internal_label_visible" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_semantic_repair_drops_a_source_bound_dangling_scaffold() -> None:
+    slide = _slide(
+        "slide:v5:source-scaffold",
+        title="切换平台会重建目标资源",
+        content=(
+            "切换目标平台会触发编译器、资源压缩算法与脚本后端的重构。"
+        ),
+        scene_kind="reasoning",
+    )
+    slide["blocks"][0]["metadata"]["fragment_ids"] = ["fragment-claim"]
+    slide["blocks"].append({
+        "block_id": "dangling-label",
+        "type": "process",
+        "title": "",
+        "content": "",
+        "items": ["平台切换操作："],
+        "metadata": {"fragment_ids": ["fragment-label"]},
+    })
+
+    repaired, history = repair_semantic_slides_v5([slide], max_rounds=2)
+    report = build_slide_deck_quality_v5(repaired)
+
+    assert repaired[0]["blocks"][0]["content"].startswith("切换目标平台")
+    assert all(
+        "平台切换操作" not in str(item)
+        for block in repaired[0]["blocks"]
+        for item in block.get("items") or []
+    )
+    assert any(item["action"] == "remove_dangling_scaffold" for item in history)
+    assert "dangling_fragment" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_semantic_repair_records_source_bound_process_and_example_closure() -> None:
+    process = _slide(
+        "slide:v5:process-result",
+        title="对象序列化为 JSON 字符串",
+        content=(
+            "使用 JsonUtility.ToJson 方法遍历对象的公共字段，"
+            "并将其转换为 JSON 字符串。"
+        ),
+        scene_kind="method",
+    )
+    process["blocks"][0]["metadata"]["fragment_ids"] = ["fragment-process"]
+    example = _slide(
+        "slide:v5:worked-conclusion",
+        title="初始化顺序会影响实例访问",
+        content=(
+            "案例中 PlayerController 先于 GameManager 初始化，"
+            "因此访问实例时会报错。"
+        ),
+        scene_kind="worked_example",
+        block_type="exercise",
+    )
+    example["blocks"][0]["metadata"].update({
+        "fragment_ids": ["fragment-example"],
+        "question_mode": "open_discussion",
+    })
+
+    repaired, history = repair_semantic_slides_v5(
+        [process, example],
+        max_rounds=2,
+    )
+    report = build_slide_deck_quality_v5(repaired)
+
+    assert repaired[0]["quality"]["process_result"]
+    assert repaired[1]["quality"]["worked_example_conclusion"]
+    assert any(item["action"] == "bind_source_closure" for item in history)
+    assert not {
+        "process_result_missing",
+        "worked_example_conclusion_missing",
+    }.intersection(issue["code"] for issue in report["issues"])
+
+
+def test_context_only_method_and_open_case_prompt_do_not_require_fake_results() -> None:
+    method_context = _slide(
+        "slide:v5:method-context",
+        title="线程安全单例需要考虑执行环境",
+        content=(
+            "Unity 主线程逻辑可能与网络包处理或后台计算交织，"
+            "标准懒汉式单例需考虑线程安全性。"
+        ),
+        scene_kind="method",
+    )
+    case_prompt = _slide(
+        "slide:v5:case-prompt",
+        title="粒子增多伴随帧率下降",
+        content=(
+            "随着粒子特效增多，帧率从 60 FPS 下降至 15 FPS，"
+            "并伴随周期性卡顿。"
+        ),
+        scene_kind="worked_example",
+        block_type="exercise",
+    )
+    case_prompt["blocks"][0]["metadata"]["question_mode"] = "open_discussion"
+
+    report = build_slide_deck_quality_v5([method_context, case_prompt])
+
+    assert not {
+        "process_result_missing",
+        "worked_example_conclusion_missing",
+    }.intersection(issue["code"] for issue in report["issues"])
+
+
+def test_duplicate_gate_allows_a_shared_technical_term_on_distinct_pages() -> None:
+    overview = _slide(
+        "slide:v5:profiler-overview",
+        title="发布清单连接诊断与回归",
+        content=(
+            "发布清单要求使用 Unity Profiler 的 Deep Profile 模式定位瓶颈，"
+            "并记录复现步骤、根因与修复方案。"
+        ),
+    )
+    diagnosis = _slide(
+        "slide:v5:profiler-diagnosis",
+        title="动态状态需要运行时诊断",
+        content=(
+            "静态分析无法覆盖动态状态，必须使用 Unity Profiler 的 Deep Profile "
+            "模式观察真实耗时。"
+        ),
+    )
+
+    report = build_slide_deck_quality_v5([overview, diagnosis])
+
+    assert "duplicate_visible_content" not in {
+        issue["code"] for issue in report["issues"]
     }
 
 
@@ -313,6 +663,31 @@ def test_render_repair_changes_only_the_audited_page() -> None:
     assert len(repaired[0]["blocks"]) == 1
     assert len(repaired[0]["title"]) <= 24
     assert {item["page_id"] for item in history} == {"slide:v5:episode-1:001"}
+
+
+def test_render_repair_shortens_a_twenty_character_chinese_title() -> None:
+    slide = _slide(
+        "slide:v5:chapter:long-title",
+        title="线性映射的定义，并能判断给定映射是否线性",
+        content="什么样的映射不会破坏向量空间中的线性结构？",
+    )
+    assert len(slide["title"]) == 20
+    review = {
+        "issues": [{
+            "severity": "critical",
+            "code": "exported_title_unexpected_wrap",
+            "page": 1,
+        }],
+    }
+
+    repaired, history = repair_render_slides_v5(
+        [slide],
+        review,
+        round_index=1,
+    )
+
+    assert len(repaired[0]["title"]) <= 18
+    assert history[0]["actions"] == ["shorten_title_from_existing_copy"]
 
 
 def test_process_result_in_source_grounded_takeaway_satisfies_contract() -> None:

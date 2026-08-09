@@ -46,6 +46,10 @@ class CommandRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
+class InitializeBaselineRequest(CommandRequest):
+    base_course_document_revision: str = Field(default="", max_length=200)
+
+
 class AICandidateRequest(BaseModel):
     # 上限按「一个小节的全部可编辑字段」定，不是按人手勾选的字段数定：
     # 需求 5 的分小节优化会把整节路径一次性发出，而一节的路径数随环节数与
@@ -107,6 +111,26 @@ async def get_workbench(
     try:
         return {"status": "success", "workbench": service.view(course_id, actor=_actor(request))}
     except Exception as exc:  # Convert domain conflicts into a stable API contract.
+        raise _error(exc) from exc
+
+
+@router.post("/baseline")
+async def initialize_baseline(
+    course_id: str,
+    body: InitializeBaselineRequest,
+    request: Request,
+    service: TeachingPlanWorkbenchService = Depends(_service),
+) -> dict[str, Any]:
+    try:
+        return {
+            "status": "initialized",
+            **await service.initialize_baseline(
+                course_id,
+                actor=_actor(request),
+                **body.model_dump(),
+            ),
+        }
+    except Exception as exc:
         raise _error(exc) from exc
 
 

@@ -1,0 +1,145 @@
+name: Production Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Read-only retrieval query to diagnose"
+        required: false
+        default: "什么是面向对象编程 例子"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  retrieval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure deployment SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
+          chmod 600 ~/.ssh/lingzhi_deploy
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Inspect retrieval path
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          DIAGNOSTIC_QUERY: ${{ inputs.query }}
+        run: |
+          set -euo pipefail
+          remote_query="$(printf '%q' "$DIAGNOSTIC_QUERY")"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_DIAGNOSTIC_QUERY=$remote_query bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "== service =="
+          systemctl is-active lingzhi || true
+          docker ps --filter name=lingzhi-searxng --format '{{.Names}} {{.Status}} {{.Ports}}' || true
+
+          echo "== health =="
+          curl -fsS --max-time 5 http://127.0.0.1:7862/api/health \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); print(json.dumps(p.get("web_retrieval_v2", p), ensure_ascii=False, indent=2))'
+
+          echo "== searxng direct =="
+          curl -fsS --max-time 12 http://127.0.0.1:8080/search \
+            --data-urlencode "q=$LINGZHI_DIAGNOSTIC_QUERY" \
+            --data 'format=json' \
+            --data 'categories=general,science' \
+            --data 'language=zh-CN' \
+            --data 'safesearch=2' \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2))'
+
+          echo "== raw gateway =="
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          cd /opt/lingzhi/hackthon/backend
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import asyncio
+          import json
+          import os
+
+          from ai_teacher_retrieval import build_ai_teacher_queries
+          from web_retrieval import RetrievalRequest, configured_retrieval_gateway
+
+          query = os.environ.get("LINGZHI_DIAGNOSTIC_QUERY", "")
+
+          async def retrieve(queries):
+              gateway, feature = configured_retrieval_gateway("diagnostic-user")
+              package = await gateway.retrieve(RetrievalRequest(
+                  purpose="ai_teacher",
+                  enabled=True,
+                  queries=queries,
+              ))
+              return feature, package
+
+          def summarize(feature, package):
+              return {
+                  "feature": feature,
+                  "provider": package.get("provider"),
+                  "status": package.get("status"),
+                  "queries": package.get("queries"),
+                  "receipt": package.get("receipt"),
+                  "sources": [
+                      {
+                          "title": item.get("title"),
+                          "url": item.get("url"),
+                          "trust_tier": item.get("trust_tier"),
+                          "relevance": item.get("relevance"),
+                      }
+                      for item in (package.get("sources") or [])[:5]
+                  ],
+                  "rejected": [
+                      {
+                          "title": item.get("title"),
+                          "url": item.get("url"),
+                          "trust_tier": item.get("trust_tier"),
+                          "relevance": item.get("relevance"),
+                          "rejection_reasons": item.get("rejection_reasons"),
+                      }
+                      for item in (package.get("rejected_sources") or [])[:5]
+                  ],
+              }
+
+          async def main():
+              raw_feature, raw_package = await retrieve([query])
+              print(json.dumps(summarize(raw_feature, raw_package), ensure_ascii=False, indent=2))
+
+              print("== ai teacher gateway ==")
+              course = {
+                  "course_id": "diagnostic-course",
+                  "course_name": "",
+                  "nodes": [
+                      {
+                          "node_id": "diagnostic-node",
+                          "node_name": "",
+                          "learning_objective": "",
+                      }
+                  ],
+              }
+              ai_queries = build_ai_teacher_queries(
+                  course,
+                  question=query,
+                  node_id="diagnostic-node",
+              )
+              ai_feature, ai_package = await retrieve(ai_queries)
+              print(json.dumps(summarize(ai_feature, ai_package), ensure_ascii=False, indent=2))
+
+          asyncio.run(main())
+          PY
+          REMOTE

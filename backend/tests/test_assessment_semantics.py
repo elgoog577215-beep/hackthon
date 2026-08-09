@@ -4,6 +4,7 @@ from copy import deepcopy
 
 import pytest
 
+from assessment_generation_policy import resolve_assessment_generation_policy
 from assessment_orchestrator import (
     AssessmentGenerationOrchestrator,
     SemanticPreflightFailure,
@@ -288,7 +289,13 @@ async def test_semantic_failure_is_blocked_before_independent_solver():
     }
 
     with pytest.raises(SemanticPreflightFailure) as captured:
-        await orchestrator._solve_and_build(base, candidate, audit)
+        await orchestrator._solve_and_build(
+            base,
+            candidate,
+            audit,
+            generation_policy=resolve_assessment_generation_policy("deliberate"),
+            solution_batcher=None,
+        )
 
     assert model.solve_calls == 0
     assert audit["independent_solution_calls"] == 0

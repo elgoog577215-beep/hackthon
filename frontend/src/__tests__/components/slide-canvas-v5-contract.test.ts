@@ -108,6 +108,34 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
   })
 
+  it('does not fall back to a legacy layout when a final V5 layout is missing', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          title: '缺少最终布局的页面',
+          blocks: [{ block_id: 'body', type: 'rich_text', content: '正文仍保留。' }],
+          quality: {
+            requested_layout: 'two-column',
+            final_page_contract_version: 'final_page_contract_v5.12',
+            final_page_contract_v2: { page_id: 'slide:v5:missing-layout' },
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.attributes('data-layout')).toBe('v5-layout-missing')
+    expect(wrapper.attributes('data-layout')).not.toBe('two-column')
+    expect(wrapper.attributes('data-layout')).not.toBe('concept')
+  })
+
   it('renders three sibling concepts as three semantic classification regions', () => {
     const wrapper = mount(SlideCanvas, {
       props: {

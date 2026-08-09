@@ -9,7 +9,7 @@ import pytest
 from pptx import Presentation
 
 import slide_deck_renderer
-from course_document import CourseDocument, CourseSection
+from course_document import CourseBlock, CourseDocument, CourseSection
 from slide_deck import SlideDeckContent, validate_slide_deck
 from slide_deck_renderer import (
     V5_LAYOUT_RENDERER_NAMES,
@@ -21,6 +21,7 @@ from slide_deck_v3 import (
     ContentFragmentV1,
     PlannedPageV2,
     SlideAllocationPlanV2,
+    fragment_course_document,
     slide_deck_variant_key,
 )
 from slide_deck_v4 import allocation_from_story_plan_v2
@@ -28,6 +29,8 @@ from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
+    _v5_fragment_groups_for_profile,
+    _v5_group_kind_for_profile,
     allocation_from_story_plan_v5,
     apply_page_contract_v5,
     build_signature_v5,
@@ -35,13 +38,14 @@ from slide_deck_v5 import (
     compile_deck_outline_v5,
     compile_page_title_v5,
     compile_slide_deck_v5,
+    finalize_v5_candidate_contract,
     finalize_v5_quality_report,
     repair_final_page_contracts_v5,
     resolve_page_contract_v5,
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
-from slide_quality_v5 import _concise_existing_title
+from slide_quality_v5 import _concise_existing_title, build_slide_deck_quality_v5
 from slide_story_plan import (
     ChapterStoryV2,
     ClaimSourceV2,
@@ -282,6 +286,44 @@ def test_v5_allocation_closes_source_lists_and_uses_continuations() -> None:
     assert content_pages[1].continuation_of == content_pages[0].page_id
 
 
+def test_quality_fallback_prefers_explicit_source_group_kind() -> None:
+    fragment = ContentFragmentV1(
+        fragment_id="fragment-clinical-context",
+        section_id="chapter-1",
+        block_id="block-clinical-context",
+        kind="heading",
+        text="Clinical context",
+        ordinal=10,
+        source_hash="hash-clinical-context",
+        role="concept",
+        source_kind="course_block",
+    )
+    inferred_practice = SimpleNamespace(
+        semantic_unit_id="semantic-clinical-context",
+        primary_role="checkpoint",
+        presentation_intent="practice_feedback",
+    )
+
+    assert _v5_group_kind_for_profile(
+        [fragment],
+        {fragment.fragment_id: inferred_practice},
+        profile="quality_fallback",
+    ) == "concept"
+
+    continuation = fragment.model_copy(update={
+        "fragment_id": "fragment-clinical-context-detail",
+        "block_id": "block-clinical-context-detail",
+        "kind": "paragraph",
+        "text": "Source-bound detail stored in a separate legacy block.",
+        "ordinal": 11,
+        "source_hash": "hash-clinical-context-detail",
+    })
+    assert _v5_fragment_groups_for_profile(
+        [fragment, continuation],
+        profile="quality_fallback",
+    ) == [[fragment, continuation]]
+
+
 def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() -> None:
     document = _document(1)
     variant_key = slide_deck_variant_key("teaching", "qizhi-classroom")
@@ -326,6 +368,177 @@ def test_v5_compiles_directly_to_final_ids_and_rebuilds_a_stale_visual_plan() ->
     assert content["deck_brief"]["fallback_reason"] == (
         "v5_final_page_ids_visual_plan_rebuilt"
     )
+
+
+def test_v5_only_streams_final_contract_candidate_slides() -> None:
+    events: list[dict] = []
+
+    content = compile_slide_deck_v5(
+        _document(1),
+        {},
+        story_plan=_story(1),
+        progress_callback=events.append,
+    )
+
+    candidate_events = [event for event in events if event.get("event") == "slide_upsert"]
+    reset_events = [event for event in events if event.get("event") == "slide_reset"]
+    assert reset_events == [{
+        "event": "slide_reset",
+        "progress": 97,
+        "stage": "v5_candidate",
+        "engine_schema": "slide_deck_v5",
+        "candidate_stage": "final_contract",
+    }]
+    assert len(candidate_events) == len(content["slides"])
+    assert [event["slide"] for event in candidate_events] == content["slides"]
+    assert all(
+        event.get("engine_schema") == "slide_deck_v5"
+        and event.get("candidate_stage") == "final_contract"
+        for event in candidate_events
+    )
+
+
+def test_v5_candidate_exposes_source_contract_dispositions_and_terminal_state() -> None:
+    document = _document(1).model_copy(update={
+        "blocks": [CourseBlock(
+            block_id="block-source-contract",
+            section_id="chapter-1",
+            position=0,
+            role="concept",
+            payload={
+                "markdown": (
+                    "系统边界决定系统与环境之间能够发生的交换。"
+                    "识别边界后，需要分别检查物质交换与能量交换，"
+                    "再根据两类交换是否存在判断系统类型。"
+                ),
+            },
+        )],
+    })
+    fragment = fragment_course_document(document)[0]
+    story = _story(1)
+    chapter = story.chapters[0]
+    source_beat = _beat(1, "concept").model_copy(update={
+        "beat_id": "beat-source-contract",
+        "fragment_ids": [fragment.fragment_id],
+    })
+    story = story.model_copy(update={
+        "chapters": [chapter.model_copy(update={
+            "episodes": [
+                chapter.episodes[0],
+                TeachingEpisodeV2(
+                    episode_id="episode-source-contract",
+                    scene_kind="concept",
+                    teaching_job="解释系统边界的判断方法",
+                    beats=[source_beat],
+                ),
+                chapter.episodes[-1],
+            ],
+        })],
+    })
+
+    content = compile_slide_deck_v5(
+        document,
+        {},
+        story_plan=story,
+    )
+
+    assert content["ppt_source_contract_v1"]["source_document_revision"] == (
+        document.document_revision
+    )
+    assert content["candidate_status"] in {"v5_ready", "v5_needs_manual_edit"}
+    dispositions = content["source_dispositions"]
+    fragment_ids = {
+        str(item["fragment_id"])
+        for item in content.get("fragment_manifest") or []
+    }
+    assert {str(item["fragment_id"]) for item in dispositions} == fragment_ids
+    assert all(item["disposition"] in {
+        "rendered",
+        "rendered_in_safe_layout",
+        "moved_to_appendix",
+        "needs_manual_edit",
+        "intentionally_excluded_with_reason",
+    } for item in dispositions)
+
+
+def test_v5_readable_layout_warning_publishes_manual_edit_candidate() -> None:
+    content = compile_slide_deck_v5(
+        _document(1),
+        {},
+        story_plan=_story(1),
+    )
+    page_id = content["slides"][0]["unit_id"]
+    quality = {
+        **content["quality_report"],
+        "passed": True,
+        "status": "ready",
+        "blockers": [],
+        "warnings": [
+            *(content["quality_report"].get("warnings") or []),
+            {
+                "severity": "warning",
+                "dimension": "layout_export",
+                "code": "render_review_manual_adjustment",
+                "page_id": page_id,
+                "message": "本页内容完整，但建议人工微调视觉间距。",
+            },
+        ],
+    }
+
+    finalized = finalize_v5_candidate_contract(content, quality)
+
+    assert finalized["passed"] is True
+    assert finalized["candidate_status"] == "v5_needs_manual_edit"
+    assert content["candidate_status"] == "v5_needs_manual_edit"
+    assert content["manual_edit_required"] == [{
+        "page_id": page_id,
+        "reasons": [{
+            "code": "render_review_manual_adjustment",
+            "message": "本页内容完整，但建议人工微调视觉间距。",
+        }],
+    }]
+    assert content["slides"][0]["quality"]["manual_edit_required"] is True
+
+
+def test_v5_source_disposition_keeps_the_strongest_page_outcome() -> None:
+    content = {
+        "fragment_manifest": [{"fragment_id": "fragment-manual"}],
+        "allocation_plan": {"pages": []},
+        "exclusions": [],
+        "slides": [
+            {
+                "unit_id": "manual-page",
+                "blocks": [],
+                "quality": {
+                    "fragment_ids": ["fragment-manual"],
+                    "manual_edit_required": True,
+                    "manual_edit_reasons": [{
+                        "code": "layout_spacing",
+                        "message": "需要人工微调间距。",
+                    }],
+                },
+            },
+            {
+                "unit_id": "derived-recap",
+                "blocks": [],
+                "quality": {"fragment_ids": ["fragment-manual"]},
+            },
+        ],
+    }
+
+    finalize_v5_candidate_contract(content, {
+        "passed": True,
+        "score": 100,
+        "issues": [],
+        "warnings": [],
+        "blockers": [],
+    })
+
+    assert content["source_dispositions"] == [{
+        "fragment_id": "fragment-manual",
+        "disposition": "needs_manual_edit",
+        "page_id": "manual-page",
+    }]
 
 
 def test_outline_groups_eight_chapters_into_at_most_six_source_bound_sections() -> None:
@@ -1277,6 +1490,24 @@ def test_pptx_renderer_uses_resolved_layout_instead_of_requested_layout() -> Non
 
     editorial_renderer.assert_called_once()
     two_column_renderer.assert_not_called()
+
+
+def test_pptx_renderer_rejects_a_final_v5_page_without_resolved_layout(
+    tmp_path: Path,
+) -> None:
+    content = compile_slide_deck_v5(
+        _document(1),
+        {},
+        story_plan=_story(1),
+    )
+    content["slides"][0]["quality"].pop("resolved_layout", None)
+
+    with pytest.raises(ValueError, match="v5_final_layout_missing"):
+        export_structured_slide_deck(
+            content,
+            tmp_path / "invalid-v5-layout.pptx",
+            require_quality=False,
+        )
 
 
 @pytest.mark.parametrize(
@@ -2278,6 +2509,7 @@ def test_v5_paginates_every_practice_question_instead_of_hiding_overflow() -> No
         "quality": {
             "requested_layout": "practice-feedback",
             "feedback_mode": "shared_evidence",
+            "semantic_atom_ids": ["atom-practice-five-questions"],
         },
     }])
     resolved = [apply_page_contract_v5(page) for page in pages]
@@ -2297,10 +2529,12 @@ def test_v5_paginates_every_practice_question_instead_of_hiding_overflow() -> No
         <= page["quality"]["visible_item_budget"]
         for page in resolved
     )
-    assert not any(
-        issue["code"] == "visible_item_overflow"
-        for issue in v5_contract_issues(resolved)
-    )
+    issue_codes = {
+        issue["code"]
+        for issue in build_slide_deck_quality_v5(resolved)["issues"]
+    }
+    assert "visible_item_overflow" not in issue_codes
+    assert "semantic_atom_split" not in issue_codes
 
 
 def test_v5_promotes_feedback_group_labels_instead_of_counting_them_as_items() -> None:
@@ -2648,6 +2882,10 @@ def test_chapter_recap_uses_claims_and_a_retrieval_prompt_not_slide_titles() -> 
         (
             "本节旨在建立上肢近端至中段的“骨 - 肌 - 神经”空间对应关系",
             "骨 - 肌 - 神经空间对应关系",
+        ),
+        (
+            "本模块依据下肢肌群配布的功能分区与协同拮抗机制开展教学",
+            "下肢肌群配布的功能分区",
         ),
     ],
 )

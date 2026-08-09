@@ -37,6 +37,7 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
         "pubmed",
         "openalex",
         "crossref",
+        "wikicommons.images",
     }
 
     assert "formats:\n      - json" in settings
@@ -48,6 +49,8 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "max_request_timeout: 4.0" in settings
     for engine in expected:
         assert f"- {engine}" in settings
+    assert "name: wikicommons.images" in settings
+    assert "categories: images" in settings
     assert "google" not in settings.lower()
 
 

@@ -47,6 +47,21 @@ def _clip(value: Any, max_chars: int) -> str:
     return text[: max(1, max_chars - 1)] + "…"
 
 
+def _planning_stages(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple)):
+        values = value
+    else:
+        values = []
+    result: list[str] = []
+    for item in values:
+        stage = _clip(item, 80)
+        if stage and stage not in result:
+            result.append(stage)
+    return result
+
+
 @dataclass(frozen=True)
 class CourseOutlinePlanningBudget:
     """Per-unit outline execution settings, never a total-course ceiling."""
@@ -117,6 +132,9 @@ def normalize_outline_skeleton(
         chapters.append({
             "chapter_number": index,
             "title": _clip(raw.get("title") or f"第 {index} 章", 120),
+            "planning_stages": _planning_stages(
+                raw.get("planning_stages") or raw.get("planning_stage")
+            ),
             "learning_focus": _clip(
                 raw.get("learning_focus")
                 or f"完成{topic}的第 {index} 阶段学习任务",
@@ -168,6 +186,7 @@ def validate_outline_skeleton(
     *,
     shape_constraints: dict[str, Any],
     request_fingerprint: str,
+    course_type_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     chapters = [
@@ -236,6 +255,55 @@ def validate_outline_skeleton(
             "outline_skeleton:inconsistent_shape",
             "小节总数少于章节数，无法保证每章至少包含一个可学习小节",
         ))
+    required_stages = [
+        str(item.get("id") or "").strip()
+        for item in (course_type_contract or {}).get("required_planning_stages") or []
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    if required_stages and chapters:
+        chapter_stages = [
+            _planning_stages(
+                item.get("planning_stages") or item.get("planning_stage")
+            )
+            for item in chapters
+        ]
+        actual_stages = [
+            stage
+            for stages in chapter_stages
+            for stage in stages
+        ]
+        missing_stages = [
+            stage for stage in required_stages if stage not in actual_stages
+        ]
+        unknown_stages = [
+            stage for stage in actual_stages
+            if stage and stage not in required_stages
+        ]
+        if any(not stages for stages in chapter_stages):
+            issues.append(_issue(
+                "outline_skeleton:missing_planning_stage",
+                "专用课程规划器要求每章声明 planning_stages",
+            ))
+        if missing_stages:
+            issues.append(_issue(
+                "outline_skeleton:incomplete_planning_stages",
+                f"课程骨架缺少必要规划阶段：{missing_stages}",
+            ))
+        if unknown_stages:
+            issues.append(_issue(
+                "outline_skeleton:unknown_planning_stage",
+                f"课程骨架包含未知规划阶段：{unknown_stages}",
+            ))
+        known_positions = [
+            required_stages.index(stage)
+            for stage in actual_stages
+            if stage in required_stages
+        ]
+        if known_positions != sorted(known_positions):
+            issues.append(_issue(
+                "outline_skeleton:planning_stage_order_mismatch",
+                "课程骨架的规划阶段顺序不符合课程类型合同",
+            ))
     return {
         "schema_version": "course_outline_skeleton_validation_v2",
         "passed": not issues,
@@ -513,6 +581,9 @@ def assemble_course_outline(
         chapters.append({
             "chapter_number": chapter_number,
             "title": str(chapter.get("title") or f"第 {chapter_number} 章"),
+            "planning_stages": _planning_stages(
+                chapter.get("planning_stages") or chapter.get("planning_stage")
+            ),
             "learning_focus": str(
                 chapter.get("learning_focus") or chapter.get("title") or ""
             ),

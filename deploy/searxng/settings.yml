@@ -15,6 +15,7 @@ use_default_settings:
       - pubmed
       - openalex
       - crossref
+      - wikicommons.images
 
 general:
   debug: false
@@ -62,4 +63,10 @@ engines:
   - name: openalex
     disabled: false
   - name: crossref
+    disabled: false
+  - name: wikicommons.images
+    engine: wikicommons
+    shortcut: wci
+    categories: images
+    wc_search_type: image
     disabled: false

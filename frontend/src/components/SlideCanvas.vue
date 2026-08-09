@@ -365,6 +365,10 @@ interface Slide {
     heading_mode?: 'full' | 'hidden'
     section_label?: string
     feedback_mode?: 'paired' | 'shared_evidence'
+    final_page_contract_version?: string
+    final_page_contract_v2?: Record<string, any>
+    manual_edit_required?: boolean
+    manual_edit_reasons?: Array<Record<string, any>>
   }
 }
 
@@ -384,11 +388,15 @@ const props = withDefaults(defineProps<{
   representationId: '',
 })
 
-const visualLayout = computed(() => (
-  props.slide.quality?.resolved_layout
-  || props.slide.quality?.requested_layout
-  || props.slide.layout
-))
+const visualLayout = computed(() => {
+  const quality = props.slide.quality
+  const carriesFinalV5Contract = Boolean(
+    quality?.final_page_contract_v2
+    || quality?.final_page_contract_version?.startsWith('final_page_contract_v5'),
+  )
+  if (carriesFinalV5Contract && !quality?.resolved_layout) return 'v5-layout-missing'
+  return quality?.resolved_layout || quality?.requested_layout || props.slide.layout
+})
 const headingMode = computed<'full' | 'hidden'>(() => (
   props.slide.quality?.heading_mode === 'hidden' ? 'hidden' : 'full'
 ))

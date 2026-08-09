@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
 
+import slide_web_images
 from routers.teaching_representations import SlideDeckVariantBuildRequest
 from slide_asset_repository import SlideAssetRepository
 from slide_web_images import (
@@ -15,7 +17,6 @@ from slide_web_images import (
     rank_image_candidates_v5,
     resolve_visual_search_request_v5,
     safe_retrieval_url,
-    search_wikimedia_commons_v5,
     stage_retrieved_image,
 )
 
@@ -167,30 +168,6 @@ def test_retrieved_asset_manifest_keeps_full_provenance(tmp_path: Path) -> None:
     assert manifest["retrieved_at"]
 
 
-def test_commons_request_uses_a_descriptive_user_agent() -> None:
-    captured: dict[str, object] = {}
-
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict:
-            return {"query": {"pages": {}}}
-
-    class FakeClient:
-        def get(self, url: str, *, params: dict, headers: dict) -> FakeResponse:
-            captured.update({"url": url, "params": params, "headers": headers})
-            return FakeResponse()
-
-    assert search_wikimedia_commons_v5(
-        "generic educational structure",
-        client=FakeClient(),  # type: ignore[arg-type]
-    ) == []
-    assert str((captured["headers"] or {}).get("User-Agent", "")).startswith(
-        "LingzhiPPTV5/"
-    )
-
-
 def test_source_bound_ai_search_plan_is_used_before_deterministic_fallback() -> None:
     slide = {
         "unit_id": "slide:v5:source-bound-search",
@@ -223,3 +200,108 @@ def test_source_bound_ai_search_plan_is_used_before_deterministic_fallback() -> 
         "countercurrent heat exchanger cross section",
         "countercurrent flow diagram public domain",
     ]
+
+
+def test_ppt_image_retrieval_uses_shared_gateway_and_hydrates_commons_license(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeGateway:
+        async def retrieve(self, request: Any) -> dict[str, Any]:
+            captured["request"] = request
+            return {
+                "provider": "searxng",
+                "status": "completed",
+                "queries": request.queries,
+                "sources": [{
+                    "url": "https://commons.wikimedia.org/wiki/File:Heart_diagram.png",
+                    "title": "Heart diagram",
+                    "excerpt": "Anatomical diagram of the human heart",
+                    "matched_query": request.queries[0],
+                    "provider_metadata": {
+                        "engines": ["wikicommons.images"],
+                        "image_url": "https://upload.wikimedia.org/heart-diagram.png",
+                        "resolution": "1600 x 900",
+                    },
+                }],
+                "receipt": {"status": "completed", "source_count": 1},
+            }
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {
+                "query": {
+                    "pages": {
+                        "1": {
+                            "title": "File:Heart diagram.png",
+                            "imageinfo": [{
+                                "thumburl": "https://upload.wikimedia.org/heart-diagram-thumb.png",
+                                "descriptionurl": "https://commons.wikimedia.org/wiki/File:Heart_diagram.png",
+                                "thumbwidth": 1600,
+                                "thumbheight": 900,
+                                "extmetadata": {
+                                    "LicenseShortName": {"value": "CC BY 4.0"},
+                                    "LicenseUrl": {
+                                        "value": "https://creativecommons.org/licenses/by/4.0/"
+                                    },
+                                    "Artist": {"value": "Example Author"},
+                                },
+                            }],
+                        }
+                    }
+                }
+            }
+
+    class FakeCommonsClient:
+        def get(self, url: str, *, params: dict, headers: dict) -> FakeResponse:
+            captured["metadata_url"] = url
+            captured["metadata_params"] = params
+            captured["metadata_headers"] = headers
+            return FakeResponse()
+
+        def close(self) -> None:
+            return None
+
+    def fake_download(candidate: Any, *, client: Any, output_dir: str | Path) -> Path:
+        del candidate, client
+        target = Path(output_dir) / "retrieved.png"
+        Image.new("RGB", (1600, 900), color=(40, 80, 120)).save(target)
+        return target
+
+    monkeypatch.setattr(slide_web_images, "download_retrieved_image_v5", fake_download)
+    request = slide_web_images.VisualSearchRequestV5(
+        page_id="slide:v5:heart",
+        need_visual=True,
+        visual_intent="physical_structure",
+        priority="high",
+        canonical_terms=["human heart"],
+        visual_goal="Show the structure of the human heart",
+        must_show=["heart"],
+        queries=["human heart anatomy"],
+    )
+
+    asset = slide_web_images.retrieve_best_image_v5(
+        request,
+        repository=SlideAssetRepository(tmp_path / "assets"),
+        course_id="course-1",
+        source_fragment_ids=["fragment-1"],
+        alt_text="Human heart anatomy",
+        purpose="physical_structure",
+        client=FakeCommonsClient(),  # type: ignore[arg-type]
+        gateway=FakeGateway(),  # type: ignore[arg-type]
+    )
+
+    gateway_request = captured["request"]
+    assert gateway_request.purpose == "ppt_image"
+    assert gateway_request.category == "images"
+    assert captured["metadata_url"] == "https://commons.wikimedia.org/w/api.php"
+    assert captured["metadata_params"]["titles"] == "File:Heart diagram.png"
+    assert str(captured["metadata_headers"]["User-Agent"]).startswith("LingzhiPPTV5/")
+    assert asset is not None
+    assert asset.source_provider == "searxng"
+    assert asset.license == "CC BY 4.0"

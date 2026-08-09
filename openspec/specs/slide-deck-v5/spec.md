@@ -68,6 +68,17 @@ The system SHALL select a bounded teaching arc from complete, source-bound
 semantic groups and SHALL NOT mechanically split a selected group across
 continuation pages.
 
+#### Scenario: One source atom exceeds every layout budget
+- **WHEN** a code block, display formula, prose sentence, or list item is larger
+  than the safe input capacity of the semantic layout registry
+- **THEN** source parsing partitions it at source-native boundaries and assigns
+  stable continuation fragment IDs before layout selection
+- **AND** all continuation fragments retain the same source block binding
+- **AND** V5 either selects the complete bounded semantic group or records the
+  complete oversized group as explicit source exclusions
+- **AND** an oversized atom does not terminate the whole-course build with a
+  layout-capacity exception
+
 #### Scenario: A legacy section contains several Markdown subsections
 - **WHEN** deterministic V5 compaction builds the section teaching arc
 - **THEN** it selects no more than three complete concept, reasoning/example,
@@ -93,6 +104,13 @@ continuation pages.
 - **WHEN** V5 compacts the chapter teaching arc
 - **THEN** it omits the unsupported practice episode
 - **AND** it does not fabricate a prompt or answer merely to satisfy a template
+
+#### Scenario: A bounded practice group exceeds the renderer row capacity
+- **WHEN** complete question-answer pairs require more than one practice page
+- **THEN** V5 partitions only at question-answer pair boundaries
+- **AND** each page receives stable child semantic atom IDs while retaining the
+  parent semantic atom IDs as provenance
+- **AND** no question or its bound answer is split across pages
 
 ### Requirement: AI Refines the Compact Source-Bound Story
 
@@ -424,3 +442,110 @@ the publication report from final visible pages.
 - **WHEN** the final page fits its title, character, and item budget
 - **THEN** the stale intermediate warning is removed
 - **AND** it cannot block publication
+
+#### Scenario: Semantic repair considers merging adjacent pages
+- **WHEN** a sparse, dangling, or split-atom page is eligible for a deterministic
+  merge
+- **THEN** the merge is allowed only when the combined body and visible items
+  fit the target page's resolved final-layout budgets
+- **AND** semantic repair does not replace one semantic issue with a final-page
+  overflow
+
+#### Scenario: The first V5 candidate fails its final publication gate
+- **WHEN** the first AI, partially deterministic, or fully deterministic V5
+  candidate is not already the strict `quality_fallback` profile
+- **THEN** the system retries once with the source-only `quality_fallback`
+  profile and newly compiled allocation and visual plans
+- **AND** only a candidate that passes all final semantic, capacity,
+  composition, export, and rendering gates is atomically published
+- **AND** a terminal compiler exception emits its structured blocker and
+  original diagnostic message to the durable task and browser client
+
+### Requirement: V5 Builds Are Schema Closed
+
+The system SHALL treat a requested V5 build as a schema-closed operation whose
+only terminal outcomes are `v5_ready`, `v5_needs_manual_edit`, and
+`v5_failed`.
+
+#### Scenario: V5 generation cannot produce a valid V5 candidate
+- **WHEN** a requested V5 build exhausts its allowed in-V5 fallbacks
+- **THEN** the build ends as `v5_failed` with a structured reason
+- **AND** it does not compile, publish, or present a V3 or V4 candidate
+
+#### Scenario: A page remains visually imperfect but readable
+- **WHEN** all source content is present and the page passes readability and export integrity gates
+- **THEN** the page is marked `manual_edit_required`
+- **AND** the complete deck ends as `v5_needs_manual_edit` instead of failing or changing schema
+
+### Requirement: V5 Builds Freeze A Source Contract
+
+The system SHALL create `ppt_source_contract_v1` from the canonical course
+document, course logic, references, and source revision before V5 compilation.
+
+#### Scenario: The course remains static during generation
+- **WHEN** the source contract is valid and its revision remains unchanged through commit
+- **THEN** all V5 pages and source dispositions refer to that frozen revision
+
+#### Scenario: The source changes during generation
+- **WHEN** the source revision at commit differs from the frozen contract
+- **THEN** the build ends as `v5_failed`
+- **AND** the failure code identifies a source revision conflict as retryable
+
+### Requirement: Internal Materialization Does Not Leak Legacy Candidates
+
+The system SHALL keep legacy materializer pages private to the V5 compiler and
+publish preview events only after V5 final page contracts are complete.
+
+#### Scenario: V5 reuses the V3 materializer
+- **WHEN** the internal materializer emits base slide updates
+- **THEN** those updates are not forwarded as public candidate pages
+- **AND** final public page events declare `engine_schema=slide_deck_v5` and `candidate_stage=final_contract`
+
+#### Scenario: A V5 client receives a legacy page event
+- **WHEN** the event lacks the V5 final-candidate envelope or declares an older schema
+- **THEN** the client ignores it
+- **AND** it does not replace the last valid V5 preview
+
+### Requirement: Oversized Sources Use Lossless V5 Safe Pages
+
+The system SHALL render sources that cannot safely use a rich layout with a V5
+safe layout and deterministic continuation pages.
+
+#### Scenario: One source unit fits within three safe pages
+- **WHEN** a document, code, table, formula, or mixed source exceeds a rich page budget
+- **THEN** the system renders it in one to three safe V5 pages
+- **AND** records `rendered_in_safe_layout` for every included source fragment
+
+#### Scenario: Completeness requires more than three pages
+- **WHEN** three pages cannot contain the source without truncation or unreadable text
+- **THEN** the system creates additional continuation pages and records a diagnostic
+- **AND** it does not omit content merely to enforce the target page count
+
+### Requirement: Every Source Fragment Has A Final Disposition
+
+The system SHALL assign exactly one auditable final disposition to every source
+fragment used by the V5 build.
+
+#### Scenario: Publication completeness is audited
+- **WHEN** the final candidate is evaluated
+- **THEN** each fragment is `rendered`, `rendered_in_safe_layout`, `moved_to_appendix`, `needs_manual_edit`, or `intentionally_excluded_with_reason`
+- **AND** a missing or unexplained disposition blocks publication
+
+### Requirement: V5 Failures Are Structured And Actionable
+
+The system SHALL return a stable V5 failure envelope for every hard failure.
+
+#### Scenario: Infrastructure or compiler integrity fails
+- **WHEN** model, storage, renderer, export integrity, source contract, or an unknown compiler invariant fails
+- **THEN** the envelope contains `stage`, `code`, `message`, `retryable`, and `source_revision`
+- **AND** includes `chapter_id` and `page_id` when the failure is localized
+
+### Requirement: V5 Renderers Fail Closed On Missing Final Layouts
+
+The system SHALL use `quality.resolved_layout` as the only layout authority for
+a page carrying the V5 final page contract.
+
+#### Scenario: A final V5 page has no resolved layout
+- **WHEN** browser preview, quality audit, or PPTX export resolves the page
+- **THEN** publication or export fails with a structured invariant error
+- **AND** neither `requested_layout` nor legacy `layout` is used as fallback

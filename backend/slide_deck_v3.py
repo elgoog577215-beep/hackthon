@@ -134,6 +134,7 @@ _THEME_PAGE_CAPACITY = {
     "modern-geometric": 210,
     "dark-tech": 225,
 }
+SOURCE_FRAGMENT_TEXT_CAPACITY = 220
 
 
 class _StrictModel(BaseModel):
@@ -587,60 +588,176 @@ def fragment_course_document(document: CourseDocument) -> list[ContentFragmentV1
             clean = text.strip()
             if not clean:
                 continue
-            fragment_identity = {
-                "block_id": block.block_id,
-                "unit_index": unit_index,
-                "kind": kind,
-                "text": clean,
-            }
-            if language:
-                fragment_identity["language"] = language
-            fragment_id = stable_hash(fragment_identity, prefix="sfg_")
-            fragments.append(ContentFragmentV1(
-                fragment_id=fragment_id,
-                section_id=block.section_id,
-                block_id=block.block_id,
-                kind=kind,
-                text=clean,
-                language=language,
-                ordinal=ordinal,
-                source_hash=stable_hash(clean, prefix="sfh_"),
-                role=block.role,
-                source_kind=block.kind,
-                asset_refs=list(block.asset_refs),
-                objective_refs=list(block.objective_refs),
-                concept_refs=list(block.concept_refs),
-                evidence_refs=list(block.evidence_refs),
-                module_id=str(payload.get("module_id") or ""),
-                module_instance_id=str(
-                    payload.get("module_instance_id") or ""
-                ),
-                lesson_archetype_id=str(
-                    payload.get("lesson_archetype_id")
-                    or lesson_archetype.get("archetype_id")
-                    or lesson_archetype.get("id")
-                    or ""
-                ),
-                composition_source=str(
-                    payload.get("composition_source") or ""
-                ),
-                composition_style=str(
-                    payload.get("composition_style") or ""
-                ),
-                block_difficulty_contract=(
-                    dict(payload.get("block_difficulty_contract") or {})
-                    if isinstance(
-                        payload.get("block_difficulty_contract") or {},
-                        dict,
+            source_parts = _capacity_safe_fragment_units(
+                kind,
+                clean,
+                language,
+            )
+            for part_index, (part_kind, part_text, part_language) in enumerate(
+                source_parts,
+            ):
+                fragment_identity = {
+                    "block_id": block.block_id,
+                    "unit_index": unit_index,
+                    "kind": part_kind,
+                    "text": part_text,
+                }
+                if part_language:
+                    fragment_identity["language"] = part_language
+                if len(source_parts) > 1:
+                    fragment_identity["source_unit_part"] = (
+                        f"{part_index + 1}/{len(source_parts)}"
                     )
-                    else {}
-                ),
-                knowledge_binding_status=str(
-                    payload.get("knowledge_binding_status") or ""
-                ),
-            ))
-            ordinal += 1
+                fragment_id = stable_hash(fragment_identity, prefix="sfg_")
+                fragments.append(ContentFragmentV1(
+                    fragment_id=fragment_id,
+                    section_id=block.section_id,
+                    block_id=block.block_id,
+                    kind=part_kind,
+                    text=part_text,
+                    language=part_language,
+                    ordinal=ordinal,
+                    source_hash=stable_hash(part_text, prefix="sfh_"),
+                    role=block.role,
+                    source_kind=block.kind,
+                    asset_refs=list(block.asset_refs),
+                    objective_refs=list(block.objective_refs),
+                    concept_refs=list(block.concept_refs),
+                    evidence_refs=list(block.evidence_refs),
+                    module_id=str(payload.get("module_id") or ""),
+                    module_instance_id=str(
+                        payload.get("module_instance_id") or ""
+                    ),
+                    lesson_archetype_id=str(
+                        payload.get("lesson_archetype_id")
+                        or lesson_archetype.get("archetype_id")
+                        or lesson_archetype.get("id")
+                        or ""
+                    ),
+                    composition_source=str(
+                        payload.get("composition_source") or ""
+                    ),
+                    composition_style=str(
+                        payload.get("composition_style") or ""
+                    ),
+                    block_difficulty_contract=(
+                        dict(payload.get("block_difficulty_contract") or {})
+                        if isinstance(
+                            payload.get("block_difficulty_contract") or {},
+                            dict,
+                        )
+                        else {}
+                    ),
+                    knowledge_binding_status=str(
+                        payload.get("knowledge_binding_status") or ""
+                    ),
+                ))
+                ordinal += 1
     return fragments
+
+
+def _capacity_safe_fragment_units(
+    kind: str,
+    text: str,
+    language: str,
+) -> list[tuple[str, str, str]]:
+    """Partition one source atom before any semantic layout is selected.
+
+    The story and final-page allocators can paginate between fragments, but an
+    oversized single fragment used to bypass both paginators and make the
+    layout registry raise.  Keep the source text lossless while introducing
+    stable continuation fragments at the earliest shared boundary.
+    """
+    if kind in {"image", "diagram"} or len(text) <= SOURCE_FRAGMENT_TEXT_CAPACITY:
+        return [(kind, text, language)]
+    if kind == "code":
+        parts = _split_code_fragment(text, SOURCE_FRAGMENT_TEXT_CAPACITY)
+    elif kind == "formula":
+        parts = _split_display_formula(text, SOURCE_FRAGMENT_TEXT_CAPACITY)
+    else:
+        parts = _split_capacity_text(text, SOURCE_FRAGMENT_TEXT_CAPACITY)
+    return [(kind, part, language) for part in parts if part]
+
+
+def _split_capacity_text(value: str, limit: int) -> list[str]:
+    """Split exact text at a readable boundary without dropping characters."""
+    remaining = value
+    chunks: list[str] = []
+    while len(remaining) > limit:
+        window = remaining[:limit]
+        boundaries = [
+            window.rfind(marker) + len(marker)
+            for marker in ("\n", "。", "！", "？", ";", "；", "，", ",", " ")
+            if window.rfind(marker) >= 0
+        ]
+        cut = max(boundaries, default=0)
+        if cut < max(24, limit // 3):
+            cut = limit
+        chunks.append(remaining[:cut])
+        remaining = remaining[cut:]
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _split_code_fragment(value: str, limit: int) -> list[str]:
+    """Prefer complete source lines, splitting only an individually long line."""
+    lines = value.split("\n")
+    chunks: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        line_parts = _split_capacity_text(line, limit) if len(line) > limit else [line]
+        for part in line_parts:
+            candidate = "\n".join([*current, part])
+            if current and len(candidate) > limit:
+                chunks.append("\n".join(current))
+                current = []
+            current.append(part)
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
+def _split_display_formula(value: str, limit: int) -> list[str]:
+    """Keep every continuation as a self-contained display-math fragment."""
+    if value.startswith("$$") and value.endswith("$$"):
+        prefix = suffix = "$$"
+        body = value[2:-2]
+    elif value.startswith("\\[") and value.endswith("\\]"):
+        prefix, suffix = "\\[", "\\]"
+        body = value[2:-2]
+    else:
+        return _split_capacity_text(value, limit)
+    body_limit = max(1, limit - len(prefix) - len(suffix))
+    body_parts = _split_formula_body(body, body_limit)
+    return [f"{prefix}{part}{suffix}" for part in body_parts]
+
+
+def _split_formula_body(value: str, limit: int) -> list[str]:
+    """Prefer top-level operators so braces remain balanced across pages."""
+    remaining = value
+    chunks: list[str] = []
+    while len(remaining) > limit:
+        window = remaining[:limit]
+        depth = 0
+        safe_cuts: list[int] = []
+        for index, character in enumerate(window):
+            escaped = index > 0 and window[index - 1] == "\\"
+            if character == "{" and not escaped:
+                depth += 1
+            elif character == "}" and not escaped:
+                depth = max(0, depth - 1)
+            elif depth == 0 and character in {"+", "=", ",", ";", "\n"}:
+                safe_cuts.append(index + 1)
+        cut = max(safe_cuts, default=0)
+        if cut < max(16, limit // 3):
+            whitespace = window.rfind(" ") + 1
+            cut = whitespace if whitespace >= max(16, limit // 3) else limit
+        chunks.append(remaining[:cut])
+        remaining = remaining[cut:]
+    if remaining:
+        chunks.append(remaining)
+    return chunks
 
 
 def _pedagogical_section_order(

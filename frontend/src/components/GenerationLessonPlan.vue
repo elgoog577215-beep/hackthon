@@ -17,9 +17,16 @@
 
       <div class="generation-lesson-plan__summary">
         <div v-if="showWorkbenchControls" class="generation-lesson-plan__workbench-controls">
+          <span v-if="currentRevisionNumber" class="generation-lesson-plan__revision-badge">
+            {{ t('courseGeneration.lessonPlan.revisionLabel', '正式修订') }} #{{ currentRevisionNumber }}
+          </span>
           <span v-if="workbenchStore.isSaving" class="generation-lesson-plan__draft-state" role="status">
             <LoaderCircle :size="14" />
             {{ t('courseGeneration.lessonPlan.editSaving', '正在保存草稿') }}
+          </span>
+          <span v-else-if="hasPendingValues" class="generation-lesson-plan__draft-state is-pending" role="status">
+            <CircleDashed :size="14" />
+            {{ t('courseGeneration.lessonPlan.editPending', '修改待同步') }}
           </span>
           <span v-else-if="editing" class="generation-lesson-plan__draft-state" role="status">
             <CircleCheck :size="14" />
@@ -37,36 +44,51 @@
             <History :size="16" />
           </button>
           <button
-            v-if="!editing"
+            v-if="!editing && workbenchAvailable"
             type="button"
-            class="generation-lesson-plan__tool-button"
-            :disabled="workbenchStore.loading || !workbenchAvailable"
+            class="generation-lesson-plan__review-button is-primary"
+            :disabled="workbenchStore.loading || actionBusy"
             :title="t('courseGeneration.lessonPlan.startEditing', '编辑教案')"
             :aria-label="t('courseGeneration.lessonPlan.startEditing', '编辑教案')"
             @click="beginEditing"
           >
             <Pencil :size="16" />
+            {{ t('courseGeneration.lessonPlan.startEditing', '编辑教案') }}
           </button>
-          <template v-else>
+          <button
+            v-if="!editing && workbenchAvailable"
+            type="button"
+            class="generation-lesson-plan__review-button"
+            :disabled="workbenchStore.loading || actionBusy"
+            @click="openAiAssistant(viewMode === 'sections' ? 'section' : 'overall')"
+          >
+            <RefreshCw :size="16" />
+            {{ viewMode === 'sections'
+              ? t('courseGeneration.lessonPlan.regenerateSection', '重新生成当前小节')
+              : t('courseGeneration.lessonPlan.adjustOverall', 'AI 调整全课') }}
+          </button>
+          <template v-if="editing">
             <button
               type="button"
-              class="generation-lesson-plan__tool-button"
+              class="generation-lesson-plan__review-button"
               :disabled="workbenchStore.isSaving || actionBusy"
               :title="t('courseGeneration.lessonPlan.openAiAssistant', '生成 AI 建议')"
               :aria-label="t('courseGeneration.lessonPlan.openAiAssistant', '生成 AI 建议')"
-              @click="aiOpen = !aiOpen"
+              @click="openAiAssistant(viewMode === 'sections' ? 'section' : 'overall')"
             >
               <Sparkles :size="16" />
+              {{ t('courseGeneration.lessonPlan.openAiAssistant', 'AI 调整') }}
             </button>
             <button
               type="button"
-              class="generation-lesson-plan__tool-button"
-              :disabled="workbenchStore.isSaving"
+              class="generation-lesson-plan__review-button"
+              :disabled="workbenchStore.isSaving || actionBusy || !hasDraftChanges"
               :title="t('courseGeneration.lessonPlan.reviewChanges', '审阅变更')"
               :aria-label="t('courseGeneration.lessonPlan.reviewChanges', '审阅变更')"
               @click="openReview"
             >
               <GitCompare :size="16" />
+              {{ t('courseGeneration.lessonPlan.reviewChanges', '审阅变更') }}
             </button>
             <button
               type="button"
@@ -86,40 +108,56 @@
             <strong>{{ completedSections }}/{{ totalSections }}</strong>
           </div>
           <div class="generation-lesson-plan__progress-track" aria-hidden="true">
-            <i :style="{ width: `${planProgress}%` }" />
+            <i :style="{ transform: `scaleX(${planProgress / 100})` }" />
           </div>
         </div>
         <dl>
           <div>
             <dt>{{ t('courseGeneration.lessonPlan.sections', '小节') }}</dt>
-            <dd>{{ plan?.section_count || sections.length }}</dd>
+            <dd>{{ effectivePlan?.section_count || sections.length }}</dd>
           </div>
           <div>
             <dt>{{ t('courseGeneration.lessonPlan.knowledge', '知识点') }}</dt>
-            <dd>{{ plan?.knowledge_point_count || knowledgeCount }}</dd>
+            <dd>{{ effectivePlan?.knowledge_point_count || knowledgeCount }}</dd>
           </div>
           <div>
             <dt>{{ t('courseGeneration.lessonPlan.modules', '教学环节') }}</dt>
-            <dd>{{ plan?.teaching_module_count || moduleCount }}</dd>
+            <dd>{{ effectivePlan?.teaching_module_count || moduleCount }}</dd>
           </div>
         </dl>
       </div>
     </header>
 
     <aside
-      v-if="showWorkbenchControls && !workbenchAvailable && workbenchStore.workbench"
+      v-if="showWorkbenchControls && !workbenchAvailable && activeWorkbench"
       class="generation-lesson-plan__workbench-notice"
       role="status"
     >
       <CircleDashed :size="17" />
-      <p>{{ workbenchStore.workbench.enabled
-        ? t('courseGeneration.lessonPlan.readOnlyLegacy', '这门课程仍可阅读；迁移为结构化课程后才能创建可审阅的教案草稿。')
-        : t('courseGeneration.lessonPlan.readOnlyDisabled', '教案工作台当前未启用；正式教案和历史记录保持可读。') }}</p>
+      <div>
+        <strong>{{ activeWorkbench.can_initialize
+          ? t('courseGeneration.lessonPlan.initializeTitle', '建立可编辑教案')
+          : t('courseGeneration.lessonPlan.readOnlyTitle', '当前教案为只读') }}</strong>
+        <p>{{ workbenchReadOnlyReason }}</p>
+      </div>
+      <button
+        v-if="activeWorkbench.can_initialize"
+        type="button"
+        class="generation-lesson-plan__review-button is-primary"
+        :disabled="workbenchStore.pendingAction === 'initialize'"
+        @click="initializeBaseline"
+      >
+        <LoaderCircle v-if="workbenchStore.pendingAction === 'initialize'" :size="16" />
+        <Pencil v-else :size="16" />
+        {{ workbenchStore.pendingAction === 'initialize'
+          ? t('courseGeneration.lessonPlan.initializing', '正在建立')
+          : t('courseGeneration.lessonPlan.initializeAction', '建立并开始编辑') }}
+      </button>
     </aside>
 
-    <p v-if="showWorkbenchControls && workbenchStore.errorCode" class="generation-lesson-plan__workbench-error" role="alert">
+    <div v-if="showWorkbenchControls && workbenchStore.errorCode" class="generation-lesson-plan__workbench-error" role="alert">
       <TriangleAlert :size="16" />
-      {{ workbenchErrorMessage }}
+      <span>{{ workbenchErrorMessage }}</span>
       <button
         v-if="outlineEditorTarget"
         type="button"
@@ -128,7 +166,11 @@
       >
         {{ t('courseGeneration.lessonPlan.goToOutlineEditor', '去目录编辑器') }}
       </button>
-    </p>
+      <button type="button" @click="recoverWorkbench">
+        <RefreshCw :size="14" />
+        {{ t('courseGeneration.lessonPlan.retryAction', '重新载入') }}
+      </button>
+    </div>
 
     <section v-if="reviewOpen && workbenchStore.review" class="generation-lesson-plan__review" aria-live="polite">
       <header>
@@ -148,21 +190,33 @@
       </header>
       <p v-if="!workbenchStore.review.validation.passed" class="generation-lesson-plan__review-blocked">
         <TriangleAlert :size="16" />
-        {{ t('courseGeneration.lessonPlan.reviewBlocked', '结构校验尚未通过，请先修复草稿中的问题。') }}
+        <span>
+          {{ t('courseGeneration.lessonPlan.reviewBlocked', '结构校验尚未通过，请先修复草稿中的问题。') }}
+          <small v-for="issue in workbenchStore.review.validation.issues || []" :key="issue.code || issue.message">
+            {{ issue.message }}
+          </small>
+        </span>
       </p>
       <div class="generation-lesson-plan__review-grid">
         <section>
           <strong>{{ t('courseGeneration.lessonPlan.reviewDiff', '本次修改') }}</strong>
           <ol class="generation-lesson-plan__diff-list">
             <li v-for="operation in groupedDiffOperations" :key="operation.operation_id">
-              <span class="generation-lesson-plan__diff-kind" :data-kind="operation.kind">
-                {{ diffKindLabel(operation.kind) }}
-              </span>
-              <span class="generation-lesson-plan__diff-where">{{ operation.location }}</span>
-              <code>{{ operation.path }}</code>
-              <small v-if="operation.source === 'ai'">
-                {{ t('courseGeneration.lessonPlan.diffSourceAi', 'AI 建议') }}
-              </small>
+              <div class="generation-lesson-plan__diff-heading">
+                <span class="generation-lesson-plan__diff-kind" :data-kind="operation.kind">
+                  {{ diffKindLabel(operation.kind) }}
+                </span>
+                <span class="generation-lesson-plan__diff-where">{{ operation.location }}</span>
+                <code>{{ operation.path }}</code>
+                <span>{{ operation.source === 'ai'
+                  ? t('courseGeneration.lessonPlan.sourceAi', 'AI 建议')
+                  : t('courseGeneration.lessonPlan.sourceManual', '手工修改') }}</span>
+              </div>
+              <div class="generation-lesson-plan__diff-values">
+                <del>{{ formatOperationValue(operation.before) }}</del>
+                <ArrowRight :size="14" />
+                <ins>{{ formatOperationValue(operation.after) }}</ins>
+              </div>
             </li>
           </ol>
         </section>
@@ -231,13 +285,28 @@
         </button>
       </header>
       <div v-if="!activeAiCandidate" class="generation-lesson-plan__ai-request">
-        <label>
-          <span>{{ t('courseGeneration.lessonPlan.aiScope', '建议范围') }}</span>
-          <select v-model="aiScope">
-            <option value="overall">{{ t('courseGeneration.lessonPlan.aiScopeOverall', '全课教学设计') }}</option>
-            <option value="section" :disabled="!selectedSection?.plan">{{ t('courseGeneration.lessonPlan.aiScopeSection', '当前小节') }}</option>
-          </select>
-        </label>
+        <fieldset>
+          <legend>{{ t('courseGeneration.lessonPlan.aiScope', '建议范围') }}</legend>
+          <div class="generation-lesson-plan__scope-control">
+            <button
+              type="button"
+              :class="{ 'is-active': aiScope === 'overall' }"
+              :aria-pressed="aiScope === 'overall'"
+              @click="setAiScope('overall')"
+            >
+              {{ t('courseGeneration.lessonPlan.aiScopeOverall', '全课教学设计') }}
+            </button>
+            <button
+              type="button"
+              :class="{ 'is-active': aiScope === 'section' }"
+              :aria-pressed="aiScope === 'section'"
+              :disabled="!selectedSection?.plan"
+              @click="setAiScope('section')"
+            >
+              {{ t('courseGeneration.lessonPlan.aiScopeSection', '当前小节') }}
+            </button>
+          </div>
+        </fieldset>
         <label>
           <span>{{ t('courseGeneration.lessonPlan.aiInstruction', '希望怎样优化') }}</span>
           <textarea v-model="aiInstruction" :placeholder="t('courseGeneration.lessonPlan.aiInstructionPlaceholder', '例如：让目标更可观察，并避免把教学策略写得过于抽象')" />
@@ -249,14 +318,25 @@
           @click="requestAiCandidate"
         >
           <Sparkles :size="16" />
-          {{ t('courseGeneration.lessonPlan.requestAiCandidate', '生成候选') }}
+          {{ workbenchStore.pendingAction === 'ai'
+            ? t('courseGeneration.lessonPlan.aiGenerating', '正在生成候选')
+            : aiScope === 'section'
+              ? t('courseGeneration.lessonPlan.regenerateSection', '重新生成当前小节')
+              : t('courseGeneration.lessonPlan.requestAiCandidate', '生成候选') }}
         </button>
       </div>
       <div v-else class="generation-lesson-plan__ai-candidate">
         <p>{{ activeAiCandidate.rationale || t('courseGeneration.lessonPlan.aiCandidateFallback', 'AI 已根据当前草稿生成结构化建议。') }}</p>
         <label v-for="operation in activeAiCandidate.operations" :key="operation.operation_id">
           <input v-model="selectedAiOperationIds" type="checkbox" :value="operation.operation_id" />
-          <code>{{ operation.path }}</code>
+          <span class="generation-lesson-plan__candidate-change">
+            <code>{{ operation.path }}</code>
+            <span>
+              <del>{{ formatOperationValue(operation.before) }}</del>
+              <ArrowRight :size="13" />
+              <ins>{{ formatOperationValue(operation.after) }}</ins>
+            </span>
+          </span>
         </label>
         <footer>
           <button
@@ -282,7 +362,7 @@
       </div>
     </section>
 
-    <section v-if="historyOpen && workbenchStore.workbench" class="generation-lesson-plan__history" aria-live="polite">
+    <section v-if="historyOpen && activeWorkbench" class="generation-lesson-plan__history" aria-live="polite">
       <header>
         <div>
           <span>{{ t('courseGeneration.lessonPlan.historyEyebrow', '正式教案修订') }}</span>
@@ -298,8 +378,8 @@
           <X :size="16" />
         </button>
       </header>
-      <ol v-if="workbenchStore.workbench.revisions.length" class="generation-lesson-plan__history-list">
-        <li v-for="revision in workbenchStore.workbench.revisions" :key="revision.revision_id">
+      <ol v-if="activeWorkbench.revisions.length" class="generation-lesson-plan__history-list">
+        <li v-for="revision in activeWorkbench.revisions" :key="revision.revision_id">
           <div>
             <strong>#{{ revision.revision_number }}</strong>
             <span>{{ revision.created_at || revision.revision_id }}</span>
@@ -308,7 +388,7 @@
             <button
               type="button"
               class="generation-lesson-plan__tool-button"
-              :disabled="revision.revision_id === workbenchStore.workbench.current_plan_revision_id || actionBusy"
+              :disabled="revision.revision_id === activeWorkbench.current_plan_revision_id || actionBusy"
               :title="t('courseGeneration.lessonPlan.compareRevision', '与当前修订比较')"
               :aria-label="t('courseGeneration.lessonPlan.compareRevision', '与当前修订比较')"
               @click="compareRevision(revision.revision_id)"
@@ -318,7 +398,7 @@
             <button
               type="button"
               class="generation-lesson-plan__history-restore"
-              :disabled="revision.revision_id === workbenchStore.workbench.current_plan_revision_id || actionBusy"
+              :disabled="revision.revision_id === activeWorkbench.current_plan_revision_id || actionBusy"
               @click="restoreRevision(revision.revision_id)"
             >
               {{ t('courseGeneration.lessonPlan.restoreRevision', '恢复为新修订') }}
@@ -1120,7 +1200,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   ArrowRight,
   ArrowUpRight,
@@ -1143,6 +1223,7 @@ import {
   TriangleAlert,
   UsersRound,
   Pencil,
+  RefreshCw,
   X,
 } from 'lucide-vue-next'
 import type {
@@ -1152,7 +1233,7 @@ import type {
   Task,
 } from '../stores/types'
 import { useTeachingPlanWorkbenchStore } from '../stores/teachingPlanWorkbench'
-import { t } from '../shared/i18n'
+import { activeLocale, t } from '../shared/i18n'
 
 type KnowledgePoint = NonNullable<CourseTeachingPlanSection['knowledge_structure'][number]['knowledge_points']>[number]
 type DetailItem = { primary: string; secondary: string }
@@ -1191,8 +1272,16 @@ const selectedAiOperationIds = ref<string[]>([])
 const actionBusy = ref(false)
 const pendingValues = ref<Record<string, unknown>>({})
 const patchTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const activeWorkbench = computed(() => (
+  workbenchStore.courseId === props.courseId ? workbenchStore.workbench : null
+))
+const effectivePlan = computed(() => (
+  activeWorkbench.value?.teaching_plan?.sections?.length
+    ? activeWorkbench.value.teaching_plan
+    : props.plan
+))
 const planByNode = computed(() => new Map(
-  (props.plan?.sections || []).map(section => [section.node_id, section]),
+  (effectivePlan.value?.sections || []).map(section => [section.node_id, section]),
 ))
 const lessonNodes = computed(() => props.nodes.filter(node => node.node_level === 2))
 const sections = computed(() => lessonNodes.value.map(node => ({
@@ -1206,7 +1295,7 @@ const selectedIndex = computed(() => {
   return childIndex >= 0 ? childIndex : 0
 })
 const selectedSection = computed(() => sections.value[selectedIndex.value])
-const overallPlan = computed(() => props.plan?.overall)
+const overallPlan = computed(() => effectivePlan.value?.overall)
 const classroomPlan = computed(() => overallPlan.value?.classroom || {})
 const hasClassroomDetails = computed(() => Boolean(
   classroomPlan.value.class_size
@@ -1216,17 +1305,19 @@ const hasClassroomDetails = computed(() => Boolean(
 ))
 const previousSection = computed(() => selectedIndex.value > 0 ? sections.value[selectedIndex.value - 1] : undefined)
 const nextSection = computed(() => selectedIndex.value < sections.value.length - 1 ? sections.value[selectedIndex.value + 1] : undefined)
-const planReady = computed(() => props.plan?.status === 'completed' && Boolean(props.plan.sections?.length))
+const planReady = computed(() => (
+  effectivePlan.value?.status === 'completed' && Boolean(effectivePlan.value.sections?.length)
+))
 const completedSections = computed(() => Number(
   props.task?.recovery?.checkpoint?.completed_teaching_plan_sections
   ?? props.task?.phaseDetail?.completed_items
-  ?? props.plan?.sections?.length
+  ?? effectivePlan.value?.sections?.length
   ?? 0,
 ))
 const totalSections = computed(() => Number(
   props.task?.recovery?.checkpoint?.total_teaching_plan_sections
   ?? props.task?.phaseDetail?.total_items
-  ?? props.plan?.section_count
+  ?? effectivePlan.value?.section_count
   ?? sections.value.length
   ?? 0,
 ))
@@ -1235,11 +1326,11 @@ const planProgress = computed(() => (
     ? Math.min(100, Math.round((completedSections.value / totalSections.value) * 100))
     : 0
 ))
-const moduleCount = computed(() => (props.plan?.sections || []).reduce(
+const moduleCount = computed(() => (effectivePlan.value?.sections || []).reduce(
   (sum, section) => sum + (section.teaching_modules?.length || 0),
   0,
 ))
-const knowledgeCount = computed(() => (props.plan?.sections || []).reduce(
+const knowledgeCount = computed(() => (effectivePlan.value?.sections || []).reduce(
   (sum, section) => sum + (section.key_points?.length || 0),
   0,
 ))
@@ -1280,20 +1371,41 @@ const planStatusLabel = computed(() => (
       : t('courseGeneration.lessonPlan.planPreview', '教案预览')
 ))
 const showWorkbenchControls = computed(() => (
-  Boolean(props.courseId) && planReady.value && !props.live
+  Boolean(props.courseId) && !props.live
 ))
-const workbenchAvailable = computed(() => Boolean(workbenchStore.workbench?.available))
-const editing = computed(() => Boolean(workbenchStore.draft))
+const workbenchAvailable = computed(() => Boolean(activeWorkbench.value?.available))
+const editing = computed(() => Boolean(activeWorkbench.value?.draft))
+const workbenchReadOnlyReason = computed(() => {
+  if (!activeWorkbench.value) return ''
+  if (activeWorkbench.value.can_initialize) {
+    return t('courseGeneration.lessonPlan.initializeReason', '系统会从已发布目录建立结构化教案基线，原课程正文保持不变。')
+  }
+  if (!activeWorkbench.value.enabled) {
+    return t('courseGeneration.lessonPlan.readOnlyDisabled', '教案工作台当前未启用；正式教案和历史记录保持可读。')
+  }
+  return activeLocale.value === 'zh' && activeWorkbench.value.read_only_reason
+    ? activeWorkbench.value.read_only_reason
+    : t('courseGeneration.lessonPlan.readOnlyLegacy', '这门课程仍可阅读；迁移为结构化课程后才能创建可审阅的教案草稿。')
+})
+const hasPendingValues = computed(() => Object.keys(pendingValues.value).length > 0)
+const hasDraftChanges = computed(() => Boolean(
+  hasPendingValues.value || activeWorkbench.value?.draft?.changed_paths.length,
+))
+const currentRevisionNumber = computed(() => (
+  activeWorkbench.value?.revisions.find(revision => (
+    revision.revision_id === activeWorkbench.value?.current_plan_revision_id
+  ))?.revision_number || 0
+))
 const activeChangeSet = computed(() => {
-  const draftId = workbenchStore.draft?.draft_id
+  const draftId = activeWorkbench.value?.draft?.draft_id
   if (!draftId) return undefined
-  return workbenchStore.workbench?.change_sets.find(changeSet => (
+  return activeWorkbench.value?.change_sets.find(changeSet => (
     changeSet.draft_id === draftId && ['ready', 'blocked', 'stale'].includes(changeSet.status)
   ))
 })
 const aiPaths = computed(() => {
   const allowed = new Set(
-    workbenchStore.workbench?.editable_fields
+    activeWorkbench.value?.editable_fields
       .filter(field => field.state !== 'readonly')
       .map(field => field.path) || [],
   )
@@ -1304,8 +1416,8 @@ const aiPaths = computed(() => {
   return [...allowed].filter(path => path.startsWith('overall/'))
 })
 const activeAiCandidate = computed(() => {
-  const draftId = workbenchStore.draft?.draft_id
-  return workbenchStore.workbench?.ai_candidates.find(candidate => (
+  const draftId = activeWorkbench.value?.draft?.draft_id
+  return activeWorkbench.value?.ai_candidates.find(candidate => (
     candidate.draft_id === draftId && candidate.status === 'ready'
   ))
 })
@@ -1426,10 +1538,20 @@ const workbenchErrorMessage = computed(() => {
     teaching_plan_readonly_legacy: t('courseGeneration.lessonPlan.errorLegacy', '这门课程需要先迁移为结构化课程。'),
     teaching_plan_draft_expired: t('courseGeneration.lessonPlan.errorDraftExpired', '教案草稿已过期，请重新开始编辑。'),
     redirect_to_outline_edit: t('courseGeneration.lessonPlan.errorOutlineEdit', '章节增删与排序请在目录编辑器中完成。'),
+    teaching_plan_initialization_unavailable: t('courseGeneration.lessonPlan.errorInitializationUnavailable', '当前课程缺少可用于建立教案基线的结构化目录。'),
+    teaching_plan_initialization_blocked: t('courseGeneration.lessonPlan.errorInitializationBlocked', '当前目录还不能建立可编辑教案，请先修复目录结构。'),
   }
   return messages[workbenchStore.errorCode]
+    || (activeLocale.value === 'zh' ? workbenchStore.errorMessage : '')
     || t('courseGeneration.lessonPlan.errorRequest', '教案操作未完成，请稍后重试。')
 })
+
+function formatOperationValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(item => String(item || '')).filter(Boolean).join('；') || '—'
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
 
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
@@ -1559,10 +1681,16 @@ async function toggleModule(option: { module_id: string; required: boolean; sele
 
 function queuePatch(path: string, fallback: unknown, next: unknown) {
   if (!editing.value || sameValue(draftValue(path, fallback), next)) return
+  const queuedCourseId = props.courseId
+  const queuedDraftId = activeWorkbench.value?.draft?.draft_id
   pendingValues.value = { ...pendingValues.value, [path]: next }
   const timer = patchTimers.get(path)
   if (timer) clearTimeout(timer)
   patchTimers.set(path, setTimeout(async () => {
+    if (props.courseId !== queuedCourseId || activeWorkbench.value?.draft?.draft_id !== queuedDraftId) {
+      patchTimers.delete(path)
+      return
+    }
     const value = pendingValues.value[path]
     try {
       await workbenchStore.patchDraft(path, value)
@@ -1600,6 +1728,25 @@ function queueListPatch(path: string, fallback: unknown, event: Event) {
   queuePatch(path, fallback, values)
 }
 
+async function flushPendingPatches(): Promise<boolean> {
+  const entries = Object.entries(pendingValues.value)
+  for (const [path, value] of entries) {
+    const timer = patchTimers.get(path)
+    if (timer) clearTimeout(timer)
+    patchTimers.delete(path)
+    try {
+      await workbenchStore.patchDraft(path, value)
+      if (sameValue(pendingValues.value[path], value)) {
+        const { [path]: _saved, ...rest } = pendingValues.value
+        pendingValues.value = rest
+      }
+    } catch {
+      return false
+    }
+  }
+  return true
+}
+
 async function ensureWorkbench() {
   if (!showWorkbenchControls.value) return
   if (workbenchStore.courseId === props.courseId && workbenchStore.workbench) return
@@ -1621,6 +1768,45 @@ async function beginEditing() {
   }
 }
 
+async function initializeBaseline() {
+  actionBusy.value = true
+  try {
+    await workbenchStore.initializeBaseline()
+    await workbenchStore.beginDraft()
+  } catch {
+    // The read-only state and server message remain visible with a retry action.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+function defaultAiInstruction(scope: 'overall' | 'section'): string {
+  return scope === 'section'
+    ? t('courseGeneration.lessonPlan.sectionRegenerationPrompt', '结合全课目标、相邻小节衔接和当前知识结构，重新设计本小节的目标、教学环节、师生活动、检查与作业。保留稳定知识和模块标识。')
+    : t('courseGeneration.lessonPlan.overallAdjustmentPrompt', '系统优化全课定位、教学对象、总体目标、学习起点、课堂条件和评价安排，使它们清晰一致且可以执行。')
+}
+
+function setAiScope(scope: 'overall' | 'section') {
+  const previousDefault = defaultAiInstruction(aiScope.value)
+  const shouldRefreshInstruction = !aiInstruction.value.trim() || aiInstruction.value === previousDefault
+  aiScope.value = scope
+  if (shouldRefreshInstruction) aiInstruction.value = defaultAiInstruction(scope)
+}
+
+async function openAiAssistant(scope: 'overall' | 'section') {
+  actionBusy.value = true
+  try {
+    if (!editing.value) await workbenchStore.beginDraft()
+    if (!workbenchStore.draft) return
+    setAiScope(scope)
+    aiOpen.value = true
+  } catch {
+    // Keep the workbench visible with the actionable server error.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
 async function discardDraft() {
   actionBusy.value = true
   try {
@@ -1637,6 +1823,7 @@ async function discardDraft() {
 async function openReview() {
   actionBusy.value = true
   try {
+    if (!await flushPendingPatches()) return
     await workbenchStore.reviewDraft()
     reviewOpen.value = Boolean(workbenchStore.review)
   } catch {
@@ -1661,6 +1848,7 @@ async function requestAiCandidate() {
   if (!aiPaths.value.length) return
   actionBusy.value = true
   try {
+    if (!await flushPendingPatches()) return
     await workbenchStore.createAiCandidate(aiPaths.value, aiInstruction.value.trim())
   } catch {
     // Keep the instruction in place so the teacher can refine it and retry.
@@ -1737,6 +1925,27 @@ async function restoreRevision(revisionId: string) {
   }
 }
 
+async function recoverWorkbench() {
+  if (!props.courseId) return
+  actionBusy.value = true
+  try {
+    pendingValues.value = {}
+    for (const timer of patchTimers.values()) clearTimeout(timer)
+    patchTimers.clear()
+    await workbenchStore.load(props.courseId)
+  } catch {
+    // A failed reload keeps the latest server error visible.
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!editing.value || (!hasPendingValues.value && !workbenchStore.isSaving)) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
 watch(
   () => [props.courseId, props.live, planReady.value],
   () => { void ensureWorkbench() },
@@ -1747,7 +1956,10 @@ watch(activeAiCandidate, candidate => {
   selectedAiOperationIds.value = candidate?.operations.map(operation => operation.operation_id) || []
 }, { immediate: true })
 
+onMounted(() => window.addEventListener('beforeunload', handleBeforeUnload))
+
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
   for (const timer of patchTimers.values()) clearTimeout(timer)
   patchTimers.clear()
 })
@@ -1865,10 +2077,10 @@ function openKnowledge(knowledgeId: string): void {
   padding:0 3px 26px;
   border-bottom:1px solid #d8dce4;
 }
-.generation-lesson-plan__eyebrow { display:flex; align-items:center; gap:9px; color:#555bb7; font-size:12px; font-weight:800; letter-spacing:.07em; }
+.generation-lesson-plan__eyebrow { display:flex; align-items:center; gap:9px; color:#555bb7; font-size:12px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__eyebrow i { width:24px; height:1px; background:#b9bdd2; }
 .generation-lesson-plan__eyebrow strong { color:#7b8392; font-size:12px; letter-spacing:0; }
-.generation-lesson-plan__header h2 { margin:8px 0 7px; color:#172131; font:700 clamp(31px,3vw,40px)/1.13 Georgia,"Noto Serif SC",serif; letter-spacing:-.025em; }
+.generation-lesson-plan__header h2 { margin:8px 0 7px; color:#172131; font:700 36px/1.13 Georgia,"Noto Serif SC",serif; letter-spacing:0; }
 .generation-lesson-plan__intro > p { max-width:660px; margin:0; color:#687285; font-size:14px; line-height:1.72; }
 .generation-lesson-plan__summary { display:grid; gap:10px; }
 .generation-lesson-plan__summary dl { display:flex; margin:0; padding:10px 8px; border:1px solid rgba(213,217,226,.95); border-radius:14px; background:rgba(255,255,255,.82); box-shadow:0 10px 30px rgba(36,43,64,.05); backdrop-filter:blur(14px); }
@@ -1879,7 +2091,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__progress { padding:10px 13px; border:1px solid #dfe1f6; border-radius:11px; background:#f8f8ff; }
 .generation-lesson-plan__progress > div:first-child { display:flex; justify-content:space-between; gap:14px; color:#5a60bb; font-size:12px; font-weight:750; }
 .generation-lesson-plan__progress-track { height:4px; overflow:hidden; margin-top:8px; border-radius:999px; background:#e5e7f5; }
-.generation-lesson-plan__progress-track i { display:block; height:100%; border-radius:inherit; background:#6268cc; transition:width .25s ease; }
+.generation-lesson-plan__progress-track i { display:block; width:100%; height:100%; border-radius:inherit; background:#6268cc; transform-origin:left center; transition:transform .25s ease; }
 .generation-lesson-plan__view-switch { width:min(1180px,100%); display:flex; gap:5px; margin:0 auto 14px; padding:5px; border:1px solid #dfe2e8; border-radius:14px; background:rgba(255,255,255,.76); box-shadow:0 8px 25px rgba(38,45,63,.04); backdrop-filter:blur(14px); }
 .generation-lesson-plan__view-switch button { min-width:0; display:flex; align-items:center; gap:10px; padding:9px 14px; border:0; border-radius:10px; color:#737c8c; background:transparent; cursor:pointer; text-align:left; }
 .generation-lesson-plan__view-switch button:hover { color:#4d55ae; background:#f6f6fc; }
@@ -1890,8 +2102,8 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__overview { width:min(1180px,100%); overflow:hidden; margin:0 auto; border:1px solid #d9dde5; border-radius:20px; background:rgba(255,255,255,.97); box-shadow:0 20px 55px rgba(38,45,63,.075); }
 .generation-lesson-plan__overview-hero { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(230px,.34fr); gap:40px; padding:38px 40px 34px; border-bottom:1px solid #e0e3e9; background:linear-gradient(120deg,#fbfbf9 0%,#fff 58%,#f2f3ff 100%); }
 .generation-lesson-plan__overview-hero::before { content:""; position:absolute; top:0; left:40px; width:72px; height:3px; background:#6269c4; }
-.generation-lesson-plan__overview-hero > div > span { color:#696fc0; font-size:12px; font-weight:800; letter-spacing:.09em; }
-.generation-lesson-plan__overview-hero h3 { margin:8px 0 9px; color:#1b2636; font:700 28px/1.25 Georgia,"Noto Serif SC",serif; letter-spacing:-.02em; }
+.generation-lesson-plan__overview-hero > div > span { color:#696fc0; font-size:12px; font-weight:800; letter-spacing:0; }
+.generation-lesson-plan__overview-hero h3 { margin:8px 0 9px; color:#1b2636; font:700 28px/1.25 Georgia,"Noto Serif SC",serif; letter-spacing:0; }
 .generation-lesson-plan__overview-hero p { max-width:760px; margin:0; color:#687285; font-size:14px; line-height:1.75; }
 .generation-lesson-plan__overview-hero aside { align-self:center; display:grid; grid-template-columns:28px minmax(0,1fr); gap:2px 8px; padding:15px 16px; border:1px solid #dfe2ec; border-radius:13px; background:rgba(255,255,255,.72); }
 .generation-lesson-plan__overview-hero aside svg { grid-row:1 / 3; align-self:center; color:#6067bd; }
@@ -1905,7 +2117,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__overview-card > header { display:flex; align-items:center; gap:11px; margin-bottom:18px; }
 .generation-lesson-plan__overview-card > header > svg { flex:none; color:#5960b7; }
 .generation-lesson-plan__overview-card > header span { display:grid; gap:2px; }
-.generation-lesson-plan__overview-card > header small { color:#9198a6; font-size:11px; font-weight:750; letter-spacing:.07em; }
+.generation-lesson-plan__overview-card > header small { color:#9198a6; font-size:11px; font-weight:750; letter-spacing:0; }
 .generation-lesson-plan__overview-card > header strong { color:#364154; font-size:15px; line-height:1.4; }
 .generation-lesson-plan__overview-card ol { display:grid; gap:10px; margin:0; padding:0; list-style:none; }
 .generation-lesson-plan__overview-card ol li { display:grid; grid-template-columns:26px minmax(0,1fr); gap:10px; align-items:start; }
@@ -1921,7 +2133,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__overview-section:last-child { border-bottom:0; }
 .generation-lesson-plan__overview-section > header { display:flex; align-items:end; justify-content:space-between; gap:28px; margin-bottom:21px; }
 .generation-lesson-plan__overview-section > header > span { display:grid; gap:3px; }
-.generation-lesson-plan__overview-section > header small { color:#8e96a4; font-size:11px; font-weight:750; letter-spacing:.07em; }
+.generation-lesson-plan__overview-section > header small { color:#8e96a4; font-size:11px; font-weight:750; letter-spacing:0; }
 .generation-lesson-plan__overview-section > header strong { color:#303b4d; font-size:16px; }
 .generation-lesson-plan__overview-section > header p { max-width:570px; margin:0; color:#7a8393; font-size:12px; line-height:1.6; text-align:right; }
 .generation-lesson-plan__classroom-section { background:#f9fbff; }
@@ -1965,7 +2177,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__sheet-header { position:relative; display:grid; grid-template-columns:70px minmax(0,1fr) auto; align-items:start; gap:22px; padding:30px 34px 28px; border-bottom:1px solid #e1e4e9; background:linear-gradient(110deg,#fbfbfd 0%,#fff 66%,#f5f5ff 100%); }
 .generation-lesson-plan__sheet-header::after { content:""; position:absolute; right:30px; bottom:0; width:130px; height:3px; background:linear-gradient(90deg,transparent,#7378d6); }
 .generation-lesson-plan__section-mark { display:grid; place-items:center; width:58px; height:58px; border:1px solid #d9dcec; border-radius:15px; color:#535ab7; background:#f4f4ff; font:700 18px Georgia,"Noto Serif SC",serif; }
-.generation-lesson-plan__section-title > span { color:#8a92a1; font-size:12px; font-weight:750; letter-spacing:.08em; }
+.generation-lesson-plan__section-title > span { color:#8a92a1; font-size:12px; font-weight:750; letter-spacing:0; }
 .generation-lesson-plan__section-title h3 { margin:5px 0 8px; color:#1d2737; font:700 23px/1.35 Georgia,"Noto Serif SC",serif; }
 .generation-lesson-plan__section-title p { max-width:760px; margin:0; color:#687285; font-size:14px; line-height:1.68; }
 .generation-lesson-plan__readiness { display:inline-flex; align-items:center; gap:7px; margin-top:3px; padding:7px 10px; border:1px solid #e2e5ea; border-radius:999px; color:#788191; background:#f7f8fa; font-size:12px; font-weight:750; white-space:nowrap; }
@@ -1977,7 +2189,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__block-heading { display:grid; grid-template-columns:38px minmax(190px,.58fr) minmax(260px,1fr); align-items:center; gap:13px 16px; margin-bottom:23px; }
 .generation-lesson-plan__block-heading > div { display:grid; place-items:center; width:36px; height:36px; border:1px solid #dfe2e9; border-radius:10px; color:#555cb8; background:#f7f7fc; }
 .generation-lesson-plan__block-heading > span { display:grid; gap:3px; }
-.generation-lesson-plan__block-heading small { color:#8c94a2; font-size:12px; font-weight:750; letter-spacing:.06em; }
+.generation-lesson-plan__block-heading small { color:#8c94a2; font-size:12px; font-weight:750; letter-spacing:0; }
 .generation-lesson-plan__block-heading strong { color:#283346; font-size:16px; line-height:1.35; }
 .generation-lesson-plan__block-heading > p { justify-self:end; max-width:510px; margin:0; color:#7a8393; font-size:13px; line-height:1.6; text-align:right; }
 .generation-lesson-plan__flow ol { display:grid; gap:0; margin:0; padding:0 0 0 7px; list-style:none; }
@@ -2077,8 +2289,10 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__legacy strong,.generation-lesson-plan__empty strong { margin-top:12px; color:#384356; font-size:16px; }
 .generation-lesson-plan__legacy p,.generation-lesson-plan__empty p { margin:6px 0 0; font-size:13px; line-height:1.6; }
 .generation-lesson-plan__empty svg { animation:lesson-plan-spin .9s linear infinite; }
-.generation-lesson-plan__workbench-controls { display:flex; align-items:center; justify-content:flex-end; gap:7px; min-height:32px; }
+.generation-lesson-plan__workbench-controls { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:7px; min-height:34px; }
+.generation-lesson-plan__revision-badge { display:inline-flex; align-items:center; min-height:26px; padding:0 8px; border:1px solid #d9ddec; border-radius:6px; color:#626b7f; background:#f8f9fc; font-size:11px; font-weight:750; white-space:nowrap; }
 .generation-lesson-plan__draft-state { display:inline-flex; align-items:center; gap:5px; color:#14735b; font-size:12px; font-weight:750; white-space:nowrap; }
+.generation-lesson-plan__draft-state.is-pending { color:#a26225; }
 .generation-lesson-plan__draft-state svg { animation:lesson-plan-spin .9s linear infinite; }
 .generation-lesson-plan__draft-state svg:not(.lucide-loader-circle) { animation:none; }
 .generation-lesson-plan__tool-button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid #d9dde7; border-radius:8px; color:#535db4; background:#fff; cursor:pointer; }
@@ -2086,17 +2300,24 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__tool-button.is-danger { color:#a05252; }
 .generation-lesson-plan__tool-button.is-danger:hover:not(:disabled) { border-color:#e6c9c9; color:#923f3f; background:#fff7f7; }
 .generation-lesson-plan__tool-button:disabled { opacity:.5; cursor:wait; }
-.generation-lesson-plan__workbench-notice,.generation-lesson-plan__workbench-error { width:min(1180px,100%); display:flex; align-items:flex-start; gap:8px; margin:0 auto 14px; padding:10px 12px; border:1px solid #dce0e8; border-radius:8px; color:#6c7586; background:#fafbfc; font-size:12px; line-height:1.55; }
+.generation-lesson-plan__workbench-notice,.generation-lesson-plan__workbench-error { box-sizing:border-box; width:min(1180px,100%); display:flex; align-items:flex-start; gap:10px; margin:0 auto 14px; padding:11px 12px; border:1px solid #dce0e8; border-radius:8px; color:#6c7586; background:#fafbfc; font-size:12px; line-height:1.55; }
 .generation-lesson-plan__workbench-notice svg,.generation-lesson-plan__workbench-error svg { flex:none; margin-top:1px; }
+.generation-lesson-plan__workbench-notice > div { flex:1; min-width:0; }
+.generation-lesson-plan__workbench-notice strong { display:block; color:#465166; font-size:13px; }
 .generation-lesson-plan__workbench-notice p,.generation-lesson-plan__workbench-error { margin-top:0; margin-bottom:0; }
+.generation-lesson-plan__workbench-notice p { margin-top:2px; }
+.generation-lesson-plan__workbench-notice > button { flex:none; margin-left:auto; }
 .generation-lesson-plan__workbench-error { border-color:#ecd7c4; color:#9b6333; background:#fffaf5; }
 .generation-lesson-plan__error-action { margin-left:auto; padding:3px 10px; border:1px solid #e0c3a4; border-radius:7px; color:#9b6333; background:#fff; font-size:12px; cursor:pointer; white-space:nowrap; }
 .generation-lesson-plan__error-action:hover { background:#fdf3e9; }
+.generation-lesson-plan__workbench-error > span { flex:1; min-width:0; }
+.generation-lesson-plan__workbench-error > button { display:inline-flex; flex:none; align-items:center; gap:5px; min-height:28px; padding:0 8px; border:1px solid #dfc5ae; border-radius:6px; color:#8e572a; background:#fff; font-size:12px; font-weight:750; cursor:pointer; }
 .generation-lesson-plan__review { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #cfd4e9; border-radius:8px; background:#fdfdff; box-shadow:0 12px 30px rgba(48,55,90,.07); }
 .generation-lesson-plan__review > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
-.generation-lesson-plan__review > header span { color:#5b64b8; font-size:11px; font-weight:800; letter-spacing:.06em; }
+.generation-lesson-plan__review > header span { color:#5b64b8; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__review h3 { margin:4px 0 0; color:#263145; font-size:17px; line-height:1.4; }
-.generation-lesson-plan__review-blocked { display:flex; align-items:center; gap:7px; margin:14px 0 0; color:#a25e26; font-size:13px; line-height:1.55; }
+.generation-lesson-plan__review-blocked { display:flex; align-items:flex-start; gap:7px; margin:14px 0 0; color:#a25e26; font-size:13px; line-height:1.55; }
+.generation-lesson-plan__review-blocked small { display:block; margin-top:3px; color:#8f663f; font-size:12px; }
 .generation-lesson-plan__review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:17px; }
 .generation-lesson-plan__review-grid > section { min-width:0; padding:13px 14px; border:1px solid #e1e4eb; border-radius:8px; background:#fff; }
 .generation-lesson-plan__diff-list li { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
@@ -2115,9 +2336,18 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__impact-object { padding:0 6px; border-radius:4px; background:#f4f6fa; font-size:11px; color:#5a6274; margin-right:6px; }
 .generation-lesson-plan__review-grid strong { color:#4b566a; font-size:12px; }
 .generation-lesson-plan__review-grid ol { display:grid; gap:7px; margin:10px 0 0; padding:0; list-style:none; }
-.generation-lesson-plan__review-grid li { color:#697386; font-size:12px; line-height:1.5; }
+.generation-lesson-plan__review-grid li { min-width:0; color:#697386; font-size:12px; line-height:1.5; }
 .generation-lesson-plan__review-grid li.is-muted { color:#9299a5; }
 .generation-lesson-plan__review-grid code { display:block; overflow:hidden; color:#5962af; font:11px/1.5 ui-monospace,SFMono-Regular,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.generation-lesson-plan__diff-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.generation-lesson-plan__diff-heading code { flex:1; min-width:0; }
+.generation-lesson-plan__diff-heading > span { flex:none; padding:2px 5px; border-radius:4px; color:#626a78; background:#f1f2f5; font-size:11px; }
+.generation-lesson-plan__diff-values { display:grid; grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr); align-items:center; gap:7px; margin-top:7px; }
+.generation-lesson-plan__diff-values del,.generation-lesson-plan__diff-values ins { overflow-wrap:anywhere; padding:6px 7px; border-radius:6px; font-size:12px; line-height:1.45; text-decoration:none; }
+.generation-lesson-plan__diff-values del { color:#8b5b5b; background:#fff4f4; }
+.generation-lesson-plan__diff-values ins { color:#236d57; background:#eefaf6; }
+.generation-lesson-plan__impact-secondary { display:block; margin-top:14px; }
+.generation-lesson-plan__impact-summary { margin:6px 0 0; color:#7a8391; }
 .generation-lesson-plan__review > footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:15px; color:#7b8494; font-size:12px; }
 .generation-lesson-plan__review-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:34px; padding:0 11px; border:1px solid #cfd4e8; border-radius:8px; color:#505ab0; background:#fff; font-size:12px; font-weight:750; cursor:pointer; }
 .generation-lesson-plan__review-button:hover:not(:disabled) { border-color:#aab2dc; background:#f4f5ff; }
@@ -2125,23 +2355,33 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__review-button:disabled { opacity:.5; cursor:not-allowed; }
 .generation-lesson-plan__ai-panel { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d7d2eb; border-radius:8px; background:#fbfbff; }
 .generation-lesson-plan__ai-panel > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
-.generation-lesson-plan__ai-panel > header span { color:#665db2; font-size:11px; font-weight:800; letter-spacing:.06em; }
+.generation-lesson-plan__ai-panel > header span { color:#665db2; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__ai-panel h3 { margin:4px 0 0; color:#293146; font-size:17px; line-height:1.4; }
 .generation-lesson-plan__ai-request { display:grid; grid-template-columns:minmax(180px,.35fr) minmax(0,1fr) auto; align-items:end; gap:12px; margin-top:16px; }
-.generation-lesson-plan__ai-request label { display:grid; gap:7px; color:#626b80; font-size:12px; font-weight:750; }
-.generation-lesson-plan__ai-request select,.generation-lesson-plan__ai-request textarea { box-sizing:border-box; width:100%; border:1px solid #d1d2e6; border-radius:8px; color:#3c465a; background:#fff; font:inherit; outline:none; }
-.generation-lesson-plan__ai-request select { min-height:36px; padding:0 8px; }
+.generation-lesson-plan__ai-request fieldset { min-width:0; margin:0; padding:0; border:0; }
+.generation-lesson-plan__ai-request legend,.generation-lesson-plan__ai-request label { color:#626b80; font-size:12px; font-weight:750; }
+.generation-lesson-plan__ai-request legend { margin-bottom:7px; }
+.generation-lesson-plan__ai-request label { display:grid; gap:7px; }
+.generation-lesson-plan__scope-control { display:flex; min-height:36px; padding:2px; border:1px solid #d1d2e6; border-radius:8px; background:#fff; }
+.generation-lesson-plan__scope-control button { flex:1; min-width:0; padding:0 8px; border:0; border-radius:6px; color:#6f7789; background:transparent; font-size:12px; font-weight:750; cursor:pointer; }
+.generation-lesson-plan__scope-control button.is-active { color:#fff; background:#6168b7; }
+.generation-lesson-plan__scope-control button:disabled { opacity:.45; cursor:not-allowed; }
+.generation-lesson-plan__ai-request textarea { box-sizing:border-box; width:100%; border:1px solid #d1d2e6; border-radius:8px; color:#3c465a; background:#fff; font:inherit; outline:none; }
 .generation-lesson-plan__ai-request textarea { min-height:72px; padding:8px 10px; line-height:1.5; resize:vertical; }
-.generation-lesson-plan__ai-request select:focus,.generation-lesson-plan__ai-request textarea:focus { border-color:#7d76ca; box-shadow:0 0 0 3px rgba(110,101,190,.12); }
+.generation-lesson-plan__ai-request textarea:focus { border-color:#7d76ca; box-shadow:0 0 0 3px rgba(110,101,190,.12); }
 .generation-lesson-plan__ai-candidate { display:grid; gap:10px; margin-top:16px; }
 .generation-lesson-plan__ai-candidate > p { margin:0; color:#58637a; font-size:13px; line-height:1.65; }
-.generation-lesson-plan__ai-candidate > label { display:flex; align-items:center; gap:8px; min-height:34px; padding:7px 9px; border:1px solid #e0e1ea; border-radius:8px; background:#fff; cursor:pointer; }
+.generation-lesson-plan__ai-candidate > label { display:flex; align-items:flex-start; gap:8px; min-height:34px; padding:9px; border:1px solid #e0e1ea; border-radius:8px; background:#fff; cursor:pointer; }
 .generation-lesson-plan__ai-candidate input { width:15px; height:15px; accent-color:#625cb3; }
 .generation-lesson-plan__ai-candidate code { overflow:hidden; color:#5961ae; font:11px/1.5 ui-monospace,SFMono-Regular,monospace; text-overflow:ellipsis; white-space:nowrap; }
+.generation-lesson-plan__candidate-change { display:grid; flex:1; min-width:0; gap:5px; }
+.generation-lesson-plan__candidate-change > span { display:grid; grid-template-columns:minmax(0,1fr) 13px minmax(0,1fr); align-items:center; gap:6px; }
+.generation-lesson-plan__candidate-change del,.generation-lesson-plan__candidate-change ins { overflow-wrap:anywhere; color:#6c7483; font-size:12px; line-height:1.45; text-decoration:none; }
+.generation-lesson-plan__candidate-change ins { color:#246d59; }
 .generation-lesson-plan__ai-candidate footer { display:flex; justify-content:flex-end; gap:8px; }
 .generation-lesson-plan__history { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d9dce5; border-radius:8px; background:#fff; }
 .generation-lesson-plan__history > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
-.generation-lesson-plan__history > header span { color:#68728a; font-size:11px; font-weight:800; letter-spacing:.06em; }
+.generation-lesson-plan__history > header span { color:#68728a; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__history h3 { margin:4px 0 0; color:#293346; font-size:17px; line-height:1.4; }
 .generation-lesson-plan__history-list { display:grid; gap:7px; margin:16px 0 0; padding:0; list-style:none; }
 .generation-lesson-plan__history-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 10px; border:1px solid #e3e5eb; border-radius:8px; background:#fcfcfd; }
@@ -2193,12 +2433,19 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__header { margin-bottom:14px; padding:0 6px 20px; }
   .generation-lesson-plan__header h2 { font-size:29px; }
   .generation-lesson-plan__summary dl div { padding:3px 10px; }
-  .generation-lesson-plan__workbench-controls { justify-content:flex-start; }
+  .generation-lesson-plan__workbench-controls { align-items:stretch; justify-content:flex-start; }
+  .generation-lesson-plan__revision-badge,.generation-lesson-plan__draft-state { align-self:center; }
+  .generation-lesson-plan__workbench-notice { flex-wrap:wrap; }
+  .generation-lesson-plan__workbench-notice > button { flex-basis:calc(100% - 27px); width:auto; margin-left:27px; }
+  .generation-lesson-plan__workbench-error { flex-wrap:wrap; }
+  .generation-lesson-plan__workbench-error > button { margin-left:26px; }
   .generation-lesson-plan__review { padding:16px; }
   .generation-lesson-plan__ai-panel { padding:16px; }
   .generation-lesson-plan__history { padding:16px; }
   .generation-lesson-plan__review > footer { align-items:stretch; flex-direction:column; }
-  .generation-lesson-plan__review-button { width:100%; }
+  .generation-lesson-plan__review > footer .generation-lesson-plan__review-button,.generation-lesson-plan__ai-request > .generation-lesson-plan__review-button { width:100%; }
+  .generation-lesson-plan__diff-values,.generation-lesson-plan__candidate-change > span { grid-template-columns:1fr; }
+  .generation-lesson-plan__diff-values > svg,.generation-lesson-plan__candidate-change > span > svg { transform:rotate(90deg); }
   .generation-lesson-plan__history-list li { align-items:flex-start; flex-direction:column; }
   .generation-lesson-plan__history-list li > div:last-child { width:100%; justify-content:flex-end; }
   .generation-lesson-plan__view-switch { width:calc(100% - 4px); }

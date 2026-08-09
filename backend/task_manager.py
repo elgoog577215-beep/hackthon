@@ -183,6 +183,7 @@ from slide_deck_v4 import (
     build_signature_v4,
 )
 from slide_deck_v5 import (
+    SlideDeckV5BuildError,
     allocation_from_story_plan_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -441,6 +442,174 @@ def _public_representation_quality(
         "warnings": deepcopy(warnings[:24]),
         "blocker_count": len(blockers),
         "warning_count": len(warnings),
+    }
+
+
+async def _rebuild_slide_variant_with_quality_fallback(
+    *,
+    document: Any,
+    course_view: dict[str, Any],
+    repository: Any,
+    mode: str,
+    theme: str,
+    slide_schema: str,
+    allocation_plan: SlideAllocationPlanV2,
+    visual_plan: SlideVisualPlanV1,
+    story_plan: SlideStoryPlanV2 | Any | None,
+    progress_callback: Callable[[dict[str, Any]], None],
+    checkpoint_callback: (
+        Callable[
+            [SlideAllocationPlanV2, SlideVisualPlanV1, SlideStoryPlanV2],
+            Awaitable[None],
+        ]
+        | None
+    ),
+    resume_slides: list[dict[str, Any]],
+    source_revision_provider: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    """Retry a rejected V5 draft with the strict source-only plan.
+
+    The first candidate still runs through the normal shadow repository. Its
+    terminal ``build_blocked`` event is converted into a non-terminal fallback
+    event so clients do not settle the build before the deterministic candidate
+    has been evaluated. This also covers deterministic semantic plans: a new
+    course must still reach the stricter ``quality_fallback`` profile when the
+    ordinary deterministic plan cannot satisfy the final page contract.
+    """
+
+    fallback_enabled = os.getenv(
+        "SLIDE_DECK_V5_QUALITY_FALLBACK_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    story_diagnostics = (
+        story_plan.get("planning_diagnostics")
+        if isinstance(story_plan, dict)
+        else getattr(story_plan, "planning_diagnostics", None)
+    )
+    compaction_profile = str(
+        (story_diagnostics or {}).get("compaction_profile") or ""
+    ) if isinstance(story_diagnostics, dict) else ""
+    fallback_allowed = bool(
+        fallback_enabled
+        and slide_schema == "slide_deck_v5"
+        and story_plan is not None
+        and compaction_profile != "quality_fallback"
+    )
+    fallback_event_emitted = False
+
+    def primary_progress(payload: dict[str, Any]) -> None:
+        nonlocal fallback_event_emitted
+        if (
+            fallback_allowed
+            and payload.get("event") in {"build_blocked", "build_failed"}
+        ):
+            quality = payload.get("quality") or {}
+            blockers = list(quality.get("blockers") or [])
+            progress_callback({
+                "event": "quality_fallback",
+                "stage": "quality_fallback",
+                "progress": 85,
+                "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
+                "initial_score": int(quality.get("score") or 0),
+                "initial_blocker_count": int(
+                    quality.get("blocker_count") or len(blockers)
+                ),
+            })
+            fallback_event_emitted = True
+            return
+        progress_callback(payload)
+
+    build = await asyncio.to_thread(
+        rebuild_slide_deck_variant_safely,
+        document,
+        course_view,
+        repository,
+        mode=mode,
+        theme=theme,
+        allocation_plan=allocation_plan,
+        visual_plan=visual_plan,
+        story_plan=story_plan,
+        progress_callback=primary_progress,
+        resume_slides=resume_slides,
+        requested_schema=slide_schema,
+        source_revision_provider=source_revision_provider,
+    )
+    initial_quality = build.get("quality") or {}
+    if initial_quality.get("passed") or not fallback_allowed:
+        return {
+            "build": build,
+            "allocation_plan": allocation_plan,
+            "visual_plan": visual_plan,
+            "story_plan": story_plan,
+            "used_deterministic_fallback": False,
+            "initial_quality": None,
+        }
+
+    if not fallback_event_emitted:
+        blockers = list(initial_quality.get("blockers") or [])
+        progress_callback({
+            "event": "quality_fallback",
+            "stage": "quality_fallback",
+            "progress": 85,
+            "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
+            "initial_score": int(initial_quality.get("score") or 0),
+            "initial_blocker_count": int(
+                initial_quality.get("blocker_count") or len(blockers)
+            ),
+        })
+
+    source_fragments = fragment_course_document(document)
+    deterministic_story = compact_story_plan_v5(
+        document,
+        compile_slide_story_plan_v2(
+            document,
+            course_view,
+            source_fragments,
+            mode=mode,
+            theme=theme,
+        ),
+        source_fragments,
+        profile="quality_fallback",
+    )
+    deterministic_allocation, _ = allocation_from_story_plan_v5(
+        document,
+        source_fragments,
+        deterministic_story,
+    )
+    deterministic_visual = await plan_slide_visuals(
+        document,
+        deterministic_allocation,
+        source_fragments,
+        ai_planner=None,
+    )
+    if checkpoint_callback is not None:
+        await checkpoint_callback(
+            deterministic_allocation,
+            deterministic_visual,
+            deterministic_story,
+        )
+    fallback_build = await asyncio.to_thread(
+        rebuild_slide_deck_variant_safely,
+        document,
+        course_view,
+        repository,
+        mode=mode,
+        theme=theme,
+        allocation_plan=deterministic_allocation,
+        visual_plan=deterministic_visual,
+        story_plan=deterministic_story,
+        progress_callback=progress_callback,
+        resume_slides=[],
+        requested_schema=slide_schema,
+        source_revision_provider=source_revision_provider,
+    )
+    return {
+        "build": fallback_build,
+        "allocation_plan": deterministic_allocation,
+        "visual_plan": deterministic_visual,
+        "story_plan": deterministic_story,
+        "used_deterministic_fallback": True,
+        "initial_quality": initial_quality,
     }
 
 
@@ -4395,7 +4564,10 @@ class TaskManager:
             else:
                 error_detail = (
                     exc.public_detail()
-                    if isinstance(exc, SlideStoryPlanPrerequisiteError)
+                    if isinstance(
+                        exc,
+                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError),
+                    )
                     else None
                 )
                 await self._update_task_status(
@@ -4612,6 +4784,13 @@ class TaskManager:
         )
         use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5"}
         source_revision = str(document.document_revision or "")
+        await self._record_representation_event(task_id, {
+            "event": "build_contract",
+            "progress": 2,
+            "stage": "source_preflight",
+            "target_schema": slide_schema,
+            "source_revision": source_revision,
+        })
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
         expected_signature = (
@@ -4682,7 +4861,21 @@ class TaskManager:
                 visual_plan = None
             latest_slides: dict[str, dict[str, Any]] = {}
             for event in task.get("event_history") or []:
+                if event.get("event") == "quality_fallback":
+                    latest_slides = {}
+                    continue
                 if event.get("event") != "slide_upsert" or not isinstance(event.get("slide"), dict):
+                    continue
+                if (
+                    slide_schema == "slide_deck_v5"
+                    and (
+                        event.get("engine_schema") != "slide_deck_v5"
+                        or event.get("candidate_stage") not in {
+                            "final_contract",
+                            "render_verified",
+                        }
+                    )
+                ):
                     continue
                 slide = deepcopy(event["slide"])
                 unit_id = str(slide.get("unit_id") or "")
@@ -4853,6 +5046,7 @@ class TaskManager:
             "fallback_reason": allocation_plan.fallback_reason,
             "estimated_slide_count": len(allocation_plan.pages),
             "variant_key": variant_key,
+            "target_schema": slide_schema,
         })
         loop = asyncio.get_running_loop()
 
@@ -4888,21 +5082,69 @@ class TaskManager:
             )
             future.result(timeout=10)
 
-        build = await asyncio.to_thread(
-            rebuild_slide_deck_variant_safely,
-            document,
-            course_view,
-            teaching_representation_repository,
+        async def save_fallback_checkpoint(
+            fallback_allocation: SlideAllocationPlanV2,
+            fallback_visual: SlideVisualPlanV1,
+            fallback_story: SlideStoryPlanV2,
+        ) -> None:
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if not current or current.get("status") in {"paused", "cancelled"}:
+                    return
+                current["representation_deck_plan_v3"] = (
+                    fallback_allocation.model_dump(mode="json")
+                )
+                current["representation_story_plan_v2"] = (
+                    fallback_story.model_dump(mode="json")
+                )
+                current["representation_visual_plan_v1"] = (
+                    fallback_visual.model_dump(mode="json")
+                )
+                current["representation_asset_fingerprints"] = {}
+                current["representation_generation_seeds"] = {}
+                current["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+
+        build_attempt = await _rebuild_slide_variant_with_quality_fallback(
+            document=document,
+            course_view=course_view,
+            repository=teaching_representation_repository,
             mode=mode,
             theme=theme,
+            slide_schema=slide_schema,
             allocation_plan=allocation_plan,
             visual_plan=visual_plan,
             story_plan=story_plan,
             progress_callback=progress,
+            checkpoint_callback=save_fallback_checkpoint,
             resume_slides=resume_slides,
+            source_revision_provider=lambda: str(
+                self._course_document_repository.load_document(course_id)[0].document_revision
+                or ""
+            ),
         )
+        build = build_attempt["build"]
+        allocation_plan = build_attempt["allocation_plan"]
+        visual_plan = build_attempt["visual_plan"]
+        story_plan = build_attempt["story_plan"]
         quality = build.get("quality") or {}
         if not quality.get("passed"):
+            failure = build.get("failure") or {}
+            if slide_schema == "slide_deck_v5" and failure:
+                raise SlideDeckV5BuildError(
+                    stage=str(failure.get("stage") or "quality_gate"),
+                    code=str(failure.get("code") or "v5_quality_gate_failed"),
+                    message=str(
+                        failure.get("message")
+                        or "V5 候选未通过完整性或可读性门禁。"
+                    ),
+                    retryable=bool(failure.get("retryable")),
+                    source_revision=str(
+                        failure.get("source_revision") or source_revision
+                    ),
+                    chapter_id=str(failure.get("chapter_id") or ""),
+                    page_id=str(failure.get("page_id") or ""),
+                )
             raise RuntimeError("slide_deck_variant_quality_gate_failed")
         registry = teaching_representation_repository.load(course_id)
         result = {
@@ -4910,6 +5152,15 @@ class TaskManager:
             "quality": quality,
             "registry": registry.model_dump(mode="json"),
             "variant_key": variant_key,
+            "quality_fallback": {
+                "used": bool(build_attempt["used_deterministic_fallback"]),
+                "initial_score": (
+                    (build_attempt.get("initial_quality") or {}).get("score")
+                ),
+                "initial_blocker_count": len(
+                    (build_attempt.get("initial_quality") or {}).get("blockers") or []
+                ),
+            },
         }
         async with self._lock:
             current = self.tasks.get(task_id)
@@ -4921,6 +5172,7 @@ class TaskManager:
             current["phase_progress"] = 100
             current["phase"] = "complete"
             current["current_phase"] = "complete"
+            current.pop("quality", None)
             current["message"] = f"{variant_key} 课件已通过质量门并发布"
             current["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
@@ -5031,7 +5283,7 @@ class TaskManager:
             history.append(event)
             task["event_history"] = history[-240:]
             task["last_event"] = event
-            if payload.get("event") == "build_blocked":
+            if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")
                 )

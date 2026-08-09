@@ -110,6 +110,21 @@ def test_ai_teacher_queries_exclude_profile_and_conversation_history():
     assert "student@example.com" not in joined
 
 
+def test_ai_teacher_queries_strip_web_search_command_words():
+    queries = build_ai_teacher_queries(
+        _course(),
+        question="再联网搜索一下什么是面向对象编程，找点例子",
+        node_id="node-1",
+    )
+
+    assert queries[0] == "什么是面向对象编程 例子"
+    joined = " ".join(queries)
+    assert "联网搜索" not in joined
+    assert "找点" not in joined
+    assert "面向对象编程" in joined
+    assert "例子" in joined
+
+
 def test_web_sources_are_numbered_and_visible_without_private_context():
     merged = merge_ai_teacher_retrieval(_context(), _package())
     public = context_public_summary(merged)
@@ -122,6 +137,17 @@ def test_web_sources_are_numbered_and_visible_without_private_context():
     assert "Current public evidence" in prompt
     assert "PRIVATE_HISTORY_SENTINEL" in prompt
     assert "student@example.com" not in prompt
+
+
+def test_ai_teacher_uses_filtered_tier_b_sources_when_no_tier_a_exists():
+    package = _package()
+    package["sources"][0]["trust_tier"] = "tier_b"
+
+    merged = merge_ai_teacher_retrieval(_context(), package)
+
+    web = next(item for item in merged["sources"] if item["type"] == "web")
+    assert web["trust_tier"] == "tier_b"
+    assert merged["web_retrieval"]["source_count"] == 1
 
 
 def test_failed_retrieval_keeps_local_context_and_explicit_receipt():
