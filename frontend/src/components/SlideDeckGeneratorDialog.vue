@@ -62,6 +62,25 @@
         </div>
       </section>
 
+      <section>
+        <div class="deck-generator__section-title">
+          <div><span>03</span><strong>联网教学图片</strong></div>
+          <small>可选；默认关闭</small>
+        </div>
+        <label class="deck-generator__web-images">
+          <input
+            v-model="modelWebImageRetrieval"
+            data-testid="ppt-web-image-retrieval"
+            type="checkbox"
+            :disabled="busy"
+          />
+          <span>
+            <strong>检索可授权复用的教学图片</strong>
+            <small>仅使用公共领域、CC0 或 CC BY 图片；没有安全匹配时继续使用可编辑图示。</small>
+          </span>
+        </label>
+      </section>
+
       <footer>
         <div>
           <ShieldCheck :size="16" />
@@ -92,26 +111,34 @@ const props = withDefaults(defineProps<{
   busy?: boolean
   closable?: boolean
   fragmentCount?: number
+  webImageRetrieval?: boolean
 }>(), {
   mode: 'teaching',
   theme: 'qizhi-classroom',
   busy: false,
   closable: true,
   fragmentCount: 0,
+  webImageRetrieval: false,
 })
 
 const emit = defineEmits<{
   (event: 'close'): void
-  (event: 'confirm', value: { mode: SlideDeckMode; theme: V3Theme }): void
+  (event: 'confirm', value: {
+    mode: SlideDeckMode
+    theme: V3Theme
+    webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+  }): void
 }>()
 
 const modelMode = ref<SlideDeckMode>(props.mode)
 const modelTheme = ref<V3Theme>(props.theme)
+const modelWebImageRetrieval = ref(props.webImageRetrieval)
 
 watch(() => props.open, open => {
   if (!open) return
   modelMode.value = props.mode
   modelTheme.value = props.theme
+  modelWebImageRetrieval.value = props.webImageRetrieval
 })
 
 const modes = [
@@ -190,7 +217,14 @@ const pageEstimate = computed(() => {
 })
 
 function confirm() {
-  emit('confirm', { mode: modelMode.value, theme: modelTheme.value })
+  emit('confirm', {
+    mode: modelMode.value,
+    theme: modelTheme.value,
+    webImageRetrieval: {
+      enabled: modelWebImageRetrieval.value,
+      mode: 'wide_safe',
+    },
+  })
 }
 </script>
 
@@ -225,6 +259,11 @@ function confirm() {
 .deck-generator__themes strong,.deck-generator__themes small { display:block; padding:0 4px; }
 .deck-generator__themes strong { margin-top:9px; font-size:13px; }
 .deck-generator__themes small { margin-top:3px; color:#7a8797; font-size:10px; }
+.deck-generator__web-images { display:flex; align-items:flex-start; gap:12px; padding:16px 18px; border:1px solid #dce3eb; border-radius:15px; background:#fff; cursor:pointer; }
+.deck-generator__web-images input { width:18px; height:18px; margin:2px 0 0; accent-color:#2f63da; }
+.deck-generator__web-images span { display:grid; gap:4px; }
+.deck-generator__web-images strong { color:#263448; font-size:14px; }
+.deck-generator__web-images small { color:#738094; font-size:12px; line-height:1.5; }
 .deck-theme-preview { position:relative; aspect-ratio:16/9; display:grid; grid-template-columns:1.18fr .82fr; grid-template-rows:1fr 1fr; gap:3px; padding:4px; overflow:hidden; border-radius:9px; color:var(--i); background:color-mix(in srgb,var(--p) 84%,var(--s)); box-shadow:inset 0 0 0 1px rgba(20,30,45,.08); }
 .deck-theme-preview > div { position:relative; overflow:hidden; border-radius:4px; background:var(--p); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--m) 13%,transparent); }
 .deck-theme-preview__cover { grid-row:1/3; padding:10px 7px; }

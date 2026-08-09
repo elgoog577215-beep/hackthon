@@ -7,6 +7,7 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 
 from slide_deck_renderer import audit_exported_pptx, audit_rendered_slide_images
+from slide_deck_v5 import _page_density_metrics
 from slide_quality_v5 import (
     build_slide_deck_quality_v5,
     repair_render_slides_v5,
@@ -366,6 +367,189 @@ def test_non_exempt_sparse_page_and_internal_labels_are_blockers() -> None:
     assert "sparse_non_exempt_page" in codes
 
 
+def test_repetitive_text_only_editorial_pages_block_publication() -> None:
+    slides = []
+    for index in range(6):
+        slide = _slide(
+            f"slide:v5:episode-{index}:001",
+            title=f"Concept {index} has a distinct instructional claim",
+            content=(
+                f"Concept {index} is explained as one uninterrupted prose paragraph "
+                "without a second information region, worked example, comparison, "
+                "process, question, or visual anchor for classroom presentation."
+            ),
+            episode_id=f"episode-{index}",
+        )
+        slides.append(slide)
+
+    report = build_slide_deck_quality_v5(slides)
+    codes = {issue["code"] for issue in report["blockers"]}
+
+    assert "text_only_editorial_ratio_exceeded" in codes
+    assert "repetitive_text_only_editorial_run" in codes
+
+
+def test_deck_allows_at_most_three_intentional_hero_claim_pages() -> None:
+    slides = []
+    for index in range(4):
+        slide = _slide(
+            f"slide:v5:hero-{index}:001",
+            title=f"Claim {index} is the one idea to remember",
+            content="",
+            episode_id=f"hero-{index}",
+        )
+        slide["quality"].update({
+            "requested_layout": "hero-claim",
+            "resolved_layout": "hero-claim",
+            "suppress_redundant_body": True,
+        })
+        slides.append(slide)
+
+    report = build_slide_deck_quality_v5(slides)
+
+    assert "hero_claim_page_limit_exceeded" in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_chapter_boundaries_reset_text_only_layout_runs() -> None:
+    slides = [
+        _slide(
+            "slide:v5:chapter-a:001",
+            title="First claim",
+            content="A complete paragraph explains the first classroom claim with enough detail.",
+        ),
+        _slide(
+            "slide:v5:chapter-a:002",
+            title="Second claim",
+            content="A different paragraph explains the second classroom claim with enough detail.",
+        ),
+        {
+            **_slide(
+                "slide:v5:chapter-a:recap",
+                title="Chapter recap",
+                content="The first and second claims are connected.",
+                scene_kind="chapter_recap",
+            ),
+            "layout": "recap",
+            "quality": {
+                "requested_layout": "chapter-recap",
+                "resolved_layout": "chapter-recap",
+            },
+        },
+        {
+            **_slide(
+                "slide:v5:chapter-b:entry",
+                title="Chapter B",
+                content="",
+                scene_kind="chapter_entry",
+            ),
+            "layout": "chapter",
+            "quality": {
+                "requested_layout": "chapter-entry",
+                "resolved_layout": "chapter-entry",
+            },
+        },
+        _slide(
+            "slide:v5:chapter-b:001",
+            title="Third claim",
+            content="A third paragraph starts the next chapter with a complete independent claim.",
+        ),
+        _slide(
+            "slide:v5:chapter-b:002",
+            title="Fourth claim",
+            content="A fourth paragraph closes the local sequence with a complete independent claim.",
+        ),
+    ]
+
+    report = build_slide_deck_quality_v5(slides)
+
+    assert "repetitive_text_only_editorial_run" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_chapter_entry_without_a_mainline_is_a_publication_blocker() -> None:
+    entry = _slide(
+        "slide:v5:chapter-entry",
+        title="交互逻辑与物理系统基础",
+        content="",
+        scene_kind="chapter_entry",
+    )
+    entry["blocks"] = []
+    entry["key_message"] = ""
+    entry["takeaway"] = ""
+    entry["quality"].update({
+        "requested_layout": "chapter-entry",
+        "resolved_layout": "chapter-entry",
+    })
+
+    report = build_slide_deck_quality_v5([entry])
+
+    assert "chapter_entry_mainline_missing" in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_chapter_recap_may_repeat_the_preceding_claim_as_a_summary() -> None:
+    concept = _slide(
+        "slide:v5:chapter:concept",
+        title="Initialization order controls safe access",
+        content="Awake completes before Start, so references can be prepared before use.",
+    )
+    recap = {
+        **_slide(
+            "slide:v5:chapter:recap",
+            title="Chapter recap",
+            content="Awake completes before Start, so references can be prepared before use.",
+            scene_kind="chapter_recap",
+        ),
+        "layout": "recap",
+        "quality": {
+            "requested_layout": "chapter-recap",
+            "resolved_layout": "chapter-recap",
+        },
+    }
+
+    report = build_slide_deck_quality_v5([concept, recap])
+
+    assert "duplicate_visible_content" not in {
+        issue["code"] for issue in report["blockers"]
+    }
+
+
+def test_internal_label_cleanup_handles_continuation_suffixes() -> None:
+    slide = _slide(
+        "slide:v5:internal-continuation",
+        title="A complete source-backed title",
+        content="The continuation keeps one complete source-backed teaching claim.",
+    )
+    slide["key_message"] = "知识规范名称（续2/2）"
+
+    repaired, _history = repair_semantic_slides_v5([slide], max_rounds=2)
+
+    assert repaired[0]["key_message"] == ""
+    assert "raw_internal_label_visible" not in {
+        issue["code"] for issue in build_slide_deck_quality_v5(repaired)["issues"]
+    }
+
+
+def test_complete_continuation_title_fits_the_presentation_heading_contract() -> None:
+    slide = _slide(
+        "slide:v5:episode-1:continuation",
+        title="生命周期回调的触发时序逻辑（续2/2）",
+        content="生命周期回调遵循初始化、帧更新与销毁阶段的明确触发顺序。",
+    )
+
+    report = build_slide_deck_quality_v5([slide])
+    density = _page_density_metrics(slide)
+
+    assert density["title_character_count"] <= density["title_character_budget"]
+    assert "slide_title_overflow" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_semantic_repair_removes_internal_labels_from_source_body_without_losing_text() -> None:
     slide = _slide(
         "slide:v5:episode-1:001",
@@ -461,6 +645,59 @@ def test_semantic_repair_drops_a_source_bound_dangling_scaffold() -> None:
         for item in block.get("items") or []
     )
     assert any(item["action"] == "remove_dangling_scaffold" for item in history)
+    assert "dangling_fragment" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_does_not_treat_code_semicolon_as_dangling_prose() -> None:
+    slide = _slide(
+        "slide:v5:code-semicolon",
+        title="Lifecycle callback",
+        content="void Start() { Debug.Log(\"ready\"); }",
+        scene_kind="method",
+        block_type="code",
+    )
+    slide["quality"].update({
+        "requested_layout": "code",
+        "resolved_layout": "code",
+        "subject_artifact_kinds": ["code"],
+    })
+
+    report = build_slide_deck_quality_v5([slide])
+
+    assert "dangling_fragment" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_allows_structured_practice_rows_to_end_with_semicolons() -> None:
+    slide = _slide(
+        "slide:v5:practice-semicolon",
+        title="Environment check",
+        content="",
+        scene_kind="practice_feedback",
+        block_type="exercise",
+    )
+    slide["blocks"][0].update({
+        "items": ["Confirm the editor version;", "Run the callback;"],
+        "metadata": {"semantic_role": "prompt"},
+    })
+    slide["blocks"].append({
+        "block_id": "practice-feedback",
+        "type": "callout",
+        "title": "Feedback",
+        "content": "",
+        "items": ["The callback ran in the expected order;"],
+        "metadata": {"semantic_role": "feedback"},
+    })
+    slide["quality"].update({
+        "requested_layout": "practice-feedback",
+        "resolved_layout": "practice-feedback",
+    })
+
+    report = build_slide_deck_quality_v5([slide])
+
     assert "dangling_fragment" not in {
         issue["code"] for issue in report["issues"]
     }

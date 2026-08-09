@@ -32,6 +32,7 @@ from slide_semantics import (
     DOMAIN_PRESENTATION_PROFILE_VERSION,
     PPT_SEMANTIC_COMPILER_VERSION,
     FinalPageContractV2,
+    SubjectPresentationContractV1,
     TeachingEpisodeContractV2,
     compile_ppt_semantic_units,
     semantic_group_kind,
@@ -55,10 +56,12 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.22"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.36"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.12"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.20"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
+
+_SLIDE_BLOCK_CAPACITY = 6
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -149,29 +152,36 @@ _TEMPLATE_LEAD_PATTERN = re.compile(
     r"实战案例(?:/行业应用)?|思考与挑战|练习与思考|"
     r"深度原理/底层机制|行业应用)\s*[:：]?\s*"
 )
-_V5_DEFAULT_DENSITY_BUDGET = {"characters": 230, "items": 5, "title": 18}
+_V5_DEFAULT_DENSITY_BUDGET = {"characters": 230, "items": 5, "title": 24}
 _V5_DENSITY_BUDGETS = {
-    "cover-minimal": {"characters": 90, "items": 0, "title": 22},
-    "cover-editorial": {"characters": 120, "items": 0, "title": 22},
-    "agenda-linear": {"characters": 240, "items": 6, "title": 18},
-    "chapter-entry": {"characters": 120, "items": 0, "title": 18},
-    "hero-claim": {"characters": 180, "items": 1, "title": 18},
-    "editorial-body": {"characters": 230, "items": 5, "title": 18},
-    "balanced-two-column": {"characters": 320, "items": 6, "title": 18},
-    "classification-3": {"characters": 270, "items": 3, "title": 18},
-    "parallel-examples": {"characters": 320, "items": 4, "title": 18},
-    "question-prompt": {"characters": 220, "items": 4, "title": 18},
-    "process-sequence": {"characters": 240, "items": 5, "title": 18},
-    "formula-explanation": {"characters": 280, "items": 4, "title": 18},
-    "figure-text": {"characters": 320, "items": 5, "title": 18},
-    "diagram-full": {"characters": 0, "items": 0, "title": 18},
-    "worked-example": {"characters": 230, "items": 3, "title": 18},
-    "practice-feedback": {"characters": 260, "items": 6, "title": 18},
-    "chapter-recap": {"characters": 220, "items": 4, "title": 18},
-    "course-synthesis": {"characters": 240, "items": 6, "title": 18},
+    "cover-minimal": {"characters": 90, "items": 0, "title": 28},
+    "cover-editorial": {"characters": 120, "items": 0, "title": 28},
+    "agenda-linear": {"characters": 240, "items": 6, "title": 24},
+    "chapter-entry": {"characters": 120, "items": 0, "title": 24},
+    "hero-claim": {"characters": 180, "items": 1, "title": 24},
+    "editorial-body": {"characters": 230, "items": 5, "title": 24},
+    "balanced-two-column": {"characters": 320, "items": 6, "title": 24},
+    "classification-3": {"characters": 270, "items": 3, "title": 24},
+    "parallel-examples": {"characters": 320, "items": 4, "title": 24},
+    "question-prompt": {"characters": 220, "items": 4, "title": 24},
+    "process-sequence": {"characters": 240, "items": 5, "title": 24},
+    "formula-explanation": {"characters": 280, "items": 4, "title": 24},
+    "code": {"characters": 1200, "items": 24, "title": 24},
+    "table": {"characters": 520, "items": 12, "title": 24},
+    "figure-text": {"characters": 320, "items": 5, "title": 24},
+    "diagram-full": {"characters": 0, "items": 0, "title": 24},
+    "worked-example": {"characters": 230, "items": 3, "title": 24},
+    "practice-feedback": {"characters": 260, "items": 6, "title": 24},
+    "chapter-recap": {"characters": 220, "items": 4, "title": 24},
+    "course-synthesis": {"characters": 240, "items": 6, "title": 24},
 }
 _V5_MINIMUM_BODY_FONT_PT = 16
 _V5_MINIMUM_TITLE_FONT_PT = 35
+_V5_CODE_LINES_PER_PAGE = 12
+_V5_CODE_CHARACTERS_PER_PAGE = 700
+_V5_CODE_FRAGMENTS_PER_PAGE = 8
+_V5_CODE_PAGES_PER_CHAPTER = 3
+_V5_PRACTICE_RENDERER_CHARACTER_RESERVE = 60
 _V5_SCENE_NARRATIVE_ROLE = {
     "chapter_entry": "orientation",
     "prerequisite_activation": "orientation",
@@ -763,6 +773,96 @@ def _compact_existing_episodes_v5(
     return selected
 
 
+def _v5_code_excerpt_group(
+    group: list[Any],
+    *,
+    maximum_pages: int,
+) -> list[Any]:
+    """Keep a readable, source-exact code excerpt within 1-3 pages."""
+    if maximum_pages <= 0:
+        return []
+    maximum_lines = _V5_CODE_LINES_PER_PAGE * maximum_pages
+    maximum_characters = _V5_CODE_CHARACTERS_PER_PAGE * maximum_pages
+    maximum_fragments = _V5_CODE_FRAGMENTS_PER_PAGE * maximum_pages
+    selected: list[Any] = []
+    line_count = 0
+    character_count = 0
+    for fragment in sorted(group, key=lambda item: item.ordinal):
+        if str(fragment.kind or "") != "code":
+            continue
+        text = str(fragment.text or "")
+        fragment_lines = max(1, len(text.splitlines()))
+        fragment_characters = len(text)
+        if selected and (
+            len(selected) >= maximum_fragments
+            or line_count + fragment_lines > maximum_lines
+            or character_count + fragment_characters > maximum_characters
+        ):
+            break
+        if not selected and (
+            fragment_lines > maximum_lines
+            or fragment_characters > maximum_characters
+        ):
+            return []
+        selected.append(fragment)
+        line_count += fragment_lines
+        character_count += fragment_characters
+    return selected
+
+
+def _subject_presentation_contract_v5(
+    story: SlideStoryPlanV2,
+) -> SubjectPresentationContractV1 | None:
+    raw = (story.planning_diagnostics or {}).get(
+        "subject_presentation_contract"
+    )
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return SubjectPresentationContractV1.model_validate(raw)
+    except ValueError:
+        return None
+
+
+def _subject_artifact_fragment_kinds_v5(
+    contract: SubjectPresentationContractV1 | None,
+) -> dict[str, str]:
+    if contract is None:
+        return {}
+    return {
+        fragment_id: kind
+        for kind, fragment_ids in contract.characteristic_fragment_ids.items()
+        for fragment_id in fragment_ids
+    }
+
+
+def _group_subject_artifact_kinds_v5(
+    group: list[Any],
+    artifact_kind_by_fragment: dict[str, str],
+) -> list[str]:
+    return list(dict.fromkeys(
+        artifact_kind_by_fragment.get(str(item.fragment_id), "")
+        for item in group
+        if artifact_kind_by_fragment.get(str(item.fragment_id), "")
+    ))
+
+
+def _subject_artifact_layout_v5(
+    artifact_kinds: list[str],
+) -> tuple[str, str, str] | None:
+    if "code" in artifact_kinds:
+        return ("code-focus", "code", "evidence")
+    if "formula" in artifact_kinds:
+        return ("formula-focus", "formula", "evidence")
+    if "table" in artifact_kinds or "data" in artifact_kinds:
+        return ("table-evidence", "table", "evidence")
+    if "diagram" in artifact_kinds or "architecture" in artifact_kinds:
+        return ("diagram-full", "diagram-full", "diagram")
+    if "image" in artifact_kinds:
+        return ("figure-text", "image-split", "evidence")
+    return None
+
+
 def compact_story_plan_v5(
     document: CourseDocument,
     story_plan: SlideStoryPlanV2 | dict[str, Any],
@@ -770,7 +870,7 @@ def compact_story_plan_v5(
     *,
     profile: str = "semantic",
 ) -> SlideStoryPlanV2:
-    """Select three complete, source-bound teaching groups per source section.
+    """Select a complete, source-bound teaching loop per source section.
 
     Detailed source fragments remain available as explicit coverage decisions
     instead of being copied into dense appendix slides.
@@ -788,10 +888,21 @@ def compact_story_plan_v5(
         for episode in chapter.episodes[1:-1]
         for beat in episode.beats
     ]
+    subject_contract = _subject_presentation_contract_v5(story)
+    required_artifact_kinds = set(
+        subject_contract.required_representation_kinds
+        if subject_contract is not None
+        else []
+    )
+    selected_artifact_kinds = {
+        kind
+        for beat in interior_beats
+        for kind in beat.subject_artifact_kinds
+    }
     if interior_beats and all(
         beat.layout_selection_reason in V5_SEMANTIC_CORE_REASONS
         for beat in interior_beats
-    ):
+    ) and required_artifact_kinds <= selected_artifact_kinds:
         return story
     source_fragments = fragments or fragment_course_document(document)
     semantic_units = compile_ppt_semantic_units(document, source_fragments)
@@ -803,6 +914,13 @@ def compact_story_plan_v5(
         fragment.fragment_id: fragment
         for fragment in source_fragments
     }
+    block_catalog = {block.block_id: block for block in document.blocks}
+    section_catalog = {
+        section.section_id: section for section in document.sections
+    }
+    artifact_kind_by_fragment = _subject_artifact_fragment_kinds_v5(
+        subject_contract
+    )
     compact_chapters = []
     for chapter in story.chapters:
         original_episodes = chapter.episodes
@@ -861,12 +979,29 @@ def compact_story_plan_v5(
                     [],
                 )
             )
+            and not any(
+                fragment.fragment_id in artifact_kind_by_fragment
+                for fragment in fragments_by_section.get(
+                    chapter.chapter_id,
+                    [],
+                )
+            )
         ):
             teaching_episodes = _compact_existing_episodes_v5(
                 original_episodes,
                 fragment_catalog,
             )
             section_ids = []
+        code_artifact_section_ids = [
+            section_id
+            for section_id in section_ids
+            if any(
+                artifact_kind_by_fragment.get(fragment.fragment_id) == "code"
+                for fragment in fragments_by_section.get(section_id, [])
+            )
+        ]
+        handled_code_sections: set[str] = set()
+        remaining_code_pages = _V5_CODE_PAGES_PER_CHAPTER
         for section_id in section_ids:
             groups = _v5_fragment_groups_for_profile(
                 fragments_by_section.get(section_id, []),
@@ -883,8 +1018,113 @@ def compact_story_plan_v5(
                     [],
                 ).append(group)
             selected_groups: list[tuple[str, list[Any]]] = []
+            protected_group_fragment_sets: set[frozenset[str]] = set()
+
+            def add_selected_group(kind: str, group: list[Any]) -> None:
+                fragment_ids = {item.fragment_id for item in group}
+                if not fragment_ids or any(
+                    fragment_ids
+                    & {item.fragment_id for item in selected_group}
+                    for _selected_kind, selected_group in selected_groups
+                ):
+                    return
+                selected_groups.append((kind, list(group)))
+
+            # Subject-critical artifacts compete before generic prose. Preserve
+            # one complete source group for every required kind present in this
+            # section; allocation performs the safe 1-N page pagination later.
+            selected_artifact_groups: list[list[Any]] = []
+            for artifact_kind in sorted(required_artifact_kinds):
+                artifact_group = next(
+                    (
+                        group
+                        for group in groups
+                        if artifact_kind in _group_subject_artifact_kinds_v5(
+                            group,
+                            artifact_kind_by_fragment,
+                        )
+                    ),
+                    None,
+                )
+                if artifact_group is not None:
+                    add_selected_group("subject_artifact", artifact_group)
+                    selected_artifact_groups.append(artifact_group)
+                    protected_group_fragment_sets.add(frozenset(
+                        str(item.fragment_id) for item in artifact_group
+                    ))
+            optional_artifact_kinds = set(
+                subject_contract.optional_representation_kinds
+                if subject_contract is not None
+                else []
+            )
+            for artifact_group in selected_artifact_groups:
+                artifact_index = next(
+                    (
+                        index
+                        for index, candidate in enumerate(groups)
+                        if candidate is artifact_group
+                    ),
+                    -1,
+                )
+                if artifact_index < 0:
+                    continue
+                companion = next(
+                    (
+                        candidate
+                        for candidate in groups[
+                            artifact_index + 1:artifact_index + 4
+                        ]
+                        if (
+                            set(_group_subject_artifact_kinds_v5(
+                                candidate,
+                                artifact_kind_by_fragment,
+                            ))
+                            & optional_artifact_kinds
+                            or _v5_group_kind_for_profile(
+                                candidate,
+                                semantic_by_fragment,
+                                profile=profile,
+                            )
+                            in {
+                                "feedback",
+                                "practice",
+                                "misconception",
+                                "application",
+                            }
+                        )
+                    ),
+                    None,
+                )
+                if companion is not None:
+                    add_selected_group(
+                        _v5_group_kind_for_profile(
+                            companion,
+                            semantic_by_fragment,
+                            profile=profile,
+                        ),
+                        companion,
+                    )
+                    protected_group_fragment_sets.add(frozenset(
+                        str(item.fragment_id) for item in companion
+                    ))
             if by_kind.get("concept"):
                 concept_group = list(by_kind["concept"][0])
+                if profile == "quality_fallback":
+                    for sibling_group in by_kind["concept"][1:]:
+                        merged = sorted(
+                            {
+                                item.fragment_id: item
+                                for item in [*concept_group, *sibling_group]
+                            }.values(),
+                            key=lambda item: item.ordinal,
+                        )
+                        if not _v5_fit_group(
+                            merged,
+                            limit=230,
+                            preserve_all=True,
+                        ):
+                            break
+                        concept_group = merged
                 if (
                     profile == "semantic"
                     and any(
@@ -904,7 +1144,7 @@ def compact_story_plan_v5(
                         if _v5_required_enumeration_fragments(merged):
                             concept_group = merged
                             break
-                selected_groups.append(("concept", concept_group))
+                add_selected_group("concept", concept_group)
             second = next(
                 (
                     (kind, by_kind[kind][0])
@@ -929,7 +1169,7 @@ def compact_story_plan_v5(
                 None,
             )
             if second:
-                selected_groups.append(second)
+                add_selected_group(*second)
             if by_kind.get("practice"):
                 practice_group = list(by_kind["practice"][0])
                 if profile == "semantic" and by_kind.get("feedback"):
@@ -941,8 +1181,9 @@ def compact_story_plan_v5(
                         }.values(),
                         key=lambda item: item.ordinal,
                     )
-                selected_groups.append(("practice", practice_group))
-            if len(selected_groups) < 3:
+                add_selected_group("practice", practice_group)
+            selection_target = max(4, len(selected_groups))
+            if len(selected_groups) < selection_target:
                 used_fragment_ids = {
                     item.fragment_id
                     for _kind, group in selected_groups
@@ -967,19 +1208,117 @@ def compact_story_plan_v5(
                         and fallback_kind in {"navigation", "feedback", "recap"}
                     ):
                         continue
-                    selected_groups.append((fallback_kind, group))
-                    if len(selected_groups) == 3:
+                    if profile == "quality_fallback" and fallback_kind == "concept":
+                        continue
+                    add_selected_group(fallback_kind, group)
+                    if len(selected_groups) == selection_target:
                         break
-            for group_index, (kind, raw_group) in enumerate(selected_groups[:3]):
-                group = (
-                    _v5_fit_practice_group(
-                        raw_group,
-                        semantic_by_fragment,
-                        limit=400,
-                    )
-                    if kind == "practice" and profile == "semantic"
-                    else _v5_fit_group(raw_group, limit=230)
+            if len(selected_groups) > 4:
+                prioritized = sorted(
+                    selected_groups,
+                    key=lambda item: (
+                        0
+                        if frozenset(
+                            str(fragment.fragment_id)
+                            for fragment in item[1]
+                        ) in protected_group_fragment_sets
+                        else 1
+                        if item[0] == "concept"
+                        else 2
+                        if item[0] == "practice"
+                        else 3,
+                        min(
+                            (fragment.ordinal for fragment in item[1]),
+                            default=0,
+                        ),
+                    ),
                 )
+                selected_groups = prioritized[:4]
+            selected_groups = sorted(
+                selected_groups,
+                key=lambda item: min(
+                    (fragment.ordinal for fragment in item[1]),
+                    default=0,
+                ),
+            )
+            for group_index, (kind, raw_group) in enumerate(selected_groups):
+                artifact_kinds = _group_subject_artifact_kinds_v5(
+                    raw_group,
+                    artifact_kind_by_fragment,
+                )
+                artifact_excerpted = False
+                if "code" in artifact_kinds:
+                    if (
+                        section_id in handled_code_sections
+                        or remaining_code_pages <= 0
+                    ):
+                        continue
+                    remaining_sections = max(
+                        1,
+                        sum(
+                            candidate not in handled_code_sections
+                            for candidate in code_artifact_section_ids
+                        ),
+                    )
+                    section_page_budget = max(
+                        1,
+                        remaining_code_pages // remaining_sections,
+                    )
+                    group = _v5_code_excerpt_group(
+                        raw_group,
+                        maximum_pages=section_page_budget,
+                    )
+                    handled_code_sections.add(section_id)
+                    if group:
+                        code_line_count = sum(
+                            max(1, len(str(item.text or "").splitlines()))
+                            for item in group
+                        )
+                        code_character_count = sum(
+                            len(str(item.text or ""))
+                            for item in group
+                        )
+                        estimated_pages = max(
+                            1,
+                            (
+                                len(group)
+                                + _V5_CODE_FRAGMENTS_PER_PAGE
+                                - 1
+                            ) // _V5_CODE_FRAGMENTS_PER_PAGE,
+                            (
+                                code_line_count
+                                + _V5_CODE_LINES_PER_PAGE
+                                - 1
+                            ) // _V5_CODE_LINES_PER_PAGE,
+                            (
+                                code_character_count
+                                + _V5_CODE_CHARACTERS_PER_PAGE
+                                - 1
+                            ) // _V5_CODE_CHARACTERS_PER_PAGE,
+                        )
+                        remaining_code_pages = max(
+                            0,
+                            remaining_code_pages - estimated_pages,
+                        )
+                    artifact_excerpted = {
+                        item.fragment_id for item in group
+                    } != {
+                        item.fragment_id
+                        for item in raw_group
+                        if str(item.kind or "") == "code"
+                    }
+                else:
+                    group = (
+                        sorted(raw_group, key=lambda item: item.ordinal)
+                        if artifact_kinds
+                        else _v5_fit_practice_group(
+                            raw_group,
+                            semantic_by_fragment,
+                            limit=400,
+                        )
+                        if kind == "practice" and profile == "semantic"
+                        else _v5_fit_group(raw_group, limit=230)
+                    )
                 if not group:
                     continue
                 scene = {
@@ -989,7 +1328,15 @@ def compact_story_plan_v5(
                     "method": "method",
                     "reasoning": "reasoning",
                     "misconception": "misconception",
-                }.get(kind, "concept")
+                }.get(kind, "worked_example" if artifact_kinds else "concept")
+                if artifact_kinds:
+                    scene = (
+                        "method"
+                        if "code" in artifact_kinds
+                        else "reasoning"
+                        if "formula" in artifact_kinds
+                        else "concept"
+                    )
                 role = (
                     "prompt"
                     if scene in {"worked_example", "practice_feedback"}
@@ -1032,6 +1379,45 @@ def compact_story_plan_v5(
                         "statement",
                     ),
                 }[scene]
+                artifact_selection = _subject_artifact_layout_v5(
+                    artifact_kinds
+                )
+                if artifact_selection is not None:
+                    selection = artifact_selection
+                if scene == "concept":
+                    visible_fragments = [
+                        item
+                        for item in group
+                        if item.kind != "heading" and _clean_text(item.text)
+                    ]
+                    source_heading_count = sum(
+                        1 for item in group if item.kind == "heading"
+                    )
+                    region_count = max(
+                        source_heading_count,
+                        min(3, len(visible_fragments)),
+                    )
+                    if region_count >= 3:
+                        selection = (
+                            "classification-3",
+                            "concept-cards",
+                            "comparison",
+                        )
+                    elif region_count == 2:
+                        selection = (
+                            "balanced-two-column",
+                            "two-column",
+                            "comparison",
+                        )
+                    elif (
+                        len(visible_fragments) == 1
+                        and len(_clean_text(visible_fragments[0].text)) <= 90
+                    ):
+                        selection = (
+                            "hero-claim",
+                            "hero-statement",
+                            "statement",
+                        )
                 episode_id = stable_hash({
                     "chapter_id": chapter.chapter_id,
                     "section_id": section_id,
@@ -1049,6 +1435,20 @@ def compact_story_plan_v5(
                     for item in group
                     if item.fragment_id in semantic_by_fragment
                 }.values())
+                dominant_semantic_unit = next(
+                    (
+                        semantic_by_fragment[item.fragment_id]
+                        for item in group
+                        if (
+                            item.fragment_id in semantic_by_fragment
+                            and artifact_kind_by_fragment.get(
+                                item.fragment_id,
+                                "",
+                            ) in artifact_kinds
+                        )
+                    ),
+                    group_semantic_units[0] if group_semantic_units else None,
+                )
                 bound_question_ids, bound_answer_ids = (
                     _v5_bound_question_ids(
                         group,
@@ -1078,6 +1478,27 @@ def compact_story_plan_v5(
                         ),
                         text=str(claim_fragment.text or ""),
                         fragment_id=claim_fragment.fragment_id,
+                    ),
+                    audience_facing_title=(
+                        _clean_text(
+                            (
+                                getattr(
+                                    block_catalog.get(claim_fragment.block_id),
+                                    "payload",
+                                    {},
+                                )
+                                or {}
+                            ).get("title")
+                        )
+                        or _clean_text(
+                            getattr(
+                                section_catalog.get(claim_fragment.section_id),
+                                "title",
+                                "",
+                            )
+                        )
+                        if artifact_kinds
+                        else ""
                     ),
                     fragment_ids=[item.fragment_id for item in group],
                     semantic_unit_ids=[
@@ -1111,11 +1532,26 @@ def compact_story_plan_v5(
                     layout_intent=selection[0],
                     renderer_layout=selection[1],
                     layout_family=selection[2],
-                    layout_selection_reason="v5_semantic_grouping",
+                    layout_selection_reason=(
+                        "v5_subject_artifact_excerpt"
+                        if artifact_excerpted
+                        else "v5_semantic_grouping"
+                    ),
                     density="primary",
                     knowledge_refs=knowledge_refs,
                     prerequisite_refs=chapter.prerequisite_knowledge_names,
                     mastery_criterion_refs=mastery_refs,
+                    presentation_intent=(
+                        dominant_semantic_unit.presentation_intent
+                        if dominant_semantic_unit is not None
+                        else ""
+                    ),
+                    presentation_grammar=(
+                        dominant_semantic_unit.presentation_grammar
+                        if dominant_semantic_unit is not None
+                        else None
+                    ),
+                    subject_artifact_kinds=artifact_kinds,
                 )
                 teaching_episodes.append(TeachingEpisodeV2(
                     episode_id=episode_id,
@@ -1252,6 +1688,7 @@ def compact_story_plan_v5(
                 episode_id=episode.episode_id,
                 section_id=episode_units[0].section_id,
                 presentation_intent=presentation_intent,
+                presentation_grammar=episode_units[0].presentation_grammar,
                 semantic_unit_ids=[
                     unit.semantic_unit_id for unit in episode_units
                 ],
@@ -1684,9 +2121,9 @@ def _title_with_continuation_sequence(
         _clean_text(title),
     )
     try:
-        title_budget = max(12, int(quality.get("title_character_budget") or 18))
+        title_budget = max(24, int(quality.get("title_character_budget") or 24))
     except (TypeError, ValueError):
-        title_budget = 18
+        title_budget = 24
     bounded = _bounded_title(
         base or "本页核心判断",
         limit=max(14, title_budget - len(suffix)),
@@ -1832,12 +2269,19 @@ def _normalize_title_match(value: Any) -> str:
 
 def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
     quality = slide.get("quality") or {}
+    is_code_artifact = "code" in {
+        str(item)
+        for item in quality.get("subject_artifact_kinds") or []
+        if str(item)
+    }
     resolved_layout = str(
         quality.get("resolved_layout")
         or quality.get("requested_layout")
         or slide.get("layout")
         or "editorial-body"
     )
+    if is_code_artifact:
+        resolved_layout = "code"
     budget = _V5_DENSITY_BUDGETS.get(
         resolved_layout,
         _V5_DEFAULT_DENSITY_BUDGET,
@@ -1845,7 +2289,8 @@ def _page_density_metrics(slide: dict[str, Any]) -> dict[str, Any]:
     suppress_body = bool(quality.get("suppress_redundant_body"))
     body_values = []
     if not suppress_body:
-        body_values.append(_clean_text(slide.get("key_message")))
+        if not is_code_artifact:
+            body_values.append(_clean_text(slide.get("key_message")))
         for block in slide.get("blocks") or []:
             metadata = block.get("metadata") or {}
             comparison_rows = (
@@ -1983,10 +2428,21 @@ def _structured_claim_title(value: str) -> str:
 
 
 def _is_incomplete_visible_claim(value: str) -> bool:
-    clean = _clean_text(value).rstrip("：:，,。！？!?；;、•· ")
+    clean = re.sub(
+        r"\s*[（(]\s*续\s*\d+/\d+\s*[）)]\s*$",
+        "",
+        _clean_text(value),
+    ).rstrip("：:，,。！？!?；;、•· ")
     if not clean:
         return True
     if not _has_balanced_text_brackets(clean):
+        return True
+    if re.fullmatch(
+        r"本(?:节|小节|节点|页)(?:课)?(?:的目标是|旨在|聚焦于).{0,4}",
+        clean,
+    ):
+        return True
+    if re.search(r"(?:与|及|和)(?:逻|机|策|流|模|结|配|设|实|处)$", clean):
         return True
     # A question may be grammatically complete without terminal punctuation.
     # Do not mistake the final attributive particle in “由什么驱动的” for a
@@ -1999,7 +2455,7 @@ def _is_incomplete_visible_claim(value: str) -> bool:
         return False
     return clean.endswith((
         "的", "是指", "包括", "分为", "属于", "依赖于", "取决于",
-        "表达式为", "如果", "那么",
+        "表达式为", "如果", "那么", "以及", "并且", "如下", "到", "为",
     ))
 
 
@@ -2007,7 +2463,7 @@ def _is_usable_compiled_title(value: str) -> bool:
     clean = _clean_text(value)
     if (
         not clean
-        or clean == "本页核心判断"
+        or re.fullmatch(r"本页核心判断(?:[（(]续\d+/\d+[）)])?", clean)
         or _is_incomplete_visible_claim(clean)
     ):
         return False
@@ -2063,6 +2519,14 @@ def _bounded_title(value: str, limit: int = 18) -> str:
     cleaned = _clean_text(value).strip("：:，,。！？!?；;、•·")
     if len(cleaned) <= limit:
         return cleaned
+    capability = re.match(
+        r"^(?:学习者)?能够(.+?)(?:，|；|。|！|？|$)",
+        cleaned,
+    )
+    if capability:
+        capability_claim = capability.group(1).strip("，；。！？：、•·")
+        if 6 <= len(capability_claim) <= limit:
+            return capability_claim
     question = re.fullmatch(
         r"(.{2,12}?)(?:，|,)?(?:那么)?(?:这个系统)?应该归类为什么类型",
         cleaned,
@@ -2316,6 +2780,32 @@ def _promote_item_group_labels(
     blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Turn markdown-only list labels into real semantic block headings."""
+    def child_atom_metadata(
+        source_block: dict[str, Any],
+        *,
+        child_key: str,
+        label: str,
+        items: list[str],
+    ) -> dict[str, Any]:
+        metadata = dict(source_block.get("metadata") or {})
+        parent_atom_id = _clean_text(metadata.get("semantic_atom_id"))
+        if not parent_atom_id:
+            return metadata
+        metadata.update({
+            "parent_semantic_atom_id": parent_atom_id,
+            "semantic_atom_id": stable_hash(
+                {
+                    "parent_semantic_atom_id": parent_atom_id,
+                    "source_block_id": str(source_block.get("block_id") or ""),
+                    "child_key": child_key,
+                    "label": label,
+                    "items": items,
+                },
+                prefix="sematomv5_group_",
+            ),
+        })
+        return metadata
+
     promoted: list[dict[str, Any]] = []
     for source_block in blocks:
         items = list(source_block.get("items") or [])
@@ -2333,6 +2823,12 @@ def _promote_item_group_labels(
         if prefix_items:
             prefix = deepcopy(source_block)
             prefix["items"] = prefix_items
+            prefix["metadata"] = child_atom_metadata(
+                source_block,
+                child_key="prefix",
+                label=_clean_text(source_block.get("title")),
+                items=prefix_items,
+            )
             promoted.append(prefix)
 
         for label_index, (item_index, label) in enumerate(labels):
@@ -2359,7 +2855,12 @@ def _promote_item_group_labels(
             )
             group["items"] = group_items
             group["metadata"] = {
-                **(source_block.get("metadata") or {}),
+                **child_atom_metadata(
+                    source_block,
+                    child_key=f"group:{label_index + 1}",
+                    label=label,
+                    items=group_items,
+                ),
                 "source_group_label": label,
             }
             promoted.append(group)
@@ -2433,6 +2934,461 @@ def _normalize_concept_definition_slide_v5(
     return slide
 
 
+def _strip_instructional_scaffolding_v5(
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    slide = deepcopy(source)
+    blocks = [deepcopy(block) for block in slide.get("blocks") or []]
+    has_multiple_visible_blocks = len([
+        block
+        for block in blocks
+        if _clean_text(block.get("content"))
+        or any(_clean_text(item) for item in block.get("items") or [])
+    ]) > 1
+    suppressed = False
+    cleaned_blocks: list[dict[str, Any]] = []
+    preferred_title_claim = ""
+    for block in blocks:
+        content = _clean_text(block.get("content"))
+        items = [
+            _clean_text(item)
+            for item in block.get("items") or []
+            if _clean_text(item)
+        ]
+        is_instructional_lead = bool(
+            content
+            and (
+                (
+                    any(marker in content for marker in (
+                        "本节聚焦于",
+                        "本小节聚焦于",
+                        "本节点聚焦于",
+                        "完成本节后",
+                        "学习者需达成",
+                        "学习者需完成",
+                    ))
+                    and any(marker in content for marker in (
+                        "你将能够",
+                        "学习者需",
+                        "可观察目标",
+                        "以下目标",
+                        "能够：",
+                    ))
+                )
+                or (
+                    "知识规范" in content
+                    and any(marker in content for marker in (
+                        "学习者需",
+                        "可观察目标",
+                        "以下目标",
+                    ))
+                )
+            )
+        )
+        if is_instructional_lead and (items or has_multiple_visible_blocks):
+            first_sentence = re.split(
+                r"(?<=[。！？!?])",
+                content,
+                maxsplit=1,
+            )[0].strip("。！？!?；;：:")
+            first_sentence = re.sub(
+                r"^本(?:节|小节|节点|页)(?:课)?(?:的负责)?"
+                r"(?:知识规范为|聚焦于|旨在掌握)\s*[:：]?\s*",
+                "",
+                first_sentence,
+            )
+            if first_sentence:
+                preferred_title_claim = first_sentence
+            block["content"] = ""
+            suppressed = True
+        if _clean_text(block.get("content")) or items:
+            cleaned_blocks.append(block)
+    if not suppressed:
+        return slide
+    quality = dict(slide.get("quality") or {})
+    slide["blocks"] = cleaned_blocks
+    slide["quality"] = {
+        **quality,
+        "preferred_title_claim": (
+            quality.get("preferred_title_claim") or preferred_title_claim
+        ),
+        "instructional_scaffolding_suppressed": True,
+    }
+    return slide
+
+
+def _structure_long_editorial_prose_v5(
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Turn one long concept paragraph into two or three source-bound points."""
+    slide = deepcopy(source)
+    quality = dict(slide.get("quality") or {})
+    if (
+        str(slide.get("scene_kind") or "") not in {"concept", "reasoning", "method"}
+        or str(
+            quality.get("resolved_layout")
+            or quality.get("requested_layout")
+            or ""
+        ) != "editorial-body"
+    ):
+        return slide
+    blocks = list(slide.get("blocks") or [])
+    if len(blocks) != 1 or blocks[0].get("items"):
+        return slide
+    content = str(blocks[0].get("content") or "").strip()
+    if len(_clean_text(content)) < 40:
+        return slide
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[。！？!?；;.])\s*", content)
+        if item.strip()
+    ]
+    if len(sentences) < 2:
+        return slide
+    group_count = min(3, len(sentences))
+    buckets: list[list[str]] = [[] for _ in range(group_count)]
+    for index, sentence in enumerate(sentences):
+        bucket_index = min(
+            group_count - 1,
+            index * group_count // len(sentences),
+        )
+        buckets[bucket_index].append(sentence)
+    points = [" ".join(bucket).strip() for bucket in buckets if bucket]
+    if len(points) < 2:
+        return slide
+    block = deepcopy(blocks[0])
+    block["type"] = "bullets"
+    block["content"] = ""
+    block["items"] = points
+    block["metadata"] = {
+        **(block.get("metadata") or {}),
+        "presentation_structured": True,
+    }
+    slide["blocks"] = [block]
+    has_effective_visual = any(
+        str(visual.get("kind") or "") != "none"
+        and bool(
+            str(visual.get("kind") or "")
+            or visual.get("visual_id")
+            or visual.get("asset_id")
+            or visual.get("path")
+            or visual.get("url")
+            or visual.get("image_url")
+        )
+        for visual in slide.get("visuals") or []
+        if isinstance(visual, dict)
+    )
+    slide["quality"] = {
+        **quality,
+        "requested_layout": (
+            "figure-text"
+            if has_effective_visual
+            else "classification-3"
+            if len(points) == 3
+            else "balanced-two-column"
+        ),
+        "presentation_structured_from_prose": True,
+    }
+    return slide
+
+
+def _structure_labeled_reasoning_pairs_v5(
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    """Turn three labeled error/inference pairs into equal presentation regions."""
+    slide = deepcopy(source)
+    if str(slide.get("scene_kind") or "") != "reasoning":
+        return slide
+    blocks = list(slide.get("blocks") or [])
+    if len(blocks) != 1:
+        return slide
+    source_items = [
+        _clean_text(item)
+        for item in blocks[0].get("items") or []
+        if _clean_text(item)
+    ]
+    if len(source_items) < 3:
+        return slide
+    regions: list[str] = []
+    for item in source_items:
+        if re.match(r"^(?:错误|Error)\s*\d+\s*[:：]", item, re.IGNORECASE):
+            regions.append(item)
+            continue
+        if re.match(r"^(?:推导|Inference)\s*[:：]", item, re.IGNORECASE):
+            if not regions:
+                return slide
+            regions[-1] = f"{regions[-1]} {item}"
+            continue
+        return slide
+    if len(regions) != 3:
+        return slide
+    block = deepcopy(blocks[0])
+    block["type"] = "bullets"
+    block["content"] = ""
+    block["items"] = regions
+    block["metadata"] = {
+        **(block.get("metadata") or {}),
+        "presentation_structured": True,
+        "semantic_role": "classification",
+    }
+    quality = dict(slide.get("quality") or {})
+    slide["blocks"] = [block]
+    slide["visuals"] = []
+    slide["quality"] = {
+        **quality,
+        "requested_layout": "classification-3",
+        "presentation_structured_from_labeled_reasoning": True,
+        "planned_visual_superseded_by_semantic_regions": True,
+    }
+    return slide
+
+
+def _promote_sparse_single_claim_v5(
+    source: dict[str, Any],
+) -> dict[str, Any]:
+    slide = deepcopy(source)
+    quality = dict(slide.get("quality") or {})
+    already_promoted = bool(quality.get("presentation_sparse_promoted"))
+    if (
+        not already_promoted
+        and (
+            str(slide.get("scene_kind") or "") != "concept"
+            or str(
+                quality.get("resolved_layout")
+                or quality.get("requested_layout")
+                or ""
+            ) != "editorial-body"
+            or any(
+                str(visual.get("kind") or "") != "none"
+                and bool(
+                    str(visual.get("kind") or "")
+                    or visual.get("visual_id")
+                    or visual.get("asset_id")
+                    or visual.get("path")
+                    or visual.get("url")
+                    or visual.get("image_url")
+                )
+                for visual in slide.get("visuals") or []
+                if isinstance(visual, dict)
+            )
+        )
+    ):
+        return slide
+    blocks = list(slide.get("blocks") or [])
+    if len(blocks) != 1:
+        return slide
+    block = deepcopy(blocks[0])
+    content = _clean_text(block.get("content"))
+    items = [
+        _clean_text(item)
+        for item in block.get("items") or []
+        if _clean_text(item)
+    ]
+    claim = content if content and not items else items[0] if len(items) == 1 else ""
+    if not 18 <= len(claim) <= 110:
+        return slide
+    block["type"] = "statement"
+    block["content"] = claim
+    block["items"] = []
+    slide["blocks"] = [block]
+    slide["key_message"] = claim
+    promoted_title = _bounded_title(claim, limit=24)
+    if promoted_title:
+        slide["title"] = _title_with_continuation_sequence(
+            promoted_title,
+            quality,
+        )
+    slide["quality"] = {
+        **quality,
+        "requested_layout": "hero-claim",
+        "preferred_title_claim": claim,
+        "presentation_sparse_promoted": True,
+        "sparse_exempt": True,
+        "suppress_redundant_body": True,
+    }
+    return slide
+
+
+def _combine_excess_sparse_claim_pages_v5(
+    slides: list[dict[str, Any]],
+    *,
+    maximum_hero_pages: int = 3,
+) -> list[dict[str, Any]]:
+    """Combine adjacent sibling claims before exceeding the hero-page budget."""
+    combined = deepcopy(slides)
+    chapter_titles = {
+        str(slide.get("chapter_id") or ""): _clean_text(slide.get("title"))
+        for slide in combined
+        if str(slide.get("scene_kind") or "") == "chapter_entry"
+    }
+
+    def is_hero(slide: dict[str, Any]) -> bool:
+        quality = slide.get("quality") or {}
+        return str(
+            quality.get("resolved_layout")
+            or quality.get("requested_layout")
+            or ""
+        ) == "hero-claim"
+
+    while sum(1 for slide in combined if is_hero(slide)) > maximum_hero_pages:
+        pair_index = next(
+            (
+                index
+                for index in range(len(combined) - 1)
+                if is_hero(combined[index])
+                and is_hero(combined[index + 1])
+                and str(combined[index].get("scene_kind") or "") == "concept"
+                and str(combined[index + 1].get("scene_kind") or "") == "concept"
+                and str(combined[index].get("chapter_id") or "")
+                == str(combined[index + 1].get("chapter_id") or "")
+            ),
+            None,
+        )
+        if pair_index is None:
+            break
+        left = combined[pair_index]
+        right = combined[pair_index + 1]
+        left_quality = dict(left.get("quality") or {})
+        right_quality = dict(right.get("quality") or {})
+        left["blocks"] = [
+            *list(left.get("blocks") or []),
+            *deepcopy(list(right.get("blocks") or [])),
+        ]
+        chapter_id = str(left.get("chapter_id") or "")
+        chapter_title = chapter_titles.get(chapter_id, "")
+        if chapter_title:
+            left["title"] = _bounded_title(
+                f"{chapter_title}的两项核心判断",
+                limit=24,
+            )
+        for field in (
+            "source_section_ids",
+            "source_block_ids",
+            "source_keys",
+            "learning_objective_ids",
+            "practice_task_ids",
+            "knowledge_refs",
+            "ability_refs",
+            "misconception_refs",
+            "mastery_refs",
+        ):
+            left[field] = list(dict.fromkeys([
+                *list(left.get(field) or []),
+                *list(right.get(field) or []),
+            ]))
+        left["quality"] = {
+            **left_quality,
+            "requested_layout": "balanced-two-column",
+            "presentation_sparse_promoted": False,
+            "sparse_exempt": False,
+            "suppress_redundant_body": False,
+            "presentation_sparse_claims_combined": True,
+            "fragment_ids": list(dict.fromkeys([
+                *list(left_quality.get("fragment_ids") or []),
+                *list(right_quality.get("fragment_ids") or []),
+            ])),
+            "source_hashes": {
+                **dict(left_quality.get("source_hashes") or {}),
+                **dict(right_quality.get("source_hashes") or {}),
+            },
+            "semantic_atom_ids": list(dict.fromkeys([
+                *list(left_quality.get("semantic_atom_ids") or []),
+                *list(right_quality.get("semantic_atom_ids") or []),
+            ])),
+            "combined_page_ids": [
+                *list(left_quality.get("combined_page_ids") or []),
+                str(right.get("unit_id") or ""),
+            ],
+        }
+        combined.pop(pair_index + 1)
+    for position, slide in enumerate(combined):
+        slide["position"] = position
+    return combined
+
+
+def _disambiguate_duplicate_titles_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    updated_slides = deepcopy(slides)
+    seen_titles: set[str] = set()
+    for slide in updated_slides:
+        normalized_title = _normalize_title_match(slide.get("title"))
+        if not normalized_title or normalized_title not in seen_titles:
+            if normalized_title:
+                seen_titles.add(normalized_title)
+            continue
+
+        quality = slide.get("quality") or {}
+        try:
+            title_budget = max(
+                18,
+                int(quality.get("title_character_budget") or 24),
+            )
+        except (TypeError, ValueError):
+            title_budget = 24
+        candidates: list[tuple[str, int | None, str]] = []
+        for block_index, block in enumerate(slide.get("blocks") or []):
+            content = _clean_text(block.get("content"))
+            if content:
+                first_sentence_with_punctuation = re.split(
+                    r"(?<=[。！？!?])",
+                    content,
+                    maxsplit=1,
+                )[0]
+                first_sentence = first_sentence_with_punctuation.strip(
+                    "。！？!?；;：:"
+                )
+                if first_sentence:
+                    candidates.append((
+                        first_sentence,
+                        block_index,
+                        first_sentence_with_punctuation,
+                    ))
+            candidates.extend(
+                (_clean_text(item), None, "")
+                for item in block.get("items") or []
+                if _clean_text(item)
+            )
+
+        replacement = ""
+        consumed_block_index: int | None = None
+        consumed_prefix = ""
+        for candidate, block_index, prefix in candidates:
+            bounded = _bounded_title(candidate, limit=title_budget)
+            normalized_candidate = _normalize_title_match(bounded)
+            if (
+                bounded
+                and normalized_candidate
+                and normalized_candidate not in seen_titles
+                and normalized_candidate != normalized_title
+                and _meaningful_title(bounded)
+                and not _is_incomplete_visible_claim(bounded)
+            ):
+                replacement = bounded
+                consumed_block_index = block_index
+                consumed_prefix = prefix
+                break
+        if not replacement:
+            continue
+
+        slide["title"] = _title_with_continuation_sequence(replacement, quality)
+        if consumed_block_index is not None and consumed_prefix:
+            source_block = slide["blocks"][consumed_block_index]
+            source_content = _clean_text(source_block.get("content"))
+            if source_content.startswith(consumed_prefix):
+                source_block["content"] = source_content[
+                    len(consumed_prefix):
+                ].lstrip()
+        replacement_key = _normalize_title_match(slide["title"])
+        if replacement_key:
+            seen_titles.add(replacement_key)
+        slide["quality"] = {
+            **quality,
+            "title_disambiguated": True,
+        }
+    return updated_slides
+
+
 def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
     bindings: list[SlotBindingV5] = []
     for block_index, block in enumerate(slide.get("blocks") or []):
@@ -2442,6 +3398,13 @@ def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
             (block.get("metadata") or {}).get("semantic_role") or ""
         )
         items = [_clean_text(item) for item in block.get("items") or [] if _clean_text(item)]
+        if block_type == "code":
+            bindings.append(SlotBindingV5(
+                slot_id=f"code-{block_index + 1}",
+                semantic_role="code_artifact",
+                source_block_id=block_id,
+            ))
+            continue
         if block_type == "process":
             for item_index, _item in enumerate(items):
                 bindings.append(SlotBindingV5(
@@ -2486,7 +3449,19 @@ def _semantic_bindings(slide: dict[str, Any]) -> list[SlotBindingV5]:
                 semantic_role=declared_role or "text",
                 source_block_id=block_id,
             ))
-    if slide.get("visuals"):
+    if any(
+        str(visual.get("kind") or "") != "none"
+        and bool(
+            str(visual.get("kind") or "")
+            or visual.get("visual_id")
+            or visual.get("asset_id")
+            or visual.get("path")
+            or visual.get("url")
+            or visual.get("image_url")
+        )
+        for visual in slide.get("visuals") or []
+        if isinstance(visual, dict)
+    ):
         bindings.append(SlotBindingV5(
             slot_id="visual",
             semantic_role="visual",
@@ -2541,6 +3516,24 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         resolved_layout = "chapter-entry"
         resolved_composition = "statement"
         major_regions = 1
+    elif requested_layout in {"code", "code-focus"} or "code" in {
+        str(item)
+        for item in quality.get("subject_artifact_kinds") or []
+        if str(item)
+    }:
+        if any(item.semantic_role == "code_artifact" for item in non_visual):
+            resolved_layout = "code"
+            resolved_composition = "code-explanation"
+            major_regions = 2
+        elif has_visual:
+            resolved_layout = "figure-text"
+            resolved_composition = "split-visual"
+            major_regions = 2
+        else:
+            resolved_layout = "editorial-body"
+            resolved_composition = "statement"
+            major_regions = 1
+            fallback_reason = "required_code_visual_missing"
     elif (
         requested_layout == "parallel-examples"
         or scene_kind == "application"
@@ -2602,6 +3595,8 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         resolved_composition = "statement"
         major_regions = 1
     elif (
+        not has_visual
+        and
         len(classification) == 3
         and sum(
             len([item for item in block.get("items") or [] if _clean_text(item)])
@@ -2613,14 +3608,45 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
         major_regions = 3
         if requested_layout != resolved_layout:
             fallback_reason = "classification_requires_three_regions"
+    elif requested_layout == "classification-3":
+        if len(non_visual) == 4:
+            resolved_layout = "parallel-examples"
+            resolved_composition = "parallel"
+            major_regions = 4
+            fallback_reason = "four_regions_use_two_by_two_parallel_layout"
+        elif len(non_visual) == 3:
+            resolved_layout = "classification-3"
+            resolved_composition = "statement"
+            major_regions = 3
+        elif len(non_visual) == 2:
+            resolved_layout = "balanced-two-column"
+            resolved_composition = "statement"
+            major_regions = 2
+            fallback_reason = "two_regions_use_two_column_layout"
+        elif has_visual and len(non_visual) == 1:
+            resolved_layout = "figure-text"
+            resolved_composition = "split-visual"
+            major_regions = 2
+            fallback_reason = "classification_single_region_uses_visual"
+        else:
+            resolved_layout = "editorial-body"
+            resolved_composition = "statement"
+            major_regions = 1
+            fallback_reason = "classification_region_count_mismatch"
     elif requested_layout == "hero-claim":
         resolved_layout = "hero-claim"
         resolved_composition = "statement"
         major_regions = 1
     elif requested_layout in {"editorial-body", "hero-statement"}:
-        resolved_layout = "editorial-body"
-        resolved_composition = "statement"
-        major_regions = 1
+        if has_visual and non_visual:
+            resolved_layout = "figure-text"
+            resolved_composition = "split-visual"
+            major_regions = 2
+            fallback_reason = "editorial_content_uses_available_visual"
+        else:
+            resolved_layout = "editorial-body"
+            resolved_composition = "statement"
+            major_regions = 1
     elif requested_layout in {"two-column", "positive-negative", "balanced-two-column"}:
         if len(non_visual) < 2:
             resolved_layout = "editorial-body"
@@ -2703,6 +3729,81 @@ def resolve_page_contract_v5(slide: dict[str, Any]) -> FinalPageContractV5:
     )
 
 
+def _apply_presentation_grammar_gate_v5(
+    slide: dict[str, Any],
+    quality: dict[str, Any],
+) -> None:
+    grammar = quality.get("presentation_grammar") or {}
+    if not isinstance(grammar, dict) or not grammar.get("presentation_intent"):
+        return
+    for key in ("issues", "blockers"):
+        quality[key] = [
+            item
+            for item in quality.get(key) or []
+            if str((item or {}).get("code") or "")
+            != "presentation_grammar_mismatch"
+        ]
+    resolved_layout = str(quality.get("resolved_layout") or "")
+    allowed_layouts = {
+        str(item) for item in grammar.get("allowed_layouts") or [] if str(item)
+    }
+    forbidden_fallbacks = {
+        str(item)
+        for item in grammar.get("forbidden_fallbacks") or []
+        if str(item)
+    }
+    mismatch = bool(
+        resolved_layout
+        and (
+            (allowed_layouts and resolved_layout not in allowed_layouts)
+            or resolved_layout in forbidden_fallbacks
+        )
+    )
+    if not mismatch:
+        return
+    artifact_kinds = [
+        str(item)
+        for item in quality.get("subject_artifact_kinds") or []
+        if str(item)
+    ]
+    artifact_erased = bool(
+        artifact_kinds
+        and (
+            resolved_layout == "editorial-body"
+            or (
+                any(
+                    kind in {"code", "formula", "table", "diagram", "image"}
+                    for kind in artifact_kinds
+                )
+                and not slide.get("visuals")
+            )
+        )
+    )
+    issue = {
+        "severity": "critical" if artifact_erased else "major",
+        "dimension": "layout_export",
+        "code": "presentation_grammar_mismatch",
+        "page_id": str(slide.get("unit_id") or ""),
+        "region": "page",
+        "presentation_intent": str(grammar.get("presentation_intent") or ""),
+        "expected_grammar": str(grammar.get("visual_grammar") or ""),
+        "allowed_layouts": sorted(allowed_layouts),
+        "observed_layout": resolved_layout,
+        "observed_fallback": str(quality.get("layout_fallback_reason") or ""),
+        "message": "The final page layout does not express its assigned teaching intent.",
+    }
+    quality["issues"] = [*(quality.get("issues") or []), issue]
+    if artifact_erased:
+        quality["blockers"] = [*(quality.get("blockers") or []), issue]
+        quality["passed"] = False
+    else:
+        quality["manual_edit_required"] = True
+        quality["manual_edit_reasons"] = list(dict.fromkeys([
+            *(quality.get("manual_edit_reasons") or []),
+            "presentation_grammar_mismatch",
+        ]))
+
+
 def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     updated = deepcopy(slide)
     updated["blocks"] = _promote_item_group_labels(
@@ -2752,6 +3853,19 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
         "major_region_count": contract.major_region_count,
         "occupied_major_region_count": contract.occupied_major_region_count,
     })
+    if contract.resolved_layout == "hero-claim":
+        quality["hero_claim_display_mode"] = "dominant_canvas"
+    if contract.resolved_layout == "code":
+        support_items = [
+            str(value).strip()
+            for block in updated.get("blocks") or []
+            if str(block.get("type") or "") != "code"
+            for value in (block.get("items") or [block.get("content")])
+            if str(value or "").strip()
+        ]
+        quality["code_region_mode"] = (
+            "annotated_split" if support_items else "full_width"
+        )
     updated["quality"] = quality
     updated["composition"] = contract.resolved_composition
     if str(updated.get("layout") or "") not in {"cover", "roadmap", "chapter", "recap"}:
@@ -2869,7 +3983,139 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
             })
             updated["composition"] = "statement"
     quality.update(_page_density_metrics(updated))
+    _apply_presentation_grammar_gate_v5(updated, quality)
     return updated
+
+
+def _paginate_slide_block_capacity_v5(
+    slides: list[dict[str, Any]],
+    *,
+    block_capacity: int = _SLIDE_BLOCK_CAPACITY,
+) -> list[dict[str, Any]]:
+    """Split expanded semantic regions without truncating source-backed blocks."""
+    capacity = max(1, int(block_capacity))
+    paginated: list[dict[str, Any]] = []
+    for source in slides:
+        blocks = list(source.get("blocks") or [])
+        if len(blocks) <= capacity:
+            paginated.append(deepcopy(source))
+            continue
+
+        page_count = math.ceil(len(blocks) / capacity)
+        base_size, extra = divmod(len(blocks), page_count)
+        group_sizes = [
+            base_size + (1 if index < extra else 0)
+            for index in range(page_count)
+        ]
+        root_id = _clean_text(source.get("unit_id")) or stable_hash(
+            source,
+            prefix="slide:v5:capacity-root:",
+        )
+        cursor = 0
+        for page_index, group_size in enumerate(group_sizes, start=1):
+            page = deepcopy(source)
+            page_blocks = deepcopy(blocks[cursor:cursor + group_size])
+            cursor += group_size
+            page["blocks"] = page_blocks
+            if page_index > 1:
+                page["unit_id"] = stable_hash(
+                    {
+                        "root_id": root_id,
+                        "page_index": page_index,
+                        "block_ids": [
+                            str(block.get("block_id") or "")
+                            for block in page_blocks
+                        ],
+                    },
+                    prefix="slide:v5:capacity:",
+                )
+                page["visuals"] = []
+
+            quality = dict(page.get("quality") or {})
+            original_continuation_of = _clean_text(
+                quality.get("continuation_of")
+            )
+            original_atom_ids = list(dict.fromkeys([
+                _clean_text(quality.get("semantic_atom_id")),
+                *[
+                    _clean_text(atom_id)
+                    for atom_id in quality.get("semantic_atom_ids") or []
+                ],
+                *[
+                    _clean_text(
+                        (block.get("metadata") or {}).get(
+                            "parent_semantic_atom_id"
+                        )
+                    )
+                    for block in page_blocks
+                ],
+            ]))
+            original_atom_ids = [
+                atom_id for atom_id in original_atom_ids if atom_id
+            ]
+            page_atom_ids = list(dict.fromkeys(
+                _clean_text(
+                    (block.get("metadata") or {}).get("semantic_atom_id")
+                )
+                for block in page_blocks
+            ))
+            page_atom_ids = [
+                atom_id for atom_id in page_atom_ids if atom_id
+            ]
+            for field in (
+                "resolved_layout",
+                "resolved_composition",
+                "slot_bindings",
+                "visual_decision",
+                "layout_fallback_reason",
+                "major_region_count",
+                "occupied_major_region_count",
+                "final_page_contract_v2",
+            ):
+                quality.pop(field, None)
+            quality.update({
+                "block_capacity_split": True,
+                "block_capacity_limit": capacity,
+                "block_capacity_original_count": len(blocks),
+                "block_capacity_page_index": page_index,
+                "block_capacity_page_count": page_count,
+                "parent_continuation_of": original_continuation_of,
+                "continuation_of": (
+                    root_id if page_index > 1 else original_continuation_of
+                ),
+                "continuation_index": (
+                    page_index
+                    if page_index > 1
+                    else int(quality.get("continuation_index") or 0)
+                ),
+                "continuation_total": (
+                    page_count
+                    if page_index > 1
+                    else int(quality.get("continuation_total") or 0)
+                ),
+            })
+            if any(
+                _clean_text(
+                    (block.get("metadata") or {}).get(
+                        "parent_semantic_atom_id"
+                    )
+                )
+                for block in page_blocks
+            ):
+                quality.pop("semantic_atom_id", None)
+                quality["semantic_atom_ids"] = page_atom_ids
+                quality["parent_semantic_atom_ids"] = original_atom_ids
+            page["quality"] = quality
+            if page_index > 1:
+                page["title"] = _title_with_continuation_sequence(
+                    str(page.get("title") or ""),
+                    quality,
+                )
+            paginated.append(page)
+
+    for position, slide in enumerate(paginated):
+        slide["position"] = position
+    return paginated
 
 
 def repair_final_page_contracts_v5(
@@ -2888,6 +4134,8 @@ def repair_final_page_contracts_v5(
         after = stable_hash(current, prefix="repair_before_")
         if after == before:
             break
+    current = _paginate_slide_block_capacity_v5(current)
+    current = [apply_page_contract_v5(slide) for slide in current]
     for slide in current:
         quality = slide.get("quality") or {}
         source_fragment_ids = list(dict.fromkeys([
@@ -2975,6 +4223,69 @@ def _chapter_entry_slide(chapter: DeckChapterV5) -> dict[str, Any]:
             "navigation_only": True,
         },
     }
+
+
+def _restore_chapter_entry_mainlines_v5(
+    slides: list[dict[str, Any]],
+    chapters: list[DeckChapterV5],
+) -> list[dict[str, Any]]:
+    chapter_by_id = {chapter.chapter_id: chapter for chapter in chapters}
+    restored = deepcopy(slides)
+    for index, slide in enumerate(restored):
+        if str(slide.get("scene_kind") or "") != "chapter_entry":
+            continue
+        if _clean_text(
+            slide.get("key_message")
+            or slide.get("takeaway")
+            or _body_text_from_blocks(list(slide.get("blocks") or []))
+        ):
+            continue
+        chapter = chapter_by_id.get(str(slide.get("chapter_id") or ""))
+        if chapter is None:
+            continue
+        mainline = _clean_text(
+            chapter.learning_objective or chapter.driving_question
+        )
+        if not mainline:
+            continue
+        next_content = next(
+            (
+                candidate
+                for candidate in restored[index + 1:]
+                if str(candidate.get("chapter_id") or "") == chapter.chapter_id
+                and str(candidate.get("scene_kind") or "") not in {
+                    "chapter_entry",
+                    "chapter_recap",
+                }
+            ),
+            None,
+        )
+        next_text = _clean_text(
+            (next_content or {}).get("key_message")
+            or (next_content or {}).get("takeaway")
+            or _body_text_from_blocks(
+                list((next_content or {}).get("blocks") or [])
+            )
+        )
+        normalized_mainline = re.sub(r"[\W_]+", "", mainline)
+        normalized_next = re.sub(r"[\W_]+", "", next_text)
+        if normalized_mainline and (
+            normalized_mainline == normalized_next
+            or (
+                len(normalized_mainline) > 20
+                and normalized_mainline in normalized_next
+            )
+        ):
+            mainline = (
+                f"本章围绕“{chapter.title}”展开，"
+                "先建立核心判断，再进入实践与验收。"
+            )
+        slide["key_message"] = mainline
+        slide["quality"] = {
+            **(slide.get("quality") or {}),
+            "chapter_entry_mainline_restored": True,
+        }
+    return restored
 
 
 def _chapter_recap_slide(
@@ -3395,7 +4706,6 @@ def _assign_heading_modes_v5(
 ) -> list[dict[str, Any]]:
     """Separate metadata titles from visible headings across one episode."""
     result: list[dict[str, Any]] = []
-    seen_explanation_episodes: set[str] = set()
     labels_by_episode: dict[str, str] = {}
     labels_by_section: dict[str, str] = {}
     for source in slides:
@@ -3415,23 +4725,11 @@ def _assign_heading_modes_v5(
                 or labels_by_section.get(section_id, "")
             )
 
-        is_explanation = (
-            str(slide.get("layout") or "") == "concept"
-            and str(slide.get("scene_kind") or "")
-            not in {"practice_feedback", "transition"}
-        )
-        is_continuation = bool(
-            is_explanation
-            and episode_id
-            and episode_id in seen_explanation_episodes
-        )
-        quality["heading_mode"] = "hidden" if is_continuation else "full"
+        quality["heading_mode"] = "full"
         if label:
             quality["section_label"] = label
         slide["quality"] = quality
         result.append(slide)
-        if is_explanation and episode_id:
-            seen_explanation_episodes.add(episode_id)
     return result
 
 
@@ -3532,6 +4830,30 @@ def _practice_block_values(block: dict[str, Any]) -> list[str]:
         for value in (block.get("items") or [block.get("content")])
         if _clean_text(value)
     ]
+
+
+_PRACTICE_ACTION_CUE = re.compile(
+    r"^(?:场景构建|内存诊断|修复验证|切换|点击|尝试|创建|运行|录制|"
+    r"观察|寻找|定位|修改|重新|截取|记录|配置|打开|关闭|执行|"
+    r"build|create|open|switch|click|run|record|observe|locate|modify|verify)",
+    re.IGNORECASE,
+)
+_PRACTICE_VERIFICATION_CUE = re.compile(
+    r"(?:你是否|是否能|能否|有没有|did\s+you|can\s+you)",
+    re.IGNORECASE,
+)
+
+
+def _practice_task_mode(values: list[str]) -> str:
+    clean_values = [_clean_text(value) for value in values if _clean_text(value)]
+    if not clean_values:
+        return ""
+    if all(_PRACTICE_VERIFICATION_CUE.search(value) for value in clean_values):
+        return "verification"
+    if any(re.search(r"[?？]", value) for value in clean_values):
+        return ""
+    action_count = sum(bool(_PRACTICE_ACTION_CUE.search(value)) for value in clean_values)
+    return "action" if action_count >= max(1, (len(clean_values) + 1) // 2) else ""
 
 
 def _practice_question_ids(slide: dict[str, Any], count: int) -> list[str]:
@@ -3782,6 +5104,32 @@ def _enrich_practice_feedback_slides_v5(
             result.append(slide)
             continue
 
+        task_mode = _practice_task_mode(prompt_values)
+        if not direct_answers and task_mode:
+            prompt["metadata"] = {
+                **(prompt.get("metadata") or {}),
+                "question_mode": "task",
+            }
+            requested_layout = "question-prompt"
+            prompt_label = "验收检查" if task_mode == "verification" else "执行任务"
+            if task_mode == "action" and len(prompt_values) > 1:
+                prompt["type"] = "process"
+                prompt["metadata"]["semantic_role"] = "process_step"
+                requested_layout = "process-sequence"
+                prompt_label = "执行步骤"
+            slide["blocks"] = [prompt]
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "requested_layout": requested_layout,
+                "feedback_mode": "task_only",
+                "task_prompt_mode": task_mode,
+                "prompt_label": prompt_label,
+                "feedback_pair_count": 0,
+                "feedback_evidence_count": 0,
+            }
+            result.append(slide)
+            continue
+
         evidence, source_ids = _grounded_feedback_evidence(slide, result)
         if evidence:
             paired_evidence = evidence[:len(prompt_values)] if prompt_values else evidence[:1]
@@ -3927,6 +5275,324 @@ def _split_practice_feedback_capacity_v5(
             }
             result.append(page)
     return result
+
+
+def _task_page_context_v5(slide: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
+    section_ids = tuple(sorted({
+        _clean_text(value)
+        for value in [
+            *(slide.get("source_section_ids") or []),
+            slide.get("section_id"),
+        ]
+        if _clean_text(value)
+    }))
+    return (_clean_text(slide.get("chapter_id")), section_ids)
+
+
+def _task_page_values_v5(slide: dict[str, Any]) -> list[str]:
+    return [
+        value
+        for block in slide.get("blocks") or []
+        for value in _practice_block_values(block)
+    ]
+
+
+_TASK_SOURCE_LIST_FIELDS = (
+    "source_section_ids",
+    "source_block_ids",
+    "source_keys",
+    "learning_objective_ids",
+    "practice_task_ids",
+    "knowledge_refs",
+    "ability_refs",
+    "misconception_refs",
+    "mastery_refs",
+)
+_TASK_METADATA_LIST_FIELDS = (
+    "fragment_ids",
+    "source_fragment_ids",
+    "question_ids",
+)
+
+
+def _partition_task_entries_v5(
+    entries: list[tuple[str, dict[str, Any]]],
+    *,
+    item_limit: int,
+    character_limit: int,
+) -> list[list[tuple[str, dict[str, Any]]]]:
+    """Reflow source task items without changing their visible order."""
+    groups: list[list[tuple[str, dict[str, Any]]]] = []
+    current: list[tuple[str, dict[str, Any]]] = []
+    current_characters = 0
+    for value, source in entries:
+        next_characters = current_characters + len(value)
+        if current and (
+            len(current) >= item_limit
+            or next_characters > character_limit
+        ):
+            groups.append(current)
+            current = []
+            current_characters = 0
+        current.append((value, source))
+        current_characters += len(value)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _task_phase_page_v5(
+    entries: list[tuple[str, dict[str, Any]]],
+    *,
+    phase: str,
+) -> dict[str, Any]:
+    """Compose one source-bound task page using phase-specific grammar."""
+    source_pages = list(dict.fromkeys(
+        id(source) for _, source in entries
+    ))
+    pages_by_identity = {id(source): source for _, source in entries}
+    pages = [pages_by_identity[identity] for identity in source_pages]
+    page = deepcopy(pages[0])
+    values = [value for value, _ in entries]
+    source_page_ids = [
+        _clean_text(source.get("unit_id")) for source in pages
+        if _clean_text(source.get("unit_id"))
+    ]
+    source_blocks = [
+        block
+        for source in pages
+        for block in source.get("blocks") or []
+    ]
+    block = deepcopy(source_blocks[0]) if source_blocks else {
+        "block_id": "task",
+        "title": "",
+        "content": "",
+        "items": [],
+        "metadata": {},
+    }
+    metadata = dict(block.get("metadata") or {})
+    for field in _TASK_METADATA_LIST_FIELDS:
+        combined = list(dict.fromkeys(
+            str(value)
+            for source_block in source_blocks
+            for value in (source_block.get("metadata") or {}).get(field) or []
+            if str(value)
+        ))
+        if combined:
+            metadata[field] = combined
+    is_procedure = phase == "procedure"
+    task_mode = "verification" if phase == "verification" else "action"
+    requested_layout = "process-sequence" if is_procedure else "question-prompt"
+    prompt_label = {
+        "overview": "任务概览",
+        "procedure": "执行步骤",
+        "verification": "验收检查",
+    }[phase]
+    metadata.update({
+        "semantic_role": "process_step" if is_procedure else "prompt",
+        "question_mode": "task",
+    })
+    block.update({
+        "block_id": stable_hash(
+            {"phase": phase, "source_page_ids": source_page_ids, "values": values},
+            prefix="taskblockv5_",
+        ),
+        "type": "process" if is_procedure else "exercise",
+        "content": "",
+        "items": values,
+        "metadata": metadata,
+    })
+    page["unit_id"] = stable_hash(
+        {"phase": phase, "source_page_ids": source_page_ids, "values": values},
+        prefix="slide:v5:task:",
+    )
+    page["key_message"] = ""
+    page["takeaway"] = ""
+    page["blocks"] = [block]
+    optional_visual_count = sum(
+        len(source.get("visuals") or []) for source in pages
+    )
+    page["visuals"] = []
+    for field in _TASK_SOURCE_LIST_FIELDS:
+        page[field] = list(dict.fromkeys(
+            str(value)
+            for source in pages
+            for value in source.get(field) or []
+            if str(value)
+        ))
+    page["practice_source_revisions"] = {
+        str(key): value
+        for source in pages
+        for key, value in (source.get("practice_source_revisions") or {}).items()
+    }
+    qualities = [dict(source.get("quality") or {}) for source in pages]
+    quality = dict(qualities[0])
+    for field in (
+        "resolved_layout",
+        "resolved_composition",
+        "slot_bindings",
+        "visual_decision",
+        "layout_fallback_reason",
+        "major_region_count",
+        "occupied_major_region_count",
+        "final_page_contract_v2",
+    ):
+        quality.pop(field, None)
+    quality.update({
+        "requested_layout": requested_layout,
+        "feedback_mode": "task_only",
+        "task_prompt_mode": task_mode,
+        "task_prompt_phase": phase,
+        "semantic_atom_pagination_mode": (
+            "ordered_task_continuation" if is_procedure else ""
+        ),
+        "prompt_label": prompt_label,
+        "feedback_pair_count": 0,
+        "feedback_evidence_count": 0,
+        "fragment_ids": list(dict.fromkeys(
+            str(value)
+            for source_quality in qualities
+            for value in source_quality.get("fragment_ids") or []
+            if str(value)
+        )),
+        "semantic_atom_ids": list(dict.fromkeys(
+            str(value)
+            for source_quality in qualities
+            for value in source_quality.get("semantic_atom_ids") or []
+            if str(value)
+        )),
+        "combined_task_page_ids": source_page_ids,
+        "task_optional_visual_count_suppressed": optional_visual_count,
+        "presentation_grammar": {
+            "presentation_intent": f"task_{phase}",
+            "visual_grammar": (
+                "ordered_procedure" if is_procedure else "task_prompt"
+            ),
+            "allowed_layouts": [requested_layout],
+            "forbidden_fallbacks": ["editorial-body", "hero-claim"],
+        },
+    })
+    page["quality"] = quality
+    return page
+
+
+def _recompose_task_activity_pages_v5(
+    run: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    action_pages = [
+        page for page in run
+        if _clean_text((page.get("quality") or {}).get("task_prompt_mode"))
+        == "action"
+    ]
+    verification_pages = [
+        page for page in run
+        if _clean_text((page.get("quality") or {}).get("task_prompt_mode"))
+        == "verification"
+    ]
+    result: list[dict[str, Any]] = []
+    procedure_pages = action_pages
+    if action_pages:
+        first_values = _task_page_values_v5(action_pages[0])
+        first_layout = _clean_text(
+            (action_pages[0].get("quality") or {}).get("requested_layout")
+        )
+        if len(first_values) == 1 and first_layout == "question-prompt":
+            result.append(_task_phase_page_v5(
+                [(first_values[0], action_pages[0])],
+                phase="overview",
+            ))
+            procedure_pages = action_pages[1:]
+    procedure_entries = [
+        (value, page)
+        for page in procedure_pages
+        for value in _task_page_values_v5(page)
+    ]
+    for group in _partition_task_entries_v5(
+        procedure_entries,
+        item_limit=4,
+        character_limit=240,
+    ):
+        result.append(_task_phase_page_v5(group, phase="procedure"))
+    verification_entries = [
+        (value, page)
+        for page in verification_pages
+        for value in _task_page_values_v5(page)
+    ]
+    for group in _partition_task_entries_v5(
+        verification_entries,
+        item_limit=3,
+        character_limit=220,
+    ):
+        result.append(_task_phase_page_v5(group, phase="verification"))
+    return result or [deepcopy(page) for page in run]
+
+
+def _task_activity_title_v5(slide: dict[str, Any]) -> str:
+    first = next(iter(_task_page_values_v5(slide)), "")
+    match = re.match(r"^([^：:]{2,10}[：:])\s*([^，,。；;]{2,18})", first)
+    candidate = f"{match.group(1)}{match.group(2)}" if match else first
+    return _bounded_title(candidate, limit=24) or _bounded_title(
+        _clean_text(slide.get("title")),
+        limit=24,
+    )
+
+
+def _consolidate_task_activity_pages_v5(
+    slides: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Turn a fragmented lab into overview, steps, and verification pages."""
+    consolidated: list[dict[str, Any]] = []
+    index = 0
+    while index < len(slides):
+        source = slides[index]
+        source_quality = source.get("quality") or {}
+        if not _clean_text(source_quality.get("task_prompt_mode")):
+            consolidated.append(source)
+            index += 1
+            continue
+        context = _task_page_context_v5(source)
+        run: list[dict[str, Any]] = []
+        while index < len(slides):
+            candidate = slides[index]
+            quality = candidate.get("quality") or {}
+            if (
+                not _clean_text(quality.get("task_prompt_mode"))
+                or _task_page_context_v5(candidate) != context
+            ):
+                break
+            run.append(deepcopy(candidate))
+            index += 1
+        packed = _recompose_task_activity_pages_v5(run)
+        root_id = _clean_text(packed[0].get("unit_id"))
+        activity_id = stable_hash(
+            {
+                "root_id": root_id,
+                "source_page_ids": [
+                    _clean_text(item.get("unit_id")) for item in run
+                ],
+            },
+            prefix="taskactivityv5_",
+        )
+        base_title = _task_activity_title_v5(packed[0]) or "课堂任务"
+        page_count = len(packed)
+        for page_index, page in enumerate(packed, start=1):
+            suffix = "" if page_index == 1 else f"（续{page_index}/{page_count}）"
+            page["title"] = f"{_bounded_title(base_title, limit=max(14, 24 - len(suffix)))}{suffix}"
+            quality = dict(page.get("quality") or {})
+            quality.update({
+                "task_activity_id": activity_id,
+                "task_activity_consolidated": len(packed) < len(run),
+                "practice_page_index": page_index,
+                "practice_page_count": page_count,
+                "continuation_of": root_id if page_index > 1 else "",
+                "continuation_index": page_index if page_index > 1 else 0,
+                "continuation_total": page_count,
+            })
+            page["quality"] = quality
+            consolidated.append(page)
+    for position, slide in enumerate(consolidated):
+        slide["position"] = position
+    return consolidated
 
 
 def _materialize_v5_structure(
@@ -4162,25 +5828,40 @@ def _split_oversized_atom_v5(
     *,
     capacity: int,
     item_capacity: int,
+    line_capacity: int | None = None,
 ) -> list[list[ContentFragmentV1]]:
     visible_items = sum(item.kind == "list_item" for item in atom)
+    visible_lines = sum(
+        max(1, len(str(item.text or "").splitlines()))
+        for item in atom
+    )
     if (
         len(atom) <= 8
         and visible_items <= item_capacity
         and sum(len(item.text) for item in atom) <= capacity
+        and (line_capacity is None or visible_lines <= line_capacity)
     ):
         return [atom]
     chunks: list[list[ContentFragmentV1]] = []
     current: list[ContentFragmentV1] = []
     current_size = 0
     current_items = 0
+    current_lines = 0
     for fragment in atom:
         fragment_size = len(fragment.text)
         fragment_items = int(fragment.kind == "list_item")
+        fragment_lines = max(
+            1,
+            len(str(fragment.text or "").splitlines()),
+        )
         if current and (
             len(current) >= 8
             or current_size + fragment_size > capacity
             or current_items + fragment_items > item_capacity
+            or (
+                line_capacity is not None
+                and current_lines + fragment_lines > line_capacity
+            )
         ):
             if re.search(r"[：:]\s*$", _clean_text(current[-1].text)):
                 lead = current.pop()
@@ -4189,14 +5870,20 @@ def _split_oversized_atom_v5(
                 current = [lead]
                 current_size = len(lead.text)
                 current_items = int(lead.kind == "list_item")
+                current_lines = max(
+                    1,
+                    len(str(lead.text or "").splitlines()),
+                )
             else:
                 chunks.append(current)
                 current = []
                 current_size = 0
                 current_items = 0
+                current_lines = 0
         current.append(fragment)
         current_size += fragment_size
         current_items += fragment_items
+        current_lines += fragment_lines
     if current:
         chunks.append(current)
     return chunks
@@ -4207,12 +5894,14 @@ def _packed_semantic_pages_v5(
     *,
     capacity: int,
     item_capacity: int,
+    line_capacity: int | None = None,
 ) -> list[tuple[list[ContentFragmentV1], list[str], str, int]]:
     atoms = _semantic_atom_groups_v5(fragments)
     packed: list[tuple[list[ContentFragmentV1], list[str], str, int]] = []
     current: list[ContentFragmentV1] = []
     current_atom_ids: list[str] = []
     current_size = 0
+    current_lines = 0
     for atom in atoms:
         atom_id = stable_hash(
             [fragment.fragment_id for fragment in atom],
@@ -4222,6 +5911,7 @@ def _packed_semantic_pages_v5(
             atom,
             capacity=capacity,
             item_capacity=item_capacity,
+            line_capacity=line_capacity,
         )
         if len(chunks) > 1:
             if current:
@@ -4229,6 +5919,7 @@ def _packed_semantic_pages_v5(
                 current = []
                 current_atom_ids = []
                 current_size = 0
+                current_lines = 0
             for chunk_index, chunk in enumerate(chunks, start=1):
                 packed.append((
                     chunk,
@@ -4238,6 +5929,10 @@ def _packed_semantic_pages_v5(
                 ))
             continue
         atom_size = sum(len(item.text) for item in atom)
+        atom_lines = sum(
+            max(1, len(str(item.text or "").splitlines()))
+            for item in atom
+        )
         if current and (
             len(current) + len(atom) > 8
             or current_size + atom_size > capacity
@@ -4246,14 +5941,20 @@ def _packed_semantic_pages_v5(
                 + sum(item.kind == "list_item" for item in atom)
                 > item_capacity
             )
+            or (
+                line_capacity is not None
+                and current_lines + atom_lines > line_capacity
+            )
         ):
             packed.append((current, current_atom_ids, "", 0))
             current = []
             current_atom_ids = []
             current_size = 0
+            current_lines = 0
         current.extend(atom)
         current_atom_ids.append(atom_id)
         current_size += atom_size
+        current_lines += atom_lines
     if current:
         packed.append((current, current_atom_ids, "", 0))
     return packed
@@ -4331,6 +6032,7 @@ def allocation_from_story_plan_v5(
         allocated.update(item.fragment_id for item in beat_fragments)
         completed_units.append((*unit[:-1], beat_fragments))
 
+    emitted_code_pages_by_chapter: dict[str, int] = {}
     for (
         _source_ordinal,
         _chapter_index,
@@ -4348,6 +6050,7 @@ def allocation_from_story_plan_v5(
             "process": "process-sequence",
             "formula": "formula-explanation",
             "comparison": "balanced-two-column",
+            "concept-cards": "parallel-examples",
         }.get(beat.renderer_layout, beat.renderer_layout)
         budget = _V5_DENSITY_BUDGETS.get(
             budget_layout,
@@ -4356,6 +6059,11 @@ def allocation_from_story_plan_v5(
         capacity = int(
             budget["characters"] or _V5_DEFAULT_DENSITY_BUDGET["characters"]
         )
+        if budget_layout in {"question-prompt", "practice-feedback"}:
+            capacity = max(
+                80,
+                capacity - _V5_PRACTICE_RENDERER_CHARACTER_RESERVE,
+            )
         item_capacity = int(
             budget["items"] or _V5_DEFAULT_DENSITY_BUDGET["items"]
         )
@@ -4363,7 +6071,44 @@ def allocation_from_story_plan_v5(
             beat_fragments,
             capacity=capacity,
             item_capacity=item_capacity,
+            line_capacity=(
+                _V5_CODE_LINES_PER_PAGE
+                if (
+                    beat.renderer_layout == "code"
+                    or "code" in beat.subject_artifact_kinds
+                )
+                else None
+            ),
         )
+        if (
+            beat.renderer_layout == "code"
+            or "code" in beat.subject_artifact_kinds
+        ):
+            emitted_count = emitted_code_pages_by_chapter.get(
+                chapter.chapter_id,
+                0,
+            )
+            remaining_code_pages = max(
+                0,
+                _V5_CODE_PAGES_PER_CHAPTER - emitted_count,
+            )
+            if len(packed) > remaining_code_pages:
+                retained_ids = {
+                    fragment.fragment_id
+                    for chunk, _atoms, _continuation, _index in packed[
+                        :remaining_code_pages
+                    ]
+                    for fragment in chunk
+                }
+                allocated.difference_update(
+                    fragment.fragment_id
+                    for fragment in beat_fragments
+                    if fragment.fragment_id not in retained_ids
+                )
+                packed = packed[:remaining_code_pages]
+            emitted_code_pages_by_chapter[chapter.chapter_id] = (
+                emitted_count + len(packed)
+            )
         continuation_totals = {
             token: sum(
                 1
@@ -4428,12 +6173,18 @@ def allocation_from_story_plan_v5(
             pages.append(page)
             page_beats[page_id] = beat
     leftovers = [item for item in fragments if item.fragment_id not in allocated]
+    subject_contract = _subject_presentation_contract_v5(story_plan)
+    artifact_kind_by_fragment = _subject_artifact_fragment_kinds_v5(
+        subject_contract
+    )
     exclusions = [
         FragmentExclusionV1(
             fragment_id=item.fragment_id,
             reason=(
                 "mode_concise"
                 if story_plan.mode == "concise"
+                else "subject_artifact_redundant_after_chapter_coverage"
+                if item.fragment_id in artifact_kind_by_fragment
                 else "v5_semantic_core"
             ),
         )
@@ -4526,6 +6277,8 @@ def _bind_question_feedback_v5(
             if _block_visible_text(block)
         )
         for prompt in prompts:
+            if (prompt.get("quality") or {}).get("subject_artifact_kinds"):
+                continue
             blocks = prompt.get("blocks") or []
             if not blocks:
                 continue
@@ -4613,7 +6366,7 @@ def build_signature_v5(
         ),
         "visual_planning_batch_version": VISUAL_PLANNING_BATCH_VERSION,
         "candidate_contract_version": "ppt_v5_candidate_v1",
-        "quality_policy_version": "slide_deck_quality_v5",
+        "quality_policy_version": "slide_deck_quality_v5_presentation_native_v1",
         "renderer_contract_version": "slide_layout_contract_v5",
         "web_image_retrieval": web_image_retrieval_signature,
     }
@@ -4680,6 +6433,7 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if (
             str(slide.get("scene_kind") or "") == "practice_feedback"
             and str(slide.get("beat_role") or "") == "prompt"
+            and str(quality.get("feedback_mode") or "") != "task_only"
             and not _practice_has_feedback(slide)
         ):
             issues.append({
@@ -4966,6 +6720,25 @@ def v5_contract_issues(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
             })
         if requested in {"two-column", "positive-negative"} and resolved == "editorial-body":
             continue
+    task_activity_pages: dict[str, list[str]] = {}
+    for slide in slides:
+        activity_id = _clean_text(
+            (slide.get("quality") or {}).get("task_activity_id")
+        )
+        if activity_id:
+            task_activity_pages.setdefault(activity_id, []).append(
+                _clean_text(slide.get("unit_id"))
+            )
+    for activity_id, page_ids in task_activity_pages.items():
+        if len(page_ids) <= 4:
+            continue
+        issues.append({
+            "severity": "critical",
+            "code": "task_activity_page_limit_exceeded",
+            "page_id": page_ids[0],
+            "task_activity_id": activity_id,
+            "page_count": len(page_ids),
+        })
     return issues
 
 
@@ -5030,10 +6803,136 @@ def _v5_semantic_issue(issue: dict[str, Any]) -> bool:
                 "fragment_",
                 "knowledge_",
                 "official_",
+                "required_subject_",
                 "source_",
+                "subject_",
             )
         )
     )
+
+
+def _visible_subject_representation_kinds_v5(
+    slides: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, set[str]]]:
+    visible: set[str] = set()
+    by_chapter: dict[str, set[str]] = {}
+    for slide in slides:
+        chapter_id = str(slide.get("chapter_id") or "")
+        kinds = {
+            str(item)
+            for item in (slide.get("quality") or {}).get(
+                "subject_artifact_kinds"
+            )
+            or []
+            if str(item)
+        }
+        for block in slide.get("blocks") or []:
+            block_type = str(block.get("type") or "")
+            if block_type in {"code", "formula", "table"}:
+                kinds.add(block_type)
+            if (block.get("metadata") or {}).get("formula"):
+                kinds.add("formula")
+        for visual in slide.get("visuals") or []:
+            visual_kind = str((visual or {}).get("kind") or "")
+            if visual_kind == "code":
+                kinds.add("code")
+            elif visual_kind == "formula":
+                kinds.add("formula")
+            elif visual_kind == "table":
+                kinds.add("table")
+            elif visual_kind in {"rule_diagram", "relational_diagram"}:
+                kinds.add("diagram")
+            elif visual_kind in {
+                "source_image",
+                "retrieved_image",
+                "generated_illustration",
+            }:
+                kinds.add("image")
+        visible.update(kinds)
+        if chapter_id:
+            by_chapter.setdefault(chapter_id, set()).update(kinds)
+    return visible, by_chapter
+
+
+def _subject_fidelity_issues_v5(
+    slides: list[dict[str, Any]],
+    planning_diagnostics: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    diagnostics = planning_diagnostics or {}
+    raw = diagnostics.get("subject_presentation_contract")
+    if raw is None:
+        return []
+    try:
+        contract = SubjectPresentationContractV1.model_validate(raw)
+    except ValueError as exc:
+        return [{
+            "severity": "critical",
+            "dimension": "source_integrity",
+            "code": "subject_presentation_contract_invalid",
+            "target": "deck",
+            "message": str(exc)[:300],
+        }]
+    visible, visible_by_chapter = _visible_subject_representation_kinds_v5(
+        slides
+    )
+    issues: list[dict[str, Any]] = []
+    for kind in contract.required_representation_kinds:
+        if kind in visible:
+            continue
+        issues.append({
+            "severity": "critical",
+            "dimension": "source_integrity",
+            "code": "required_subject_representation_missing",
+            "target": "deck",
+            "representation_kind": kind,
+            "profile_id": contract.profile_id,
+            "message": (
+                f"The final deck does not render the required {kind} "
+                "representation from the canonical course."
+            ),
+        })
+    for requirement in contract.chapter_requirements:
+        chapter_visible = visible_by_chapter.get(requirement.chapter_id, set())
+        for kind in requirement.required_representation_kinds:
+            if kind not in visible or kind in chapter_visible:
+                continue
+            issues.append({
+                "severity": "critical",
+                "dimension": "teaching_closure",
+                "code": "required_subject_chapter_coverage_missing",
+                "target": requirement.chapter_id,
+                "chapter_id": requirement.chapter_id,
+                "representation_kind": kind,
+                "minimum_artifact_count": requirement.minimum_artifact_count,
+                "message": (
+                    f"Chapter {requirement.chapter_id} does not render its "
+                    f"required {kind} teaching artifact."
+                ),
+            })
+    for conflict in contract.evidence_conflicts:
+        issues.append({
+            "severity": "major",
+            "dimension": "source_integrity",
+            "code": str(conflict or "subject_profile_evidence_conflict"),
+            "target": "deck",
+            "profile_id": contract.profile_id,
+            "message": "The persisted subject profile conflicts with source evidence.",
+        })
+    for kind in contract.missing_recommended_representation_kinds:
+        issues.append({
+            "severity": "major",
+            "dimension": "source_integrity",
+            "code": "required_subject_source_missing",
+            "target": "deck",
+            "representation_kind": kind,
+            "profile_id": contract.profile_id,
+            "responsibility": "course_generation",
+            "message": (
+                f"The {contract.profile_id} course source has no {kind} artifact; "
+                "manual course-content review is required."
+            ),
+        })
+    return issues
 
 
 def finalize_v5_quality_report(
@@ -5230,6 +7129,7 @@ def finalize_v5_quality_report(
             *v5_contract_issues(slides),
             *planning_issues,
             *visual_planning_issues,
+            *_subject_fidelity_issues_v5(slides, planning_diagnostics),
         ],
         coverage_report=coverage_report,
     )
@@ -5427,6 +7327,45 @@ def _apply_source_disposition_gate_v5(
     return updated
 
 
+def _manual_edit_reason_v5(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        reason = deepcopy(value)
+        reason["code"] = str(reason.get("code") or "manual_edit_required")
+        reason["message"] = str(
+            reason.get("message")
+            or "该页面需要人工检查版式与学科表达。"
+        )
+        return reason
+
+    raw = str(value or "manual_edit_required").strip()
+    code, separator, detail = raw.partition(":")
+    code = code or "manual_edit_required"
+    messages = {
+        "presentation_grammar_mismatch": (
+            "页面版式未完全匹配教学意图，请手动检查视觉表达。"
+        ),
+        "subject_profile_evidence_conflict": (
+            "课程学科画像与章节内容证据不一致，请手动确认学科表达。"
+        ),
+        "manual_edit_required": "该页面需要人工检查版式与学科表达。",
+    }
+    if code == "required_subject_source_missing" and separator and detail:
+        return {
+            "code": code,
+            "message": (
+                f"课程原文缺少建议的 {detail} 学科工件，请手动补充或确认。"
+            ),
+            "representation_kind": detail,
+        }
+    return {
+        "code": code,
+        "message": messages.get(
+            code,
+            "该页面需要人工检查版式与学科表达。",
+        ),
+    }
+
+
 def finalize_v5_candidate_contract(
     content: dict[str, Any],
     quality: dict[str, Any] | None = None,
@@ -5448,6 +7387,11 @@ def finalize_v5_candidate_contract(
                     "message": "该页面需要人工检查排版。",
                 }])
             )
+        if page_id in manual_by_page:
+            manual_by_page[page_id] = [
+                _manual_edit_reason_v5(reason)
+                for reason in manual_by_page[page_id]
+            ]
         page_by_id.setdefault(str(index), slide)
     for issue in report.get("warnings") or []:
         if str(issue.get("dimension") or "") != "layout_export":
@@ -5468,6 +7412,7 @@ def finalize_v5_candidate_contract(
         slide = page_by_id.get(page_id)
         if slide is None:
             continue
+        reasons = [_manual_edit_reason_v5(item) for item in reasons]
         unique_reasons = list({
             (str(item.get("code") or ""), str(item.get("message") or "")): item
             for item in reasons
@@ -5543,17 +7488,11 @@ def compile_slide_deck_v5(
         (course_data.get("generation_request") or {}).get("web_image_retrieval") or {}
     )
     retrieval_enabled = configured_retrieval.enabled or web_image_retrieval_enabled()
-    has_source_bound_beats = any(
-        beat.fragment_ids
-        for chapter in story.chapters
-        for episode in chapter.episodes
-        for beat in episode.beats
-    )
-    resolved_story = (
-        story
-        if has_source_bound_beats
-        else compact_story_plan_v5(document, story, source_fragments)
-    )
+    # Source binding is not the same as a compiled V5 story. The V2 planner can
+    # bind every split source fragment to its own beat (notably long code), which
+    # would otherwise leak through as one sparse page per fragment. Compaction is
+    # idempotent for V5 semantic-core stories and preserves AI layout directives.
+    resolved_story = compact_story_plan_v5(document, story, source_fragments)
     resolved_allocation, page_beats = allocation_from_story_plan_v5(
         document,
         source_fragments,
@@ -5673,7 +7612,10 @@ def compile_slide_deck_v5(
                 "",
                 _clean_text(title),
             )
-            concise_base = base_title[:max(8, 18 - len(suffix))].rstrip("（(")
+            concise_base = _bounded_title(
+                base_title,
+                limit=max(8, 18 - len(suffix)),
+            )
             title = f"{concise_base}{suffix}"
         slide.update({
             "chapter_id": chapter_id,
@@ -5691,6 +7633,29 @@ def compile_slide_deck_v5(
             "mastery_criterion_refs": beat.mastery_criterion_refs,
             "layout_selection_reason": beat.layout_selection_reason,
         })
+        if beat.presentation_grammar is not None:
+            grammar_payload = beat.presentation_grammar.model_dump(mode="json")
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "presentation_intent": beat.presentation_intent,
+                "presentation_grammar": grammar_payload,
+                "subject_artifact_kinds": list(beat.subject_artifact_kinds),
+            }
+            for block in slide.get("blocks") or []:
+                block["metadata"] = {
+                    **(block.get("metadata") or {}),
+                    "presentation_intent": beat.presentation_intent,
+                    "copy_voice": grammar_payload["copy_voice"],
+                    "information_structure": grammar_payload[
+                        "information_structure"
+                    ],
+                    "visual_grammar": grammar_payload["visual_grammar"],
+                }
+        if episode.scene_kind not in {"chapter_entry", "chapter_recap"}:
+            slide["quality"] = {
+                **(slide.get("quality") or {}),
+                "requested_layout": beat.layout_intent,
+            }
     outline = compile_deck_outline_v5(document, resolved_story)
     slides = _materialize_v5_structure(
         list(content.get("slides") or []),
@@ -5728,24 +7693,81 @@ def compile_slide_deck_v5(
             if scene_kind == "practice_feedback"
             else None
         )
-        if scene_layout:
+        if scene_layout and not (
+            (slide.get("quality") or {}).get("subject_artifact_kinds")
+        ):
             slide["quality"] = {
                 **(slide.get("quality") or {}),
                 "requested_layout": scene_layout,
             }
     slides = _enrich_practice_feedback_slides_v5(slides)
     slides = _split_practice_feedback_capacity_v5(slides)
+    slides = _consolidate_task_activity_pages_v5(slides)
     slides = [
         _normalize_concept_definition_slide_v5(slide)
         for slide in slides
     ]
+    slides = [_strip_instructional_scaffolding_v5(slide) for slide in slides]
+    slides = [_structure_long_editorial_prose_v5(slide) for slide in slides]
+    slides = [_structure_labeled_reasoning_pairs_v5(slide) for slide in slides]
+    slides = [_promote_sparse_single_claim_v5(slide) for slide in slides]
     slides = repair_final_page_contracts_v5(slides)
     slides = _assign_heading_modes_v5(slides)
     previous_quality = deepcopy(content.get("quality_report") or {})
     slides = [apply_page_contract_v5(slide) for slide in slides]
     slides, repair_history = repair_semantic_slides_v5(slides, max_rounds=2)
+    slides = [_strip_instructional_scaffolding_v5(slide) for slide in slides]
+    slides = [_structure_long_editorial_prose_v5(slide) for slide in slides]
+    slides = [_structure_labeled_reasoning_pairs_v5(slide) for slide in slides]
+    slides = [_promote_sparse_single_claim_v5(slide) for slide in slides]
+    slides = repair_final_page_contracts_v5(slides)
+    slides, finishing_history = repair_semantic_slides_v5(slides, max_rounds=2)
+    repair_history.extend([
+        {**item, "phase": "presentation_native_finish"}
+        for item in finishing_history
+    ])
     slides = [apply_page_contract_v5(slide) for slide in slides]
+    slides = _disambiguate_duplicate_titles_v5(slides)
+    slides = [_promote_sparse_single_claim_v5(slide) for slide in slides]
+    slides = _combine_excess_sparse_claim_pages_v5(slides)
+    slides = _restore_chapter_entry_mainlines_v5(slides, outline.chapters)
+    slides = repair_final_page_contracts_v5(slides)
     slides = _assign_heading_modes_v5(slides)
+    final_subject_contract = _subject_presentation_contract_v5(resolved_story)
+    if final_subject_contract is not None and (
+        final_subject_contract.evidence_conflicts
+        or final_subject_contract.missing_recommended_representation_kinds
+    ):
+        review_slide = next(
+            (
+                slide
+                for slide in slides
+                if str(slide.get("scene_kind") or "")
+                not in {"chapter_entry", "chapter_recap"}
+            ),
+            slides[0] if slides else None,
+        )
+        if review_slide is not None:
+            review_reasons = [
+                *final_subject_contract.evidence_conflicts,
+                *[
+                    f"required_subject_source_missing:{kind}"
+                    for kind in (
+                        final_subject_contract
+                        .missing_recommended_representation_kinds
+                    )
+                ],
+            ]
+            review_slide["quality"] = {
+                **(review_slide.get("quality") or {}),
+                "manual_edit_required": True,
+                "manual_edit_reasons": list(dict.fromkeys([
+                    *((review_slide.get("quality") or {}).get(
+                        "manual_edit_reasons"
+                    ) or []),
+                    *review_reasons,
+                ])),
+            }
     if progress_callback:
         progress_callback({
             "event": "semantic_repair",

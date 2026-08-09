@@ -117,7 +117,9 @@ def test_ai_teacher_queries_strip_web_search_command_words():
         node_id="node-1",
     )
 
-    assert queries[0] == "什么是面向对象编程 例子"
+    assert queries[0] == "面向对象编程 例子"
+    assert queries[1] == "面向对象编程 教程"
+    assert queries[2] == "object oriented programming examples"
     joined = " ".join(queries)
     assert "联网搜索" not in joined
     assert "找点" not in joined
@@ -137,6 +139,17 @@ def test_web_sources_are_numbered_and_visible_without_private_context():
     assert "Current public evidence" in prompt
     assert "PRIVATE_HISTORY_SENTINEL" in prompt
     assert "student@example.com" not in prompt
+
+
+def test_ai_teacher_uses_filtered_tier_b_sources_when_no_tier_a_exists():
+    package = _package()
+    package["sources"][0]["trust_tier"] = "tier_b"
+
+    merged = merge_ai_teacher_retrieval(_context(), package)
+
+    web = next(item for item in merged["sources"] if item["type"] == "web")
+    assert web["trust_tier"] == "tier_b"
+    assert merged["web_retrieval"]["source_count"] == 1
 
 
 def test_failed_retrieval_keeps_local_context_and_explicit_receipt():

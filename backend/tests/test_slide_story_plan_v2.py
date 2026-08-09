@@ -13,7 +13,7 @@ from representation_compiler import (
     rebuild_slide_deck_variant_bundle_safely,
     rebuild_slide_deck_variant_safely,
 )
-from slide_deck_renderer import export_structured_slide_deck
+from slide_deck_renderer import audit_exported_pptx, export_structured_slide_deck
 from slide_deck_v3 import (
     V3_LAYOUTS,
     fragment_course_document,
@@ -25,7 +25,11 @@ from slide_deck_v4 import (
     build_signature_v4,
     compile_slide_deck_v4,
 )
-from slide_deck_v5 import allocation_from_story_plan_v5, compact_story_plan_v5
+from slide_deck_v5 import (
+    allocation_from_story_plan_v5,
+    compact_story_plan_v5,
+    compile_slide_deck_v5,
+)
 from slide_layout_registry import registry_summary_v2, select_layout_v2
 from slide_story_plan import (
     STORY_BEAT_TEXT_CAPACITY,
@@ -409,8 +413,14 @@ def test_layout_selection_is_scene_aware_capacity_safe_and_deterministic() -> No
 
 
 def test_new_programming_course_long_code_is_partitioned_before_story_layout_selection(
+    tmp_path,
 ) -> None:
     course = deepcopy(_course_with_teaching_plan())
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "programming_engineering",
+        "confidence": 0.96,
+        "classification_source": "course_generation_v16",
+    }
     code_lines = [
         (
             f"public void Tick{index}(GameObject player) {{ "
@@ -424,6 +434,20 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
         if block["block_id"] == "block-concept"
     )
     concept["content"] = "```csharp\n" + "\n".join(code_lines) + "\n```"
+    next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-practice"
+    )["content"] = (
+        "请判断 PlayerController 是否应在 Update 中读取方向输入，并说明依据。"
+    )
+    next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-feedback"
+    )["content"] = (
+        "应在 Update 中读取输入，再把物理移动交给 FixedUpdate 执行。"
+    )
     document = document_from_legacy_course(course)
 
     fragments = fragment_course_document(document)
@@ -450,6 +474,18 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
         theme="qizhi-classroom",
     )
 
+    subject_contract = story.planning_diagnostics[
+        "subject_presentation_contract"
+    ]
+    assert subject_contract["schema_version"] == (
+        "subject_presentation_contract_v1"
+    )
+    assert subject_contract["profile_id"] == "engineering_programming"
+    assert subject_contract["required_representation_kinds"] == ["code"]
+    assert {
+        fragment.fragment_id for fragment in code_fragments
+    } <= set(subject_contract["characteristic_fragment_ids"]["code"])
+
     assert any(
         code_fragment.fragment_id in beat.fragment_ids
         for chapter in story.chapters
@@ -475,11 +511,220 @@ def test_new_programming_course_long_code_is_partitioned_before_story_layout_sel
     assert decided_fragment_ids == {
         fragment.fragment_id for fragment in fragments
     }
-    assert {
-        fragment.fragment_id for fragment in code_fragments
-    } <= {
-        exclusion.fragment_id for exclusion in allocation.exclusions
+    allocated_code_ids = {
+        fragment_id
+        for page in allocation.pages
+        if page.layout == "code"
+        for fragment_id in page.fragment_ids
     }
+    source_code_ids = {
+        fragment.fragment_id for fragment in code_fragments
+    }
+    excluded_code_ids = {
+        exclusion.fragment_id
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in source_code_ids
+    }
+    assert allocated_code_ids
+    assert allocated_code_ids | excluded_code_ids == source_code_ids
+    assert not allocated_code_ids & excluded_code_ids
+    assert all(
+        exclusion.reason
+        == "subject_artifact_redundant_after_chapter_coverage"
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in excluded_code_ids
+    )
+    code_pages = [page for page in allocation.pages if page.layout == "code"]
+    assert 1 <= len(code_pages) <= 3
+
+    content = compile_slide_deck_v5(
+        document,
+        course,
+        story_plan=story,
+    )
+    assert content["schema_version"] == "slide_deck_v5"
+    assert not {
+        issue["code"]
+        for issue in content["quality_report"]["blockers"]
+    } & {
+        "body_density_overflow",
+        "duplicate_title",
+        "presentation_grammar_mismatch",
+        "required_subject_representation_missing",
+    }
+    final_code_pages = [
+        slide
+        for slide in content["slides"]
+        if "code" in (slide.get("quality") or {}).get(
+            "subject_artifact_kinds",
+            [],
+        )
+    ]
+    assert 1 <= len(final_code_pages) <= 3
+    assert all(
+        slide["quality"]["resolved_layout"] == "code"
+        for slide in final_code_pages
+    )
+
+    output = export_structured_slide_deck(
+        content,
+        tmp_path / "programming-v5.pptx",
+        require_quality=False,
+    )
+    rendered = Presentation(output)
+    assert len(rendered.slides) == len(content["slides"])
+    visible_text = "\n".join(
+        shape.text
+        for slide in rendered.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+    assert "public void Tick1" in visible_text
+    if code_fragments[-1].fragment_id in allocated_code_ids:
+        assert "public void Tick32" in visible_text
+    export_audit = audit_exported_pptx(
+        output,
+        expected_slide_count=len(content["slides"]),
+    )
+    assert "exported_body_font_below_16pt" not in {
+        issue["code"] for issue in export_audit["issues"]
+    }
+
+
+def test_oversized_programming_source_uses_at_most_three_code_excerpt_pages() -> None:
+    course = deepcopy(_course_with_teaching_plan())
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "programming_engineering",
+        "confidence": 0.96,
+        "classification_source": "course_generation_v16",
+    }
+    code_lines = [
+        (
+            f"public void Tick{index}(GameObject player) {{ "
+            f"player.transform.position += velocity{index} * Time.deltaTime; }}"
+        )
+        for index in range(1, 121)
+    ]
+    concept = next(
+        block
+        for block in course["nodes"][0]["content_blocks"]
+        if block["block_id"] == "block-concept"
+    )
+    concept["content"] = "```csharp\n" + "\n".join(code_lines) + "\n```"
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    code_fragment_ids = {
+        fragment.fragment_id
+        for fragment in fragments
+        if fragment.block_id == "block-concept" and fragment.kind == "code"
+    }
+
+    compact_story = compact_story_plan_v5(
+        document,
+        compile_slide_story_plan_v2(
+            document,
+            course,
+            fragments,
+            mode="teaching",
+            theme="qizhi-classroom",
+        ),
+        fragments,
+    )
+    allocation, _ = allocation_from_story_plan_v5(
+        document,
+        fragments,
+        compact_story,
+    )
+    code_pages = [page for page in allocation.pages if page.layout == "code"]
+    allocated_code_ids = {
+        fragment_id
+        for page in code_pages
+        for fragment_id in page.fragment_ids
+    }
+    excluded_code_ids = {
+        exclusion.fragment_id
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in code_fragment_ids
+    }
+
+    assert 1 <= len(code_pages) <= 3
+    assert allocated_code_ids
+    assert excluded_code_ids
+    assert allocated_code_ids | excluded_code_ids == code_fragment_ids
+    assert all(
+        exclusion.reason == "subject_artifact_redundant_after_chapter_coverage"
+        for exclusion in allocation.exclusions
+        if exclusion.fragment_id in excluded_code_ids
+    )
+
+    content = compile_slide_deck_v5(
+        document,
+        course,
+        story_plan=compact_story,
+    )
+    assert len([
+        slide
+        for slide in content["slides"]
+        if "code" in (slide.get("quality") or {}).get(
+            "subject_artifact_kinds",
+            [],
+        )
+    ]) <= 3
+    assert "body_density_overflow" not in {
+        issue["code"] for issue in content["quality_report"]["blockers"]
+    }
+
+
+def test_practice_allocation_reserves_renderer_feedback_chrome() -> None:
+    course = deepcopy(_course_with_teaching_plan())
+    blocks = course["nodes"][0]["content_blocks"]
+    next(
+        block for block in blocks if block["block_id"] == "block-practice"
+    )["content"] = "\n".join(
+        f"- Does condition {index} pass with the recorded result?"
+        for index in range(1, 8)
+    )
+    next(
+        block for block in blocks if block["block_id"] == "block-feedback"
+    )["content"] = "\n".join(
+        f"- Condition {index} passes only with matching evidence."
+        for index in range(1, 8)
+    )
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    story = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    allocation, _ = allocation_from_story_plan_v5(
+        document,
+        fragments,
+        story,
+    )
+    fragment_by_id = {
+        fragment.fragment_id: fragment for fragment in fragments
+    }
+    practice_pages = [
+        page
+        for page in allocation.pages
+        if any(
+            fragment_by_id[fragment_id].block_id
+            in {"block-practice", "block-feedback"}
+            for fragment_id in page.fragment_ids
+        )
+    ]
+
+    assert len(practice_pages) >= 4
+    assert all(
+        sum(
+            len(fragment_by_id[fragment_id].text)
+            for fragment_id in page.fragment_ids
+        ) <= 200
+        for page in practice_pages
+    )
 
 
 def test_layout_registry_only_exposes_renderer_layouts_accepted_by_allocation() -> None:
@@ -847,6 +1092,7 @@ def test_illegal_ai_claim_is_rejected_and_uses_deterministic_story() -> None:
 
     assert planned.planner == "deterministic_fallback"
     assert planned.fallback_reason == "invalid_or_failed_ai_story_plan"
+    assert "subject_presentation_contract" in planned.planning_diagnostics
     assert all(
         beat.primary_claim_source.text != "模型补造的课程观点"
         for chapter in planned.chapters
@@ -893,6 +1139,9 @@ def test_ai_story_planner_receives_bounded_source_text_for_semantic_decisions() 
     )
     assert all(item["semantic_unit_id"] for item in captured["fragments"])
     assert all("presentation_intent" in item for item in captured["fragments"])
+    assert planned.planning_diagnostics[
+        "subject_presentation_contract"
+    ] == captured["subject_presentation_contract"]
     assert all("evidence_refs" in item for item in captured["fragments"])
     assert all(
         "semantic_unit_ids" in beat
