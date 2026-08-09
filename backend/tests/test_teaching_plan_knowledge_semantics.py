@@ -328,3 +328,66 @@ async def test_semantic_edit_reaches_the_official_plan_only_after_apply() -> Non
     )
     assert _point(storage)["boundaries"] == ["不适用于垂直直线"]
     assert applied["workbench"]["current_plan_revision_id"] != view["current_plan_revision_id"]
+
+
+@pytest.mark.asyncio
+async def test_unbound_knowledge_only_allows_descriptive_fields() -> None:
+    """7.3：知识点未完成编译时只开放描述性字段。
+
+    能力、掌握标准、易错、边界是知识库编译与下游绑定的输入。在知识点还没
+    拿到稳定 knowledge_id 之前改它们，改动无处落脚、编译后会被覆盖——
+    看起来保存成功了，其实静默丢失。所以这里明确挡住并说明补全要求。
+    """
+    course = _course()
+    point = course["course_teaching_plan"]["sections"][0]["knowledge_structure"][0]["knowledge_points"][0]
+    point.pop("knowledge_id", None)          # 模拟尚未编译
+
+    storage = MemoryStorage(course)
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    view = service.view("course-1", actor="teacher-1")
+
+    by_path = {f["path"]: f for f in view["editable_fields"] if "/knowledge/" in f["path"]}
+    # 描述性字段仍可编辑
+    assert by_path[f"{KNOWLEDGE}/statement"]["state"] != "readonly"
+    assert by_path[f"{KNOWLEDGE}/conditions"]["state"] != "readonly"
+    # 结构性字段转只读，并给出补全要求
+    for suffix in ("capability", "mastery_criteria", "misconceptions", "boundaries"):
+        field = by_path[f"{KNOWLEDGE}/{suffix}"]
+        assert field["state"] == "readonly", suffix
+        assert "编译" in field["reason"]
+        assert field.get("requires") == "knowledge_binding"
+
+    draft_id = await _open_draft(service, "teacher-1")
+    before = deepcopy(storage.course["course_teaching_plan"])
+
+    # 写入侧同样把关：只在 UI 隐藏不够，API 仍可被直接调用
+    with pytest.raises(TeachingPlanWorkbenchError) as error:
+        await service.patch_draft(
+            "course-1", actor="teacher-1", draft_id=draft_id,
+            path=f"{KNOWLEDGE}/capability", value="绕过 UI 直接写",
+            expected_value_hash="", base_plan_revision_id="",
+            idempotency_key="unbound-capability",
+        )
+    assert error.value.code == "teaching_plan_knowledge_binding_required"
+    assert storage.course["course_teaching_plan"] == before
+
+    # 描述性字段照常可写
+    await service.patch_draft(
+        "course-1", actor="teacher-1", draft_id=draft_id,
+        path=f"{KNOWLEDGE}/statement", value="未绑定时仍可改陈述",
+        expected_value_hash="", base_plan_revision_id="",
+        idempotency_key="unbound-statement",
+    )
+    assert _point(storage, draft_actor="teacher-1")["statement"] == "未绑定时仍可改陈述"
+
+
+@pytest.mark.asyncio
+async def test_bound_knowledge_keeps_every_semantic_field_editable() -> None:
+    """已完成编译的知识点不受 7.3 限制，七个字段照常可编辑。"""
+    storage = MemoryStorage(_course())      # 夹具带 knowledge_id
+    service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
+    view = service.view("course-1", actor="teacher-1")
+    by_path = {f["path"]: f for f in view["editable_fields"] if "/knowledge/" in f["path"]}
+    for suffix in ("statement", "capability", "conditions", "boundaries",
+                   "counterexamples", "misconceptions", "mastery_criteria"):
+        assert by_path[f"{KNOWLEDGE}/{suffix}"]["state"] == "requires_impact_review", suffix

@@ -369,6 +369,9 @@ _SECTION_CLASSROOM_LIST_FIELDS = {
 # 知识语义字段（contracts.md §2.4）。稳定知识 ID、来源绑定与编译状态
 # 不在其中——它们由课程知识库维护，只读。
 _KNOWLEDGE_TEXT_FIELDS = {"statement", "capability"}
+# 7.3：知识绑定缺失时仍可编辑的描述性字段。statement 是「这个知识点讲什么」，
+# conditions 是适用前提，二者不参与下游语义编译，改了不会因编译而丢失。
+_KNOWLEDGE_DESCRIPTIVE_FIELDS = {"statement", "conditions"}
 _KNOWLEDGE_LIST_FIELDS = {"conditions", "boundaries", "counterexamples"}
 # 结构化条目：教师编辑的是每条的主字段文本，verification_method、
 # discrimination 等兄弟键必须原样保留，不能被整条覆盖掉。
@@ -735,6 +738,16 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
             _module(snapshot, parts[1], parts[3])[parts[4]] = value
             return value
     if len(parts) == 5 and parts[0] == "sections" and parts[2] == "knowledge":
+        # 7.3：写入侧同样把关。只在 UI 隐藏不够——API 仍可被直接调用，
+        # 那样绕过限制写进去的结构字段会在编译后被覆盖，改动静默丢失。
+        if parts[4] not in _KNOWLEDGE_DESCRIPTIVE_FIELDS:
+            point = _knowledge_point(snapshot, parts[1], parts[3])
+            if not _text(point.get("knowledge_id")):
+                raise TeachingPlanWorkbenchError(
+                    "teaching_plan_knowledge_binding_required",
+                    "该知识点尚未完成知识库编译；补全绑定后才能编辑能力、掌握标准与边界。",
+                    details={"section_id": parts[1], "knowledge_name": parts[3]},
+                )
         if parts[4] in _KNOWLEDGE_TEXT_FIELDS:
             text = _text(value)
             if not text or len(text) > _TEXT_LIMIT:
@@ -1041,6 +1054,12 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 name = _text((point or {}).get("name"))
                 if not name:
                     continue
+                # 7.3 缺知识绑定时限制编辑：知识点还没编译出稳定
+                # knowledge_id 时，只开放描述性字段，结构性字段（能力、
+                # 掌握标准、易错、边界）转只读并说明补全要求。
+                # 理由：这些字段是知识库编译与下游绑定的输入，在身份未定
+                # 之前改它们，改动无处落脚，编译后还会被覆盖。
+                bound = bool(_text((point or {}).get("knowledge_id")))
                 for suffix in (
                     "statement",
                     "capability",
@@ -1051,7 +1070,14 @@ def _editable_fields(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                     "mastery_criteria",
                 ):
                     path = f"sections/{section_id}/knowledge/{name}/{suffix}"
-                    fields.append({"path": path, **field_permission(path)})
+                    permission = dict(field_permission(path))
+                    if not bound and suffix not in _KNOWLEDGE_DESCRIPTIVE_FIELDS:
+                        permission = {
+                            "state": "readonly",
+                            "reason": "该知识点尚未完成知识库编译；补全绑定后才能编辑能力、掌握标准与边界。",
+                            "requires": "knowledge_binding",
+                        }
+                    fields.append({"path": path, **permission})
     readable_fields = []
     for field in fields:
         try:

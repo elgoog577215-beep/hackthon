@@ -44,6 +44,8 @@ def _section(node_id: str, title: str, objective: str, knowledge: str) -> dict:
             "concept_group": "核心机制",
             "knowledge_points": [{
                 "name": knowledge,
+                # 已完成知识库编译的知识点带稳定 ID；7.3 据此放行结构字段编辑。
+                "knowledge_id": f"k-{knowledge}",
                 "statement": f"{knowledge}的基本陈述。",
                 "capability": f"能够解释{knowledge}",
                 "conditions": ["在平面直角坐标系中"],
