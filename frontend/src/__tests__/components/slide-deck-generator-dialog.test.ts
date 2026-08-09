@@ -31,6 +31,24 @@ describe('SlideDeckGeneratorDialog', () => {
     expect(wrapper.emitted('confirm')?.[0]?.[0]).toEqual({
       mode: 'concise',
       theme: 'dark-tech',
+      webImageRetrieval: { enabled: false, mode: 'wide_safe' },
+    })
+  })
+
+  it('lets the teacher explicitly enable licensed web image retrieval', async () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, {
+      props: { open: true },
+    })
+
+    const toggle = wrapper.get('[data-testid="ppt-web-image-retrieval"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.text()).toContain('仅使用公共领域、CC0 或 CC BY 图片')
+
+    await toggle.setValue(true)
+    await wrapper.find('.deck-generator__panel > footer > button').trigger('click')
+
+    expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({
+      webImageRetrieval: { enabled: true, mode: 'wide_safe' },
     })
   })
 })

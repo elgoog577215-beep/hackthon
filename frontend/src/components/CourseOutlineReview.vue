@@ -133,6 +133,49 @@
             </div>
             <footer>{{ t('courseGeneration.outlineReview.startingPointGuard', '起点来自你的自述，只用于安排第一版路径，不等同于已经掌握。') }}</footer>
           </section>
+          <section v-else-if="courseType === 'inquiry'" class="outline-review__starting-point" data-status="tentative">
+            <header>
+              <span>{{ t('courseGeneration.outlineReview.inquiryContract', '问题探究契约') }}</span>
+              <strong>{{ t('courseGeneration.outlineReview.inquiryGuard', '观点待检验') }}</strong>
+            </header>
+            <div>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.coreQuestion', '核心问题') }}</small>
+                <span>{{ courseIntent.core_question }}</span>
+              </p>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.evidenceScope', '证据范围') }}</small>
+                <span>{{ courseIntent.evidence_scope || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
+              </p>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.desiredOutput', '结论形态') }}</small>
+                <span>{{ courseIntent.desired_output }}</span>
+              </p>
+            </div>
+            <footer>{{ t('courseGeneration.outlineReview.inquiryContractHelp', '请检查目录是否真正经过子问题、证据和反例，而不是把普通章节改成问句。') }}</footer>
+          </section>
+
+          <section v-else-if="courseType === 'exam'" class="outline-review__starting-point" data-status="tentative">
+            <header>
+              <span>{{ t('courseGeneration.outlineReview.examContract', '考试冲刺契约') }}</span>
+              <strong>{{ courseIntent.exam_date || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</strong>
+            </header>
+            <div>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.examName', '考试') }}</small>
+                <span>{{ courseIntent.exam_name }}</span>
+              </p>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.examScope', '考纲范围') }}</small>
+                <span>{{ courseIntent.exam_scope }}</span>
+              </p>
+              <p>
+                <small>{{ t('courseGeneration.outlineReview.currentPreparation', '当前准备度') }}</small>
+                <span>{{ courseIntent.current_preparation || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
+              </p>
+            </div>
+            <footer>{{ t('courseGeneration.outlineReview.examContractHelp', '请检查目录是否按时间和薄弱点排序，并保留专项练习、模拟验证与考前巩固。') }}</footer>
+          </section>
 
           <section class="outline-review__adjustment" :aria-busy="generatingProposal">
             <div>
@@ -432,9 +475,8 @@ const blueprintNodes = computed<any[]>(() => (
       ? blueprintDraft.value.course_blueprint.nodes
       : []
 ))
-const isProjectCourse = computed(() => (
-  String(blueprintDraft.value?.course_type || props.task?.courseType || '') === 'project'
-))
+const courseType = computed(() => String(blueprintDraft.value?.course_type || props.task?.courseType || 'systematic'))
+const isProjectCourse = computed(() => courseType.value === 'project')
 const courseIntent = computed<Record<string, any>>(() => blueprintDraft.value?.course_intent || {})
 const startingProfile = computed<Record<string, any>>(() => blueprintDraft.value?.learner_starting_profile || {})
 const startingProfileStatus = computed(() => String(startingProfile.value.status || 'insufficient'))

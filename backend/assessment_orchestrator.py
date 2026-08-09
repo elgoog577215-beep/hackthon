@@ -127,6 +127,14 @@ class AssessmentModel(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    async def repair_candidate_batch(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        call_policy: AssessmentModelCallPolicy | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        ...
+
     async def evaluate_candidate(
         self,
         public_question_spec: dict[str, Any],
@@ -441,6 +449,53 @@ class UniversalAssessmentModel(AIBase):
                 "invalid_assessment_repair_json"
             )
         return value
+
+    async def repair_candidate_batch(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        call_policy: AssessmentModelCallPolicy | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        if not items:
+            return {}
+        response = await self._assessment_llm_call(
+            call_policy,
+            _batch_repair_prompt(items),
+            system_prompt=(
+                "你是课程题目批量修复器。每道题只允许一次显式修复。"
+                "只能修复对应质量报告指出的问题，不能交换slot_id，"
+                "不能降低题目要求。只输出一个完整JSON对象。"
+            ),
+            retry_count=1,
+            enable_thinking=bool(
+                call_policy and call_policy.enable_thinking
+            ),
+            use_fast_model=False,
+            raise_on_failure=True,
+            max_tokens=min(12288, 4096 * len(items)),
+            json_mode=True,
+            model_role="assessment_generator",
+        )
+        value = self._extract_json(response) if response else None
+        entries = value.get("repairs") if isinstance(value, dict) else None
+        if not isinstance(entries, list):
+            entries = self._extract_json_array_entries(
+                response or "",
+                "repairs",
+            )
+        result: dict[str, dict[str, Any]] = {}
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            slot_id = str(entry.get("slot_id") or "")
+            candidate = entry.get("candidate")
+            if slot_id and isinstance(candidate, dict):
+                result[slot_id] = candidate
+        if not result:
+            raise AIProviderRequestError(
+                "invalid_assessment_batch_repair_items"
+            )
+        return result
 
     async def evaluate_candidate(
         self,
@@ -853,6 +908,161 @@ class _SemanticEvaluationBatcher:
         return _normalize_semantic_report(report)
 
 
+class _CandidateRepairBatcher:
+    """Coalesce failed Fast candidates into one bounded repair call."""
+
+    def __init__(
+        self,
+        *,
+        model: AssessmentModel,
+        audit: dict[str, Any],
+        generation_policy: AssessmentGenerationPolicy,
+        max_wait_seconds: float = 0.1,
+    ) -> None:
+        self.model = model
+        self.audit = audit
+        self.generation_policy = generation_policy
+        self.max_wait_seconds = max(0.0, max_wait_seconds)
+        self._lock = asyncio.Lock()
+        self._pending: dict[
+            tuple[bool, tuple[str, ...]],
+            list[
+                tuple[
+                    dict[str, Any],
+                    asyncio.Future[dict[str, Any]],
+                    AssessmentModelCallPolicy,
+                ]
+            ],
+        ] = {}
+        self._timers: dict[
+            tuple[bool, tuple[str, ...]],
+            asyncio.Task[None],
+        ] = {}
+
+    async def repair(
+        self,
+        *,
+        context: dict[str, Any],
+        candidate: dict[str, Any],
+        quality_report: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        batch_method = getattr(
+            self.model,
+            "repair_candidate_batch",
+            None,
+        )
+        if not callable(batch_method):
+            return None
+        call_policy = self.generation_policy.call_policy(
+            "repair",
+            context,
+        )
+        key = (
+            call_policy.enable_thinking,
+            call_policy.thinking_reason_codes,
+        )
+        compact_context = _compact_batch_generation_context(context)
+        compact_context.pop("quality_report", None)
+        item = {
+            "slot_id": str(
+                (context.get("assessment_slot") or {}).get("slot_id")
+                or ""
+            ),
+            "context": compact_context,
+            "candidate": deepcopy(candidate),
+            "quality_report": deepcopy(quality_report),
+        }
+        future = asyncio.get_running_loop().create_future()
+        should_flush = False
+        async with self._lock:
+            pending = self._pending.setdefault(key, [])
+            pending.append((item, future, call_policy))
+            if len(pending) >= self.generation_policy.generation_batch_size:
+                should_flush = True
+                timer = self._timers.pop(key, None)
+                if timer is not None:
+                    timer.cancel()
+            elif key not in self._timers:
+                self._timers[key] = asyncio.create_task(
+                    self._flush_after_wait(key)
+                )
+        if should_flush:
+            await self._flush(key)
+        return await future
+
+    async def _flush_after_wait(
+        self,
+        key: tuple[bool, tuple[str, ...]],
+    ) -> None:
+        try:
+            await asyncio.sleep(self.max_wait_seconds)
+            await self._flush(key)
+        except asyncio.CancelledError:
+            return
+
+    async def _flush(
+        self,
+        key: tuple[bool, tuple[str, ...]],
+    ) -> None:
+        async with self._lock:
+            all_pending = self._pending.get(key, [])
+            pending = all_pending[
+                :self.generation_policy.generation_batch_size
+            ]
+            if not pending:
+                self._timers.pop(key, None)
+                return
+            del self._pending[key][:len(pending)]
+            self._timers.pop(key, None)
+            if self._pending[key]:
+                self._timers[key] = asyncio.create_task(
+                    self._flush_after_wait(key)
+                )
+        items = [item for item, _, _ in pending]
+        futures = [future for _, future, _ in pending]
+        call_policy = pending[0][2]
+        batch_method = getattr(self.model, "repair_candidate_batch")
+        self.audit["repair_calls"] += 1
+        self.audit["batch_repair_calls"] = int(
+            self.audit.get("batch_repair_calls") or 0
+        ) + 1
+        try:
+            repaired = await _timed_model_call(
+                self.audit,
+                role="generator",
+                operation="repair_batch",
+                batch_size=len(items),
+                call_policy=call_policy,
+                call=lambda: _call_model_method(
+                    batch_method,
+                    deepcopy(items),
+                    call_policy=call_policy,
+                ),
+            )
+            candidates: list[dict[str, Any]] = []
+            for item in items:
+                candidate = (
+                    repaired.get(str(item["slot_id"]) or "")
+                    if isinstance(repaired, dict)
+                    else None
+                )
+                if not isinstance(candidate, dict):
+                    raise AIProviderRequestError(
+                        "invalid_assessment_batch_repair_slot"
+                    )
+                candidates.append(candidate)
+            for future, candidate in zip(futures, candidates):
+                if not future.done():
+                    future.set_result(candidate)
+        except Exception as exc:
+            self.audit["batch_repair_fallback_count"] = int(
+                self.audit.get("batch_repair_fallback_count") or 0
+            ) + 1
+            for future in futures:
+                if not future.done():
+                    future.set_exception(exc)
+
+
 class _IndependentSolutionBatcher:
     """Batch compatible public-only solves for the fast profile."""
 
@@ -1121,6 +1331,8 @@ class AssessmentGenerationOrchestrator:
             "provider_queue_wait_ms": 0,
             "physical_calls": [],
             "repair_calls": 0,
+            "batch_repair_calls": 0,
+            "batch_repair_fallback_count": 0,
             "semantic_preflight_calls": 0,
             "semantic_evaluation_calls": 0,
             "batch_semantic_evaluation_calls": 0,
@@ -1732,6 +1944,15 @@ class AssessmentGenerationOrchestrator:
                     generation_policy=generation_policy,
                     max_wait_seconds=0.01,
                 )
+                repair_batcher = (
+                    _CandidateRepairBatcher(
+                        model=self.model,
+                        audit=audit,
+                        generation_policy=generation_policy,
+                    )
+                    if generation_policy.profile == "fast"
+                    else None
+                )
 
                 async def run_slot(
                     variant_index: int,
@@ -1760,6 +1981,7 @@ class AssessmentGenerationOrchestrator:
                             ),
                             semantic_batcher=semantic_batcher,
                             solution_batcher=solution_batcher,
+                            repair_batcher=repair_batcher,
                             generation_policy=generation_policy,
                         )
 
@@ -1815,7 +2037,6 @@ class AssessmentGenerationOrchestrator:
                         in {
                             "publish",
                             "teacher_review",
-                            "local_contract_approved",
                         }
                         for item in node_audit_items
                     )
@@ -2018,6 +2239,7 @@ class AssessmentGenerationOrchestrator:
         initial_candidate: dict[str, Any] | None = None,
         semantic_batcher: _SemanticEvaluationBatcher | None = None,
         solution_batcher: _IndependentSolutionBatcher | None = None,
+        repair_batcher: _CandidateRepairBatcher | None = None,
         generation_policy: AssessmentGenerationPolicy,
     ) -> tuple[
         str,
@@ -2143,7 +2365,6 @@ class AssessmentGenerationOrchestrator:
                             ),
                         )
                     elif next_action == "repair":
-                        audit["repair_calls"] += 1
                         generation_context = (
                             _context_with_diversity_constraints(
                                 context,
@@ -2168,22 +2389,37 @@ class AssessmentGenerationOrchestrator:
                             "repair",
                             repair_context,
                         )
-                        candidate = await _timed_model_call(
-                            audit,
-                            role="generator",
-                            operation="repair_single",
-                            batch_size=1,
-                            call_policy=call_policy,
-                            call=lambda: (
-                                _call_model_method(
-                                    self.model.repair_candidate,
-                                    repair_context,
-                                    deepcopy(candidate or {}),
-                                    deepcopy(last_quality or {}),
-                                    call_policy=call_policy,
-                                )
-                            ),
+                        repaired = (
+                            await repair_batcher.repair(
+                                context=repair_context,
+                                candidate=deepcopy(candidate or {}),
+                                quality_report=deepcopy(
+                                    last_quality or {}
+                                ),
+                            )
+                            if repair_batcher is not None
+                            else None
                         )
+                        if repaired is not None:
+                            candidate = repaired
+                        else:
+                            audit["repair_calls"] += 1
+                            candidate = await _timed_model_call(
+                                audit,
+                                role="generator",
+                                operation="repair_single",
+                                batch_size=1,
+                                call_policy=call_policy,
+                                call=lambda: (
+                                    _call_model_method(
+                                        self.model.repair_candidate,
+                                        repair_context,
+                                        deepcopy(candidate or {}),
+                                        deepcopy(last_quality or {}),
+                                        call_policy=call_policy,
+                                    )
+                                ),
+                            )
                     elif next_action == "initial":
                         next_action = "generate"
                     (
@@ -2380,40 +2616,31 @@ class AssessmentGenerationOrchestrator:
             AIProviderUnavailable,
         ) as exc:
             fallback = deepcopy(base)
-            fallback["generation_status"] = "ready"
-            fallback["review_required"] = False
             fallback["risk_flags"] = list(dict.fromkeys([
                 *fallback.get("risk_flags", []),
                 "ai_validation_unavailable",
             ]))
-            validation = fallback.setdefault("solution_validation", {})
             deferred_validation_issues = deepcopy(
-                validation.get("issues") or []
+                (fallback.get("solution_validation") or {}).get("issues")
+                or []
             )
-            validation["status"] = "passed"
-            validation["auto_publish_eligible"] = True
-            validation["issues"] = []
-            solution = fallback.setdefault("solution_envelope", {})
-            solution_steps = deepcopy(
-                (solution.get("solution_graph") or {}).get("steps") or []
+            _mark_discarded(
+                fallback,
+                {
+                    "schema_version": "question_quality_report_v2",
+                    "passed": False,
+                    "score": 0,
+                    "decision": "discard",
+                    "issues": [{
+                        "code": "AI_VALIDATION_UNAVAILABLE",
+                        "severity": "critical",
+                        "message": (
+                            "模型生成或验证不可用，禁止将本地保底合同"
+                            "自动发布为正式题目。"
+                        ),
+                    }],
+                },
             )
-            solution["worked_solution"] = {
-                "schema_version": "worked_solution_v1",
-                "summary": (
-                    "Use the course conditions, complete each required step, "
-                    "and verify the final result."
-                ),
-                "steps": solution_steps,
-                "final_answer": deepcopy(solution.get("canonical_answer")),
-                "checks": [
-                    str(step.get("check") or "").strip()
-                    for step in solution_steps
-                    if isinstance(step, dict)
-                    and str(step.get("check") or "").strip()
-                ],
-                "option_analysis": [],
-                "common_errors": [],
-            }
             fallback["generation_degradation"] = {
                 "status": "failed_fallback_local",
                 "reason_code": "ai_validation_unavailable",
@@ -2426,7 +2653,7 @@ class AssessmentGenerationOrchestrator:
             audit["failure_count"] += 1
             item_audit["error_code"] = type(exc).__name__
             item_audit["error_message"] = str(exc)[:500]
-            item_audit["final_decision"] = "local_contract_approved"
+            item_audit["final_decision"] = "discard"
             _attach_generation_audit_summary(
                 fallback,
                 item_audit,
@@ -4186,18 +4413,7 @@ def _batch_generation_prompt(
     }
     if compact:
         candidate_schema["solution"].pop("worked_solution", None)
-    batch = [
-        {
-            "slot_id": str(
-                (context.get("assessment_slot") or {}).get(
-                    "slot_id"
-                )
-                or ""
-            ),
-            "context": context,
-        }
-        for context in contexts
-    ]
+    shared_context, batch = _batch_generation_payload(contexts)
     envelope = {
         "candidates": [{
             "slot_id": "必须复制输入中的slot_id",
@@ -4206,7 +4422,7 @@ def _batch_generation_prompt(
     }
     return (
         f"一次生成{len(batch)}道相互独立的原创课程题目。"
-        "必须为每个BATCH_CONTEXT生成且只生成一个candidate，"
+        "必须为每个BATCH_ITEM生成且只生成一个candidate，"
         "不能遗漏、合并或交换slot_id。只输出JSON，不输出解释。\n"
         "同批题目之间不得复用核心实例、材料、数据集、代码样例、"
         "公式组合或解题路径；仅改变题型、措辞、标签、背景或数字不算新题。"
@@ -4232,9 +4448,73 @@ def _batch_generation_prompt(
         "<REQUIRED_OUTPUT_ENVELOPE>\n"
         f"{json.dumps(envelope, ensure_ascii=False)}\n"
         "</REQUIRED_OUTPUT_ENVELOPE>\n"
-        "<BATCH_CONTEXTS>\n"
+        "<SHARED_CONTEXT>\n"
+        f"{json.dumps(shared_context, ensure_ascii=False)}\n"
+        "</SHARED_CONTEXT>\n"
+        "<BATCH_ITEMS>\n"
         f"{json.dumps(batch, ensure_ascii=False)}\n"
-        "</BATCH_CONTEXTS>"
+        "</BATCH_ITEMS>"
+    )
+
+
+def _batch_generation_payload(
+    contexts: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    shared_keys = (
+        "profile",
+        "objective",
+        "reference_patterns",
+        "content_evidence",
+        "reference_coverage",
+        "untrusted_source_package",
+    )
+    shared: dict[str, Any] = {}
+    if contexts:
+        for key in shared_keys:
+            first = contexts[0].get(key)
+            if all(context.get(key) == first for context in contexts[1:]):
+                shared[key] = deepcopy(first)
+    items: list[dict[str, Any]] = []
+    for context in contexts:
+        item_context = {
+            key: deepcopy(value)
+            for key, value in context.items()
+            if key not in shared
+        }
+        slot = deepcopy(item_context.get("assessment_slot") or {})
+        slot_id = str(slot.pop("slot_id", "") or "")
+        item_context["assessment_slot"] = slot
+        items.append({
+            "slot_id": slot_id,
+            "context": item_context,
+        })
+    return shared, items
+
+
+def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
+    envelope = {
+        "repairs": [{
+            "slot_id": "必须复制输入中的slot_id",
+            "candidate": {
+                "question_spec": "修复后的完整公开题面对象",
+                "solution": "修复后的完整答案与验证对象",
+            },
+        }],
+    }
+    return (
+        f"一次修复以下{len(items)}道互相独立的题目。"
+        "每道题只能修改quality_report明确指出的问题，必须保留"
+        "context锁定的题型、难度、目标、输入契约和验证器。"
+        "普通代码材料不得超过20个有效代码行；题面引用代码时必须"
+        "包含完整且带语言标记的Markdown代码围栏。"
+        "必须为每个REPAIR_ITEM返回且只返回一个candidate，不能遗漏、"
+        "合并或交换slot_id。只输出JSON，不输出解释或私有思维过程。\n"
+        "<REQUIRED_OUTPUT_ENVELOPE>\n"
+        f"{json.dumps(envelope, ensure_ascii=False)}\n"
+        "</REQUIRED_OUTPUT_ENVELOPE>\n"
+        "<REPAIR_ITEMS>\n"
+        f"{json.dumps(items, ensure_ascii=False)}\n"
+        "</REPAIR_ITEMS>"
     )
 
 

@@ -19,8 +19,9 @@ import os
 import re
 import sys
 import time
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -56,10 +57,13 @@ logger = logging.getLogger(__name__)
 
 # API密钥存在性检查（不记录密钥内容）
 _api_key_present = bool(os.getenv("AI_API_KEY"))
+_modelscope_fallback_key_present = bool(os.getenv("MODELSCOPE_API_KEY"))
 if _api_key_present:
     logger.info("AI_API_KEY loaded successfully")
+elif _modelscope_fallback_key_present:
+    logger.info("Primary AI key is absent; ModelScope fallback is configured")
 else:
-    logger.error("AI_API_KEY not found in environment variables")
+    logger.error("No AI provider credentials found in environment variables")
 
 DEFAULT_SMART_MODELS = [
     "Qwen/Qwen3.5-27B",
@@ -123,6 +127,15 @@ class AIBase:
         # 通过环境变量配置 API 密钥
         self.api_key = os.getenv("AI_API_KEY")
         self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
+        self.modelscope_fallback_api_key = os.getenv("MODELSCOPE_API_KEY")
+        self.modelscope_fallback_api_base = os.getenv(
+            "MODELSCOPE_BASE_URL",
+            "https://api-inference.modelscope.cn/v1",
+        ).rstrip("/")
+        self.modelscope_fallback_models = (
+            _parse_model_list(os.getenv("MODELSCOPE_MODEL"))
+            or ["Qwen/Qwen3.5-35B-A3B"]
+        )
         smart_models = (
             _parse_model_list(os.getenv("AI_MODEL_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL"))
@@ -172,6 +185,7 @@ class AIBase:
             "on",
         }
         self._provider_failure: str | None = None
+        self._modelscope_fallback_failure: str | None = None
         self._request_spacing_lock = asyncio.Lock()
         self._last_request_started = 0.0
         self._minimum_request_interval = max(
@@ -184,31 +198,52 @@ class AIBase:
             ),
         )
         
+        request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
+        connect_timeout = max(1.0, float(os.getenv("AI_CONNECT_TIMEOUT_SECONDS", "10")))
+        client_timeout = httpx.Timeout(request_timeout, connect=connect_timeout)
         if self.api_key:
-            request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
-            connect_timeout = max(1.0, float(os.getenv("AI_CONNECT_TIMEOUT_SECONDS", "10")))
             self.client = AsyncOpenAI(
                 base_url=self.api_base,
                 api_key=self.api_key,
-                timeout=httpx.Timeout(request_timeout, connect=connect_timeout),
+                timeout=client_timeout,
                 max_retries=0,
             )
         else:
             self.client = None
-            logger.warning("AI_API_KEY not found. AI features will be disabled.")
+            logger.warning(
+                "Primary AI_API_KEY is not configured; primary route disabled"
+            )
+
+        if self.modelscope_fallback_api_key:
+            self.modelscope_fallback_client = AsyncOpenAI(
+                base_url=self.modelscope_fallback_api_base,
+                api_key=self.modelscope_fallback_api_key,
+                timeout=client_timeout,
+                max_retries=0,
+            )
+            logger.info("ModelScope last-resort provider configured")
+        else:
+            self.modelscope_fallback_client = None
 
     @staticmethod
     def _is_official_deepseek_base(api_base: str) -> bool:
         return urlparse(api_base).hostname == "api.deepseek.com"
 
-    def _thinking_extra_body(self, enable_thinking: bool) -> Dict:
+    def _thinking_extra_body(
+        self,
+        enable_thinking: bool,
+        api_base: str | None = None,
+    ) -> Dict:
         thinking_enabled = enable_thinking and self.thinking_enabled
-        if self._is_official_deepseek_base(self.api_base):
+        if self._is_official_deepseek_base(api_base or self.api_base):
             return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
         return {"enable_thinking": thinking_enabled}
 
-    def _supports_json_response_format(self) -> bool:
-        hostname = (urlparse(self.api_base).hostname or "").casefold()
+    def _supports_json_response_format(
+        self,
+        api_base: str | None = None,
+    ) -> bool:
+        hostname = (urlparse(api_base or self.api_base).hostname or "").casefold()
         return hostname not in {
             "api-inference.modelscope.cn",
             "api.modelscope.cn",
@@ -410,9 +445,11 @@ class AIBase:
         self,
         model_id: str,
         error: Exception,
+        api_base: str | None = None,
     ) -> None:
         cooldown = self._model_failure_cooldown_seconds(error)
-        self._model_failure_cache[(self.api_base, model_id)] = (
+        provider_base = api_base or self.api_base
+        self._model_failure_cache[(provider_base, model_id)] = (
             time.monotonic() + cooldown
         )
         logger.warning(
@@ -421,9 +458,38 @@ class AIBase:
             int(cooldown),
         )
 
-    def _cooldown_model(self, model_id: str, error: Exception) -> None:
+    def _cooldown_model(
+        self,
+        model_id: str,
+        error: Exception,
+        api_base: str | None = None,
+    ) -> None:
         """Backward-compatible spelling for callers using the older helper."""
-        self._cool_down_model(model_id, error)
+        self._cool_down_model(model_id, error, api_base)
+
+    def _modelscope_fallback_models_for(self) -> list[str]:
+        now = time.monotonic()
+        available = [
+            model
+            for model in self.modelscope_fallback_models
+            if self._model_failure_cache.get(
+                (self.modelscope_fallback_api_base, model),
+                0,
+            ) <= now
+        ]
+        for model in self.modelscope_fallback_models:
+            failure_key = (self.modelscope_fallback_api_base, model)
+            if self._model_failure_cache.get(failure_key, 0) <= now:
+                self._model_failure_cache.pop(failure_key, None)
+        return available
+
+    def _modelscope_fallback_available(self) -> bool:
+        return bool(
+            self.modelscope_fallback_api_key
+            and self.modelscope_fallback_client
+            and not self._modelscope_fallback_failure
+            and self._modelscope_fallback_models_for()
+        )
 
     @staticmethod
     def _capacity_failure_kind(error: Exception) -> str:
@@ -935,6 +1001,365 @@ class AIBase:
     # 核心 LLM 调用方法
     # ============================================================================
     
+    async def _call_modelscope_fallback(
+        self,
+        prompt: str,
+        system_prompt: str,
+        retry_count: int,
+        enable_thinking: bool,
+        max_tokens: int | None,
+        max_attempts: int | None,
+        reject_truncated: bool,
+        raise_on_failure: bool,
+        json_mode: bool,
+        model_role: str | None,
+        on_stream_activity: Callable[[], None] | None,
+        telemetry_sink: Callable[[dict], None] | None,
+    ) -> str | None:
+        if not self._modelscope_fallback_available():
+            if raise_on_failure:
+                raise AIProviderUnavailable(
+                    self._modelscope_fallback_failure
+                    or "modelscope_fallback_unavailable"
+                )
+            return None
+
+        logger.warning(
+            "Primary AI provider exhausted; switching to ModelScope fallback"
+        )
+        last_error: Exception | None = None
+        attempts = 0
+        for model_id in self._modelscope_fallback_models_for():
+            if max_attempts is not None and attempts >= max_attempts:
+                break
+            for attempt in range(retry_count):
+                if max_attempts is not None and attempts >= max_attempts:
+                    break
+                attempts += 1
+                attempt_started = time.perf_counter()
+                queue_wait_ms = 0
+                physical_request_count = 0
+                estimated_input_tokens = self.estimate_request_tokens(
+                    prompt,
+                    system_prompt,
+                )
+
+                def emit_telemetry(
+                    *,
+                    status: str,
+                    output: str = "",
+                    error: Exception | None = None,
+                ) -> None:
+                    if telemetry_sink is None:
+                        return
+                    try:
+                        telemetry_sink({
+                            "model_id": model_id,
+                            "model_role": model_role or "",
+                            "provider_attempt": attempts,
+                            "physical_request_count": physical_request_count,
+                            "status": status,
+                            "error_code": type(error).__name__ if error else "",
+                            "queue_wait_ms": queue_wait_ms,
+                            "duration_ms": int(round(
+                                (time.perf_counter() - attempt_started) * 1000
+                            )),
+                            "estimated_input_tokens": estimated_input_tokens,
+                            "estimated_output_tokens": (
+                                self.estimate_request_tokens(output, "")
+                                if output
+                                else 0
+                            ),
+                            "provider_route": "modelscope_fallback",
+                        })
+                    except Exception:
+                        logger.debug(
+                            "Fallback telemetry sink failed",
+                            exc_info=True,
+                        )
+
+                capacity = get_provider_capacity_controller(
+                    self.modelscope_fallback_api_base
+                )
+                try:
+                    request_options = {
+                        "model": model_id,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "stream": True,
+                        "max_tokens": max_tokens or self.max_tokens,
+                        "extra_body": self._thinking_extra_body(
+                            enable_thinking,
+                            self.modelscope_fallback_api_base,
+                        ),
+                    }
+                    if json_mode and self._supports_json_response_format(
+                        self.modelscope_fallback_api_base
+                    ):
+                        request_options["response_format"] = {
+                            "type": "json_object"
+                        }
+
+                    queue_started = time.perf_counter()
+                    lease = await capacity.acquire(
+                        model_id,
+                        on_wait_activity=on_stream_activity,
+                    )
+                    queue_wait_ms = int(round(
+                        (time.perf_counter() - queue_started) * 1000
+                    ))
+                    try:
+                        try:
+                            await self._wait_for_request_slot()
+                            physical_request_count += 1
+                            response = await (
+                                self.modelscope_fallback_client
+                                .chat.completions.create(**request_options)
+                            )
+                        except Exception as format_error:
+                            if not (
+                                json_mode
+                                and self._error_status_code(format_error) == 400
+                            ):
+                                raise
+                            request_options.pop("response_format", None)
+                            await self._wait_for_request_slot()
+                            physical_request_count += 1
+                            response = await (
+                                self.modelscope_fallback_client
+                                .chat.completions.create(**request_options)
+                            )
+
+                        full_content = ""
+                        truncated = False
+                        async for chunk in response:
+                            if not chunk.choices:
+                                continue
+                            delta = chunk.choices[0].delta
+                            reasoning = getattr(delta, "reasoning_content", None)
+                            if reasoning and on_stream_activity:
+                                on_stream_activity()
+                            if delta.content:
+                                full_content += delta.content
+                                if on_stream_activity:
+                                    on_stream_activity()
+                            if getattr(
+                                chunk.choices[0],
+                                "finish_reason",
+                                None,
+                            ) == "length":
+                                truncated = True
+                    finally:
+                        await lease.release()
+
+                    if truncated and reject_truncated:
+                        raise AIResponseTruncated(
+                            "ModelScope fallback output reached max_tokens="
+                            f"{max_tokens or self.max_tokens}"
+                        )
+                    if not full_content:
+                        empty_error = AIProviderRequestError(
+                            f"empty_response:{model_id}"
+                        )
+                        last_error = empty_error
+                        emit_telemetry(
+                            status="empty_response",
+                            error=empty_error,
+                        )
+                        await capacity.report_failure(
+                            model_id,
+                            failure_kind="transient",
+                        )
+                        self._cool_down_model(
+                            model_id,
+                            empty_error,
+                            self.modelscope_fallback_api_base,
+                        )
+                        break
+
+                    await capacity.report_success(model_id)
+                    emit_telemetry(status="completed", output=full_content)
+                    logger.info(
+                        "ModelScope fallback response complete (Model: %s)",
+                        model_id,
+                    )
+                    return full_content
+                except Exception as error:
+                    last_error = error
+                    emit_telemetry(status="failed", error=error)
+                    logger.error(
+                        "ModelScope fallback error (Model: %s, Attempt %s/%s): %s",
+                        model_id,
+                        attempt + 1,
+                        retry_count,
+                        error,
+                    )
+                    if isinstance(error, ModelCapacityCoolingDown):
+                        break
+                    if self._is_authentication_error(error):
+                        self._modelscope_fallback_failure = (
+                            "authentication_failed"
+                        )
+                        break
+                    if self._should_try_next_model(error):
+                        await capacity.report_failure(
+                            model_id,
+                            failure_kind=self._capacity_failure_kind(error),
+                            cooldown_seconds=(
+                                self._model_failure_cooldown_seconds(error)
+                            ),
+                        )
+                        self._cool_down_model(
+                            model_id,
+                            error,
+                            self.modelscope_fallback_api_base,
+                        )
+                        break
+                    if attempt < retry_count - 1:
+                        await asyncio.sleep(2 ** attempt)
+                    else:
+                        break
+            if self._modelscope_fallback_failure:
+                break
+
+        if raise_on_failure:
+            if self._modelscope_fallback_failure:
+                raise AIProviderUnavailable(
+                    self._modelscope_fallback_failure
+                ) from last_error
+            if last_error is not None:
+                raise AIProviderRequestError(str(last_error)) from last_error
+            raise AIProviderRequestError("ModelScope fallback has no available model")
+        return None
+
+    async def _stream_modelscope_fallback(
+        self,
+        prompt: str,
+        system_prompt: str,
+        enable_thinking: bool,
+        max_tokens: int | None,
+        max_attempts: int | None,
+        on_stream_activity: Callable[[], None] | None,
+    ) -> AsyncIterator[str]:
+        if not self._modelscope_fallback_available():
+            raise AIProviderUnavailable(
+                self._modelscope_fallback_failure
+                or "modelscope_fallback_unavailable"
+            )
+
+        logger.warning(
+            "Primary AI provider exhausted; switching stream to ModelScope fallback"
+        )
+        last_error: Exception | None = None
+        attempts = 0
+        for model_id in self._modelscope_fallback_models_for():
+            if max_attempts is not None and attempts >= max_attempts:
+                break
+            attempts += 1
+            yielded = False
+            capacity = get_provider_capacity_controller(
+                self.modelscope_fallback_api_base
+            )
+            try:
+                lease = await capacity.acquire(
+                    model_id,
+                    on_wait_activity=on_stream_activity,
+                )
+                try:
+                    await self._wait_for_request_slot()
+                    response = await (
+                        self.modelscope_fallback_client
+                        .chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt},
+                            ],
+                            stream=True,
+                            max_tokens=max_tokens or self.max_tokens,
+                            extra_body=self._thinking_extra_body(
+                                enable_thinking,
+                                self.modelscope_fallback_api_base,
+                            ),
+                        )
+                    )
+                    truncated = False
+                    async for chunk in response:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+                        reasoning = getattr(delta, "reasoning_content", None)
+                        if reasoning and on_stream_activity:
+                            on_stream_activity()
+                        if delta.content:
+                            yielded = True
+                            if on_stream_activity:
+                                on_stream_activity()
+                            yield delta.content
+                        if getattr(
+                            chunk.choices[0],
+                            "finish_reason",
+                            None,
+                        ) == "length":
+                            truncated = True
+                finally:
+                    await lease.release()
+                if truncated:
+                    raise AIResponseTruncated(
+                        "ModelScope fallback stream reached max_tokens="
+                        f"{max_tokens or self.max_tokens}"
+                    )
+                if yielded:
+                    await capacity.report_success(model_id)
+                    return
+                last_error = AIProviderRequestError(
+                    f"Model {model_id} returned an empty stream"
+                )
+            except Exception as error:
+                last_error = error
+                logger.error(
+                    "ModelScope fallback stream error (Model: %s): %s",
+                    model_id,
+                    error,
+                )
+                if isinstance(error, ModelCapacityCoolingDown):
+                    continue
+                if self._is_authentication_error(error):
+                    self._modelscope_fallback_failure = (
+                        "authentication_failed"
+                    )
+                    break
+                should_try_next = self._should_try_next_model(error)
+                if should_try_next:
+                    await capacity.report_failure(
+                        model_id,
+                        failure_kind=self._capacity_failure_kind(error),
+                        cooldown_seconds=(
+                            self._model_failure_cooldown_seconds(error)
+                        ),
+                    )
+                    self._cool_down_model(
+                        model_id,
+                        error,
+                        self.modelscope_fallback_api_base,
+                    )
+                if yielded or not should_try_next:
+                    if isinstance(error, AIProviderRequestError):
+                        raise
+                    raise AIProviderRequestError(str(error)) from error
+
+        if self._modelscope_fallback_failure:
+            raise AIProviderUnavailable(
+                self._modelscope_fallback_failure
+            ) from last_error
+        if isinstance(last_error, AIProviderRequestError):
+            raise last_error
+        if last_error is not None:
+            raise AIProviderRequestError(str(last_error)) from last_error
+        raise AIProviderRequestError("ModelScope fallback has no available model")
+
     async def _call_llm(
         self,
         prompt: str,
@@ -986,21 +1411,27 @@ class AIBase:
             max_input_tokens,
             max_input_chars,
         )
-        if not self.api_key:
+        if not self.api_key and not self.modelscope_fallback_api_key:
             if raise_on_failure:
                 raise AIProviderUnavailable("not_configured")
             return None
-        if self._provider_failure:
+        if (
+            self._provider_failure
+            and not self._modelscope_fallback_available()
+        ):
             if raise_on_failure:
                 raise AIProviderUnavailable(self._provider_failure)
             return None
 
         last_error: Exception | None = None
         attempts = 0
-        for model_id in self._models_for(
-            use_fast_model,
-            model_role,
-        ):
+        primary_models = (
+            self._models_for(use_fast_model, model_role)
+            if self.api_key and not self._provider_failure
+            else []
+        )
+        fallback_eligible = not primary_models
+        for model_id in primary_models:
             if max_attempts is not None and attempts >= max_attempts:
                 break
             for attempt in range(retry_count):
@@ -1138,6 +1569,7 @@ class AIBase:
                             )
 
                     if not full_content:
+                        fallback_eligible = True
                         emit_telemetry(status="empty_response")
                         empty_error = AIProviderRequestError(
                             f"empty_response:{model_id}"
@@ -1181,12 +1613,12 @@ class AIBase:
                     last_error = e
                     logger.error(f"AI API Call Error (Model: {model_id}, Attempt {attempt+1}/{retry_count}): {e}")
                     if isinstance(e, ModelCapacityCoolingDown):
+                        fallback_eligible = True
                         break
                     if self._is_authentication_error(e):
                         self._block_provider("authentication_failed")
-                        if raise_on_failure:
-                            raise AIProviderUnavailable("authentication_failed") from e
-                        return None
+                        fallback_eligible = True
+                        break
                     if (
                         max_attempts is not None
                         and self._capacity_failure_kind(e)
@@ -1204,12 +1636,10 @@ class AIBase:
                         )
                         self._cool_down_model(model_id, e)
                         self._block_provider("quota_exhausted")
-                        if raise_on_failure:
-                            raise AIProviderUnavailable(
-                                "quota_exhausted"
-                            ) from e
-                        return None
+                        fallback_eligible = True
+                        break
                     if self._should_try_next_model(e):
+                        fallback_eligible = True
                         capacity = get_provider_capacity_controller(self.api_base)
                         await capacity.report_failure(
                             model_id,
@@ -1223,7 +1653,30 @@ class AIBase:
                     else:
                         break
 
+            if self._provider_failure:
+                break
+
+        if fallback_eligible and self._modelscope_fallback_available():
+            return await self._call_modelscope_fallback(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                retry_count=retry_count,
+                enable_thinking=enable_thinking,
+                max_tokens=max_tokens,
+                max_attempts=max_attempts,
+                reject_truncated=reject_truncated,
+                raise_on_failure=raise_on_failure,
+                json_mode=json_mode,
+                model_role=model_role,
+                on_stream_activity=on_stream_activity,
+                telemetry_sink=telemetry_sink,
+            )
+
         if raise_on_failure:
+            if self._provider_failure:
+                raise AIProviderUnavailable(
+                    self._provider_failure
+                ) from last_error
             if last_error is not None:
                 raise AIProviderRequestError(str(last_error)) from last_error
             raise AIProviderRequestError("empty_response")
@@ -1240,7 +1693,7 @@ class AIBase:
         max_input_chars: int | None = None,
         max_attempts: int | None = None,
         on_stream_activity: Callable[[], None] | None = None,
-    ):
+    ) -> AsyncIterator[str]:
         """
         流式 LLM 调用 - 生成器函数
 
@@ -1266,14 +1719,23 @@ class AIBase:
             max_input_tokens,
             max_input_chars,
         )
-        if not self.api_key:
+        if not self.api_key and not self.modelscope_fallback_api_key:
             raise AIProviderUnavailable("not_configured")
-        if self._provider_failure:
+        if (
+            self._provider_failure
+            and not self._modelscope_fallback_available()
+        ):
             raise AIProviderUnavailable(self._provider_failure)
 
         last_error: Exception | None = None
         attempts = 0
-        for model_id in self._models_for(use_fast_model):
+        primary_models = (
+            self._models_for(use_fast_model)
+            if self.api_key and not self._provider_failure
+            else []
+        )
+        fallback_eligible = not primary_models
+        for model_id in primary_models:
             if max_attempts is not None and attempts >= max_attempts:
                 break
             attempts += 1
@@ -1331,13 +1793,17 @@ class AIBase:
                 logger.error(f"Stream Error (Model: {model_id}): {e}")
                 if isinstance(e, ModelCapacityCoolingDown):
                     last_error = e
+                    fallback_eligible = True
                     continue
                 if self._is_authentication_error(e):
                     self._block_provider("authentication_failed")
-                    raise AIProviderUnavailable("authentication_failed") from e
+                    last_error = e
+                    fallback_eligible = True
+                    break
                 last_error = e
                 should_try_next = self._should_try_next_model(e)
                 if should_try_next:
+                    fallback_eligible = True
                     capacity = get_provider_capacity_controller(self.api_base)
                     await capacity.report_failure(
                         model_id,
@@ -1349,6 +1815,29 @@ class AIBase:
                     if isinstance(e, AIProviderRequestError):
                         raise
                     raise AIProviderRequestError(str(e)) from e
+            if not yielded and isinstance(
+                last_error,
+                AIProviderRequestError,
+            ):
+                fallback_eligible = True
+            if self._provider_failure:
+                break
+
+        if fallback_eligible and self._modelscope_fallback_available():
+            async for chunk in self._stream_modelscope_fallback(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                enable_thinking=enable_thinking,
+                max_tokens=max_tokens,
+                max_attempts=max_attempts,
+                on_stream_activity=on_stream_activity,
+            ):
+                yield chunk
+            return
+        if self._provider_failure:
+            raise AIProviderUnavailable(
+                self._provider_failure
+            ) from last_error
         if isinstance(last_error, AIProviderRequestError):
             raise last_error
         if last_error is not None:

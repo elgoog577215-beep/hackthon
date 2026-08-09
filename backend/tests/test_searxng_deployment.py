@@ -37,6 +37,11 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
         "pubmed",
         "openalex",
         "crossref",
+        "bing images",
+        "baidu images",
+        "quark images",
+        "sogou images",
+        "public domain image archive",
     }
 
     assert "formats:\n      - json" in settings
@@ -45,9 +50,18 @@ def test_searxng_settings_only_enable_approved_keyless_engines() -> None:
     assert "limiter: false" in settings
     assert "image_proxy: false" in settings
     assert "request_timeout: 3.0" in settings
-    assert "max_request_timeout: 4.0" in settings
+    assert "max_request_timeout: 12.0" in settings
     for engine in expected:
         assert f"- {engine}" in settings
+    assert "name: bing images" in settings
+    assert "base_url: https://cn.bing.com" in settings
+    assert "name: baidu images" in settings
+    assert "name: quark images" in settings
+    assert "name: sogou images" in settings
+    assert "name: public domain image archive" in settings
+    assert "name: pexels" not in settings
+    assert "name: unsplash" not in settings
+    assert "wikicommons.images" not in settings
     assert "google" not in settings.lower()
 
 
@@ -74,10 +88,19 @@ def test_provisioning_is_manual_idempotent_and_checks_json_search() -> None:
     assert "format=json" in script
     assert 'assert payload.get("results")' in script
     assert "q=Unity MonoBehaviour GameObject 中文教程" in script
-    assert "categories=general" in script
-    assert "categories=general,science" not in script
+    assert "categories=general,science" in script
     assert "--force-recreate" in script
     assert "for attempt in $(seq 1 3)" in script
+    assert "执行图片搜索冒烟" in script
+    assert "q=human heart anatomy" in script
+    assert (
+        "engines=public domain image archive,"
+        "bing images,baidu images,quark images,sogou images"
+    ) in script
+    assert "timeout_limit=4" in script
+    assert "timeout_limit=12" in script
+    assert 'any(item.get("img_src") for item in payload["results"])' in script
+    assert 'SEARXNG_REQUEST_TIMEOUT_SECONDS" "12"' in script
 
 
 def test_provisioning_can_activate_retrieval_and_verify_application_health() -> None:
@@ -108,3 +131,43 @@ def test_normal_deploy_preflights_searxng_before_stopping_application() -> None:
     assert "WEB_RETRIEVAL_PROVIDER" in script
     assert "SEARXNG_BASE_URL" in script
     assert "format=json" in script
+    assert "timeout_limit=4" in script
+
+
+def test_production_diagnostics_asserts_all_product_retrieval_paths() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "run_retrieval_matrix" in workflow
+    assert "assert_retrieval_feature" in workflow
+    assert "course" in workflow
+    assert "assessment" in workflow
+    assert "ai_teacher" in workflow
+    assert "ppt_image" in workflow
+    assert "SearXNG response must contain at least one result" in workflow
+
+
+def test_production_diagnostics_downloads_a_licensed_ppt_asset() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "hydrate_shared_image_candidates_v5" in workflow
+    assert "download_retrieved_image_v5" in workflow
+    assert "ppt_public_domain_asset" in workflow
+
+
+def test_production_diagnostics_exposes_raw_image_engine_failures() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "== searxng images direct ==" in workflow
+    assert "--data 'categories=images'" in workflow
+    assert "'wikicommons.images'" not in workflow
+    assert "--data 'timeout_limit=4'" in workflow
+    assert "--data 'timeout_limit=7'" in workflow
+    assert "image_engine_counts" in workflow
+    assert "public_domain_results" in workflow
+    assert 'p.get("unresponsive_engines")' in workflow
+
+
+def test_production_diagnostics_skips_blocked_openverse_endpoint() -> None:
+    workflow = _read(".github/workflows/production-diagnostics.yml")
+
+    assert "api.openverse.org" not in workflow

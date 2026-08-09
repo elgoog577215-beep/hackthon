@@ -64,6 +64,7 @@ from slide_deck_v4 import (
     build_signature_v4,
 )
 from slide_deck_v5 import (
+    SlideDeckV5BuildError,
     allocation_from_story_plan_v5,
     build_signature_v5,
     compact_story_plan_v5,
@@ -187,6 +188,46 @@ def _reconciled_registry(course_id: str) -> dict:
         item["spec_id"]: item
         for item in payload.get("specs") or []
     }
+    slide_representations = [
+        item
+        for item in payload.get("representations") or []
+        if item.get("representation_type") == "slide_deck"
+        and item.get("status") == "ready"
+        and item.get("status") != "archived"
+    ]
+    published = max(
+        slide_representations,
+        key=lambda item: str(item.get("updated_at") or ""),
+        default=None,
+    )
+    published_content = (
+        (specs.get((published or {}).get("spec_id")) or {}).get("payload") or {}
+    ).get("content") or {}
+    target_schema = str(payload["slide_deck_target_schema"] or "")
+    candidate = max(
+        [
+            item
+            for item in slide_representations
+            if str(
+                (((specs.get(item.get("spec_id")) or {}).get("payload") or {}).get("content") or {}).get("schema_version")
+                or ""
+            ) == target_schema
+        ],
+        key=lambda item: str(item.get("updated_at") or ""),
+        default=None,
+    )
+    candidate_content = (
+        (specs.get((candidate or {}).get("spec_id")) or {}).get("payload") or {}
+    ).get("content") or {}
+    payload["slide_deck_published_schema"] = str(
+        published_content.get("schema_version") or ""
+    )
+    payload["slide_deck_candidate_schema"] = str(
+        candidate_content.get("schema_version") or ""
+    )
+    payload["slide_deck_candidate_status"] = str(
+        candidate_content.get("candidate_status") or ""
+    )
     for representation in payload.get("representations") or []:
         if representation.get("representation_type") != "slide_deck":
             continue
@@ -339,6 +380,7 @@ def _compile_slide_variant_registry(
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Any | None = None,
     web_image_retrieval: dict[str, Any] | None = None,
+    requested_schema: str | None = None,
 ) -> dict[str, Any]:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
@@ -364,6 +406,10 @@ def _compile_slide_variant_registry(
         allocation_plan=allocation_plan,
         story_plan=story_plan,
         progress_callback=progress_callback,
+        requested_schema=requested_schema,
+        source_revision_provider=lambda: str(
+            course_repository.load_document(course_id)[0].document_revision or ""
+        ),
     )
     registry = repository.reconcile_course_operation_log(
         course_id,
@@ -583,10 +629,16 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     str((result.get("build") or {}).get("status") or "") != "synchronized"
                     or not (result.get("quality") or {}).get("passed", False)
                 )
+                failure = (result.get("build") or {}).get("failure") or {}
                 publish({
                     "event": "build_blocked" if blocked else "build_complete",
                     "progress": 100,
                     **result,
+                    **(
+                        {"failure": deepcopy(failure), **failure}
+                        if blocked and failure
+                        else {}
+                    ),
                 })
             except Exception as exc:
                 publish({
@@ -636,7 +688,7 @@ async def stream_slide_deck_variant_build(
         "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
     }
     try:
-        resolve_slide_deck_schema(
+        target_schema = resolve_slide_deck_schema(
             course_view,
             story_engine_enabled=_story_engine_enabled(),
             v5_enabled=_v5_enabled(),
@@ -724,6 +776,7 @@ async def stream_slide_deck_variant_build(
     )
     cached_current = bool(
         cached_spec
+        and str((cached_content or {}).get("schema_version") or "") == target_schema
         and cached_source_revision == str(document.document_revision or "")
         and str(
             cached_signature.get("signature")
@@ -741,7 +794,15 @@ async def stream_slide_deck_variant_build(
                 "cached": True,
                 "variant_key": variant_key,
                 "quality": (cached_spec.payload.get("content") or {}).get("quality_report") or {},
+                "build": {
+                    "status": "synchronized",
+                    "candidate_status": str(
+                        (cached_spec.payload.get("content") or {}).get("candidate_status")
+                        or ("v5_ready" if target_schema == "slide_deck_v5" else "")
+                    ),
+                },
                 "registry": registry.model_dump(mode="json"),
+                "target_schema": target_schema,
             }
             yield f"id: 1\nevent: build_complete\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -761,6 +822,7 @@ async def stream_slide_deck_variant_build(
                 "mode": body.mode,
                 "theme": theme,
                 "variant_key": variant_key,
+                "target_schema": target_schema,
                 "force_rebuild": body.force_rebuild,
                 "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
             },
@@ -818,6 +880,16 @@ async def stream_slide_deck_variant_build(
                             "action": str(failure_detail.get("action") or ""),
                             "retryable": failure_detail.get("retryable"),
                             "task_id": task_id,
+                            **{
+                                key: failure_detail[key]
+                                for key in (
+                                    "stage",
+                                    "source_revision",
+                                    "chapter_id",
+                                    "page_id",
+                                )
+                                if failure_detail.get(key) not in (None, "")
+                            },
                         }
                         yield f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     return
@@ -836,10 +908,11 @@ async def stream_slide_deck_variant_build(
             "progress": 1,
             "sequence": sequence,
             "variant_key": variant_key,
+            "target_schema": target_schema,
         }
         yield f"id: {sequence}\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
         story_plan: SlideStoryPlanV2 | None = None
-        if _story_engine_enabled() and course_supports_slide_deck_v4(course_view):
+        if target_schema in {"slide_deck_v4", "slide_deck_v5"}:
             source_fragments = fragment_course_document(document)
             story_plan = compile_slide_story_plan_v2(
                 document,
@@ -848,7 +921,7 @@ async def stream_slide_deck_variant_build(
                 mode=body.mode,
                 theme=theme,  # type: ignore[arg-type]
             )
-            if _v5_enabled():
+            if target_schema == "slide_deck_v5":
                 story_plan = compact_story_plan_v5(
                     document,
                     story_plan,
@@ -856,7 +929,7 @@ async def stream_slide_deck_variant_build(
                 )
             allocation_compiler = (
                 allocation_from_story_plan_v5
-                if _v5_enabled()
+                if target_schema == "slide_deck_v5"
                 else allocation_from_story_plan_v2
             )
             allocation_plan, _ = allocation_compiler(
@@ -886,6 +959,7 @@ async def stream_slide_deck_variant_build(
                     story_plan=story_plan,
                     progress_callback=publish,
                     web_image_retrieval=body.web_image_retrieval.model_dump(mode="json"),
+                    requested_schema=target_schema,
                 )
                 blocked = (
                     str((result.get("build") or {}).get("status") or "") != "synchronized"
@@ -897,7 +971,17 @@ async def stream_slide_deck_variant_build(
                     **result,
                 })
             except Exception as exc:
-                publish({"event": "error", "progress": 100, "message": str(exc)})
+                detail = (
+                    exc.public_detail()
+                    if isinstance(exc, SlideDeckV5BuildError)
+                    else {}
+                )
+                publish({
+                    "event": "error",
+                    "progress": 100,
+                    "message": str(detail.get("message") or exc),
+                    **detail,
+                })
             finally:
                 events.put(None)
 

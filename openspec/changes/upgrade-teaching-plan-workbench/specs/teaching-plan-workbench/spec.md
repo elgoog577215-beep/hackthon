@@ -123,6 +123,25 @@ AI MUST 只返回带结构化 patch、理由、输入修订、影响报告、质
 - **THEN** 工作台 MUST 恢复同一课程、同一基础修订和草稿内容
 - **AND** MUST 明确显示该内容尚未成为正式教案
 
+### Requirement: 缺失正式教案的历史课程必须显式建立基线
+
+系统 MUST 在课程缺少 `course_teaching_plan` 时保持只读，不得因打开工作台而静默写入或调用模型。只有课程已是 canonical `CourseDocument` 且已发布目录包含稳定小节时，工作台才 MAY 提供“建立可编辑教案”动作；教师确认后 MUST 确定性编译 `CourseTeachingPlanV3`、创建首个不可变修订并记录迁移来源。
+
+#### Scenario: 教师升级有结构化目录的历史课程
+
+- **GIVEN** 历史课程已有 canonical `CourseDocument` 和带稳定小节 ID 的已发布目录
+- **AND** 当前没有正式 `course_teaching_plan`
+- **WHEN** 教师明确选择建立可编辑教案
+- **THEN** 系统 MUST 基于当前课程正文修订和已发布目录建立 V3 教案基线
+- **AND** MUST 记录迁移来源、质量报告、幂等回执和首个正式修订
+- **AND** MUST NOT 调用模型或修改正式课程正文
+
+#### Scenario: 历史课程缺少可编译目录
+
+- **WHEN** 课程没有稳定结构化小节或目录不能通过教案质量门
+- **THEN** 工作台 MUST 保持只读并返回可恢复的结构化原因
+- **AND** MUST NOT 暴露伪造的可编辑字段
+
 ### Requirement: 工作台必须维护中英文和响应式可用性
 
 所有新增页面文案、状态、错误、按钮、无障碍标签和字段解释 MUST 同步维护中英文 locale。工作台 MUST 在 390、789、1024 和 1440 像素下保持主体可读、操作可达、无横向溢出和无文字重叠。

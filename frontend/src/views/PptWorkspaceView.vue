@@ -83,6 +83,10 @@
         :bundle-parts="activeBundleParts"
         :active-bundle-part-id="slideRepresentation?.representation_id || ''"
         :engine-status="slideEngineStatus"
+        :target-schema="store.slideTargetSchema || String(store.registry?.slide_deck_target_schema || '')"
+        :candidate-schema="store.slideCandidateSchema || String(content?.schema_version || '')"
+        :published-schema="store.slidePublishedSchema || String(content?.schema_version || '')"
+        :candidate-status="store.slideCandidateStatus || String(content?.candidate_status || '')"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -123,6 +127,7 @@
       :open="generatorOpen"
       :mode="selectedMode"
       :theme="selectedTheme"
+      :web-image-retrieval="selectedWebImageRetrieval"
       :busy="store.building"
       :closable="Boolean(slideRepresentation)"
       :fragment-count="estimatedFragmentCount"
@@ -177,6 +182,7 @@ const generatorOpen = ref(false)
 const forceGeneratorBuild = ref(false)
 const selectedMode = ref<SlideDeckMode>('teaching')
 const selectedTheme = ref<V3Theme>('qizhi-classroom')
+const selectedWebImageRetrieval = ref(false)
 let workspaceAttempt = 0
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
@@ -326,6 +332,7 @@ const stageLabel = computed(() => ({
   image_search: '正在检索并核验教学图片',
   render_repair: '正在修复导出版式问题',
   repair_progress: '正在定向修复问题页面',
+  quality_fallback: t('pptWorkspace.qualityFallbackStage', 'AI 草稿未通过检查，正在切换稳定生成方案'),
   bundle_plan: '正在按章节拆分课件',
   bundle_part_build: '正在逐册生成课件',
   paused: '已暂停，可从保存点继续',
@@ -482,6 +489,10 @@ async function rebuild() {
       mode: selectedMode.value,
       theme: selectedTheme.value,
       forceRebuild: true,
+      webImageRetrieval: {
+        enabled: selectedWebImageRetrieval.value,
+        mode: 'wide_safe',
+      },
     })
   } catch {
     return
@@ -506,7 +517,11 @@ function closeGenerator() {
   }
 }
 
-async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
+async function generateVariant(value: {
+  mode: SlideDeckMode
+  theme: V3Theme
+  webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+}) {
   if (!courseId.value || store.building) return
   if (slideEngineStatus.value === 'blocked') {
     generatorOpen.value = false
@@ -515,12 +530,14 @@ async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   }
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
+  selectedWebImageRetrieval.value = value.webImageRetrieval.enabled
   generatorOpen.value = false
   try {
     await store.buildSlideDeckVariant(courseId.value, {
       mode: value.mode,
       theme: value.theme,
       forceRebuild: forceGeneratorBuild.value,
+      webImageRetrieval: value.webImageRetrieval,
     })
   } catch {
     return

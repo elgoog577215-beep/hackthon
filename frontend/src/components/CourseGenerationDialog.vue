@@ -54,7 +54,6 @@
                   <span class="course-type-option__copy">
                     <span class="course-type-option__heading">
                       <strong>{{ item.label }}</strong>
-                      <small v-if="!item.available">{{ t('courseGeneration.courseTypes.comingSoon', '即将开放') }}</small>
                     </span>
                     <span>{{ item.detail }}</span>
                   </span>
@@ -82,7 +81,7 @@
             <p class="field-help">{{ t('courseGeneration.dialog.topicHelp', '写清楚学习对象；难度、结构和资料边界在下方单独控制。') }}</p>
           </section>
 
-          <section v-else class="form-section intent-section project-intent" data-testid="project-intent-form">
+          <section v-else-if="form.courseType === 'project'" class="form-section intent-section project-intent" data-testid="project-intent-form">
             <div class="project-intent__heading">
               <div>
                 <strong>{{ t('courseGeneration.project.title', '定义你的实战项目') }}</strong>
@@ -149,6 +148,143 @@
                 {{ hasStartingPointInput
                   ? t('courseGeneration.project.startingPointHelp', '系统会根据你的自述形成第一版个人路径，并在后续学习中继续验证和调整。')
                   : t('courseGeneration.project.insufficientHelp', '不填写也可以生成；系统会标记起点信息不足，先给出暂定路径，再根据后续学习行为调整。') }}
+              </span>
+            </p>
+          </section>
+
+          <section v-else-if="form.courseType === 'inquiry'" class="form-section intent-section project-intent" data-testid="inquiry-intent-form">
+            <div class="project-intent__heading">
+              <div>
+                <strong>{{ t('courseGeneration.inquiry.title', '定义要探究的问题') }}</strong>
+                <span>{{ t('courseGeneration.inquiry.help', '先明确核心问题和结论形态，课程会沿子问题、证据与反例逐步推进。') }}</span>
+              </div>
+              <MessageCircleQuestion :size="18" />
+            </div>
+            <div class="project-fields">
+              <label class="project-field project-field--wide" for="inquiry-core-question">
+                <span class="field-label">{{ t('courseGeneration.inquiry.questionLabel', '你真正想回答什么问题？') }}</span>
+                <input
+                  id="inquiry-core-question"
+                  v-model="form.coreQuestion"
+                  class="text-input text-input--large"
+                  type="text"
+                  autocomplete="off"
+                  required
+                  maxlength="200"
+                  :placeholder="t('courseGeneration.inquiry.questionPlaceholder', '例如：生成式 AI 会如何改变大学的教学与评价？')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field project-field--wide" for="inquiry-desired-output">
+                <span class="field-label">{{ t('courseGeneration.inquiry.outputLabel', '最终希望形成什么结论？') }}</span>
+                <input
+                  id="inquiry-desired-output"
+                  v-model="form.desiredOutput"
+                  class="text-input"
+                  type="text"
+                  autocomplete="off"
+                  required
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.inquiry.outputPlaceholder', '例如：一份区分适用条件、风险与证据强度的判断报告')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field" for="inquiry-understanding">
+                <span class="field-label">{{ t('courseGeneration.inquiry.understandingLabel', '你目前怎么看？') }}</span>
+                <textarea
+                  id="inquiry-understanding"
+                  v-model="form.existingUnderstanding"
+                  class="textarea-input textarea-input--compact"
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.inquiry.understandingPlaceholder', '写下当前判断或尚未验证的假设')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field" for="inquiry-evidence-scope">
+                <span class="field-label">{{ t('courseGeneration.inquiry.evidenceLabel', '证据范围与边界') }}</span>
+                <textarea
+                  id="inquiry-evidence-scope"
+                  v-model="form.evidenceScope"
+                  class="textarea-input textarea-input--compact"
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.inquiry.evidencePlaceholder', '例如：优先使用近三年的高校实践、研究论文与公开政策')"
+                  :disabled="busy"
+                />
+              </label>
+            </div>
+            <p class="starting-point-note">
+              <Info :size="15" />
+              <span>
+                <strong>{{ t('courseGeneration.inquiry.noteTitle', '已有认识会作为待检验假设') }}</strong>
+                {{ t('courseGeneration.inquiry.noteHelp', '系统不会把你的初始观点当成事实；目录会保留证据搜集、反例检验和结论边界。') }}
+              </span>
+            </p>
+          </section>
+
+          <section v-else class="form-section intent-section project-intent" data-testid="exam-intent-form">
+            <div class="project-intent__heading">
+              <div>
+                <strong>{{ t('courseGeneration.exam.title', '定义你的冲刺目标') }}</strong>
+                <span>{{ t('courseGeneration.exam.help', '明确考试、日期和范围，课程会按剩余时间与薄弱点安排优先级。') }}</span>
+              </div>
+              <Timer :size="18" />
+            </div>
+            <div class="project-fields">
+              <label class="project-field" for="exam-name">
+                <span class="field-label">{{ t('courseGeneration.exam.nameLabel', '准备什么考试？') }}</span>
+                <input
+                  id="exam-name"
+                  v-model="form.examName"
+                  class="text-input text-input--large"
+                  type="text"
+                  autocomplete="off"
+                  required
+                  maxlength="200"
+                  :placeholder="t('courseGeneration.exam.namePlaceholder', '例如：大学英语六级考试')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field" for="exam-date">
+                <span class="field-label">{{ t('courseGeneration.exam.dateLabel', '考试日期') }}</span>
+                <input
+                  id="exam-date"
+                  v-model="form.examDate"
+                  class="text-input text-input--large"
+                  type="date"
+                  required
+                  :min="todayIso"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field project-field--wide" for="exam-scope">
+                <span class="field-label">{{ t('courseGeneration.exam.scopeLabel', '考纲与考试范围') }}</span>
+                <textarea
+                  id="exam-scope"
+                  v-model="form.examScope"
+                  class="textarea-input textarea-input--compact"
+                  required
+                  maxlength="5000"
+                  :placeholder="t('courseGeneration.exam.scopePlaceholder', '例如：听力、阅读、翻译和写作；重点覆盖历年高频题型')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field project-field--wide" for="exam-preparation">
+                <span class="field-label">{{ t('courseGeneration.exam.preparationLabel', '当前准备情况与薄弱点') }}</span>
+                <textarea
+                  id="exam-preparation"
+                  v-model="form.currentPreparation"
+                  class="textarea-input textarea-input--compact"
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.exam.preparationPlaceholder', '例如：阅读稳定，听力长对话和写作论证较弱，每周可投入 8 小时')"
+                  :disabled="busy"
+                />
+              </label>
+            </div>
+            <p class="starting-point-note">
+              <Info :size="15" />
+              <span>
+                <strong>{{ t('courseGeneration.exam.noteTitle', '先定优先级，再用练习校准') }}</strong>
+                {{ t('courseGeneration.exam.noteHelp', '自述薄弱点只决定首轮安排；诊断题和模拟任务会继续修正复习重点。') }}
               </span>
             </p>
           </section>
@@ -414,6 +550,14 @@ const form = reactive({
   expectedDeliverable: '',
   priorExperience: '',
   currentUncertainty: '',
+  coreQuestion: '',
+  existingUnderstanding: '',
+  evidenceScope: '',
+  desiredOutput: '',
+  examName: '',
+  examDate: '',
+  examScope: '',
+  currentPreparation: '',
   difficulty: 'intermediate' as DifficultyLevel,
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
@@ -458,14 +602,14 @@ const courseTypeOptions = computed(() => ([
     icon: MessageCircleQuestion,
     label: t('courseGeneration.courseTypes.inquiry.label', '问题探究'),
     detail: t('courseGeneration.courseTypes.inquiry.detail', '沿子问题、证据与推理形成有依据的判断'),
-    available: false,
+    available: true,
   },
   {
     value: 'exam' as const,
     icon: Timer,
     label: t('courseGeneration.courseTypes.exam.label', '考试冲刺'),
     detail: t('courseGeneration.courseTypes.exam.detail', '根据考纲、薄弱点和剩余时间安排复习'),
-    available: false,
+    available: true,
   },
 ]))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
@@ -475,40 +619,47 @@ const secondaryPedagogyOptions = computed(() => [
     .filter(item => item.value !== 'auto' && item.value !== form.pedagogyMode)
     .map(item => ({ value: item.value as PedagogyMode, label: t(item.labelKey, item.value) })),
 ])
-const activeSubject = computed(() => form.courseType === 'project' ? form.projectGoal.trim() : form.systematicTopic.trim())
-const projectIntentComplete = computed(() => [
-  form.projectGoal,
-  form.expectedDeliverable,
-].every(value => value.trim()))
+const todayIso = new Date().toLocaleDateString('en-CA')
+const activeSubject = computed(() => ({
+  systematic: form.systematicTopic,
+  project: form.projectGoal,
+  inquiry: form.coreQuestion,
+  exam: form.examName,
+}[form.courseType].trim()))
+const typeIntentComplete = computed(() => ({
+  systematic: Boolean(form.systematicTopic.trim()),
+  project: Boolean(form.projectGoal.trim() && form.expectedDeliverable.trim()),
+  inquiry: Boolean(form.coreQuestion.trim() && form.desiredOutput.trim()),
+  exam: Boolean(form.examName.trim() && form.examDate.trim() && form.examScope.trim()),
+}[form.courseType]))
 const hasStartingPointInput = computed(() => Boolean(form.priorExperience.trim() || form.currentUncertainty.trim()))
-const canSubmit = computed(() => !busy.value && (
-  form.courseType === 'systematic'
-    ? Boolean(activeSubject.value)
-    : projectIntentComplete.value
-) && Boolean(form.targetAudience.trim())
+const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Boolean(form.targetAudience.trim())
   && Number.isInteger(form.totalClassHours) && form.totalClassHours >= 1 && form.totalClassHours <= 1000
   && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
   && (!form.chapterCount || !form.sectionCount || form.sectionCount >= form.chapterCount)
 )
-const guidedTitle = computed(() => form.courseType === 'project'
-  ? t('courseGeneration.guided.projectTitle', '提交项目后，四步形成个人课程')
-  : t('courseGeneration.guided.title', '提交需求后，四步完成课程'))
-const guidedHelp = computed(() => form.courseType === 'project'
-  ? t('courseGeneration.guided.projectHelp', '先确认个人路径和能力安排；课程沿项目节点生成，最后确认进入学习。')
-  : t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。'))
-const guidedStepLabels = computed(() => form.courseType === 'project'
-  ? [
-      t('courseGeneration.guided.projectOutline', '个人路径'),
-      t('courseGeneration.guided.projectTeaching', '能力与知识'),
-      t('courseGeneration.guided.projectContent', '项目课程'),
-      t('courseGeneration.guided.projectRelease', '确认课程'),
-    ]
-  : [
-      t('courseGeneration.guided.outline', '目录确认'),
-      t('courseGeneration.guided.teaching', '教案确认'),
-      t('courseGeneration.guided.content', '正文生成'),
-      t('courseGeneration.guided.release', '确认发布'),
-    ])
+const guidedTitle = computed(() => t(
+  `courseGeneration.guided.${form.courseType}Title`,
+  t('courseGeneration.guided.title', '提交需求后，四步完成课程'),
+))
+const guidedHelp = computed(() => t(
+  `courseGeneration.guided.${form.courseType}Help`,
+  t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。'),
+))
+const guidedStepLabels = computed(() => {
+  const prefixes = form.courseType === 'systematic' ? ['', '', '', ''] : Array(4).fill(form.courseType)
+  const keys = ['Outline', 'Teaching', 'Content', 'Release']
+  const fallbacks = [
+    t('courseGeneration.guided.outline', '目录确认'),
+    t('courseGeneration.guided.teaching', '教案确认'),
+    t('courseGeneration.guided.content', '正文生成'),
+    t('courseGeneration.guided.release', '确认发布'),
+  ]
+  return keys.map((key, index) => t(
+    `courseGeneration.guided.${prefixes[index]}${prefixes[index] ? key : key.toLowerCase()}`,
+    fallbacks[index],
+  ))
+})
 
 watch(() => props.modelValue, async open => {
   if (!open) {
@@ -543,14 +694,19 @@ async function submit() {
       : []
     const options: CourseGenerationOptions = {
       difficulty: form.difficulty,
-      composition_style: form.courseType === 'project' ? 'project_driven' : 'balanced',
+      composition_style: ({
+        systematic: 'balanced',
+        project: 'project_driven',
+        inquiry: 'inquiry_driven',
+        exam: 'example_driven',
+      } as const)[form.courseType],
       pedagogy_mode: form.pedagogyMode,
       ...(form.secondaryMode
         ? { secondary_mode: form.secondaryMode, secondary_intensity: 'collaborative' as const }
         : {}),
       generation_mode: 'review_blueprint',
       assessment_generation_profile: form.assessmentGenerationProfile,
-      course_purpose: 'systematic',
+      course_purpose: form.courseType === 'exam' ? 'exam_sprint' : 'systematic',
       course_type: form.courseType,
       course_intent: form.courseType === 'project'
         ? {
@@ -562,12 +718,30 @@ async function submit() {
             current_uncertainty: form.currentUncertainty.trim(),
             project_constraints: form.requirements.trim(),
           }
-        : {
-            schema_version: 'course_intent_v1',
-            type: 'systematic',
-            learning_goal: subject,
-            desired_outcome: form.requirements.trim(),
-          },
+        : form.courseType === 'inquiry'
+          ? {
+              schema_version: 'course_intent_v1',
+              type: 'inquiry',
+              core_question: form.coreQuestion.trim(),
+              existing_understanding: form.existingUnderstanding.trim(),
+              evidence_scope: form.evidenceScope.trim(),
+              desired_output: form.desiredOutput.trim(),
+            }
+          : form.courseType === 'exam'
+            ? {
+                schema_version: 'course_intent_v1',
+                type: 'exam',
+                exam_name: form.examName.trim(),
+                exam_date: form.examDate,
+                exam_scope: form.examScope.trim(),
+                current_preparation: form.currentPreparation.trim(),
+              }
+            : {
+                schema_version: 'course_intent_v1',
+                type: 'systematic',
+                learning_goal: subject,
+                desired_outcome: form.requirements.trim(),
+              },
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],

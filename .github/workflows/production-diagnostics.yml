@@ -1,0 +1,144 @@
+name: Production Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Read-only retrieval query to diagnose"
+        required: false
+        default: "什么是面向对象编程 例子"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  retrieval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure deployment SSH
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$LINGZHI_SSH_HOST"
+          test -n "$LINGZHI_SSH_USER"
+          test -n "$LINGZHI_SSH_KEY"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
+          chmod 600 ~/.ssh/lingzhi_deploy
+          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Inspect retrieval path
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          DIAGNOSTIC_QUERY: ${{ inputs.query }}
+        run: |
+          set -euo pipefail
+          remote_query="$(printf '%q' "$DIAGNOSTIC_QUERY")"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_DIAGNOSTIC_QUERY=$remote_query bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "== service =="
+          systemctl is-active lingzhi || true
+          docker ps --filter name=lingzhi-searxng --format '{{.Names}} {{.Status}} {{.Ports}}' || true
+
+          echo "== health =="
+          curl -fsS --max-time 5 http://127.0.0.1:7862/api/health \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); print(json.dumps(p.get("web_retrieval_v2", p), ensure_ascii=False, indent=2))'
+
+          echo "== searxng direct =="
+          curl -fsS --max-time 12 http://127.0.0.1:8080/search \
+            --data-urlencode "q=$LINGZHI_DIAGNOSTIC_QUERY" \
+            --data 'format=json' \
+            --data 'categories=general,science' \
+            --data 'language=zh-CN' \
+            --data 'safesearch=2' \
+            --data 'timeout_limit=4' \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2)); r or sys.exit("SearXNG response must contain at least one result")'
+
+          echo "== searxng images direct =="
+          curl -fsS --max-time 8 http://127.0.0.1:8080/search \
+            --data 'q=human heart anatomy' \
+            --data 'format=json' \
+            --data 'categories=images' \
+            --data 'language=all' \
+            --data 'safesearch=2' \
+            --data 'timeout_limit=7' \
+            | python3 -c 'import collections,json,sys; p=json.load(sys.stdin); r=p.get("results") or []; counts=collections.Counter(e for x in r for e in (x.get("engines") or [])); pd=[x for x in r if "public domain image archive" in (x.get("engines") or [])]; print("image_result_count", len(r)); print("image_engine_counts", json.dumps(counts, ensure_ascii=False, sort_keys=True)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print("public_domain_results", json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "thumbnail_src": x.get("thumbnail_src"), "engines": x.get("engines")} for x in pd[:5]], ensure_ascii=False, indent=2)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "engines": x.get("engines")} for x in r[:5]], ensure_ascii=False, indent=2))'
+
+          echo "== product retrieval matrix: course, assessment, ai_teacher, ppt_image =="
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          cd /opt/lingzhi/hackthon/backend
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import asyncio
+          import json
+          import os
+          import tempfile
+
+          import requests
+
+          from retrieval_diagnostics import (
+              assert_retrieval_feature,
+              run_retrieval_matrix,
+          )
+          from slide_web_images import (
+              download_retrieved_image_v5,
+              hydrate_shared_image_candidates_v5,
+              search_shared_web_images_v5,
+          )
+          from web_retrieval import configured_retrieval_gateway
+
+          query = os.environ.get("LINGZHI_DIAGNOSTIC_QUERY", "")
+
+          async def main():
+              gateway, feature = configured_retrieval_gateway("diagnostic-user")
+              assert_retrieval_feature(feature)
+              result = await run_retrieval_matrix(gateway, query=query)
+              print(json.dumps(result, ensure_ascii=False, indent=2))
+
+          asyncio.run(main())
+
+          gateway, _ = configured_retrieval_gateway("diagnostic-ppt-user")
+          package = search_shared_web_images_v5(
+              ["human heart anatomy"],
+              gateway=gateway,
+          )
+          with requests.Session() as client:
+              candidates = hydrate_shared_image_candidates_v5(package, client=client)
+              errors = []
+              with tempfile.TemporaryDirectory(prefix="lingzhi-ppt-smoke-") as output_dir:
+                  downloaded = None
+                  selected = None
+                  for candidate in candidates:
+                      try:
+                          downloaded = download_retrieved_image_v5(
+                              candidate,
+                              client=client,
+                              output_dir=output_dir,
+                          )
+                          selected = candidate
+                          break
+                      except Exception as exc:
+                          errors.append(type(exc).__name__)
+                  if downloaded is None or selected is None:
+                      raise RuntimeError(
+                          "PPT public-domain asset download failed: " + ",".join(errors)
+                      )
+                  print("ppt_public_domain_asset", json.dumps({
+                      "source_page_url": selected.source_page_url,
+                      "license": selected.license,
+                      "bytes": downloaded.stat().st_size,
+                  }, ensure_ascii=False))
+          PY
+          REMOTE

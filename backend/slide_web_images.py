@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import html
 import ipaddress
@@ -15,7 +16,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 import requests
@@ -24,6 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from slide_asset_repository import SlideAssetRepository, SlideVisualAsset
 from slide_image_provider import IMAGE_PROMPT_POLICY_VERSION, SlideImageProvider
+from web_retrieval import (
+    RetrievalGateway,
+    RetrievalRequest,
+    create_search_provider,
+)
 
 ALLOWED_RETRIEVAL_LICENSES = ["public_domain", "cc0", "cc_by"]
 MAX_RETRIEVED_IMAGE_BYTES = 12 * 1024 * 1024
@@ -102,7 +108,7 @@ class VisualSearchRequestV5(_StrictModel):
 
 
 class RetrievedImageCandidate(_StrictModel):
-    provider: Literal["openverse", "wikimedia_commons"]
+    provider: Literal["openverse", "wikimedia_commons", "searxng"]
     asset_url: str
     source_page_url: str
     title: str = ""
@@ -281,109 +287,157 @@ def _candidate_safe_for_automatic_use(
     return True
 
 
-def _openverse_license_label(item: dict[str, Any]) -> str:
-    code = str(item.get("license") or "").lower()
-    version = str(item.get("license_version") or "").strip()
-    if code in {"pdm", "publicdomain"}:
-        return "Public Domain"
-    if code == "cc0":
-        return f"CC0 {version}".strip()
-    if code == "by":
-        return f"CC BY {version}".strip()
-    return code
-
-
-def search_openverse_v5(
-    query: str,
-    *,
-    client: httpx.Client,
-    page_size: int = 12,
-) -> list[RetrievedImageCandidate]:
-    response = client.get(
-        "https://api.openverse.org/v1/images/",
-        headers=_retrieval_request_headers(),
-        params={
-            "q": query,
-            "page_size": min(20, max(1, page_size)),
-            "license_type": "commercial",
-        },
-    )
-    response.raise_for_status()
-    results = []
-    for item in response.json().get("results") or []:
-        license_name = _openverse_license_label(item)
-        if not allowed_retrieval_license(license_name):
-            continue
-        asset_url = str(item.get("url") or "")
-        source_url = str(item.get("foreign_landing_url") or "")
-        if not safe_retrieval_url(asset_url) or not safe_retrieval_url(source_url):
-            continue
-        tags = [
-            str(tag.get("name") or "")
-            for tag in item.get("tags") or []
-            if isinstance(tag, dict)
-        ]
-        results.append(RetrievedImageCandidate(
-            provider="openverse",
-            asset_url=asset_url,
-            source_page_url=source_url,
-            title=str(item.get("title") or ""),
-            creator=str(item.get("creator") or ""),
-            license=license_name,
-            license_url=str(item.get("license_url") or ""),
-            width=int(item.get("width") or 0),
-            height=int(item.get("height") or 0),
-            query=query,
-            canonical_terms=[query],
-            matched_terms=tags,
-            authority_score=0.65 if item.get("source") in {"wikimedia", "smithsonian", "nasa"} else 0.45,
-        ))
-    return results
-
-
 def _commons_metadata_value(metadata: dict[str, Any], key: str) -> str:
     value = metadata.get(key) or {}
     raw = str(value.get("value") or "") if isinstance(value, dict) else str(value or "")
     return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", raw)).split())
 
 
-def search_wikimedia_commons_v5(
-    query: str,
+def _run_shared_retrieval_v5(coroutine: Any) -> dict[str, Any]:
+    """Run the async shared gateway from synchronous slide compilation."""
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+
+    result: list[dict[str, Any]] = []
+    errors: list[BaseException] = []
+
+    def run_in_thread() -> None:
+        try:
+            result.append(asyncio.run(coroutine))
+        except BaseException as exc:  # pragma: no cover - defensive thread handoff
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_in_thread, daemon=True)
+    worker.start()
+    worker.join()
+    if errors:
+        raise errors[0]
+    return result[0]
+
+
+def search_shared_web_images_v5(
+    queries: list[str],
+    *,
+    gateway: RetrievalGateway | None = None,
+) -> dict[str, Any]:
+    """Search images through the same provider-neutral gateway as other AI flows."""
+
+    active_gateway = gateway or RetrievalGateway(provider=create_search_provider())
+    request = RetrievalRequest(
+        purpose="ppt_image",
+        enabled=True,
+        queries=list(queries[:2]),
+        category="images",
+        max_queries=2,
+        max_sources=24,
+        timeout_seconds=20,
+        concurrency=1,
+    )
+    _RETRIEVAL_RATE_LIMITER.wait()
+    package = _run_shared_retrieval_v5(active_gateway.retrieve(request))
+    return package if isinstance(package, dict) else {}
+
+
+def _commons_title_from_gateway_source(source: dict[str, Any]) -> str:
+    metadata = source.get("provider_metadata") or {}
+    engines = metadata.get("engines") if isinstance(metadata, dict) else []
+    if "wikicommons.images" not in (engines or []):
+        return ""
+    parsed = urlparse(str(source.get("url") or ""))
+    if parsed.hostname != "commons.wikimedia.org" or "/wiki/" not in parsed.path:
+        return ""
+    title = unquote(parsed.path.split("/wiki/", 1)[1]).replace("_", " ")
+    return title if title.lower().startswith("file:") else ""
+
+
+def hydrate_shared_image_candidates_v5(
+    package: dict[str, Any],
     *,
     client: Any,
-    page_size: int = 12,
 ) -> list[RetrievedImageCandidate]:
+    """Hydrate license-safe SearXNG image hits with source attribution."""
+
+    sources_by_title: dict[str, dict[str, Any]] = {}
+    requested_titles: list[str] = []
+    candidates: list[RetrievedImageCandidate] = []
+    for source in package.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        provider_metadata = source.get("provider_metadata") or {}
+        engines = (
+            provider_metadata.get("engines")
+            if isinstance(provider_metadata, dict)
+            else []
+        )
+        if "public domain image archive" in (engines or []):
+            source_url = str(source.get("url") or "")
+            asset_url = str(provider_metadata.get("image_url") or "")
+            source_host = (urlparse(source_url).hostname or "").lower()
+            asset_host = (urlparse(asset_url).hostname or "").lower()
+            if (
+                source_host in {"pdimagearchive.org", "www.pdimagearchive.org"}
+                and asset_host == "images.pdimagearchive.org"
+                and safe_retrieval_url(source_url)
+                and safe_retrieval_url(asset_url)
+            ):
+                title = str(source.get("title") or "")
+                excerpt = str(source.get("excerpt") or "")
+                query = str(source.get("matched_query") or "")
+                candidates.append(RetrievedImageCandidate(
+                    provider="searxng",
+                    asset_url=asset_url,
+                    source_page_url=source_url,
+                    title=title,
+                    creator=(title.rsplit(" by ", 1)[1] if " by " in title else ""),
+                    license="Public Domain",
+                    license_url="https://creativecommons.org/publicdomain/mark/1.0/",
+                    query=query,
+                    canonical_terms=[query] if query else [],
+                    matched_terms=(title + " " + excerpt).split(),
+                    authority_score=0.95,
+                ))
+        title = _commons_title_from_gateway_source(source)
+        if title:
+            sources_by_title[title.casefold()] = source
+            requested_titles.append(title)
+    if not sources_by_title:
+        return candidates
+
     response = client.get(
         "https://commons.wikimedia.org/w/api.php",
         headers=_retrieval_request_headers(),
         params={
             "action": "query",
             "format": "json",
-            "generator": "search",
-            "gsrsearch": f"filetype:bitmap {query}",
-            "gsrnamespace": 6,
-            "gsrlimit": min(20, max(1, page_size)),
+            "titles": "|".join(requested_titles),
             "prop": "imageinfo",
             "iiprop": "url|size|extmetadata",
             "iiurlwidth": 1600,
         },
     )
     response.raise_for_status()
-    results = []
     pages = (response.json().get("query") or {}).get("pages") or {}
     for item in pages.values():
+        title_with_namespace = str(item.get("title") or "")
+        source = sources_by_title.get(title_with_namespace.casefold())
+        if source is None:
+            continue
         image_info = next(iter(item.get("imageinfo") or []), {})
         metadata = image_info.get("extmetadata") or {}
         license_name = _commons_metadata_value(metadata, "LicenseShortName")
         if not allowed_retrieval_license(license_name):
             continue
         asset_url = str(image_info.get("thumburl") or image_info.get("url") or "")
-        source_url = str(image_info.get("descriptionurl") or "")
+        source_url = str(image_info.get("descriptionurl") or source.get("url") or "")
         if not safe_retrieval_url(asset_url) or not safe_retrieval_url(source_url):
             continue
-        title = str(item.get("title") or "").removeprefix("File:")
-        results.append(RetrievedImageCandidate(
-            provider="wikimedia_commons",
+        title = title_with_namespace.removeprefix("File:")
+        excerpt = str(source.get("excerpt") or "")
+        candidates.append(RetrievedImageCandidate(
+            provider="searxng",
             asset_url=asset_url,
             source_page_url=source_url,
             title=title,
@@ -392,12 +446,12 @@ def search_wikimedia_commons_v5(
             license_url=_commons_metadata_value(metadata, "LicenseUrl"),
             width=int(image_info.get("thumbwidth") or image_info.get("width") or 0),
             height=int(image_info.get("thumbheight") or image_info.get("height") or 0),
-            query=query,
-            canonical_terms=[query],
-            matched_terms=title.replace("_", " ").split(),
+            query=str(source.get("matched_query") or ""),
+            canonical_terms=[str(source.get("matched_query") or "")],
+            matched_terms=(title.replace("_", " ") + " " + excerpt).split(),
             authority_score=0.9,
         ))
-    return results
+    return candidates
 
 
 def download_retrieved_image_v5(
@@ -480,23 +534,23 @@ def retrieve_best_image_v5(
     alt_text: str,
     purpose: str,
     used_asset_urls: set[str] | None = None,
-    client: httpx.Client | None = None,
+    client: Any | None = None,
+    gateway: RetrievalGateway | None = None,
 ) -> SlideVisualAsset | None:
-    """Search Openverse, then Commons, and stage one safe non-hotlinked image."""
+    """Search through the shared gateway and stage one licensed image."""
     if not request.need_visual or not request.queries:
         return None
     owned_client = client is None
-    http = client or httpx.Client(timeout=httpx.Timeout(12, connect=5))
     commons_http: Any = client or requests.Session()
     try:
-        candidates: list[RetrievedImageCandidate] = []
-        limiter = _RETRIEVAL_RATE_LIMITER
-        for query in request.queries[:2]:
-            try:
-                limiter.wait()
-                candidates.extend(search_openverse_v5(query, client=http))
-            except (httpx.HTTPError, ValueError, TypeError):
-                continue
+        package = search_shared_web_images_v5(
+            request.queries,
+            gateway=gateway,
+        )
+        candidates = hydrate_shared_image_candidates_v5(
+            package,
+            client=commons_http,
+        )
         ranked = rank_image_candidates_v5(
             candidates,
             must_show=request.must_show,
@@ -511,43 +565,15 @@ def retrieve_best_image_v5(
             )
         ]
         if not ranked or ranked[0].score < 0.62:
-            candidates = []
-            for query in request.queries[:2]:
-                try:
-                    limiter.wait()
-                    candidates.extend(
-                        search_wikimedia_commons_v5(query, client=commons_http)
-                    )
-                except (httpx.HTTPError, requests.RequestException, ValueError, TypeError):
-                    continue
-            ranked = rank_image_candidates_v5(
-                candidates,
-                must_show=request.must_show,
-                desired_aspect_ratio=16 / 9,
-                used_asset_urls=used_asset_urls,
-            )
-            ranked = [
-                candidate for candidate in ranked
-                if _candidate_safe_for_automatic_use(
-                    candidate,
-                    must_not_show=request.must_not_show,
-                )
-            ]
-        if not ranked or ranked[0].score < 0.62:
             return None
         selected = ranked[0]
         cached = repository.find_retrieved(asset_url=selected.asset_url)
         if cached is not None:
             return cached
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-web-image-") as temp_dir:
-            download_client = (
-                commons_http
-                if selected.provider == "wikimedia_commons"
-                else http
-            )
             path = download_retrieved_image_v5(
                 selected,
-                client=download_client,
+                client=commons_http,
                 output_dir=temp_dir,
             )
             return stage_retrieved_image(
@@ -561,7 +587,6 @@ def retrieve_best_image_v5(
             )
     finally:
         if owned_client:
-            http.close()
             commons_http.close()
 
 

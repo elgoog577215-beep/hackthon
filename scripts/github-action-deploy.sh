@@ -181,6 +181,22 @@ cleanup_regenerable_caches() {
     )
 }
 
+cleanup_system_regenerable_caches() {
+    if command -v docker >/dev/null 2>&1; then
+        log "Cleaning Docker regenerated caches and unused images"
+        docker container prune -f >/dev/null 2>&1 || true
+        docker image prune -af >/dev/null 2>&1 || true
+        docker builder prune -af >/dev/null 2>&1 || true
+    fi
+
+    if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        log "Cleaning package cache and compacting system journal"
+        sudo apt-get clean >/dev/null 2>&1 || true
+        sudo journalctl --vacuum-size=128M >/dev/null 2>&1 || true
+        sudo find /tmp /var/tmp -xdev -mindepth 1 -maxdepth 1 -type f -mtime +1 -delete >/dev/null 2>&1 || true
+    fi
+}
+
 required_deploy_free_kb() {
     local artifact_uncompressed_bytes=""
     local artifact_required_kb=0
@@ -248,6 +264,11 @@ ensure_free_space() {
     if [ -n "$available_kb" ] && [ "$available_kb" -lt "$required_kb" ]; then
         log "磁盘空间仍低于发布阈值；清理可再生成的构建与运行时缓存后重试"
         cleanup_regenerable_caches
+        available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
+    fi
+    if [ -n "$available_kb" ] && [ "$available_kb" -lt "$required_kb" ]; then
+        log "Disk is still below deploy threshold; cleaning system-level regenerated caches"
+        cleanup_system_regenerable_caches
         available_kb="$(df -Pk "$BASE_DIR" | awk 'NR == 2 {print $4}')"
     fi
     if [ -z "$available_kb" ] || [ "$available_kb" -lt "$required_kb" ]; then
@@ -375,6 +396,7 @@ preflight_retrieval_runtime() {
         --data 'categories=general,science' \
         --data 'safesearch=2' \
         --data 'language=en' \
+        --data 'timeout_limit=4' \
         "$base_url/search" \
         | "$VENV/bin/python" -c '
 import json

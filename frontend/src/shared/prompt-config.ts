@@ -52,15 +52,15 @@ export interface InquiryCourseIntent {
   core_question: string;
   existing_understanding?: string;
   evidence_scope?: string;
-  desired_output?: string;
+  desired_output: string;
 }
 
 export interface ExamCourseIntent {
   schema_version: 'course_intent_v1';
   type: 'exam';
   exam_name: string;
-  exam_date?: string;
-  exam_scope?: string;
+  exam_date: string;
+  exam_scope: string;
   current_preparation?: string;
 }
 
@@ -419,6 +419,31 @@ export function validateGenerateCourseParams(
       ];
       for (const field of requiredProjectFields) {
         if (!project[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+    }
+  }
+
+  if (params.course_type === 'inquiry') {
+    const inquiry = params.course_intent?.type === 'inquiry' ? params.course_intent : null;
+    if (!inquiry) {
+      errors.push('an inquiry course_intent is required when course_type is inquiry');
+    } else {
+      for (const field of ['core_question', 'desired_output'] as const) {
+        if (!inquiry[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+    }
+  }
+
+  if (params.course_type === 'exam') {
+    const exam = params.course_intent?.type === 'exam' ? params.course_intent : null;
+    if (!exam) {
+      errors.push('an exam course_intent is required when course_type is exam');
+    } else {
+      for (const field of ['exam_name', 'exam_date', 'exam_scope'] as const) {
+        if (!exam[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+      if (exam.exam_date && !/^\d{4}-\d{2}-\d{2}$/.test(exam.exam_date)) {
+        errors.push('course_intent.exam_date must use YYYY-MM-DD format');
       }
     }
   }

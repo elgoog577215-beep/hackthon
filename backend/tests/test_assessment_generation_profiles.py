@@ -30,8 +30,35 @@ def test_fast_policy_has_bounded_repairs_and_provider_budget() -> None:
     assert policy.max_generation_attempts == 2
     assert policy.generation_batch_size == 3
     assert policy.solution_batch_size == 2
-    assert policy.max_provider_attempts == 2
+    assert policy.max_provider_attempts == 1
     assert policy.compact_candidate is True
+    assert policy.stage_timeouts == {
+        "generate": 45.0,
+        "repair": 35.0,
+        "solve": 35.0,
+        "review": 30.0,
+    }
+
+
+def test_fast_policy_never_requests_thinking_for_complex_items() -> None:
+    policy = resolve_assessment_generation_policy("fast")
+    context = {
+        "assessment_slot": {
+            "input_mode": "code",
+            "validation_mode": "expert_rubric_validator",
+            "multi_step": True,
+        },
+        "risk_contract": {
+            "risk_level": "high",
+            "requires_teacher_review": True,
+        },
+        "issue_codes": ["semantic_contradiction"],
+    }
+
+    for stage in ("generate", "repair", "solve", "review"):
+        call_policy = policy.call_policy(stage, context)
+        assert call_policy.enable_thinking is False
+        assert call_policy.thinking_reason_codes == ()
 
 
 def test_deliberation_is_selective_and_reasoned() -> None:

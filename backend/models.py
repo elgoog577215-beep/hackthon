@@ -271,6 +271,12 @@ class CourseGenerationRequest(BaseModel):
     teacher_course_brief: Optional[TeacherCourseBriefV1] = None
     difficulty: Optional[DifficultyLevel] = "intermediate"
     course_type: CourseType = "systematic"
+    course_type_resolved_from: Literal[
+        "course_type",
+        "course_purpose",
+        "composition_style",
+        "default",
+    ] = Field(default="course_type", exclude=True)
     course_intent: Optional[CourseIntent] = None
     learner_starting_profile: Optional[LearnerStartingProfile] = None
     composition_style: Optional[CourseCompositionStyle] = None
@@ -351,12 +357,13 @@ class CourseGenerationRequest(BaseModel):
             else None
         )
         explicit_course_type = normalized.get("course_type") or intent_type
-        course_type, _resolved_from = resolve_course_type(
+        course_type, resolved_from = resolve_course_type(
             explicit_course_type,
             course_purpose=normalized.get("course_purpose"),
             composition_style=normalized.get("composition_style"),
         )
         normalized["course_type"] = course_type
+        normalized["course_type_resolved_from"] = resolved_from
         if (
             course_type == "project"
             and not normalized.get("course_intent")
@@ -367,6 +374,27 @@ class CourseGenerationRequest(BaseModel):
                 "project_goal": str(normalized.get("subject") or "").strip(),
                 "expected_deliverable": str(normalized.get("requirements") or "").strip()
                 or "完成可展示、可检查的项目成果",
+            }
+        if (
+            course_type == "inquiry"
+            and not normalized.get("course_intent")
+            and not explicit_course_type
+        ):
+            normalized["course_intent"] = {
+                "type": "inquiry",
+                "core_question": str(normalized.get("subject") or "").strip(),
+                "desired_output": "形成有证据边界的回答",
+            }
+        if (
+            course_type == "exam"
+            and not normalized.get("course_intent")
+            and not explicit_course_type
+        ):
+            normalized["course_intent"] = {
+                "type": "exam",
+                "exam_name": str(normalized.get("subject") or "").strip(),
+                "exam_date": "",
+                "exam_scope": str(normalized.get("requirements") or "").strip(),
             }
         if isinstance(normalized.get("course_intent"), dict):
             intent = dict(normalized["course_intent"])
@@ -393,6 +421,28 @@ class CourseGenerationRequest(BaseModel):
                 raise ValueError("项目实战课程必须提供 project_goal")
             if not self.course_intent.expected_deliverable.strip():
                 raise ValueError("项目实战课程必须提供 expected_deliverable")
+        elif self.course_type == "inquiry":
+            if not isinstance(self.course_intent, InquiryCourseIntent):
+                raise ValueError("问题探究课程必须提供 course_intent")
+            if not self.course_intent.core_question.strip():
+                raise ValueError("问题探究课程必须提供 core_question")
+            if not self.course_intent.desired_output.strip():
+                raise ValueError("问题探究课程必须提供 desired_output")
+        elif self.course_type == "exam":
+            if not isinstance(self.course_intent, ExamCourseIntent):
+                raise ValueError("考试冲刺课程必须提供 course_intent")
+            if not self.course_intent.exam_name.strip():
+                raise ValueError("考试冲刺课程必须提供 exam_name")
+            is_legacy_exam = self.course_type_resolved_from == "course_purpose"
+            if not self.course_intent.exam_date.strip() and not is_legacy_exam:
+                raise ValueError("考试冲刺课程必须提供 exam_date")
+            if self.course_intent.exam_date:
+                try:
+                    datetime.strptime(self.course_intent.exam_date, "%Y-%m-%d")
+                except ValueError as exc:
+                    raise ValueError("exam_date 必须使用 YYYY-MM-DD 格式") from exc
+            if not self.course_intent.exam_scope.strip() and not is_legacy_exam:
+                raise ValueError("考试冲刺课程必须提供 exam_scope")
         return self
 
     @field_validator("subject", mode="before")

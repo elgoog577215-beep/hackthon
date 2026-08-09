@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import shutil
@@ -201,6 +202,18 @@ def export_structured_slide_deck(
     """Render the same slide spec used by the browser preview into editable PPTX."""
     deck = SlideDeckContent.model_validate(content)
     payload = deck.model_dump(mode="json")
+    if deck.schema_version == "slide_deck_v5":
+        for unit in deck.slides:
+            quality = unit.quality or {}
+            if not quality.get("resolved_layout"):
+                raise ValueError(
+                    f"v5_final_layout_missing:{unit.unit_id}"
+                )
+            if str(quality["resolved_layout"]) not in V5_LAYOUT_RENDERER_NAMES:
+                raise ValueError(
+                    "v5_final_layout_unsupported:"
+                    f"{unit.unit_id}:{quality['resolved_layout']}"
+                )
     if require_quality:
         if deck.schema_version == "slide_deck_v5":
             from slide_deck_v5 import (
@@ -719,6 +732,7 @@ V5_LAYOUT_RENDERER_NAMES = {
     "classification-3": "_render_classification_three",
     "process-sequence": "_render_process",
     "formula-explanation": "_render_editorial_body",
+    "code": "_render_code",
     "figure-text": "_render_visual_directed",
     "diagram-full": "_render_visual_directed",
     "worked-example": "_render_worked_example",
@@ -863,7 +877,12 @@ def _render_visual_directed(
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme, heading_already_rendered=True)
         return
-    _render_editorial_body(slide, unit, theme)
+    _render_editorial_body(
+        slide,
+        unit,
+        theme,
+        heading_already_rendered=True,
+    )
 
 
 def _render_relational_visual(
@@ -1033,7 +1052,12 @@ def _render_formula_visual(
             "",
         )
     if not formula:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     supporting_blocks = [
         block
@@ -1853,21 +1877,41 @@ def _render_hero_statement(slide: Any, unit: SlideSpec, theme: dict[str, str]) -
 
 
 def _render_claim_only(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
-    """Render a promoted one-sentence claim once, without a duplicate body panel."""
-    _heading(slide, unit, theme)
-    _shape(slide, 0.9, 2.25, 0.12, 3.35, theme["accent"], radius=False)
+    """Render one intentional claim as the dominant object, exactly once."""
+    claim = " ".join(
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    )
+    claim = claim or unit.key_message or unit.takeaway or unit.title
     _text(
         slide,
-        unit.teaching_job or unit.eyebrow or "核心判断",
-        1.4,
-        2.3,
-        3.4,
-        0.38,
-        13,
+        unit.eyebrow or "核心判断",
+        0.82,
+        0.72,
+        3.0,
+        0.32,
+        12,
         theme["accent"],
         bold=True,
     )
-    _shape(slide, 1.4, 4.95, 4.25, 0.05, theme["chart_bg"], radius=False)
+    _shape(slide, 0.82, 1.28, 11.68, 0.018, theme["chart_bg"], radius=False)
+    _shape(slide, 0.9, 1.88, 0.12, 4.28, theme["accent"], radius=False)
+    _text(
+        slide,
+        claim,
+        1.4,
+        2.18,
+        10.25,
+        2.78,
+        29 if len(claim) <= 58 else 24,
+        theme["ink"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+    _shape(slide, 1.4, 5.48, 4.25, 0.05, theme["chart_bg"], radius=False)
 
 
 def _render_navigation_statement(
@@ -1921,9 +1965,19 @@ def _render_classification_three(
 ) -> None:
     """Render exactly three peer concepts as equal semantic columns."""
     _heading(slide, unit, theme)
-    items = _all_items(unit)[:3]
+    items = [
+        value
+        for block in unit.blocks
+        for value in (block.items or [block.content])
+        if value
+    ][:3]
     if len(items) != 3:
-        _render_concept(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     accents = (theme["accent"], theme["green"], theme["amber"])
     for index, item in enumerate(items):
@@ -1964,11 +2018,18 @@ def _render_classification_three(
             )
 
 
-def _render_editorial_body(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+def _render_editorial_body(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+    *,
+    heading_already_rendered: bool = False,
+) -> None:
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme)
         return
-    _heading(slide, unit, theme)
+    if not heading_already_rendered:
+        _heading(slide, unit, theme)
     values = [
         value
         for block in unit.blocks
@@ -2007,7 +2068,12 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
                 "\n\n".join(paragraphs[split_at:]),
             ]
     if len(values) < 2:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     labels = ("依据", "推论")
     colors = (
@@ -2048,7 +2114,12 @@ def _render_parallel_examples(
     _heading(slide, unit, theme)
     values = _all_items(unit)[:4]
     if len(values) < 2:
-        _render_editorial_body(slide, unit, theme)
+        _render_editorial_body(
+            slide,
+            unit,
+            theme,
+            heading_already_rendered=True,
+        )
         return
     gap = 0.28
     width = (11.55 - gap * (len(values) - 1)) / len(values)
@@ -2087,7 +2158,17 @@ def _render_question_prompt(
         for index, value in enumerate(values, start=1)
     ) or unit.key_message or unit.takeaway
     _shape(slide, 0.92, 2.18, 0.11, 3.5, theme["accent"], radius=False)
-    _text(slide, "先独立判断", 1.42, 2.24, 2.4, 0.34, 13, theme["accent"], bold=True)
+    _text(
+        slide,
+        str(unit.quality.get("prompt_label") or "先独立判断"),
+        1.42,
+        2.24,
+        2.4,
+        0.34,
+        13,
+        theme["accent"],
+        bold=True,
+    )
     _text(
         slide,
         prompt,
@@ -2200,6 +2281,53 @@ def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
 def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     items = _all_items(unit)[:5] or [block.content for block in unit.blocks if block.content][:5]
+    if str(unit.quality.get("task_prompt_mode") or "") == "action":
+        _text(
+            slide,
+            str(unit.quality.get("prompt_label") or "执行步骤"),
+            0.86,
+            1.9,
+            2.0,
+            0.22,
+            12,
+            theme["accent"],
+            bold=True,
+        )
+        weights = [max(1, min(3, math.ceil(len(item) / 70))) for item in items]
+        total_weight = max(1, sum(weights))
+        available_height = 4.0
+        gap = 0.08
+        usable_height = available_height - gap * max(0, len(items) - 1)
+        y = 2.22
+        for index, (item, weight) in enumerate(zip(items, weights), start=1):
+            height = usable_height * weight / total_weight
+            _shape(slide, 0.86, y, 0.58, height, theme["accent_soft"], radius=True)
+            _text(
+                slide,
+                f"{index:02d}",
+                0.86,
+                y + max(0.08, (height - 0.22) / 2),
+                0.58,
+                0.22,
+                11,
+                theme["accent"],
+                bold=True,
+                align="center",
+                font="Aptos Mono",
+            )
+            _text(
+                slide,
+                item,
+                1.72,
+                y + 0.08,
+                10.25,
+                max(0.36, height - 0.16),
+                17 if len(item) <= 80 else 16,
+                theme["ink"],
+                bold=len(item) <= 80,
+            )
+            y += height + gap
+        return
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
     for index, item in enumerate(items):
         x = 0.82 + index * (width + 0.24)
@@ -2214,15 +2342,24 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     code = _find_block(unit, "code")
-    _shape(slide, 0.76, 1.75, 7.48, 4.72, theme["code"], radius=True)
+    insight_blocks = [block for block in unit.blocks if block is not code]
+    items = [
+        item
+        for block in insight_blocks
+        for item in (block.items or [block.content])
+        if str(item or "").strip()
+    ][:5]
+    code_panel_width = 7.48 if items else 11.80
+    code_text_width = 6.9 if items else 11.18
+    _shape(slide, 0.76, 1.75, code_panel_width, 4.72, theme["code"], radius=True)
     language = str(code.metadata.get("language") or "code") if code else "code"
     _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(slide, code.content if code else "", 1.05, 2.48, 6.9, 3.6, 13, "F5F7FF", font="Aptos Mono")
-    insight_blocks = [block for block in unit.blocks if block is not code]
+    _text(slide, code.content if code else "", 1.05, 2.48, code_text_width, 3.6, 16, "F5F7FF", font="Aptos Mono")
+    if not items:
+        return
     _shape(slide, 8.52, 1.75, 4.04, 4.72, theme["canvas"], radius=True)
     _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, theme["green"], bold=True)
-    items = [item for block in insight_blocks for item in (block.items or [block.content]) if item][:5]
-    _bullets(slide, items or [unit.key_message], 8.86, 2.65, 3.32, 3.1, 11, theme["ink"], theme["green"])
+    _bullets(slide, items, 8.86, 2.65, 3.32, 3.1, 16, theme["ink"], theme["green"])
 
 
 def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2327,7 +2464,7 @@ def _render_practice_feedback(
                 2.62,
                 question_width - 0.12,
                 1.02,
-                17 if len(prompt) <= 80 else 15,
+                17 if len(prompt) <= 80 else 16,
                 theme["ink"],
                 bold=True,
             )
@@ -2355,7 +2492,7 @@ def _render_practice_feedback(
                 4.78,
                 evidence_width - 0.12,
                 1.42,
-                16 if len(evidence) <= 80 else 14,
+                16,
                 theme["ink"],
             )
         return
@@ -2407,7 +2544,7 @@ def _render_practice_feedback(
             text_top,
             5.55,
             max(0.7, row_height - 1.0),
-            17 if len(prompt) <= 80 else 15,
+            17 if len(prompt) <= 80 else 16,
             theme["ink"],
             bold=True,
         )
@@ -2419,7 +2556,7 @@ def _render_practice_feedback(
                 text_top,
                 4.85,
                 max(0.7, row_height - 1.0),
-                16 if len(answer) <= 80 else 14,
+                16,
                 theme["ink"],
             )
 
@@ -2682,29 +2819,14 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     heading_mode = str(unit.quality.get("heading_mode") or "full")
-    if heading_mode == "hidden":
-        section_label = str(
-            unit.quality.get("section_label")
-            or unit.eyebrow
-            or unit.slide_purpose
-        )
-        _text(
-            slide,
-            section_label,
-            0.78,
-            0.55,
-            8.8,
-            0.38,
-            13,
-            theme["accent"],
-            bold=True,
-        )
-        _shape(slide, 0.78, 1.12, 0.72, 0.04, theme["accent"], radius=False)
-        _shape(slide, 1.58, 1.12, 0.08, 0.04, theme["green"], radius=False)
-        return
+    eyebrow = str(
+        unit.quality.get("section_label")
+        if heading_mode == "hidden"
+        else unit.eyebrow or unit.slide_purpose
+    )
     heading = _display_heading(unit)
     heading_size = 35
-    _text(slide, unit.eyebrow or unit.slide_purpose, 0.78, 0.42, 2.7, 0.22, 11, theme["accent"], bold=True)
+    _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
     _text(
         slide, heading, 0.78, 0.70, 11.72, 1.16, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
@@ -2925,31 +3047,9 @@ def _is_generic_heading(value: str) -> bool:
 def _heading_excerpt(value: str, limit: int | None = None) -> str:
     """Choose a complete audience-facing title phrase without an ellipsis."""
     clean = " ".join(str(value or "").split()).strip("，,；;：:。… ")
-    if limit is None:
-        limit = 18 if re.search(r"[\u3400-\u9fff]", clean) else 42
-    if len(clean) <= limit:
-        return clean
-    excerpt = clean[:limit]
-    opening = max(excerpt.rfind("（"), excerpt.rfind("("))
-    closing = max(excerpt.rfind("）"), excerpt.rfind(")"))
-    if opening > closing and opening >= max(8, limit // 3):
-        excerpt = excerpt[:opening]
-    else:
-        punctuation = max(
-            excerpt.rfind("。"),
-            excerpt.rfind("；"),
-            excerpt.rfind("，"),
-            excerpt.rfind("："),
-            excerpt.rfind("）"),
-            excerpt.rfind(")"),
-        )
-        if punctuation >= max(10, limit // 2):
-            excerpt = excerpt[: punctuation + (1 if excerpt[punctuation] in "）)" else 0)]
-        else:
-            space = excerpt.rfind(" ")
-            if space >= max(10, limit // 2):
-                excerpt = excerpt[:space]
-    return excerpt.rstrip("，,；;：:。 ")
+    # V5 compiles and validates a complete audience-facing title before the
+    # renderer runs. A second character cut here can create dangling fragments.
+    return clean
 
 
 def _configure_font(font: Any, latin_font: str, east_asian_font: str = BODY_EAST_ASIAN_FONT) -> None:

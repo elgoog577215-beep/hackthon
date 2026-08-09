@@ -65,6 +65,12 @@ def test_unknown_subject_falls_back_to_general_not_natural_science():
     assert profile.confidence == "low"
 
 
+def test_subject_title_outweighs_generic_application_wording():
+    profile = resolve_pedagogy_profile(subject="线性代数：理论与应用")
+
+    assert profile.primary_mode == PedagogyMode.MATH_FORMAL
+
+
 def test_legacy_natural_science_math_course_is_read_as_math():
     profile = coerce_persisted_profile({
         "course_name": "线性代数入门",
