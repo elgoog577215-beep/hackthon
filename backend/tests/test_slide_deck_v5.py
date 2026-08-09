@@ -1165,6 +1165,117 @@ def test_v5_compaction_includes_required_formula_from_chapter_root() -> None:
     } <= set(formula_beats[0].fragment_ids)
 
 
+def test_v5_compaction_includes_required_table_from_nested_section() -> None:
+    document = CourseDocument(
+        course_id="course-v5-nested-table",
+        title="Customer operations",
+        document_revision="doc-rev-1",
+        sections=[
+            CourseSection(
+                section_id="chapter-1",
+                title="Retention planning",
+                position=0,
+                level=1,
+            ),
+            CourseSection(
+                section_id="section-1",
+                parent_section_id="chapter-1",
+                title="Cohort review",
+                position=1,
+                level=2,
+            ),
+            CourseSection(
+                section_id="detail-1",
+                parent_section_id="section-1",
+                title="Channel comparison",
+                position=2,
+                level=3,
+            ),
+        ],
+    )
+    fragments = [
+        ContentFragmentV1(
+            fragment_id="section-prose",
+            section_id="section-1",
+            block_id="section-1-body",
+            kind="paragraph",
+            text="Compare customer groups before selecting a retention action.",
+            ordinal=0,
+            source_hash="hash-section-prose",
+            role="concept",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="table-heading",
+            section_id="detail-1",
+            block_id="detail-1-body",
+            kind="heading",
+            text="Retention by acquisition channel",
+            ordinal=1,
+            source_hash="hash-table-heading",
+            role="case",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="retention-table",
+            section_id="detail-1",
+            block_id="detail-1-body",
+            kind="table",
+            text="| Channel | Retained | Churned |\n| --- | ---: | ---: |\n| Referral | 72 | 18 |",
+            ordinal=2,
+            source_hash="hash-retention-table",
+            role="case",
+            source_kind="course_block",
+        ),
+        ContentFragmentV1(
+            fragment_id="table-explanation",
+            section_id="detail-1",
+            block_id="detail-1-body",
+            kind="paragraph",
+            text="Referral customers show the strongest retention in this cohort.",
+            ordinal=3,
+            source_hash="hash-table-explanation",
+            role="case",
+            source_kind="course_block",
+        ),
+    ]
+    story = _story(1).model_copy(update={
+        "planning_diagnostics": {
+            "subject_presentation_contract": {
+                "schema_version": "subject_presentation_contract_v1",
+                "profile_id": "business_career",
+                "primary_mode": "business_career",
+                "required_representation_kinds": ["table"],
+                "optional_representation_kinds": ["case", "data"],
+                "characteristic_fragment_ids": {
+                    "table": ["retention-table"],
+                },
+                "chapter_requirements": [{
+                    "chapter_id": "chapter-1",
+                    "required_representation_kinds": ["table"],
+                    "minimum_artifact_count": 1,
+                }],
+                "classification_confidence": 1.0,
+                "classification_source": "test",
+            },
+        },
+    })
+
+    compact = compact_story_plan_v5(document, story, fragments)
+    table_beats = [
+        beat
+        for episode in compact.chapters[0].episodes[1:-1]
+        for beat in episode.beats
+        if "table" in beat.subject_artifact_kinds
+    ]
+
+    assert len(table_beats) == 1
+    assert {
+        "retention-table",
+        "table-explanation",
+    } <= set(table_beats[0].fragment_ids)
+
+
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:
     document = CourseDocument(
         course_id="course-enumeration",
