@@ -2313,7 +2313,10 @@ class TeachingPlanWorkbenchService:
                 "当前没有待重建的下游对象。",
             )
 
-        runners = self._rebuild_runners(course_id, raw)
+        runners = self._rebuild_runners(
+            course_id, raw, actor=actor,
+            source_revision=_text(downstream.get("source_plan_revision_id")),
+        )
         result = execute_rebuild(
             downstream,
             runners=runners,
@@ -2349,13 +2352,18 @@ class TeachingPlanWorkbenchService:
         self,
         course_id: str,
         raw: dict[str, Any],
+        *,
+        actor: str = "",
+        source_revision: str = "",
     ) -> dict[str, Any]:
         """把既有重建管线包成执行器认识的形状。
 
-        刻意不在这里实现任何重建逻辑：表达走 representation_compiler 的
-        shadow-then-publish（失败时旧产物留在 stale 状态继续可读），
-        正文与练习目前没有可直接调用的定向重建入口，明确返回失败原因，
-        不假装成功。
+        刻意不在这里实现任何重建逻辑：
+        - 表达走 representation_compiler 的 shadow-then-publish
+          （失败时旧产物留在 stale 状态继续可读）；
+        - 练习登记为按小节定向的出题作业，由既有异步管线接手；
+        - 正文与知识目前没有可直接调用的定向重建入口，明确返回失败原因，
+          不假装成功。
         """
         def representation(entry: dict[str, Any]) -> dict[str, Any]:
             if self.representation_repository is None:
@@ -2373,6 +2381,35 @@ class TeachingPlanWorkbenchService:
             except Exception as error:  # noqa: BLE001
                 return {"status": "failed", "error": str(error)}
 
+        def practice(entry: dict[str, Any]) -> dict[str, Any]:
+            """练习重建：登记按小节定向的重建作业，不在这里同步出题。
+
+            出题是 10 阶段的异步作业（有自己的作业仓库与断点恢复），
+            在教案的应用请求里同步跑会让教师等几分钟、且失败无法恢复。
+            所以这里只把「哪一节要重建」登记成作业，回执记为候选，
+            由既有的出题管线接手——这与 6.2「定向重建候选」的语义一致。
+            """
+            section_id = _text(entry.get("section_id")) or _text(entry.get("id"))
+            if not section_id:
+                return {"status": "failed", "error": "无法确定练习所属小节"}
+            try:
+                from question_bank_jobs import question_bank_rebuild_job_repository
+
+                job, created = question_bank_rebuild_job_repository.create_job(
+                    course_id,
+                    request_id=f"teaching-plan-rebuild:{source_revision}:{section_id}",
+                    scope="nodes",
+                    node_ids=[section_id],
+                    mode="incremental",
+                    actor_id=actor,
+                )
+                return {
+                    "status": "candidate_ready",
+                    "revision": _text(job.get("job_id")),
+                }
+            except Exception as error:  # noqa: BLE001
+                return {"status": "failed", "error": str(error)}
+
         def unsupported(entry: dict[str, Any]) -> dict[str, Any]:
             return {
                 "status": "failed",
@@ -2382,7 +2419,7 @@ class TeachingPlanWorkbenchService:
         return {
             "representation": representation,
             "course_content": unsupported,
-            "practice": unsupported,
+            "practice": practice,
             "knowledge": unsupported,
         }
 

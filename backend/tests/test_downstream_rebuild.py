@@ -325,3 +325,32 @@ def test_knowledge_side_impact_uses_the_same_executor() -> None:
     assert by_id["p-untouched"] == "unchanged"
     # 回执 schema 与教案侧同一份，前端只需实现一套渲染。
     assert result["schema_version"] == "downstream_rebuild_receipt_v1"
+
+
+def test_practice_pipeline_enqueues_a_scoped_job_rather_than_generating_inline() -> None:
+    """练习重建登记按小节定向的作业，不在应用请求里同步出题。
+
+    出题是 10 阶段异步作业（自带作业仓库与断点恢复）。在教案的应用请求里
+    同步跑会让教师等几分钟且失败无法恢复，所以这里只登记作业、回执记为
+    候选，由既有出题管线接手——与 6.2「定向重建候选」语义一致。
+    """
+    downstream = _downstream(needs_regeneration=[
+        {"type": "practice", "id": "L2-1-1", "reason": "小节目标变化",
+         "section_id": "L2-1-1"},
+    ])
+    enqueued: list[dict] = []
+
+    def practice(entry):
+        enqueued.append(entry)
+        return {"status": "candidate_ready", "revision": "qbr_job_1"}
+
+    result = execute_rebuild(downstream, runners={"practice": practice})
+
+    assert len(enqueued) == 1
+    assert enqueued[0]["section_id"] == "L2-1-1", "作业必须带上要重建的小节"
+    item = next(i for i in result["downstream"]["items"] if i["id"] == "L2-1-1")
+    assert item["state"] == "candidate"
+    assert item["candidate_revision"] == "qbr_job_1"
+    receipt = next(r for r in result["receipts"] if r["id"] == "L2-1-1")
+    assert receipt["outcome"] == "stale"
+    assert "等待教师确认" in receipt["detail"]
