@@ -2997,6 +2997,23 @@
     "splitNotNeeded": "AI found no need to split this knowledge point.",
     "splitRejected": "AI proposed a split but it failed the quality gate: ",
     "newNode": "New node",
-    "proposeFailed": "AI evaluation failed. Please retry."
+    "proposeFailed": "AI evaluation failed. Please retry.",
+    "objectType": {
+      "sectionContent": "Content block",
+      "practice": "Question",
+      "slideDeck": "Slides",
+      "lecture": "Lecture notes",
+      "handout": "Handout",
+      "practiceSheet": "Worksheet",
+      "lessonPlan": "Lesson plan",
+      "outline": "Outline",
+      "masteryCriterion": "Mastery criterion",
+      "learningObjective": "Learning objective",
+      "knowledgeBinding": "Knowledge binding",
+      "knowledgePoint": "Knowledge point",
+      "teachingRepresentation": "Teaching representation",
+      "courseKnowledgeBase": "Course knowledge base",
+      "courseDocument": "Course document"
+    }
   }
 }

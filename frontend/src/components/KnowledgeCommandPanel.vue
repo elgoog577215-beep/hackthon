@@ -164,7 +164,7 @@
           <template v-else>
             <ul class="knowledge-command-detail-list">
               <li v-for="row in detailRows" :key="`${row.type}:${row.id}`">
-                <span class="knowledge-command-detail-kind">{{ row.type_label }}</span>
+                <span class="knowledge-command-detail-kind">{{ typeLabel(row) }}</span>
                 <span class="knowledge-command-detail-title">{{ row.title }}</span>
                 <span v-if="row.location" class="knowledge-command-detail-loc">{{ row.location }}</span>
                 <span v-if="row.excerpt" class="knowledge-command-detail-excerpt">{{ row.excerpt }}</span>
@@ -635,6 +635,25 @@ async function toggleHistory(): Promise<void> {
   } finally {
     historyLoading.value = false
   }
+}
+
+// 后端给的 type_label 是中文兜底；界面文案必须走 i18n，否则英文模式下
+// 明细行会显示"正文块""练习题"这类中文（真机验收时发现）。
+const DETAIL_TYPE_KEYS: Record<string, string> = {
+  section_content: 'sectionContent', practice: 'practice', slide_deck: 'slideDeck',
+  lecture: 'lecture', handout: 'handout', practice_sheet: 'practiceSheet',
+  lesson_plan: 'lessonPlan', outline: 'outline', mastery_criterion: 'masteryCriterion',
+  learning_objective: 'learningObjective', knowledge_binding: 'knowledgeBinding',
+  knowledge_point: 'knowledgePoint', teaching_representation: 'teachingRepresentation',
+  course_knowledge_base: 'courseKnowledgeBase', course_document: 'courseDocument',
+}
+
+function typeLabel(row: any): string {
+  const key = DETAIL_TYPE_KEYS[String(row?.type || '')]
+  // 有 i18n 键就走 i18n；没有则退回后端标签，总比显示裸类型名强。
+  return key
+    ? t(`knowledgeCommands.objectType.${key}`, row?.type_label || row?.type || '')
+    : (row?.type_label || row?.type || '')
 }
 
 function outcomeLabel(outcome: string): string {

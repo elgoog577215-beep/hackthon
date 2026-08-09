@@ -2997,6 +2997,23 @@
     "splitNotNeeded": "AI 判断该知识点无需拆分。",
     "splitRejected": "AI 提出了拆分，但未通过质量门：",
     "newNode": "新知识点",
-    "proposeFailed": "AI 判断失败，请重试"
+    "proposeFailed": "AI 判断失败，请重试",
+    "objectType": {
+      "sectionContent": "正文块",
+      "practice": "练习题",
+      "slideDeck": "课件",
+      "lecture": "讲义",
+      "handout": "讲义",
+      "practiceSheet": "练习册",
+      "lessonPlan": "教案",
+      "outline": "目录",
+      "masteryCriterion": "掌握标准",
+      "learningObjective": "学习目标",
+      "knowledgeBinding": "知识绑定",
+      "knowledgePoint": "知识点",
+      "teachingRepresentation": "教学表达",
+      "courseKnowledgeBase": "课程知识库",
+      "courseDocument": "课程文档"
+    }
   }
 }

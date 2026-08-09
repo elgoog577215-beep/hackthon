@@ -598,3 +598,56 @@ describe('AI 拆分建议', () => {
     expect(wrapper.find('.knowledge-command-candidate').exists()).toBe(false)
   })
 })
+
+describe('真机验收发现的两处缺陷（回归锁定）', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => ({
+      ok: true,
+      json: async () => (String(input).includes('/en/') ? enMessages : zhMessages),
+    })))
+    await setLocale('zh')
+  })
+
+  const detailPayload = {
+    detail: {
+      counts: { needs_regeneration: 1 },
+      truncated: { needs_regeneration: false },
+      groups: {
+        needs_regeneration: [{
+          // 后端给的是中文兜底标签；界面必须自己走 i18n。
+          type: 'section_content', id: 'b-1', type_label: '正文块',
+          title: 'Vector spaces', location: '1.1', excerpt: '',
+        }],
+      },
+    },
+  }
+
+  it('英文模式下明细类型标签走 i18n，不显示后端的中文兜底', async () => {
+    await setLocale('en')
+    httpMock.post
+      .mockResolvedValueOnce({ data: { candidate: candidate() } })
+      .mockResolvedValueOnce({ data: detailPayload })
+    const wrapper = await mountPanel()
+    await fillAndPreview(wrapper, 'browser acceptance')
+    await wrapper.findAll('.knowledge-command-impact button')[0]!.trigger('click')
+    await flushPromises()
+
+    const kind = wrapper.get('.knowledge-command-detail-kind').text()
+    expect(kind).toBe('Content block')
+    expect(kind).not.toMatch(/[一-鿿]/)
+    await setLocale('zh')
+  })
+
+  it('中文模式下同一行显示中文标签', async () => {
+    httpMock.post
+      .mockResolvedValueOnce({ data: { candidate: candidate() } })
+      .mockResolvedValueOnce({ data: detailPayload })
+    const wrapper = await mountPanel()
+    await fillAndPreview(wrapper)
+    await wrapper.findAll('.knowledge-command-impact button')[0]!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.knowledge-command-detail-kind').text()).toBe('正文块')
+  })
+})
