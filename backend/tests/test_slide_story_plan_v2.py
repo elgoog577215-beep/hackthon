@@ -1222,6 +1222,79 @@ def test_ai_story_planner_batches_large_decks_by_chapter(monkeypatch) -> None:
     assert [request["scope"]["chapter_index"] for request in requests] == [0, 1]
 
 
+def test_large_programming_story_request_is_source_bound_and_batched(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("SLIDE_STORY_AI_MAX_BEATS_PER_REQUEST", "2")
+    monkeypatch.setenv("SLIDE_STORY_AI_MAX_REQUEST_CHARACTERS", "1000000")
+    course = deepcopy(_course_with_teaching_plan())
+    course["course_id"] = "generic-service-lifecycle"
+    course["course_name"] = "Service lifecycle and request handling"
+    course["subject_pedagogy_profile"] = {
+        "primary_mode": "programming_engineering",
+        "confidence": 0.98,
+        "classification_source": "generic_regression",
+    }
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    baseline = compile_slide_story_plan_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    requests: list[dict] = []
+
+    async def planner(request: dict) -> dict:
+        requests.append(request)
+        assert len(request["beat_catalog"]) <= 2
+        referenced_fragment_ids = {
+            candidate["fragment_id"]
+            for beat in request["beat_catalog"]
+            for candidate in beat["headline_candidates"]
+        }
+        assert {
+            fragment["fragment_id"] for fragment in request["fragments"]
+        } == referenced_fragment_ids
+        return {
+            "schema_version": "slide_story_chapter_directives_v2",
+            "chapter_id": request["scope"]["chapter_id"],
+            "beat_directives": [
+                {
+                    "beat_id": beat["beat_id"],
+                    "layout_id": beat["current_layout_id"],
+                }
+                for beat in request["beat_catalog"]
+            ],
+        }
+
+    planned = asyncio.run(plan_slide_story_v2(
+        document,
+        course,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+        baseline=baseline,
+        ai_planner=planner,
+    ))
+
+    expected_beat_ids = {
+        beat.beat_id
+        for chapter in baseline.chapters
+        for episode in chapter.episodes
+        for beat in episode.beats
+    }
+    requested_beat_ids = {
+        beat["beat_id"]
+        for request in requests
+        for beat in request["beat_catalog"]
+    }
+    assert planned.planner == "ai"
+    assert len(requests) > 1
+    assert requested_beat_ids == expected_beat_ids
+
+
 def test_ai_story_planner_retries_one_invalid_chapter_with_validation_errors() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)
