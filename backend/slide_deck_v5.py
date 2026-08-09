@@ -56,10 +56,12 @@ from slide_web_images import (
 )
 
 SLIDE_DECK_V5_SCHEMA = "slide_deck_v5"
-SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.34"
+SLIDE_DECK_V5_COMPILER_VERSION = "course_logic_slide_compiler_v5.35"
 DECK_OUTLINE_V5_VERSION = "deck_outline_v5.1"
-FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.18"
+FINAL_PAGE_CONTRACT_V5_VERSION = "final_page_contract_v5.19"
 VISUAL_PLANNING_BATCH_VERSION = "chapter_visual_batches_v2.1"
+
+_SLIDE_BLOCK_CAPACITY = 6
 
 _VISUAL_REQUIRED_LAYOUTS = {
     "figure-text",
@@ -3943,6 +3945,99 @@ def apply_page_contract_v5(slide: dict[str, Any]) -> dict[str, Any]:
     return updated
 
 
+def _paginate_slide_block_capacity_v5(
+    slides: list[dict[str, Any]],
+    *,
+    block_capacity: int = _SLIDE_BLOCK_CAPACITY,
+) -> list[dict[str, Any]]:
+    """Split expanded semantic regions without truncating source-backed blocks."""
+    capacity = max(1, int(block_capacity))
+    paginated: list[dict[str, Any]] = []
+    for source in slides:
+        blocks = list(source.get("blocks") or [])
+        if len(blocks) <= capacity:
+            paginated.append(deepcopy(source))
+            continue
+
+        page_count = math.ceil(len(blocks) / capacity)
+        base_size, extra = divmod(len(blocks), page_count)
+        group_sizes = [
+            base_size + (1 if index < extra else 0)
+            for index in range(page_count)
+        ]
+        root_id = _clean_text(source.get("unit_id")) or stable_hash(
+            source,
+            prefix="slide:v5:capacity-root:",
+        )
+        cursor = 0
+        for page_index, group_size in enumerate(group_sizes, start=1):
+            page = deepcopy(source)
+            page_blocks = deepcopy(blocks[cursor:cursor + group_size])
+            cursor += group_size
+            page["blocks"] = page_blocks
+            if page_index > 1:
+                page["unit_id"] = stable_hash(
+                    {
+                        "root_id": root_id,
+                        "page_index": page_index,
+                        "block_ids": [
+                            str(block.get("block_id") or "")
+                            for block in page_blocks
+                        ],
+                    },
+                    prefix="slide:v5:capacity:",
+                )
+                page["visuals"] = []
+
+            quality = dict(page.get("quality") or {})
+            original_continuation_of = _clean_text(
+                quality.get("continuation_of")
+            )
+            for field in (
+                "resolved_layout",
+                "resolved_composition",
+                "slot_bindings",
+                "visual_decision",
+                "layout_fallback_reason",
+                "major_region_count",
+                "occupied_major_region_count",
+                "final_page_contract_v2",
+            ):
+                quality.pop(field, None)
+            quality.update({
+                "block_capacity_split": True,
+                "block_capacity_limit": capacity,
+                "block_capacity_original_count": len(blocks),
+                "block_capacity_page_index": page_index,
+                "block_capacity_page_count": page_count,
+                "parent_continuation_of": original_continuation_of,
+                "continuation_of": (
+                    root_id if page_index > 1 else original_continuation_of
+                ),
+                "continuation_index": (
+                    page_index
+                    if page_index > 1
+                    else int(quality.get("continuation_index") or 0)
+                ),
+                "continuation_total": (
+                    page_count
+                    if page_index > 1
+                    else int(quality.get("continuation_total") or 0)
+                ),
+            })
+            page["quality"] = quality
+            if page_index > 1:
+                page["title"] = _title_with_continuation_sequence(
+                    str(page.get("title") or ""),
+                    quality,
+                )
+            paginated.append(page)
+
+    for position, slide in enumerate(paginated):
+        slide["position"] = position
+    return paginated
+
+
 def repair_final_page_contracts_v5(
     slides: list[dict[str, Any]],
     *,
@@ -3959,6 +4054,8 @@ def repair_final_page_contracts_v5(
         after = stable_hash(current, prefix="repair_before_")
         if after == before:
             break
+    current = _paginate_slide_block_capacity_v5(current)
+    current = [apply_page_contract_v5(slide) for slide in current]
     for slide in current:
         quality = slide.get("quality") or {}
         source_fragment_ids = list(dict.fromkeys([
@@ -7554,7 +7651,7 @@ def compile_slide_deck_v5(
     slides = [_promote_sparse_single_claim_v5(slide) for slide in slides]
     slides = _combine_excess_sparse_claim_pages_v5(slides)
     slides = _restore_chapter_entry_mainlines_v5(slides, outline.chapters)
-    slides = [apply_page_contract_v5(slide) for slide in slides]
+    slides = repair_final_page_contracts_v5(slides)
     slides = _assign_heading_modes_v5(slides)
     final_subject_contract = _subject_presentation_contract_v5(resolved_story)
     if final_subject_contract is not None and (
