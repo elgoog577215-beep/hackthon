@@ -45,6 +45,99 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def resolve_knowledge_id(
+    knowledge_base: dict[str, Any],
+    knowledge_id: str,
+    *,
+    course_data: dict[str, Any] | None = None,
+) -> str:
+    """Map an id the client is holding onto the stored knowledge base's id.
+
+    The knowledge tree the teacher clicks is a *view*. When a course's stored
+    ``source_course_fingerprint`` no longer matches its content — which is the
+    case for every real course in this repo, because the fingerprint covers
+    fields that later pipelines legitimately rewrite —
+    ``apply_persisted_course_knowledge_base`` refuses the stored base and the
+    view is recompiled from the blueprint. Recompilation re-derives ids from
+    the section/name, so the view shows ``ckp_871…`` while the stored base
+    holds ``ckp_fcf…`` for the very same knowledge point.
+
+    Failing with "知识点不在当前知识库中" in that situation is technically true
+    and practically useless: the teacher is looking straight at the point. So
+    fall back to resolving by course-local identity (section + normalized
+    name), which is what both ids were derived from in the first place. If that
+    cannot be resolved either, the caller still gets the not-found error.
+
+    Deliberately *not* rewriting the stored fingerprint here: that would be a
+    silent repair of someone else's data on a read path.
+    """
+    wanted = _text(knowledge_id)
+    if not wanted:
+        return ""
+    points = knowledge_base.get("knowledge_points") or []
+    if any(_text(item.get("knowledge_id")) == wanted for item in points if isinstance(item, dict)):
+        return wanted
+
+    view = _recompiled_view(course_data)
+    source = next(
+        (
+            item
+            for item in view.get("knowledge_points") or []
+            if isinstance(item, dict) and _text(item.get("knowledge_id")) == wanted
+        ),
+        None,
+    )
+    if source is None:
+        return ""
+    return _match_by_identity(points, source)
+
+
+def _recompiled_view(course_data: dict[str, Any] | None) -> dict[str, Any]:
+    """The knowledge base the client's view was compiled from, if we can rebuild it."""
+    if not isinstance(course_data, dict):
+        return {}
+    try:
+        from copy import deepcopy
+
+        from course_knowledge_base import compile_course_knowledge_base
+
+        working = deepcopy(course_data)
+        working.pop("course_knowledge_base", None)
+        return compile_course_knowledge_base(working)
+    except Exception:  # noqa: BLE001 - a failed fallback must not break the edit path
+        return {}
+
+
+def _match_by_identity(
+    points: list[Any],
+    source: dict[str, Any],
+) -> str:
+    """Find the stored point that means the same thing as `source`."""
+    name = _normalized(source.get("name"))
+    sections = {_text(item) for item in source.get("section_refs") or []}
+    aliases = {_normalized(item) for item in source.get("aliases") or []}
+    aliases.discard("")
+
+    for item in points:
+        if not isinstance(item, dict):
+            continue
+        candidate_names = {_normalized(item.get("name"))}
+        candidate_names.update(_normalized(alias) for alias in item.get("aliases") or [])
+        if name and name not in candidate_names and not (aliases & candidate_names):
+            continue
+        item_sections = {_text(ref) for ref in item.get("section_refs") or []}
+        # Same name in the same section is the identity both ids were built on.
+        if not sections or not item_sections or (sections & item_sections):
+            return _text(item.get("knowledge_id"))
+    return ""
+
+
+def _normalized(value: Any) -> str:
+    import re
+
+    return re.sub(r"[^0-9a-z一-鿿]+", "", str(value or "").lower())
+
+
 def apply_point_edit(
     knowledge_base: dict[str, Any],
     *,
@@ -144,8 +237,9 @@ def build_point_edit_candidate(
             "knowledge_base_unavailable",
             "当前课程还没有可维护的知识库",
         )
+    resolved = resolve_knowledge_id(active, knowledge_id, course_data=course_data)
     proposed = apply_point_edit(
-        active, knowledge_id=knowledge_id, operation=operation, value=value,
+        active, knowledge_id=resolved or knowledge_id, operation=operation, value=value,
     )
     candidate = build_knowledge_candidate(
         course_data,
@@ -162,4 +256,5 @@ __all__ = [
     "POINT_EDIT_OPERATIONS",
     "apply_point_edit",
     "build_point_edit_candidate",
+    "resolve_knowledge_id",
 ]

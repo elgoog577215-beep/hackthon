@@ -35,6 +35,7 @@ from course_repository import (
     CourseDocumentRepository,
 )
 from dependencies import get_course_document_repository
+from starlette.concurrency import run_in_threadpool
 from teaching_plan_impact import build_downstream_state
 from learner_context import resolve_user_id
 
@@ -538,16 +539,21 @@ async def rebuild_downstream_for_point_edit(
             ),
             course_data=course,
         )
+        from block_regeneration import block_regeneration_candidate_repository
         from teaching_representations import teaching_representation_repository
 
-        result = await request_rebuild(
-            course_id,
-            downstream,
-            actor=_actor(request),
-            request_id=body.request_id,
-            object_ids=body.object_ids or None,
-            course_data=course,
-            representation_repository=teaching_representation_repository,
+        result = await run_in_threadpool(
+            lambda: _sync_request_rebuild(
+                course_id,
+                downstream,
+                actor=_actor(request),
+                request_id=body.request_id,
+                object_ids=body.object_ids or None,
+                course_data=course,
+                representation_repository=teaching_representation_repository,
+                course_repository=course_repository,
+                block_repository=block_regeneration_candidate_repository,
+            ),
         )
     except KnowledgeCommandRejected as exc:
         raise _command_error(exc) from exc
@@ -587,3 +593,20 @@ async def propose_knowledge_split(
         "proposal": result["proposal"],
         "candidate": result.get("candidate"),
     }
+
+
+def _sync_request_rebuild(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Run the async rebuild on a private loop inside a worker thread.
+
+    The block-regeneration runner has to await a coroutine from inside the
+    executor's synchronous loop. Hopping to a worker thread first means the
+    runner can own an event loop outright instead of trying to nest one, and
+    keeps a multi-minute rebuild off the request loop.
+    """
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(request_rebuild(*args, **kwargs))
+    finally:
+        loop.close()

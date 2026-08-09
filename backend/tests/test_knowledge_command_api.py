@@ -840,3 +840,63 @@ def test_rebuild_downstream_honours_object_selection() -> None:
     ).json()["rebuild"]
 
     assert [row["id"] for row in narrowed["targets"]] == [chosen]
+
+
+# --- 视图 ID 与库内 ID 不一致时的解析（真实课程普遍如此） -------------------
+
+
+def test_view_id_resolves_to_the_stored_knowledge_id() -> None:
+    """指纹失配导致视图重编译时，视图 ID 仍要能定位到库内知识点。
+
+    真实课程库里 5 门有知识库的课程**全部**指纹失配（存的
+    source_course_fingerprint 与当前内容算出的不一致），于是
+    apply_persisted_course_knowledge_base 拒绝存量库、视图按蓝图重编译，
+    ID 重新派生。此时教师点的是视图 ID，直接拿去查库必然 not_found——
+    浏览器端到端验收就是这样炸的。
+    """
+    from copy import deepcopy
+
+    from course_knowledge_base import compile_course_knowledge_base
+    from course_knowledge_point_edits import resolve_knowledge_id
+
+    course = _canonical_course()
+    stored = course["course_knowledge_base"]
+    # 复现视图：去掉存量库后重编译，得到另一套 ID。
+    working = deepcopy(course)
+    working.pop("course_knowledge_base", None)
+    view = compile_course_knowledge_base(working)
+
+    resolved_count = 0
+    for point in view["knowledge_points"]:
+        resolved = resolve_knowledge_id(stored, point["knowledge_id"], course_data=course)
+        if resolved:
+            resolved_count += 1
+            match = next(
+                item for item in stored["knowledge_points"]
+                if item["knowledge_id"] == resolved
+            )
+            # 必须解析到同一个知识点，而不是随便一个。
+            assert match["name"] == point["name"]
+    assert resolved_count == len(view["knowledge_points"])
+
+
+def test_stored_id_passes_through_unchanged() -> None:
+    """库内 ID 本来就有效时不做任何映射。"""
+    from course_knowledge_point_edits import resolve_knowledge_id
+
+    course = _canonical_course()
+    stored = course["course_knowledge_base"]
+    known = stored["knowledge_points"][0]["knowledge_id"]
+
+    assert resolve_knowledge_id(stored, known, course_data=course) == known
+
+
+def test_unknown_id_still_reports_not_found() -> None:
+    """解析失败时仍要报 not_found，不能凭空匹配一个知识点。"""
+    from course_knowledge_point_edits import resolve_knowledge_id
+
+    course = _canonical_course()
+
+    assert resolve_knowledge_id(
+        course["course_knowledge_base"], "ckp_totally_unknown", course_data=course,
+    ) == ""

@@ -32,6 +32,7 @@ from typing import Any
 
 from ai_base import AIBase
 from course_knowledge_commands import KnowledgeCommandRejected, build_knowledge_candidate
+from course_knowledge_point_edits import resolve_knowledge_id
 from course_versioning import stable_hash
 
 logger = logging.getLogger(__name__)
@@ -335,11 +336,14 @@ class KnowledgeRefinementService(AIBase):
         carrying its own impact report. Nothing is written here.
         """
         active = course_data.get("course_knowledge_base") or {}
+        # The teacher clicks a knowledge *view*; when the stored base was
+        # rejected on fingerprint mismatch the view's ids differ from it.
+        resolved = resolve_knowledge_id(active, knowledge_id, course_data=course_data)
         point = next(
             (
                 item
                 for item in active.get("knowledge_points") or []
-                if _text(item.get("knowledge_id")) == _text(knowledge_id)
+                if _text(item.get("knowledge_id")) == (resolved or _text(knowledge_id))
             ),
             None,
         )

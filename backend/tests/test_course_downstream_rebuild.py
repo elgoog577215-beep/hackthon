@@ -161,3 +161,101 @@ def test_snapshot_is_stable() -> None:
     assert snapshot["targets"] == sorted(snapshot["targets"])
     assert "practice:q-2:blocked" in snapshot["skipped"]
     assert rebuild_plan_snapshot(plan) == snapshot
+
+
+# --- 正文块定向重建（候选式，不直接改正文） ---------------------------------
+
+
+class _StubBlockService:
+    """替身：只验证我们怎么调用与怎么解读状态，不跑真实 AI。"""
+
+    created: list[dict] = []
+
+    def __init__(self, *_args, **_kwargs) -> None:
+        pass
+
+    async def create_candidate(self, course_id, block_id, **kwargs):
+        _StubBlockService.created.append({"course_id": course_id, "block_id": block_id, **kwargs})
+        return {"status": "ready", "candidate_id": f"cand-{block_id}"}
+
+
+def _course_with_block() -> dict:
+    return {
+        "course_id": "course-1",
+        "course_document_revision": "cdr-1",
+        "course_document": {
+            "document_revision": "cdr-1",
+            "blocks": [{"block_id": "block-1", "internal_revision": "br-1"}],
+        },
+    }
+
+
+def test_content_runner_creates_a_candidate_and_does_not_apply(monkeypatch) -> None:
+    """正文重建产出候选即止：BlockRegenerationService 只在 apply 时才写正文。"""
+    import block_regeneration
+
+    _StubBlockService.created = []
+    monkeypatch.setattr(block_regeneration, "BlockRegenerationService", _StubBlockService)
+    from course_downstream_rebuild import build_knowledge_rebuild_runners
+
+    runners = build_knowledge_rebuild_runners(
+        _course_with_block(),
+        course_repository=object(),
+        block_repository=object(),
+        actor="teacher-1",
+        request_id="req-1",
+    )
+    result = runners["course_content"]({"type": "section_content", "id": "block-1"})
+
+    assert result["status"] == "succeeded"
+    assert result["revision"] == "cand-block-1"
+    call = _StubBlockService.created[0]
+    # 必须带上两个修订，否则服务会判冲突。
+    assert call["expected_document_revision"] == "cdr-1"
+    assert call["expected_block_revision"] == "br-1"
+    assert call["user_id"] == "teacher-1"
+    # 从未调用 apply_candidate：正文不会被直接改写。
+    assert not hasattr(_StubBlockService, "applied")
+
+
+def test_content_runner_reports_generation_failure_from_status(monkeypatch) -> None:
+    """create_candidate 失败时是写进 status 而不是抛异常，必须读 status。"""
+    import block_regeneration
+
+    class _Failing(_StubBlockService):
+        async def create_candidate(self, course_id, block_id, **kwargs):
+            return {"status": "generation_failed", "failure": {"message": "模型不可用"}}
+
+    monkeypatch.setattr(block_regeneration, "BlockRegenerationService", _Failing)
+    from course_downstream_rebuild import build_knowledge_rebuild_runners
+
+    runners = build_knowledge_rebuild_runners(
+        _course_with_block(), course_repository=object(), block_repository=object(),
+    )
+    result = runners["course_content"]({"type": "section_content", "id": "block-1"})
+
+    assert result["status"] == "failed"
+    assert "模型不可用" in result["error"]
+
+
+def test_content_runner_refuses_a_block_outside_the_document() -> None:
+    from course_downstream_rebuild import build_knowledge_rebuild_runners
+
+    runners = build_knowledge_rebuild_runners(
+        _course_with_block(), course_repository=object(), block_repository=object(),
+    )
+    result = runners["course_content"]({"type": "section_content", "id": "ghost"})
+
+    assert result["status"] == "failed"
+    assert "不在当前课程文档中" in result["error"]
+
+
+def test_practice_runner_stays_unsupported_on_purpose() -> None:
+    """题库最小生成单元是节点、ID 空间不同、且直接发布——不做假的逐题重建。"""
+    from course_downstream_rebuild import build_knowledge_rebuild_runners
+
+    runners = build_knowledge_rebuild_runners({})
+    result = runners["practice"]({"type": "practice", "id": "q-1"})
+
+    assert result["status"] == "failed"
+    assert "没有可用于定向重建的管线入口" in result["error"]

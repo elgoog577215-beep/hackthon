@@ -154,10 +154,30 @@ def plan_rebuild(
     }
 
 
+def _run_coroutine(coro: Any) -> Any:
+    """Drive a coroutine to completion from sync code inside a running loop."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    def runner() -> Any:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(runner).result()
+
+
 def build_knowledge_rebuild_runners(
     course_data: dict[str, Any],
     *,
     representation_repository: Any = None,
+    course_repository: Any = None,
+    block_repository: Any = None,
+    actor: str = "system",
+    request_id: str = "",
 ) -> dict[str, Any]:
     """Wrap the existing pipelines in the shape the shared executor expects.
 
@@ -190,6 +210,71 @@ def build_knowledge_rebuild_runners(
             logger.warning("Representation rebuild failed: %s", error)
             return {"status": "failed", "error": str(error)}
 
+    def course_content(entry: dict[str, Any]) -> dict[str, Any]:
+        """Targeted rebuild of one course block, as a candidate awaiting review.
+
+        `BlockRegenerationService` is candidate-first by construction: it writes
+        only inside `apply_candidate`, gated on `status == "ready"` plus the
+        quality gate. So generating a candidate and stopping is exactly the
+        `candidate_ready` semantics the shared executor already models, and it
+        keeps the knowledge chain's promise that nothing is applied without
+        the teacher saying so.
+
+        The service is async while the executor's runner contract is sync, so
+        the coroutine is driven on a private loop in a worker thread. That is
+        the same pattern the question-bank executor uses; `asyncio.run` here
+        would raise because `request_rebuild` is itself running inside a loop.
+        """
+        if block_repository is None or course_repository is None:
+            return {"status": "failed", "error": "正文重建仓库不可用"}
+        block_id = _text(entry.get("id"))
+        if not block_id:
+            return {"status": "failed", "error": "缺少正文块 ID"}
+        try:
+            from block_regeneration import BlockRegenerationService
+
+            document = (course_data or {}).get("course_document") or {}
+            block = next(
+                (
+                    item for item in document.get("blocks") or []
+                    if isinstance(item, dict) and _text(item.get("block_id")) == block_id
+                ),
+                None,
+            )
+            if block is None:
+                return {"status": "failed", "error": f"正文块 {block_id} 不在当前课程文档中"}
+
+            service = BlockRegenerationService(course_repository, block_repository)
+            candidate = _run_coroutine(service.create_candidate(
+                _text((course_data or {}).get("course_id")),
+                block_id,
+                request_id=f"knowledge-rebuild:{request_id}:{block_id}",
+                expected_document_revision=_text(
+                    (course_data or {}).get("course_document_revision")
+                    or document.get("document_revision"),
+                ),
+                expected_block_revision=_text(block.get("internal_revision")),
+                instruction="知识点已修订，请据此更新本段正文并保持与前后文衔接。",
+                user_id=actor,
+            ))
+        except Exception as error:  # noqa: BLE001 - one block must not abort the batch
+            logger.warning("Block rebuild failed for %s: %s", block_id, error)
+            return {"status": "failed", "error": str(error)}
+
+        # create_candidate persists failures rather than raising, so the status
+        # is the real signal — an exception-only check would report success for
+        # a candidate that never generated.
+        status = _text((candidate or {}).get("status"))
+        if status == "ready":
+            return {"status": "succeeded", "revision": _text(candidate.get("candidate_id"))}
+        if status == "generation_failed":
+            return {"status": "failed", "error": _text(
+                (candidate.get("failure") or {}).get("message"),
+            ) or "正文候选生成失败"}
+        if status == "quality_failed":
+            return {"status": "failed", "error": "正文候选未通过质量门"}
+        return {"status": "failed", "error": f"正文候选状态 {status or 'unknown'}"}
+
     def unsupported(entry: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "failed",
@@ -198,7 +283,12 @@ def build_knowledge_rebuild_runners(
 
     return {
         "representation": representation,
-        "course_content": unsupported,
+        "course_content": course_content,
+        # Practice deliberately stays unsupported: the question-bank pipeline's
+        # smallest real generation unit is a node, its ids live in a different
+        # space (`qbir_` vs the `q_` ids this chain carries), and it publishes
+        # live bundles instead of candidates. Faking a per-question runner would
+        # regenerate a whole node and activate it without review. See NOTES.
         "practice": unsupported,
         "knowledge": unsupported,
     }
@@ -213,6 +303,8 @@ async def request_rebuild(
     object_ids: list[str] | None = None,
     course_data: dict[str, Any] | None = None,
     representation_repository: Any = None,
+    course_repository: Any = None,
+    block_repository: Any = None,
     candidate_only: bool = True,
 ) -> dict[str, Any]:
     """Run the shared executor over the objects this knowledge edit invalidated.
@@ -250,7 +342,12 @@ async def request_rebuild(
     result = execute_rebuild(
         downstream,
         runners=build_knowledge_rebuild_runners(
-            course_data or {}, representation_repository=representation_repository,
+            course_data or {},
+            representation_repository=representation_repository,
+            course_repository=course_repository,
+            block_repository=block_repository,
+            actor=actor,
+            request_id=request_id,
         ),
         only_ids=[row["id"] for row in plan["targets"]],
         candidate_only=candidate_only,
