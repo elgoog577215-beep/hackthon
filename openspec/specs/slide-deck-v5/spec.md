@@ -120,6 +120,9 @@ continuation pages.
   validation
 - **AND** every page contains at most six blocks while preserving source order,
   block content, source fragment bindings, and stable continuation provenance
+- **AND** each promoted region receives a stable child semantic atom ID while the
+  original atom is retained only as parent provenance, so the final pages do not
+  masquerade as a mechanical split of one indivisible atom
 - **AND** no promoted group is truncated, dropped, or replaced by a prose-only
   fallback merely to satisfy the block-capacity limit
 
@@ -837,6 +840,16 @@ text page budget or loses a competition between three source groups.
   pedagogical reason
 - **AND** the disposition cannot be the undifferentiated
   `v5_semantic_core` reason
+
+#### Scenario: AI refinement omits a required subject artifact
+- **WHEN** an AI-refined story uses source-bound beats but its selected beats do
+  not cover every representation required by the subject presentation contract
+- **THEN** V5 reopens deterministic source compaction instead of accepting the AI
+  story as complete
+- **AND** required formula, table, diagram, code, or other characteristic source
+  groups compete before generic prose and retain their subject artifact kinds
+- **AND** AI completion alone cannot mark a required subject artifact as a valid
+  exclusion
 
 #### Scenario: A required artifact is missing or invalid
 - **WHEN** the course lacks the source evidence required by its subject contract,
