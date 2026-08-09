@@ -18,6 +18,7 @@ from slide_deck_renderer import (
     export_structured_slide_deck,
 )
 from slide_deck_v3 import (
+    V3_LAYOUTS,
     ContentFragmentV1,
     PlannedPageV2,
     SlideAllocationPlanV2,
@@ -30,6 +31,7 @@ from slide_deck_v5 import (
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
     _split_practice_feedback_capacity_v5,
+    _subject_artifact_layout_v5,
     _title_with_continuation_sequence,
     _v5_fragment_groups_for_profile,
     _v5_group_kind_for_profile,
@@ -47,6 +49,7 @@ from slide_deck_v5 import (
     summarize_v5_slide_counts,
     v5_contract_issues,
 )
+from slide_layout_registry import registry_summary_v2
 from slide_quality_v5 import _concise_existing_title, build_slide_deck_quality_v5
 from slide_story_plan import (
     ChapterStoryV2,
@@ -1274,6 +1277,34 @@ def test_v5_compaction_includes_required_table_from_nested_section() -> None:
         "retention-table",
         "table-explanation",
     } <= set(table_beats[0].fragment_ids)
+
+
+@pytest.mark.parametrize(
+    ("artifact_kinds", "expected_layout_id"),
+    [
+        (["code"], "code-focus"),
+        (["formula"], "formula-focus"),
+        (["table"], "table-evidence"),
+        (["diagram"], "diagram-full"),
+        (["image"], "figure-text"),
+    ],
+)
+def test_v5_subject_artifact_layouts_use_registered_allocation_renderers(
+    artifact_kinds: list[str],
+    expected_layout_id: str,
+) -> None:
+    definitions = {
+        str(item["layout_id"]): item for item in registry_summary_v2()
+    }
+
+    selection = _subject_artifact_layout_v5(artifact_kinds)
+
+    assert selection is not None
+    layout_id, renderer_layout, _layout_family = selection
+    assert layout_id == expected_layout_id
+    assert layout_id in definitions
+    assert renderer_layout == definitions[layout_id]["renderer_layout"]
+    assert renderer_layout in V3_LAYOUTS
 
 
 def test_v5_compaction_keeps_a_complete_enumeration_over_optional_background() -> None:

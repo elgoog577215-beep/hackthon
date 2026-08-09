@@ -435,6 +435,20 @@ data-driven profile registry outside the core renderer.
   generic intent
 - **AND** the build does not fail because a subject-specific rule is absent
 
+### Requirement: V5 Semantic Layouts Use Registered Allocation Renderers
+
+The system SHALL resolve every V5 semantic layout through the shared layout
+registry before constructing the internal source-allocation plan.
+
+#### Scenario: A subject artifact selects a V5 semantic layout
+- **WHEN** code, formula, table, diagram, image, or another registered artifact
+  selects a V5 layout ID
+- **THEN** the allocation page uses that registry entry's compatible internal
+  `renderer_layout`
+- **AND** the final V5 page retains the semantic layout ID for final composition
+  instead of publishing an older schema or passing an unregistered layout into
+  the internal allocator
+
 ### Requirement: Practice And Feedback Form One Interaction Contract
 
 The system SHALL bind every direct answer to stable question IDs.
