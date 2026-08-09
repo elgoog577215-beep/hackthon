@@ -62,9 +62,20 @@ jobs:
             --data 'categories=general,science' \
             --data 'language=zh-CN' \
             --data 'safesearch=2' \
-            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2))'
+            --data 'timeout_limit=4' \
+            | python3 -c 'import json,sys; p=json.load(sys.stdin); r=p.get("results") or []; print("result_count", len(r)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "content": (x.get("content") or "")[:160]} for x in r[:5]], ensure_ascii=False, indent=2)); r or sys.exit("SearXNG response must contain at least one result")'
 
-          echo "== raw gateway =="
+          echo "== searxng images direct =="
+          curl -fsS --max-time 8 http://127.0.0.1:8080/search \
+            --data 'q=human heart anatomy' \
+            --data 'format=json' \
+            --data 'categories=images' \
+            --data 'language=all' \
+            --data 'safesearch=2' \
+            --data 'timeout_limit=7' \
+            | python3 -c 'import collections,json,sys; p=json.load(sys.stdin); r=p.get("results") or []; counts=collections.Counter(e for x in r for e in (x.get("engines") or [])); pd=[x for x in r if "public domain image archive" in (x.get("engines") or [])]; print("image_result_count", len(r)); print("image_engine_counts", json.dumps(counts, ensure_ascii=False, sort_keys=True)); print("unresponsive_engines", json.dumps(p.get("unresponsive_engines") or [], ensure_ascii=False)); print("public_domain_results", json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "thumbnail_src": x.get("thumbnail_src"), "engines": x.get("engines")} for x in pd[:5]], ensure_ascii=False, indent=2)); print(json.dumps([{"title": x.get("title"), "url": x.get("url"), "img_src": x.get("img_src"), "engines": x.get("engines")} for x in r[:5]], ensure_ascii=False, indent=2))'
+
+          echo "== product retrieval matrix: course, assessment, ai_teacher, ppt_image =="
           set -a
           . /opt/lingzhi/state/.env
           set +a
@@ -73,73 +84,61 @@ jobs:
           import asyncio
           import json
           import os
+          import tempfile
 
-          from ai_teacher_retrieval import build_ai_teacher_queries
-          from web_retrieval import RetrievalRequest, configured_retrieval_gateway
+          import requests
+
+          from retrieval_diagnostics import (
+              assert_retrieval_feature,
+              run_retrieval_matrix,
+          )
+          from slide_web_images import (
+              download_retrieved_image_v5,
+              hydrate_shared_image_candidates_v5,
+              search_shared_web_images_v5,
+          )
+          from web_retrieval import configured_retrieval_gateway
 
           query = os.environ.get("LINGZHI_DIAGNOSTIC_QUERY", "")
 
-          async def retrieve(queries):
-              gateway, feature = configured_retrieval_gateway("diagnostic-user")
-              package = await gateway.retrieve(RetrievalRequest(
-                  purpose="ai_teacher",
-                  enabled=True,
-                  queries=queries,
-              ))
-              return feature, package
-
-          def summarize(feature, package):
-              return {
-                  "feature": feature,
-                  "provider": package.get("provider"),
-                  "status": package.get("status"),
-                  "queries": package.get("queries"),
-                  "receipt": package.get("receipt"),
-                  "sources": [
-                      {
-                          "title": item.get("title"),
-                          "url": item.get("url"),
-                          "trust_tier": item.get("trust_tier"),
-                          "relevance": item.get("relevance"),
-                      }
-                      for item in (package.get("sources") or [])[:5]
-                  ],
-                  "rejected": [
-                      {
-                          "title": item.get("title"),
-                          "url": item.get("url"),
-                          "trust_tier": item.get("trust_tier"),
-                          "relevance": item.get("relevance"),
-                          "rejection_reasons": item.get("rejection_reasons"),
-                      }
-                      for item in (package.get("rejected_sources") or [])[:5]
-                  ],
-              }
-
           async def main():
-              raw_feature, raw_package = await retrieve([query])
-              print(json.dumps(summarize(raw_feature, raw_package), ensure_ascii=False, indent=2))
-
-              print("== ai teacher gateway ==")
-              course = {
-                  "course_id": "diagnostic-course",
-                  "course_name": "",
-                  "nodes": [
-                      {
-                          "node_id": "diagnostic-node",
-                          "node_name": "",
-                          "learning_objective": "",
-                      }
-                  ],
-              }
-              ai_queries = build_ai_teacher_queries(
-                  course,
-                  question=query,
-                  node_id="diagnostic-node",
-              )
-              ai_feature, ai_package = await retrieve(ai_queries)
-              print(json.dumps(summarize(ai_feature, ai_package), ensure_ascii=False, indent=2))
+              gateway, feature = configured_retrieval_gateway("diagnostic-user")
+              assert_retrieval_feature(feature)
+              result = await run_retrieval_matrix(gateway, query=query)
+              print(json.dumps(result, ensure_ascii=False, indent=2))
 
           asyncio.run(main())
+
+          gateway, _ = configured_retrieval_gateway("diagnostic-ppt-user")
+          package = search_shared_web_images_v5(
+              ["human heart anatomy"],
+              gateway=gateway,
+          )
+          with requests.Session() as client:
+              candidates = hydrate_shared_image_candidates_v5(package, client=client)
+              errors = []
+              with tempfile.TemporaryDirectory(prefix="lingzhi-ppt-smoke-") as output_dir:
+                  downloaded = None
+                  selected = None
+                  for candidate in candidates:
+                      try:
+                          downloaded = download_retrieved_image_v5(
+                              candidate,
+                              client=client,
+                              output_dir=output_dir,
+                          )
+                          selected = candidate
+                          break
+                      except Exception as exc:
+                          errors.append(type(exc).__name__)
+                  if downloaded is None or selected is None:
+                      raise RuntimeError(
+                          "PPT public-domain asset download failed: " + ",".join(errors)
+                      )
+                  print("ppt_public_domain_asset", json.dumps({
+                      "source_page_url": selected.source_page_url,
+                      "license": selected.license,
+                      "bytes": downloaded.stat().st_size,
+                  }, ensure_ascii=False))
           PY
           REMOTE

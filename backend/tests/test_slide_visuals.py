@@ -246,7 +246,9 @@ def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None
     )
 
     assert _display_heading(explicit_heading) == "🔍 深度原理/底层机制"
-    assert _display_heading(classification_heading) == "根据系统与环境之间的交互方式"
+    assert _display_heading(classification_heading) == (
+        "根据系统与环境之间的交互方式，热力学将系统分为三类"
+    )
 
 
 def test_dense_prose_relation_is_suppressed_when_it_repeats_the_source() -> None:
@@ -938,6 +940,95 @@ def test_visual_plan_takeaway_cannot_add_an_unbound_number() -> None:
             allocation,
             fragments,
         )
+
+
+def test_visual_plan_rejects_chart_without_numeric_source_data() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    raw = deterministic_visual_plan(
+        document,
+        allocation,
+        fragments,
+    ).model_dump(mode="json")
+    allocation_by_id = {page.page_id: page for page in allocation.pages}
+    page = next(
+        item
+        for item in raw["pages"]
+        if allocation_by_id[item["page_id"]].fragment_ids
+    )
+    page["visual_anchor"] = {
+        "visual_id": "invalid-empty-chart",
+        "kind": "chart",
+        "purpose": "comparison",
+        "source_fragment_ids": list(
+            allocation_by_id[page["page_id"]].fragment_ids
+        ),
+        "alt_text": "A chart without source values",
+        "parameters": {"series": []},
+    }
+
+    with pytest.raises(ValueError, match="Chart visual data is incomplete"):
+        validate_visual_plan(
+            SlideVisualPlanV1.model_validate(raw),
+            allocation,
+            fragments,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ai_visual_page_with_invalid_chart_uses_page_fallback() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    baseline = deterministic_visual_plan(document, allocation, fragments)
+    raw = baseline.model_dump(mode="json")
+    allocation_by_id = {page.page_id: page for page in allocation.pages}
+    page = next(
+        item
+        for item in raw["pages"]
+        if allocation_by_id[item["page_id"]].fragment_ids
+    )
+    page_id = page["page_id"]
+    page["visual_anchor"] = {
+        "visual_id": "invalid-empty-chart",
+        "kind": "chart",
+        "purpose": "comparison",
+        "source_fragment_ids": list(
+            allocation_by_id[page_id].fragment_ids
+        ),
+        "alt_text": "A chart without source values",
+        "parameters": {"series": []},
+    }
+
+    async def planner(_request):
+        return raw
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+    resolved_page = next(
+        item for item in resolved.pages if item.page_id == page_id
+    )
+
+    assert resolved_page.planner == "deterministic_fallback"
+    assert resolved_page.visual_anchor.kind != "chart"
+    assert resolved.deck_brief["ai_visual_pages_fallback"] >= 1
 
 
 @pytest.mark.asyncio

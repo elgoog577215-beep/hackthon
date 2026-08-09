@@ -220,6 +220,7 @@ class FragmentExclusionV1(_StrictModel):
         "mode_concise",
         "duplicate_navigation",
         "v5_semantic_core",
+        "subject_artifact_redundant_after_chapter_coverage",
     ]
 
 
@@ -1984,12 +1985,15 @@ def validate_allocation_plan(
                 f"({inversion[0]} before {inversion[1]})"
             )
     if plan.mode in {"full", "teaching"}:
-        semantic_core_exclusions = bool(plan.exclusions) and all(
-            item.reason == "v5_semantic_core"
+        explicit_v5_exclusions = bool(plan.exclusions) and all(
+            item.reason in {
+                "v5_semantic_core",
+                "subject_artifact_redundant_after_chapter_coverage",
+            }
             for item in plan.exclusions
         )
         complete_v5_decision_coverage = (
-            semantic_core_exclusions
+            explicit_v5_exclusions
             and set(referenced).isdisjoint(excluded)
             and set(referenced) | set(excluded) == set(catalog)
         )
@@ -2489,6 +2493,60 @@ def _slide_blocks_from_fragments(
     page: PlannedPageV2,
     fragments: list[ContentFragmentV1],
 ) -> list[SlideBlockSpec]:
+    if page.layout == "code":
+        code_fragments = [
+            fragment for fragment in fragments if fragment.kind == "code"
+        ]
+        supporting_fragments = [
+            fragment
+            for fragment in fragments
+            if fragment.kind not in {"code", "heading"}
+        ]
+        result = []
+        if code_fragments:
+            result.append(SlideBlockSpec(
+                block_id=f"{page.page_id}:code",
+                type="code",
+                content="\n".join(
+                    fragment.text for fragment in code_fragments
+                ),
+                metadata={
+                    "fragment_ids": [
+                        fragment.fragment_id for fragment in code_fragments
+                    ],
+                    "source_hashes": {
+                        fragment.fragment_id: fragment.source_hash
+                        for fragment in code_fragments
+                    },
+                    "fragment_kind": "code",
+                    "language": next((
+                        fragment.language
+                        for fragment in code_fragments
+                        if fragment.language
+                    ), "code"),
+                },
+            ))
+        if supporting_fragments:
+            result.append(SlideBlockSpec(
+                block_id=f"{page.page_id}:code-explanation",
+                type="bullets",
+                items=[
+                    _display_text(fragment.text)
+                    for fragment in supporting_fragments[:5]
+                ],
+                metadata={
+                    "fragment_ids": [
+                        fragment.fragment_id
+                        for fragment in supporting_fragments[:5]
+                    ],
+                    "source_hashes": {
+                        fragment.fragment_id: fragment.source_hash
+                        for fragment in supporting_fragments[:5]
+                    },
+                    "fragment_kind": "code_explanation",
+                },
+            ))
+        return result
     if page.layout == "appendix":
         visible_fragments = [
             fragment for fragment in fragments

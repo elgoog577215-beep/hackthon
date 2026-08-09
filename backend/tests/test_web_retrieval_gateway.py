@@ -197,6 +197,7 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
         "safesearch": ["2"],
         "language": [expected_language],
         "pageno": ["1"],
+        "timeout_limit": ["4"],
     }
     assert len(results) == 1
     assert results[0]["content"].startswith("Linear algebra")
@@ -209,7 +210,7 @@ async def test_searxng_provider_uses_internal_json_contract_and_language(
 
 
 @pytest.mark.asyncio
-async def test_searxng_provider_keeps_general_queries_out_of_science_engines():
+async def test_searxng_provider_adds_science_fallback_for_education_queries():
     captured: list[dict[str, list[str]]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -233,10 +234,12 @@ async def test_searxng_provider_keeps_general_queries_out_of_science_engines():
         await provider.search("什么是面向对象编程 例子", limit=4)
 
     assert len(captured) == 1
-    assert captured[0]["categories"] == ["general"]
+    assert captured[0]["categories"] == ["general,science"]
     assert captured[0]["engines"] == [
-        "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,wikipedia"
+        "duckduckgo,bing,baidu,brave,startpage,qwant,yahoo,sogou,quark,"
+        "wikipedia,arxiv,pubmed,openalex,crossref"
     ]
+    assert captured[0]["timeout_limit"] == ["4"]
 
 
 @pytest.mark.asyncio
@@ -274,7 +277,11 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
         )
 
     assert captured["form"]["categories"] == ["images"]
-    assert captured["form"]["engines"] == ["wikicommons.images"]
+    assert captured["form"]["engines"] == [
+        "public domain image archive,"
+        "bing images,baidu images,quark images,sogou images"
+    ]
+    assert captured["form"]["timeout_limit"] == ["12"]
     assert results[0]["provider_metadata"] == {
         "engines": ["wikicommons.images"],
         "raw_score": 8.5,
@@ -283,6 +290,48 @@ async def test_searxng_provider_routes_image_search_and_preserves_media_metadata
         "resolution": "1600 x 900",
         "mime_type": "image/png",
     }
+
+
+@pytest.mark.asyncio
+async def test_searxng_provider_prioritizes_public_domain_images_before_limit():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "url": "https://stock.example/paid-heart",
+                        "title": "Paid heart image",
+                        "img_src": "https://stock.example/paid-heart.jpg",
+                        "engines": ["quark images"],
+                    },
+                    {
+                        "url": "https://pdimagearchive.org/images/heart",
+                        "title": "Public domain heart",
+                        "img_src": "https://images.pdimagearchive.org/heart.jpg",
+                        "engines": ["public domain image archive"],
+                    },
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        results = await SearXNGSearchProvider(
+            base_url="http://127.0.0.1:8080",
+            client=client,
+        ).search("human heart", limit=1, category="images")
+
+    assert len(results) == 1
+    assert results[0]["url"] == "https://pdimagearchive.org/images/heart"
+    assert results[0]["license"] == "Public Domain"
+
+
+def test_searxng_provider_default_timeout_allows_commons_image_search(monkeypatch):
+    monkeypatch.delenv("SEARXNG_REQUEST_TIMEOUT_SECONDS", raising=False)
+
+    provider = SearXNGSearchProvider(base_url="http://127.0.0.1:8080")
+
+    assert provider.timeout_seconds == 12.0
 
 
 @pytest.mark.asyncio
@@ -355,7 +404,7 @@ async def test_searxng_programming_query_retries_broadly_only_after_empty_result
         )
 
     assert len(captured) == 2
-    assert captured[0]["categories"] == ["general"]
+    assert captured[0]["categories"] == ["general,science"]
     assert captured[0]["language"] == ["zh-CN"]
     assert captured[1]["categories"] == ["general,science"]
     assert captured[1]["language"] == ["all"]
@@ -594,6 +643,48 @@ async def test_gateway_overfetches_candidates_before_source_admission():
     assert provider.requested_limits
     assert min(provider.requested_limits) > 1
     assert package["sources"][0]["url"] == "https://example.edu/oop-examples"
+
+
+@pytest.mark.asyncio
+async def test_gateway_retries_generic_chinese_search_commands_with_tutorial_variant():
+    class RecordingProvider:
+        name = "recording"
+        configured = True
+
+        def __init__(self):
+            self.queries: list[str] = []
+
+        async def search(self, query: str, *, limit: int):
+            self.queries.append(query)
+            if query == "傅里叶变换 教程":
+                return [{
+                    "url": "https://example.edu/fourier-transform",
+                    "title": "傅里叶变换教程",
+                    "content": "傅里叶变换教程介绍频域、时域和信号分解。",
+                }]
+            return [{
+                "url": "https://example.edu/unrelated",
+                "title": "无关页面",
+                "content": "这是一篇与查询无关的旅游文章。",
+            }]
+
+    provider = RecordingProvider()
+    package = await RetrievalGateway(
+        provider=provider,
+        cache_ttl_seconds=0,
+    ).retrieve(
+        RetrievalRequest(
+            purpose="ai_teacher",
+            enabled=True,
+            queries=["请联网搜索一下什么是傅里叶变换，找点例子"],
+        )
+    )
+
+    assert "傅里叶变换 教程" in provider.queries
+    assert package["status"] == "completed"
+    assert package["sources"][0]["url"] == (
+        "https://example.edu/fourier-transform"
+    )
 
 
 def test_retrieval_policy_version_records_provider_upgrade():

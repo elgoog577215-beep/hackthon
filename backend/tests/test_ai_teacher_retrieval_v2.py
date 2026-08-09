@@ -117,7 +117,9 @@ def test_ai_teacher_queries_strip_web_search_command_words():
         node_id="node-1",
     )
 
-    assert queries[0] == "什么是面向对象编程 例子"
+    assert queries[0] == "面向对象编程 例子"
+    assert queries[1] == "面向对象编程 教程"
+    assert queries[2] == "object oriented programming examples"
     joined = " ".join(queries)
     assert "联网搜索" not in joined
     assert "找点" not in joined
