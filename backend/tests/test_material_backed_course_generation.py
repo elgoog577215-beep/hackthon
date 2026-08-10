@@ -2258,3 +2258,64 @@ async def test_concurrent_batch_failures_degrade_only_failed_batches(monkeypatch
     )
     assert stage["batches"]["TP-B01"]["status"] == "completed"
     assert stage["batches"]["TP-B03"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_teaching_plan_retries_failed_unit_more_than_once(monkeypatch):
+    """一个批次连续两轮不过时，仍应继续重试，而不是整门课直接失败。
+
+    重试只重跑失败批次，所以多给几次的成本很低；只给 1 次会让批次多的课程
+    在单批成功率不变的情况下整体失败率显著上升。
+    """
+    labels = [f"多轮恢复{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="多轮恢复课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-multi-retry",
+        "course_name": "多轮恢复课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    batch_calls: dict[str, int] = {}
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        match = re.search(r"TP-B\d{2}", prompt)
+        if match:
+            batch_id = match.group(0)
+            batch_calls[batch_id] = batch_calls.get(batch_id, 0) + 1
+            # TP-B02 头两轮都产不出可用结果，第三轮才恢复。
+            if batch_id == "TP-B02" and batch_calls[batch_id] <= 4:
+                return "{}"
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    assert stage["semantic_status"] == "ai_complete"
+    assert stage["fallback_units"] == []
+    # 超过一轮的重试确实发生了。
+    assert stage["semantic_retry_count"] >= 2
+    # 其余批次不因为 TP-B02 反复失败而被重跑。
+    assert all(
+        count == 1
+        for batch_id, count in batch_calls.items()
+        if batch_id != "TP-B02"
+    )

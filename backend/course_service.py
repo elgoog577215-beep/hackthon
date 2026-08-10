@@ -201,6 +201,22 @@ def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any
     ]
 
 
+def _semantic_retry_budget() -> int:
+    """How many times the teaching plan may retry its failed units.
+
+    A retry only re-runs the batches that fell back to local compilation, so
+    each extra pass is cheap.  One retry was too few: a course fails as a
+    whole when any single batch is still non-AI after that pass, and the odds
+    of one clean pass drop as the batch count grows, which is why larger
+    courses failed far more often than the per-batch success rate suggests.
+    """
+    try:
+        value = int(os.getenv("COURSE_TEACHING_PLAN_SEMANTIC_RETRIES", "3"))
+    except (TypeError, ValueError):
+        value = 3
+    return max(1, min(6, value))
+
+
 def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
     if issue.get("code") == "coherence:incorrect_next_section_handoff":
         return (
@@ -2673,7 +2689,7 @@ class CourseService(AIBase):
             )
         await self._notify_checkpoint(on_checkpoint, course_data)
         if fallback_units:
-            if semantic_retry_count < 1:
+            if semantic_retry_count < _semantic_retry_budget():
                 teaching_stage["semantic_retry_count"] = (
                     semantic_retry_count + 1
                 )
