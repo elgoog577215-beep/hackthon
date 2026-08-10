@@ -47,6 +47,11 @@ from question_bank import (
     question_bank_repository,
 )
 from question_bank_jobs import question_bank_rebuild_job_repository
+from socratic_guidance import (
+    MAX_ROUNDS,
+    socratic_guide,
+    support_level_for_round,
+)
 from solution_presentation import (
     present_solution_representation,
     present_solution_value,
@@ -88,6 +93,9 @@ class PracticeRefreshRequest(BaseModel):
 class AISupportAction(RevisionAction):
     level: int = Field(ge=1, le=3)
     summary: str = Field(default="", max_length=1000)
+    # Non-empty message switches this endpoint from "record that help was used"
+    # to a Socratic guidance round (K2); absent, behaviour is unchanged.
+    message: str = Field(default="", max_length=2000)
 
 
 class AttemptSubmission(DraftUpdate):
@@ -519,6 +527,60 @@ async def record_attempt_ai_support(
     request: Request,
 ):
     user_id = require_user_id(request.headers.get("X-User-Id"))
+    student_message = (payload.message or "").strip()
+    guidance: dict[str, Any] | None = None
+    guidance_turns: list[dict[str, Any]] = []
+    level = payload.level
+    if student_message:
+        # Multi-round Socratic guidance (K2). Without a message this endpoint keeps
+        # its original behaviour — recording that AI help was used — so existing
+        # callers are unaffected.
+        course = project_learning_objective_bindings(await get_course_or_404(course_id))
+        current = await run_in_threadpool(
+            practice_attempt_repository.get, user_id, course_id, attempt_id
+        )
+        question = _resolve_task(
+            course,
+            user_id,
+            str(current.get("task_revision_id") or current.get("question_revision_id") or ""),
+        )
+        if not question:
+            raise HTTPException(status_code=409, detail="Task revision is no longer active")
+        history = [
+            item
+            for item in current.get("guidance_turns") or []
+            if isinstance(item, dict)
+        ]
+        rounds_used = sum(1 for item in history if item.get("role") == "assistant")
+        if rounds_used >= MAX_ROUNDS:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "guidance_round_limit_reached",
+                    "max_rounds": MAX_ROUNDS,
+                },
+            )
+        guidance = await socratic_guide.next_turn(
+            question,
+            current,
+            history,
+            student_message,
+        )
+        guidance_turns = [
+            {"role": "student", "text": student_message},
+            {
+                "role": "assistant",
+                "text": guidance.get("question") or "",
+                "focus": guidance.get("focus") or "",
+                "status": guidance.get("status") or "",
+                "reason": guidance.get("reason") or "",
+                "generated": bool(guidance.get("generated")),
+            },
+        ]
+        # Guidance rounds feed the one existing support metric (K3); asking more
+        # questions weakens the independence claim, so guidance can never become a
+        # back door to mastery.
+        level = max(level, support_level_for_round(rounds_used + 1))
     try:
         attempt = await run_in_threadpool(
             practice_attempt_repository.record_ai_support,
@@ -526,7 +588,8 @@ async def record_attempt_ai_support(
             course_id,
             attempt_id,
             expected_revision=payload.expected_revision,
-            level=payload.level,
+            level=level,
+            guidance_turns=guidance_turns,
         )
     except AttemptConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "attempt_conflict", "current": exc.current}) from exc
@@ -538,9 +601,19 @@ async def record_attempt_ai_support(
         "practice_ai_support_used",
         attempt,
         user_id=user_id,
-        evidence={"level": payload.level, "summary": summarize_text(payload.summary)},
+        evidence={
+            "level": level,
+            "summary": summarize_text(payload.summary),
+            **({"guidance_status": guidance.get("status")} if guidance else {}),
+        },
     )
-    return {"status": "recorded", "attempt": attempt}
+    response: dict[str, Any] = {"status": "recorded", "attempt": attempt}
+    if guidance:
+        response["guidance"] = {
+            key: guidance.get(key)
+            for key in ("question", "focus", "is_stuck", "closing", "round", "status")
+        }
+    return response
 
 
 @router.post("/attempts/{attempt_id}/solution")

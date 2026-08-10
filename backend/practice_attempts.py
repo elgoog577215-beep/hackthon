@@ -16,6 +16,9 @@ from storage import storage
 
 
 SCHEMA_VERSION = 2
+# Guidance rounds are capped per attempt; the transcript is a working aid, not an
+# archive, and unbounded growth would bloat every attempt read.
+MAX_GUIDANCE_TURNS = 40
 ATTEMPT_STATUSES = {"in_progress", "submitted", "grading", "graded", "abandoned", "invalidated"}
 TERMINAL_STATUSES = {"graded", "abandoned", "invalidated"}
 
@@ -188,18 +191,34 @@ class PracticeAttemptRepository:
         *,
         expected_revision: int,
         level: int,
+        guidance_turns: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if level not in {1, 2, 3}:
             raise ValueError("AI support level must be 1, 2, or 3")
+
+        def mutate(current: dict[str, Any]) -> None:
+            current["ai_support_level"] = max(
+                int(current.get("ai_support_level") or 0), level
+            )
+            if guidance_turns:
+                # The transcript lives on the attempt so guidance rounds and the
+                # support level they drive can never disagree about what happened.
+                existing = [
+                    item
+                    for item in current.get("guidance_turns") or []
+                    if isinstance(item, dict)
+                ]
+                current["guidance_turns"] = _sanitize_value(
+                    [*existing, *guidance_turns][-MAX_GUIDANCE_TURNS:]
+                )
+
         return self._update(
             user_id,
             course_id,
             attempt_id,
             expected_revision=expected_revision,
             allowed_statuses={"in_progress"},
-            mutate=lambda current: current.update({
-                "ai_support_level": max(int(current.get("ai_support_level") or 0), level),
-            }),
+            mutate=mutate,
         )
 
     def reveal_solution(
