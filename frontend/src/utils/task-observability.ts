@@ -130,6 +130,21 @@ export function taskHeartbeatState(
   return { state: ageSeconds > 120 ? 'stalled' : 'fresh', ageSeconds }
 }
 
+const GENERATION_ERROR_CODES = new Set([
+  'provider_rate_limited',
+  'provider_quota_exhausted',
+  'provider_auth_failed',
+  'provider_unavailable',
+  'provider_timeout',
+  'generation_budget_exceeded',
+  'generation_deadline_exceeded',
+  'response_truncated',
+  'workspace_missing',
+  'revision_conflict',
+  'course_missing',
+  'generation_failed',
+])
+
 export function taskUserError(task: Pick<Task, 'error' | 'errorCode' | 'errorUserMessage'>): {
   message: string
   technicalDetail: string
@@ -137,11 +152,20 @@ export function taskUserError(task: Pick<Task, 'error' | 'errorCode' | 'errorUse
   const code = String(task.errorCode || '')
   const technicalDetail = String(task.error || code || '')
   if (task.errorUserMessage) return { message: task.errorUserMessage, technicalDetail }
+  // A classified backend failure resolves straight from its code: that mapping
+  // is exact, so it must win over the string heuristics below. Fall back to the
+  // generic sentence rather than an empty box if a key is ever missing.
+  if (GENERATION_ERROR_CODES.has(code)) {
+    const generic = t('taskObservability.errors.generic', '任务在当前阶段中断，已完成内容不会丢失。')
+    return { message: t(`taskObservability.errors.${code}`, generic), technicalDetail }
+  }
   if (!technicalDetail) return { message: '', technicalDetail: '' }
   const known: Array<[RegExp, string]> = [
     [/slide_deck_variant_quality_gate_failed|quality_gate_failed/, t('taskObservability.errors.quality', '生成结果质量检查未通过，请查看问题后重试当前阶段。')],
     [/rate.?limit|too_many_requests|429/, t('taskObservability.errors.rateLimit', '服务请求过于频繁，系统已保留当前进度，请稍后重试。')],
-    [/authentication|not_configured/, t('taskObservability.errors.providerAuth', 'AI 服务暂时无法完成身份校验，请检查服务配置后重试。')],
+    [/authentication|credential|api[_ -]?key|not_configured/, t('taskObservability.errors.providerAuth', 'AI 服务暂时无法完成身份校验，请检查服务配置后重试。')],
+    [/timeout|timed out/, t('taskObservability.errors.timeout', 'AI 服务响应超时，当前阶段尚未完成；已保存的内容不会重做。')],
+    [/unavailable|connection|network/, t('taskObservability.errors.unavailable', 'AI 服务暂时不可用，当前阶段尚未完成；可在服务恢复后从保存点继续。')],
     [/markdown_heading_missing/, t('taskObservability.errors.heading', '没有识别到课程标题，请补充 Markdown 标题后重新导入。')],
     [/markdown_encoding_unsupported/, t('taskObservability.errors.encoding', '文件编码无法解析，请转为 UTF-8 后重新导入。')],
     [/markdown_teachable_body_missing/, t('taskObservability.errors.body', '文件只有标题或层级，请补充可讲授正文后重新导入。')],

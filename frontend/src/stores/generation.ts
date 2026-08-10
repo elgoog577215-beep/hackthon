@@ -39,6 +39,10 @@ const ACTIVE_BACKEND_TASK_STATUSES = new Set([
 const backendTaskTimestamp = (task: Record<string, any>) => (
   Date.parse(String(task.updated_at || task.created_at || '')) || 0
 )
+const generatingNodeLabel = (nodeName: string) => t(
+  'courseGeneration.workspace.generatingNamed',
+  '正在生成：{name}',
+).replace('{name}', nodeName)
 const currentBackendTasksByCourse = (tasks: Record<string, any>[]) => {
   const selected = new Map<string, Record<string, any>>()
   for (const task of tasks) {
@@ -263,6 +267,11 @@ export const useGenerationStore = defineStore('generation', {
 
         localTask.progress = (payload.progress as number) ?? localTask.progress
         if (task_id) localTask.id = task_id
+        if (payload.heartbeat_at) localTask.heartbeatAt = String(payload.heartbeat_at)
+        if (payload.updated_at) localTask.updatedAt = String(payload.updated_at)
+        if (payload.provider_route) {
+          localTask.providerRoute = payload.provider_route as Task['providerRoute']
+        }
         const phase = String(payload.current_phase || payload.phase || '')
         if (phase) {
           localTask.currentPhase = phase
@@ -272,11 +281,11 @@ export const useGenerationStore = defineStore('generation', {
         const backendMessage = payload.message as string | undefined
         const currentNodeName = payload.current_node_name as string | undefined
         if (currentNodeName) {
-          localTask.currentStep = `正在生成: ${currentNodeName}`
+          localTask.currentStep = generatingNodeLabel(currentNodeName)
         } else if (backendMessage) {
           localTask.currentStep = backendMessage
         } else if (status === 'pending') {
-          localTask.currentStep = '等待中...'
+          localTask.currentStep = t('courseGeneration.workspace.queued', '等待中…')
         }
         if (payload.current_nodes) {
           localTask.currentNodes = payload.current_nodes as Task['currentNodes']
@@ -382,14 +391,14 @@ export const useGenerationStore = defineStore('generation', {
                 this.streamingContent[nodeId] || '',
               )
               hydratedNode.generation_status = 'generating'
-              this.currentGeneratingNode = `正在生成: ${hydratedNode.node_name}`
+              this.currentGeneratingNode = generatingNodeLabel(hydratedNode.node_name)
             }).finally(() => this.previewHydrationPending.delete(nodeId))
           }
           return
         }
         if (this.currentGeneratingNodeId !== nodeId) {
           this.currentGeneratingNodeId = nodeId
-          this.currentGeneratingNode = `正在生成: ${node.node_name}`
+          this.currentGeneratingNode = generatingNodeLabel(node.node_name)
           node.generation_status = 'generating'
         }
         this.addToBuffer(nodeId, chunk)
@@ -408,6 +417,8 @@ export const useGenerationStore = defineStore('generation', {
             if (node) {
               node.generation_status = 'error'
               node.error_summary = (payload.error as string) || 'Unknown error'
+              if (payload.error_code) node.error_code = String(payload.error_code)
+              if (typeof payload.retryable === 'boolean') node.error_retryable = payload.retryable
             }
             if (this.currentGeneratingNodeId === payload.node_id) {
               this.currentGeneratingNodeId = null
@@ -418,6 +429,10 @@ export const useGenerationStore = defineStore('generation', {
         } else {
           localTask.status = 'error'
           localTask.error = String(payload.error || 'Unknown error')
+          if (payload.error_code) localTask.errorCode = String(payload.error_code)
+          if (payload.error_user_message) {
+            localTask.errorUserMessage = String(payload.error_user_message)
+          }
           this.addLogToTask(course_id, `❌ 任务错误: ${payload.error || 'Unknown error'}`)
         }
       }
@@ -427,12 +442,16 @@ export const useGenerationStore = defineStore('generation', {
       const currentTask = this.tasks.get(message.course_id)
       if (currentTask?.id && message.task_id && currentTask.id !== message.task_id) return
       const { payload } = message
+      const failedNodes = (payload.failed_nodes as FailureReport['failed_nodes']) || []
       this.failureReport = {
         task_id: message.task_id,
         course_id: message.course_id,
-        failed_nodes: (payload.failed_nodes as FailureReport['failed_nodes']) || [],
+        failed_nodes: failedNodes,
         total_failed: (payload.total_failed as number) || 0,
       }
+      // Attach the report to the task as well: the production stage explains the
+      // failure from the task, and the standalone store field alone reached no UI.
+      if (currentTask) currentTask.failedNodes = failedNodes
     },
 
     // ========== Node Control Actions (Req 7.1, 7.2, 7.5) ==========
@@ -844,6 +863,15 @@ export const useGenerationStore = defineStore('generation', {
             if (backendTask.course_type) localTask.courseType = backendTask.course_type
             localTask.recovery = backendTask.recovery || undefined
             localTask.error = backendTask.error ? String(backendTask.error) : undefined
+            localTask.errorCode = backendTask.error_code ? String(backendTask.error_code) : undefined
+            localTask.errorUserMessage = backendTask.error_user_message
+              ? String(backendTask.error_user_message)
+              : undefined
+            if (backendTask.heartbeat_at) localTask.heartbeatAt = String(backendTask.heartbeat_at)
+            if (backendTask.provider_route) {
+              localTask.providerRoute = backendTask.provider_route as Task['providerRoute']
+            }
+            if (backendTask.updated_at) localTask.updatedAt = String(backendTask.updated_at)
             if (typeof backendTask.publication_allowed === 'boolean') {
               localTask.publicationAllowed = backendTask.publication_allowed
             }
@@ -859,7 +887,7 @@ export const useGenerationStore = defineStore('generation', {
             }
             if (backendTask.message) localTask.currentStep = backendTask.message
             if (backendTask.current_node_name) {
-              localTask.currentStep = `正在生成: ${backendTask.current_node_name}`
+              localTask.currentStep = generatingNodeLabel(String(backendTask.current_node_name))
             }
             this.syncCurrentCourseGenerationState(
               courseId,
@@ -1027,7 +1055,7 @@ export const useGenerationStore = defineStore('generation', {
       const node = cs.nodes.find((n: Node) => n.node_id === nodeId)
       if (!node) return
       this.isGenerating = true
-      this.currentGeneratingNode = `正在生成: ${node.node_name}`
+      this.currentGeneratingNode = generatingNodeLabel(node.node_name)
       this.currentGeneratingNodeId = nodeId
       this.addLog(`🚀 开始生成章节: ${node.node_name}`)
       node.node_content = ''

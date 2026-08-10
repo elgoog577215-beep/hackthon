@@ -210,6 +210,63 @@ describe('课程生产内联确认', () => {
     expect(wrapper.emitted('confirmed')).toEqual([['release']])
   })
 
+  it('发布门的阻断项计数与任务中心的列表一致，重复来源只算一次', async () => {
+    // blocking_issues and source_chain.issues routinely report the same blocker.
+    // The gate used to count both, so it showed "阻断项 3" above a list of 2.
+    const workspace = useCourseWorkspaceStore()
+    const generation = useGenerationStore()
+    const course = useCourseStore()
+    const duplicated = {
+      code: 'source_missing',
+      message: '缺少来源绑定',
+      target_id: 'L2-1-1',
+      severity: 'blocker',
+    }
+    vi.spyOn(workspace, 'loadGenerationReview').mockResolvedValue({
+      can_confirm: false,
+      artifact: {
+        publication_allowed: false,
+        blocking_issues: [duplicated],
+        source_chain: {
+          can_publish: false,
+          issues: [duplicated, { ...duplicated, target_id: 'L2-1-2' }],
+        },
+      },
+    } as any)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(course, 'refreshCourseData').mockResolvedValue(undefined)
+    const task: Task = {
+      id: 'job-dup',
+      courseId: 'c1',
+      courseName: '线性代数',
+      status: 'waiting_for_review',
+      progress: 98,
+      currentStep: 'release',
+      completedNodes: 4,
+      totalNodes: 4,
+      logs: [],
+      shouldStop: false,
+      guidedWorkflow: {
+        schema_version: 'guided_course_generation_v2',
+        current_step: 'release',
+        review_step: 'release',
+        steps: [
+          { number: 1, key: 'requirements', status: 'confirmed' },
+          { number: 2, key: 'outline', status: 'confirmed' },
+          { number: 3, key: 'content', status: 'confirmed' },
+          { number: 4, key: 'release', status: 'waiting_for_confirmation' },
+        ],
+      },
+    }
+
+    const wrapper = mount(CourseGenerationGate, { props: { courseId: 'c1', task } })
+    await flushPromises()
+
+    // Three raw entries, two distinct problems.
+    expect(wrapper.text()).toContain('阻断项 2')
+    expect(wrapper.text()).not.toContain('阻断项 3')
+  })
+
   it('项目目录展示暂定起点、路径角色与生成理由', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
