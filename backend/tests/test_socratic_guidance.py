@@ -393,3 +393,94 @@ def test_guidance_rounds_are_capped(monkeypatch, tmp_path):
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "guidance_round_limit_reached"
+
+
+# --- K3：只有真正送达的引导才折算证据 ----------------------------------------
+
+
+def test_undelivered_guidance_does_not_charge_support(monkeypatch, tmp_path):
+    """模型不可用时学生拿到的是兜底套话，不能因此被判为"用过引导"。
+
+    三种失败态（unavailable / degraded / screened）返回的是**同一句**兜底
+    文本。若照样折算支持等级，就等于记录了一次从未发生的帮助——违反"不伪造
+    证据"，还会让一次 provider 故障把诚实作答的学生推到 scaffolded。
+    """
+    repository, client, attempt = _setup(monkeypatch, tmp_path, "这不是 JSON")
+
+    response = client.post(
+        f"/api/courses/c1/practice/attempts/{attempt['attempt_id']}/ai-support",
+        json={"expected_revision": 1, "level": 1, "message": "我卡住了"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["guidance"]["status"] == "degraded"
+    stored = repository.get("u1", "c1", attempt["attempt_id"])
+    # 仍然停留在调用方声明的等级，没有被引导轮次抬高。
+    assert stored["ai_support_level"] == 1
+    assert stored["guidance_turns"][1]["counted_as_support"] is False
+
+
+def test_screened_guidance_does_not_charge_support(monkeypatch, tmp_path):
+    """被泄漏筛查拦下也是我们的失败，不该由学生付代价。"""
+    repository, client, attempt = _setup(
+        monkeypatch,
+        tmp_path,
+        '{"question":"最小值为 -1，直接写上。","focus":"","student_signal":"",'
+        '"is_stuck":false,"closing":""}',
+    )
+
+    client.post(
+        f"/api/courses/c1/practice/attempts/{attempt['attempt_id']}/ai-support",
+        json={"expected_revision": 1, "level": 1, "message": "答案是多少"},
+    )
+
+    stored = repository.get("u1", "c1", attempt["attempt_id"])
+    assert stored["ai_support_level"] == 1
+    assert stored["guidance_turns"][1]["counted_as_support"] is False
+
+
+def test_undelivered_rounds_do_not_consume_the_round_budget(monkeypatch, tmp_path):
+    """provider 故障不能把学生的提问额度耗光并锁死。"""
+    repository, client, attempt = _setup(monkeypatch, tmp_path, "这不是 JSON")
+    attempt_id = attempt["attempt_id"]
+
+    for _ in range(MAX_ROUNDS + 2):
+        current = repository.get("u1", "c1", attempt_id)
+        response = client.post(
+            f"/api/courses/c1/practice/attempts/{attempt_id}/ai-support",
+            json={
+                "expected_revision": current["revision"],
+                "level": 1,
+                "message": "我卡住了",
+            },
+        )
+        # 从不因为失败轮次而被 409 锁死。
+        assert response.status_code == 200
+
+    assert repository.get("u1", "c1", attempt_id)["ai_support_level"] == 1
+
+
+def test_delivered_guidance_still_charges_support(monkeypatch, tmp_path):
+    """反向确认：真正送达的引导仍然照常折算，修复没有把 K3 关掉。"""
+    repository, client, attempt = _setup(
+        monkeypatch,
+        tmp_path,
+        '{"question":"你这一步用了什么条件？","focus":"","student_signal":"",'
+        '"is_stuck":false,"closing":""}',
+    )
+    attempt_id = attempt["attempt_id"]
+
+    for round_number in range(3):
+        current = repository.get("u1", "c1", attempt_id)
+        client.post(
+            f"/api/courses/c1/practice/attempts/{attempt_id}/ai-support",
+            json={
+                "expected_revision": current["revision"],
+                "level": 1,
+                "message": f"第 {round_number} 轮",
+            },
+        )
+
+    stored = repository.get("u1", "c1", attempt_id)
+    assert stored["ai_support_level"] == 2
+    assert stored["guidance_turns"][1]["counted_as_support"] is True

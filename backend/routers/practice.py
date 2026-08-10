@@ -551,7 +551,13 @@ async def record_attempt_ai_support(
             for item in current.get("guidance_turns") or []
             if isinstance(item, dict)
         ]
-        rounds_used = sum(1 for item in history if item.get("role") == "assistant")
+        # Undelivered rounds stay in the transcript for audit but must not eat the
+        # round budget: a provider outage should never lock a student out of asking.
+        rounds_used = sum(
+            1
+            for item in history
+            if item.get("role") == "assistant" and item.get("status") == "ok"
+        )
         if rounds_used >= MAX_ROUNDS:
             raise HTTPException(
                 status_code=409,
@@ -566,6 +572,13 @@ async def record_attempt_ai_support(
             history,
             student_message,
         )
+        # Only guidance the student actually received counts. When generation
+        # fails, is unusable, or gets stopped by the leakage screen, every one of
+        # those paths returns the *same* canned fallback sentence — so charging
+        # support for it would record help that was never given, and would let a
+        # provider outage silently push an honest student to `scaffolded` (and
+        # burn their round budget) for nothing.
+        delivered = guidance.get("status") == "ok"
         guidance_turns = [
             {"role": "student", "text": student_message},
             {
@@ -575,12 +588,17 @@ async def record_attempt_ai_support(
                 "status": guidance.get("status") or "",
                 "reason": guidance.get("reason") or "",
                 "generated": bool(guidance.get("generated")),
+                "counted_as_support": delivered,
             },
         ]
-        # Guidance rounds feed the one existing support metric (K3); asking more
-        # questions weakens the independence claim, so guidance can never become a
-        # back door to mastery.
-        level = max(level, support_level_for_round(rounds_used + 1))
+        if delivered:
+            # Guidance rounds feed the one existing support metric (K3); asking
+            # more questions weakens the independence claim, so guidance can never
+            # become a back door to mastery.
+            level = max(level, support_level_for_round(rounds_used + 1))
+        # else: nothing was delivered, so `level` stays exactly what the caller
+        # asked for (pre-guidance behaviour); record_ai_support only ever raises
+        # the stored level, so an undelivered round cannot lower it either.
     try:
         attempt = await run_in_threadpool(
             practice_attempt_repository.record_ai_support,
