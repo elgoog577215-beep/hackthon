@@ -391,11 +391,7 @@ async def test_story_batch_requires_an_exact_source_title_during_repair() -> Non
     async def planner(request):
         calls.append(request)
         unit = request["teaching_units"][0]
-        title = (
-            "Quantum credential exchange"
-            if len(calls) == 1
-            else request["repair_feedback"]["repair_targets"][0]["required_title"]
-        )
+        title = "Quantum credential exchange"
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -430,13 +426,7 @@ async def test_story_batch_repairs_layout_from_page_level_source_intent() -> Non
         calls.append(request)
         unit = request["teaching_units"][0]
         concept_id, feedback_id = unit["primary_block_ids"]
-        concept_layout = (
-            unit["allowed_template_layout_ids"][0]
-            if len(calls) == 1
-            else request["repair_feedback"]["repair_targets"][0][
-                "required_template_layout_id"
-            ]
-        )
+        concept_layout = unit["allowed_template_layout_ids"][0]
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],

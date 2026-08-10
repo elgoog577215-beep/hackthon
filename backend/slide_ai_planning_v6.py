@@ -168,6 +168,16 @@ def _normalize_story_batch_response(
         for title in request.get("constraints", {}).get("forbidden_titles") or []
         if str(title).strip()
     }
+    repair_targets = [
+        target
+        for target in (request.get("repair_feedback") or {}).get("repair_targets") or []
+        if isinstance(target, dict)
+    ]
+    repair_targets_by_page = {
+        str(target.get("page_id") or ""): target
+        for target in repair_targets
+        if str(target.get("page_id") or "")
+    }
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -197,6 +207,16 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
+        repair_target = repair_targets_by_page.get(str(page.get("page_id") or ""))
+        if repair_target is not None:
+            required_title = str(repair_target.get("required_title") or "").strip()
+            required_layout_id = str(
+                repair_target.get("required_template_layout_id") or ""
+            ).strip()
+            if required_title:
+                page["title"] = required_title
+            if required_layout_id:
+                page["template_layout_id"] = required_layout_id
         normalized_title = re.sub(
             r"\s+",
             "",
@@ -889,7 +909,7 @@ async def plan_slide_story_v3(
                     raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
                     previous_response_payload = _normalize_story_batch_response(
                         raw,
-                        request,
+                        attempt_request,
                     )
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload
