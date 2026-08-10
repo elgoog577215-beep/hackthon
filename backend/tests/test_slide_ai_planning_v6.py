@@ -101,6 +101,59 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("response_shape", ["version_wrapper", "slides_alias"])
+async def test_story_ai_accepts_lossless_versioned_response_shapes(
+    response_shape: str,
+) -> None:
+    """Provider JSON shape drift must not bypass the strict V6 semantic gates."""
+
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        page = {
+            "page_id": "page-generic",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": next(
+                item
+                for item in unit["allowed_template_layout_ids"]
+                if item.endswith("/practice-feedback")
+            ),
+            "title": unit["source_text"][:24],
+            "summary": "",
+            "source_block_ids": unit["primary_block_ids"],
+        }
+        payload = {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [page],
+        }
+        if response_shape == "version_wrapper":
+            return {
+                "slide_story_batch_response_v3": payload,
+                "provider": "rotating-fixture",
+                "model": "generic-model",
+                "attempts": 2,
+            }
+        return {
+            **payload,
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "slides": payload["pages"],
+            "pages": None,
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert story.batches[0].provider == "rotating-fixture"
+    assert story.batches[0].pages[0].source_block_ids == ["concept", "feedback"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
 async def test_one_story_batch_failure_fails_the_candidate_without_fallback() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})

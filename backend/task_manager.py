@@ -4789,12 +4789,6 @@ class TaskManager:
                 "slide_build_progress_v2": deepcopy(payload),
             }
             await self._record_representation_event(task_id, event)
-            async with self._lock:
-                current = self.tasks.get(task_id)
-                if current:
-                    current["slide_build_progress_v2"] = deepcopy(payload)
-                    current["updated_at"] = datetime.now().isoformat()
-                    self.save_tasks()
 
         result = await orchestrator.build(
             task_id=task_id,
@@ -5468,6 +5462,22 @@ class TaskManager:
             history.append(event)
             task["event_history"] = history[-240:]
             task["last_event"] = event
+            progress_v2 = payload.get("slide_build_progress_v2")
+            if (
+                payload.get("event") == "slide_build_progress_v2"
+                and isinstance(progress_v2, dict)
+            ):
+                task["slide_build_progress_v2"] = deepcopy(progress_v2)
+                if str(progress_v2.get("status") or "") == "failed":
+                    failure = progress_v2.get("failure") or {}
+                    if isinstance(failure, dict):
+                        task["status"] = "failed"
+                        task["error_detail"] = deepcopy(failure)
+                        task["error"] = str(
+                            failure.get("message")
+                            or payload.get("message")
+                            or "V6 slide build failed"
+                        )
             if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")

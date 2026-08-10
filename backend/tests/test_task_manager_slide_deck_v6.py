@@ -108,6 +108,62 @@ def _legacy_course() -> dict:
 
 
 @pytest.mark.asyncio
+async def test_failed_v6_progress_event_atomically_terminates_the_outer_task(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+    await manager._update_task_status(task_id, "running")
+
+    failure = {
+        "stage": "story",
+        "code": "story_ai_batch_failed",
+        "message": "Provider response failed validation",
+        "retryable": True,
+        "chapter_id": "chapter-1",
+        "page_id": "",
+        "batch_id": "story-1",
+    }
+    progress = {
+        "schema_version": "slide_build_progress_v2",
+        "status": "failed",
+        "percent": 41,
+        "stage": "story",
+        "failure": failure,
+    }
+    await manager._record_representation_event(task_id, {
+        "event": "slide_build_progress_v2",
+        "progress": 41,
+        "stage": "story",
+        "message": "V6 build failed",
+        "slide_build_progress_v2": progress,
+    })
+
+    task = manager.get_task(task_id)
+    assert task["status"] == "failed"
+    assert task["slide_build_progress_v2"] == progress
+    assert task["error_detail"] == failure
+    assert task["error"] == failure["message"]
+
+
+@pytest.mark.asyncio
 async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmentation(
     tmp_path,
     monkeypatch,

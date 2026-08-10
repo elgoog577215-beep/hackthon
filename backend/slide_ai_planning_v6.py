@@ -64,6 +64,52 @@ class _VisualBatchResponse(_StrictModel):
     decisions: list[SlideVisualDecisionV2] = Field(min_length=1)
 
 
+def _normalize_versioned_response(
+    raw: dict[str, Any],
+    *,
+    schema_version: str,
+    collection_field: str,
+    collection_aliases: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Normalize explicit, lossless provider shapes before strict validation."""
+
+    payload = dict(raw)
+    wrapped = payload.get(schema_version)
+    if isinstance(wrapped, dict):
+        allowed_outer = {
+            schema_version,
+            "schema_version",
+            "provider",
+            "model",
+            "attempts",
+        }
+        unknown_outer = set(payload).difference(allowed_outer)
+        if unknown_outer:
+            raise ValueError(
+                "Unexpected fields beside versioned AI response wrapper: "
+                + ", ".join(sorted(unknown_outer))
+            )
+        normalized = dict(wrapped)
+        normalized.setdefault("schema_version", schema_version)
+        for field in ("provider", "model", "attempts"):
+            if field in payload and field not in normalized:
+                normalized[field] = payload[field]
+        payload = normalized
+
+    for alias in collection_aliases:
+        if alias not in payload:
+            continue
+        alias_value = payload.pop(alias)
+        canonical_value = payload.get(collection_field)
+        if canonical_value in (None, []):
+            payload[collection_field] = alias_value
+        elif canonical_value != alias_value:
+            raise ValueError(
+                f"Conflicting AI response fields: {collection_field} and {alias}"
+            )
+    return payload
+
+
 def _failure_category(error: BaseException, *, prefix: str) -> tuple[str, bool]:
     message = str(error).lower()
     if isinstance(error, (TimeoutError, asyncio.TimeoutError)) or "timeout" in message:
@@ -246,7 +292,14 @@ async def plan_slide_story_v3(
         started = time.perf_counter()
         try:
             raw = await _invoke(ai_planner, request, timeout_seconds)
-            response = _StoryBatchResponse.model_validate(raw)
+            response = _StoryBatchResponse.model_validate(
+                _normalize_versioned_response(
+                    raw,
+                    schema_version="slide_story_batch_response_v3",
+                    collection_field="pages",
+                    collection_aliases=("slides",),
+                )
+            )
             if response.schema_version != "slide_story_batch_response_v3":
                 raise ValueError("Unexpected story response schema")
             if response.chapter_id != request["chapter_id"]:
@@ -392,7 +445,13 @@ async def plan_slide_visuals_v2(
         try:
             async with semaphore:
                 raw = await _invoke(ai_planner, request, timeout_seconds)
-            response = _VisualBatchResponse.model_validate(raw)
+            response = _VisualBatchResponse.model_validate(
+                _normalize_versioned_response(
+                    raw,
+                    schema_version="slide_visual_batch_response_v2",
+                    collection_field="decisions",
+                )
+            )
             if response.schema_version != "slide_visual_batch_response_v2":
                 raise ValueError("Unexpected visual response schema")
             duration_ms = max(0, round((time.perf_counter() - started) * 1000))
