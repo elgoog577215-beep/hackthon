@@ -116,10 +116,24 @@ def validate_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
+def evaluate_node_content(
+    content: str,
+    node: dict[str, Any],
+    render_diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score one node's body.
+
+    ``render_diagnostics`` carries what actually happened when the content was
+    rendered (see ``frontend/src/utils/render-diagnostics.ts``). The backend
+    gate is pure string matching, so without it a formula that KaTeX refuses to
+    render is indistinguishable from one that renders fine — the frontend
+    degrades to readable source and nothing upstream ever learns. Optional so
+    every existing caller keeps its current behaviour.
+    """
     text = str(content or "").strip()
     node_id = str(node.get("node_id") or "")
     issues: list[dict[str, Any]] = []
+    issues.extend(_render_diagnostic_issues(render_diagnostics, node_id))
     if not text:
         issues.append(_issue("empty_content", "critical", "正文为空", "重新生成当前节点", node_id))
     elif len(text) < 240:
@@ -144,6 +158,38 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             "critical",
             "块级公式 $$ 分隔符没有闭合",
             "闭合 Markdown 块级公式分隔符",
+            node_id,
+        ))
+    # An even `$$` count is not proof the math is well-formed: a display
+    # environment can sit entirely outside the delimiters and still leave the
+    # count balanced, which renders as raw LaTeX source to the learner.
+    display_envs = (
+        r"aligned|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|"
+        r"equation|equation\*|cases|gather|gather\*|alignat|alignat\*|eqnarray|split"
+    )
+    in_code_fence = False
+    in_display_math = False
+    unwrapped_display_env = False
+    for line in text.splitlines():
+        if re.match(r"^\s*```", line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        for token in re.finditer(rf"(?<!\\)\$\$|\\begin\{{(?:{display_envs})\}}", line):
+            if token.group(0) == "$$":
+                in_display_math = not in_display_math
+            elif not in_display_math:
+                unwrapped_display_env = True
+                break
+        if unwrapped_display_env:
+            break
+    if unwrapped_display_env:
+        issues.append(_issue(
+            "unwrapped_display_environment",
+            "critical",
+            "cases、aligned 或矩阵等块级公式环境位于 $$ 分隔符之外",
+            "把公式前缀与块级环境合并到同一组 $$...$$ 中",
             node_id,
         ))
     if "生成中..." in text or "[待补充" in text:
@@ -966,6 +1012,49 @@ def _key_point_covered(point: str, text: str) -> bool:
 def _dimension_average(values: dict[str, Any]) -> float:
     numeric = [float(value) for value in values.values() if isinstance(value, (int, float))]
     return sum(numeric) / max(1, len(numeric))
+
+
+def _render_diagnostic_issues(
+    diagnostics: dict[str, Any] | None,
+    node_id: str,
+) -> list[dict[str, Any]]:
+    """Turn reported render failures into blocking issues.
+
+    A render failure is never cosmetic: the learner sees LaTeX source or an
+    unformatted wall of text. It is therefore critical, and separated from the
+    text-pattern checks by its own codes so L3e can score render defects apart
+    from content defects.
+    """
+    if not isinstance(diagnostics, dict):
+        return []
+    issues: list[dict[str, Any]] = []
+    math_failures = _positive_int(diagnostics.get("math_failure_count"))
+    block_failures = _positive_int(diagnostics.get("block_failure_count"))
+    if math_failures:
+        issues.append(_issue(
+            "math_render_failed",
+            "critical",
+            f"有 {math_failures} 处公式无法渲染，学习者会看到 LaTeX 源码",
+            "修正公式语法后重新生成该节正文",
+            node_id,
+        ))
+    if block_failures:
+        issues.append(_issue(
+            "block_render_failed",
+            "critical",
+            f"有 {block_failures} 处正文整体渲染失败，Markdown 结构全部丢失",
+            "检查该节正文的围栏与嵌套结构后重新生成",
+            node_id,
+        ))
+    return issues
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
 
 
 def _issue(

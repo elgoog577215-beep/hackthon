@@ -204,3 +204,106 @@ def test_structured_feedback_with_latex_passes_presentation_checks():
     )
 
     assert not any(item["code"].startswith("feedback_") for item in report["issues"])
+
+
+def test_unwrapped_display_environment_blocks_release_even_with_even_fence_count():
+    """An even `$$` count is not proof the math is well-formed.
+
+    Here the `cases` environment sits entirely between two balanced pairs of
+    `$$`, so the old parity check passed it through and the learner saw raw
+    LaTeX source.
+    """
+    content = _content(
+        "\n\n$$\nf(x)=\n$$\n"
+        "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
+        "$$\ny=1\n$$"
+    )
+
+    assert content.count("$$") % 2 == 0
+    report = evaluate_node_content(content, _node())
+
+    assert any(
+        item["code"] == "unwrapped_display_environment"
+        for item in report["issues"]
+    )
+    assert report["passed"] is False
+
+
+def test_display_environment_inside_delimiters_is_accepted():
+    """The check must not punish correctly wrapped block math."""
+    content = _content(
+        "\n\n$$\n\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n$$"
+    )
+
+    report = evaluate_node_content(content, _node())
+
+    assert not any(
+        item["code"] == "unwrapped_display_environment"
+        for item in report["issues"]
+    )
+
+
+def test_display_environment_in_a_code_fence_is_not_flagged():
+    """A LaTeX sample shown as code is documentation, not broken math."""
+    content = _content(
+        "\n\n```latex\n\\begin{cases}x,&x<0\\end{cases}\n```"
+    )
+
+    report = evaluate_node_content(content, _node())
+
+    assert not any(
+        item["code"] == "unwrapped_display_environment"
+        for item in report["issues"]
+    )
+
+
+def test_reported_math_render_failure_blocks_release():
+    """L3a: a KaTeX failure reported by the renderer must reach the gate.
+
+    The backend is pure string matching, so without this channel a formula that
+    KaTeX refuses to render looks identical to a valid one — the frontend
+    degrades to readable source and nothing upstream learns.
+    """
+    report = evaluate_node_content(
+        _content(),
+        _node(),
+        render_diagnostics={"math_failure_count": 2},
+    )
+
+    codes = [item["code"] for item in report["issues"]]
+    assert "math_render_failed" in codes
+    assert report["passed"] is False
+
+
+def test_reported_block_render_failure_blocks_release():
+    report = evaluate_node_content(
+        _content(),
+        _node(),
+        render_diagnostics={"block_failure_count": 1},
+    )
+
+    assert "block_render_failed" in [item["code"] for item in report["issues"]]
+    assert report["passed"] is False
+
+
+def test_clean_render_report_does_not_add_issues():
+    report = evaluate_node_content(
+        _content(),
+        _node(),
+        render_diagnostics={"math_failure_count": 0, "block_failure_count": 0},
+    )
+
+    assert not any(
+        item["code"].endswith("_render_failed") for item in report["issues"]
+    )
+
+
+def test_missing_or_malformed_diagnostics_keep_legacy_behaviour():
+    """Every existing caller passes nothing; that must stay a no-op."""
+    baseline = evaluate_node_content(_content(), _node())
+
+    for diagnostics in (None, {}, {"math_failure_count": "oops"}, "not-a-dict"):
+        report = evaluate_node_content(_content(), _node(), render_diagnostics=diagnostics)
+        assert [i["code"] for i in report["issues"]] == [
+            i["code"] for i in baseline["issues"]
+        ]
