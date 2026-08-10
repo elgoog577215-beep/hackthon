@@ -82,6 +82,12 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
 
     assert len(calls) == 1
     supplied_layouts = calls[0]["teaching_units"][0]["allowed_template_layouts"]
+    title_candidates = calls[0]["teaching_units"][0]["title_candidates"]
+    assert title_candidates
+    assert all(
+        candidate in calls[0]["teaching_units"][0]["source_text"]
+        for candidate in title_candidates
+    )
     assert calls[0]["response_contract"]["required_page_fields"] == [
         "page_id",
         "teaching_unit_id",

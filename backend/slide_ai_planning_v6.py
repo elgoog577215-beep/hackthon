@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import time
 from collections import defaultdict
 from typing import Any, Awaitable, Callable
@@ -33,6 +34,10 @@ from template_layout_contract import TemplateLayoutPackContractV1
 
 Planner = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 BatchLifecycleCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
+_MARKDOWN_TITLE_RE = re.compile(
+    r"\*\*([^*\n]{4,72})\*\*|^#{1,6}\s+([^\n]{4,72})",
+    re.MULTILINE,
+)
 
 
 class _StrictModel(BaseModel):
@@ -241,6 +246,25 @@ def _layout_prompt_contract(
     }
 
 
+def _grounded_title_candidates(source_text: str) -> list[str]:
+    candidates: list[str] = []
+    for match in _MARKDOWN_TITLE_RE.finditer(source_text):
+        candidate = str(match.group(1) or match.group(2) or "").strip()
+        if candidate and candidate in source_text and candidate not in candidates:
+            candidates.append(candidate)
+    for segment in re.split(r"[\n。！？!?；;]", source_text):
+        candidate = segment.strip().strip("#*` ")[:72].strip()
+        if (
+            len(candidate) >= 4
+            and candidate in source_text
+            and candidate not in candidates
+        ):
+            candidates.append(candidate)
+        if len(candidates) >= 6:
+            break
+    return candidates[:6]
+
+
 def _story_requests(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -292,6 +316,7 @@ def _story_requests(
                     "teaching_plan_context": unit.teaching_plan_context,
                     "prerequisite_unit_ids": unit.prerequisite_unit_ids,
                     "source_text": unit.source_text,
+                    "title_candidates": _grounded_title_candidates(unit.source_text),
                     "allowed_template_layout_ids": (
                         allowed_layout_ids := _allowed_layout_ids(unit, template)
                     ),
@@ -415,7 +440,8 @@ async def plan_slide_story_v3(
                             "instruction": (
                                 "Return a fresh response that exactly follows response_contract, "
                                 "uses each teaching unit's own allowed_template_layout_ids, and "
-                                "contains only source IDs supplied for that unit."
+                                "contains only source IDs supplied for that unit. Copy each title "
+                                "verbatim from that unit's title_candidates."
                             ),
                         },
                     }
@@ -706,7 +732,8 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
                 "by that unit's source_text. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
-                "page level; never emit a nested content object. Never invent teaching content."
+                "page level; never emit a nested content object. Copy titles verbatim from the "
+                "selected teaching unit's title_candidates. Never invent teaching content."
             ),
             use_fast_model=False,
             retry_count=1,
