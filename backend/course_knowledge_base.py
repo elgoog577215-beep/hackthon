@@ -238,6 +238,9 @@ def compile_course_knowledge_base(
                     source_refs=source_refs,
                     binding_method="knowledge_blueprint",
                 )
+                # 关系与声明它的知识点同处一节，来源依据因此与该节一致。
+                # `_compile_relations` 一直在读候选的 `source_refs`，但两个候选
+                # 构造点都没写过这个键，所以关系的来源永远是空的。
                 for prerequisite_name in raw_point.get("prerequisite_names") or []:
                     relation_candidates.append({
                         "source_name": str(prerequisite_name),
@@ -246,9 +249,11 @@ def compile_course_knowledge_base(
                         "reason": f"{prerequisite_name} 是独立学习 {name} 所需的前置知识",
                         "necessity": "required",
                         "priority": "core",
+                        "source_refs": source_refs,
                     })
                 for relation in raw_point.get("relations") or []:
                     relation_candidates.append({
+                        "source_refs": source_refs,
                         **deepcopy(relation),
                         "source_name": name,
                     })
@@ -1325,7 +1330,11 @@ def build_course_knowledge_library_view(
         "conditions": deepcopy(item.get("conditions") or []),
         "distinction": item.get("distinction"),
         "derivation_steps": deepcopy(item.get("derivation_steps") or []),
-        "source_status": item.get("source_type", "course_source"),
+        # 关系与四类知识记录用同一套来源判据。原来这里读的是 `source_type`
+        # （编译期默认 `model_generated`）并兜底成 `course_source`，两个值都不在
+        # 来源词表里，关系那一栏因此永远显示成未知来源。
+        "source_status": _source_status(item),
+        "source_refs": deepcopy(item.get("source_refs") or []),
         "status": item.get("status", "accepted"),
         "revision_id": item.get("revision_id"),
     } for item in knowledge_base.get("relations") or []]
@@ -1401,6 +1410,9 @@ def build_course_knowledge_library_view(
         "quality_report": public_quality,
         "generation_audit": deepcopy(knowledge_base.get("generation_audit") or {}),
         "source_summary": _source_summary(
+            knowledge_base.get("knowledge_points") or [] if publishable else [],
+        ),
+        "source_grounding": _source_grounding(
             knowledge_base.get("knowledge_points") or [] if publishable else [],
         ),
     }
@@ -2163,6 +2175,31 @@ def _source_summary(points: list[Any]) -> dict[str, int]:
         status = _source_status(point)
         summary[status] = summary.get(status, 0) + 1
     return summary
+
+
+def _source_grounding(points: list[Any]) -> dict[str, int | float | bool]:
+    """发布层面回答"这门课到底有没有资料依据"，不让教师自己去推算。
+
+    `source_summary` 是分桶字典：桶名会随词表变化，且一门完全没有资料的课与
+    大部分有资料的课在发布信息上长得几乎一样——教师得把桶里的数字和总数比一遍
+    才知道落地率。项目红线是"不得伪造证据"，那么"完全没有外部来源"就必须是一个
+    看一眼就成立的结论，而不是一个需要推算的结论。
+
+    刻意与逐点 `source_status` 用同一个判据（`_source_status`），这样明细与汇总
+    不可能各说各话。
+    """
+    counted = [point for point in points if isinstance(point, dict)]
+    total = len(counted)
+    grounded = sum(
+        1 for point in counted if _source_status(point) == SOURCE_STATUS_MATERIAL
+    )
+    return {
+        "knowledge_point_count": total,
+        "material_grounded_count": grounded,
+        "course_generated_count": total - grounded,
+        "grounded_ratio": round(grounded / total, 4) if total else 0.0,
+        "has_material_grounding": grounded > 0,
+    }
 
 
 def _view_path(nodes: list[dict[str, Any]], node_id: str) -> tuple[list[str], list[str]]:

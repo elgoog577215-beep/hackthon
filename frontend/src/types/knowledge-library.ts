@@ -58,13 +58,24 @@ export interface KnowledgeRelation {
     | 'related'
     | 'application'
     | 'confusable'
-  source_status: string
+  /** 与知识点同一套来源词表；关系继承声明它的知识点所在小节的证据 */
+  source_status: KnowledgeSourceStatus | string
+  source_refs: string[]
   status: 'accepted' | 'candidate' | 'rejected' | string
   reason: string
   conditions?: string[]
   distinction?: string
   derivation_steps?: string[]
   revision_id: string
+}
+
+/** 课程级来源落地结论：教师在发布前不必自己按桶推算落地率 */
+export interface KnowledgeSourceGrounding {
+  knowledge_point_count: number
+  material_grounded_count: number
+  course_generated_count: number
+  grounded_ratio: number
+  has_material_grounding: boolean
 }
 
 export interface KnowledgeLibraryView {
@@ -113,6 +124,7 @@ export interface KnowledgeLibraryView {
     provider_failure?: { code: string; message: string; retryable: boolean } | null
   }
   source_summary?: Record<string, number>
+  source_grounding?: KnowledgeSourceGrounding
 }
 
 export interface SubjectOntologyQualityReport {
