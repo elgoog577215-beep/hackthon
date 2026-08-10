@@ -1410,10 +1410,17 @@ class AssessmentGenerationOrchestrator:
                 on_chapter_complete=on_chapter_complete,
                 total_items=total_items,
                 practice_levels_by_node=requested_levels_by_node,
-                use_batch_generation=(
-                    resolved_generation_scope == "full_generation"
-                    or generation_policy.profile == "fast"
-                ),
+                # 批量生成与合批评审不再看生成范围。
+                #
+                # 改动前是 `scope == "full_generation" or profile == "fast"`，
+                # 于是 deliberate 档的 scoped_repair 落进最慢的一条分支：不批量
+                # 首轮候选、语义评审 batch wait 归零（等于不合批）、三个练习层级
+                # 串行 await。而 scoped_repair 正是"教师点了重建、正等着看结果"
+                # 的场景——最需要快的路径用了全链路最慢的实现。
+                #
+                # 范围只决定"重建哪些节点"，不决定"每个节点内部怎么并发"。
+                # 供给侧的压力由 `semaphore`(slot_parallelism) 与
+                # `node_semaphore`(node_concurrency) 兜底，与生成范围无关。
                 generation_policy=generation_policy,
             )
             completed_items = total_items
@@ -1862,7 +1869,6 @@ class AssessmentGenerationOrchestrator:
         on_chapter_complete: AssessmentChapterCallback | None,
         total_items: int,
         practice_levels_by_node: dict[str, tuple[str, ...]],
-        use_batch_generation: bool,
         generation_policy: AssessmentGenerationPolicy,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1881,6 +1887,20 @@ class AssessmentGenerationOrchestrator:
             )
         semaphore = asyncio.Semaphore(slot_parallelism)
         node_semaphore = asyncio.Semaphore(self.node_concurrency)
+        # 每个小节最多同时占用几个槽位。
+        #
+        # 全局 `semaphore` 只管住总量，管不住"谁先拿到"。如果让每个小节把三个
+        # 练习层级一次性全投出去，先到的小节会吃满全部槽位，后面的小节一个都
+        # 起不来——`on_chapter_complete` 不再交替推进，多小节重建退化成一节一节
+        # 顺序做。这正是原来那句「避免饿死后面的小节」要防的事，不能不管。
+        #
+        # 但反过来，只重建一个小节时（教师点某一节重建，最常见的 scoped_repair）
+        # 串行跑三个层级会让另外两个槽位空转。
+        #
+        # 所以按本轮真正活跃的小节数分配：一个小节时三个层级全并发，多小节时
+        # 每节一个槽位、把并发让给小节之间。两种场景各自拿到该有的并行度。
+        active_nodes = max(1, min(len(target_nodes), self.node_concurrency))
+        per_node_slots = max(1, slot_parallelism // active_nodes)
         progress_lock = asyncio.Lock()
         chapter_callback_lock = asyncio.Lock()
         completed_items = 0
@@ -1915,8 +1935,6 @@ class AssessmentGenerationOrchestrator:
                         practice_levels=node_practice_levels,
                         generation_policy=generation_policy,
                     )
-                    if use_batch_generation
-                    else {}
                 )
                 semantic_batcher = _SemanticEvaluationBatcher(
                     model=self.model,
@@ -1933,7 +1951,6 @@ class AssessmentGenerationOrchestrator:
                             reference_package,
                             node_id=node_id,
                         ) >= 2
-                        and use_batch_generation
                         else 0.0
                     ),
                     generation_policy=generation_policy,
@@ -1944,14 +1961,13 @@ class AssessmentGenerationOrchestrator:
                     generation_policy=generation_policy,
                     max_wait_seconds=0.01,
                 )
-                repair_batcher = (
-                    _CandidateRepairBatcher(
-                        model=self.model,
-                        audit=audit,
-                        generation_policy=generation_policy,
-                    )
-                    if generation_policy.profile == "fast"
-                    else None
+                # 修复也合批。此前只有 fast 档创建 batcher，deliberate 下为
+                # None，于是每一次修复都是单独的 repair_single——而修复是按
+                # 「同一节的多个层级同时不过」成批发生的，正是最该合批的调用。
+                repair_batcher = _CandidateRepairBatcher(
+                    model=self.model,
+                    audit=audit,
+                    generation_policy=generation_policy,
                 )
 
                 async def run_slot(
@@ -2014,21 +2030,23 @@ class AssessmentGenerationOrchestrator:
                         }
                     await _notify_progress(on_progress, progress_event)
 
-                if use_batch_generation:
-                    results = await asyncio.gather(*[
-                        run_slot(PRACTICE_LEVELS.index(level), level)
-                        for level in node_practice_levels
-                    ])
-                    for result in results:
-                        await record_result(result)
-                else:
-                    # Scoped repair spends one global slot per active section.
-                    # This keeps three sections moving without increasing the
-                    # provider-wide request limit or starving later sections.
-                    for level in node_practice_levels:
-                        await record_result(
-                            await run_slot(PRACTICE_LEVELS.index(level), level)
+                # 同一节的多个练习层级按 `per_node_slots` 并发。
+                #
+                # 此前 scoped_repair 走串行 for，于是重建单个小节时三个层级一个
+                # 一个来，另外两个槽位空转——而 scoped_repair 正是教师点了重建、
+                # 正等着看结果的场景，最需要快却用了最慢的实现。
+                level_slots = asyncio.Semaphore(per_node_slots)
+
+                async def run_level(level: str) -> None:
+                    async with level_slots:
+                        result = await run_slot(
+                            PRACTICE_LEVELS.index(level), level,
                         )
+                    await record_result(result)
+
+                await asyncio.gather(*[
+                    run_level(level) for level in node_practice_levels
+                ])
                 chapter_passed = bool(
                     not fatal_errors
                     and set(contracts[node_id]) == set(node_practice_levels)
