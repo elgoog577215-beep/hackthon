@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+import slide_ai_planning_v6 as planning_module
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import (
@@ -10,6 +11,7 @@ from course_presentation_graph import (
 from slide_ai_planning_v6 import (
     AIPlannerInvocationError,
     _grounded_title_candidates,
+    build_ai_base_story_planner_v6,
     plan_slide_story_v3,
     plan_slide_visuals_v2,
 )
@@ -365,6 +367,41 @@ async def test_failed_story_batch_reports_sanitized_provider_attempt_diagnostics
     ]
     assert "api_key" not in str(diagnostic)
     assert "prompt" not in str(diagnostic)
+
+
+@pytest.mark.asyncio
+async def test_shared_ai_story_planner_preserves_safe_failure_telemetry(monkeypatch) -> None:
+    class FailedSharedAI:
+        async def _call_llm(self, *_args, telemetry_sink, **_kwargs):
+            telemetry_sink({
+                "provider_route": "rotating-pool",
+                "model_id": "generic-provider-model",
+                "provider_attempt": 3,
+                "status": "failed",
+                "error_code": "QuotaError",
+                "duration_ms": 90,
+                "queue_wait_ms": 7,
+                "api_key": "must-not-leave-provider-boundary",
+            })
+            raise RuntimeError("insufficient quota")
+
+    monkeypatch.setattr(planning_module, "AIBase", FailedSharedAI)
+    planner = build_ai_base_story_planner_v6()
+
+    with pytest.raises(AIPlannerInvocationError) as captured:
+        await planner({"schema_version": "generic-request"})
+
+    assert str(captured.value) == "insufficient quota"
+    assert captured.value.telemetry == [{
+        "provider": "rotating-pool",
+        "model": "generic-provider-model",
+        "attempt": 3,
+        "status": "failed",
+        "duration_ms": 90,
+        "queue_wait_ms": 7,
+        "error_code": "QuotaError",
+    }]
+    assert "api_key" not in str(captured.value.telemetry)
 
 
 @pytest.mark.asyncio
