@@ -6,6 +6,8 @@
         <span class="brand-name">启智</span>
       </button>
 
+      <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions" />
+
       <div v-if="isLearningRoute" class="header-actions">
         <label class="header-search">
           <Search :size="15" />
@@ -218,6 +220,7 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .brand-name { color:#001081; font-size:20px; font-weight:850; letter-spacing:.08em; }
 
+.route-header-actions { min-width:0; justify-self:end; }
 .course-context-copy {
   min-width: 0;
   display: flex;
