@@ -551,6 +551,13 @@ def validate_slide_visual_plan_v2(
         layout = template.get_layout(decision.resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="visual", code="template_layout_unavailable", message="Visual plan selected an unknown template layout", page_id=page_id)
+        if decision.resolved_template_layout_id != page.template_layout_id:
+            raise V6BuildError(
+                stage="visual",
+                code="visual_layout_binding_mismatch",
+                message="Visual decision must retain the story page template layout",
+                page_id=page_id,
+            )
         unknown_assets = set(decision.source_asset_ids) - set(unit.source_asset_refs)
         if unknown_assets:
             raise V6BuildError(
@@ -693,6 +700,85 @@ def _block_matches_slot(block: CourseBlock, slot_kind: str) -> bool:
     return bool(artifact and artifact in kinds)
 
 
+def _code_candidates(text: str) -> list[str]:
+    fenced = [
+        match.group(1).strip()
+        for match in re.finditer(
+            r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n(.*?)```",
+            text,
+            re.DOTALL,
+        )
+        if match.group(1).strip()
+    ]
+    return fenced or [text.strip()]
+
+
+def _prose_source_text(block: CourseBlock) -> str:
+    text = block_source_text(block)
+    without_code = re.sub(
+        r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n.*?```",
+        "",
+        text,
+        flags=re.DOTALL,
+    )
+    prose_lines = [
+        line
+        for line in without_code.splitlines()
+        if not re.match(r"^\s*\|.*\|\s*$", line)
+        and not re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", line)
+    ]
+    prose = "\n".join(prose_lines).strip()
+    if prose == text.strip() and block.kind in {"code", "table"}:
+        return ""
+    return prose
+
+
+def _bounded_code_content(
+    blocks: list[CourseBlock],
+    *,
+    max_chars: int,
+    max_lines: int,
+) -> str:
+    """Select source-only code excerpts; full code remains in speaker notes."""
+
+    if not blocks:
+        return ""
+    capacity = max_chars or 1600
+    line_capacity = max_lines or 24
+    per_block_chars = max(48, capacity // len(blocks))
+    per_block_lines = max(1, line_capacity // len(blocks))
+    excerpts: list[str] = []
+    for block in blocks:
+        candidates = _code_candidates(block_source_text(block))
+        candidate = max(
+            (
+                text for text in candidates
+                if len(text) <= per_block_chars
+                and len(text.splitlines()) <= per_block_lines
+            ),
+            key=len,
+            default=candidates[0],
+        )
+        selected: list[str] = []
+        for line in candidate.splitlines():
+            next_text = "\n".join([*selected, line])
+            if selected and (
+                len(selected) + 1 > per_block_lines
+                or len(next_text) > per_block_chars
+            ):
+                break
+            if len(next_text) > per_block_chars:
+                continue
+            selected.append(line)
+        excerpt = "\n".join(selected).strip()
+        if excerpt:
+            excerpts.append(excerpt)
+    content = "\n\n".join(excerpts)
+    if len(content) > capacity or len(content.splitlines()) > line_capacity:
+        raise ValueError("template_slot_capacity_exceeded")
+    return content
+
+
 def _bounded_slot_content(
     blocks: list[CourseBlock],
     *,
@@ -702,20 +788,24 @@ def _bounded_slot_content(
     max_lines: int,
     max_rows: int,
 ) -> str:
-    texts = [
-        block_source_text(block)
-        for block in blocks
-        if block_source_text(block)
-    ]
+    if slot_kind == "code":
+        return _bounded_code_content(
+            blocks,
+            max_chars=max_chars,
+            max_lines=max_lines,
+        )
+    texts = []
+    for block in blocks:
+        text = (
+            _prose_source_text(block)
+            if slot_kind not in {"formula", "table", "visual"}
+            else block_source_text(block)
+        )
+        if text:
+            texts.append(text)
     if not texts:
         return ""
     capacity = max_chars or 520
-    if slot_kind == "code":
-        content = "\n\n".join(texts)
-        lines = content.splitlines()
-        if (max_lines and len(lines) > max_lines) or len(content) > capacity:
-            raise ValueError("template_slot_capacity_exceeded")
-        return content.rstrip()
     if slot_kind == "table":
         content = "\n".join(texts)
         lines = content.splitlines()
@@ -956,6 +1046,17 @@ def _materialize_template_regions(
             remaining = [block for block in remaining if block not in matches]
 
     text_slots = [slot for slot in content_slots if slot.slot_id not in assigned]
+    reusable_artifact_blocks = [
+        block
+        for slot_blocks in assigned.values()
+        for block in slot_blocks
+        if block not in remaining and _prose_source_text(block)
+    ]
+    remaining.extend(
+        block
+        for block in reusable_artifact_blocks
+        if block not in remaining
+    )
     for index, slot in enumerate(text_slots):
         if not remaining:
             break

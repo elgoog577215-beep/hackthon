@@ -47,6 +47,7 @@ _STORY_PAGE_CONTRACT_FIELDS = frozenset({
     "source_block_ids",
 })
 _STORY_SEMANTIC_MAX_ATTEMPTS = 3
+_VISUAL_SEMANTIC_MAX_ATTEMPTS = 2
 _VISUAL_DECISION_CONTRACT_FIELDS = frozenset({
     "page_id",
     "decision",
@@ -157,6 +158,11 @@ def _normalize_story_batch_response(
     pages = payload.get("pages")
     if not isinstance(pages, list):
         return payload
+    used_titles = {
+        re.sub(r"\s+", "", str(title)).casefold()
+        for title in request.get("constraints", {}).get("forbidden_titles") or []
+        if str(title).strip()
+    }
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -186,6 +192,26 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
+        normalized_title = re.sub(
+            r"\s+",
+            "",
+            str(page.get("title") or ""),
+        ).casefold()
+        if unit is not None and normalized_title in used_titles:
+            replacement = next(
+                (
+                    str(candidate)
+                    for candidate in unit.get("title_candidates") or []
+                    if re.sub(r"\s+", "", str(candidate)).casefold()
+                    not in used_titles
+                ),
+                "",
+            )
+            if replacement:
+                page["title"] = replacement
+                normalized_title = re.sub(r"\s+", "", replacement).casefold()
+        if normalized_title:
+            used_titles.add(normalized_title)
         # Providers sometimes over-answer the story request with draft code,
         # annotations, or visual instructions. Those fields are not part of the
         # story contract and must never leak into the compiled deck. Project the
@@ -422,6 +448,25 @@ def _validate_story_batch_candidate(
     request: dict[str, Any],
     batch: SlideStoryBatchV3,
 ) -> None:
+    reserved_titles = {
+        re.sub(r"\s+", "", str(title)).casefold()
+        for title in request.get("constraints", {}).get("forbidden_titles") or []
+        if str(title).strip()
+    }
+    reused = next(
+        (
+            page for page in batch.pages
+            if re.sub(r"\s+", "", page.title).casefold() in reserved_titles
+        ),
+        None,
+    )
+    if reused is not None:
+        raise V6BuildError(
+            stage="story",
+            code="duplicate_slide_title",
+            message="Each V6 page must have a distinct teaching title",
+            page_id=reused.page_id,
+        )
     requested_unit_ids = {
         str(unit.get("teaching_unit_id") or "")
         for unit in request.get("teaching_units") or []
@@ -479,6 +524,44 @@ def _story_repair_targets(
         duplicate_page_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         unit_id = str(unit.get("teaching_unit_id") or "")
+        current_page = next(
+            (
+                page for page in pages
+                if isinstance(page, dict)
+                and str(page.get("page_id") or "") == page_id
+            ),
+            None,
+        )
+        current_title = str((current_page or {}).get("title") or "")
+        current_summary = str((current_page or {}).get("summary") or "")
+        normalized_current_title = re.sub(r"\s+", "", current_title).casefold()
+        conflicting_page_ids = [
+            str(page.get("page_id") or "")
+            for page in pages
+            if isinstance(page, dict)
+            and str(page.get("page_id") or "") != page_id
+            and re.sub(r"\s+", "", str(page.get("title") or "")).casefold()
+            == normalized_current_title
+        ] if normalized_current_title else []
+        forbidden_titles = list(dict.fromkeys([
+            *(
+                str(title)
+                for title in request.get("constraints", {}).get("forbidden_titles") or []
+                if str(title).strip()
+            ),
+            *(
+                str(page.get("title") or "")
+                for page in pages
+                if isinstance(page, dict)
+                and str(page.get("page_id") or "") != page_id
+                and str(page.get("title") or "").strip()
+            ),
+        ]))
+        normalized_forbidden_titles = {
+            re.sub(r"\s+", "", title).casefold()
+            for title in forbidden_titles
+        }
+        allowed_title_candidates = list(unit.get("title_candidates") or [])
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -497,7 +580,18 @@ def _story_repair_targets(
             "missing_source_block_ids": list(missing_source_block_ids or []),
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
             "duplicate_page_ids": list(duplicate_page_ids or []),
-            "allowed_title_candidates": list(unit.get("title_candidates") or []),
+            "allowed_title_candidates": allowed_title_candidates,
+            "available_title_candidates": [
+                title
+                for title in allowed_title_candidates
+                if re.sub(r"\s+", "", str(title)).casefold()
+                not in normalized_forbidden_titles
+            ],
+            "duplicate_title": current_title if conflicting_page_ids else "",
+            "conflicting_page_ids": conflicting_page_ids,
+            "forbidden_titles": forbidden_titles,
+            "current_summary": current_summary,
+            "summary_policy": "exact_source_excerpt_or_empty",
         }
 
     failed_page_id = str(error.failure.page_id or "")
@@ -577,6 +671,17 @@ async def plan_slide_story_v3(
     }
     page_ordinal = 0
     for batch_index, request in enumerate(_story_requests(graph, template)):
+        request = {
+            **request,
+            "constraints": {
+                **request["constraints"],
+                "forbidden_titles": [
+                    page.title
+                    for accepted_batch in batches
+                    for page in accepted_batch.pages
+                ],
+            },
+        }
         batch_id = f"story-{batch_index + 1}"
         resumed = resumed_by_chapter.get(str(request["chapter_id"]))
         if resumed is not None:
@@ -634,7 +739,9 @@ async def plan_slide_story_v3(
                                 "unit's primary_block_ids across one to three pages: bind multiple "
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
-                                "Copy each title verbatim from that unit's title_candidates."
+                                "Copy each title verbatim from that unit's title_candidates. Set "
+                                "summary to empty unless its complete wording is directly supported "
+                                "by that unit's source_text; never add identifiers or facts."
                             ),
                         },
                     }
@@ -792,6 +899,78 @@ def _visual_request(
 
 
 _HARD_VISUAL_ARTIFACTS = {"code", "formula", "table", "data", "experiment", "source_excerpt"}
+_VISUAL_DECISIONS_BY_ARTIFACT: dict[str, set[str]] = {
+    "code": {"code"},
+    "formula": {"formula"},
+    "table": {"table", "data"},
+    "data": {"data", "table"},
+    "experiment": {"experiment", "image", "data"},
+    "source_excerpt": {"source_excerpt", "image"},
+}
+
+
+def _validate_visual_batch_candidate(
+    *,
+    story: SlideStoryPlanV3,
+    graph: CoursePresentationGraphV1,
+    template: TemplateLayoutPackContractV1,
+    batch: SlideStoryBatchV3,
+    decisions: list[SlideVisualDecisionV2],
+) -> None:
+    unit_ids = {page.teaching_unit_id for page in batch.pages}
+    scoped_story = story.model_copy(update={"batches": [batch]})
+    scoped_graph = graph.model_copy(update={
+        "units": [unit for unit in graph.units if unit.teaching_unit_id in unit_ids],
+        "formal_block_ids": [
+            block_id
+            for page in batch.pages
+            for block_id in page.source_block_ids
+        ],
+        "primary_block_coverage": 1.0,
+        "diagnostics": [],
+    })
+    validate_slide_visual_plan_v2(
+        SlideVisualPlanV2(
+            source_document_revision=graph.source_document_revision,
+            template_digest=template.template_digest,
+            decisions=decisions,
+        ),
+        scoped_story,
+        scoped_graph,
+        template,
+    )
+
+
+def _visual_repair_targets(
+    request: dict[str, Any],
+    error: Exception | None,
+) -> list[dict[str, Any]]:
+    failed_page_id = (
+        str(error.failure.page_id or "")
+        if isinstance(error, V6BuildError)
+        else ""
+    )
+    pages = [
+        page
+        for page in request.get("pages") or []
+        if isinstance(page, dict)
+        and (not failed_page_id or str(page.get("page_id") or "") == failed_page_id)
+    ]
+    return [
+        {
+            "page_id": str(page.get("page_id") or ""),
+            "required_artifact_kinds": list(page.get("artifact_kinds") or []),
+            "allowed_decisions": sorted({
+                decision
+                for artifact in page.get("artifact_kinds") or []
+                for decision in _VISUAL_DECISIONS_BY_ARTIFACT.get(str(artifact), set())
+            } or {"text_native"}),
+            "required_source_block_ids": list(page.get("source_block_ids") or []),
+            "required_template_layout_id": str(page.get("template_layout_id") or ""),
+            "allowed_source_asset_ids": list(page.get("source_asset_ids") or []),
+        }
+        for page in pages
+    ]
 
 
 async def plan_slide_visuals_v2(
@@ -851,28 +1030,79 @@ async def plan_slide_visuals_v2(
         request = _visual_request(batch, graph, template)
         started = time.perf_counter()
         try:
-            async with semaphore:
-                raw = await _invoke(ai_planner, request, timeout_seconds)
-            response = _VisualBatchResponse.model_validate(
-                _normalize_visual_batch_response(
-                    raw,
-                    request,
-                )
-            )
-            if response.schema_version != "slide_visual_batch_response_v2":
-                raise ValueError("Unexpected visual response schema")
-            duration_ms = max(0, round((time.perf_counter() - started) * 1000))
-            decisions = [
-                decision.model_copy(
-                    update={
-                        "provider": decision.provider or response.provider or "shared-ai-pool",
-                        "model": decision.model or response.model or "provider-selected",
-                        "attempts": max(decision.attempts, response.attempts),
-                        "duration_ms": max(decision.duration_ms, duration_ms),
+            contract_error: Exception | None = None
+            for validation_attempt in range(_VISUAL_SEMANTIC_MAX_ATTEMPTS):
+                attempt_request = request
+                if validation_attempt:
+                    attempt_request = {
+                        **request,
+                        "repair_feedback": {
+                            "attempt": validation_attempt + 1,
+                            "code": (
+                                contract_error.failure.code
+                                if isinstance(contract_error, V6BuildError)
+                                else "visual_response_contract_invalid"
+                            ),
+                            "message": str(contract_error or ""),
+                            "repair_targets": _visual_repair_targets(
+                                request,
+                                contract_error,
+                            ),
+                            "instruction": (
+                                "Return a fresh response that follows response_contract exactly. "
+                                "For each repair target choose only an allowed_decision, preserve "
+                                "its exact source block and template layout bindings, and never "
+                                "invent artifact payloads."
+                            ),
+                        },
                     }
-                )
-                for decision in response.decisions
-            ]
+                    await _notify_batch(batch_callback, {
+                        "phase": "started",
+                        "kind": "visual",
+                        "batch_index": batch_index,
+                        "batch_id": batch_id,
+                        "chapter_id": batch.chapter_id,
+                        "resumed": False,
+                        "retry_attempt": validation_attempt,
+                    })
+                try:
+                    async with semaphore:
+                        raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
+                    response = _VisualBatchResponse.model_validate(
+                        _normalize_visual_batch_response(raw, request)
+                    )
+                    if response.schema_version != "slide_visual_batch_response_v2":
+                        raise ValueError("Unexpected visual response schema")
+                    duration_ms = max(0, round((time.perf_counter() - started) * 1000))
+                    decisions = [
+                        decision.model_copy(
+                            update={
+                                "provider": decision.provider or response.provider or "shared-ai-pool",
+                                "model": decision.model or response.model or "provider-selected",
+                                "attempts": max(
+                                    decision.attempts,
+                                    response.attempts + validation_attempt,
+                                ),
+                                "duration_ms": max(decision.duration_ms, duration_ms),
+                            }
+                        )
+                        for decision in response.decisions
+                    ]
+                    _validate_visual_batch_candidate(
+                        story=story,
+                        graph=graph,
+                        template=template,
+                        batch=batch,
+                        decisions=decisions,
+                    )
+                    break
+                except (ValidationError, ValueError, V6BuildError) as error:
+                    contract_error = error
+                    if validation_attempt < _VISUAL_SEMANTIC_MAX_ATTEMPTS - 1:
+                        continue
+                    raise
+            else:  # pragma: no cover - the bounded loop either succeeds or raises
+                raise RuntimeError("Visual response repair loop exited unexpectedly")
         except Exception as error:
             required_pages = [
                 page
@@ -880,6 +1110,16 @@ async def plan_slide_visuals_v2(
                 if set(units[page.teaching_unit_id].artifact_kinds).intersection(_HARD_VISUAL_ARTIFACTS)
             ]
             if required_pages:
+                if isinstance(error, V6BuildError):
+                    raise V6BuildError(
+                        stage=error.failure.stage,
+                        code=error.failure.code,
+                        message=error.failure.message,
+                        retryable=True,
+                        chapter_id=batch.chapter_id,
+                        page_id=error.failure.page_id or required_pages[0].page_id,
+                        batch_id=batch_id,
+                    ) from error
                 raise V6BuildError(
                     stage="visual",
                     code="visual_ai_required_artifact_failed",

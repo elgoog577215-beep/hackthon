@@ -309,6 +309,11 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
     assert repair_target["duplicate_source_block_ids"] == []
     assert repair_target["duplicate_page_ids"] == []
     assert repair_target["allowed_title_candidates"] == calls[0]["teaching_units"][0]["title_candidates"]
+    assert repair_target["available_title_candidates"] == calls[0]["teaching_units"][0]["title_candidates"]
+    assert repair_target["duplicate_title"] == ""
+    assert repair_target["conflicting_page_ids"] == []
+    assert repair_target["current_summary"] == ""
+    assert repair_target["summary_policy"] == "exact_source_excerpt_or_empty"
     assert story.batches[0].attempts == 2
 
 
@@ -348,6 +353,143 @@ async def test_story_repair_names_missing_blocks_without_weakening_coverage() ->
     assert repair_target["missing_source_block_ids"] == ["feedback"]
     assert repair_target["duplicate_source_block_ids"] == []
     assert repair_target["required_source_block_ids"] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        summary = "UnsupportedIdentifier_999" if len(calls) == 1 else ""
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "summary-repair",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": unit["title_candidates"][0],
+                "summary": summary,
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert target["current_summary"] == "UnsupportedIdentifier_999"
+    assert target["summary_policy"] == "exact_source_excerpt_or_empty"
+    assert story.pages[0].summary == ""
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_normalizes_duplicate_titles_from_unused_source_candidates() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        source_ids = unit["primary_block_ids"]
+        first_title = unit["title_candidates"][0]
+        second_title = first_title
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "title-owner",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": unit["allowed_template_layout_ids"][0],
+                    "title": first_title,
+                    "summary": "",
+                    "source_block_ids": source_ids[:1],
+                },
+                {
+                    "page_id": "title-conflict",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": unit["allowed_template_layout_ids"][0],
+                    "title": second_title,
+                    "summary": "",
+                    "source_block_ids": source_ids[1:],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert story.pages[0].title == calls[0]["teaching_units"][0]["title_candidates"][0]
+    assert story.pages[1].title == calls[0]["teaching_units"][0]["title_candidates"][1]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_batches_reserve_titles_accepted_by_prior_chapters() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-title-reservation",
+        title="Shared observation course",
+        sections=[
+            CourseSection(section_id="phase-a", title="Phase A", position=0),
+            CourseSection(section_id="phase-b", title="Phase B", position=1),
+        ],
+        blocks=[
+            CourseBlock(
+                block_id="observation-a",
+                section_id="phase-a",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Shared checkpoint\n## Alpha evidence"},
+            ),
+            CourseBlock(
+                block_id="observation-b",
+                section_id="phase-b",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Shared checkpoint\n## Beta evidence"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        title = unit["title_candidates"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"page-{request['chapter_id']}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": title,
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    assert calls[0]["constraints"]["forbidden_titles"] == []
+    assert calls[1]["constraints"]["forbidden_titles"] == ["Shared checkpoint"]
+    assert [page.title for page in story.pages] == [
+        "Shared checkpoint",
+        "Beta evidence",
+    ]
     validate_slide_story_plan_v3(story, graph, template)
 
 
@@ -611,6 +753,63 @@ async def test_visual_ai_projects_source_bound_aliases_and_discards_draft_code()
     assert decision.source_block_ids == story.pages[0].source_block_ids
     assert decision.resolved_template_layout_id == story.pages[0].template_layout_id
     assert decision.visual_payload == {}
+
+
+@pytest.mark.asyncio
+async def test_visual_ai_repairs_required_subject_representation_per_batch() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "generic-required-code",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/evidence-code")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=story_planner)
+    calls = []
+
+    async def visual_planner(request):
+        calls.append(request)
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "table" if len(calls) == 1 else "code",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["page_id"] == "generic-required-code"
+    assert repair_target["required_artifact_kinds"] == ["code"]
+    assert repair_target["allowed_decisions"] == ["code"]
+    assert repair_target["required_template_layout_id"] == story.pages[0].template_layout_id
+    assert visual.decisions[0].decision == "code"
 
 
 @pytest.mark.asyncio
