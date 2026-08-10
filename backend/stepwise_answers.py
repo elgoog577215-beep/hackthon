@@ -33,6 +33,33 @@ from typing import Any
 
 MAX_STEPS = 20
 MAX_STEP_TEXT = 5000
+# A derivation needs at least this many reference steps before splitting it into
+# separate boxes helps rather than just adding clicks.
+MIN_STEPS_TO_OFFER = 2
+
+
+def derive_stepwise_capability(
+    *,
+    input_mode: str,
+    reference_step_count: int,
+    existing: Any = None,
+) -> bool:
+    """Decide whether one question should *offer* stepwise answering.
+
+    Deterministic and shared by both contract paths (`assessment_compiler` for
+    compiled v2 items, `practice_contracts` for legacy/asset-backed ones) so a
+    question cannot offer stepwise on one path and not the other.
+
+    An explicit `existing` True is honoured — authors may turn it on deliberately
+    — but it is never inferred for choice items, which have no derivation to
+    split. This is an offer, never a requirement: answering as a whole always
+    remains available.
+    """
+    if existing is True:
+        return True
+    if input_mode in {"choice", ""}:
+        return False
+    return reference_step_count >= MIN_STEPS_TO_OFFER
 
 
 def stepwise_enabled(question: dict[str, Any]) -> bool:
@@ -189,6 +216,8 @@ def stepwise_summary(
 
 __all__ = [
     "MAX_STEPS",
+    "MIN_STEPS_TO_OFFER",
+    "derive_stepwise_capability",
     "extract_steps",
     "first_flawed_step",
     "merged_answer_text",

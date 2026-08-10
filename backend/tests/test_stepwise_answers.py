@@ -411,3 +411,71 @@ def test_support_level_and_evidence_strength_agree_on_every_support_source():
     assert evidence_strength({"solution_revealed": True}) == "scaffolded"
     # 作废的作答不产生任何证据。
     assert evidence_strength({"status": "invalidated"}) == "invalid"
+
+
+def test_legacy_asset_path_also_derives_stepwise():
+    """legacy/资产路径必须同样派生分步能力，否则真实课程里 UI 永远不出现。
+
+    真实课程的题目走 learning_assets -> enrich_question_contract 这条路，而不是
+    assessment_compiler。第一版只在 compiler 里派生，导致真实数据上
+    input_contract.stepwise 恒为空、分步入口在生产里根本不显示。
+    """
+    from practice_contracts import enrich_question_contract
+
+    # 开放题：_legacy_reasoning_support 会补出多步推导，应提供分步。
+    open_ended = enrich_question_contract({
+        "asset_id": "q-open",
+        "revision_id": "qr-open",
+        "node_id": "n1",
+        "question_type": "worked_solution",
+        "prompt": "把新坐标还原为标准坐标，并逐步解释每一步接收什么输入。",
+        "answer_spec": {"type": "rubric", "pass_score": 70},
+    }, practice_level="guided_practice")
+    # 选择题：一次选择没有可拆的推导，永远不提供。
+    choice = enrich_question_contract({
+        "asset_id": "q-choice",
+        "revision_id": "qr-choice",
+        "node_id": "n1",
+        "question_type": "single_choice",
+        "prompt": "下列哪一个结果正确？",
+        "options": [{"id": "A", "text": "甲"}, {"id": "B", "text": "乙"}],
+        "answer_spec": {"type": "choice", "correct_option_id": "A",
+                        "criteria": ["比较选项", "说明依据"], "pass_score": 70},
+    }, practice_level="guided_practice")
+
+    assert open_ended["input_contract"]["stepwise"] is True
+    assert choice["input_contract"]["stepwise"] is False
+
+
+def test_both_contract_paths_share_one_stepwise_rule():
+    """两条契约路径必须用同一条规则，不能各判各的。"""
+    from assessment_compiler import compile_formal_task_contract
+    from practice_contracts import enrich_question_contract
+    from stepwise_answers import derive_stepwise_capability
+
+    # 同一条规则的直接断言：选择题永不提供，多步推导才提供。
+    assert derive_stepwise_capability(input_mode="choice", reference_step_count=9) is False
+    assert derive_stepwise_capability(input_mode="rich_text", reference_step_count=1) is False
+    assert derive_stepwise_capability(input_mode="rich_text", reference_step_count=2) is True
+    # 作者显式打开时尊重作者意图。
+    assert derive_stepwise_capability(
+        input_mode="rich_text", reference_step_count=0, existing=True
+    ) is True
+
+    compiled = compile_formal_task_contract({
+        "question_type": "single_choice",
+        "prompt": "选一个。",
+        "input_contract": {"mode": "choice"},
+        "options": [{"id": "A", "text": "甲"}, {"id": "B", "text": "乙"}],
+        "answer_spec": {"criteria": ["a", "b", "c"], "correct_answer": "A"},
+    }, {})
+    enriched = enrich_question_contract({
+        "asset_id": "q-c", "revision_id": "qr-c", "node_id": "n1",
+        "question_type": "single_choice", "prompt": "选一个。",
+        "options": [{"id": "A", "text": "甲"}, {"id": "B", "text": "乙"}],
+        "answer_spec": {"type": "choice", "correct_option_id": "A",
+                        "criteria": ["a", "b", "c"], "pass_score": 70},
+    })
+
+    assert compiled["input_contract"]["stepwise"] is False
+    assert enriched["input_contract"]["stepwise"] is False

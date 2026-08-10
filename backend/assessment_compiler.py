@@ -7,6 +7,7 @@ from typing import Any
 
 from course_versioning import stable_hash
 from solution_contracts import project_solution_spec
+from stepwise_answers import derive_stepwise_capability
 
 
 INPUT_MODES = {
@@ -242,14 +243,14 @@ def compile_formal_task_contract(
         )
     # Stepwise submission is offered only where a derivation actually exists to
     # break apart, and never on choice items — a single selection has no steps.
-    # This is an *offer*, not a requirement: the student may always answer whole
-    # (see stepwise_answers), so enabling it never forces anyone to work stepwise.
-    input_contract["stepwise"] = bool(
-        input_contract.get("stepwise")
-        or (
-            input_mode not in {"choice", ""}
-            and len(_reference_step_texts(solution_envelope, answer_spec)) >= 2
-        )
+    # The rule itself lives in stepwise_answers so this path and the legacy
+    # practice_contracts path can never drift apart.
+    input_contract["stepwise"] = derive_stepwise_capability(
+        input_mode=input_mode,
+        reference_step_count=len(
+            _reference_step_texts(solution_envelope, answer_spec)
+        ),
+        existing=input_contract.get("stepwise"),
     )
     practice_level = str(
         next(
