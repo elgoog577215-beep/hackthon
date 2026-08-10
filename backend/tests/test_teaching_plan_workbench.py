@@ -783,6 +783,96 @@ def test_workbench_router_smoke_covers_draft_review_and_apply() -> None:
     assert applied.json()["workbench"]["current_plan_revision_id"] != workbench["current_plan_revision_id"]
 
 
+def test_router_service_reads_the_representation_registry_for_impact() -> None:
+    """路由必须把表达注册表接进影响分析。
+
+    注册表只读接入决定 needs_regeneration 是真实引用闭包还是按小节的保守答案。
+    这个接线断了不会让任何断言失败——影响报告照样返回、只是变粗——
+    所以在这里正面钉住它。
+    """
+    from routers import teaching_plan_workbench as workbench_router
+
+    storage = MemoryStorage(_course())
+    repository = CourseDocumentRepository(storage)
+    service = workbench_router._service(repository)
+
+    assert service.representation_repository is not None
+    # 未知课程返回空注册表而不是抛错：影响分析退回按小节的保守答案，
+    # 工作台仍然可用。
+    registry = service.representation_registry("course-does-not-exist")
+    assert registry is not None
+    assert list(registry.representations) == []
+
+
+def test_section_scoped_ai_request_accepts_a_whole_section_of_fields() -> None:
+    """需求 5：教案要能分小节优化，不是只能整篇重生成。
+
+    前端「优化当前小节」把该小节所有可编辑路径一次性发出。哪怕最小课程，
+    一个小节也有 17 条可编辑路径（目标、要点、时长、7 条课堂执行列表、
+    5 条模块字段、知识 statement/capability），超过原先 12 条的上限，
+    于是每一次小节级优化都在 HTTP 层 422，根本到不了领域层。
+    """
+    from routers import teaching_plan_workbench as workbench_router
+
+    storage = MemoryStorage(_course())
+    repository = CourseDocumentRepository(storage)
+    app = FastAPI()
+    app.include_router(workbench_router.router, prefix="/api")
+    app.dependency_overrides[workbench_router.get_course_document_repository] = lambda: repository
+    client = TestClient(app)
+    headers = {"X-User-Id": "teacher-section-scope"}
+    base_path = "/api/courses/course-1/teaching-plan"
+
+    workbench = client.get(f"{base_path}/workbench", headers=headers).json()["workbench"]
+    draft = client.post(f"{base_path}/drafts", headers=headers, json={
+        "base_plan_revision_id": workbench["current_plan_revision_id"],
+        "base_course_document_revision": workbench["course_document_revision"],
+        "idempotency_key": "section-scope-create",
+    }).json()["workbench"]["draft"]
+
+    section_paths = [
+        field["path"]
+        for field in workbench["editable_fields"]
+        if field["path"].startswith("sections/section-1/") and field["state"] != "readonly"
+    ]
+    assert len(section_paths) > 12, "最小课程的小节路径数应当已经超过旧上限"
+
+    # 真实课程规模远大于这个合成夹具：矩阵与线性变换 12 个小节，每节
+    # 75–89 条路径（5 个环节 + 7 个知识点的那一节是 84 条）。上限只按
+    # 夹具的 17 条定过一次，结果在真实数据上继续 422——这里直接按真实
+    # 规模再压一次契约，避免夹具偏小把上限问题重新藏起来。
+    real_scale_paths = section_paths + [
+        f"sections/section-1/teaching_modules/module-{index}/teaching_guidance"
+        for index in range(90 - len(section_paths))
+    ]
+    assert len(real_scale_paths) == 90
+    oversized = client.post(
+        f"{base_path}/drafts/{draft['draft_id']}/ai-candidates",
+        headers=headers,
+        json={
+            "paths": real_scale_paths,
+            "instruction": "按真实课程规模一次发出整节路径",
+            "idempotency_key": "section-scope-real-scale",
+        },
+    )
+    assert oversized.status_code != 422, (
+        f"真实课程一节有 75-89 条路径，HTTP 契约不能在这个量级拒绝：{oversized.text}"
+    )
+
+    response = client.post(
+        f"{base_path}/drafts/{draft['draft_id']}/ai-candidates",
+        headers=headers,
+        json={
+            "paths": section_paths,
+            "instruction": "把这一节讲得更具体，给出可观察的学生行为",
+            "idempotency_key": "section-scope-ai",
+        },
+    )
+    # 这里不校验 AI 结果本身（没有真实模型），只要求请求通过 HTTP 契约校验、
+    # 进入领域层：不能再是 422 too_long。
+    assert response.status_code != 422, response.text
+
+
 def test_workbench_router_can_initialize_a_missing_plan_baseline() -> None:
     from routers import teaching_plan_workbench as workbench_router
 
@@ -807,3 +897,152 @@ def test_workbench_router_can_initialize_a_missing_plan_baseline() -> None:
     assert initialized.status_code == 200
     assert initialized.json()["workbench"]["available"] is True
     assert initialized.json()["receipt"]["operation"] == "initialize_teaching_plan_baseline"
+
+
+
+@pytest.mark.asyncio
+async def test_section_optimization_touches_only_that_section_and_leaves_others_intact() -> None:
+    """需求 5：分小节优化只改这一节，其他小节与总体教案保持不变。
+
+    这是「分小节优化」相对「整篇重生成」的关键区别，也是不建平行真源的
+    前提：优化仍然走草稿 → 变更集 → 应用同一条链，正式教案只有一份。
+    """
+    async def candidate_generator(*, paths, **_kwargs):
+        # 只对本节目标提建议，模拟教师「把这一节讲得更具体」。
+        assert all(path.startswith("sections/section-1/") for path in paths)
+        return {
+            "rationale": "让本节目标落到可观察的学生行为。",
+            "operations": [{
+                "path": "sections/section-1/learning_objective",
+                "after": "能由任意两点求出斜率并解释其正负含义",
+                "reason": "原目标只说理解，无法观察。",
+            }],
+        }
+
+    course = _course()
+    # 第二个小节：优化第一节时它必须一个字都不变。
+    # 结构要完整——知识陈述与模块都要有，否则被教案质量门正当拦下，
+    # 那测的就不是分小节优化了。
+    course["course_plan"]["chapters"][0]["sections"].append({
+        "node_id": "section-2",
+        "title": "截距",
+        "learning_objective": "理解截距的含义",
+        "module_plan": [{
+            "module_id": "core",
+            "label": "核心讲解",
+            "required": True,
+            "output_contract": "解释截距",
+            "prompt_instruction": "从图像说明截距",
+        }],
+    })
+    course["course_teaching_plan"]["sections"].append({
+        "node_id": "section-2",
+        "key_points": ["截距"],
+        "reused_knowledge_names": [],
+        "knowledge_relations": [],
+        "knowledge_structure": [{
+            "concept_group": "位置",
+            "knowledge_points": [{
+                "name": "截距",
+                "statement": "截距是直线与纵轴交点的纵坐标。",
+                "capability": "能够从图像读出截距",
+                "conditions": ["在平面直角坐标系中"],
+                "mastery_criteria": [{
+                    "observable_performance": "能由图像读出截距",
+                    "verification_method": "出口题",
+                }],
+                "misconceptions": [],
+            }],
+        }],
+        "teaching_modules": [{
+            "module_id": "core",
+            "teaching_purpose": "建立截距的几何含义",
+            "knowledge_names": ["截距"],
+            "teaching_guidance": "先看交点，再写代数表达。",
+        }],
+        "learning_objective": "理解截距的含义",
+    })
+
+    storage = MemoryStorage(course)
+    service = TeachingPlanWorkbenchService(
+        CourseDocumentRepository(storage),
+        candidate_generator=candidate_generator,
+    )
+    view = service.view("course-1", actor="teacher-1")
+    before_section_two = deepcopy(
+        next(s for s in storage.course["course_teaching_plan"]["sections"] if s["node_id"] == "section-2")
+    )
+    before_positioning = storage.course["course_plan"]["positioning"]
+
+    created = await service.create_draft(
+        "course-1",
+        actor="teacher-1",
+        idempotency_key="sec-create",
+        base_plan_revision_id=view["current_plan_revision_id"],
+        base_course_document_revision=view["course_document_revision"],
+    )
+    draft_id = created["draft"]["draft_id"]
+
+    section_paths = [
+        field["path"]
+        for field in view["editable_fields"]
+        if field["path"].startswith("sections/section-1/") and field["state"] != "readonly"
+    ]
+    candidate_view = await service.create_ai_candidate(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        paths=section_paths,
+        instruction="把这一节讲得更具体",
+        idempotency_key="sec-ai",
+    )
+    candidate = next(item for item in candidate_view["ai_candidates"] if item["status"] == "ready")
+
+    # 候选阶段：正式教案一个字都不能动。
+    assert storage.course["course_teaching_plan"]["revision_id"] == "teaching-initial"
+
+    accepted = await service.accept_ai_candidate(
+        "course-1",
+        actor="teacher-1",
+        candidate_id=candidate["candidate_id"],
+        operation_ids=[],
+        idempotency_key="sec-accept",
+    )
+    assert accepted["draft"]["changed_paths"] == ["sections/section-1/learning_objective"]
+
+    reviewed = await service.create_change_set(
+        "course-1",
+        actor="teacher-1",
+        draft_id=draft_id,
+        idempotency_key="sec-review",
+    )
+    change_set = next(item for item in reviewed["change_sets"] if item["status"] == "ready")
+    applied = await service.apply_change_set(
+        "course-1",
+        actor="teacher-1",
+        change_set_id=change_set["change_set_id"],
+        idempotency_key="sec-apply",
+    )
+
+    # 小节目标的真源在 course_plan（目录），教案不另存一份——这正是
+    # 「不建第二真源」的体现。应用时目录会按层级重排 node_id
+    # （section-1 → L2-1-1），所以这里按位置断言，不按旧 id。
+    outline_sections = storage.course["course_plan"]["chapters"][0]["sections"]
+    assert [item["learning_objective"] for item in outline_sections] == [
+        "能由任意两点求出斜率并解释其正负含义",
+        "理解截距的含义",
+    ], "只有被优化的第一节目标改变，第二节保持原样"
+
+    sections = storage.course["course_teaching_plan"]["sections"]
+    # 应用后教案小节的 node_id 会跟随目录归一化（section-2 → L2-1-2），
+    # 所以按位置取、比内容不比 ID。
+    untouched = deepcopy(sections[1])
+    original = deepcopy(before_section_two)
+    untouched.pop("node_id", None)
+    original.pop("node_id", None)
+    assert untouched == original, "分小节优化不得波及其他小节"
+    assert storage.course["course_plan"]["positioning"] == before_positioning, "不得顺手改总体教案"
+
+    # 正式教案仍然只有一份，且修订前进了一格。
+    assert applied["workbench"]["current_plan_revision_id"] != view["current_plan_revision_id"]
+    assert applied["workbench"]["draft"] is None

@@ -14,6 +14,7 @@ from teaching_plan_workbench import (
     TeachingPlanWorkbenchError,
     TeachingPlanWorkbenchService,
 )
+from teaching_representations import teaching_representation_repository
 
 
 router = APIRouter(
@@ -50,17 +51,30 @@ class InitializeBaselineRequest(CommandRequest):
 
 
 class AICandidateRequest(BaseModel):
-    paths: list[str] = Field(min_length=1, max_length=96)
+    # 上限按「一个小节的全部可编辑字段」定，不是按人手勾选的字段数定：
+    # 需求 5 的分小节优化会把整节路径一次性发出，而一节的路径数随环节数与
+    # 知识点数增长（10 条小节字段 + 1 条环节顺序 + 环节×5 + 知识点×7）。
+    # 真实课程实测：矩阵与线性变换 12 个小节，每节 75–89 条，最多的一节
+    # 5 个环节 7 个知识点共 84 条。合成夹具只有 17 条，据此定的上限会在
+    # 真实数据上继续 422，所以这里按真实规模留足余量。
+    # 领域层仍逐条校验白名单与只读，上限只防御性地挡住畸形请求。
+    paths: list[str] = Field(min_length=1, max_length=256)
     instruction: str = Field(min_length=1, max_length=3000)
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class CandidateCommandRequest(CommandRequest):
-    operation_ids: list[str] = Field(default_factory=list, max_length=96)
+    # 逐项接受 AI 候选时同样可能覆盖整节，与 paths 对齐。
+    operation_ids: list[str] = Field(default_factory=list, max_length=256)
 
 
 def _service(repository=Depends(get_course_document_repository)) -> TeachingPlanWorkbenchService:
-    return TeachingPlanWorkbenchService(repository)
+    # 表达注册表只读接入：影响分析据此把 needs_regeneration 收窄到真实引用的
+    # 下游对象；拿不到注册表时分析自动退回按小节的保守答案，不阻断工作台。
+    return TeachingPlanWorkbenchService(
+        repository,
+        representation_repository=teaching_representation_repository,
+    )
 
 
 def _actor(request: Request) -> str:
@@ -72,6 +86,10 @@ def _error(exc: Exception) -> HTTPException:
         status_code = 409 if exc.code.endswith("conflict") or exc.code.endswith("blocked") else 400
         if exc.code.endswith("not_found") or exc.code == "teaching_plan_missing":
             status_code = 404
+        # 结构操作重定向不是「请求错误」，是「这件事归目录真源管」：
+        # 前端据此跳目录编辑器，语义与版本冲突同属 409。
+        if exc.code == "redirect_to_outline_edit":
+            status_code = 409
         return HTTPException(status_code=status_code, detail={
             "code": exc.code,
             "message": str(exc),
@@ -367,6 +385,37 @@ async def restore_revision(
                 actor=_actor(request),
                 revision_id=revision_id,
                 idempotency_key=body.idempotency_key,
+            ),
+        }
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+class RebuildRequest(CommandRequest):
+    # 定向重建：不传就按整份下游状态里所有 rebuild_required 的对象来。
+    only_types: list[str] = Field(default_factory=list, max_length=16)
+    only_ids: list[str] = Field(default_factory=list, max_length=256)
+    # 默认生成候选等教师确认，而不是直接覆盖正式产物。
+    candidate_only: bool = True
+
+
+@router.post("/downstream/rebuild")
+async def rebuild_downstream(
+    course_id: str,
+    body: RebuildRequest,
+    request: Request,
+    service: TeachingPlanWorkbenchService = Depends(_service),
+) -> dict[str, Any]:
+    try:
+        return {
+            "status": "rebuilt",
+            **await service.rebuild_downstream(
+                course_id,
+                actor=_actor(request),
+                idempotency_key=body.idempotency_key,
+                only_types=body.only_types or None,
+                only_ids=body.only_ids or None,
+                candidate_only=body.candidate_only,
             ),
         }
     except Exception as exc:

@@ -158,6 +158,14 @@
     <div v-if="showWorkbenchControls && workbenchStore.errorCode" class="generation-lesson-plan__workbench-error" role="alert">
       <TriangleAlert :size="16" />
       <span>{{ workbenchErrorMessage }}</span>
+      <button
+        v-if="outlineEditorTarget"
+        type="button"
+        class="generation-lesson-plan__error-action"
+        @click="openOutlineEditor"
+      >
+        {{ t('courseGeneration.lessonPlan.goToOutlineEditor', '去目录编辑器') }}
+      </button>
       <button type="button" @click="recoverWorkbench">
         <RefreshCw :size="14" />
         {{ t('courseGeneration.lessonPlan.retryAction', '重新载入') }}
@@ -192,9 +200,13 @@
       <div class="generation-lesson-plan__review-grid">
         <section>
           <strong>{{ t('courseGeneration.lessonPlan.reviewDiff', '本次修改') }}</strong>
-          <ol>
-            <li v-for="operation in workbenchStore.review.diff.operations" :key="operation.operation_id">
+          <ol class="generation-lesson-plan__diff-list">
+            <li v-for="operation in groupedDiffOperations" :key="operation.operation_id">
               <div class="generation-lesson-plan__diff-heading">
+                <span class="generation-lesson-plan__diff-kind" :data-kind="operation.kind">
+                  {{ diffKindLabel(operation.kind) }}
+                </span>
+                <span class="generation-lesson-plan__diff-where">{{ operation.location }}</span>
                 <code>{{ operation.path }}</code>
                 <span>{{ operation.source === 'ai'
                   ? t('courseGeneration.lessonPlan.sourceAi', 'AI 建议')
@@ -210,20 +222,24 @@
         </section>
         <section>
           <strong>{{ t('courseGeneration.lessonPlan.reviewImpact', '需要后续重建') }}</strong>
-          <ol>
-            <li v-for="item in workbenchStore.review.impact_report.needs_regeneration" :key="`${item.type}-${item.id}`">
-              <span>{{ item.reason }}</span>
-            </li>
-            <li v-if="!workbenchStore.review.impact_report.needs_regeneration.length" class="is-muted">
-              {{ t('courseGeneration.lessonPlan.reviewNoRebuild', '本次修改不会要求重建课程内容。') }}
-            </li>
-          </ol>
-          <strong class="generation-lesson-plan__impact-secondary">
-            {{ t('courseGeneration.lessonPlan.reviewUnchanged', '保持不变') }}
-          </strong>
-          <p class="generation-lesson-plan__impact-summary">
-            {{ workbenchStore.review.impact_report.unchanged.length }}
-            {{ t('courseGeneration.lessonPlan.impactObjects', '个对象') }}
+          <div
+            v-for="group in impactGroups"
+            :key="group.key"
+            class="generation-lesson-plan__impact-group"
+          >
+            <span class="generation-lesson-plan__impact-heading" :data-group="group.key">
+              {{ group.label }}
+              <i>{{ group.items.length }}</i>
+            </span>
+            <ol>
+              <li v-for="item in group.items" :key="`${item.type}-${item.id}`">
+                <span class="generation-lesson-plan__impact-object">{{ objectTypeLabel(item.type) }}</span>
+                <span>{{ item.reason }}</span>
+              </li>
+            </ol>
+          </div>
+          <p v-if="!impactGroups.length" class="is-muted">
+            {{ t('courseGeneration.lessonPlan.reviewNoRebuild', '本次修改不会要求重建课程内容。') }}
           </p>
         </section>
       </div>
@@ -412,7 +428,7 @@
       >
         <BookOpenCheck :size="16" />
         <span>
-          <strong>{{ t('courseGeneration.lessonPlan.overallTab', '总体教案') }}</strong>
+          <strong>{{ t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
           <small>{{ t('courseGeneration.lessonPlan.overallTabHelp', '看整门课怎样设计') }}</small>
         </span>
       </button>
@@ -425,7 +441,7 @@
       >
         <ListTree :size="16" />
         <span>
-          <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '分小节教案') }}</strong>
+          <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
           <small>{{ t('courseGeneration.lessonPlan.sectionsTabHelp', '看每一节如何落地') }}</small>
         </span>
       </button>
@@ -468,7 +484,7 @@
           <header>
             <Target :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.overallObjectivesEyebrow', '总体目标') }}</small>
+              <small>{{ t('courseGeneration.lessonPlan.overallObjectivesEyebrow', '教学目标') }}</small>
               <strong>{{ t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够') }}</strong>
             </span>
           </header>
@@ -492,7 +508,7 @@
           <header>
             <Route :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.entryEyebrow', '学习起点') }}</small>
+              <small>{{ t('courseGeneration.lessonPlan.entryEyebrow', '学情分析') }}</small>
               <strong>{{ t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备') }}</strong>
             </span>
           </header>
@@ -678,7 +694,7 @@
             <small>{{ t('courseGeneration.lessonPlan.courseStructureEyebrow', '教学进程') }}</small>
             <strong>{{ t('courseGeneration.lessonPlan.courseStructureTitle', '章节怎样推动学习发生') }}</strong>
           </span>
-          <p>{{ t('courseGeneration.lessonPlan.courseStructureHelp', '章节负责阶段性推进，分小节教案负责把每一步落实为知识与课程块。') }}</p>
+          <p>{{ t('courseGeneration.lessonPlan.courseStructureHelp', '章节负责阶段性推进，教学设计负责把每一步落实为知识与课程块。') }}</p>
         </header>
         <ol class="generation-lesson-plan__chapter-path">
           <li v-for="(chapter, index) in overallPlan.chapters" :key="chapter.chapter_id || index">
@@ -906,6 +922,13 @@
               <li
                 v-for="(module, moduleIndex) in selectedSection.plan.teaching_modules"
                 :key="module.module_id || moduleIndex"
+                :draggable="editing && Boolean(module.module_id)"
+                :class="{ 'is-drag-over': dragOverModuleId === module.module_id }"
+                @dragstart="startModuleDrag(module.module_id)"
+                @dragover.prevent="dragOverModuleId = module.module_id || ''"
+                @dragleave="dragOverModuleId === module.module_id && (dragOverModuleId = '')"
+                @drop.prevent="dropModule(module.module_id)"
+                @dragend="dragOverModuleId = ''; draggingModuleId = ''"
               >
                 <div class="generation-lesson-plan__module-index">
                   <span>{{ String(moduleIndex + 1).padStart(2, '0') }}</span>
@@ -974,6 +997,34 @@
             <p v-else class="generation-lesson-plan__inline-empty">
               {{ t('courseGeneration.lessonPlan.noTeachingFlow', '这一节暂未形成教学环节。') }}
             </p>
+
+            <div
+              v-if="editing && sectionModuleOptions.length"
+              class="generation-lesson-plan__module-composer"
+            >
+              <p class="generation-lesson-plan__module-composer-help">
+                {{ t('courseGeneration.lessonPlan.moduleComposerHelp', '勾选本节要用的教学环节；必需环节由学科模板规定，不能取消。') }}
+              </p>
+              <ul>
+                <li v-for="option in sectionModuleOptions" :key="option.module_id">
+                  <label>
+                    <input
+                      type="checkbox"
+                      :checked="option.selected"
+                      :disabled="option.required || moduleOrderSaving"
+                      @change="toggleModule(option)"
+                    />
+                    <span>{{ option.label }}</span>
+                    <small v-if="option.required">
+                      {{ t('courseGeneration.lessonPlan.moduleRequired', '必需') }}
+                    </small>
+                  </label>
+                </li>
+              </ul>
+              <p v-if="moduleOrderError" class="generation-lesson-plan__module-composer-error" role="alert">
+                {{ moduleOrderError }}
+              </p>
+            </div>
           </section>
 
           <section class="generation-lesson-plan__block generation-lesson-plan__knowledge">
@@ -1207,6 +1258,7 @@ const emit = defineEmits<{
   (event: 'select', node: Node): void
   (event: 'open-knowledge', knowledgeId: string): void
   (event: 'applied'): void
+  (event: 'open-outline-editor', target: { endpoint: string; revisionField: string }): void
 }>()
 
 const workbenchStore = useTeachingPlanWorkbenchStore()
@@ -1369,6 +1421,114 @@ const activeAiCandidate = computed(() => {
     candidate.draft_id === draftId && candidate.status === 'ready'
   ))
 })
+// 章节增删排序归目录真源。后端拒绝时会给出目录编辑器的 endpoint，
+// 这里据此渲染一个真的跳转入口——只显示一句「请去目录改」等于没说，
+// 教师并不知道目录编辑器在哪。
+const outlineEditorTarget = computed(() => {
+  if (workbenchStore.errorCode !== 'redirect_to_outline_edit') return null
+  const editor = workbenchStore.errorDetail?.outline_editor as
+    | { endpoint?: string; revision_field?: string }
+    | undefined
+  if (!editor?.endpoint) return null
+  return { endpoint: editor.endpoint, revisionField: editor.revision_field || '' }
+})
+
+function openOutlineEditor() {
+  const target = outlineEditorTarget.value
+  if (target) emit('open-outline-editor', target)
+}
+
+// 5.5 差异审阅：按新增/删除/替换分组，并把字段路径翻成教师看得懂的位置。
+// 只显示裸路径（sections/L2-1-1/teaching_modules/core/teaching_guidance）
+// 对教师没有意义——他需要知道「改的是第几节的哪个环节」。
+function diffKindOf(operation: { before?: unknown; after?: unknown }): 'added' | 'removed' | 'replaced' {
+  const empty = (value: unknown) => value === null || value === undefined || value === ''
+    || (Array.isArray(value) && value.length === 0)
+  if (empty(operation.before) && !empty(operation.after)) return 'added'
+  if (!empty(operation.before) && empty(operation.after)) return 'removed'
+  return 'replaced'
+}
+
+function diffKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    added: t('courseGeneration.lessonPlan.diffAdded', '新增'),
+    removed: t('courseGeneration.lessonPlan.diffRemoved', '删除'),
+    replaced: t('courseGeneration.lessonPlan.diffReplaced', '替换'),
+  }
+  return labels[kind] || kind
+}
+
+function sectionNameFor(nodeId: string): string {
+  return props.nodes?.find(node => node.node_id === nodeId)?.node_name || nodeId
+}
+
+// 路径 -> 「第几节 · 哪个部分」
+function locationForPath(path: string): string {
+  const parts = path.split('/')
+  if (parts[0] === 'overall') {
+    return t('courseGeneration.lessonPlan.overallTab', '教学大纲')
+  }
+  if (parts[0] === 'sections' && parts[1]) {
+    const section = sectionNameFor(parts[1])
+    if (parts[2] === 'teaching_modules') {
+      return parts[3]
+        ? `${section} · ${t('courseGeneration.lessonPlan.modules', '教学环节')} ${parts[3]}`
+        : `${section} · ${t('courseGeneration.lessonPlan.modules', '教学环节')}`
+    }
+    if (parts[2] === 'knowledge' && parts[3]) {
+      return `${section} · ${parts[3]}`
+    }
+    return section
+  }
+  return path
+}
+
+const groupedDiffOperations = computed(() => {
+  const operations = workbenchStore.review?.diff.operations || []
+  const order = { added: 0, replaced: 1, removed: 2 }
+  return [...operations]
+    .map(operation => ({
+      ...operation,
+      kind: diffKindOf(operation),
+      location: locationForPath(operation.path),
+    }))
+    .sort((left, right) => (order[left.kind] - order[right.kind])
+      || left.location.localeCompare(right.location))
+})
+
+// 5.6 影响审阅：五组分开展示，而不是只报「需要后续重建」一个数字。
+// 「保持不变」也要显示——教师需要区分「确认没事」与「漏了」。
+const IMPACT_GROUP_KEYS = ['needs_regeneration', 'stale', 'blocked', 'changed', 'unchanged'] as const
+
+function objectTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    section_content: t('courseGeneration.lessonPlan.objectSectionContent', '正文'),
+    practice: t('courseGeneration.lessonPlan.objectPractice', '练习'),
+    slide_deck: t('courseGeneration.lessonPlan.objectSlideDeck', '课件'),
+    lecture: t('courseGeneration.lessonPlan.objectLecture', '讲义'),
+    knowledge_binding: t('courseGeneration.lessonPlan.objectKnowledgeBinding', '知识绑定'),
+    teaching_plan: t('courseGeneration.lessonPlan.objectTeachingPlan', '教案'),
+    teaching_plan_section: t('courseGeneration.lessonPlan.objectTeachingPlan', '教案'),
+    teacher_projection: t('courseGeneration.lessonPlan.objectTeachingPlan', '教案'),
+  }
+  return labels[type] || type
+}
+
+const impactGroups = computed(() => {
+  const report = workbenchStore.review?.impact_report
+  if (!report) return []
+  const labels: Record<string, string> = {
+    needs_regeneration: t('courseGeneration.lessonPlan.impactNeedsRebuild', '待重建'),
+    stale: t('courseGeneration.lessonPlan.impactStale', '已过期'),
+    blocked: t('courseGeneration.lessonPlan.impactBlocked', '已阻断'),
+    changed: t('courseGeneration.lessonPlan.impactChanged', '已更新'),
+    unchanged: t('courseGeneration.lessonPlan.impactUnchanged', '保持不变'),
+  }
+  return IMPACT_GROUP_KEYS
+    .map(key => ({ key, label: labels[key], items: (report as any)[key] || [] }))
+    .filter(group => group.items.length)
+})
+
 const workbenchErrorMessage = computed(() => {
   const messages: Record<string, string> = {
     teaching_plan_base_conflict: t('courseGeneration.lessonPlan.errorConflict', '正式教案已更新，请重新载入后再编辑。'),
@@ -1376,6 +1536,8 @@ const workbenchErrorMessage = computed(() => {
     teaching_plan_field_conflict: t('courseGeneration.lessonPlan.errorFieldConflict', '该字段已在草稿中变化，请确认后重试。'),
     teaching_plan_quality_blocked: t('courseGeneration.lessonPlan.errorQuality', '教案尚未通过结构校验，不能应用。'),
     teaching_plan_readonly_legacy: t('courseGeneration.lessonPlan.errorLegacy', '这门课程需要先迁移为结构化课程。'),
+    teaching_plan_draft_expired: t('courseGeneration.lessonPlan.errorDraftExpired', '教案草稿已过期，请重新开始编辑。'),
+    redirect_to_outline_edit: t('courseGeneration.lessonPlan.errorOutlineEdit', '章节增删与排序请在目录编辑器中完成。'),
     teaching_plan_initialization_unavailable: t('courseGeneration.lessonPlan.errorInitializationUnavailable', '当前课程缺少可用于建立教案基线的结构化目录。'),
     teaching_plan_initialization_blocked: t('courseGeneration.lessonPlan.errorInitializationBlocked', '当前目录还不能建立可编辑教案，请先修复目录结构。'),
   }
@@ -1434,6 +1596,87 @@ function modulePath(
 
 function knowledgePath(sectionId: string, name: string, field: 'statement' | 'capability'): string {
   return `sections/${sectionId}/knowledge/${name}/${field}`
+}
+
+// 教学环节的增删：一条有序 module_id 列表路径承载整组顺序，module_id 保持稳定。
+// 不走防抖——这是离散的结构操作，而且可能被必需环节合同当场拒绝，
+// 教师需要立刻看到结果而不是等 650ms 后悄悄失败。
+const moduleOrderSaving = ref(false)
+const moduleOrderError = ref('')
+
+const sectionModuleOptions = computed(() => {
+  const sectionId = selectedSection.value?.node.node_id
+  if (!sectionId) return []
+  return workbenchStore.workbench?.section_module_options?.[sectionId] || []
+})
+
+// 环节拖拽排序：复用增删用的同一条有序 module_id 列表路径，
+// 所以排序天然保持 module_id 稳定、内容不重建（后端按 id 原样搬运）。
+const draggingModuleId = ref('')
+const dragOverModuleId = ref('')
+
+function startModuleDrag(moduleId?: string) {
+  if (!editing.value || !moduleId) return
+  draggingModuleId.value = moduleId
+}
+
+async function dropModule(targetId?: string) {
+  const sectionId = selectedSection.value?.node.node_id
+  const sourceId = draggingModuleId.value
+  dragOverModuleId.value = ''
+  draggingModuleId.value = ''
+  if (!sectionId || !sourceId || !targetId || sourceId === targetId) return
+
+  const current = (selectedSection.value?.plan?.teaching_modules || [])
+    .map(item => item.module_id)
+    .filter((id): id is string => Boolean(id))
+  const from = current.indexOf(sourceId)
+  const to = current.indexOf(targetId)
+  if (from < 0 || to < 0) return
+
+  const next = [...current]
+  next.splice(from, 1)
+  next.splice(to, 0, sourceId)
+
+  moduleOrderSaving.value = true
+  moduleOrderError.value = ''
+  try {
+    await workbenchStore.patchDraft(moduleOrderPath(sectionId), next)
+  } catch {
+    moduleOrderError.value = workbenchErrorMessage.value
+  } finally {
+    moduleOrderSaving.value = false
+  }
+}
+
+function moduleOrderPath(sectionId: string): string {
+  return `sections/${sectionId}/teaching_modules`
+}
+
+async function toggleModule(option: { module_id: string; required: boolean; selected: boolean }) {
+  const sectionId = selectedSection.value?.node.node_id
+  if (!sectionId || option.required || moduleOrderSaving.value) return
+  const current = sectionModuleOptions.value
+    .filter(item => item.selected)
+    .map(item => item.module_id)
+  // 保持模板顺序：新增的环节按模板里的位置插入，不追加到末尾。
+  const next = option.selected
+    ? current.filter(id => id !== option.module_id)
+    : sectionModuleOptions.value
+      .filter(item => item.selected || item.module_id === option.module_id)
+      .map(item => item.module_id)
+
+  moduleOrderSaving.value = true
+  moduleOrderError.value = ''
+  try {
+    await workbenchStore.patchDraft(moduleOrderPath(sectionId), next)
+  } catch {
+    moduleOrderError.value = workbenchStore.errorCode === 'teaching_plan_quality_blocked'
+      ? t('courseGeneration.lessonPlan.moduleRequiredBlocked', '这是学科模板规定的必需教学环节，不能删除。')
+      : workbenchErrorMessage.value
+  } finally {
+    moduleOrderSaving.value = false
+  }
 }
 
 function queuePatch(path: string, fallback: unknown, next: unknown) {
@@ -1951,6 +2194,9 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__block-heading > p { justify-self:end; max-width:510px; margin:0; color:#7a8393; font-size:13px; line-height:1.6; text-align:right; }
 .generation-lesson-plan__flow ol { display:grid; gap:0; margin:0; padding:0 0 0 7px; list-style:none; }
 .generation-lesson-plan__flow li { display:grid; grid-template-columns:44px minmax(0,1fr); gap:14px; }
+.generation-lesson-plan__flow li[draggable="true"] { cursor:grab; }
+.generation-lesson-plan__flow li[draggable="true"]:active { cursor:grabbing; }
+.generation-lesson-plan__flow li.is-drag-over { outline:2px dashed #b9c2d6; outline-offset:3px; border-radius:8px; }
 .generation-lesson-plan__module-index { display:grid; grid-template-rows:28px 1fr; justify-items:center; color:#5d63bd; font:700 12px/28px ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__module-index span { width:28px; height:28px; border:1px solid #cfd3ef; border-radius:50%; background:#f7f7ff; text-align:center; }
 .generation-lesson-plan__module-index i { width:1px; min-height:26px; background:#dfe2e9; }
@@ -2026,6 +2272,13 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__connection-grid li > div { display:flex; align-items:center; gap:8px; color:#4d5780; font-size:12px; font-weight:750; }
 .generation-lesson-plan__connection-grid li > p { margin:5px 0 0; color:#778091; font-size:12px; line-height:1.55; }
 .generation-lesson-plan__inline-empty { margin:0; padding:24px; border:1px dashed #d9dde5; border-radius:11px; color:#858d9c; background:#fafbfc; font-size:13px; text-align:center; }
+.generation-lesson-plan__module-composer { margin-top:14px; padding:14px 16px; border:1px solid #e4e7ee; border-radius:11px; background:#fafbfc; }
+.generation-lesson-plan__module-composer-help { margin:0 0 10px; color:#6b7382; font-size:12px; line-height:1.6; }
+.generation-lesson-plan__module-composer ul { display:flex; flex-wrap:wrap; gap:8px 16px; margin:0; padding:0; list-style:none; }
+.generation-lesson-plan__module-composer label { display:inline-flex; align-items:center; gap:7px; color:#3c4453; font-size:13px; cursor:pointer; }
+.generation-lesson-plan__module-composer input[disabled] + span { color:#858d9c; }
+.generation-lesson-plan__module-composer label small { padding:1px 7px; border-radius:999px; background:#eef0f6; color:#6b7382; font-size:11px; }
+.generation-lesson-plan__module-composer-error { margin:10px 0 0; color:#c0392b; font-size:12px; line-height:1.6; }
 .generation-lesson-plan__skeleton { display:grid; gap:18px; padding:34px; }
 .generation-lesson-plan__skeleton > div { display:grid; gap:10px; padding:20px; border:1px solid #e5e7ec; border-radius:12px; }
 .generation-lesson-plan__skeleton i { height:13px; border-radius:4px; background:linear-gradient(90deg,#eef0f4 20%,#f8f9fb 45%,#eef0f4 70%); background-size:220% 100%; animation:lesson-plan-shimmer 1.4s ease infinite; }
@@ -2055,6 +2308,8 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__workbench-notice p { margin-top:2px; }
 .generation-lesson-plan__workbench-notice > button { flex:none; margin-left:auto; }
 .generation-lesson-plan__workbench-error { border-color:#ecd7c4; color:#9b6333; background:#fffaf5; }
+.generation-lesson-plan__error-action { margin-left:auto; padding:3px 10px; border:1px solid #e0c3a4; border-radius:7px; color:#9b6333; background:#fff; font-size:12px; cursor:pointer; white-space:nowrap; }
+.generation-lesson-plan__error-action:hover { background:#fdf3e9; }
 .generation-lesson-plan__workbench-error > span { flex:1; min-width:0; }
 .generation-lesson-plan__workbench-error > button { display:inline-flex; flex:none; align-items:center; gap:5px; min-height:28px; padding:0 8px; border:1px solid #dfc5ae; border-radius:6px; color:#8e572a; background:#fff; font-size:12px; font-weight:750; cursor:pointer; }
 .generation-lesson-plan__review { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #cfd4e9; border-radius:8px; background:#fdfdff; box-shadow:0 12px 30px rgba(48,55,90,.07); }
@@ -2065,6 +2320,20 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__review-blocked small { display:block; margin-top:3px; color:#8f663f; font-size:12px; }
 .generation-lesson-plan__review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:17px; }
 .generation-lesson-plan__review-grid > section { min-width:0; padding:13px 14px; border:1px solid #e1e4eb; border-radius:8px; background:#fff; }
+.generation-lesson-plan__diff-list li { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.generation-lesson-plan__diff-kind { padding:1px 7px; border-radius:999px; font-size:11px; background:#eef0f6; color:#5a6274; }
+.generation-lesson-plan__diff-kind[data-kind="added"] { background:#e8f5ec; color:#2f7d4f; }
+.generation-lesson-plan__diff-kind[data-kind="removed"] { background:#fdeceb; color:#b4453c; }
+.generation-lesson-plan__diff-kind[data-kind="replaced"] { background:#eef2fd; color:#4a5ba8; }
+.generation-lesson-plan__diff-where { font-size:12px; color:#3c4453; }
+.generation-lesson-plan__impact-group { margin-top:10px; }
+.generation-lesson-plan__impact-group:first-of-type { margin-top:0; }
+.generation-lesson-plan__impact-heading { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#5a6274; }
+.generation-lesson-plan__impact-heading i { font-style:normal; padding:0 6px; border-radius:999px; background:#eef0f6; font-size:11px; }
+.generation-lesson-plan__impact-heading[data-group="needs_regeneration"] { color:#9b6333; }
+.generation-lesson-plan__impact-heading[data-group="blocked"] { color:#b4453c; }
+.generation-lesson-plan__impact-heading[data-group="unchanged"] { color:#8b93a1; }
+.generation-lesson-plan__impact-object { padding:0 6px; border-radius:4px; background:#f4f6fa; font-size:11px; color:#5a6274; margin-right:6px; }
 .generation-lesson-plan__review-grid strong { color:#4b566a; font-size:12px; }
 .generation-lesson-plan__review-grid ol { display:grid; gap:7px; margin:10px 0 0; padding:0; list-style:none; }
 .generation-lesson-plan__review-grid li { min-width:0; color:#697386; font-size:12px; line-height:1.5; }

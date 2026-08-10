@@ -23,7 +23,7 @@ describe('课程教案阅读尺度', () => {
     expect(component).toContain('.generation-lesson-plan__knowledge-detail')
   })
 
-  it('用总体教案与分小节教案承载同一份全课计划', async () => {
+  it('用教学大纲与教学设计承载同一份全课计划', async () => {
     const nodes: Node[] = [{
       node_id: 'section-1',
       node_name: '一次函数斜率',
@@ -106,7 +106,7 @@ describe('课程教案阅读尺度', () => {
       props: { nodes, plan, activeNodeId: 'section-1' },
     })
 
-    expect(wrapper.text()).toContain('总体教案')
+    expect(wrapper.text()).toContain('教学大纲')
     expect(wrapper.text()).toContain('从变化率出发理解一次函数')
     expect(wrapper.text()).toContain('建立斜率的几何与情境直觉')
     expect(wrapper.text()).toContain('一次函数斜率')
