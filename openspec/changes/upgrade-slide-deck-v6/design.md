@@ -136,4 +136,17 @@ Every failure contains `stage`, `code`, `message`, `retryable`, and optional `ch
 4. Require source coverage, sequence, subject artifacts, template selection, AI diagnostics, Web/PPTX parity and export-open checks for all three.
 5. Only after all samples pass, switch the new-build default to V6. Monitor build success, story failure, visual degradation, manual edits, stage latency and template conflicts.
 
+Shadow verification uses the same public build stream with
+`engine_version=v6`, `shadow_only=true` and one `chapter_id`. The task freezes
+that section subtree, runs the durable V6 compiler, and records a terminal
+candidate with `published=false`; it never updates the teaching-representation
+registry. Authenticated diagnostics and PPTX export are read from the
+course-scoped shadow endpoints.
+
+Rollout has two independent switches. `SLIDE_DECK_V6_ENABLED=false` disables
+explicit shadow/V6 requests, while `SLIDE_DECK_V6_DEFAULT_ENABLED=false` keeps
+ordinary new builds on V5. Rollback first disables the default switch, then the
+explicit V6 switch if required; existing V5/V6 specs and exports remain
+readable because rollback does not delete registry history or candidates.
+
 The reference visual baseline is `frontend/public/presentation-templates/qizhi-classroom-v2.pptx` plus the currently published template pack manifests. V6 never hardcodes a course to that template or to any subject-specific layout ID.

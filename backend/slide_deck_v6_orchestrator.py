@@ -249,6 +249,8 @@ class SlideDeckV6Orchestrator:
         source_revision_provider: Callable[[], str],
         template_contract: TemplateLayoutPackContractV1 | None = None,
         template_digest_provider: Callable[[], str] | None = None,
+        publish_result: bool = True,
+        shadow_context: dict[str, Any] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         try:
@@ -276,6 +278,7 @@ class SlideDeckV6Orchestrator:
         story = None
         visual = None
         template = template_contract or compile_builtin_template_layout_contract_v1(theme)
+        finalize_item_id = "publish" if publish_result else "finalize-shadow"
         checkpoint: dict[str, Any] = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
             "task_id": task_id,
@@ -473,7 +476,12 @@ class SlideDeckV6Orchestrator:
             tracker.add_work([
                 SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
                 SlideWorkItemV2(item_id="quality", kind="local", stage="quality", label="执行忠实度与渲染门禁"),
-                SlideWorkItemV2(item_id="publish", kind="local", stage="publish", label="原子发布正式课件"),
+                SlideWorkItemV2(
+                    item_id=finalize_item_id,
+                    kind="local",
+                    stage="publish" if publish_result else "shadow_finalize",
+                    label="原子发布正式课件" if publish_result else "完成只读影子候选",
+                ),
             ])
             await _emit(progress_callback, tracker.snapshot())
 
@@ -556,8 +564,8 @@ class SlideDeckV6Orchestrator:
             tracker.complete("quality")
             await _emit(progress_callback, tracker.snapshot())
 
-            current_work = "publish"
-            tracker.start("publish")
+            current_work = finalize_item_id
+            tracker.start(finalize_item_id)
             if str(source_revision_provider() or "") != source_contract.course_document_revision:
                 raise V6BuildError(
                     stage="publish",
@@ -707,27 +715,33 @@ class SlideDeckV6Orchestrator:
                 "visual_plan": visual.model_dump(mode="json"),
                 "planning_status": planning_status,
                 "deck": deck.model_dump(mode="json"),
+                "published": publish_result,
+                "shadow_context": dict(shadow_context or {}),
                 "failure": None,
                 "updated_at": now,
             }
             self.candidates.save(task_id, candidate_payload)
-            registry = self.representations.publish_spec_and_representation(
-                spec,
-                representation,
-                dependency_kind="layout",
-                rebuild_policy="on_demand",
-            )
-            tracker.complete("publish")
-            tracker.mark_published()
+            if publish_result:
+                registry_payload = self.representations.publish_spec_and_representation(
+                    spec,
+                    representation,
+                    dependency_kind="layout",
+                    rebuild_policy="on_demand",
+                ).model_dump(mode="json")
+            else:
+                registry_payload = {}
+            tracker.complete(finalize_item_id)
+            tracker.mark_completed(published=publish_result)
             progress = tracker.snapshot()
             await _emit(progress_callback, progress)
             return {
                 "status": deck.status,
                 "candidate_status": deck.status,
+                "published": publish_result,
                 "representation_id": representation_id,
                 "spec_id": spec_id,
                 "quality": deck.quality.model_dump(mode="json"),
-                "registry": registry.model_dump(mode="json"),
+                "registry": registry_payload,
                 "progress": progress,
             }
         except V6BuildError as error:
@@ -754,6 +768,8 @@ class SlideDeckV6Orchestrator:
                 "story_plan": story.model_dump(mode="json") if story else None,
                 "visual_plan": visual.model_dump(mode="json") if visual else None,
                 "deck": None,
+                "published": False,
+                "shadow_context": dict(shadow_context or {}),
                 "failure": error.failure.model_dump(mode="json"),
                 "updated_at": _utc_now(),
             }

@@ -164,3 +164,22 @@ The system SHALL implement grouping, planning, pagination and quality gates thro
 - **WHEN** the implementation is validated
 - **THEN** it contains no branches on course title, course ID, fixed formula, fixed asset ID or fixed chapter structure
 - **AND** programming, mathematics/data and non-math/non-programming fixtures pass the same public contracts
+
+### Requirement: Chapter Shadow Validation Never Replaces A Published Deck
+The system SHALL support an explicit V6-only shadow request for one selected section subtree and SHALL run the same source, AI, template, render and export gates without publishing the candidate.
+
+#### Scenario: A canonical online chapter is shadow built
+- **WHEN** an authenticated caller supplies `shadow_only=true`, `engine_version=v6` and an existing `chapter_id`
+- **THEN** the durable orchestrator freezes only that chapter and its descendants
+- **AND** the terminal candidate reaches 100% with `published=false`
+- **AND** the course registry continues to serve its previous deck
+
+#### Scenario: A legacy online course is inspected without migration
+- **WHEN** the same read-only shadow request selects a chapter from a legacy projection
+- **THEN** V6 may freeze the projected chapter for validation without persisting a canonical migration
+- **AND** missing formal prerequisite artifacts still fail explicitly rather than being synthesized or bypassed
+
+#### Scenario: A caller requests a shadow artifact
+- **WHEN** the task belongs to the requested course and passed the final gates
+- **THEN** the authenticated candidate and its exportable PPTX are available from the shadow diagnostics endpoints
+- **AND** a public build, cross-course task or failed candidate is not exposed as a successful shadow artifact

@@ -14,7 +14,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_base import AIBase
 from change_proposals import change_proposal_repository, create_authoring_change
@@ -72,6 +72,7 @@ from slide_deck_v5 import (
 )
 from slide_deck_v6 import build_signature_v6
 from slide_deck_v6_orchestrator import SlideDeckV6CandidateRepository
+from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
@@ -153,10 +154,23 @@ class SlideDeckVariantBuildRequest(BaseModel):
     engine_version: Literal["v5", "v6"] | None = None
     template_pack_id: str = ""
     template_version: int | None = Field(default=None, ge=1)
+    shadow_only: bool = False
+    chapter_id: str = Field(default="", max_length=200)
     force_rebuild: bool = False
     web_image_retrieval: WebImageRetrievalConfig = Field(
         default_factory=WebImageRetrievalConfig
     )
+
+    @model_validator(mode="after")
+    def validate_shadow_scope(self) -> "SlideDeckVariantBuildRequest":
+        self.chapter_id = self.chapter_id.strip()
+        if self.shadow_only and self.engine_version != "v6":
+            raise ValueError("Shadow chapter builds require engine_version=v6")
+        if self.shadow_only and not self.chapter_id:
+            raise ValueError("Shadow chapter builds require chapter_id")
+        if self.chapter_id and not self.shadow_only:
+            raise ValueError("chapter_id is only valid for shadow_only builds")
+        return self
 
 
 def _reconciled_registry(course_id: str) -> dict:
@@ -294,7 +308,7 @@ def _v5_enabled() -> bool:
 def _v6_enabled() -> bool:
     return os.getenv(
         "SLIDE_DECK_V6_ENABLED",
-        "false",
+        "true",
     ).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -473,16 +487,24 @@ def _compile_registry(
     }
 
 
-def _load_registry_slide_source(course_id: str) -> tuple[Any, dict[str, Any]]:
+def _load_registry_slide_source(
+    course_id: str,
+    *,
+    allow_legacy_projection: bool = False,
+) -> tuple[Any, dict[str, Any]]:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
-    if not canonical:
+    if not canonical and not allow_legacy_projection:
         raise RepresentationConflict("Course must be migrated before compiling representations")
     return document, course_repository.load_course_view(course_id)
 
 
 async def _plan_registry_slide_deck(course_id: str) -> SlideDeckPlanV1:
-    document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    document, course_view = await run_in_threadpool(
+        _load_registry_slide_source,
+        course_id,
+        allow_legacy_projection=body.shadow_only,
+    )
     return await plan_slide_deck(
         document,
         course_view,
@@ -571,6 +593,79 @@ async def get_slide_deck_v6_metrics(course_id: str, request: Request) -> dict:
         progress_root=Path(DATA_DIR) / "slide_build_progress_v2",
     )
     return {"status": "success", "metrics": metrics}
+
+
+def _load_v6_shadow_candidate(course_id: str, task_id: str) -> dict[str, Any]:
+    repository = SlideDeckV6CandidateRepository(
+        Path(DATA_DIR) / "slide_deck_v6_candidates"
+    )
+    try:
+        candidate = repository.load(task_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail={
+            "code": "v6_shadow_candidate_not_found",
+            "message": "The requested V6 shadow candidate does not exist.",
+        }) from exc
+    if (
+        candidate.get("schema_version") != "slide_deck_v6_candidate_v1"
+        or candidate.get("course_id") != course_id
+        or candidate.get("published") is not False
+        or not candidate.get("shadow_context")
+    ):
+        raise HTTPException(status_code=404, detail={
+            "code": "v6_shadow_candidate_not_found",
+            "message": "The requested task is not a shadow candidate for this course.",
+        })
+    return candidate
+
+
+@router.get("/slide-decks/v6/shadows/{task_id}")
+async def get_slide_deck_v6_shadow_candidate(
+    course_id: str,
+    task_id: str,
+    request: Request,
+) -> dict:
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    candidate = await run_in_threadpool(
+        _load_v6_shadow_candidate,
+        course_id,
+        task_id,
+    )
+    return {"status": "success", "candidate": candidate}
+
+
+@router.get("/slide-decks/v6/shadows/{task_id}/export")
+async def export_slide_deck_v6_shadow_candidate(
+    course_id: str,
+    task_id: str,
+    request: Request,
+) -> FileResponse:
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    candidate = await run_in_threadpool(
+        _load_v6_shadow_candidate,
+        course_id,
+        task_id,
+    )
+    if not candidate.get("deck"):
+        raise HTTPException(status_code=409, detail={
+            "code": "v6_shadow_candidate_failed",
+            "message": "The V6 shadow candidate did not reach an exportable state.",
+            "failure": candidate.get("failure") or {},
+        })
+    output = Path(DATA_DIR) / "teaching_exports" / f"v6-shadow-{task_id}.pptx"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    await run_in_threadpool(
+        export_slide_deck_v6_pptx,
+        candidate["deck"],
+        output,
+    )
+    return FileResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"v6-shadow-{task_id}.pptx",
+    )
 
 
 @router.post("/course-logic/upgrade")
@@ -931,7 +1026,7 @@ async def stream_slide_deck_variant_build(
         == expected_signature
         and cached_bundle_complete
     )
-    if cached_current and not body.force_rebuild:
+    if cached_current and not body.force_rebuild and not body.shadow_only:
         async def cached_event_stream():
             payload = {
                 "event": "build_complete",
@@ -985,6 +1080,9 @@ async def stream_slide_deck_variant_build(
                     "owner_id": owner_id,
                 },
                 "force_rebuild": body.force_rebuild,
+                "shadow_only": body.shadow_only,
+                "chapter_id": body.chapter_id,
+                "source_course_document_revision": str(document.document_revision or ""),
                 "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
             },
             base_document_revision=str(document.document_revision or ""),

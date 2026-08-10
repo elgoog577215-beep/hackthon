@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-from course_document import CourseBlock, CourseDocument, stable_hash
+from course_document import CourseBlock, CourseDocument, refresh_document_revision, stable_hash
 from course_presentation_graph import (
     CoursePresentationGraphV1,
     CoursePresentationUnitV1,
@@ -240,6 +240,45 @@ def _formal_blocks(document: CourseDocument) -> list[CourseBlock]:
         (block for block in document.blocks if block.status == "final"),
         key=lambda block: (section_order.get(block.section_id, len(section_order)), block.position, block.block_id),
     )
+
+
+def compile_shadow_chapter_document(
+    document: CourseDocument,
+    chapter_id: str,
+) -> CourseDocument:
+    """Freeze one selected section subtree without mutating the online course."""
+
+    known_sections = {section.section_id for section in document.sections}
+    if chapter_id not in known_sections:
+        raise V6BuildError(
+            stage="source",
+            code="shadow_chapter_not_found",
+            message="The requested shadow chapter is not present in the frozen course",
+            chapter_id=chapter_id,
+        )
+    selected = {chapter_id}
+    changed = True
+    while changed:
+        before = len(selected)
+        selected.update(
+            section.section_id
+            for section in document.sections
+            if section.parent_section_id in selected
+        )
+        changed = len(selected) != before
+    payload = document.model_dump(mode="json")
+    payload["document_revision"] = ""
+    payload["sections"] = [
+        section.model_dump(mode="json")
+        for section in document.sections
+        if section.section_id in selected
+    ]
+    payload["blocks"] = [
+        block.model_dump(mode="json")
+        for block in document.blocks
+        if block.section_id in selected
+    ]
+    return refresh_document_revision(CourseDocument.model_validate(payload))
 
 
 def compile_ppt_source_contract_v2(
@@ -1164,6 +1203,7 @@ __all__ = [
     "V6Failure",
     "build_signature_v6",
     "compile_ppt_source_contract_v2",
+    "compile_shadow_chapter_document",
     "compile_slide_deck_v6",
     "validate_slide_story_plan_v3",
     "validate_slide_visual_plan_v2",

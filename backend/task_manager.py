@@ -193,7 +193,7 @@ from slide_deck_v5 import (
     build_signature_v5,
     compact_story_plan_v5,
 )
-from slide_deck_v6 import V6BuildError
+from slide_deck_v6 import V6BuildError, compile_shadow_chapter_document
 from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
@@ -4766,6 +4766,9 @@ class TaskManager:
         variant_key: str,
         template_contract: TemplateLayoutPackContractV1,
         template_digest_provider: Callable[[], str],
+        source_revision_provider: Callable[[], str],
+        publish_result: bool = True,
+        shadow_context: dict[str, Any] | None = None,
     ) -> None:
         """Run the strict V6 candidate through the shared durable boundary."""
 
@@ -4801,12 +4804,11 @@ class TaskManager:
             theme=theme,
             story_planner=build_ai_base_story_planner_v6(),
             visual_planner=build_ai_base_visual_planner_v2(),
-            source_revision_provider=lambda: str(
-                self._course_document_repository.load_document(document.course_id)[0].document_revision
-                or ""
-            ),
+            source_revision_provider=source_revision_provider,
             template_contract=template_contract,
             template_digest_provider=template_digest_provider,
+            publish_result=publish_result,
+            shadow_context=shadow_context,
             progress_callback=record_v6_progress,
         )
         public_result = {
@@ -4815,6 +4817,7 @@ class TaskManager:
             "registry": result.get("registry") or {},
             "variant_key": variant_key,
             "target_schema": "slide_deck_v6",
+            "shadow_context": dict(shadow_context or {}),
         }
         final_status = (
             "completed_with_warnings"
@@ -4826,13 +4829,19 @@ class TaskManager:
             if not current or current.get("status") in {"paused", "cancelled"}:
                 return
             current["result"] = public_result
-            current["completed_representation_types"] = [f"slide_deck:{variant_key}"]
+            current["completed_representation_types"] = (
+                [f"slide_deck:{variant_key}"] if publish_result else []
+            )
             current["progress"] = 100
             current["phase_progress"] = 100
             current["phase"] = "complete"
             current["current_phase"] = "complete"
             current["message"] = (
-                "V6 deck published with pages marked for manual review"
+                "V6 shadow candidate completed with pages marked for manual review"
+                if not publish_result and final_status == "completed_with_warnings"
+                else "V6 shadow candidate passed all fidelity and render gates"
+                if not publish_result
+                else "V6 deck published with pages marked for manual review"
                 if final_status == "completed_with_warnings"
                 else "V6 deck passed the fidelity gates and was published"
             )
@@ -4866,8 +4875,14 @@ class TaskManager:
         document, canonical = await asyncio.to_thread(
             self._course_document_repository.load_document, course_id,
         )
-        if not canonical:
+        requested_schema = str(request.get("target_schema") or "")
+        shadow_only = bool(request.get("shadow_only"))
+        chapter_id = str(request.get("chapter_id") or "").strip()
+        if not canonical and not (requested_schema == "slide_deck_v6" and shadow_only):
             raise CourseDocumentConflict("Course must be canonical before building slide variants")
+        source_course_document_revision = str(document.document_revision or "")
+        if shadow_only:
+            document = compile_shadow_chapter_document(document, chapter_id)
         course_view = await asyncio.to_thread(
             self._course_document_repository.load_course_view, course_id,
         )
@@ -4882,7 +4897,6 @@ class TaskManager:
             "SLIDE_STORY_ENGINE_V2_ENABLED",
             "true",
         ).strip().lower() in {"1", "true", "yes", "on"}
-        requested_schema = str(request.get("target_schema") or "")
         slide_schema = resolve_slide_deck_schema(
             course_view,
             story_engine_enabled=story_engine_enabled,
@@ -4927,6 +4941,19 @@ class TaskManager:
                     return compile_builtin_template_layout_contract_v1(
                         template_contract.theme_id
                     ).template_digest
+            if shadow_only:
+                def current_source_revision() -> str:
+                    current_document, _ = self._course_document_repository.load_document(course_id)
+                    return compile_shadow_chapter_document(
+                        current_document,
+                        chapter_id,
+                    ).document_revision
+            else:
+                def current_source_revision() -> str:
+                    return str(
+                        self._course_document_repository.load_document(course_id)[0].document_revision
+                        or ""
+                    )
             await self._process_slide_deck_variant_v6(
                 task_id=task_id,
                 document=document,
@@ -4936,6 +4963,17 @@ class TaskManager:
                 variant_key=variant_key,
                 template_contract=template_contract,
                 template_digest_provider=current_template_digest,
+                source_revision_provider=current_source_revision,
+                publish_result=not shadow_only,
+                shadow_context=(
+                    {
+                        "chapter_id": chapter_id,
+                        "source_course_document_revision": source_course_document_revision,
+                        "source_format": "canonical" if canonical else "legacy_projection",
+                    }
+                    if shadow_only
+                    else None
+                ),
             )
             return
         saved_revision = str(task.get("representation_source_document_revision") or "")

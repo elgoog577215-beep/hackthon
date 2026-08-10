@@ -234,6 +234,39 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_shadow_candidate_runs_all_gates_without_replacing_the_public_registry(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    result = await orchestrator.build(
+        task_id="task-v6-shadow",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+        publish_result=False,
+        shadow_context={
+            "chapter_id": "chapter-1",
+            "source_course_document_revision": "source-course-revision",
+        },
+    )
+
+    assert result["status"] == "v6_ready"
+    assert result["published"] is False
+    assert result["registry"] == {}
+    assert result["progress"]["percent"] == 100
+    assert result["progress"]["finalized"] is True
+    assert result["progress"]["published"] is False
+    assert representations.load(document.course_id).representations == []
+    candidate = candidates.load("task-v6-shadow")
+    assert candidate["shadow_context"]["chapter_id"] == "chapter-1"
+    assert candidate["published"] is False
+
+
+@pytest.mark.asyncio
 async def test_failed_v6_candidate_keeps_last_published_representation(tmp_path: Path) -> None:
     document = _document()
     orchestrator, representations, candidates = _orchestrator(tmp_path)

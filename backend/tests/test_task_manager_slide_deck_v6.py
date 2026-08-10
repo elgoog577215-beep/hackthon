@@ -70,6 +70,43 @@ def _canonical_course() -> dict:
     }
 
 
+def _legacy_course() -> dict:
+    return {
+        "course_id": "generic-legacy-v6-shadow",
+        "course_name": "Legacy field methods",
+        "current_course_version_id": "legacy-v1",
+        "nodes": [
+            {
+                "node_id": "chapter-1",
+                "parent_node_id": "root",
+                "node_name": "Observation",
+                "node_level": 1,
+                "node_content": "Define the observation scope.",
+            },
+            {
+                "node_id": "lesson-1",
+                "parent_node_id": "chapter-1",
+                "node_name": "Record evidence",
+                "node_level": 2,
+                "node_content": "Record the object, time, context, and result.",
+            },
+        ],
+        "generation_stage_artifacts": {
+            "course_teaching_plan": {"status": "completed", "section_count": 1},
+        },
+        "course_teaching_plan": {
+            "revision_id": "legacy-plan-1",
+            "sections": [{"node_id": "chapter-1", "teaching_modules": []}],
+        },
+        "course_knowledge_base": {"revision_id": "legacy-kb-1", "lifecycle_status": "active"},
+        "course_coherence_contract": {
+            "revision_id": "legacy-coherence-1",
+            "status": "active",
+            "quality_report": {"passed": True},
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmentation(
     tmp_path,
@@ -120,6 +157,50 @@ async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmenta
         event.get("event") == "fragmenting"
         for event in manager.tasks[task_id].get("event_history") or []
     )
+
+
+@pytest.mark.asyncio
+async def test_v6_shadow_task_can_read_a_legacy_projection_without_publishing(tmp_path, monkeypatch) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _legacy_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={
+            "mode": "teaching",
+            "theme": "qizhi-classroom",
+            "target_schema": "slide_deck_v6",
+            "shadow_only": True,
+            "chapter_id": "chapter-1",
+        },
+    )
+    captured: dict[str, object] = {}
+
+    async def v6_runner(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(manager, "_process_slide_deck_variant_v6", v6_runner, raising=False)
+
+    await manager._process_slide_deck_variant_task(task_id)
+
+    assert captured["publish_result"] is False
+    assert captured["shadow_context"]["source_format"] == "legacy_projection"
+    assert captured["shadow_context"]["chapter_id"] == "chapter-1"
+    assert {section.section_id for section in captured["document"].sections} == {
+        "chapter-1",
+        "lesson-1",
+    }
 
 
 @pytest.mark.asyncio

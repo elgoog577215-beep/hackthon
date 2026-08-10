@@ -82,6 +82,7 @@ class SlideBuildProgressManifestV2(_StrictModel):
     completed_weight: int = Field(default=0, ge=0)
     total_weight: int = Field(default=0, ge=0)
     display_percent: int = Field(default=0, ge=0, le=100)
+    finalized: bool = False
     published: bool = False
     failure: V6Failure | None = None
     started_at: str
@@ -175,7 +176,7 @@ class SlideBuildProgressTrackerV2:
         self.manifest.completed_weight = sum(
             item.weight for item in self.manifest.items if item.status == "completed"
         )
-        if self.manifest.published:
+        if self.manifest.finalized:
             target = 100
         elif self.manifest.total_weight and self.manifest.completed_weight == self.manifest.total_weight:
             target = 99
@@ -303,16 +304,25 @@ class SlideBuildProgressTrackerV2:
         self._recalculate()
         self._persist()
 
-    def mark_published(self, *, now: datetime | None = None) -> None:
+    def mark_completed(
+        self,
+        *,
+        published: bool,
+        now: datetime | None = None,
+    ) -> None:
         current = now or _utc_now()
         if any(item.status != "completed" for item in self.manifest.items):
-            raise ValueError("Cannot publish before every work item completes")
-        self.manifest.published = True
+            raise ValueError("Cannot finalize before every work item completes")
+        self.manifest.finalized = True
+        self.manifest.published = published
         self.manifest.status = "completed"
         self.manifest.failure = None
         self._touch(current)
         self._recalculate()
         self._persist()
+
+    def mark_published(self, *, now: datetime | None = None) -> None:
+        self.mark_completed(published=True, now=now)
 
     def heartbeat_due(self, *, now: datetime | None = None) -> bool:
         current = now or _utc_now()
@@ -330,6 +340,7 @@ class SlideBuildProgressTrackerV2:
             "task_id": self.manifest.task_id,
             "status": self.manifest.status,
             "percent": self.manifest.display_percent,
+            "finalized": self.manifest.finalized,
             "published": self.manifest.published,
             "stage": context.stage,
             "step_index": context.step_index,

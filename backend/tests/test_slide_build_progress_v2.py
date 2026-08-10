@@ -57,6 +57,22 @@ def test_progress_caps_at_99_until_atomic_publish() -> None:
     assert tracker.manifest.status == "completed"
 
 
+def test_shadow_candidate_can_finish_at_100_without_claiming_publication() -> None:
+    tracker = SlideBuildProgressTrackerV2.create("task-shadow", now=_now())
+    tracker.add_work(
+        [SlideWorkItemV2(item_id="finalize", kind="local", stage="finalize", label="完成影子候选")],
+        now=_now(1),
+    )
+    tracker.complete("finalize", now=_now(2))
+
+    tracker.mark_completed(now=_now(3), published=False)
+
+    assert tracker.manifest.display_percent == 100
+    assert tracker.manifest.status == "completed"
+    assert tracker.manifest.finalized is True
+    assert tracker.manifest.published is False
+
+
 def test_progress_manifest_resumes_after_repository_reload(tmp_path: Path) -> None:
     repository = SlideBuildProgressRepositoryV2(tmp_path)
     tracker = SlideBuildProgressTrackerV2.create("task-v6", repository=repository, now=_now())

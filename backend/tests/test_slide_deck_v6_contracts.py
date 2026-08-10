@@ -12,6 +12,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     build_signature_v6,
+    compile_shadow_chapter_document,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
     validate_slide_story_plan_v3,
@@ -77,6 +78,33 @@ def test_course_graph_preserves_long_semantic_unit_and_covers_every_block() -> N
     assert len(first.source_text) > 230
     assert all(unit.section_id in {"s1", "s2"} for unit in graph.units)
     assert not any({"b4", "b5"}.issubset(set(unit.primary_block_ids)) for unit in graph.units)
+
+
+def test_shadow_chapter_freezes_only_the_selected_section_subtree() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-shadow-course",
+        title="Generic field methods",
+        sections=[
+            CourseSection(section_id="chapter-a", title="Observe", position=0, level=1),
+            CourseSection(section_id="lesson-a", title="Record", position=1, level=2, parent_section_id="chapter-a"),
+            CourseSection(section_id="chapter-b", title="Explain", position=2, level=1),
+        ],
+        blocks=[
+            _block("a-root", "chapter-a", 0, role="concept", text="Define the observation scope."),
+            _block("a-child", "lesson-a", 0, role="activity", text="Record one field observation."),
+            _block("b-root", "chapter-b", 0, role="concept", text="Explain the evidence."),
+        ],
+    ))
+
+    chapter = compile_shadow_chapter_document(document, "chapter-a")
+
+    assert [section.section_id for section in chapter.sections] == ["chapter-a", "lesson-a"]
+    assert [block.block_id for block in chapter.blocks] == ["a-root", "a-child"]
+    assert chapter.document_revision != document.document_revision
+    assert len(document.sections) == 3
+
+    with pytest.raises(V6BuildError, match="shadow_chapter_not_found"):
+        compile_shadow_chapter_document(document, "missing")
 
 
 def test_course_graph_keeps_characteristic_artifact_with_context_and_result() -> None:
