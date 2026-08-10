@@ -319,6 +319,23 @@ def test_story_plan_rejects_an_ungrounded_visible_title() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    page = story.batches[0].pages[0]
+    layout = template.get_layout(page.template_layout_id)
+    assert layout is not None
+    title_capacity = next(
+        slot.max_chars for slot in layout.slots if slot.slot_kind == "title"
+    )
+    source_text = graph.units[0].source_text
+    page.title = source_text[: title_capacity + 1]
+    assert len(page.title) > title_capacity
+
+    with pytest.raises(V6BuildError, match="story_title_capacity_exceeded"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_visual_plan_degrades_only_optional_visuals() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)

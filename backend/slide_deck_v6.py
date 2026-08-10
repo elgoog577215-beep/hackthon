@@ -472,6 +472,17 @@ def validate_slide_story_plan_v3(
             raise V6BuildError(stage="template", code="template_layout_unavailable", message=f"Unknown V6 template layout: {page.template_layout_id}", page_id=page.page_id)
         if unit.teaching_intent not in layout.teaching_intents:
             raise V6BuildError(stage="template", code="template_layout_intent_mismatch", message="Template layout does not support the teaching intent", page_id=page.page_id)
+        title_slot = next(
+            (slot for slot in layout.slots if slot.slot_kind == "title"),
+            None,
+        )
+        if title_slot and title_slot.max_chars and len(page.title) > title_slot.max_chars:
+            raise V6BuildError(
+                stage="story",
+                code="story_title_capacity_exceeded",
+                message="Story title exceeds the selected template title capacity",
+                page_id=page.page_id,
+            )
         if unit.source_ordinal < previous_unit_ordinal:
             raise V6BuildError(stage="story", code="story_dependency_order_invalid", message="Story reverses course teaching-unit order", page_id=page.page_id)
         previous_unit_ordinal = unit.source_ordinal

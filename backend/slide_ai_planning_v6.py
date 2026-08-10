@@ -352,14 +352,21 @@ def _layout_prompt_contract(
     }
 
 
-def _grounded_title_candidates(source_text: str) -> list[str]:
+def _grounded_title_candidates(
+    source_text: str,
+    *,
+    max_chars: int = 72,
+) -> list[str]:
+    capacity = max(4, max_chars)
     candidates: list[str] = []
     for match in _MARKDOWN_TITLE_RE.finditer(source_text):
         candidate = str(match.group(1) or match.group(2) or "").strip()
+        if len(candidate) > capacity:
+            candidate = candidate[:capacity].rstrip("，。！？,;: ")
         if candidate and candidate in source_text and candidate not in candidates:
             candidates.append(candidate)
     for segment in re.split(r"[\n。！？!?；;]", source_text):
-        candidate = segment.strip().strip("#*` ")[:72].strip()
+        candidate = segment.strip().strip("#*` ")[:capacity].strip()
         if (
             len(candidate) >= 4
             and candidate in source_text
@@ -369,6 +376,42 @@ def _grounded_title_candidates(source_text: str) -> list[str]:
         if len(candidates) >= 6:
             break
     return candidates[:6]
+
+
+def _story_unit_request(
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+) -> dict[str, Any]:
+    allowed_layout_ids = _allowed_layout_ids(unit, template)
+    allowed_layouts = [
+        _layout_prompt_contract(layout_id, template)
+        for layout_id in allowed_layout_ids
+    ]
+    title_capacities = [
+        int(slot.get("max_chars") or 0)
+        for layout in allowed_layouts
+        for slot in layout["slots"]
+        if slot.get("slot_kind") == "title" and int(slot.get("max_chars") or 0) > 0
+    ]
+    title_max_chars = min(title_capacities) if title_capacities else 72
+    return {
+        "teaching_unit_id": unit.teaching_unit_id,
+        "source_ordinal": unit.source_ordinal,
+        "primary_block_ids": unit.primary_block_ids,
+        "teaching_intent": unit.teaching_intent,
+        "artifact_kinds": unit.artifact_kinds,
+        "source_asset_ids": unit.source_asset_refs,
+        "teaching_plan_context": unit.teaching_plan_context,
+        "prerequisite_unit_ids": unit.prerequisite_unit_ids,
+        "source_text": unit.source_text,
+        "title_max_chars": title_max_chars,
+        "title_candidates": _grounded_title_candidates(
+            unit.source_text,
+            max_chars=title_max_chars,
+        ),
+        "allowed_template_layout_ids": allowed_layout_ids,
+        "allowed_template_layouts": allowed_layouts,
+    }
 
 
 def _story_requests(
@@ -415,25 +458,7 @@ def _story_requests(
                 "forbidden_page_fields": ["content"],
             },
             "teaching_units": [
-                {
-                    "teaching_unit_id": unit.teaching_unit_id,
-                    "source_ordinal": unit.source_ordinal,
-                    "primary_block_ids": unit.primary_block_ids,
-                    "teaching_intent": unit.teaching_intent,
-                    "artifact_kinds": unit.artifact_kinds,
-                    "source_asset_ids": unit.source_asset_refs,
-                    "teaching_plan_context": unit.teaching_plan_context,
-                    "prerequisite_unit_ids": unit.prerequisite_unit_ids,
-                    "source_text": unit.source_text,
-                    "title_candidates": _grounded_title_candidates(unit.source_text),
-                    "allowed_template_layout_ids": (
-                        allowed_layout_ids := _allowed_layout_ids(unit, template)
-                    ),
-                    "allowed_template_layouts": [
-                        _layout_prompt_contract(layout_id, template)
-                        for layout_id in allowed_layout_ids
-                    ],
-                }
+                _story_unit_request(unit, template)
                 for unit in by_section[section_id]
             ],
         }
@@ -562,6 +587,7 @@ def _story_repair_targets(
             for title in forbidden_titles
         }
         allowed_title_candidates = list(unit.get("title_candidates") or [])
+        title_max_chars = int(unit.get("title_max_chars") or 0)
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -584,9 +610,12 @@ def _story_repair_targets(
             "available_title_candidates": [
                 title
                 for title in allowed_title_candidates
-                if re.sub(r"\s+", "", str(title)).casefold()
+                if (not title_max_chars or len(str(title)) <= title_max_chars)
+                and re.sub(r"\s+", "", str(title)).casefold()
                 not in normalized_forbidden_titles
             ],
+            "title_max_chars": title_max_chars,
+            "current_title": current_title,
             "duplicate_title": current_title if conflicting_page_ids else "",
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
@@ -739,7 +768,8 @@ async def plan_slide_story_v3(
                                 "unit's primary_block_ids across one to three pages: bind multiple "
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
-                                "Copy each title verbatim from that unit's title_candidates. Set "
+                                "Copy each title verbatim from that unit's title_candidates and keep "
+                                "it within that unit's title_max_chars. Set "
                                 "summary to empty unless its complete wording is directly supported "
                                 "by that unit's source_text; never add identifiers or facts."
                             ),
@@ -1185,7 +1215,8 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "by that unit's source_text. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
                 "page level; never emit a nested content object. Copy titles verbatim from the "
-                "selected teaching unit's title_candidates. Never invent teaching content."
+                "selected teaching unit's title_candidates and keep each title within the supplied "
+                "title_max_chars. Never invent teaching content."
             ),
             use_fast_model=False,
             retry_count=1,
