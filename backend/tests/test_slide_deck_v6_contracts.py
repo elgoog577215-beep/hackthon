@@ -11,6 +11,7 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    _complete_sentence_excerpt,
     build_signature_v6,
     compile_shadow_chapter_document,
     compile_ppt_source_contract_v2,
@@ -19,6 +20,16 @@ from slide_deck_v6 import (
     validate_slide_visual_plan_v2,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+def test_sentence_excerpt_never_exceeds_its_template_budget():
+    source = "A source sentence with no early punctuation and several additional words"
+
+    excerpt = _complete_sentence_excerpt(source, 35)
+
+    assert len(excerpt) <= 35
+    assert excerpt.endswith("…")
+    assert excerpt[:-1] in source
 
 
 def _block(

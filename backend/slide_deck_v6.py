@@ -647,6 +647,8 @@ def validate_slide_visual_plan_v2(
 
 def _complete_sentence_excerpt(text: str, capacity: int) -> str:
     normalized = " ".join(text.split())
+    if capacity <= 0:
+        return ""
     if len(normalized) <= capacity:
         return normalized
     sentences = re.split(r"(?<=[。！？.!?])\s*", normalized)
@@ -658,7 +660,12 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
         if len(candidate) > capacity:
             break
         result = candidate
-    return result or normalized[:capacity].rstrip("，、;；:：") + "…"
+    if result:
+        return result
+    if capacity == 1:
+        return normalized[:1]
+    excerpt = normalized[: capacity - 1].rstrip("，。！？,;: ")
+    return f"{excerpt}…"
 
 
 _SLOT_ROLE_PREFERENCES: dict[str, set[str]] = {
