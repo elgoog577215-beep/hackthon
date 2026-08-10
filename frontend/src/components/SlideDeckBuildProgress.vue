@@ -69,11 +69,16 @@ const props = withDefaults(defineProps<{
 })
 
 const steps = [
-  { key: 'source', label: '解析课程', description: '读取目标、章节与知识点' },
-  { key: 'plan', label: '规划页面', description: '编排主线并匹配语义版式' },
-  { key: 'build', label: '生成课件', description: '逐页生成内容、图示与讲稿' },
-  { key: 'quality', label: '质量检查', description: '检查内容与视觉可用性' },
-  { key: 'publish', label: '渲染成品', description: '渲染复核并准备导出' },
+  { key: 'source', label: '读取课程源', description: '切分并校验课程原文' },
+  { key: 'story', label: '设计教学主线', description: '梳理目标、知识与教学顺序' },
+  { key: 'chapter', label: '编排章节场景', description: '组织章节、场景与讲解节奏' },
+  { key: 'page-plan', label: '规划页面结构', description: '确定页数、分页与内容分配' },
+  { key: 'layout', label: '匹配语义版式', description: '按内容作用选择版式' },
+  { key: 'visual', label: '准备视觉素材', description: '规划图示并编译素材' },
+  { key: 'build', label: '逐页生成课件', description: '生成正文、图示与讲者备注' },
+  { key: 'repair', label: '补图与语义修复', description: '核验图片并修复内容完整性' },
+  { key: 'quality', label: '内容视觉质检', description: '检查覆盖、密度与版式安全' },
+  { key: 'publish', label: '渲染与发布', description: '复核成品、修复并准备导出' },
 ] as const
 
 const stageLabels: Record<string, string> = {
@@ -103,25 +108,25 @@ const stageLabels: Record<string, string> = {
 const stageStepIndex: Record<string, number> = {
   fragmenting: 0,
   planning: 0,
-  story_plan: 0,
-  chapter_plan: 0,
-  episode_progress: 0,
-  layout_plan: 1,
-  slide_plan: 1,
-  visual_plan: 1,
-  asset_compilation: 1,
-  bundle_plan: 1,
-  bundle_part_build: 2,
-  slide_build: 2,
-  reviewing: 3,
-  quality: 3,
-  visual_quality: 3,
-  semantic_repair: 3,
-  image_search: 3,
-  render_review: 4,
-  render_repair: 4,
-  repair_progress: 4,
-  complete: 4,
+  story_plan: 1,
+  chapter_plan: 2,
+  episode_progress: 2,
+  slide_plan: 3,
+  bundle_plan: 3,
+  layout_plan: 4,
+  visual_plan: 5,
+  asset_compilation: 5,
+  bundle_part_build: 6,
+  slide_build: 6,
+  semantic_repair: 7,
+  image_search: 7,
+  reviewing: 8,
+  quality: 8,
+  visual_quality: 8,
+  render_review: 9,
+  render_repair: 9,
+  repair_progress: 9,
+  complete: 9,
 }
 
 const normalizedProgress = computed(() => (
@@ -130,10 +135,15 @@ const normalizedProgress = computed(() => (
 
 const activeStepIndex = computed(() => {
   if (stageStepIndex[props.stage] != null) return stageStepIndex[props.stage]!
-  if (normalizedProgress.value >= 98) return 4
-  if (normalizedProgress.value >= 93) return 3
-  if (normalizedProgress.value >= 22) return 2
-  if (normalizedProgress.value >= 8) return 1
+  if (normalizedProgress.value >= 98) return 9
+  if (normalizedProgress.value >= 96) return 8
+  if (normalizedProgress.value >= 93) return 7
+  if (normalizedProgress.value >= 22) return 6
+  if (normalizedProgress.value >= 18) return 5
+  if (normalizedProgress.value >= 14) return 4
+  if (normalizedProgress.value >= 10) return 3
+  if (normalizedProgress.value >= 6) return 2
+  if (normalizedProgress.value >= 2) return 1
   return 0
 })
 
@@ -162,7 +172,9 @@ const currentDetailLabel = computed(() => {
       : '正在为重点页面准备图示与视觉素材'
   }
   if (props.stage === 'chapter_plan' && itemTitle) return `当前章节：${itemTitle}`
+  if (props.stage === 'slide_plan' && total) return `正在为 ${total} 页分配课程内容与分页结构`
   if (props.stage === 'layout_plan' && total) return `已为 ${total} 页建立内容与版式计划`
+  if (props.stage === 'visual_plan' && total) return `正在为 ${total} 页确定图示类型与视觉锚点`
   if (props.stage === 'bundle_part_build') {
     const partIndex = Number(detail?.partIndex || 0)
     const partCount = Number(detail?.partCount || 0)
@@ -177,6 +189,16 @@ const currentDetailLabel = computed(() => {
     const attempt = Number(detail?.repairAttempt || 0)
     return attempt ? `正在执行第 ${attempt} 轮版式修复` : '正在修复渲染检查发现的问题'
   }
+  if (props.stage === 'semantic_repair') {
+    const attempt = Number(detail?.repairAttempt || 0)
+    return attempt
+      ? `已检查 ${total || '全部'} 页，正在执行第 ${attempt} 轮语义与分页修复`
+      : `正在检查 ${total || '全部'} 页的内容完整性与分页`
+  }
+  if ((props.stage === 'quality' || props.stage === 'visual_quality') && total) {
+    return `正在逐页检查 ${total} 页的内容覆盖、文字密度与版式安全`
+  }
+  if (props.stage === 'render_review' && total) return `正在渲染并复核 ${total} 页最终成品`
   if (detail?.message) return detail.message
 
   return steps[activeStepIndex.value]?.description || '正在处理当前步骤'
@@ -220,7 +242,7 @@ function stepState(index: number) {
 .slide-build-progress__bar { height:4px; overflow:hidden; margin-top:9px; border-radius:99px; background:#e5eaf1; }
 .slide-build-progress__bar i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#2556d8,#0b8c82); transition:width .28s ease; }
 .slide-build-progress__detail { overflow:hidden; margin:7px 0 0; color:#536174; font-size:10px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
-.slide-build-progress__steps { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:10px 0 0; padding:0; list-style:none; }
+.slide-build-progress__steps { display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); gap:6px; margin:10px 0 0; padding:0; list-style:none; }
 .slide-build-progress__steps li { min-width:0; display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; gap:6px; color:#8a95a5; }
 .slide-build-progress__step-mark { width:20px; height:20px; display:grid; place-items:center; border:1px solid #d9dfe7; border-radius:50%; color:#8894a5; background:#f7f8fa; }
 .slide-build-progress__step-mark b { font-size:9px; }
@@ -235,14 +257,17 @@ function stepState(index: number) {
 .slide-build-progress[data-variant="initial"] .slide-build-progress__current small { font-size:10px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__current strong { font-size:14px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__detail { font-size:11px; }
-.slide-build-progress[data-variant="initial"] .slide-build-progress__steps { gap:12px; margin-top:15px; }
+.slide-build-progress[data-variant="initial"] .slide-build-progress__steps { grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px 10px; margin-top:15px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__steps strong { font-size:10px; }
 .spinning { animation:build-progress-spin .8s linear infinite; }
 @keyframes build-progress-spin { to { transform:rotate(360deg); } }
+@media (max-width:1180px) and (min-width:841px) {
+  .slide-build-progress:not([data-variant="initial"]) .slide-build-progress__steps { grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px 6px; }
+}
 @media (max-width:840px) {
   .slide-build-progress { padding-right:12px; padding-left:12px; }
-  .slide-build-progress__steps { gap:3px; }
-  .slide-build-progress__steps li { grid-template-columns:1fr; justify-items:center; text-align:center; }
+  .slide-build-progress__steps,.slide-build-progress[data-variant="initial"] .slide-build-progress__steps { display:flex; gap:5px; overflow-x:auto; padding:4px 4px 7px; scroll-snap-type:x proximity; }
+  .slide-build-progress__steps li { min-width:108px; grid-template-columns:1fr; justify-items:center; text-align:center; scroll-snap-align:start; }
   .slide-build-progress__steps small { display:none !important; }
 }
 </style>
