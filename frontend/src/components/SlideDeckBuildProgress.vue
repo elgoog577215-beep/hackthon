@@ -30,7 +30,7 @@
 
     <p class="slide-build-progress__detail">{{ currentDetailLabel }}</p>
 
-    <ol class="slide-build-progress__steps" aria-label="课件生成步骤">
+    <ol v-if="!progressV2" class="slide-build-progress__steps" aria-label="课件生成步骤">
       <li
         v-for="(step, index) in steps"
         :key="step.key"
@@ -50,6 +50,50 @@
     </ol>
 
     <section
+      v-if="progressV2"
+      class="slide-build-progress__tasks slide-build-progress__tasks--v2"
+      aria-label="V6 后端工作清单"
+    >
+      <header>
+        <div>
+          <small>后端工作清单 · 第 {{ progressV2.step_index }} / {{ progressV2.step_count }} 项</small>
+          <strong>{{ currentStageLabel }}</strong>
+        </div>
+        <b>{{ progressV2.completed_items }} / {{ progressV2.total_items }} 项完成</b>
+      </header>
+      <p class="slide-build-progress__v2-context">
+        <span v-if="progressV2.current_chapter_id">章节 {{ progressV2.current_chapter_id }}</span>
+        <span v-if="progressV2.current_batch_id">批次 {{ progressV2.current_batch_id }}</span>
+        <span v-if="progressV2.current_page_id">页面 {{ progressV2.current_page_id }}</span>
+        <strong v-if="progressV2.provider_wait">等待 AI 提供商</strong>
+        <strong v-if="progressV2.retry_attempt">第 {{ progressV2.retry_attempt }} 次重试</strong>
+        <em v-if="progressV2.newly_discovered_work">新增 {{ progressV2.newly_discovered_work }} 项工作</em>
+        <em v-if="progressV2.estimated_remaining_seconds">预计剩余 {{ progressV2.estimated_remaining_seconds }} 秒</em>
+      </p>
+      <ul data-testid="build-work-list">
+        <li
+          v-for="item in displayWorkItems"
+          :key="item.item_id"
+          data-build-work-item
+          :data-state="item.status"
+          :aria-current="item.status === 'running' ? 'step' : undefined"
+        >
+          <span class="slide-build-progress__task-mark">
+            <CircleCheck v-if="item.status === 'completed'" :size="13" aria-hidden="true" />
+            <LoaderCircle v-else-if="item.status === 'running'" :size="13" class="spinning" aria-hidden="true" />
+            <i v-else aria-hidden="true"></i>
+          </span>
+          <div>
+            <strong>{{ item.label }}</strong>
+            <small>{{ item.stage }} · {{ item.kind }}</small>
+          </div>
+          <em>{{ workItemStateLabel(item.status) }}</em>
+        </li>
+      </ul>
+    </section>
+
+    <section
+      v-else
       class="slide-build-progress__tasks"
       :aria-label="`当前阶段具体任务：${currentStep.label}`"
     >
@@ -87,7 +131,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { CircleCheck, LoaderCircle } from 'lucide-vue-next'
-import type { SlideDeckBuildDetail } from '../stores/teachingRepresentations'
+import type {
+  SlideBuildProgressV2,
+  SlideDeckBuildDetail,
+} from '../stores/teachingRepresentations'
 import { inferSlideBuildStepIndex } from '../utils/slide-build-progress'
 
 interface BuildStep {
@@ -101,11 +148,13 @@ const props = withDefaults(defineProps<{
   progress: number
   stage: string
   detail?: SlideDeckBuildDetail | null
+  progressV2?: SlideBuildProgressV2 | null
   estimatedSlideCount?: number
   stepIndex?: number | null
   variant?: 'toolbar' | 'initial' | 'embedded'
 }>(), {
   detail: null,
+  progressV2: null,
   estimatedSlideCount: 0,
   stepIndex: null,
   variant: 'embedded',
@@ -246,8 +295,21 @@ const eventTaskIndex: Record<string, number> = {
 }
 
 const normalizedProgress = computed(() => (
-  Math.max(0, Math.min(100, Math.round(Number(props.progress || 0))))
+  Math.max(0, Math.min(100, Math.round(Number(props.progressV2?.percent ?? props.progress ?? 0))))
 ))
+
+const v6StageLabels: Record<string, string> = {
+  source: '正在冻结课程与模板真源',
+  course_graph: '正在构建完整教学单元图',
+  story: '正在执行 AI 故事规划',
+  layout: '正在按最新模板分配页面',
+  visual: '正在执行 AI 视觉规划',
+  materialize: '正在编译课程忠实型页面',
+  asset: '正在准备来源素材',
+  render: '正在渲染并检查页面',
+  quality: '正在执行忠实度与渲染门禁',
+  publish: '正在原子发布 V6 成品',
+}
 
 const activeStepIndex = computed(() => {
   if (props.stepIndex != null && Number.isFinite(props.stepIndex)) {
@@ -260,10 +322,24 @@ const currentStep = computed(() => steps[activeStepIndex.value] || steps[0]!)
 const currentTasks = computed(() => currentStep.value.tasks)
 
 const currentStageLabel = computed(() => (
-  stageLabels[props.stage] || props.detail?.message || '正在生成课件'
+  (props.progressV2 ? v6StageLabels[props.progressV2.stage] : '')
+  || stageLabels[props.stage]
+  || props.detail?.message
+  || '正在生成课件'
 ))
 
 const currentDetailLabel = computed(() => {
+  if (props.progressV2) {
+    const current = props.progressV2.items.find(item => item.status === 'running')
+    const context = [
+      current?.label,
+      props.progressV2.current_page_id && `页面 ${props.progressV2.current_page_id}`,
+      props.progressV2.current_batch_id && `批次 ${props.progressV2.current_batch_id}`,
+      props.progressV2.provider_wait && '等待 AI 提供商',
+      props.progressV2.retry_attempt && `第 ${props.progressV2.retry_attempt} 次重试`,
+    ].filter(Boolean)
+    return context.join(' · ') || '正在执行后端持久化工作清单'
+  }
   const detail = props.detail
   const completed = Number(detail?.completed || 0)
   const total = Number(detail?.total || props.estimatedSlideCount || 0)
@@ -324,6 +400,22 @@ const currentDetailLabel = computed(() => {
 
   return steps[activeStepIndex.value]?.description || '正在处理当前步骤'
 })
+
+const displayWorkItems = computed(() => {
+  const items = props.progressV2?.items || []
+  if (items.length <= 8) return items
+  const active = items.findIndex(item => item.status === 'running')
+  const center = active >= 0 ? active : Math.max(0, Number(props.progressV2?.step_index || 1) - 1)
+  const start = Math.max(0, Math.min(items.length - 5, center - 2))
+  return items.slice(start, start + 5)
+})
+
+function workItemStateLabel(status: string) {
+  if (status === 'completed') return '已完成'
+  if (status === 'running') return '进行中'
+  if (status === 'failed') return '失败'
+  return '待执行'
+}
 
 const activeTaskIndex = computed(() => {
   const taskCount = currentTasks.value.length
@@ -424,6 +516,10 @@ function stepState(index: number) {
 .slide-build-progress__tasks > header small { color:#7a8798; font-size:8px; font-weight:800; letter-spacing:.04em; }
 .slide-build-progress__tasks > header strong { color:#2d3b50; font-size:10px; }
 .slide-build-progress__tasks > header > b { flex:none; color:#647287; font:700 9px/1.4 "Aptos Mono","SFMono-Regular",monospace; }
+.slide-build-progress__v2-context { display:flex; flex-wrap:wrap; gap:5px; margin:7px 0 0; color:#647287; font-size:8px; }
+.slide-build-progress__v2-context span,.slide-build-progress__v2-context strong,.slide-build-progress__v2-context em { padding:3px 6px; border-radius:99px; background:#eef2f7; font-style:normal; }
+.slide-build-progress__v2-context strong { color:#9a5a06; background:#fff3d6; }
+.slide-build-progress__v2-context em { color:#2450bf; background:#e8eeff; }
 .slide-build-progress__tasks ul { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin:7px 0 0; padding:0; list-style:none; }
 .slide-build-progress__tasks li { min-width:0; display:grid; grid-template-columns:17px minmax(0,1fr) auto; align-items:start; gap:6px; padding:7px 8px; border:1px solid #e2e8f0; border-radius:8px; color:#7e8998; background:#fff; }
 .slide-build-progress__task-mark { width:15px; height:15px; display:grid; place-items:center; margin-top:1px; color:#9aa5b4; }
@@ -438,6 +534,13 @@ function stepState(index: number) {
 .slide-build-progress__tasks li[data-state="active"] { color:#244fc3; border-color:#b9c9f8; background:#f5f7ff; box-shadow:0 0 0 2px rgba(37,86,216,.06); }
 .slide-build-progress__tasks li[data-state="active"] .slide-build-progress__task-mark { color:#2556d8; }
 .slide-build-progress__tasks li[data-state="active"] em { color:#244fc3; background:#e4eaff; }
+.slide-build-progress__tasks li[data-state="completed"] { color:#16837a; border-color:#d4ebe7; background:#f5fbfa; }
+.slide-build-progress__tasks li[data-state="completed"] .slide-build-progress__task-mark { color:#16837a; }
+.slide-build-progress__tasks li[data-state="completed"] em { color:#147970; background:#dff3ef; }
+.slide-build-progress__tasks li[data-state="running"] { color:#244fc3; border-color:#b9c9f8; background:#f5f7ff; box-shadow:0 0 0 2px rgba(37,86,216,.06); }
+.slide-build-progress__tasks li[data-state="running"] .slide-build-progress__task-mark { color:#2556d8; }
+.slide-build-progress__tasks li[data-state="running"] em { color:#244fc3; background:#e4eaff; }
+.slide-build-progress__tasks li[data-state="failed"] { color:#a33838; border-color:#f0c7c7; background:#fff7f7; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__current small { font-size:10px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__current strong { font-size:14px; }
 .slide-build-progress[data-variant="initial"] .slide-build-progress__detail { font-size:11px; }

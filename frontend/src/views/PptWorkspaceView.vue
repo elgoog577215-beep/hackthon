@@ -11,6 +11,7 @@
         :stage="store.buildStage"
         :step-index="store.buildDisplayStep"
         :detail="store.buildDetail"
+        :progress-v2="store.slideBuildProgressV2"
         :estimated-slide-count="store.buildEstimatedSlideCount"
         variant="initial"
       />
@@ -81,6 +82,7 @@
         :stage="store.buildStage"
         :build-step-index="store.buildDisplayStep"
         :build-detail="store.buildDetail"
+        :build-progress-v2="store.slideBuildProgressV2"
         :estimated-slide-count="store.buildEstimatedSlideCount"
         :error="store.buildError"
         :build-failure="effectiveBuildFailure"

@@ -30,7 +30,7 @@
 
 - [x] 5.1 Add failing tests for weighted progress, monotonic discovery, 99% publication cap, heartbeat and restart recovery.
 - [x] 5.2 Implement persisted `slide_build_progress_v2` manifests and five-second events.
-- [ ] 5.3 Replace frontend stage inference with server-owned work counts, provider wait/retry and failure details.
+- [x] 5.3 Replace frontend stage inference with server-owned work counts, provider wait/retry and failure details.
 
 ## 6. Validation and rollout
 

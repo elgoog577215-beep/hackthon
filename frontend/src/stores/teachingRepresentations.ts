@@ -131,6 +131,48 @@ export interface TeachingRepresentationBuildEvent {
   part_id?: string
   repair_attempt?: number
   repair_attempts?: number
+  slide_build_progress_v2?: SlideBuildProgressV2
+}
+
+export interface SlideBuildWorkItemV2 {
+  item_id: string
+  kind: 'local' | 'render_page' | 'asset' | 'ai_batch'
+  stage: string
+  label: string
+  weight?: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  chapter_id?: string
+  batch_id?: string
+  page_id?: string
+  discovered_at?: string
+  started_at?: string
+  completed_at?: string
+}
+
+export interface SlideBuildProgressV2 {
+  schema_version: 'slide_build_progress_v2'
+  event_type: string
+  task_id: string
+  status: 'active' | 'failed' | 'completed'
+  percent: number
+  published: boolean
+  stage: string
+  step_index: number
+  step_count: number
+  current_chapter_id: string
+  current_batch_id: string
+  current_page_id: string
+  completed_items: number
+  total_items: number
+  completed_weight: number
+  total_weight: number
+  elapsed_seconds: number
+  provider_wait: boolean
+  retry_attempt: number
+  newly_discovered_work: number
+  estimated_remaining_seconds: number | null
+  failure: Partial<TeachingRepresentationBuildFailure> | null
+  items: SlideBuildWorkItemV2[]
 }
 
 export interface SlideDeckBuildDetail {
@@ -143,6 +185,7 @@ export interface SlideDeckBuildDetail {
   partIndex?: number
   partCount?: number
   repairAttempt?: number
+  retryAttempt?: number
   candidateStage?: string
 }
 
@@ -151,6 +194,27 @@ function compactBuildDetail(
   estimatedSlideCount: number,
   completedUnitCount: number,
 ): SlideDeckBuildDetail {
+  const progressV2 = event.slide_build_progress_v2
+  if (progressV2) {
+    const currentItem = progressV2.items.find(item => item.status === 'running')
+      || progressV2.items[Math.max(0, progressV2.step_index - 1)]
+    return {
+      event: 'slide_build_progress_v2',
+      message: String(event.message || ''),
+      completed: Number(progressV2.completed_items || 0),
+      total: Number(progressV2.total_items || 0),
+      itemTitle: String(currentItem?.label || ''),
+      itemId: String(
+        progressV2.current_page_id
+        || progressV2.current_batch_id
+        || progressV2.current_chapter_id
+        || currentItem?.item_id
+        || '',
+      ),
+      repairAttempt: Number(progressV2.retry_attempt || 0),
+      retryAttempt: Number(progressV2.retry_attempt || 0),
+    }
+  }
   const eventCompleted = event.completed == null ? completedUnitCount : Number(event.completed)
   const eventTotal = event.total == null ? estimatedSlideCount : Number(event.total)
   const slide = event.slide || {}
@@ -390,6 +454,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     buildStage: '',
     buildDisplayStep: 0,
     buildDetail: null as SlideDeckBuildDetail | null,
+    slideBuildProgressV2: null as SlideBuildProgressV2 | null,
     buildEstimatedSlideCount: 0,
     buildCompletedUnitCount: 0,
     buildError: '',
@@ -440,6 +505,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildStage = ''
       this.buildDisplayStep = 0
       this.buildDetail = null
+      this.slideBuildProgressV2 = null
       this.buildEstimatedSlideCount = 0
       this.buildCompletedUnitCount = 0
       this.buildError = ''
@@ -521,6 +587,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildStage = 'planning'
       this.buildDisplayStep = 0
       this.buildStreamActive = false
+      this.slideBuildProgressV2 = null
       this.buildDetail = {
         event: 'planning',
         completed: 0,
@@ -576,6 +643,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         await consumeTeachingRepresentationStream(response, event => {
           if (!isCurrentAttempt()) return
           const finalCandidateReplay = isFinalV5CandidateReplay(event)
+          const progressV2 = event.slide_build_progress_v2
           if (event.task_id) {
             this.buildTaskId = event.task_id
             if (!durableMonitorStarted) {
@@ -584,11 +652,12 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             }
           }
           this.buildProgress = Math.max(this.buildProgress, Number(event.progress || 0))
+          if (progressV2) this.applySlideBuildProgressV2(progressV2)
           if (event.target_schema) this.slideTargetSchema = String(event.target_schema)
           if (event.candidate_status) {
             this.slideCandidateStatus = event.candidate_status as SlideDeckCandidateStatus
           }
-          if (event.stage && !finalCandidateReplay) this.buildStage = event.stage
+          if (event.stage && !finalCandidateReplay && !progressV2) this.buildStage = event.stage
           if (event.event === 'deck_plan') {
             this.buildEstimatedSlideCount = Math.max(
               this.buildEstimatedSlideCount,
@@ -708,11 +777,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildError = failure.code
           }
           if (event.event === 'paused') this.buildPaused = true
-          this.buildDisplayStep = advanceSlideBuildStep(
-            this.buildDisplayStep,
-            this.buildStage,
-            this.buildProgress,
-          )
+          if (!progressV2) {
+            this.buildDisplayStep = advanceSlideBuildStep(
+              this.buildDisplayStep,
+              this.buildStage,
+              this.buildProgress,
+            )
+          }
           this.buildDetail = compactBuildDetail(
             event,
             this.buildEstimatedSlideCount,
@@ -798,13 +869,18 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           const task = response.data || {}
           const status = String(task.status || '')
           this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
+          if (task.slide_build_progress_v2) {
+            this.applySlideBuildProgressV2(task.slide_build_progress_v2 as SlideBuildProgressV2)
+          }
           if (!this.buildStreamActive) {
-            this.buildStage = String(task.phase || task.current_phase || this.buildStage)
-            this.buildDisplayStep = advanceSlideBuildStep(
-              this.buildDisplayStep,
-              this.buildStage,
-              this.buildProgress,
-            )
+            if (!task.slide_build_progress_v2) {
+              this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+              this.buildDisplayStep = advanceSlideBuildStep(
+                this.buildDisplayStep,
+                this.buildStage,
+                this.buildProgress,
+              )
+            }
           }
           if (['failed', 'completed', 'cancelled', 'paused'].includes(status)) {
             this.buildStreamActive = false
@@ -829,11 +905,45 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         }
       }, 1_000)
     },
+    applySlideBuildProgressV2(payload: SlideBuildProgressV2) {
+      if (payload?.schema_version !== 'slide_build_progress_v2') return
+      const normalized = {
+        ...payload,
+        percent: Math.max(0, Math.min(100, Number(payload.percent || 0))),
+        step_index: Math.max(0, Number(payload.step_index || 0)),
+        step_count: Math.max(0, Number(payload.step_count || 0)),
+        completed_items: Math.max(0, Number(payload.completed_items || 0)),
+        total_items: Math.max(0, Number(payload.total_items || 0)),
+        items: Array.isArray(payload.items) ? payload.items : [],
+      } as SlideBuildProgressV2
+      this.slideBuildProgressV2 = normalized
+      this.buildProgress = Math.max(this.buildProgress, normalized.percent)
+      this.buildStage = String(normalized.stage || this.buildStage)
+      this.buildDisplayStep = Math.max(
+        this.buildDisplayStep,
+        Math.max(0, normalized.step_index - 1),
+      )
+      this.buildDetail = compactBuildDetail(
+        { event: 'slide_build_progress_v2', slide_build_progress_v2: normalized },
+        this.buildEstimatedSlideCount,
+        this.buildCompletedUnitCount,
+      )
+      if (normalized.failure) {
+        const failure = normalizedBuildFailure(normalized.failure)
+        this.buildFailure = failure
+        this.buildError = failure.code
+      }
+    },
     applyDurableBuildTask(task: Record<string, any>) {
       const status = String(task.status || '')
       this.buildTaskId = String(task.id || this.buildTaskId)
+      if (task.slide_build_progress_v2) {
+        this.applySlideBuildProgressV2(task.slide_build_progress_v2 as SlideBuildProgressV2)
+      }
       this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
-      this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+      if (!task.slide_build_progress_v2) {
+        this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+      }
       if (status === 'failed') {
         const failure = normalizedBuildFailure(
           task.error_detail || task.error || task.message,
@@ -872,11 +982,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.building = true
         this.buildPaused = false
       }
-      this.buildDisplayStep = advanceSlideBuildStep(
-        this.buildDisplayStep,
-        this.buildStage,
-        this.buildProgress,
-      )
+      if (!this.slideBuildProgressV2) {
+        this.buildDisplayStep = advanceSlideBuildStep(
+          this.buildDisplayStep,
+          this.buildStage,
+          this.buildProgress,
+        )
+      }
     },
     async recoverDurableBuild(courseId: string) {
       this.switchCourse(courseId)
@@ -984,12 +1096,16 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           const response = await http.get(`/api/tasks/${this.buildTaskId}`)
           const task = response.data || {}
           this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
-          this.buildStage = String(task.phase || task.current_phase || this.buildStage)
-          this.buildDisplayStep = advanceSlideBuildStep(
-            this.buildDisplayStep,
-            this.buildStage,
-            this.buildProgress,
-          )
+          if (task.slide_build_progress_v2) {
+            this.applySlideBuildProgressV2(task.slide_build_progress_v2 as SlideBuildProgressV2)
+          } else {
+            this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+            this.buildDisplayStep = advanceSlideBuildStep(
+              this.buildDisplayStep,
+              this.buildStage,
+              this.buildProgress,
+            )
+          }
           if (task.status === 'completed') {
             await this.load(courseId)
             this.settleCompletedSlideBuild()

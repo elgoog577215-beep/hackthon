@@ -99,6 +99,7 @@
       :stage="stage"
       :step-index="buildStepIndex"
       :detail="buildDetail"
+      :progress-v2="buildProgressV2"
       :estimated-slide-count="estimatedSlideCount"
       :variant="standalone ? 'toolbar' : 'embedded'"
     />
@@ -413,6 +414,7 @@ import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type {
+  SlideBuildProgressV2,
   SlideDeckBuildDetail,
   SlideDeckMode,
   SlideDeckPreviewSource,
@@ -491,6 +493,7 @@ const props = withDefaults(defineProps<{
   stage: string
   buildStepIndex?: number | null
   buildDetail?: SlideDeckBuildDetail | null
+  buildProgressV2?: SlideBuildProgressV2 | null
   estimatedSlideCount?: number
   error: string
   buildFailure?: TeachingRepresentationBuildFailure | null
@@ -525,6 +528,7 @@ const props = withDefaults(defineProps<{
   logicUpgrading: false,
   logicUpgradeError: '',
   buildDetail: null,
+  buildProgressV2: null,
   buildStepIndex: null,
   estimatedSlideCount: 0,
 })

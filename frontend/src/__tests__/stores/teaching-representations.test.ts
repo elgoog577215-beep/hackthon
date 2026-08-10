@@ -623,6 +623,92 @@ describe('teaching representation progressive build', () => {
     expect(store.buildDisplayStep).toBe(9)
   })
 
+  it('uses the persisted V6 work manifest instead of legacy stage inference', async () => {
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const store = useTeachingRepresentationsStore()
+    const building = store.buildProgressive('generic-course', {
+      mode: 'teaching', theme: 'qizhi-classroom', engineVersion: 'v6',
+    })
+
+    const push = async (payload: Record<string, unknown>) => {
+      controller.enqueue(encoder.encode(
+        `event: slide_build_progress_v2\ndata: ${JSON.stringify({
+          event: 'slide_build_progress_v2',
+          progress: payload.percent,
+          stage: payload.stage,
+          slide_build_progress_v2: payload,
+        })}\n\n`,
+      ))
+      await vi.waitFor(() => expect(store.slideBuildProgressV2?.stage).toBe(payload.stage))
+    }
+
+    await push({
+      schema_version: 'slide_build_progress_v2', event_type: 'heartbeat', task_id: 'v6-task',
+      status: 'active', percent: 35, published: false, stage: 'story', step_index: 4,
+      step_count: 12, current_chapter_id: 'chapter-a', current_batch_id: 'story-2',
+      current_page_id: '', completed_items: 3, total_items: 12, completed_weight: 21,
+      total_weight: 60, elapsed_seconds: 14, provider_wait: true, retry_attempt: 1,
+      newly_discovered_work: 2, estimated_remaining_seconds: 26, failure: null,
+      items: [
+        { item_id: 'story-1', kind: 'ai_batch', stage: 'story', label: '故事批次 1', status: 'completed' },
+        { item_id: 'story-2', kind: 'ai_batch', stage: 'story', label: '故事批次 2', status: 'running' },
+      ],
+    })
+
+    expect(store.buildProgress).toBe(35)
+    expect(store.buildDisplayStep).toBe(3)
+    expect(store.buildDetail).toEqual(expect.objectContaining({
+      event: 'slide_build_progress_v2', completed: 3, total: 12,
+      itemId: 'story-2', retryAttempt: 1,
+    }))
+
+    await push({
+      ...store.slideBuildProgressV2,
+      event_type: 'update', percent: 28, stage: 'visual', step_index: 7, step_count: 15,
+      completed_items: 5, total_items: 15, provider_wait: false, retry_attempt: 0,
+      newly_discovered_work: 3, current_batch_id: 'visual-1',
+    })
+
+    expect(store.buildProgress).toBe(35)
+    expect(store.buildDisplayStep).toBe(6)
+    expect(store.slideBuildProgressV2?.total_items).toBe(15)
+
+    controller.enqueue(encoder.encode(
+      'event: build_complete\ndata: {"event":"build_complete","progress":100,"registry":{"representations":[],"specs":[]},"quality":{"passed":true}}\n\n',
+    ))
+    controller.close()
+    await building
+  })
+
+  it('restores V6 progress from the durable task snapshot after refresh', () => {
+    const store = useTeachingRepresentationsStore()
+    store.applyDurableBuildTask({
+      id: 'v6-recovery-task', status: 'running', progress: 18, phase: 'legacy-phase',
+      slide_build_progress_v2: {
+        schema_version: 'slide_build_progress_v2', event_type: 'heartbeat',
+        task_id: 'v6-recovery-task', status: 'active', percent: 44, published: false,
+        stage: 'render', step_index: 9, step_count: 14, current_chapter_id: 'chapter-b',
+        current_batch_id: '', current_page_id: 'page-3', completed_items: 8,
+        total_items: 14, completed_weight: 42, total_weight: 80, elapsed_seconds: 31,
+        provider_wait: false, retry_attempt: 0, newly_discovered_work: 0,
+        estimated_remaining_seconds: 28, failure: null, items: [],
+      },
+    })
+
+    expect(store.building).toBe(true)
+    expect(store.buildProgress).toBe(44)
+    expect(store.buildStage).toBe('render')
+    expect(store.buildDisplayStep).toBe(8)
+    expect(store.slideBuildProgressV2?.current_page_id).toBe('page-3')
+  })
+
   it('does not let durable polling overwrite a newer active streamed stage', async () => {
     vi.useFakeTimers()
     const encoder = new TextEncoder()
