@@ -23,6 +23,11 @@ RELATION_TYPES = {
 }
 SYMMETRIC_RELATION_TYPES = {"equivalent_to", "contrasts_with"}
 
+# 概念组聚合知识点数量的上界。批次 prompt 现在写的是"通常每组 2-4 个"，这里留出
+# 一格余量：超过 4 个不一定是错的（有些问题域确实宽），超过 5 个基本说明这一组
+# 已经变成"本节所有知识"的同义词。软门槛，不阻断发布。
+MAX_GROUP_POINTS = 5
+
 # 知识记录的来源状态。只有两个值，因为当前流水线只有一种可追溯来源：
 # material_evidence.py 从上传文档切块派生 evidence_id，没有联网检索来源。
 # 与其留一个永远不会出现的 `web_grounded` 让教师以为系统会查资料，不如只报
@@ -739,6 +744,7 @@ def validate_course_knowledge_base(
         for item in _sections(course_data or {})
     }
 
+    single_point_groups = 0
     for group in groups:
         group_id = str(group.get("concept_group_id") or "")
         section_id = str(group.get("primary_section_ref") or "")
@@ -749,6 +755,15 @@ def validate_course_knowledge_base(
         owned = [item for item in points if item.get("primary_concept_group_id") == group_id]
         if len(owned) < 2:
             issues.append(_issue("group_too_small", "granularity", "major", f"概念组「{group.get('name')}」少于两个原子知识点"))
+            single_point_groups += 1
+        elif len(owned) > MAX_GROUP_POINTS:
+            # 只有下界会把模型推向另一个极端：把整节知识塞进一个巨组，同样通不过
+            # 教学意义。上界因此是配套的，不是额外要求。
+            issues.append(_issue(
+                "group_too_large", "granularity", "major",
+                f"概念组「{group.get('name')}」聚合了 {len(owned)} 个知识点，"
+                f"超过 {MAX_GROUP_POINTS} 个，建议按问题域再分组",
+            ))
 
     normalized_names: set[str] = set()
     for point in points:
@@ -953,6 +968,11 @@ def validate_course_knowledge_base(
             "mapped_ratio": round(len(section_ids & bound_sections) / len(section_ids), 4) if section_ids else 0.0,
             "relation_coverage": round(relation_covered, 4),
             "atomic_ratio": round(sum(item.get("granularity_status") == "atomic" for item in points) / len(points), 4) if points else 0.0,
+            # 组数 / 知识点数。逐组的 group_too_small 在"全课每点一组"时会刷出几十条
+            # 同样的 major，教师看不出那是全课分组失效。这个比值把同一件事压成一个
+            # 数：接近 1 表示概念组根本没有承担分组职责。
+            "grouping_ratio": round(len(groups) / len(points), 4) if points else 0.0,
+            "single_point_group_count": single_point_groups,
         },
     }
 
