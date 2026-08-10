@@ -4,9 +4,16 @@
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
       <h1>{{ courseTitle }}</h1>
-      <p>{{ store.building ? stageLabel : t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
-      <div class="ppt-workspace-state__progress"><i :style="{ width: `${store.buildProgress}%` }"></i></div>
-      <b>{{ store.building ? `${store.buildProgress}%` : '···' }}</b>
+      <p v-if="!store.building">{{ t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
+      <SlideDeckBuildProgress
+        v-if="store.building"
+        :progress="store.buildProgress"
+        :stage="store.buildStage"
+        :detail="store.buildDetail"
+        :estimated-slide-count="store.buildEstimatedSlideCount"
+        variant="initial"
+      />
+      <b v-else>···</b>
       <div v-if="store.buildTaskId" class="ppt-workspace-state__task-actions">
         <button v-if="store.building" type="button" @click="pauseBuild">暂停</button>
         <button type="button" @click="cancelBuild">取消</button>
@@ -71,6 +78,8 @@
         :building="store.building"
         :progress="store.buildProgress"
         :stage="store.buildStage"
+        :build-detail="store.buildDetail"
+        :estimated-slide-count="store.buildEstimatedSlideCount"
         :error="store.buildError"
         :build-failure="effectiveBuildFailure"
         :logic-upgrading="logicUpgrading"
@@ -142,6 +151,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
@@ -663,8 +673,6 @@ onMounted(loadWorkspace)
 .ppt-workspace-state > small { color:#2556d8; font-size:11px; font-weight:800; letter-spacing:.16em; }
 .ppt-workspace-state h1 { max-width:760px; margin:12px 0 0; font-family:"Songti SC","STSong","Noto Serif CJK SC",serif; font-size:clamp(28px,4vw,52px); line-height:1.15; }
 .ppt-workspace-state p { max-width:620px; margin:16px 0 0; color:#667085; font-size:14px; line-height:1.7; }
-.ppt-workspace-state__progress { width:min(360px,70vw); height:5px; overflow:hidden; margin-top:26px; border-radius:99px; background:#dfe5ee; }
-.ppt-workspace-state__progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#2556d8,#087f74); transition:width .25s ease; }
 .ppt-workspace-state > b { margin-top:10px; color:#6f7c8d; font:700 11px/1 "Aptos Mono","SFMono-Regular",monospace; }
 .ppt-workspace-state__task-actions { display:flex; gap:8px; margin-top:14px; }
 .ppt-workspace-state__task-actions button { min-height:34px; padding:0 14px; border:1px solid #cbd5e1; border-radius:9px; color:#334155; background:#fff; cursor:pointer; }

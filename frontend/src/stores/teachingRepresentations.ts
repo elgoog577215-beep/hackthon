@@ -110,6 +110,56 @@ export interface TeachingRepresentationBuildEvent {
   source_revision?: string
   chapter_id?: string
   page_id?: string
+  estimated_slide_count?: number
+  allocation_plan?: { pages?: Array<Record<string, any>> }
+  chapter?: Record<string, any>
+  title?: string
+  part_index?: number
+  part_count?: number
+  part_id?: string
+  repair_attempt?: number
+  repair_attempts?: number
+}
+
+export interface SlideDeckBuildDetail {
+  event: string
+  message?: string
+  completed: number
+  total: number
+  itemTitle?: string
+  itemId?: string
+  partIndex?: number
+  partCount?: number
+  repairAttempt?: number
+}
+
+function compactBuildDetail(
+  event: TeachingRepresentationBuildEvent,
+  estimatedSlideCount: number,
+  completedUnitCount: number,
+): SlideDeckBuildDetail {
+  const eventCompleted = event.completed == null ? completedUnitCount : Number(event.completed)
+  const eventTotal = event.total == null ? estimatedSlideCount : Number(event.total)
+  const slide = event.slide || {}
+  const chapter = event.chapter || {}
+  return {
+    event: String(event.event || event.stage || 'building'),
+    message: String(event.message || ''),
+    completed: eventCompleted,
+    total: eventTotal,
+    itemTitle: String(slide.title || chapter.title || event.title || ''),
+    itemId: String(
+      slide.unit_id
+      || event.page_id
+      || event.asset_id
+      || event.part_id
+      || chapter.chapter_id
+      || '',
+    ),
+    partIndex: Number(event.part_index || 0),
+    partCount: Number(event.part_count || 0),
+    repairAttempt: Number(event.repair_attempt || event.repair_attempts || 0),
+  }
 }
 
 export interface TeachingRepresentationBuildFailure {
@@ -324,6 +374,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     liveSlides: [] as Array<Record<string, any>>,
     buildProgress: 0,
     buildStage: '',
+    buildDetail: null as SlideDeckBuildDetail | null,
+    buildEstimatedSlideCount: 0,
+    buildCompletedUnitCount: 0,
     buildError: '',
     buildFailure: null as TeachingRepresentationBuildFailure | null,
     buildTaskId: '',
@@ -369,6 +422,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.liveSlides = []
       this.buildProgress = 0
       this.buildStage = ''
+      this.buildDetail = null
+      this.buildEstimatedSlideCount = 0
+      this.buildCompletedUnitCount = 0
       this.buildError = ''
       this.buildFailure = null
       this.buildTaskId = ''
@@ -445,6 +501,13 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.building = true
       this.buildProgress = 0
       this.buildStage = 'planning'
+      this.buildDetail = {
+        event: 'planning',
+        completed: 0,
+        total: 0,
+      }
+      this.buildEstimatedSlideCount = 0
+      this.buildCompletedUnitCount = 0
       this.buildError = ''
       this.buildFailure = null
       this.buildPaused = false
@@ -503,6 +566,18 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.slideCandidateStatus = event.candidate_status as SlideDeckCandidateStatus
           }
           if (event.stage) this.buildStage = event.stage
+          if (event.event === 'deck_plan') {
+            this.buildEstimatedSlideCount = Math.max(
+              this.buildEstimatedSlideCount,
+              Number(event.estimated_slide_count || 0),
+            )
+          }
+          if (event.event === 'layout_plan') {
+            this.buildEstimatedSlideCount = Math.max(
+              this.buildEstimatedSlideCount,
+              event.allocation_plan?.pages?.length || 0,
+            )
+          }
           if (event.event === 'story_plan') this.buildStage = 'story_plan'
           if (event.event === 'chapter_plan') this.buildStage = 'chapter_plan'
           if (event.event === 'episode_progress') this.buildStage = 'episode_progress'
@@ -537,6 +612,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             const index = this.liveSlides.findIndex(slide => slide.unit_id === event.slide?.unit_id)
             if (index >= 0) this.liveSlides.splice(index, 1, event.slide)
             else this.liveSlides.push(event.slide)
+            this.buildCompletedUnitCount = this.liveSlides.length
           }
           if (event.event === 'slide_quality' && event.quality) {
             this.buildStage = 'quality'
@@ -611,6 +687,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildError = failure.code
           }
           if (event.event === 'paused') this.buildPaused = true
+          this.buildDetail = compactBuildDetail(
+            event,
+            this.buildEstimatedSlideCount,
+            this.buildCompletedUnitCount,
+          )
         })
         if (!isCurrentAttempt()) return completedRef.value
         if (this.buildPaused) return completedRef.value
