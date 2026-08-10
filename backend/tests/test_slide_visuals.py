@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ from slide_visuals import (
     _source_clauses,
     _visual_anchor,
     _visual_plan_batches,
+    _visual_plan_concurrency,
     _visual_plan_request,
     deterministic_visual_plan,
     plan_slide_visuals,
@@ -1229,6 +1231,101 @@ async def test_long_deck_uses_bounded_visual_planning_batches() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cross_subject_visual_batches_run_with_bounded_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    course = {
+        "course_id": "delivery-workflow-course",
+        "course_name": "Reliable Software Delivery",
+        "nodes": [
+            {
+                "node_id": f"chapter-{index}",
+                "parent_node_id": "root",
+                "node_name": title,
+                "node_level": 1,
+                "content_blocks": [{
+                    "block_id": f"workflow-{index}",
+                    "title": title,
+                    "content": content,
+                    "metadata": {"role": "concept"},
+                }],
+            }
+            for index, (title, content) in enumerate((
+                (
+                    "Validate the change",
+                    "Check the proposed change, record evidence, and stop when validation fails.",
+                ),
+                (
+                    "Package the release",
+                    "Build one immutable artifact, attach its revision, and retain the audit trail.",
+                ),
+                (
+                    "Promote safely",
+                    "Deploy the verified artifact, observe health checks, and keep rollback available.",
+                ),
+            ), start=1)
+        ],
+    }
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "2")
+    active_calls = 0
+    peak_calls = 0
+    completion_order: list[int] = []
+
+    async def planner(request: dict) -> dict:
+        nonlocal active_calls, peak_calls
+        batch_index = int(request["batch_index"])
+        active_calls += 1
+        peak_calls = max(peak_calls, active_calls)
+        try:
+            await asyncio.sleep(0.04 if batch_index % 2 == 0 else 0.01)
+            page_ids = {page["page_id"] for page in request["pages"]}
+            batch_allocation = allocation.model_copy(update={
+                "pages": [
+                    page for page in allocation.pages
+                    if page.page_id in page_ids
+                ],
+            })
+            return deterministic_visual_plan(
+                document,
+                batch_allocation,
+                fragments,
+            ).model_dump(mode="json")
+        finally:
+            completion_order.append(batch_index)
+            active_calls -= 1
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    assert len(_visual_plan_batches(allocation, 12)) >= 3
+    assert peak_calls == 2
+    assert completion_order != sorted(completion_order)
+    assert [page.page_id for page in resolved.pages] == [
+        page.page_id for page in allocation.pages
+    ]
+    assert resolved.deck_brief["planner"] == "ai"
+    assert resolved.deck_brief["ai_visual_batch_concurrency"] == 2
+    assert resolved.deck_brief["ai_visual_peak_concurrency"] == 2
+    assert resolved.deck_brief["ai_visual_planning_duration_ms"] > 0
+    timings = resolved.deck_brief["ai_visual_batch_timings"]
+    assert [item["batch_index"] for item in timings] == list(range(len(timings)))
+    assert all(item["status"] == "accepted" for item in timings)
+    assert all(item["duration_ms"] >= 0 for item in timings)
+
+
+@pytest.mark.asyncio
 async def test_visual_batch_accepts_pages_only_provider_envelope() -> None:
     course = visual_course()
     document = document_from_legacy_course(course)
@@ -1341,6 +1438,19 @@ def test_visual_planning_batches_never_mix_chapters() -> None:
         len({page.chapter_id for page in batch if page.chapter_id}) <= 1
         for batch in batches
     )
+
+
+def test_visual_plan_concurrency_matches_shared_provider_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_VISUAL_PLAN_CONCURRENCY", raising=False)
+    assert _visual_plan_concurrency(8) == 2
+
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "999")
+    assert _visual_plan_concurrency(8) == 4
+
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "not-a-number")
+    assert _visual_plan_concurrency(8) == 2
 
 
 @pytest.mark.asyncio

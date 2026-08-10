@@ -3383,8 +3383,8 @@ def test_v5_build_signature_invalidates_all_teaching_semantic_policies() -> None
     assert signature["domain_presentation_profile_version"].startswith(
         "domain_presentation_profiles_v1"
     )
-    assert signature["visual_planning_batch_version"].startswith(
-        "chapter_visual_batches_v2"
+    assert signature["visual_planning_batch_version"] == (
+        "chapter_visual_batches_v2.2"
     )
 
 
