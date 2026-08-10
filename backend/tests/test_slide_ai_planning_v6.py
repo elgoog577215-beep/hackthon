@@ -1,8 +1,8 @@
 import asyncio
 
 import pytest
-import slide_ai_planning_v6 as planning_module
 
+import slide_ai_planning_v6 as planning_module
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import (
     compile_course_presentation_graph,
@@ -1035,20 +1035,43 @@ async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() 
     prose_document = _document()
     prose_graph = compile_course_presentation_graph(prose_document, teaching_plan={})
     prose_story = await plan_slide_story_v3(prose_graph, template, ai_planner=story_planner)
+    prose_events: list[dict] = []
     degraded = await plan_slide_visuals_v2(
         prose_story,
         prose_graph,
         template,
         ai_planner=unavailable,
+        batch_callback=lambda event: prose_events.append(event),
     )
     assert degraded.decisions[0].degraded is True
     assert degraded.decisions[0].decision == "text_native"
+    degraded_diagnostic = next(
+        event["diagnostic"]
+        for event in prose_events
+        if event["phase"] == "completed"
+    )
+    assert degraded_diagnostic.validation_status == "degraded"
+    assert degraded_diagnostic.failure_category == "visual_ai_batch_timeout"
 
     code_document = _document(with_code=True)
     code_graph = compile_course_presentation_graph(code_document, teaching_plan={})
     code_story = await plan_slide_story_v3(code_graph, template, ai_planner=story_planner)
+    code_events: list[dict] = []
     with pytest.raises(V6BuildError, match="visual_ai_required_artifact_failed"):
-        await plan_slide_visuals_v2(code_story, code_graph, template, ai_planner=unavailable)
+        await plan_slide_visuals_v2(
+            code_story,
+            code_graph,
+            template,
+            ai_planner=unavailable,
+            batch_callback=lambda event: code_events.append(event),
+        )
+    failed_diagnostic = next(
+        event["diagnostic"]
+        for event in code_events
+        if event["phase"] == "failed"
+    )
+    assert failed_diagnostic.validation_status == "failed"
+    assert failed_diagnostic.failure_category == "visual_ai_required_artifact_failed"
 
 
 @pytest.mark.asyncio

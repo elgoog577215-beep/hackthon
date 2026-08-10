@@ -5,17 +5,17 @@ from pathlib import Path
 import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
-from slide_deck_v6 import V6BuildError
+from slide_ai_planning_v6 import AIPlannerInvocationError
 from slide_build_progress_v2 import (
     SlideBuildProgressManifestV2,
     SlideBuildProgressRepositoryV2,
     SlideWorkItemV2,
 )
+from slide_deck_v6 import V6BuildError
 from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
 )
-from slide_ai_planning_v6 import AIPlannerInvocationError
 from teaching_representations import TeachingRepresentationRepository
 
 
@@ -211,6 +211,14 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     candidate = candidates.load("task-v6-success")
     assert candidate["status"] == "v6_ready"
     assert candidate["story_plan"]["batches"][0]["provider"] == "fixture-pool"
+    assert [item["kind"] for item in candidate["ai_batch_diagnostics"]] == [
+        "story",
+        "visual",
+    ]
+    assert all(
+        item["validation_status"] == "passed"
+        for item in candidate["ai_batch_diagnostics"]
+    )
     registry = representations.load(document.course_id)
     representation = next(item for item in registry.representations if item.variant_key == "teaching:qizhi-classroom")
     spec = next(item for item in registry.specs if item.spec_id == representation.spec_id)

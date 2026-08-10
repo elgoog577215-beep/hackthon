@@ -19,7 +19,6 @@ from course_presentation_graph import (
 )
 from template_layout_contract import TemplateLayoutPackContractV1
 
-
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
 SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v1"
 
@@ -103,6 +102,31 @@ class SlideStoryBatchV3(_StrictModel):
     validation_status: Literal["passed", "failed"]
     failure_category: str = ""
     pages: list[SlideStoryPageV3] = Field(default_factory=list)
+
+
+class AIProviderAttemptDiagnosticV1(_StrictModel):
+    provider: str
+    model: str
+    attempt: int = Field(ge=1)
+    status: str
+    duration_ms: int = Field(default=0, ge=0)
+    queue_wait_ms: int = Field(default=0, ge=0)
+    error_code: str = ""
+
+
+class AIBatchDiagnosticV1(_StrictModel):
+    schema_version: Literal["ai_batch_diagnostic_v1"] = "ai_batch_diagnostic_v1"
+    kind: Literal["story", "visual"]
+    batch_id: str
+    chapter_id: str
+    provider: str
+    model: str
+    duration_ms: int = Field(ge=0)
+    attempts: int = Field(ge=1)
+    retry_count: int = Field(ge=0)
+    validation_status: Literal["passed", "failed", "degraded"]
+    failure_category: str = ""
+    attempt_records: list[AIProviderAttemptDiagnosticV1] = Field(default_factory=list)
 
 
 class SlideStoryPlanV3(_StrictModel):
@@ -209,7 +233,7 @@ class SlideDeckV6Quality(_StrictModel):
     passed: bool = True
 
     @model_validator(mode="after")
-    def derive_passed(self) -> "SlideDeckV6Quality":
+    def derive_passed(self) -> SlideDeckV6Quality:
         self.passed = bool(
             self.formal_block_visible_coverage == 1.0
             and self.full_text_note_binding == 1.0
@@ -1336,6 +1360,8 @@ def compile_slide_deck_v6(
 
 
 __all__ = [
+    "AIBatchDiagnosticV1",
+    "AIProviderAttemptDiagnosticV1",
     "SLIDE_DECK_V6_COMPILER_VERSION",
     "PptSourceContractV2",
     "SlideDeckV6",

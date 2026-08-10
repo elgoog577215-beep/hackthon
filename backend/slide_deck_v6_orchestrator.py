@@ -7,9 +7,10 @@ import inspect
 import json
 import os
 import tempfile
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from course_document import CourseDocument, stable_hash
 from course_presentation_graph import compile_course_presentation_graph
@@ -20,7 +21,9 @@ from slide_build_progress_v2 import (
     SlideBuildProgressTrackerV2,
     SlideWorkItemV2,
 )
+from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6 import (
+    AIBatchDiagnosticV1,
     SlideStoryBatchV3,
     SlideVisualDecisionV2,
     V6BuildError,
@@ -28,7 +31,6 @@ from slide_deck_v6 import (
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
 )
-from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from teaching_representations import (
     SourceBinding,
@@ -37,9 +39,7 @@ from teaching_representations import (
     TeachingRepresentationSpec,
     source_binding_for_document,
 )
-from template_layout_contract import compile_builtin_template_layout_contract_v1
-from template_layout_contract import TemplateLayoutPackContractV1
-
+from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
 
@@ -317,6 +317,30 @@ class SlideDeckV6Orchestrator:
             checkpoint["updated_at"] = _utc_now()
             self.candidates.save(task_id, checkpoint)
 
+        ai_batch_diagnostics_by_key = {
+            (diagnostic.kind, diagnostic.batch_id): diagnostic
+            for diagnostic in (
+                AIBatchDiagnosticV1.model_validate(item)
+                for item in checkpoint.get("ai_batch_diagnostics") or []
+            )
+        }
+
+        def store_ai_batch_diagnostic(value: Any) -> None:
+            if value is None:
+                return
+            diagnostic = AIBatchDiagnosticV1.model_validate(
+                value.model_dump(mode="json")
+                if isinstance(value, AIBatchDiagnosticV1)
+                else value
+            )
+            ai_batch_diagnostics_by_key[(diagnostic.kind, diagnostic.batch_id)] = diagnostic
+
+        def serialized_ai_batch_diagnostics() -> list[dict[str, Any]]:
+            return [
+                diagnostic.model_dump(mode="json")
+                for diagnostic in ai_batch_diagnostics_by_key.values()
+            ]
+
         tracker.add_work([
             SlideWorkItemV2(item_id="source-contract", kind="local", stage="source", label="冻结课程与模板真源"),
             SlideWorkItemV2(item_id="course-graph", kind="local", stage="course_graph", label="构建完整教学单元图"),
@@ -406,7 +430,8 @@ class SlideDeckV6Orchestrator:
                 nonlocal current_work
                 work_id = str(event["batch_id"])
                 current_work = work_id
-                if event["phase"] == "started":
+                phase = str(event["phase"])
+                if phase == "started":
                     tracker.start(
                         work_id,
                         chapter_id=str(event["chapter_id"]),
@@ -414,14 +439,20 @@ class SlideDeckV6Orchestrator:
                         provider_wait=True,
                         retry_attempt=int(event.get("retry_attempt") or 0),
                     )
-                else:
+                elif phase == "completed":
                     batch = event["batch"]
                     story_batches_by_id[work_id] = batch
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
                     save_checkpoint(story_batches=[
                         story_batches_by_id[key].model_dump(mode="json")
                         for key in sorted(story_batches_by_id)
-                    ])
+                    ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
                     tracker.complete(work_id)
+                elif phase == "failed":
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
+                    save_checkpoint(
+                        ai_batch_diagnostics=serialized_ai_batch_diagnostics()
+                    )
                 await _emit(progress_callback, tracker.snapshot())
 
             story = await _await_with_heartbeats(
@@ -476,21 +507,28 @@ class SlideDeckV6Orchestrator:
                 nonlocal current_work
                 work_id = str(event["batch_id"])
                 current_work = work_id
-                if event["phase"] == "started":
+                phase = str(event["phase"])
+                if phase == "started":
                     tracker.start(
                         work_id,
                         chapter_id=str(event["chapter_id"]),
                         batch_id=work_id,
                         provider_wait=True,
                     )
-                else:
+                elif phase == "completed":
                     for decision in event["decisions"]:
                         visual_decisions_by_page[decision.page_id] = decision
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
                     save_checkpoint(visual_decisions=[
                         visual_decisions_by_page[key].model_dump(mode="json")
                         for key in sorted(visual_decisions_by_page)
-                    ])
+                    ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
                     tracker.complete(work_id)
+                elif phase == "failed":
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
+                    save_checkpoint(
+                        ai_batch_diagnostics=serialized_ai_batch_diagnostics()
+                    )
                 await _emit(progress_callback, tracker.snapshot())
 
             visual = await _await_with_heartbeats(
@@ -661,6 +699,7 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "planning_status": planning_status,
             }
             unit_bindings = {
@@ -752,6 +791,7 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "planning_status": planning_status,
                 "deck": deck.model_dump(mode="json"),
                 "published": publish_result,
@@ -806,6 +846,7 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json") if graph else None,
                 "story_plan": story.model_dump(mode="json") if story else None,
                 "visual_plan": visual.model_dump(mode="json") if visual else None,
+                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "deck": None,
                 "published": False,
                 "shadow_context": dict(shadow_context or {}),

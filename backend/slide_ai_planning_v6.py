@@ -12,7 +12,8 @@ import json
 import re
 import time
 from collections import defaultdict
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -25,6 +26,8 @@ from course_presentation_graph import (
     teaching_intent_for_roles,
 )
 from slide_deck_v6 import (
+    AIBatchDiagnosticV1,
+    AIProviderAttemptDiagnosticV1,
     SlideStoryBatchV3,
     SlideStoryPageV3,
     SlideStoryPlanV3,
@@ -35,7 +38,6 @@ from slide_deck_v6 import (
     validate_slide_visual_plan_v2,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
-
 
 Planner = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
 BatchLifecycleCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
@@ -67,6 +69,37 @@ _VISUAL_DECISION_CONTRACT_FIELDS = frozenset({
     "degraded",
     "degradation_reason",
 })
+
+
+class AIPlannerInvocationError(RuntimeError):
+    """Provider failure with only allow-listed, non-content telemetry attached."""
+
+    def __init__(
+        self,
+        error: BaseException,
+        *,
+        telemetry: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.original_error = error
+        self.telemetry = [
+            item.model_dump(mode="json")
+            for item in _sanitize_provider_attempts(telemetry or [])
+        ]
+        super().__init__(str(error) or type(error).__name__)
+
+
+class _AIPlannerResponse(dict[str, Any]):
+    def __init__(
+        self,
+        value: dict[str, Any],
+        *,
+        telemetry: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(value)
+        self.telemetry = [
+            item.model_dump(mode="json")
+            for item in _sanitize_provider_attempts(telemetry or [])
+        ]
 
 
 class _StrictModel(BaseModel):
@@ -395,9 +428,93 @@ def _normalize_visual_batch_response(
     return payload
 
 
+def _sanitize_provider_attempts(
+    telemetry: list[dict[str, Any]],
+) -> list[AIProviderAttemptDiagnosticV1]:
+    """Keep operational routing data while dropping prompts, keys, and responses."""
+
+    records: list[AIProviderAttemptDiagnosticV1] = []
+    for ordinal, raw in enumerate(telemetry, start=1):
+        if not isinstance(raw, dict):
+            continue
+        provider = str(
+            raw.get("provider")
+            or raw.get("provider_route")
+            or "shared-ai-pool"
+        )
+        model = str(
+            raw.get("model")
+            or raw.get("model_id")
+            or "provider-selected"
+        )
+        try:
+            attempt = max(1, int(raw.get("provider_attempt") or raw.get("attempt") or ordinal))
+        except (TypeError, ValueError):
+            attempt = ordinal
+        try:
+            duration_ms = max(0, int(raw.get("duration_ms") or 0))
+        except (TypeError, ValueError):
+            duration_ms = 0
+        try:
+            queue_wait_ms = max(0, int(raw.get("queue_wait_ms") or 0))
+        except (TypeError, ValueError):
+            queue_wait_ms = 0
+        records.append(AIProviderAttemptDiagnosticV1(
+            provider=provider,
+            model=model,
+            attempt=attempt,
+            status=str(raw.get("status") or "unknown"),
+            duration_ms=duration_ms,
+            queue_wait_ms=queue_wait_ms,
+            error_code=str(raw.get("error_code") or ""),
+        ))
+    return records
+
+
+def _provider_attempts_from(value: Any) -> list[AIProviderAttemptDiagnosticV1]:
+    telemetry = getattr(value, "telemetry", [])
+    return _sanitize_provider_attempts(telemetry if isinstance(telemetry, list) else [])
+
+
+def _batch_diagnostic(
+    *,
+    kind: str,
+    batch_id: str,
+    chapter_id: str,
+    duration_ms: int,
+    validation_status: str,
+    failure_category: str = "",
+    provider: str = "",
+    model: str = "",
+    attempts: int = 1,
+    attempt_records: list[AIProviderAttemptDiagnosticV1] | None = None,
+) -> AIBatchDiagnosticV1:
+    records = list(attempt_records or [])
+    last = records[-1] if records else None
+    actual_attempts = max(1, attempts, len(records))
+    return AIBatchDiagnosticV1(
+        kind=kind,
+        batch_id=batch_id,
+        chapter_id=chapter_id,
+        provider=provider or (last.provider if last else "shared-ai-pool"),
+        model=model or (last.model if last else "provider-selected"),
+        duration_ms=max(0, duration_ms),
+        attempts=actual_attempts,
+        retry_count=max(0, actual_attempts - 1),
+        validation_status=validation_status,
+        failure_category=failure_category,
+        attempt_records=records,
+    )
+
+
 def _failure_category(error: BaseException, *, prefix: str) -> tuple[str, bool]:
-    message = str(error).lower()
-    if isinstance(error, (TimeoutError, asyncio.TimeoutError)) or "timeout" in message:
+    original = (
+        error.original_error
+        if isinstance(error, AIPlannerInvocationError)
+        else error
+    )
+    message = str(original).lower()
+    if isinstance(original, (TimeoutError, asyncio.TimeoutError)) or "timeout" in message:
         return f"{prefix}_timeout", True
     if any(token in message for token in ("401", "403", "authentication", "api key")):
         return f"{prefix}_authentication", False
@@ -969,6 +1086,11 @@ async def plan_slide_story_v3(
             "resumed": False,
         })
         started = time.perf_counter()
+        attempt_records: list[AIProviderAttemptDiagnosticV1] = []
+        reported_provider = ""
+        reported_model = ""
+        reported_attempts = 1
+        planner_invocations = 0
         try:
             contract_error: Exception | None = None
             previous_response_payload: dict[str, Any] | None = None
@@ -1018,13 +1140,23 @@ async def plan_slide_story_v3(
                         "retry_attempt": validation_attempt,
                     })
                 try:
+                    planner_invocations += 1
                     raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
+                    attempt_records.extend(_provider_attempts_from(raw))
                     previous_response_payload = _normalize_story_batch_response(
                         raw,
                         attempt_request,
                     )
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload
+                    )
+                    reported_provider = response.provider or reported_provider
+                    reported_model = response.model or reported_model
+                    reported_attempts = max(
+                        reported_attempts,
+                        response.attempts + validation_attempt,
+                        len(attempt_records),
+                        planner_invocations,
                     )
                     if response.schema_version != "slide_story_batch_response_v3":
                         raise ValueError("Unexpected story response schema")
@@ -1043,7 +1175,7 @@ async def plan_slide_story_v3(
                         provider=response.provider or "shared-ai-pool",
                         model=response.model or "provider-selected",
                         duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
-                        attempts=response.attempts + validation_attempt,
+                        attempts=reported_attempts,
                         validation_status="passed",
                         pages=local_pages,
                     )
@@ -1088,10 +1220,51 @@ async def plan_slide_story_v3(
                     pages=batch.pages,
             )
             batches.append(batch)
-        except V6BuildError:
+        except V6BuildError as error:
+            await _notify_batch(batch_callback, {
+                "phase": "failed",
+                "kind": "story",
+                "batch_index": batch_index,
+                "batch_id": batch_id,
+                "chapter_id": str(request["chapter_id"]),
+                "resumed": False,
+                "diagnostic": _batch_diagnostic(
+                    kind="story",
+                    batch_id=batch_id,
+                    chapter_id=str(request["chapter_id"]),
+                    duration_ms=round((time.perf_counter() - started) * 1000),
+                    validation_status="failed",
+                    failure_category=error.failure.code,
+                    provider=reported_provider,
+                    model=reported_model,
+                    attempts=max(reported_attempts, planner_invocations),
+                    attempt_records=attempt_records,
+                ),
+            })
             raise
         except Exception as error:
+            attempt_records.extend(_provider_attempts_from(error))
             code, retryable = _failure_category(error, prefix="story_ai_batch")
+            await _notify_batch(batch_callback, {
+                "phase": "failed",
+                "kind": "story",
+                "batch_index": batch_index,
+                "batch_id": batch_id,
+                "chapter_id": str(request["chapter_id"]),
+                "resumed": False,
+                "diagnostic": _batch_diagnostic(
+                    kind="story",
+                    batch_id=batch_id,
+                    chapter_id=str(request["chapter_id"]),
+                    duration_ms=round((time.perf_counter() - started) * 1000),
+                    validation_status="failed",
+                    failure_category=code,
+                    provider=reported_provider,
+                    model=reported_model,
+                    attempts=max(reported_attempts, planner_invocations),
+                    attempt_records=attempt_records,
+                ),
+            })
             raise V6BuildError(
                 stage="story",
                 code=code,
@@ -1108,6 +1281,17 @@ async def plan_slide_story_v3(
             "chapter_id": batch.chapter_id,
             "resumed": False,
             "batch": batch,
+            "diagnostic": _batch_diagnostic(
+                kind="story",
+                batch_id=batch_id,
+                chapter_id=batch.chapter_id,
+                duration_ms=batch.duration_ms,
+                validation_status="passed",
+                provider=batch.provider,
+                model=batch.model,
+                attempts=batch.attempts,
+                attempt_records=attempt_records,
+            ),
         })
     plan = SlideStoryPlanV3(
         source_document_revision=graph.source_document_revision,
@@ -1292,6 +1476,13 @@ async def plan_slide_visuals_v2(
         })
         request = _visual_request(batch, graph, template)
         started = time.perf_counter()
+        attempt_records: list[AIProviderAttemptDiagnosticV1] = []
+        reported_provider = ""
+        reported_model = ""
+        reported_attempts = 1
+        planner_invocations = 0
+        batch_validation_status = "passed"
+        batch_failure_category = ""
         try:
             contract_error: Exception | None = None
             for validation_attempt in range(_VISUAL_SEMANTIC_MAX_ATTEMPTS):
@@ -1330,9 +1521,19 @@ async def plan_slide_visuals_v2(
                     })
                 try:
                     async with semaphore:
+                        planner_invocations += 1
                         raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
+                    attempt_records.extend(_provider_attempts_from(raw))
                     response = _VisualBatchResponse.model_validate(
                         _normalize_visual_batch_response(raw, request)
+                    )
+                    reported_provider = response.provider or reported_provider
+                    reported_model = response.model or reported_model
+                    reported_attempts = max(
+                        reported_attempts,
+                        response.attempts + validation_attempt,
+                        len(attempt_records),
+                        planner_invocations,
                     )
                     if response.schema_version != "slide_visual_batch_response_v2":
                         raise ValueError("Unexpected visual response schema")
@@ -1344,7 +1545,7 @@ async def plan_slide_visuals_v2(
                                 "model": decision.model or response.model or "provider-selected",
                                 "attempts": max(
                                     decision.attempts,
-                                    response.attempts + validation_attempt,
+                                    reported_attempts,
                                 ),
                                 "duration_ms": max(decision.duration_ms, duration_ms),
                             }
@@ -1367,12 +1568,38 @@ async def plan_slide_visuals_v2(
             else:  # pragma: no cover - the bounded loop either succeeds or raises
                 raise RuntimeError("Visual response repair loop exited unexpectedly")
         except Exception as error:
+            attempt_records.extend(_provider_attempts_from(error))
             required_pages = [
                 page
                 for page in batch.pages
                 if set(units[page.teaching_unit_id].artifact_kinds).intersection(_HARD_VISUAL_ARTIFACTS)
             ]
             if required_pages:
+                failure_category = (
+                    error.failure.code
+                    if isinstance(error, V6BuildError)
+                    else "visual_ai_required_artifact_failed"
+                )
+                await _notify_batch(batch_callback, {
+                    "phase": "failed",
+                    "kind": "visual",
+                    "batch_index": batch_index,
+                    "batch_id": batch_id,
+                    "chapter_id": batch.chapter_id,
+                    "resumed": False,
+                    "diagnostic": _batch_diagnostic(
+                        kind="visual",
+                        batch_id=batch_id,
+                        chapter_id=batch.chapter_id,
+                        duration_ms=round((time.perf_counter() - started) * 1000),
+                        validation_status="failed",
+                        failure_category=failure_category,
+                        provider=reported_provider,
+                        model=reported_model,
+                        attempts=max(reported_attempts, planner_invocations),
+                        attempt_records=attempt_records,
+                    ),
+                })
                 if isinstance(error, V6BuildError):
                     raise V6BuildError(
                         stage=error.failure.stage,
@@ -1393,6 +1620,8 @@ async def plan_slide_visuals_v2(
                     batch_id=batch_id,
                 ) from error
             category, _ = _failure_category(error, prefix="visual_ai_batch")
+            batch_validation_status = "degraded"
+            batch_failure_category = category
             decisions = [
                 SlideVisualDecisionV2(
                     page_id=page.page_id,
@@ -1413,6 +1642,18 @@ async def plan_slide_visuals_v2(
             "chapter_id": batch.chapter_id,
             "resumed": False,
             "decisions": decisions,
+            "diagnostic": _batch_diagnostic(
+                kind="visual",
+                batch_id=batch_id,
+                chapter_id=batch.chapter_id,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                validation_status=batch_validation_status,
+                failure_category=batch_failure_category,
+                provider=reported_provider,
+                model=reported_model,
+                attempts=max(reported_attempts, planner_invocations),
+                attempt_records=attempt_records,
+            ),
         })
         return decisions
 
@@ -1433,9 +1674,10 @@ def build_ai_base_story_planner_v6() -> Planner:
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         telemetry: list[dict[str, Any]] = []
-        response = await provider._call_llm(
-            json.dumps(request, ensure_ascii=False),
-            system_prompt=(
+        try:
+            response = await provider._call_llm(
+                json.dumps(request, ensure_ascii=False),
+                system_prompt=(
                 "Return only slide_story_batch_response_v3 JSON. You are a course-faithful "
                 "presentation planner. Use every supplied primary_block_id exactly once, keep "
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id. "
@@ -1452,23 +1694,26 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "page level; never emit a nested content object. Copy titles verbatim from the "
                 "selected teaching unit's title_candidates and keep each title within the supplied "
                 "title_max_chars. Never invent teaching content."
-            ),
-            use_fast_model=False,
-            retry_count=1,
-            max_attempts=3,
-            max_tokens=6144,
-            reject_truncated=True,
-            raise_on_failure=True,
-            json_mode=True,
-            model_role="ppt_story",
-            telemetry_sink=telemetry.append,
-        )
+                ),
+                use_fast_model=False,
+                retry_count=1,
+                max_attempts=3,
+                max_tokens=6144,
+                reject_truncated=True,
+                raise_on_failure=True,
+                json_mode=True,
+                model_role="ppt_story",
+                telemetry_sink=telemetry.append,
+            )
+        except Exception as error:
+            raise AIPlannerInvocationError(error, telemetry=telemetry) from error
         value = provider._extract_json(response or "") or {}
-        if telemetry:
-            value.setdefault("provider", str(telemetry[-1].get("provider") or "shared-ai-pool"))
-            value.setdefault("model", str(telemetry[-1].get("model") or telemetry[-1].get("model_id") or "provider-selected"))
-            value.setdefault("attempts", len(telemetry))
-        return value
+        records = _sanitize_provider_attempts(telemetry)
+        if records:
+            value.setdefault("provider", records[-1].provider)
+            value.setdefault("model", records[-1].model)
+            value.setdefault("attempts", len(records))
+        return _AIPlannerResponse(value, telemetry=telemetry)
 
     return planner
 
@@ -1478,9 +1723,10 @@ def build_ai_base_visual_planner_v2() -> Planner:
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         telemetry: list[dict[str, Any]] = []
-        response = await provider._call_llm(
-            json.dumps(request, ensure_ascii=False),
-            system_prompt=(
+        try:
+            response = await provider._call_llm(
+                json.dumps(request, ensure_ascii=False),
+                system_prompt=(
                 "Return only slide_visual_batch_response_v2 JSON with exactly one decision per "
                 "page_id and follow response_contract exactly. Use decision, never decision_type. "
                 "Use only supplied source_block_ids and template_layout_id values. Preserve "
@@ -1491,28 +1737,32 @@ def build_ai_base_visual_planner_v2() -> Planner:
                 "include visual_payload with "
                 "two to six source-grounded nodes, source_block_ids per node, and valid edges. For "
                 "image or experiment decisions choose only supplied source_asset_ids."
-            ),
-            use_fast_model=True,
-            retry_count=1,
-            max_attempts=3,
-            max_tokens=4096,
-            reject_truncated=True,
-            raise_on_failure=True,
-            json_mode=True,
-            model_role="ppt_visual",
-            telemetry_sink=telemetry.append,
-        )
+                ),
+                use_fast_model=True,
+                retry_count=1,
+                max_attempts=3,
+                max_tokens=4096,
+                reject_truncated=True,
+                raise_on_failure=True,
+                json_mode=True,
+                model_role="ppt_visual",
+                telemetry_sink=telemetry.append,
+            )
+        except Exception as error:
+            raise AIPlannerInvocationError(error, telemetry=telemetry) from error
         value = provider._extract_json(response or "") or {}
-        if telemetry:
-            value.setdefault("provider", str(telemetry[-1].get("provider") or "shared-ai-pool"))
-            value.setdefault("model", str(telemetry[-1].get("model") or telemetry[-1].get("model_id") or "provider-selected"))
-            value.setdefault("attempts", len(telemetry))
-        return value
+        records = _sanitize_provider_attempts(telemetry)
+        if records:
+            value.setdefault("provider", records[-1].provider)
+            value.setdefault("model", records[-1].model)
+            value.setdefault("attempts", len(records))
+        return _AIPlannerResponse(value, telemetry=telemetry)
 
     return planner
 
 
 __all__ = [
+    "AIPlannerInvocationError",
     "build_ai_base_story_planner_v6",
     "build_ai_base_visual_planner_v2",
     "plan_slide_story_v3",
