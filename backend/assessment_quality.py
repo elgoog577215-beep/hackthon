@@ -13,6 +13,7 @@ from assessment_subject_facts import (
     SUBJECT_FACT_ISSUE_CODES,
     subject_fact_issues,
 )
+from question_choice_grading import canonical_option_ids
 from solution_contracts import worked_solution_is_complete
 
 
@@ -575,16 +576,18 @@ def _valid_choice_options(
         for option in value
         if isinstance(option, dict)
     ]
-    correct_id = (
-        canonical_answer.get("selected_option_id")
-        if isinstance(canonical_answer, dict)
-        else canonical_answer
-    )
+    # 多选：标准答案是一组 option id。
+    #
+    # 改动前这里把 canonical 当标量用，`str(["A","C"])` 得到 "['A', 'C']"，
+    # 永远不在 identifiers 里 —— 于是**任何多选题都过不了这道硬门**。
+    # 归一成集合后单选是「集合恰好一个元素」的特例，判定逐字不变。
+    correct_ids = canonical_option_ids(canonical_answer)
     return bool(
         len(identifiers) == len(value)
         and all(identifiers)
         and len(set(identifiers)) == len(identifiers)
-        and str(correct_id or "") in identifiers
+        and correct_ids
+        and correct_ids <= set(identifiers)
     )
 
 

@@ -36,6 +36,7 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
+from question_choice_grading import canonical_option_ids
 from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
     compile_local_reference_package,
@@ -2924,12 +2925,23 @@ class AssessmentGenerationOrchestrator:
                 "details": {},
             }
         else:
+            canonical = contract["solution_envelope"].get(
+                "canonical_answer"
+            )
+            solved = independent.get("answer")
+            # 多选：按集合比较，不看顺序。
+            #
+            # answers_equivalent('exact_validator', ['A','C'], ['C','A']) 实测为
+            # False——求解器把同一组答案换个顺序写出来就判不一致，约一半多选候选
+            # 会因此被误判。判分侧 practice_grading._grade_typed 早就排序了，
+            # 生成侧一直没有。这里复用判分侧同一套 id 归一，不各写一份。
+            if _is_multi_answer_choice(contract):
+                canonical = sorted(canonical_option_ids(canonical))
+                solved = sorted(canonical_option_ids(solved))
             validation = validate_candidate_answer(
                 validation_mode,
-                contract["solution_envelope"].get(
-                    "canonical_answer"
-                ),
-                independent.get("answer"),
+                canonical,
+                solved,
                 contract["solution_envelope"].get(
                     "validator_config"
                 )
@@ -4136,6 +4148,26 @@ def _compact_batch_generation_context(
             if isinstance(reference, dict)
         ]
     return compact
+
+
+def _is_multi_answer_choice(contract: dict[str, Any]) -> bool:
+    """这道题是否按「一组选项」判定。
+
+    看合同声明的 selection.multiple，或标准答案本身就是多个 id——生成期
+    selection 可能还没被推导出来，两个判据都要认。
+    """
+    spec = contract.get("question_spec") or {}
+    input_contract = (
+        spec.get("input_contract") or contract.get("input_contract") or {}
+    )
+    if str(input_contract.get("mode") or "") != "choice":
+        return False
+    if (input_contract.get("selection") or {}).get("multiple"):
+        return True
+    canonical = (contract.get("solution_envelope") or {}).get(
+        "canonical_answer"
+    )
+    return len(canonical_option_ids(canonical)) > 1
 
 
 def _solver_contract_kind_hint() -> str:

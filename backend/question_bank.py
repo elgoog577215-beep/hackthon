@@ -40,6 +40,7 @@ from question_generation import (
     generate_question_contract,
     validate_question_spec,
 )
+from question_choice_grading import canonical_option_ids
 from question_forms import classify_question_form, question_form_distribution
 from question_public_guard import rejected_teacher_patch_fields
 from question_knowledge_binding import resolve_node_knowledge_binding
@@ -2196,10 +2197,21 @@ def _align_generated_contract_to_slot(
             or ""
         ).strip()
         correct_option_id = legacy_correct or canonical_option_id
+        # 多选：按正确 id 的**集合**判定合法性。
+        #
+        # 改动前这里只认标量：列表答案让 correct_option_id 变成空串，于是整道
+        # 合法的多选题被判为「不合法」并落进 project_default_single_choice——
+        # 选项被替换成四个合成项、题干被改写成「选择唯一正确答案」。**失败不
+        # 报错**，改写完题库看起来完全健康，这是整条链上最危险的一处。
+        correct_ids = canonical_option_ids(
+            solution.get("canonical_answer")
+        ) or ({correct_option_id} if correct_option_id else set())
+        if legacy_correct:
+            correct_ids = {legacy_correct}
         if (
             len(public_options) < 2
-            or not correct_option_id
-            or correct_option_id not in option_ids
+            or not correct_ids
+            or not correct_ids <= option_ids
         ):
             result = project_default_single_choice(
                 result,
@@ -2218,16 +2230,31 @@ def _align_generated_contract_to_slot(
                 result.get("options")
             )
         question_spec["options"] = deepcopy(public_options)
+        # 兜底重投影后要重新取一次正确集合，否则会拿旧答案去描述新选项。
+        correct_ids = canonical_option_ids(
+            solution.get("canonical_answer")
+        ) or correct_ids
+        correct_ids = {
+            value for value in correct_ids
+            if value in {
+                str(option.get("id") or "")
+                for option in public_options
+            }
+        }
+        multiple = len(correct_ids) > 1
+        presentation_mode = "multiple_choice" if multiple else "single_choice"
         question_spec["presentation_contract"] = {
-            "mode": "single_choice",
+            "mode": presentation_mode,
             "option_count": len(public_options),
-            "selection_limit": 1,
+            "selection_limit": len(correct_ids) if multiple else 1,
         }
         question_spec["response_contract"] = {
-            "format": "single_choice",
-            "required_parts": ["selected_option_id"],
+            "format": presentation_mode,
+            "required_parts": [
+                "selected_option_ids" if multiple else "selected_option_id"
+            ],
             "option_count": len(public_options),
-            "selection_limit": 1,
+            "selection_limit": len(correct_ids) if multiple else 1,
         }
         choice_answer = solution.get("choice_answer_spec")
         if isinstance(choice_answer, dict):

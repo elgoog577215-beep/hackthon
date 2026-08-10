@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from question_choice_grading import canonical_option_ids
 from solution_contracts import project_solution_spec
 
 
@@ -139,7 +140,15 @@ def solution_answer_spec(
             candidate = canonical.strip()
             if candidate in option_ids:
                 correct_option_id = candidate
-        return {
+        # 多选：标准答案是一组 option id。
+        #
+        # 改动前这里只产出标量 correct_option_id，列表答案得到空串，下游
+        # question_bank 的对齐再据此判定「题目不合法」并静默改写成单选
+        # （选项被替换、题干被重写）。这里把集合补上，止住那条链。
+        correct_ids = sorted(
+            canonical_option_ids(canonical) & option_ids
+        )
+        result_spec = {
             "type": "choice",
             "correct_option_id": correct_option_id,
             "canonical_answer": canonical,
@@ -163,6 +172,13 @@ def solution_answer_spec(
             "validator_config": validator_config,
             "solution_spec": solution_spec,
         }
+        # 只在真的多答案时才加这个键——单选的 answer_spec 必须逐键不变，
+        # 否则 compiled_contract_hash 会对所有既有题目漂移。
+        if len(correct_ids) > 1:
+            result_spec["correct_option_ids"] = correct_ids
+            if not correct_option_id:
+                result_spec["correct_option_id"] = ""
+        return result_spec
 
     if legacy:
         legacy.setdefault("solution_spec", solution_spec)

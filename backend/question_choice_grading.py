@@ -85,6 +85,31 @@ def is_choice_question(question: dict[str, Any], answer_spec: dict[str, Any]) ->
     return bool(_text(spec.get("correct_option_id")))
 
 
+def canonical_option_ids(canonical_answer: Any) -> set[str]:
+    """把 `solution.canonical_answer` 归一成正确选项 id 集合。
+
+    生成链路上有四处各自解读这个值（质量门、编译器、题库对齐、独立求解比较），
+    改动前各写各的，且都只认标量——列表答案在四处分别表现为「硬门不过」
+    「correct_option_id 变空」「题目被静默改写成单选」「求解比较失败」。
+    统一到这里，四处共用同一条规则。
+
+    支持三种形状，都是链路里真实出现过的：
+    - 标量 `"A"`；
+    - 列表 `["A", "C"]`（多选）；
+    - 对象 `{"selected_option_id": "A"}`。
+    """
+    if isinstance(canonical_answer, dict):
+        single = _text(
+            canonical_answer.get("selected_option_id")
+            or canonical_answer.get("option_id")
+        )
+        return {single} if single else set()
+    if isinstance(canonical_answer, (list, tuple, set)):
+        return _id_set(list(canonical_answer))
+    single = _text(canonical_answer)
+    return {single} if single else set()
+
+
 def correct_option_ids(
     question: dict[str, Any],
     answer_spec: dict[str, Any] | None = None,
@@ -246,6 +271,7 @@ def _misconception_ids(
 
 __all__ = [
     "CHOICE_GRADING_SCHEMA",
+    "canonical_option_ids",
     "correct_option_ids",
     "is_choice_question",
     "grade_choice",
