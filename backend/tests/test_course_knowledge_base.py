@@ -132,8 +132,20 @@ def test_course_knowledge_base_keeps_local_hierarchy_without_formal_subject_pack
     assert knowledge_base["misconceptions"]
     assert knowledge_base["mastery_criteria"]
     assert knowledge_base["relations"][0]["relation_type"] == "prerequisite"
+    assert knowledge_base["quality_report"]["metrics"]["misconception_coverage"] == 0.5
+    assert knowledge_base["quality_report"]["metrics"]["mastery_coverage"] == 1.0
+    assert knowledge_base["quality_report"]["underfilled"]["missing_counterexample_knowledge_ids"]
     assert knowledge_base["improvement_points"] == []
     assert validate_course_knowledge_base(knowledge_base, course_data=course)["passed"] is True
+
+
+def test_course_knowledge_base_preserves_richer_knowledge_types():
+    course = _course()
+    course["nodes"][0]["knowledge_structure"][0]["knowledge_points"][0]["knowledge_type"] = "model"
+
+    knowledge_base = compile_course_knowledge_base(course)
+
+    assert knowledge_base["knowledge_points"][0]["knowledge_type"] == "model"
 
 
 def test_course_knowledge_base_compiles_relation_endpoints_from_stable_ids():

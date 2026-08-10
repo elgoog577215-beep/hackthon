@@ -143,6 +143,7 @@ from course_retrieval import build_course_source_context
 from course_teaching_guidance import compile_overall_teaching_guidance
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
+    compile_course_knowledge_graph_draft,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
@@ -375,6 +376,8 @@ class CourseService(AIBase):
             "evidence_index",
             "evidence_coverage_plan",
             "course_blueprint",
+            "course_teaching_plan_skeleton",
+            "course_knowledge_graph_draft",
             "generation_quality_report",
             "generation_runtime_budget",
             "generation_stage_artifacts",
@@ -1848,6 +1851,11 @@ class CourseService(AIBase):
             )
 
         course_data["course_teaching_plan_skeleton"] = skeleton
+        knowledge_graph_draft = compile_course_knowledge_graph_draft(skeleton)
+        course_data["course_knowledge_graph_draft"] = knowledge_graph_draft
+        teaching_stage["knowledge_graph_draft_revision_id"] = (
+            knowledge_graph_draft.get("revision_id")
+        )
         compact_by_id = {
             str(item.get("node_id") or ""): item
             for item in planning_context.get("sections") or []
@@ -2792,8 +2800,13 @@ class CourseService(AIBase):
             "knowledge_compilation_model_call_count": 0,
             "graph_compilation_model_call_count": 0,
         })
+        knowledge_graph_draft = compile_course_knowledge_graph_draft(skeleton)
+        teaching_stage["knowledge_graph_draft_revision_id"] = (
+            knowledge_graph_draft.get("revision_id")
+        )
         course_data.update({
             "course_teaching_plan_skeleton": skeleton,
+            "course_knowledge_graph_draft": knowledge_graph_draft,
             "course_teaching_plan": course_teaching_plan,
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(

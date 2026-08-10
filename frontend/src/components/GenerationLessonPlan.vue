@@ -422,6 +422,19 @@
       <button
         type="button"
         role="tab"
+        :aria-selected="viewMode === 'document'"
+        :class="{ 'is-active': viewMode === 'document' }"
+        @click="viewMode = 'document'"
+      >
+        <FileText :size="16" />
+        <span>
+          <strong>{{ t('courseGeneration.lessonPlan.formalTab', '正式教案') }}</strong>
+          <small>{{ t('courseGeneration.lessonPlan.formalTabHelp', '直接阅读与交付') }}</small>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
         :aria-selected="viewMode === 'overall'"
         :class="{ 'is-active': viewMode === 'overall' }"
         @click="viewMode = 'overall'"
@@ -446,6 +459,13 @@
         </span>
       </button>
     </div>
+
+    <FormalLessonPlanDocument
+      v-if="viewMode === 'document' && effectivePlan?.sections?.length"
+      :plan="effectivePlan"
+      :nodes="nodes"
+      role="tabpanel"
+    />
 
     <article
       v-if="viewMode === 'overall' && overallPlan"
@@ -1215,6 +1235,7 @@ import {
   GitCompare,
   GitBranch,
   History,
+  FileText,
   ListTree,
   LoaderCircle,
   Route,
@@ -1226,6 +1247,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-vue-next'
+import FormalLessonPlanDocument from './FormalLessonPlanDocument.vue'
 import type {
   CourseTeachingPlanProjection,
   CourseTeachingPlanSection,
@@ -1262,7 +1284,7 @@ const emit = defineEmits<{
 }>()
 
 const workbenchStore = useTeachingPlanWorkbenchStore()
-const viewMode = ref<'overall' | 'sections'>('overall')
+const viewMode = ref<'document' | 'overall' | 'sections'>('document')
 const reviewOpen = ref(false)
 const aiOpen = ref(false)
 const historyOpen = ref(false)
@@ -1761,6 +1783,7 @@ async function beginEditing() {
   actionBusy.value = true
   try {
     await workbenchStore.beginDraft()
+    viewMode.value = 'overall'
   } catch {
     // The error code remains available for the localized status UI.
   } finally {

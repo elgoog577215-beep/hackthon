@@ -258,6 +258,119 @@ def normalize_teaching_plan_skeleton_v3(
     return normalized
 
 
+def compile_course_knowledge_graph_draft(
+    skeleton: dict[str, Any],
+) -> dict[str, Any]:
+    """Project the reconciled skeleton into an upstream knowledge graph draft.
+
+    Identity and prerequisite direction are frozen before detailed teaching-plan
+    batches run. Later batches enrich these nodes without changing their owner,
+    reuse positions or prerequisite edges.
+    """
+    registry = [
+        item for item in skeleton.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    ]
+    known_keys = {
+        str(item.get("knowledge_key") or "") for item in registry
+        if str(item.get("knowledge_key") or "")
+    }
+    nodes = [{
+        "knowledge_key": str(item.get("knowledge_key") or ""),
+        "name": str(item.get("name") or ""),
+        "statement": str(item.get("statement") or ""),
+        "owner_node_id": str(item.get("owner_node_id") or ""),
+        "reused_in_node_ids": list(item.get("reused_in_node_ids") or []),
+        "module_ids": list(item.get("module_ids") or []),
+        "detail_status": "pending_enrichment",
+    } for item in registry]
+    edges: list[dict[str, Any]] = []
+    invalid_prerequisite_keys: list[str] = []
+    for item in registry:
+        target_key = str(item.get("knowledge_key") or "")
+        for prerequisite_key in item.get("prerequisite_keys") or []:
+            source_key = str(prerequisite_key or "")
+            if source_key not in known_keys or target_key not in known_keys:
+                invalid_prerequisite_keys.append(source_key or target_key)
+                continue
+            edge = {
+                "source_knowledge_key": source_key,
+                "target_knowledge_key": target_key,
+                "relation_type": "prerequisite",
+                "direction": "source_before_target",
+            }
+            edge["edge_id"] = stable_hash(edge, prefix="ckgd_edge_")
+            edges.append(edge)
+    section_bindings = [{
+        "node_id": str(item.get("node_id") or ""),
+        "owned_knowledge_keys": list(item.get("owned_knowledge_keys") or []),
+        "reused_knowledge_keys": list(item.get("reused_knowledge_keys") or []),
+    } for item in skeleton.get("sections") or [] if isinstance(item, dict)]
+    incoming = {
+        str(edge.get("target_knowledge_key") or "") for edge in edges
+    }
+    topological_order, cyclic_keys = _knowledge_graph_topology(
+        [str(item.get("knowledge_key") or "") for item in registry],
+        edges,
+    )
+    draft = {
+        "schema_version": "course_knowledge_graph_draft_v1",
+        "source_outline_revision_id": str(
+            skeleton.get("source_outline_revision_id") or ""
+        ),
+        "source_skeleton_revision_id": str(skeleton.get("revision_id") or ""),
+        "nodes": nodes,
+        "edges": edges,
+        "section_bindings": section_bindings,
+        "topology": {
+            "is_dag": not invalid_prerequisite_keys and not cyclic_keys,
+            "topological_order": topological_order,
+            "root_knowledge_keys": [
+                str(item.get("knowledge_key") or "")
+                for item in registry
+                if str(item.get("knowledge_key") or "") not in incoming
+            ],
+        },
+        "quality": {
+            "identity_count": len(nodes),
+            "prerequisite_edge_count": len(edges),
+            "section_binding_count": len(section_bindings),
+            "invalid_prerequisite_keys": list(dict.fromkeys(invalid_prerequisite_keys)),
+            "cyclic_knowledge_keys": cyclic_keys,
+        },
+        "status": "identity_frozen" if nodes and not invalid_prerequisite_keys and not cyclic_keys else "needs_review",
+    }
+    draft["revision_id"] = stable_hash(draft, prefix="ckgd_")
+    return draft
+
+
+def _knowledge_graph_topology(
+    knowledge_keys: list[str],
+    edges: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    ordered_keys = list(dict.fromkeys(key for key in knowledge_keys if key))
+    indegree = {key: 0 for key in ordered_keys}
+    outgoing: dict[str, list[str]] = {key: [] for key in ordered_keys}
+    for edge in edges:
+        source = str(edge.get("source_knowledge_key") or "")
+        target = str(edge.get("target_knowledge_key") or "")
+        if source not in indegree or target not in indegree:
+            continue
+        outgoing[source].append(target)
+        indegree[target] += 1
+    queue = [key for key in ordered_keys if indegree[key] == 0]
+    result: list[str] = []
+    while queue:
+        source = queue.pop(0)
+        result.append(source)
+        for target in outgoing[source]:
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+    cyclic = [key for key in ordered_keys if key not in result]
+    return result, cyclic
+
+
 def validate_teaching_plan_skeleton_v3(
     skeleton: dict[str, Any],
     *,

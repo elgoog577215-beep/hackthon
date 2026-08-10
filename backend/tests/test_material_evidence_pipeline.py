@@ -1,3 +1,4 @@
+import asyncio
 from io import BytesIO
 
 import pytest
@@ -16,6 +17,7 @@ from material_evidence import (
     build_evidence_catalog_summary,
     extract_grounding_annotations,
 )
+import material_pipeline
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, MaterialStorageError
 
@@ -33,6 +35,42 @@ class FakeUpload:
         chunk = self._content[self._offset:self._offset + size]
         self._offset += len(chunk)
         return chunk
+
+
+@pytest.mark.asyncio
+async def test_multiple_materials_parse_with_bounded_parallelism_and_stable_order(tmp_path, monkeypatch):
+    repository = MaterialRepository(tmp_path / "materials")
+    assets = [
+        await repository.create_text_asset(filename=f"source-{index}.md", content=f"# 资料 {index}\n\n正文 {index}")
+        for index in range(4)
+    ]
+    original_parse = material_pipeline.parse_material_asset
+    active = 0
+    max_active = 0
+
+    async def observed_parse(current_repository, asset):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep(0.02)
+            return await original_parse(current_repository, asset)
+        finally:
+            active -= 1
+
+    monkeypatch.setenv("MATERIAL_PARSE_CONCURRENCY", "2")
+    monkeypatch.setattr(material_pipeline, "parse_material_asset", observed_parse)
+
+    prepared = await prepare_course_materials(
+        course_id="course-parallel",
+        material_bindings=[{"asset_id": asset.asset_id} for asset in assets],
+        legacy_materials=[],
+        repository=repository,
+    )
+
+    assert max_active == 2
+    assert [item["asset_id"] for item in prepared["material_assets"]] == [asset.asset_id for asset in assets]
+    assert all(item["quality_state"] == "ready" for item in prepared["parsed_documents"])
 
 
 @pytest.mark.asyncio

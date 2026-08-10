@@ -106,6 +106,8 @@ describe('课程教案阅读尺度', () => {
       props: { nodes, plan, activeNodeId: 'section-1' },
     })
 
+    expect(wrapper.text()).toContain('正式课程教案')
+    await wrapper.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
     expect(wrapper.text()).toContain('教学大纲')
     expect(wrapper.text()).toContain('从变化率出发理解一次函数')
     expect(wrapper.text()).toContain('建立斜率的几何与情境直觉')
@@ -124,7 +126,7 @@ describe('课程教案阅读尺度', () => {
     await knowledgeTag.trigger('click')
     expect(wrapper.emitted('open-knowledge')?.[0]).toEqual(['knowledge-slope'])
 
-    await wrapper.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
+    await wrapper.findAll('.generation-lesson-plan__view-switch button')[2]!.trigger('click')
     expect(wrapper.text()).toContain('本节知识标签')
     expect(wrapper.text()).toContain('用生活情境建立变化率直觉')
   })

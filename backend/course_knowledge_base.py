@@ -23,13 +23,22 @@ RELATION_TYPES = {
 }
 SYMMETRIC_RELATION_TYPES = {"equivalent_to", "contrasts_with"}
 KNOWLEDGE_TYPES = {
+    "concept",
+    "fact",
     "definition",
     "principle",
+    "theorem",
+    "law",
     "rule",
+    "formula",
+    "model",
     "method",
     "condition",
     "representation",
     "procedure",
+    "strategy",
+    "heuristic",
+    "case",
 }
 TEACHING_ROLES = {
     "introduces",
@@ -603,9 +612,25 @@ def validate_course_knowledge_base(
 
     group_ids = {str(item.get("concept_group_id") or "") for item in groups}
     point_ids = {str(item.get("knowledge_id") or "") for item in points}
+    course_sections = _sections(course_data or {})
+    section_order = {
+        str(item.get("node_id") or ""): index
+        for index, item in enumerate(course_sections)
+    }
     section_titles = {
         str(item.get("node_id") or ""): _normalize_outline_name(_section_title(item))
-        for item in _sections(course_data or {})
+        for item in course_sections
+    }
+    group_section = {
+        str(item.get("concept_group_id") or ""): str(item.get("primary_section_ref") or "")
+        for item in groups
+    }
+    point_section_order = {
+        str(item.get("knowledge_id") or ""): section_order.get(
+            group_section.get(str(item.get("primary_concept_group_id") or ""), ""),
+            len(section_order),
+        )
+        for item in points
     }
 
     for group in groups:
@@ -678,6 +703,7 @@ def validate_course_knowledge_base(
             issues.append(_issue("misconception_is_template", "standards", "critical", f"易错点「{mistake.get('name')}」缺少错误表现、辨别或修复方法"))
 
     inbound: set[str] = set()
+    connected: set[str] = set()
     relation_signatures: set[tuple[str, str, str]] = set()
     for relation in relations:
         source = str(relation.get("source_knowledge_id") or "")
@@ -699,6 +725,18 @@ def validate_course_knowledge_base(
             issues.append(_issue("duplicate_relation", "relations", "critical", "知识关系语义签名重复"))
         relation_signatures.add(signature)
         inbound.add(target)
+        connected.update((source, target))
+        if (
+            relation_type == "prerequisite"
+            and point_section_order.get(source, len(section_order))
+            > point_section_order.get(target, len(section_order))
+        ):
+            issues.append(_issue(
+                "reversed_prerequisite_direction",
+                "relations",
+                "critical",
+                "前置知识关系方向与课程顺序相反：前置知识必须位于目标知识之前",
+            ))
         if relation_type in SYMMETRIC_RELATION_TYPES:
             inbound.add(source)
     if knowledge_base.get("relation_plan_schema_version"):
@@ -737,10 +775,13 @@ def validate_course_knowledge_base(
                 "critical",
                 "全课关系规划没有逐一处理所有知识点",
             ))
+    relation_cycles: dict[str, list[str]] = {}
     for relation_type in ("prerequisite", "generalizes"):
         cycle = _find_relation_cycle(relations, relation_type)
+        relation_cycles[relation_type] = cycle
         if cycle:
-            issues.append(_issue(f"{relation_type}_cycle", "relations", "major", f"{relation_type} 关系存在循环，建议后续优化：{' -> '.join(cycle)}"))
+            severity = "critical" if relation_type == "prerequisite" else "major"
+            issues.append(_issue(f"{relation_type}_cycle", "relations", severity, f"{relation_type} 关系存在循环：{' -> '.join(cycle)}"))
     for point in points:
         point_id = str(point.get("knowledge_id") or "")
         if point_id not in inbound and not str(point.get("entry_reason") or "").strip():
@@ -782,6 +823,35 @@ def validate_course_knowledge_base(
     critical_count = sum(item["severity"] == "critical" for item in issues)
     major_count = sum(item["severity"] == "major" for item in issues)
     relation_covered = len(inbound) / len(points) if points else 0.0
+    points_with_counterexamples = {
+        str(item.get("knowledge_id") or "") for item in points
+        if item.get("counterexamples")
+    }
+    points_with_sources = {
+        str(item.get("knowledge_id") or "") for item in points
+        if item.get("source_refs")
+    }
+    points_with_misconceptions = {
+        str(item.get("primary_knowledge_id") or "") for item in mistakes
+        if str(item.get("primary_knowledge_id") or "") in point_ids
+    }
+    points_with_mastery = set(criteria_by_point) & point_ids
+    point_count = len(points)
+
+    def detail_ratio(count: int) -> float:
+        return round(count / point_count, 4) if point_count else 0.0
+
+    underfilled = {
+        "missing_counterexample_knowledge_ids": sorted(point_ids - points_with_counterexamples),
+        "missing_misconception_knowledge_ids": sorted(point_ids - points_with_misconceptions),
+        "missing_mastery_knowledge_ids": sorted(point_ids - points_with_mastery),
+        "ungrounded_knowledge_ids": sorted(point_ids - points_with_sources),
+        "unconnected_knowledge_ids": sorted(
+            point_id for point_id in point_ids
+            if point_id not in connected
+            and not str(next((item.get("entry_reason") for item in points if item.get("knowledge_id") == point_id), "") or "").strip()
+        ),
+    }
     return {
         "schema_version": "course_knowledge_quality_v2",
         "passed": critical_count == 0,
@@ -803,12 +873,24 @@ def validate_course_knowledge_base(
             "relation_decision_count": len(relation_decisions),
             "relation_coverage": round(relation_covered, 4),
             "binding_count": len(bindings),
+            "points_with_counterexamples": len(points_with_counterexamples),
+            "points_with_misconceptions": len(points_with_misconceptions),
+            "points_with_mastery": len(points_with_mastery),
+            "grounded_knowledge_point_count": len(points_with_sources),
+            "connected_knowledge_point_count": len(connected),
         },
         "metrics": {
             "mapped_ratio": round(len(section_ids & bound_sections) / len(section_ids), 4) if section_ids else 0.0,
             "relation_coverage": round(relation_covered, 4),
             "atomic_ratio": round(sum(item.get("granularity_status") == "atomic" for item in points) / len(points), 4) if points else 0.0,
+            "counterexample_coverage": detail_ratio(len(points_with_counterexamples)),
+            "misconception_coverage": detail_ratio(len(points_with_misconceptions)),
+            "mastery_coverage": detail_ratio(len(points_with_mastery)),
+            "source_grounding_coverage": detail_ratio(len(points_with_sources)),
+            "graph_connectivity": detail_ratio(len(connected)),
+            "prerequisite_dag_valid": not relation_cycles.get("prerequisite"),
         },
+        "underfilled": underfilled,
     }
 
 

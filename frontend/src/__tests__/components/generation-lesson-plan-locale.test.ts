@@ -39,6 +39,8 @@ describe('真实渲染：中英文教案页面', () => {
 
   it('中文模式显示教学大纲/教学设计/教学目标/学情分析', async () => {
     const w = await mountWith('zh')
+    expect(w.text()).toContain('正式教案')
+    await w.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
     const text = w.text()
     console.log('--- ZH tabs:', w.findAll('.generation-lesson-plan__view-switch strong').map(n => n.text()))
     console.log('--- ZH eyebrows:', w.findAll('.generation-lesson-plan__overview small').slice(0,6).map(n => n.text()))
@@ -48,12 +50,14 @@ describe('真实渲染：中英文教案页面', () => {
     expect(text).toContain('学情分析')
     // 小节标题里的章节编号是内容，不受术语改名影响
     // 切到教学设计 tab：小节标题里的章节编号是课程内容，不受术语改名影响
-    await w.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
+    await w.findAll('.generation-lesson-plan__view-switch button')[2]!.trigger('click')
     expect(w.text()).toContain('第一章第一节 矩阵复合')
   })
 
   it('英文模式无中文残留、无原始 key', async () => {
     const w = await mountWith('en')
+    expect(w.text()).toContain('Formal plan')
+    await w.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
     const text = w.text()
     console.log('--- EN tabs:', w.findAll('.generation-lesson-plan__view-switch strong').map(n => n.text()))
     expect(text).toContain('Syllabus')

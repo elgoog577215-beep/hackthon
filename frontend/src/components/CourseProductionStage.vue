@@ -41,14 +41,38 @@
         </p>
       </header>
 
-      <section class="formation-outline" :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')">
-        <header v-if="growthChapters.length || stageKey !== 'outline' || isTerminal">
+      <nav class="formation-journey" :aria-label="t('courseGeneration.production.userJourneyLabel', '课程生成主流程')">
+        <ol>
+          <li v-for="step in userJourneySteps" :key="step.key" :data-state="step.status">
+            <span class="formation-journey__icon" aria-hidden="true">
+              <Check v-if="step.status === 'completed'" :size="14" />
+              <TriangleAlert v-else-if="step.status === 'error'" :size="14" />
+              <component :is="step.icon" v-else :size="15" />
+            </span>
+            <div>
+              <small>{{ step.number }} · {{ step.statusLabel }}</small>
+              <strong>{{ step.label }}</strong>
+              <p>{{ step.meta }}</p>
+            </div>
+          </li>
+        </ol>
+      </nav>
+
+      <details
+        class="formation-outline"
+        :open="stageKey === 'outline'"
+        :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')"
+      >
+        <summary>
           <div>
             <span>{{ t('courseGeneration.production.navigatorLabel', '课程结构') }}</span>
             <strong>{{ outlineTitle }}</strong>
           </div>
-          <small>{{ outlineMeta }}</small>
-        </header>
+          <span class="formation-outline__summary-meta">
+            <small>{{ outlineMeta }}</small>
+            <ChevronDown :size="16" />
+          </span>
+        </summary>
 
         <div v-if="stageKey === 'outline' && growthChapters.length" class="outline-growth-summary" aria-live="polite">
           <div :data-complete="growthSkeletonReady">
@@ -175,7 +199,7 @@
             <span v-for="row in skeletonRows" :key="row" :style="{ '--seed-order': row }"><i></i><b></b></span>
           </div>
         </div>
-      </section>
+      </details>
 
       <aside v-if="isTerminal" class="formation-recovery" :data-state="stageStatus">
         <span class="formation-recovery__icon">
@@ -226,8 +250,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Check, ChevronDown, CircleDashed, CirclePause, Clock3, Database, GitBranch,
-  GitCompareArrows, LoaderCircle, RotateCw, Route, Sprout, TriangleAlert,
+  BookOpenText, Check, ChevronDown, CircleDashed, CirclePause, Clock3, Database, GitBranch,
+  GitCompareArrows, ListTree, LoaderCircle, NotebookTabs, RotateCw, Route, Sprout, TriangleAlert,
 } from 'lucide-vue-next'
 import type { Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
@@ -289,6 +313,11 @@ const stageStatus = computed(() => courseProductionStageStatus(props.task, stage
 const isTerminal = computed(() => ['error', 'paused', 'blocked'].includes(stageStatus.value))
 const canResume = computed(() => canResumeCourseProduction(props.task))
 const progressValue = computed(() => Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0)))))
+const userJourneyIndex = computed(() => {
+  if (stageKey.value === 'requirements' || stageKey.value === 'outline') return 0
+  if (stageKey.value === 'teaching') return 1
+  return 2
+})
 const productionAriaLabel = computed(() => {
   const label = t('courseGeneration.production.ariaLabel', '课程生产现场')
   return props.courseName ? `${label}：${props.courseName}` : label
@@ -469,6 +498,53 @@ const outlineMeta = computed(() => {
     .replace('{progress}', String(progressValue.value))
 })
 
+const userJourneySteps = computed(() => {
+  const checkpoint = props.task?.recovery?.checkpoint
+  const teachingCompleted = Number(checkpoint?.completed_teaching_plan_sections || 0)
+  const teachingTotal = Number(checkpoint?.total_teaching_plan_sections || 0)
+  const contentCompleted = Number(checkpoint?.completed_nodes || 0)
+  const contentTotal = Number(checkpoint?.total_nodes || 0)
+  const definitions = [
+    {
+      key: 'structure',
+      label: t('courseGeneration.production.userStageStructure', '课程结构'),
+      icon: ListTree,
+      meta: outlineMeta.value,
+    },
+    {
+      key: 'teaching',
+      label: t('courseGeneration.production.userStageTeaching', '教案与知识'),
+      icon: NotebookTabs,
+      meta: teachingTotal
+        ? t('courseGeneration.production.userStageProgress', '已保存 {completed}/{total}').replace('{completed}', String(teachingCompleted)).replace('{total}', String(teachingTotal))
+        : t('courseGeneration.production.userStagePendingMeta', '确认课程结构后开始'),
+    },
+    {
+      key: 'content',
+      label: t('courseGeneration.production.userStageContent', '课程内容'),
+      icon: BookOpenText,
+      meta: contentTotal
+        ? t('courseGeneration.production.userStageProgress', '已保存 {completed}/{total}').replace('{completed}', String(contentCompleted)).replace('{total}', String(contentTotal))
+        : t('courseGeneration.production.userStageContentPendingMeta', '教案与知识确认后开始'),
+    },
+  ]
+  return definitions.map((step, index) => {
+    const status = index < userJourneyIndex.value
+      ? 'completed'
+      : index === userJourneyIndex.value
+        ? isTerminal.value ? 'error' : 'active'
+        : 'pending'
+    const statusLabel = status === 'completed'
+      ? t('courseGeneration.lifecycle.completed', '已完成')
+      : status === 'error'
+        ? t('courseGeneration.lifecycle.interrupted', '已中断')
+        : status === 'active'
+          ? t('courseGeneration.lifecycle.inProgress', '进行中')
+          : t('courseGeneration.lifecycle.pending', '未开始')
+    return { ...step, number: String(index + 1).padStart(2, '0'), status, statusLabel }
+  })
+})
+
 function nodeState(node: Node) {
   const status = String(node.generation_status || '')
   if (status === 'generating' || node.content_state === 'generating') return 'generating'
@@ -636,27 +712,100 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
 }
 .formation-fallback-alert svg { flex:0 0 auto; margin-top:1px; }
 .formation-fallback-alert strong { margin-right:5px; font-weight:800; }
+.formation-journey { padding:18px 26px 14px; }
+.formation-journey ol {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+.formation-journey li {
+  min-width:0;
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr);
+  align-items:start;
+  gap:10px;
+  padding:12px;
+  border:1px solid #e4e7ec;
+  border-radius:10px;
+  background:#fafbfc;
+}
+.formation-journey li[data-state="active"] {
+  border-color:#bfc3ee;
+  background:#f5f5fd;
+  box-shadow:inset 3px 0 #5d63c2;
+}
+.formation-journey li[data-state="completed"] { border-color:#d4e7de; background:#f6fbf8; }
+.formation-journey li[data-state="error"] { border-color:#f0d0b4; background:#fff9f3; }
+.formation-journey__icon {
+  width:32px;
+  height:32px;
+  display:grid;
+  place-items:center;
+  border:1px solid #dfe3e8;
+  border-radius:9px;
+  color:#7b8494;
+  background:#fff;
+}
+.formation-journey li[data-state="active"] .formation-journey__icon { border-color:#c8caee; color:#5056b5; }
+.formation-journey li[data-state="completed"] .formation-journey__icon { border-color:#badaca; color:#147258; }
+.formation-journey li[data-state="error"] .formation-journey__icon { border-color:#efcba9; color:#a85b1a; }
+.formation-journey li > div { min-width:0; }
+.formation-journey small,
+.formation-journey strong { display:block; }
+.formation-journey small { color:#8a93a3; font-size:10px; font-weight:800; letter-spacing:.06em; }
+.formation-journey strong { margin-top:3px; color:#2f3948; font-size:13px; line-height:1.35; }
+.formation-journey p {
+  overflow:hidden;
+  margin:3px 0 0;
+  color:#748093;
+  font-size:11px;
+  line-height:1.4;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 .formation-outline { padding:0 26px; }
-.formation-outline > header {
+.formation-outline > summary {
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:14px;
   padding:14px 0 12px;
   border-bottom:1px solid #e9ebef;
+  cursor:pointer;
+  list-style:none;
 }
-.formation-outline > header div { display:flex; align-items:baseline; gap:12px; }
-.formation-outline > header span {
+.formation-outline > summary::-webkit-details-marker { display:none; }
+.formation-outline > summary > div { display:flex; align-items:baseline; gap:12px; min-width:0; }
+.formation-outline > summary > div > span {
   color:#8a93a3;
   font-size:11px;
   font-weight:800;
   letter-spacing:.06em;
 }
-.formation-outline > header strong { color:#354052; font-size:14px; line-height:1.4; }
-.formation-outline > header small {
+.formation-outline > summary strong {
+  overflow:hidden;
+  color:#354052;
+  font-size:14px;
+  line-height:1.4;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.formation-outline__summary-meta {
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  color:#697386;
+}
+.formation-outline__summary-meta small {
   color:#697386;
   font:700 12px/1 ui-monospace,SFMono-Regular,monospace;
 }
+.formation-outline__summary-meta svg { transition:transform .18s ease; }
+.formation-outline[open] .formation-outline__summary-meta svg { transform:rotate(180deg); }
 .outline-growth-summary {
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
@@ -1253,8 +1402,13 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   .formation-sheet__header { padding:17px 16px 14px; }
   .formation-sheet__header h1 { font-size:22px; }
   .formation-sheet__header p { font-size:13px; }
+  .formation-journey { padding:14px 16px 10px; }
+  .formation-journey ol { grid-template-columns:1fr; }
+  .formation-journey li { padding:10px; }
+  .formation-journey p { white-space:normal; }
   .formation-outline { padding:0 16px; }
-  .formation-outline > header div { align-items:flex-start; flex-direction:column; gap:3px; }
+  .formation-outline > summary { align-items:flex-start; }
+  .formation-outline > summary > div { align-items:flex-start; flex-direction:column; gap:3px; }
   .outline-growth-summary { grid-template-columns:1fr; gap:1px; margin-top:12px; }
   .outline-growth-summary > div { min-height:49px; padding:7px 10px; }
   .outline-growth-summary > div > span { width:31px; height:31px; }

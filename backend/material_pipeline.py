@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -12,6 +14,7 @@ from material_parser import parse_material_asset
 from material_storage import MaterialRepository, MaterialStorageError, material_repository
 
 MaterialProgressCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
+DEFAULT_MATERIAL_PARSE_CONCURRENCY = 3
 
 
 async def ingest_legacy_material_inputs(
@@ -79,50 +82,73 @@ async def prepare_course_materials(
     evidence_catalog: list[dict[str, Any]] = []
     cards: list[dict[str, Any]] = []
     total = len(bindings)
+    concurrency = _material_parse_concurrency(total)
+    semaphore = asyncio.Semaphore(concurrency)
 
-    for index, binding in enumerate(bindings, start=1):
-        asset = repository.bind_asset(binding.asset_id, course_id)
-        await _notify(on_progress, {
-            "asset_id": asset.asset_id,
-            "filename": asset.filename,
-            "item_index": index,
-            "item_total": total,
-            "status": "parsing",
-            "message": f"正在解析 {asset.filename}",
-        })
-        document = await parse_material_asset(repository, asset)
-        units = build_evidence_units(document, binding)
-        repository.save_evidence(asset.asset_id, [item.model_dump(mode="json") for item in units])
-        refreshed = repository.get_asset(asset.asset_id) or asset
-        public_asset = repository.public_asset(refreshed)
-        assets.append(public_asset)
-        evidence_data = [item.model_dump(mode="json") for item in units]
-        evidence_catalog.extend(evidence_data)
-        parsed_summaries.append({
-            "document_id": document.document_id,
-            "asset_id": document.asset_id,
-            "parse_status": document.parse_status,
-            "parser_name": document.parser_name,
-            "parser_version": document.parser_version,
-            "quality": document.quality,
-            "warnings": document.warnings,
-            "error": document.error,
-        })
-        cards.append(_card_from_asset(public_asset, binding))
-        await _notify(on_progress, {
-            "asset_id": asset.asset_id,
-            "filename": asset.filename,
-            "item_index": index,
-            "item_total": total,
-            "status": document.parse_status,
-            "message": (
-                f"已解析 {asset.filename}"
-                if document.parse_status == "parsed"
-                else f"{asset.filename}：{document.parse_status}"
-            ),
-            "page_count": document.quality.get("page_count", 0),
-            "block_count": document.quality.get("block_count", 0),
-        })
+    async def prepare_one(index: int, binding: MaterialBinding) -> dict[str, Any]:
+        async with semaphore:
+            asset = repository.bind_asset(binding.asset_id, course_id)
+            await _notify(on_progress, {
+                "asset_id": asset.asset_id,
+                "filename": asset.filename,
+                "item_index": index,
+                "item_total": total,
+                "status": "parsing",
+                "message": f"正在解析 {asset.filename}",
+            })
+            document = await parse_material_asset(repository, asset)
+            units = build_evidence_units(document, binding)
+            evidence_data = [item.model_dump(mode="json") for item in units]
+            repository.save_evidence(asset.asset_id, evidence_data)
+            refreshed = repository.get_asset(asset.asset_id) or asset
+            public_asset = repository.public_asset(refreshed)
+            quality_state = _parse_quality_state(document.parse_status, document.quality, document.warnings)
+            await _notify(on_progress, {
+                "asset_id": asset.asset_id,
+                "filename": asset.filename,
+                "item_index": index,
+                "item_total": total,
+                "status": document.parse_status,
+                "quality_state": quality_state,
+                "message": (
+                    f"已解析 {asset.filename}"
+                    if document.parse_status == "parsed"
+                    else f"{asset.filename}：{document.parse_status}"
+                ),
+                "page_count": document.quality.get("page_count", 0),
+                "block_count": document.quality.get("block_count", 0),
+            })
+            return {
+                "asset": public_asset,
+                "evidence": evidence_data,
+                "parsed": {
+                    "document_id": document.document_id,
+                    "asset_id": document.asset_id,
+                    "parse_status": document.parse_status,
+                    "quality_state": quality_state,
+                    "parser_name": document.parser_name,
+                    "parser_version": document.parser_version,
+                    "quality": document.quality,
+                    "warnings": document.warnings,
+                    "error": document.error,
+                },
+                "card": {
+                    **_card_from_asset(public_asset, binding),
+                    "quality_state": quality_state,
+                },
+            }
+
+    # 每份材料可独立解析，使用有上限的并行缩短等待；gather 保持输入顺序，
+    # 让后续证据优先级与教师上传顺序保持稳定。
+    prepared_items = await asyncio.gather(*(
+        prepare_one(index, binding)
+        for index, binding in enumerate(bindings, start=1)
+    ))
+    for item in prepared_items:
+        assets.append(item["asset"])
+        evidence_catalog.extend(item["evidence"])
+        parsed_summaries.append(item["parsed"])
+        cards.append(item["card"])
 
     cards.extend(legacy_metadata)
     return {
@@ -140,6 +166,28 @@ async def _notify(callback: MaterialProgressCallback | None, detail: dict[str, A
     result = callback(detail)
     if inspect.isawaitable(result):
         await result
+
+
+def _material_parse_concurrency(total: int) -> int:
+    if total <= 0:
+        return 1
+    try:
+        configured = int(os.getenv("MATERIAL_PARSE_CONCURRENCY", DEFAULT_MATERIAL_PARSE_CONCURRENCY))
+    except (TypeError, ValueError):
+        configured = DEFAULT_MATERIAL_PARSE_CONCURRENCY
+    return max(1, min(total, configured, 6))
+
+
+def _parse_quality_state(
+    parse_status: str,
+    quality: dict[str, Any],
+    warnings: list[str],
+) -> str:
+    if parse_status == "failed" or int(quality.get("block_count") or 0) <= 0:
+        return "failed"
+    if parse_status == "degraded" or warnings:
+        return "needs_review"
+    return "ready"
 
 
 def _normalize_binding(raw: Any) -> MaterialBinding:

@@ -563,7 +563,8 @@ class CoursePromptComposer:
 1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
 2. 每个知识详情必须给出成立条件或边界、可观察能力、至少一个可信易错点和可验证
-   掌握标准；易错点必须包含具体错误表现、判别方法与修复策略。
+   掌握标准；凡是存在典型反例或不适用情境的知识，还必须给出至少一个具体反例，
+   不得用“视情况而定”等模板句代替。易错点必须包含具体错误表现、判别方法与修复策略。
 3. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
    也不得修改骨架冻结的前置关系。
 4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
@@ -588,7 +589,7 @@ class CoursePromptComposer:
           "knowledge_type": "definition",
           "conditions": ["成立条件"],
           "boundaries": ["不适用范围"],
-          "counterexamples": [],
+          "counterexamples": ["一个具体反例或不适用案例"],
           "capability_points": [{{
             "name": "能力名称",
             "observable_behavior": "独立可观察动作",

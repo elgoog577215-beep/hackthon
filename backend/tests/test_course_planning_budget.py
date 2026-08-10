@@ -11,6 +11,7 @@ from course_planning_budget import (
 )
 from course_prompt_composer import CoursePromptComposer
 from course_teaching_plan_v3 import (
+    compile_course_knowledge_graph_draft,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
@@ -164,6 +165,71 @@ def test_skeleton_shards_rekey_and_reconcile_cross_shard_reuse():
     assert merged["knowledge_registry"][1]["prerequisite_keys"] == [
         "K001"
     ]
+
+
+def test_reconciled_skeleton_projects_an_upstream_knowledge_graph_draft():
+    skeleton = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [{
+            "knowledge_key": "K001",
+            "name": "基础条件",
+            "statement": "先判断条件是否成立",
+            "owner_node_id": "L2-1-1",
+            "reused_in_node_ids": ["L2-1-2"],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        }, {
+            "knowledge_key": "K002",
+            "name": "迁移应用",
+            "statement": "在新情境中应用规则",
+            "owner_node_id": "L2-1-2",
+            "reused_in_node_ids": [],
+            "prerequisite_keys": ["K001"],
+            "module_ids": ["guided_practice"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001"],
+            "reused_knowledge_keys": [],
+        }, {
+            "node_id": "L2-1-2",
+            "owned_knowledge_keys": ["K002"],
+            "reused_knowledge_keys": ["K001"],
+        }],
+    }, outline_revision_id="outline-1")
+
+    draft = compile_course_knowledge_graph_draft(skeleton)
+
+    assert draft["schema_version"] == "course_knowledge_graph_draft_v1"
+    assert draft["status"] == "identity_frozen"
+    assert draft["topology"]["is_dag"] is True
+    assert draft["topology"]["root_knowledge_keys"] == ["K001"]
+    assert draft["edges"][0]["source_knowledge_key"] == "K001"
+    assert draft["edges"][0]["target_knowledge_key"] == "K002"
+    assert draft["edges"][0]["direction"] == "source_before_target"
+    assert draft["section_bindings"][1]["reused_knowledge_keys"] == ["K001"]
+
+
+def test_knowledge_graph_draft_never_labels_a_cycle_as_a_dag():
+    skeleton = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [{
+            "knowledge_key": "K001", "name": "甲", "statement": "甲",
+            "owner_node_id": "L2-1-1", "prerequisite_keys": ["K002"],
+        }, {
+            "knowledge_key": "K002", "name": "乙", "statement": "乙",
+            "owner_node_id": "L2-1-1", "prerequisite_keys": ["K001"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001", "K002"],
+            "reused_knowledge_keys": [],
+        }],
+    }, outline_revision_id="outline-1")
+
+    draft = compile_course_knowledge_graph_draft(skeleton)
+
+    assert draft["topology"]["is_dag"] is False
+    assert draft["status"] == "needs_review"
+    assert draft["quality"]["cyclic_knowledge_keys"] == ["K001", "K002"]
 
 
 def test_batch_planner_prefers_chapter_boundaries_and_enforces_budgets():

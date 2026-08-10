@@ -14,7 +14,7 @@ describe('CourseGenerationDialog', () => {
     await setLocale('zh')
   })
 
-  it('默认走四步确认流程，不提供直接生成入口', async () => {
+  it('默认只突出必要信息，把生成偏好收进可选设置', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -33,14 +33,10 @@ describe('CourseGenerationDialog', () => {
     const retrievalToggle = wrapper.get('[data-testid="web-retrieval"]')
     expect((retrievalToggle.element as HTMLInputElement).checked).toBe(false)
     await retrievalToggle.setValue(true)
-    expect(wrapper.text()).toContain('四步完成课程')
-    expect(wrapper.findAll('.guided-intro__steps li')).toHaveLength(4)
-    expect(wrapper.findAll('.guided-intro__steps strong').map(item => item.text())).toEqual([
-      '目录确认',
-      '教案确认',
-      '正文生成',
-      '确认发布',
-    ])
+    expect(wrapper.text()).toContain('课程依据')
+    expect(wrapper.text()).toContain('生成偏好与额外要求')
+    expect(wrapper.findAll('.guided-intro__steps li')).toHaveLength(0)
+    expect(wrapper.get('.generation-advanced-settings').attributes('open')).toBeUndefined()
     expect(wrapper.text()).not.toContain('直接生成')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
@@ -236,11 +232,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('[data-course-type="project"]').trigger('click')
     expect(wrapper.find('[data-testid="project-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('系统会标记起点信息不足')
-    expect(wrapper.text()).toContain('提交项目后，四步形成个人课程')
-    expect(wrapper.text()).toContain('个人路径')
-    expect(wrapper.text()).toContain('能力与知识')
-    expect(wrapper.text()).toContain('项目课程')
-    expect(wrapper.text()).toContain('确认课程')
+    expect(wrapper.text()).toContain('生成项目里程碑和个人学习路径')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
     await wrapper.get('#project-goal').setValue('设计一款适合大学生使用的环保保温玻璃杯')
@@ -280,7 +272,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('[data-course-type="inquiry"]').trigger('click')
     expect(wrapper.find('[data-testid="inquiry-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('已有认识会作为待检验假设')
-    expect(wrapper.text()).toContain('问题路径')
+    expect(wrapper.text()).toContain('子问题、证据与反例')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
     await wrapper.get('#inquiry-core-question').setValue('生成式 AI 会如何改变大学教学评价？')
@@ -317,7 +309,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('[data-course-type="exam"]').trigger('click')
     expect(wrapper.find('[data-testid="exam-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('先定优先级，再用练习校准')
-    expect(wrapper.text()).toContain('冲刺计划')
+    expect(wrapper.text()).toContain('按剩余时间与薄弱点安排优先级')
 
     await wrapper.get('#exam-name').setValue('大学英语六级考试')
     await wrapper.get('#exam-date').setValue('2026-12-20')

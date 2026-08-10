@@ -289,66 +289,6 @@
             </p>
           </section>
 
-          <section class="form-section teaching-settings">
-            <div class="teaching-settings__core teaching-settings__core--common">
-              <fieldset class="choice-group difficulty-group">
-                <legend class="choice-group__title">
-                  <span class="field-icon field-icon--amber"><Trophy :size="14" /></span>
-                  {{ t('courseGeneration.form.difficulty', '难度等级') }}
-                </legend>
-                <div class="difficulty-options">
-                <button
-                  v-for="item in difficultyOptions"
-                  :key="item.value"
-                  type="button"
-                  class="difficulty-option"
-                  :class="{ active: form.difficulty === item.value }"
-                  :data-tone="item.tone"
-                  :aria-pressed="form.difficulty === item.value"
-                  :disabled="busy"
-                  @click="form.difficulty = item.value"
-                >
-                  <span class="difficulty-option__rail" />
-                  <span class="difficulty-option__copy">
-                    <strong>{{ item.label }}</strong>
-                    <small>{{ item.detail }}</small>
-                  </span>
-                  <span class="difficulty-option__check"><Check :size="12" /></span>
-                </button>
-                </div>
-              </fieldset>
-
-              <div class="strategy-settings">
-              <div class="strategy-settings__heading">
-                <strong>{{ t('courseGeneration.form.strategy', '课程策略') }}</strong>
-                <span>{{ t('courseGeneration.form.strategyHelp', '设置适合内容的学科讲法，以及资料在生成中的作用。') }}</span>
-              </div>
-              <div class="compact-grid">
-              <label>
-                <span class="field-label"><Route :size="13" />{{ t('courseGeneration.pedagogy.label', '主学科结构') }}</span>
-                <select v-model="form.pedagogyMode" class="select-input" :disabled="busy">
-                  <option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-                </select>
-              </label>
-              <label>
-                <span class="field-label"><Network :size="13" />{{ t('courseGeneration.pedagogy.secondaryLabel', '辅助学科') }}</span>
-                <select v-model="form.secondaryMode" data-testid="secondary-pedagogy-mode" class="select-input" :disabled="busy">
-                  <option v-for="item in secondaryPedagogyOptions" :key="item.value || 'none'" :value="item.value">{{ item.label }}</option>
-                </select>
-              </label>
-              <label>
-                <span class="field-label"><BookMarked :size="13" />{{ t('courseGeneration.grounding.label', '资料使用边界') }}</span>
-                <select v-model="form.groundingStrategy" class="select-input" :disabled="busy">
-                  <option value="material_first">{{ t('courseGeneration.grounding.materialFirst', '资料优先') }}</option>
-                  <option value="strict_grounded">{{ t('courseGeneration.grounding.strict', '仅依据资料') }}</option>
-                  <option value="general_assisted">{{ t('courseGeneration.grounding.general', '资料与通用知识结合') }}</option>
-                </select>
-              </label>
-              </div>
-              </div>
-            </div>
-          </section>
-
           <section class="form-section teacher-brief-section" data-testid="teacher-course-brief-form">
             <div class="teacher-brief-section__heading">
               <div>
@@ -409,28 +349,15 @@
             </details>
           </section>
 
-          <section class="form-section guided-intro">
-            <div class="guided-intro__heading">
-              <strong>{{ guidedTitle }}</strong>
-              <span>{{ guidedHelp }}</span>
-            </div>
-            <ol class="guided-intro__steps">
-              <li v-for="(label, index) in guidedStepLabels" :key="label">
-                <span>{{ index + 1 }}</span>
-                <strong>{{ label }}</strong>
-              </li>
-            </ol>
-          </section>
-
-          <section class="form-section">
-            <AssessmentGenerationProfileSelector
-              v-model="form.assessmentGenerationProfile"
-              :disabled="busy"
-            />
-          </section>
-
-          <section class="form-section web-enrichment-setting">
-            <label class="web-enrichment-setting__control">
+          <section class="form-section course-basis-section">
+            <header class="course-basis-section__heading">
+              <div>
+                <strong>{{ t('courseGeneration.sources.title', '课程依据') }}</strong>
+                <span>{{ t('courseGeneration.sources.help', '上传已有资料，或允许系统联网补齐资料没有覆盖的知识。') }}</span>
+              </div>
+              <Library :size="18" />
+            </header>
+            <label class="web-enrichment-setting__control course-basis-section__web">
               <input
                 v-model="form.retrievalEnabled"
                 data-testid="web-retrieval"
@@ -442,22 +369,99 @@
                 <small>{{ t('courseGeneration.retrieval.help', '用于新课程蓝图、正文和题库的同源资料核验；默认关闭，不会发送学生画像、作答或个人记录。') }}</small>
               </span>
             </label>
+            <div class="material-section">
+              <MaterialInputPanel ref="materialInputRef" v-model="materials" :disabled="busy" />
+            </div>
           </section>
 
-          <section class="form-section">
-            <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
-            <textarea
-              id="course-requirements"
-              v-model="form.requirements"
-              class="textarea-input"
-              :disabled="busy"
-              :placeholder="t('courseGeneration.form.requirementsPlaceholder', '例如：多一些推导过程，并给出可独立完成的练习')"
-            />
-          </section>
+          <details class="form-section generation-advanced-settings">
+            <summary>
+              <span>
+                <strong>{{ t('courseGeneration.advanced.title', '生成偏好与额外要求') }}</strong>
+                <small>{{ t('courseGeneration.advanced.help', '难度、学科讲法、题目策略和其他可选设置') }}</small>
+              </span>
+              <span>{{ t('courseGeneration.advanced.optional', '可选') }}</span>
+            </summary>
+            <div class="generation-advanced-settings__body">
+              <section class="teaching-settings">
+                <div class="teaching-settings__core teaching-settings__core--common">
+                  <fieldset class="choice-group difficulty-group">
+                    <legend class="choice-group__title">
+                      <span class="field-icon field-icon--amber"><Trophy :size="14" /></span>
+                      {{ t('courseGeneration.form.difficulty', '难度等级') }}
+                    </legend>
+                    <div class="difficulty-options">
+                      <button
+                        v-for="item in difficultyOptions"
+                        :key="item.value"
+                        type="button"
+                        class="difficulty-option"
+                        :class="{ active: form.difficulty === item.value }"
+                        :data-tone="item.tone"
+                        :aria-pressed="form.difficulty === item.value"
+                        :disabled="busy"
+                        @click="form.difficulty = item.value"
+                      >
+                        <span class="difficulty-option__rail" />
+                        <span class="difficulty-option__copy">
+                          <strong>{{ item.label }}</strong>
+                          <small>{{ item.detail }}</small>
+                        </span>
+                        <span class="difficulty-option__check"><Check :size="12" /></span>
+                      </button>
+                    </div>
+                  </fieldset>
 
-          <section class="form-section material-section">
-            <MaterialInputPanel ref="materialInputRef" v-model="materials" :disabled="busy" />
-          </section>
+                  <div class="strategy-settings">
+                    <div class="strategy-settings__heading">
+                      <strong>{{ t('courseGeneration.form.strategy', '课程策略') }}</strong>
+                      <span>{{ t('courseGeneration.form.strategyHelp', '设置适合内容的学科讲法，以及资料在生成中的作用。') }}</span>
+                    </div>
+                    <div class="compact-grid">
+                      <label>
+                        <span class="field-label"><Route :size="13" />{{ t('courseGeneration.pedagogy.label', '主学科结构') }}</span>
+                        <select v-model="form.pedagogyMode" class="select-input" :disabled="busy">
+                          <option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span class="field-label"><Network :size="13" />{{ t('courseGeneration.pedagogy.secondaryLabel', '辅助学科') }}</span>
+                        <select v-model="form.secondaryMode" data-testid="secondary-pedagogy-mode" class="select-input" :disabled="busy">
+                          <option v-for="item in secondaryPedagogyOptions" :key="item.value || 'none'" :value="item.value">{{ item.label }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span class="field-label"><BookMarked :size="13" />{{ t('courseGeneration.grounding.label', '资料使用边界') }}</span>
+                        <select v-model="form.groundingStrategy" class="select-input" :disabled="busy">
+                          <option value="material_first">{{ t('courseGeneration.grounding.materialFirst', '资料优先') }}</option>
+                          <option value="strict_grounded">{{ t('courseGeneration.grounding.strict', '仅依据资料') }}</option>
+                          <option value="general_assisted">{{ t('courseGeneration.grounding.general', '资料与通用知识结合') }}</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="generation-advanced-settings__assessment">
+                <AssessmentGenerationProfileSelector
+                  v-model="form.assessmentGenerationProfile"
+                  :disabled="busy"
+                />
+              </section>
+
+              <section>
+                <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
+                <textarea
+                  id="course-requirements"
+                  v-model="form.requirements"
+                  class="textarea-input"
+                  :disabled="busy"
+                  :placeholder="t('courseGeneration.form.requirementsPlaceholder', '例如：多一些推导过程，并给出可独立完成的练习')"
+                />
+              </section>
+            </div>
+          </details>
         </form>
 
         <footer class="generation-dialog__footer">
@@ -622,29 +626,6 @@ const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Bool
   && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
   && (!form.chapterCount || !form.sectionCount || form.sectionCount >= form.chapterCount)
 )
-const guidedTitle = computed(() => t(
-  `courseGeneration.guided.${form.courseType}Title`,
-  t('courseGeneration.guided.title', '提交需求后，四步完成课程'),
-))
-const guidedHelp = computed(() => t(
-  `courseGeneration.guided.${form.courseType}Help`,
-  t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。'),
-))
-const guidedStepLabels = computed(() => {
-  const prefixes = form.courseType === 'systematic' ? ['', '', '', ''] : Array(4).fill(form.courseType)
-  const keys = ['Outline', 'Teaching', 'Content', 'Release']
-  const fallbacks = [
-    t('courseGeneration.guided.outline', '目录确认'),
-    t('courseGeneration.guided.teaching', '教案确认'),
-    t('courseGeneration.guided.content', '正文生成'),
-    t('courseGeneration.guided.release', '确认发布'),
-  ]
-  return keys.map((key, index) => t(
-    `courseGeneration.guided.${prefixes[index]}${prefixes[index] ? key : key.toLowerCase()}`,
-    fallbacks[index],
-  ))
-})
-
 watch(() => props.modelValue, async open => {
   if (!open) {
     submissionRequestId.value = ''
@@ -784,7 +765,7 @@ async function submit() {
 .form-section--lead { padding-top: 22px; }
 .course-type-section { padding-bottom: 18px; }
 .course-type-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
-.course-type-option { position: relative; min-width: 0; min-height: 92px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 17px; align-items: start; gap: 9px; padding: 12px 10px; border: 1px solid rgba(226,232,240,.92); border-radius: 10px; color: var(--lz-text-secondary); background: #fff; text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+.course-type-option { position: relative; min-width: 0; min-height: 74px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 17px; align-items: start; gap: 9px; padding: 11px 10px; border: 1px solid rgba(226,232,240,.92); border-radius: 10px; color: var(--lz-text-secondary); background: #fff; text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
 .course-type-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
 .course-type-option.active { border-color: var(--lz-brand); color: var(--lz-brand-strong); background: rgba(238,242,255,.72); box-shadow: inset 0 0 0 1px rgba(99,102,241,.08); }
 .course-type-option:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
@@ -792,9 +773,9 @@ async function submit() {
 .course-type-option__icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--lz-brand); background: var(--lz-brand-soft); }
 .course-type-option:disabled .course-type-option__icon { color: var(--lz-text-muted); background: #fff; }
 .course-type-option__copy { min-width: 0; display: grid; gap: 5px; }
-.course-type-option__copy > span:last-child { overflow-wrap: anywhere; color: var(--lz-text-muted); font-size: 9px; line-height: 1.45; }
+.course-type-option__copy > span:last-child { overflow-wrap: anywhere; color: var(--lz-text-muted); font-size: 11px; line-height: 1.45; }
 .course-type-option__heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.course-type-option__heading strong { color: inherit; font-size: 11px; }
+.course-type-option__heading strong { color: inherit; font-size: 13px; }
 .course-type-option__heading small { padding: 2px 5px; border-radius: 4px; color: var(--lz-text-muted); background: #fff; font-size: 8px; font-weight: 650; }
 .course-type-option__check { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); }
 .course-type-option.active .course-type-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
@@ -816,15 +797,23 @@ async function submit() {
 .web-enrichment-setting__control span { display: grid; gap: 4px; }
 .web-enrichment-setting__control strong { color: var(--lz-text-strong); font-size: 13px; }
 .web-enrichment-setting__control small { color: var(--lz-text-muted); font-size: 11px; line-height: 1.55; }
-.guided-intro { display:grid; gap:14px; }
-.guided-intro__heading { display:flex; align-items:baseline; justify-content:space-between; gap:18px; }
-.guided-intro__heading strong { color:var(--lz-text-strong); font-size:12px; }
-.guided-intro__heading span { color:var(--lz-text-muted); font-size:10px; text-align:right; }
-.guided-intro__steps { margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; }
-.guided-intro__steps li { position:relative; min-width:0; display:grid; justify-items:center; gap:6px; color:var(--lz-text-secondary); font-size:10px; text-align:center; }
-.guided-intro__steps li:not(:last-child)::after { content:""; position:absolute; top:12px; left:calc(50% + 16px); right:calc(-50% + 16px); height:1px; background:var(--lz-border); }
-.guided-intro__steps span { position:relative; z-index:1; width:25px; height:25px; display:grid; place-items:center; border:1px solid rgba(99,102,241,.24); border-radius:50%; color:var(--lz-brand-strong); background:#fff; font-family:ui-monospace,monospace; font-weight:750; }
-.guided-intro__steps strong { overflow:hidden; max-width:100%; text-overflow:ellipsis; white-space:nowrap; }
+.course-basis-section { display:grid; gap:14px; }
+.course-basis-section__heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; color:var(--lz-brand-strong); }
+.course-basis-section__heading > div { min-width:0; display:grid; gap:4px; }
+.course-basis-section__heading strong { color:var(--lz-text-strong); font-size:14px; }
+.course-basis-section__heading span { color:var(--lz-text-muted); font-size:12px; line-height:1.55; }
+.course-basis-section__web { padding:12px 14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; background:rgba(238,242,255,.46); }
+.course-basis-section .material-section { padding-top:2px; }
+.generation-advanced-settings { padding:0; }
+.generation-advanced-settings > summary { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:18px 0; color:var(--lz-text-secondary); cursor:pointer; list-style:none; }
+.generation-advanced-settings > summary::-webkit-details-marker { display:none; }
+.generation-advanced-settings > summary > span:first-child { display:grid; gap:3px; }
+.generation-advanced-settings > summary strong { color:var(--lz-text-strong); font-size:14px; }
+.generation-advanced-settings > summary small { color:var(--lz-text-muted); font-size:12px; line-height:1.5; }
+.generation-advanced-settings > summary > span:last-child { padding:3px 8px; border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:11px; font-weight:750; }
+.generation-advanced-settings[open] > summary { border-bottom:1px solid rgba(226,232,240,.78); }
+.generation-advanced-settings__body { display:grid; gap:22px; padding:22px 0; }
+.generation-advanced-settings__body > section + section { padding-top:20px; border-top:1px solid rgba(226,232,240,.78); }
 .teaching-settings { display: grid; gap: 22px; }
 .teaching-settings__core { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
 .teaching-settings__core--common { align-items: start; }
@@ -868,7 +857,7 @@ async function submit() {
 .teacher-brief-section__advanced-body { display:grid; gap:12px; }
 .teacher-brief-section__profile { display:grid; gap:0; }
 .compact-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
-.field-label { display: block; margin-bottom: 8px; color: var(--lz-text); font-size: 12px; font-weight: 700; }
+.field-label { display: block; margin-bottom: 8px; color: var(--lz-text); font-size: 13px; font-weight: 700; }
 .compact-grid .field-label { display: flex; align-items: center; gap: 6px; color: var(--lz-text-secondary); font-size: 10px; }
 .text-input,.select-input,.textarea-input { width: 100%; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; outline: none; transition: border-color .16s ease, box-shadow .16s ease; }
 .text-input:focus,.select-input:focus,.textarea-input:focus { border-color: var(--lz-brand); box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
@@ -911,8 +900,6 @@ async function submit() {
   .footer-actions button { flex: 1; }
 }
 @media (max-width: 520px) {
-  .guided-intro__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
-  .guided-intro__steps li:nth-child(3n)::after { display: none; }
   .segmented-options--three,.segmented-options--two,.compact-grid { grid-template-columns: 1fr; }
   .course-type-options,.project-fields { grid-template-columns: 1fr; }
   .project-field--wide { grid-column: auto; }
