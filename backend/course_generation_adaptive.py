@@ -595,20 +595,35 @@ def compile_fallback_teaching_batch(
                     "required_evidence_types": ["practice_attempt"],
                 }],
                 "aliases": [],
+                "positive_examples": [],
+                "source_refs": [],
+                "confidence": "low",
             })
+        relations = [
+            {
+                "source_key": str(prerequisite_key),
+                "target_key": str(key),
+                "relation_type": "prerequisite",
+                "reason": clip_text(
+                    f"{(registry.get(prerequisite_key) or {}).get('name', prerequisite_key)}"
+                    f"是理解{(registry.get(key) or {}).get('name', key)}所必需的直接前置知识。",
+                    220,
+                ),
+                "conditions": [],
+                "source_refs": [],
+                "confidence": "low",
+            }
+            for key in owned
+            for prerequisite_key in (
+                (registry.get(key) or {}).get("prerequisite_keys") or []
+            )
+        ]
         allowed_modules = [
             str(item.get("module_id") or "")
             for item in section.get("module_plan") or []
             if isinstance(item, dict) and str(item.get("module_id") or "")
         ]
-        skeleton_modules = list(dict.fromkeys(
-            module_id
-            for key in owned
-            for module_id in (registry.get(key) or {}).get("module_ids") or []
-            if module_id in allowed_modules
-        ))
-        if not skeleton_modules and allowed_modules:
-            skeleton_modules = [allowed_modules[0]]
+        skeleton_modules = allowed_modules
         modules = [{
             "module_id": module_id,
             "teaching_purpose": clip_text(
@@ -620,12 +635,35 @@ def compile_fallback_teaching_batch(
             "teaching_guidance": (
                 "先给出明确陈述和成立条件，再用例子、反例与可检查任务完成教学。"
             ),
+            "planned_minutes": max(5, 45 // max(1, len(skeleton_modules))),
+            "teacher_activity": "呈现具体任务，追问成立条件并组织反例辨析。",
+            "student_activity": "独立写出条件、完成变式任务并根据反馈修正。",
         } for module_id in skeleton_modules]
         expanded_sections.append({
             "node_id": node_id,
             "knowledge_details": details,
-            "knowledge_relations": [],
+            "knowledge_relations": relations,
             "teaching_modules": modules,
+            "planned_minutes": 45,
+            "key_difficulties": [
+                clip_text(
+                    section.get("scope_boundary")
+                    or "辨清知识的成立条件与不适用边界。",
+                    180,
+                )
+            ],
+            "teacher_activities": [
+                "用正例与反例引导学生显性说明判断依据。"
+            ],
+            "student_activities": [
+                "完成一次独立解释和一次条件变式应用。"
+            ],
+            "in_class_checks": [
+                "无提示说明条件和边界，并完成一个变式任务。"
+            ],
+            "homework": [
+                "使用一个新情境重新验证本节知识的成立条件。"
+            ],
         })
     batch = {
         "schema_version": "course_teaching_plan_batch_v3",

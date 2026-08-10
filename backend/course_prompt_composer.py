@@ -31,7 +31,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v27"
+PROMPT_CONTRACT_VERSION = "course_prompt_v28"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -328,6 +328,7 @@ class CoursePromptComposer:
         positioning: str,
         learning_objectives: list[str],
         planning_context: dict[str, Any],
+        subject_template: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         planning_context = compact_planning_context(
@@ -336,6 +337,23 @@ class CoursePromptComposer:
         )
         skeleton_context = self._compact_skeleton_planning_context(
             planning_context
+        )
+        subject_contract = compact_value(
+            {
+                "template_id": (subject_template or {}).get("template_id"),
+                "template_version": (subject_template or {}).get(
+                    "template_version"
+                ),
+                "course_architecture_contract": (subject_template or {}).get(
+                    "course_architecture_contract"
+                ),
+                "knowledge_contract": (subject_template or {}).get(
+                    "knowledge_contract"
+                ),
+            },
+            max_string_chars=180 if detail_level == "full" else 96,
+            max_list_items=10 if detail_level == "full" else 6,
+            max_depth=4,
         )
         prior_registry = list(
             skeleton_context.get("prior_knowledge_registry") or []
@@ -380,6 +398,9 @@ class CoursePromptComposer:
 - 定位：{positioning}
 - 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
 
+## 学科课程与知识合同
+{json.dumps(subject_contract, ensure_ascii=False)}
+
 ## 已去重的规划上下文
 {json.dumps(skeleton_context, ensure_ascii=False)}
 
@@ -399,6 +420,8 @@ class CoursePromptComposer:
 6. `module_ids` 只能从负责小节 `module_set_id` 指向的全局 `module_sets` 中选择，
    至少选择一个。
 7. `difficulty_baseline` 只出现一次；各小节只叠加自己的 `difficulty_delta`。
+8. 知识身份和课程推进必须遵守学科合同；不得用通用“概念—案例—总结”覆盖该学科
+   的真实知识形态，也不得把课程类型、难度或资料另建成第二套学科模板。
 
 ## JSON Schema
 {{
@@ -483,6 +506,308 @@ class CoursePromptComposer:
 只修复错误并重新输出完整骨架 JSON。不得展开详细教案、正文、题目或解释。
 
 {original_prompt}
+""".strip()
+
+    def build_course_knowledge_batch_v1_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        batch_spec: dict[str, Any],
+        batch_sections: list[dict[str, Any]],
+        knowledge_registry: list[dict[str, Any]],
+        section_identities: list[dict[str, Any]],
+        skeleton_revision_id: str,
+        subject_template: dict[str, Any] | None = None,
+        detail_level: str = "full",
+    ) -> str:
+        """Build the knowledge-engineering call that must finish before teaching."""
+        bounded = compact_batch_inputs(
+            batch_sections=batch_sections,
+            knowledge_registry=knowledge_registry,
+            section_identities=section_identities,
+            module_catalog=[],
+            detail_level=detail_level,
+        )
+        batch_sections = bounded["batch_sections"]
+        knowledge_registry = bounded["knowledge_registry"]
+        section_identities = bounded["section_identities"]
+        knowledge_contract = compact_value(
+            {
+                "template_id": (subject_template or {}).get("template_id"),
+                "template_version": (subject_template or {}).get(
+                    "template_version"
+                ),
+                "knowledge_contract": (subject_template or {}).get(
+                    "knowledge_contract"
+                ),
+            },
+            max_string_chars=(180 if detail_level == "full" else 96),
+            max_list_items=(10 if detail_level == "full" else 6),
+            max_depth=4,
+        )
+        if detail_level != "full":
+            course_title = clip_text(
+                course_title, 180 if detail_level == "compact" else 96
+            )
+            positioning = clip_text(
+                positioning, 240 if detail_level == "compact" else 120
+            )
+            batch_spec = compact_value(
+                batch_spec,
+                max_string_chars=96,
+                max_list_items=8,
+                max_depth=2,
+            )
+        return f"""## 课程知识库详情批次 V1
+
+你现在只承担知识工程责任。展开冻结知识身份的语义、能力、易错、掌握、来源和六类
+正式关系；不要设计课堂流程、教学模块、师生活动、正文或题目。仅输出有效 JSON。
+
+## 课程与批次
+- 课程：{course_title}
+- 定位：{positioning}
+- 批次：{json.dumps(batch_spec, ensure_ascii=False)}
+- 知识身份骨架修订：{skeleton_revision_id}
+
+## 当前小节与准入证据
+{json.dumps(batch_sections, ensure_ascii=False)}
+
+## 当前知识与直接依赖闭包（身份只读）
+{json.dumps(knowledge_registry, ensure_ascii=False)}
+
+## 当前知识职责（身份只读）
+{json.dumps(section_identities, ensure_ascii=False)}
+
+## 学科知识合同
+{json.dumps(knowledge_contract, ensure_ascii=False)}
+
+## 约束
+1. `sections` 必须按批次顺序返回；`knowledge_details` 必须按本节
+   `owned_knowledge_keys` 顺序逐个展开，不能展开复用键或创造新键。
+2. 每个知识详情必须达到可独立解释、练习和诊断的原子粒度，给出条件或边界、
+   可观察能力、可验证掌握标准；只有确有可信错误模式时才生成易错点，禁止模板易错。
+3. 凡存在典型反例、不适用情境或相邻易混对象，必须给出具体反例或判别方式；不得
+   使用“视情况而定”“注意理解”等空句。
+4. 正式关系只允许 `prerequisite|derives|equivalent_to|contrasts_with|applies_to|
+   generalizes`。前置不得改写冻结 DAG；推导必须附关键步骤，对比必须附判别维度，
+   应用必须附成立条件。每个本批次新知识的已冻结前置边必须原样返回并补充
+   具体语义理由；课程先后、父子包含和泛泛相关不得写成关系。
+5. `source_refs` 只能引用当前小节 `evidence_hints` 中已经给出的证据标识；无证据时
+   留空并降低 `confidence`，不得伪造书名、链接、作者、页码或资料 ID。
+6. 严格执行学科知识合同中的知识重点、证据优先级和反模式；不能用同一套通用知识
+   描述覆盖数学、工程、科学、人文、语言等不同知识形态。
+7. 本阶段禁止返回 `teaching_modules`、师生活动、课时流程、正文或练习。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "knowledge_details": [
+        {{
+          "knowledge_key": "K001",
+          "concept_group": "知识问题域",
+          "group_description": "本组作用与边界",
+          "knowledge_type": "definition",
+          "conditions": ["成立条件"],
+          "boundaries": ["不适用范围"],
+          "positive_examples": ["能检验命题的具体正例"],
+          "counterexamples": ["能暴露边界的具体反例"],
+          "capability_points": [{{
+            "name": "能力名称",
+            "observable_behavior": "独立可观察动作",
+            "required_evidence_types": ["practice_attempt"]
+          }}],
+          "misconceptions": [{{
+            "name": "可信错误模式",
+            "observable_error_pattern": "具体错误表现",
+            "confused_with": "易混对象",
+            "discrimination": "判别方法",
+            "repair_strategy": "修复策略"
+          }}],
+          "mastery_criteria": [{{
+            "name": "掌握标准",
+            "observable_performance": "独立表现",
+            "required_independence": "independent",
+            "required_transfer": "variation",
+            "verification_method": "验证方法",
+            "required_evidence_types": ["practice_attempt"]
+          }}],
+          "source_refs": ["evidence-unit-id"],
+          "confidence": "high|medium|low",
+          "aliases": []
+        }}
+      ],
+      "knowledge_relations": [{{
+        "source_key": "K001",
+        "target_key": "K002",
+        "relation_type": "六类正式关系之一",
+        "reason": "具体语义理由",
+        "conditions": ["关系成立条件"],
+        "source_refs": ["evidence-unit-id"],
+        "confidence": "high|medium|low"
+      }}]
+    }}
+  ]
+}}""".strip()
+
+    def build_course_knowledge_batch_v1_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {clip_text(item.get('message'), 280)}"
+            for item in issues[:12]
+        ) or "- 上一次输出不是完整有效的知识批次 JSON"
+        return f"""## 课程知识库详情批次 V1 纠正
+
+当前知识批次存在以下结构、语义或引用错误：
+{issue_text}
+
+只重新输出当前知识批次的完整 JSON。知识身份、负责小节、批次范围和已冻结前置
+关系不得改变；不要输出教案、正文、题目、解释或 Markdown 围栏。
+
+{clip_text(original_prompt, 9000)}
+""".strip()
+
+    def build_teaching_execution_batch_v1_prompt(
+        self,
+        *,
+        course_title: str,
+        positioning: str,
+        batch_spec: dict[str, Any],
+        batch_sections: list[dict[str, Any]],
+        frozen_knowledge: list[dict[str, Any]],
+        section_identities: list[dict[str, Any]],
+        module_catalog: list[dict[str, Any]],
+        knowledge_revision_id: str,
+        subject_template: dict[str, Any] | None = None,
+        overall_guidance: dict[str, Any] | None = None,
+        detail_level: str = "full",
+    ) -> str:
+        bounded = compact_batch_inputs(
+            batch_sections=batch_sections,
+            knowledge_registry=frozen_knowledge,
+            section_identities=section_identities,
+            module_catalog=module_catalog,
+            detail_level=detail_level,
+        )
+        batch_sections = bounded["batch_sections"]
+        frozen_knowledge = bounded["knowledge_registry"]
+        section_identities = bounded["section_identities"]
+        module_catalog = bounded["module_catalog"]
+        lesson_contract = compact_value(
+            {
+                "template_id": (subject_template or {}).get("template_id"),
+                "template_version": (subject_template or {}).get(
+                    "template_version"
+                ),
+                "lesson_plan_contract": (subject_template or {}).get(
+                    "lesson_plan_contract"
+                ),
+                "content_contract": (subject_template or {}).get(
+                    "content_contract"
+                ),
+            },
+            max_string_chars=(180 if detail_level == "full" else 96),
+            max_list_items=(10 if detail_level == "full" else 6),
+            max_depth=4,
+        )
+        overall_guidance = compact_value(
+            overall_guidance or {},
+            max_string_chars=(180 if detail_level == "full" else 96),
+            max_list_items=(8 if detail_level == "full" else 4),
+            max_depth=3,
+        )
+        return f"""## 冻结知识驱动的详细教案批次 V1
+
+你现在只承担教学设计责任。知识身份、陈述、条件、能力、易错、掌握、关系和来源已经
+冻结，只能引用，不能新增、删改或重新解释为另一知识。仅输出有效 JSON。
+
+## 课程与批次
+- 课程：{clip_text(course_title, 180)}
+- 定位：{clip_text(positioning, 240)}
+- 批次：{json.dumps(batch_spec, ensure_ascii=False)}
+- 冻结知识修订：{knowledge_revision_id}
+
+## 当前小节
+{json.dumps(batch_sections, ensure_ascii=False)}
+
+## 当前批次冻结知识（只读）
+{json.dumps(frozen_knowledge, ensure_ascii=False)}
+
+## 当前知识职责（只读）
+{json.dumps(section_identities, ensure_ascii=False)}
+
+## 共享课程块目录
+{json.dumps(module_catalog, ensure_ascii=False)}
+
+## 学科教案与正文合同
+{json.dumps(lesson_contract, ensure_ascii=False)}
+
+## 总体教案引领
+{json.dumps(overall_guidance, ensure_ascii=False)}
+
+## 约束
+1. `sections` 必须按批次顺序完整返回。每节 `teaching_modules` 必须精确覆盖该节
+   已选择的 `allowed_module_ids`，不得遗漏、重复或创造模块。
+2. 每个模块必须绑定本节负责或复用的冻结知识键，并写出不重复的具体教学目的、讲法、
+   教师动作、学生动作和检查证据。不得把学科模板原句复制成教案。
+3. 课堂流程必须落实当前 `lesson_archetype` 的目的与证据，并与前后小节职责衔接；
+   不能让同一学科所有小节使用完全相同的导入、讲解、练习和总结。
+4. 每节必须给出重点难点、师生活动、课堂检查和作业或迁移任务；有课时合同时分钟数
+   必须守恒。资源只能引用已给定标识，不能编造来源。
+5. 教案中的检查和作业必须能够观察冻结 `mastery_criteria`，不能只问“是否理解”。
+6. 本阶段禁止返回 `knowledge_details`、`knowledge_relations`、新知识键、正文或题目。
+
+## JSON Schema
+{{
+  "sections": [
+    {{
+      "node_id": "L2-1-1",
+      "teaching_modules": [{{
+        "module_id": "core_explanation",
+        "teaching_purpose": "本模块在本节承担的独特教学职责",
+        "knowledge_keys": ["K001"],
+        "teaching_guidance": "正文必须体现的具体讲法与学习者行动",
+        "planned_minutes": 15,
+        "teacher_activity": "教师演示、组织或追问的具体动作",
+        "student_activity": "学生完成的可观察动作"
+      }}],
+      "planned_minutes": 45,
+      "key_difficulties": ["需要重点突破且对应冻结知识的困难"],
+      "teacher_activities": ["教师组织的关键活动"],
+      "student_activities": ["学生完成的关键活动"],
+      "resource_refs": ["已给定资源标识"],
+      "in_class_checks": ["直接观察掌握标准的课堂检查"],
+      "homework": ["课后练习、产出或迁移任务"],
+      "teaching_notes": ["实施提醒"]
+    }}
+  ]
+}}""".strip()
+
+    def build_teaching_execution_batch_v1_correction_prompt(
+        self,
+        *,
+        original_prompt: str,
+        issues: list[dict[str, Any]],
+    ) -> str:
+        issue_text = "\n".join(
+            f"- {clip_text(item.get('message'), 280)}"
+            for item in issues[:12]
+        ) or "- 上一次输出不是完整有效的教案批次 JSON"
+        return f"""## 冻结知识驱动的详细教案批次 V1 纠正
+
+当前教案批次存在以下结构或教学执行错误：
+{issue_text}
+
+只重新输出当前教案批次的完整 JSON。冻结知识、模块集合、目录和批次范围不得改变；
+不要输出知识详情、关系、正文、题目、解释或 Markdown 围栏。
+
+{clip_text(original_prompt, 9000)}
 """.strip()
 
     def build_teaching_plan_batch_v3_prompt(

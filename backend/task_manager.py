@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from ai_provider_route import provider_route_snapshot
 from assessment_blueprint import compile_course_assessment_blueprint
 from assessment_contracts import (
     compile_assessment_objectives,
@@ -58,7 +59,6 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
-from ai_provider_route import provider_route_snapshot
 from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
@@ -110,12 +110,12 @@ from course_versions import (
     CourseVersionRepository,
     course_version_repository,
 )
+from generation_preflight import build_generation_preflight
 from generation_workspace import (
     GenerationWorkspaceNotFound,
     GenerationWorkspaceRepository,
     generation_workspace_repository,
 )
-from generation_preflight import build_generation_preflight
 from guided_generation import (
     GUIDED_STEP_KEYS,
     build_source_chain_report,
@@ -159,6 +159,7 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from ppt_template_packs import ppt_template_pack_repository
 from question_bank import (
     QuestionBankRepository,
     question_bank_repository,
@@ -171,12 +172,11 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
-from slide_ai_runtime import ai_slide_planning_enabled
 from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     build_ai_base_visual_planner_v2,
 )
-from ppt_template_packs import ppt_template_pack_repository
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -217,11 +217,11 @@ from slide_visuals import (
 )
 from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
+from teaching_representations import teaching_representation_repository
 from template_layout_contract import (
     TemplateLayoutPackContractV1,
     compile_builtin_template_layout_contract_v1,
 )
-from teaching_representations import teaching_representation_repository
 from web_retrieval import (
     RetrievalRequest,
     configured_retrieval_gateway,
@@ -2762,6 +2762,24 @@ class TaskManager:
                 "teaching_module_count": int(teaching_plan.get("teaching_module_count") or 0),
                 "completed_batches": int(teaching_stage.get("completed_batch_count") or teaching_stage.get("completed_batches") or 0),
                 "total_batches": int(teaching_stage.get("batch_count") or teaching_stage.get("total_batches") or 0),
+                "knowledge_status": (
+                    "frozen"
+                    if teaching_stage.get("knowledge_revision_id")
+                    else "in_progress"
+                    if teaching_stage.get("knowledge_batch_count")
+                    else None
+                ),
+                "completed_knowledge_batches": int(
+                    teaching_stage.get(
+                        "completed_knowledge_batch_count"
+                    ) or 0
+                ),
+                "total_knowledge_batches": int(
+                    teaching_stage.get("knowledge_batch_count") or 0
+                ),
+                "knowledge_revision_id": teaching_stage.get(
+                    "knowledge_revision_id"
+                ),
                 "semantic_status": teaching_stage.get("semantic_status"),
                 "sections": deepcopy(sections),
             }
@@ -3126,6 +3144,19 @@ class TaskManager:
             if isinstance(course_teaching_stage, dict)
             else {}
         )
+        knowledge_batches = (
+            course_teaching_stage.get("knowledge_batches") or {}
+            if isinstance(course_teaching_stage, dict)
+            else {}
+        )
+        completed_knowledge_batches = sum(
+            1
+            for item in knowledge_batches.values()
+            if isinstance(item, dict) and item.get("status") == "completed"
+        )
+        total_knowledge_batches = int(
+            course_teaching_stage.get("knowledge_batch_count") or 0
+        )
         completed_teaching_plan_batches = sum(
             1
             for item in teaching_plan_batches.values()
@@ -3200,6 +3231,14 @@ class TaskManager:
                 course_teaching_stage.get("status") == "completed"
             ),
             "teaching_plan_mode": course_teaching_stage.get("planning_mode"),
+            "knowledge_ready": bool(
+                course_teaching_stage.get("knowledge_revision_id")
+            ),
+            "completed_knowledge_batches": completed_knowledge_batches,
+            "total_knowledge_batches": total_knowledge_batches,
+            "knowledge_revision_id": course_teaching_stage.get(
+                "knowledge_revision_id"
+            ),
             "completed_teaching_plan_batches": completed_teaching_plan_batches,
             "total_teaching_plan_batches": total_teaching_plan_batches,
             "completed_teaching_plan_sections": completed_teaching_plan_sections,

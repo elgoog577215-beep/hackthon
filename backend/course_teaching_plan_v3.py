@@ -7,6 +7,15 @@ from typing import Any
 
 from course_versioning import stable_hash
 
+FORMAL_KNOWLEDGE_RELATION_TYPES = {
+    "prerequisite",
+    "derives",
+    "equivalent_to",
+    "contrasts_with",
+    "applies_to",
+    "generalizes",
+}
+
 
 def _unique(values: list[Any]) -> list[str]:
     return list(dict.fromkeys(
@@ -364,7 +373,10 @@ def restore_teaching_plan_skeleton_from_graph_draft(
     if (
         graph_draft.get("schema_version")
         != "course_knowledge_graph_draft_v1"
-        or graph_draft.get("status") != "identity_frozen"
+        or graph_draft.get("status") not in {
+            "identity_frozen",
+            "knowledge_frozen",
+        }
         or graph_draft.get("source_outline_revision_id")
         != outline_revision_id
     ):
@@ -589,6 +601,11 @@ def normalize_teaching_plan_batch_v3(
                     primary_field="observable_performance",
                 ),
                 "aliases": _unique(list(raw.get("aliases") or [])),
+                "positive_examples": _unique(
+                    list(raw.get("positive_examples") or [])
+                ),
+                "source_refs": _unique(list(raw.get("source_refs") or [])),
+                "confidence": str(raw.get("confidence") or "").strip(),
             })
         relations = []
         for raw in raw_section.get("knowledge_relations") or []:
@@ -622,6 +639,80 @@ def normalize_teaching_plan_batch_v3(
         "sections": sections,
     }
     normalized["revision_id"] = stable_hash(normalized, prefix="teaching_batch_")
+    return normalized
+
+
+def normalize_course_knowledge_batch_v1(
+    payload: dict[str, Any],
+    *,
+    batch_id: str,
+    skeleton_revision_id: str,
+) -> dict[str, Any]:
+    """Normalize the knowledge engineer's output without accepting teaching data."""
+    combined = normalize_teaching_plan_batch_v3(
+        payload,
+        batch_id=batch_id,
+        skeleton_revision_id=skeleton_revision_id,
+    )
+    normalized = {
+        "schema_version": "course_knowledge_batch_v1",
+        "batch_id": batch_id,
+        "skeleton_revision_id": skeleton_revision_id,
+        "sections": [
+            {
+                "node_id": str(section.get("node_id") or ""),
+                "knowledge_details": deepcopy(
+                    section.get("knowledge_details") or []
+                ),
+                "knowledge_relations": deepcopy(
+                    section.get("knowledge_relations") or []
+                ),
+            }
+            for section in combined.get("sections") or []
+            if isinstance(section, dict)
+        ],
+    }
+    normalized["revision_id"] = stable_hash(
+        normalized,
+        prefix="knowledge_batch_",
+    )
+    return normalized
+
+
+def normalize_teaching_execution_batch_v1(
+    payload: dict[str, Any],
+    *,
+    batch_id: str,
+    skeleton_revision_id: str,
+    knowledge_revision_id: str,
+) -> dict[str, Any]:
+    """Normalize teaching execution while discarding any attempted knowledge edits."""
+    combined = normalize_teaching_plan_batch_v3(
+        payload,
+        batch_id=batch_id,
+        skeleton_revision_id=skeleton_revision_id,
+    )
+    normalized = {
+        "schema_version": "teaching_execution_batch_v1",
+        "batch_id": batch_id,
+        "skeleton_revision_id": skeleton_revision_id,
+        "knowledge_revision_id": knowledge_revision_id,
+        "sections": [
+            {
+                "node_id": str(section.get("node_id") or ""),
+                "teaching_modules": deepcopy(
+                    section.get("teaching_modules") or []
+                ),
+                **_section_execution(section),
+            }
+            for section in combined.get("sections") or []
+            if isinstance(section, dict)
+        ],
+    }
+    normalized["revision_id"] = stable_hash(
+        normalized,
+        prefix="teaching_execution_batch_",
+    )
     return normalized
 
 
@@ -712,14 +803,7 @@ def validate_teaching_plan_batch_v3(
             elif not ({relation.get("source_key"), relation.get("target_key")} & set(expected_keys)):
                 issues.append(_issue("teaching_batch:unrelated_relation", f"小节 {node_id} 只能返回至少连接一个本节新知识的关系"))
             relation_type = str(relation.get("relation_type") or "")
-            if relation_type not in {
-                "prerequisite",
-                "derives",
-                "equivalent_to",
-                "contrasts_with",
-                "applies_to",
-                "generalizes",
-            }:
+            if relation_type not in FORMAL_KNOWLEDGE_RELATION_TYPES:
                 issues.append(_issue(
                     "teaching_batch:invalid_relation_type",
                     f"小节 {node_id} 的知识关系类型 {relation_type or '空'} 不在六类正式关系中",
@@ -753,6 +837,454 @@ def validate_teaching_plan_batch_v3(
         "blocking_issues": issues,
         "actual": {"section_count": len(actual_ids)},
     }
+
+
+def validate_course_knowledge_batch_v1(
+    batch: dict[str, Any],
+    *,
+    batch_spec: dict[str, Any],
+    skeleton: dict[str, Any],
+    sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Validate knowledge semantics and keep prerequisite identity immutable."""
+    compatibility = {
+        **batch,
+        "schema_version": "course_teaching_plan_batch_v3",
+    }
+    base = validate_teaching_plan_batch_v3(
+        compatibility,
+        batch_spec=batch_spec,
+        skeleton=skeleton,
+        sections=sections,
+    )
+    issues = list(base.get("blocking_issues") or [])
+    expected_ids = set(batch_spec.get("section_ids") or [])
+    registry = [
+        item
+        for item in skeleton.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    ]
+    expected_prerequisites = {
+        (str(prerequisite_key), str(item.get("knowledge_key") or ""))
+        for item in registry
+        if str(item.get("owner_node_id") or "") in expected_ids
+        for prerequisite_key in item.get("prerequisite_keys") or []
+    }
+    actual_prerequisites = {
+        (
+            str(relation.get("source_key") or ""),
+            str(relation.get("target_key") or ""),
+        )
+        for section in batch.get("sections") or []
+        if isinstance(section, dict)
+        for relation in section.get("knowledge_relations") or []
+        if isinstance(relation, dict)
+        and relation.get("relation_type") == "prerequisite"
+    }
+    for source, target in sorted(
+        actual_prerequisites - expected_prerequisites
+    ):
+        issues.append(_issue(
+            "knowledge_batch:changed_prerequisite",
+            f"知识批次不得新增或改写冻结前置关系 {source} -> {target}",
+        ))
+    for source, target in sorted(
+        expected_prerequisites - actual_prerequisites
+    ):
+        issues.append(_issue(
+            "knowledge_batch:missing_prerequisite_semantics",
+            f"冻结前置关系 {source} -> {target} 必须补充具体语义理由",
+        ))
+    section_by_id = {
+        str(item.get("node_id") or ""): item
+        for item in sections
+        if isinstance(item, dict)
+    }
+    for section in batch.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        node_id = str(section.get("node_id") or "")
+        allowed_source_refs = {
+            str(item.get("evidence_id") or "")
+            for item in (section_by_id.get(node_id) or {}).get(
+                "evidence_hints"
+            ) or []
+            if isinstance(item, dict)
+            and str(item.get("evidence_id") or "")
+        }
+        for detail in section.get("knowledge_details") or []:
+            if not isinstance(detail, dict):
+                continue
+            key = str(detail.get("knowledge_key") or "")
+            source_refs = set(detail.get("source_refs") or [])
+            if source_refs - allowed_source_refs:
+                issues.append(_issue(
+                    "knowledge_batch:unapproved_source_ref",
+                    f"知识键 {key} 引用了未准入的资料标识",
+                ))
+            confidence = str(detail.get("confidence") or "")
+            if confidence not in {"high", "medium", "low"}:
+                issues.append(_issue(
+                    "knowledge_batch:invalid_confidence",
+                    f"知识键 {key} 必须声明 high、medium 或 low 置信度",
+                ))
+            if not source_refs and confidence == "high":
+                issues.append(_issue(
+                    "knowledge_batch:ungrounded_high_confidence",
+                    f"知识键 {key} 无准入来源时不得声明高置信",
+                ))
+        for relation in section.get("knowledge_relations") or []:
+            if not isinstance(relation, dict):
+                continue
+            if set(relation.get("source_refs") or []) - allowed_source_refs:
+                issues.append(_issue(
+                    "knowledge_batch:unapproved_relation_source_ref",
+                    f"小节 {node_id} 的知识关系引用了未准入资料标识",
+                ))
+    return {
+        "schema_version": "course_knowledge_batch_validation_v1",
+        "passed": not issues,
+        "issues": issues,
+        "blocking_issues": issues,
+        "actual": deepcopy(base.get("actual") or {}),
+    }
+
+
+def validate_teaching_execution_batch_v1(
+    batch: dict[str, Any],
+    *,
+    batch_spec: dict[str, Any],
+    skeleton: dict[str, Any],
+    sections: list[dict[str, Any]],
+    knowledge_revision_id: str,
+) -> dict[str, Any]:
+    """Validate a lesson-plan batch against the frozen knowledge contract."""
+    issues: list[dict[str, str]] = []
+    expected_ids = [str(item) for item in batch_spec.get("section_ids") or []]
+    actual_sections = [
+        item
+        for item in batch.get("sections") or []
+        if isinstance(item, dict)
+    ]
+    actual_ids = [str(item.get("node_id") or "") for item in actual_sections]
+    if actual_ids != expected_ids:
+        issues.append(_issue(
+            "teaching_execution:section_mismatch",
+            f"批次 {batch.get('batch_id')} 必须按顺序精确覆盖指定小节",
+        ))
+    if str(batch.get("knowledge_revision_id") or "") != knowledge_revision_id:
+        issues.append(_issue(
+            "teaching_execution:knowledge_revision_mismatch",
+            "教案批次必须绑定当前冻结知识修订",
+        ))
+
+    identity_by_id = {
+        str(item.get("node_id") or ""): item
+        for item in skeleton.get("sections") or []
+        if isinstance(item, dict)
+    }
+    section_by_id = {
+        str(item.get("node_id") or ""): item
+        for item in sections
+        if isinstance(item, dict)
+    }
+    actual_by_id = {
+        str(item.get("node_id") or ""): item for item in actual_sections
+    }
+    for node_id in expected_ids:
+        identity = identity_by_id.get(node_id) or {}
+        allowed_keys = set(identity.get("owned_knowledge_keys") or []) | set(
+            identity.get("reused_knowledge_keys") or []
+        )
+        required_owned_keys = set(identity.get("owned_knowledge_keys") or [])
+        section = section_by_id.get(node_id) or {}
+        expected_module_ids = [
+            str(item.get("module_id") or "")
+            for item in section.get("module_plan") or []
+            if isinstance(item, dict) and str(item.get("module_id") or "")
+        ]
+        actual = actual_by_id.get(node_id) or {}
+        modules = [
+            item
+            for item in actual.get("teaching_modules") or []
+            if isinstance(item, dict)
+        ]
+        actual_module_ids = [
+            str(item.get("module_id") or "") for item in modules
+        ]
+        if actual_module_ids != expected_module_ids:
+            issues.append(_issue(
+                "teaching_execution:module_coverage_mismatch",
+                f"小节 {node_id} 必须按顺序精确覆盖已选课程块",
+            ))
+        covered_keys: set[str] = set()
+        for module in modules:
+            module_id = str(module.get("module_id") or "")
+            module_keys = set(module.get("knowledge_keys") or [])
+            covered_keys.update(module_keys)
+            if not module_keys or module_keys - allowed_keys:
+                issues.append(_issue(
+                    "teaching_execution:invalid_module_knowledge",
+                    f"小节 {node_id} 的课程块 {module_id} 必须仅绑定本节冻结知识",
+                ))
+            for field, label in (
+                ("teaching_purpose", "教学目的"),
+                ("teaching_guidance", "具体讲法"),
+                ("teacher_activity", "教师动作"),
+                ("student_activity", "学生动作"),
+            ):
+                if not str(module.get(field) or "").strip():
+                    issues.append(_issue(
+                        "teaching_execution:empty_module_field",
+                        f"小节 {node_id} 的课程块 {module_id} 缺少{label}",
+                    ))
+        if required_owned_keys - covered_keys:
+            issues.append(_issue(
+                "teaching_execution:uncovered_owned_knowledge",
+                f"小节 {node_id} 存在未落入任一课程块的首次负责知识",
+            ))
+        for field, label in (
+            ("key_difficulties", "重点难点"),
+            ("teacher_activities", "教师活动"),
+            ("student_activities", "学生活动"),
+            ("in_class_checks", "课堂检查"),
+            ("homework", "作业或迁移任务"),
+        ):
+            if not actual.get(field):
+                issues.append(_issue(
+                    "teaching_execution:missing_section_execution",
+                    f"小节 {node_id} 缺少{label}",
+                ))
+    return {
+        "schema_version": "teaching_execution_batch_validation_v1",
+        "passed": not issues,
+        "issues": issues,
+        "blocking_issues": issues,
+        "actual": {"section_count": len(actual_ids)},
+    }
+
+
+def compile_frozen_course_knowledge_graph(
+    *,
+    skeleton: dict[str, Any],
+    knowledge_batches: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Freeze enriched knowledge before any teaching execution is generated."""
+    identity = compile_course_knowledge_graph_draft(skeleton)
+    issues: list[dict[str, str]] = []
+    if identity.get("status") != "identity_frozen":
+        issues.append(_issue(
+            "knowledge_freeze:identity_not_frozen",
+            "知识身份与前置 DAG 未通过冻结",
+        ))
+    details_by_key: dict[str, dict[str, Any]] = {}
+    returned_relations: list[dict[str, Any]] = []
+    for batch in knowledge_batches:
+        for section in batch.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            for detail in section.get("knowledge_details") or []:
+                if not isinstance(detail, dict):
+                    continue
+                key = str(detail.get("knowledge_key") or "")
+                if key in details_by_key:
+                    issues.append(_issue(
+                        "knowledge_freeze:duplicate_detail",
+                        f"知识键 {key} 被多个批次重复展开",
+                    ))
+                details_by_key[key] = deepcopy(detail)
+            returned_relations.extend(
+                deepcopy(relation)
+                for relation in section.get("knowledge_relations") or []
+                if isinstance(relation, dict)
+            )
+
+    registry = [
+        item
+        for item in skeleton.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    ]
+    registry_keys = {
+        str(item.get("knowledge_key") or "") for item in registry
+    }
+    nodes: list[dict[str, Any]] = []
+    for canonical in registry:
+        key = str(canonical.get("knowledge_key") or "")
+        detail = details_by_key.get(key)
+        if detail is None:
+            issues.append(_issue(
+                "knowledge_freeze:missing_detail",
+                f"知识键 {key} 尚未完成语义、能力与掌握标准展开",
+            ))
+            detail = {}
+        nodes.append({
+            **deepcopy(canonical),
+            **deepcopy(detail),
+            "knowledge_key": key,
+            "name": str(canonical.get("name") or ""),
+            "statement": str(canonical.get("statement") or ""),
+            "owner_node_id": str(canonical.get("owner_node_id") or ""),
+            "reused_in_node_ids": list(
+                canonical.get("reused_in_node_ids") or []
+            ),
+            "prerequisite_keys": list(
+                canonical.get("prerequisite_keys") or []
+            ),
+            "module_ids": list(canonical.get("module_ids") or []),
+            "detail_status": "frozen" if detail else "missing",
+        })
+    unknown_detail_keys = set(details_by_key) - registry_keys
+    for key in sorted(unknown_detail_keys):
+        issues.append(_issue(
+            "knowledge_freeze:unknown_detail",
+            f"知识批次返回了未冻结的知识键 {key}",
+        ))
+
+    edges: list[dict[str, Any]] = []
+    edge_signatures: set[tuple[str, str, str]] = set()
+    for relation in returned_relations:
+        source = str(relation.get("source_key") or "")
+        target = str(relation.get("target_key") or "")
+        relation_type = str(relation.get("relation_type") or "")
+        signature = (source, target, relation_type)
+        if source not in registry_keys or target not in registry_keys:
+            issues.append(_issue(
+                "knowledge_freeze:unknown_relation_endpoint",
+                f"知识关系 {source} -> {target} 引用了未知知识键",
+            ))
+            continue
+        if relation_type not in FORMAL_KNOWLEDGE_RELATION_TYPES:
+            issues.append(_issue(
+                "knowledge_freeze:invalid_relation_type",
+                f"知识关系类型 {relation_type or '空'} 不在正式六类关系中",
+            ))
+            continue
+        if signature in edge_signatures:
+            continue
+        edge_signatures.add(signature)
+        edge = {
+            **deepcopy(relation),
+            "source_knowledge_key": source,
+            "target_knowledge_key": target,
+        }
+        if relation_type == "prerequisite":
+            edge["direction"] = "source_before_target"
+        edge.pop("source_key", None)
+        edge.pop("target_key", None)
+        edge["edge_id"] = stable_hash(edge, prefix="ckgf_edge_")
+        edges.append(edge)
+
+    expected_prerequisites = {
+        (str(prerequisite), str(item.get("knowledge_key") or ""))
+        for item in registry
+        for prerequisite in item.get("prerequisite_keys") or []
+    }
+    actual_prerequisites = {
+        (
+            str(edge.get("source_knowledge_key") or ""),
+            str(edge.get("target_knowledge_key") or ""),
+        )
+        for edge in edges
+        if edge.get("relation_type") == "prerequisite"
+    }
+    if actual_prerequisites != expected_prerequisites:
+        issues.append(_issue(
+            "knowledge_freeze:prerequisite_identity_mismatch",
+            "知识详情批次不得改变骨架冻结的前置 DAG",
+        ))
+    prerequisite_edges = [
+        edge for edge in edges if edge.get("relation_type") == "prerequisite"
+    ]
+    topological_order, cyclic_keys = _knowledge_graph_topology(
+        [str(item.get("knowledge_key") or "") for item in registry],
+        prerequisite_edges,
+    )
+    if cyclic_keys:
+        issues.append(_issue(
+            "knowledge_freeze:prerequisite_cycle",
+            f"前置关系存在循环：{' -> '.join(cyclic_keys)}",
+        ))
+    frozen = {
+        "schema_version": "course_knowledge_graph_draft_v1",
+        "source_outline_revision_id": str(
+            skeleton.get("source_outline_revision_id") or ""
+        ),
+        "source_skeleton_revision_id": str(skeleton.get("revision_id") or ""),
+        "nodes": nodes,
+        "edges": edges,
+        "section_bindings": deepcopy(identity.get("section_bindings") or []),
+        "topology": {
+            "is_dag": not cyclic_keys,
+            "topological_order": topological_order,
+            "root_knowledge_keys": [
+                key for key in topological_order
+                if key not in {
+                    target for _source, target in expected_prerequisites
+                }
+            ],
+        },
+        "quality": {
+            "knowledge_point_count": len(nodes),
+            "relation_count": len(edges),
+            "formal_relation_types_used": sorted({
+                str(edge.get("relation_type") or "") for edge in edges
+            }),
+            "issues": deepcopy(issues),
+            "blocking_issue_count": len(issues),
+        },
+        "status": "knowledge_frozen" if nodes and not issues else "needs_review",
+    }
+    frozen["revision_id"] = stable_hash(frozen, prefix="ckgf_")
+    return frozen
+
+
+def merge_knowledge_and_teaching_batches(
+    *,
+    knowledge_batches: list[dict[str, Any]],
+    teaching_batches: list[dict[str, Any]],
+    skeleton_revision_id: str,
+) -> list[dict[str, Any]]:
+    """Create the legacy assembly shape after both independent stages pass."""
+    knowledge_by_node = {
+        str(section.get("node_id") or ""): section
+        for batch in knowledge_batches
+        for section in batch.get("sections") or []
+        if isinstance(section, dict)
+    }
+    merged: list[dict[str, Any]] = []
+    for teaching_batch in teaching_batches:
+        sections: list[dict[str, Any]] = []
+        for teaching in teaching_batch.get("sections") or []:
+            if not isinstance(teaching, dict):
+                continue
+            node_id = str(teaching.get("node_id") or "")
+            knowledge = knowledge_by_node.get(node_id) or {}
+            sections.append({
+                "node_id": node_id,
+                "knowledge_details": deepcopy(
+                    knowledge.get("knowledge_details") or []
+                ),
+                "knowledge_relations": deepcopy(
+                    knowledge.get("knowledge_relations") or []
+                ),
+                "teaching_modules": deepcopy(
+                    teaching.get("teaching_modules") or []
+                ),
+                **_section_execution(teaching),
+            })
+        batch_id = str(teaching_batch.get("batch_id") or "")
+        payload = {
+            "schema_version": "course_teaching_plan_batch_v3",
+            "batch_id": batch_id,
+            "skeleton_revision_id": skeleton_revision_id,
+            "sections": sections,
+        }
+        payload["revision_id"] = stable_hash(
+            payload,
+            prefix="teaching_batch_",
+        )
+        merged.append(payload)
+    return merged
 
 
 def assemble_course_teaching_plan_v3(
@@ -810,6 +1342,11 @@ def assemble_course_teaching_plan_v3(
                 "misconceptions": deepcopy(detail.get("misconceptions") or []),
                 "mastery_criteria": deepcopy(detail.get("mastery_criteria") or []),
                 "aliases": list(detail.get("aliases") or []),
+                "positive_examples": list(
+                    detail.get("positive_examples") or []
+                ),
+                "source_refs": list(detail.get("source_refs") or []),
+                "confidence": str(detail.get("confidence") or ""),
             })
         relations = []
         for relation in expanded.get("knowledge_relations") or []:

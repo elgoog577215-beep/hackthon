@@ -123,8 +123,8 @@ from course_outline_planning import (
 from course_pedagogy import (
     SubjectPedagogyProfile,
     attach_module_plans_to_plan,
-    compile_subject_generation_template,
     coerce_persisted_profile,
+    compile_subject_generation_template,
     resolve_pedagogy_profile,
 )
 from course_planning_budget import (
@@ -149,10 +149,16 @@ from course_teaching_guidance import compile_overall_teaching_guidance
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
     compile_course_knowledge_graph_draft,
+    compile_frozen_course_knowledge_graph,
+    merge_knowledge_and_teaching_batches,
+    normalize_course_knowledge_batch_v1,
+    normalize_teaching_execution_batch_v1,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
     restore_teaching_plan_skeleton_from_graph_draft,
+    validate_course_knowledge_batch_v1,
+    validate_teaching_execution_batch_v1,
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
@@ -1839,6 +1845,18 @@ class CourseService(AIBase):
                                 plan.get("learning_objectives") or []
                             ),
                             planning_context=chunk_context,
+                            subject_template=(
+                                course_data.get(
+                                    "subject_generation_template"
+                                )
+                                if isinstance(
+                                    course_data.get(
+                                        "subject_generation_template"
+                                    ),
+                                    dict,
+                                )
+                                else None
+                            ),
                             detail_level=detail_level,
                         )
                     )
@@ -2156,9 +2174,10 @@ class CourseService(AIBase):
             on_checkpoint=on_checkpoint,
         )
         if gap_source_context:
-            overall_teaching_guidance = (
-                f"{overall_teaching_guidance}\n\n{gap_source_context}"
-            )[:12000]
+            overall_teaching_guidance = {
+                **overall_teaching_guidance,
+                "knowledge_gap_evidence_context": gap_source_context,
+            }
         compact_by_id = {
             str(item.get("node_id") or ""): item
             for item in planning_context.get("sections") or []
@@ -2173,13 +2192,21 @@ class CourseService(AIBase):
             planning_context.get("module_catalog") or []
         )
 
-        def build_batch_prompt_options(
+        subject_template = (
+            course_data.get("subject_generation_template")
+            if isinstance(
+                course_data.get("subject_generation_template"), dict
+            )
+            else None
+        )
+
+        def build_knowledge_batch_prompt_options(
             spec: dict[str, Any],
         ) -> tuple[Any, dict[str, str]]:
             batch_id = str(spec.get("batch_id") or "")
             section_ids = list(spec.get("section_ids") or [])
             user_prompt = (
-                f"生成详细小节教案批次 {batch_id}，只输出 JSON。"
+                f"生成课程知识库批次 {batch_id}，只输出 JSON。"
             )
             batch_levels = prompt_detail_levels_for_source(
                 {
@@ -2196,15 +2223,14 @@ class CourseService(AIBase):
                     "section_identities": [
                         identity_by_id[item] for item in section_ids
                     ],
-                    "module_catalog": module_catalog,
-                    "overall_guidance": overall_teaching_guidance,
+                    "subject_template": subject_template,
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
             )
             prompts = {
                 detail_level: (
                     self._prompt_composer
-                    .build_teaching_plan_batch_v3_prompt(
+                    .build_course_knowledge_batch_v1_prompt(
                         course_title=course_title,
                         positioning=positioning,
                         batch_spec=spec,
@@ -2222,11 +2248,10 @@ class CourseService(AIBase):
                             identity_by_id[item]
                             for item in section_ids
                         ],
-                        module_catalog=module_catalog,
                         skeleton_revision_id=str(
                             skeleton.get("revision_id") or ""
                         ),
-                        overall_guidance=overall_teaching_guidance,
+                        subject_template=subject_template,
                         detail_level=detail_level,
                     )
                 )
@@ -2256,7 +2281,7 @@ class CourseService(AIBase):
 
         def add_fitted_spec(spec: dict[str, Any]) -> None:
             section_ids = list(spec.get("section_ids") or [])
-            selected, _prompts = build_batch_prompt_options(spec)
+            selected, _prompts = build_knowledge_batch_prompt_options(spec)
             if selected is None and len(section_ids) > 1:
                 midpoint = max(1, len(section_ids) // 2)
                 for split_ids in (
@@ -2306,6 +2331,589 @@ class CourseService(AIBase):
             normalized_spec = deepcopy(spec)
             normalized_spec["batch_id"] = f"TP-B{index:02d}"
             batch_specs.append(normalized_spec)
+
+        # Stage 1: enrich and freeze the course-owned knowledge base. Batches
+        # run concurrently, but teaching is not allowed to start until every
+        # knowledge batch and the deterministic whole-course freeze gate pass.
+        stored_knowledge_batches = teaching_stage.setdefault(
+            "knowledge_batches", {}
+        )
+        if not isinstance(stored_knowledge_batches, dict):
+            stored_knowledge_batches = {}
+            teaching_stage["knowledge_batches"] = stored_knowledge_batches
+        knowledge_results: dict[str, dict[str, Any]] = {}
+        pending_knowledge_specs: list[dict[str, Any]] = []
+        for spec in batch_specs:
+            batch_id = str(spec.get("batch_id") or "")
+            stored = stored_knowledge_batches.get(batch_id)
+            stored_payload = (
+                stored.get("payload") if isinstance(stored, dict) else {}
+            )
+            candidate = normalize_course_knowledge_batch_v1(
+                stored_payload if isinstance(stored_payload, dict) else {},
+                batch_id=batch_id,
+                skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+            )
+            candidate_report = validate_course_knowledge_batch_v1(
+                candidate,
+                batch_spec=spec,
+                skeleton=skeleton,
+                sections=planning_sections,
+            )
+            if (
+                isinstance(stored, dict)
+                and stored.get("status") == "completed"
+                and stored.get("generation_source") == "model"
+                and stored.get("skeleton_revision_id")
+                == skeleton.get("revision_id")
+                and list(stored.get("section_ids") or [])
+                == list(spec.get("section_ids") or [])
+                and candidate_report.get("passed")
+            ):
+                knowledge_results[batch_id] = candidate
+            else:
+                pending_knowledge_specs.append(spec)
+
+        teaching_stage.update({
+            "status": "knowledge_in_progress",
+            "schema_version": "course_teaching_plan_v3",
+            "source_outline_revision_id": outline_revision_id,
+            "planning_mode": planning_mode,
+            "strategy": strategy,
+            "skeleton": deepcopy(skeleton),
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "skeleton_validation_report": deepcopy(skeleton_report),
+            "knowledge_batch_count": len(batch_specs),
+            "completed_knowledge_batch_count": len(knowledge_results),
+            "completed_knowledge_section_count": sum(
+                len(spec.get("section_ids") or [])
+                for spec in batch_specs
+                if spec.get("batch_id") in knowledge_results
+            ),
+            "section_count": len(sections),
+            "model_call_count": counter["calls"],
+            "prompt_chars": counter["prompt_chars"],
+            "prompt_detail_levels": list(prompt_detail_levels),
+            "fallback_units": deepcopy(fallback_units),
+        })
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        knowledge_state_lock = asyncio.Lock()
+
+        async def generate_knowledge_batch(
+            spec: dict[str, Any],
+        ) -> dict[str, Any]:
+            batch_id = str(spec.get("batch_id") or "")
+            section_ids = list(spec.get("section_ids") or [])
+            selected_prompt, prompt_options = (
+                build_knowledge_batch_prompt_options(spec)
+            )
+            previous = stored_knowledge_batches.get(batch_id)
+            attempt_count = int(
+                (previous or {}).get("attempt_count", 0)
+                if isinstance(previous, dict) else 0
+            )
+            try:
+                fallback_reason = ""
+                generation_source = "model"
+                batch: dict[str, Any] = {}
+                report: dict[str, Any] = {"passed": False}
+                if selected_prompt is None or spec.get(
+                    "force_local_fallback"
+                ):
+                    fallback_reason = "knowledge_prompt_did_not_fit"
+                else:
+                    async with knowledge_state_lock:
+                        completed_before = len(knowledge_results)
+                    prompt_detail_levels.append(
+                        selected_prompt.detail_level
+                    )
+                    await self._notify_phase(
+                        on_phase,
+                        "course_knowledge_batch",
+                        39 + int(
+                            4 * completed_before / max(1, len(batch_specs))
+                        ),
+                        (
+                            f"正在构造第 {int(batch_id[-2:])} 批课程知识"
+                            f"（已完成 {completed_before}/{len(batch_specs)} 批）"
+                        ),
+                        phase_progress=int(
+                            100 * completed_before / max(1, len(batch_specs))
+                        ),
+                        phase_detail={
+                            "artifact_type": "course_knowledge_batch",
+                            "batch_id": batch_id,
+                            "completed_batches": completed_before,
+                            "total_batches": len(batch_specs),
+                        },
+                    )
+                    attempt_count += 1
+                    try:
+                        response = await request_model(
+                            user_prompt=selected_prompt.user_prompt,
+                            system_prompt=selected_prompt.system_prompt,
+                            enable_thinking=False,
+                            phase="course_knowledge_batch",
+                            progress=40,
+                            heartbeat_message=(
+                                f"仍在等待 AI 完成知识批次 {batch_id}"
+                            ),
+                            phase_detail={
+                                "artifact_type": "course_knowledge_batch",
+                                "batch_id": batch_id,
+                            },
+                        )
+                    except (
+                        AIProviderRequestError,
+                        CourseGenerationDeadlineExceeded,
+                    ) as exc:
+                        response = ""
+                        fallback_reason = (
+                            f"provider_error:{type(exc).__name__}"
+                        )
+                    parsed = self._extract_json(response) if response else None
+                    batch = normalize_course_knowledge_batch_v1(
+                        parsed if isinstance(parsed, dict) else {},
+                        batch_id=batch_id,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                    )
+                    report = validate_course_knowledge_batch_v1(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
+                    )
+                    if not report.get("passed") and not fallback_reason:
+                        correction_user = (
+                            f"只修复知识库批次 {batch_id}，输出完整 JSON。"
+                        )
+                        selected_correction = select_budgeted_prompt(
+                            (
+                                PromptCandidate(
+                                    detail_level=detail_level,
+                                    user_prompt=correction_user,
+                                    system_prompt=(
+                                        self._prompt_composer
+                                        .build_course_knowledge_batch_v1_correction_prompt(
+                                            original_prompt=prompt_options[
+                                                detail_level
+                                            ],
+                                            issues=(
+                                                report.get("blocking_issues")
+                                                or []
+                                            ),
+                                        )
+                                    ),
+                                )
+                                for detail_level in prompt_options
+                            ),
+                            max_input_chars=(
+                                self._generation_budget.max_input_chars
+                            ),
+                            max_input_tokens=(
+                                self._teaching_plan_budget.max_input_tokens
+                            ),
+                            token_estimator=self.estimate_request_tokens,
+                        )
+                        if selected_correction is None:
+                            fallback_reason = (
+                                "knowledge_correction_prompt_did_not_fit"
+                            )
+                        else:
+                            prompt_detail_levels.append(
+                                selected_correction.detail_level
+                            )
+                            attempt_count += 1
+                            try:
+                                corrected = await request_model(
+                                    user_prompt=(
+                                        selected_correction.user_prompt
+                                    ),
+                                    system_prompt=(
+                                        selected_correction.system_prompt
+                                    ),
+                                    enable_thinking=False,
+                                    phase="course_knowledge_batch_validation",
+                                    progress=42,
+                                    heartbeat_message=(
+                                        "仍在等待 AI 修复知识批次 "
+                                        f"{batch_id}"
+                                    ),
+                                    phase_detail={
+                                        "artifact_type": (
+                                            "course_knowledge_batch"
+                                        ),
+                                        "batch_id": batch_id,
+                                    },
+                                )
+                            except (
+                                AIProviderRequestError,
+                                CourseGenerationDeadlineExceeded,
+                            ) as exc:
+                                corrected = ""
+                                fallback_reason = (
+                                    "knowledge_correction_provider_error:"
+                                    f"{type(exc).__name__}"
+                                )
+                            parsed = (
+                                self._extract_json(corrected)
+                                if corrected else None
+                            )
+                            batch = normalize_course_knowledge_batch_v1(
+                                parsed if isinstance(parsed, dict) else {},
+                                batch_id=batch_id,
+                                skeleton_revision_id=str(
+                                    skeleton.get("revision_id") or ""
+                                ),
+                            )
+                            report = validate_course_knowledge_batch_v1(
+                                batch,
+                                batch_spec=spec,
+                                skeleton=skeleton,
+                                sections=planning_sections,
+                            )
+                if not report.get("passed"):
+                    generation_source = "deterministic_local_fallback"
+                    fallback_reason = (
+                        fallback_reason
+                        or "knowledge_output_failed_validation"
+                    )
+                    fallback_combined = compile_fallback_teaching_batch(
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
+                    )
+                    batch = normalize_course_knowledge_batch_v1(
+                        fallback_combined,
+                        batch_id=batch_id,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                    )
+                    report = validate_course_knowledge_batch_v1(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                        sections=planning_sections,
+                    )
+                    if not report.get("passed"):
+                        raise AIProviderRequestError(
+                            f"本地知识批次 {batch_id} 编译失败；"
+                            "这是生成编排器错误"
+                        )
+                async with knowledge_state_lock:
+                    if generation_source != "model":
+                        fallback_units.append({
+                            "unit": f"knowledge:{batch_id}",
+                            "reason": fallback_reason,
+                            "section_ids": list(section_ids),
+                        })
+                    knowledge_results[batch_id] = batch
+                    stored_knowledge_batches[batch_id] = {
+                        "status": "completed",
+                        "section_ids": section_ids,
+                        "skeleton_revision_id": skeleton.get("revision_id"),
+                        "revision_id": batch.get("revision_id"),
+                        "attempt_count": attempt_count,
+                        "validation_report": deepcopy(report),
+                        "payload": deepcopy(batch),
+                        "generation_source": generation_source,
+                        "fallback_reason": fallback_reason or None,
+                        "prompt_detail_level": (
+                            selected_prompt.detail_level
+                            if selected_prompt is not None else "local"
+                        ),
+                    }
+                    teaching_stage[
+                        "completed_knowledge_batch_count"
+                    ] = len(knowledge_results)
+                    teaching_stage[
+                        "completed_knowledge_section_count"
+                    ] = sum(
+                        len(item.get("section_ids") or [])
+                        for key, item in stored_knowledge_batches.items()
+                        if key in knowledge_results
+                        and isinstance(item, dict)
+                    )
+                    teaching_stage["model_call_count"] = counter["calls"]
+                    teaching_stage["prompt_chars"] = counter["prompt_chars"]
+                    teaching_stage["fallback_units"] = deepcopy(
+                        fallback_units
+                    )
+                    course_data[
+                        "generation_status"
+                    ] = "course_knowledge_in_progress"
+                    await self._notify_checkpoint(
+                        on_checkpoint, course_data
+                    )
+                return batch
+            except Exception as exc:
+                async with knowledge_state_lock:
+                    stored_knowledge_batches[batch_id] = {
+                        "status": "failed",
+                        "section_ids": section_ids,
+                        "skeleton_revision_id": skeleton.get("revision_id"),
+                        "attempt_count": attempt_count,
+                        "error": str(exc),
+                    }
+                    await self._notify_checkpoint(
+                        on_checkpoint, course_data
+                    )
+                raise
+
+        generated_knowledge = await asyncio.gather(
+            *(
+                generate_knowledge_batch(spec)
+                for spec in pending_knowledge_specs
+            ),
+            return_exceptions=True,
+        )
+        knowledge_failures = [
+            item
+            for item in generated_knowledge
+            if isinstance(item, BaseException)
+        ]
+        if knowledge_failures:
+            teaching_stage["status"] = "knowledge_failed"
+            course_data["generation_status"] = "course_knowledge_failed"
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            first = knowledge_failures[0]
+            if isinstance(first, AIProviderRequestError):
+                raise first
+            raise AIProviderRequestError(str(first)) from first
+
+        knowledge_fallback_units = [
+            item
+            for item in fallback_units
+            if str(item.get("unit") or "").startswith("knowledge:")
+        ]
+        if knowledge_fallback_units:
+            teaching_stage.update({
+                "status": "knowledge_retry_required",
+                "semantic_status": "retry_required",
+                "fallback_units": deepcopy(fallback_units),
+            })
+            course_data[
+                "generation_status"
+            ] = "course_knowledge_retry_required"
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            if semantic_retry_count < 1:
+                return await self._prepare_course_teaching_plan(
+                    course_data=course_data,
+                    plan=plan,
+                    artifacts=artifacts,
+                    on_phase=on_phase,
+                    on_checkpoint=on_checkpoint,
+                    semantic_retry_count=semantic_retry_count + 1,
+                    retrieval_context=retrieval_context,
+                )
+            raise AIProviderRequestError(
+                "课程知识库仍有非 AI 语义批次，已保留成功批次并停在"
+                "教案生成之前；请从检查点重试"
+            )
+
+        ordered_knowledge_batches = [
+            knowledge_results[str(spec.get("batch_id") or "")]
+            for spec in batch_specs
+        ]
+        frozen_knowledge_graph = compile_frozen_course_knowledge_graph(
+            skeleton=skeleton,
+            knowledge_batches=ordered_knowledge_batches,
+        )
+        course_data[
+            "course_knowledge_graph_draft"
+        ] = frozen_knowledge_graph
+        teaching_stage["knowledge_graph_draft_revision_id"] = (
+            frozen_knowledge_graph.get("revision_id")
+        )
+        teaching_stage["knowledge_revision_id"] = (
+            frozen_knowledge_graph.get("revision_id")
+        )
+        teaching_stage["knowledge_freeze_quality"] = deepcopy(
+            frozen_knowledge_graph.get("quality") or {}
+        )
+        if frozen_knowledge_graph.get("status") != "knowledge_frozen":
+            teaching_stage["status"] = "knowledge_freeze_failed"
+            course_data[
+                "generation_status"
+            ] = "course_knowledge_freeze_failed"
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            raise AIProviderRequestError(
+                "课程知识库未通过全课冻结验收，不启动教案生成"
+            )
+
+        knowledge_only_plan = apply_course_teaching_plan(
+            plan,
+            assemble_course_teaching_plan_v3(
+                skeleton=skeleton,
+                batches=ordered_knowledge_batches,
+                outline_revision_id=outline_revision_id,
+            ),
+        )
+        knowledge_course_data = deepcopy(course_data)
+        knowledge_course_data["course_plan"] = knowledge_only_plan
+        knowledge_course_data["nodes"] = self._merge_generation_nodes(
+            self._convert_plan_to_nodes(
+                knowledge_only_plan,
+                str(course_data.get("course_id") or ""),
+            ),
+            course_data.get("nodes") or [],
+        )
+        knowledge_course_data.pop("course_knowledge_base", None)
+        frozen_knowledge_base = compile_course_knowledge_base(
+            knowledge_course_data,
+            assets=(artifacts or {}).get("assets")
+            if isinstance(artifacts, dict) else None,
+        )
+        if not (
+            frozen_knowledge_base.get("quality_report") or {}
+        ).get("passed"):
+            teaching_stage["status"] = "knowledge_quality_failed"
+            teaching_stage["knowledge_quality_report"] = deepcopy(
+                frozen_knowledge_base.get("quality_report") or {}
+            )
+            course_data[
+                "generation_status"
+            ] = "course_knowledge_quality_failed"
+            await self._notify_checkpoint(on_checkpoint, course_data)
+            raise AIProviderRequestError(
+                "课程知识库未通过原子性、关系、能力、易错与掌握标准验收，"
+                "不启动教案生成"
+            )
+        course_data["course_knowledge_base"] = frozen_knowledge_base
+        course_data["course_knowledge_quality_report"] = deepcopy(
+            frozen_knowledge_base.get("quality_report") or {}
+        )
+        teaching_stage.update({
+            "status": "knowledge_frozen",
+            "completed_knowledge_batch_count": len(batch_specs),
+            "completed_knowledge_section_count": len(sections),
+            "knowledge_quality_report": deepcopy(
+                frozen_knowledge_base.get("quality_report") or {}
+            ),
+        })
+        course_data["generation_status"] = "course_knowledge_frozen"
+        await self._notify_checkpoint(on_checkpoint, course_data)
+
+        frozen_node_by_key = {
+            str(item.get("knowledge_key") or ""): item
+            for item in frozen_knowledge_graph.get("nodes") or []
+            if isinstance(item, dict)
+        }
+        frozen_edges = [
+            item
+            for item in frozen_knowledge_graph.get("edges") or []
+            if isinstance(item, dict)
+        ]
+
+        def frozen_knowledge_for_sections(
+            section_ids: list[str],
+        ) -> list[dict[str, Any]]:
+            selected_registry = select_batch_knowledge_registry(
+                skeleton,
+                section_ids,
+            )
+            selected_keys = {
+                str(item.get("knowledge_key") or "")
+                for item in selected_registry
+            }
+            relevant_edges = [
+                edge
+                for edge in frozen_edges
+                if str(edge.get("source_knowledge_key") or "")
+                in selected_keys
+                and str(edge.get("target_knowledge_key") or "")
+                in selected_keys
+            ]
+            return [
+                {
+                    **deepcopy(frozen_node_by_key.get(key) or item),
+                    "relations": [
+                        deepcopy(edge)
+                        for edge in relevant_edges
+                        if key in {
+                            str(
+                                edge.get("source_knowledge_key") or ""
+                            ),
+                            str(
+                                edge.get("target_knowledge_key") or ""
+                            ),
+                        }
+                    ],
+                }
+                for item in selected_registry
+                if (key := str(item.get("knowledge_key") or ""))
+            ]
+
+        def build_batch_prompt_options(
+            spec: dict[str, Any],
+        ) -> tuple[Any, dict[str, str]]:
+            batch_id = str(spec.get("batch_id") or "")
+            section_ids = list(spec.get("section_ids") or [])
+            user_prompt = (
+                f"生成冻结知识驱动的教案批次 {batch_id}，只输出 JSON。"
+            )
+            frozen_knowledge = frozen_knowledge_for_sections(section_ids)
+            batch_levels = prompt_detail_levels_for_source(
+                {
+                    "course_title": course_title,
+                    "positioning": positioning,
+                    "batch_spec": spec,
+                    "batch_sections": [
+                        compact_by_id[item] for item in section_ids
+                    ],
+                    "frozen_knowledge": frozen_knowledge,
+                    "section_identities": [
+                        identity_by_id[item] for item in section_ids
+                    ],
+                    "module_catalog": module_catalog,
+                    "overall_guidance": overall_teaching_guidance,
+                    "subject_template": subject_template,
+                },
+                max_input_chars=self._generation_budget.max_input_chars,
+            )
+            prompts = {
+                detail_level: (
+                    self._prompt_composer
+                    .build_teaching_execution_batch_v1_prompt(
+                        course_title=course_title,
+                        positioning=positioning,
+                        batch_spec=spec,
+                        batch_sections=[
+                            compact_by_id[item] for item in section_ids
+                        ],
+                        frozen_knowledge=frozen_knowledge,
+                        section_identities=[
+                            identity_by_id[item] for item in section_ids
+                        ],
+                        module_catalog=module_catalog,
+                        knowledge_revision_id=str(
+                            frozen_knowledge_graph.get("revision_id") or ""
+                        ),
+                        subject_template=subject_template,
+                        overall_guidance=overall_teaching_guidance,
+                        detail_level=detail_level,
+                    )
+                )
+                for detail_level in batch_levels
+            }
+            selected = select_budgeted_prompt(
+                (
+                    PromptCandidate(
+                        detail_level=detail_level,
+                        user_prompt=user_prompt,
+                        system_prompt=prompts[detail_level],
+                    )
+                    for detail_level in batch_levels
+                ),
+                max_input_chars=self._generation_budget.max_input_chars,
+                max_input_tokens=self._teaching_plan_budget.max_input_tokens,
+                token_estimator=self.estimate_request_tokens,
+            )
+            return selected, prompts
+
         stored_batches = teaching_stage.setdefault("batches", {})
         if not isinstance(stored_batches, dict):
             stored_batches = {}
@@ -2316,22 +2924,30 @@ class CourseService(AIBase):
             batch_id = str(spec.get("batch_id") or "")
             stored = stored_batches.get(batch_id)
             stored_payload = stored.get("payload") if isinstance(stored, dict) else {}
-            candidate = normalize_teaching_plan_batch_v3(
+            candidate = normalize_teaching_execution_batch_v1(
                 stored_payload if isinstance(stored_payload, dict) else {},
                 batch_id=batch_id,
                 skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+                knowledge_revision_id=str(
+                    frozen_knowledge_graph.get("revision_id") or ""
+                ),
             )
-            candidate_report = validate_teaching_plan_batch_v3(
+            candidate_report = validate_teaching_execution_batch_v1(
                 candidate,
                 batch_spec=spec,
                 skeleton=skeleton,
                 sections=planning_sections,
+                knowledge_revision_id=str(
+                    frozen_knowledge_graph.get("revision_id") or ""
+                ),
             )
             if (
                 isinstance(stored, dict)
                 and stored.get("status") == "completed"
                 and stored.get("generation_source") == "model"
                 and stored.get("skeleton_revision_id") == skeleton.get("revision_id")
+                and stored.get("knowledge_revision_id")
+                == frozen_knowledge_graph.get("revision_id")
                 and list(stored.get("section_ids") or []) == list(spec.get("section_ids") or [])
                 and candidate_report.get("passed")
             ):
@@ -2449,16 +3065,22 @@ class CourseService(AIBase):
                             f"provider_error:{type(exc).__name__}"
                         )
                     parsed = self._extract_json(response) if response else None
-                    batch = normalize_teaching_plan_batch_v3(
+                    batch = normalize_teaching_execution_batch_v1(
                         parsed if isinstance(parsed, dict) else {},
                         batch_id=batch_id,
                         skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+                        knowledge_revision_id=str(
+                            frozen_knowledge_graph.get("revision_id") or ""
+                        ),
                     )
-                    batch_report = validate_teaching_plan_batch_v3(
+                    batch_report = validate_teaching_execution_batch_v1(
                         batch,
                         batch_spec=spec,
                         skeleton=skeleton,
                         sections=planning_sections,
+                        knowledge_revision_id=str(
+                            frozen_knowledge_graph.get("revision_id") or ""
+                        ),
                     )
                     if (
                         not batch_report.get("passed")
@@ -2474,7 +3096,7 @@ class CourseService(AIBase):
                                     user_prompt=correction_user,
                                     system_prompt=(
                                         self._prompt_composer
-                                        .build_teaching_plan_batch_v3_correction_prompt(
+                                        .build_teaching_execution_batch_v1_correction_prompt(
                                             original_prompt=batch_prompts[
                                                 detail_level
                                             ],
@@ -2549,34 +3171,57 @@ class CourseService(AIBase):
                                 self._extract_json(corrected)
                                 if corrected else None
                             )
-                            batch = normalize_teaching_plan_batch_v3(
+                            batch = normalize_teaching_execution_batch_v1(
                                 parsed if isinstance(parsed, dict) else {},
                                 batch_id=batch_id,
                                 skeleton_revision_id=str(
                                     skeleton.get("revision_id") or ""
                                 ),
+                                knowledge_revision_id=str(
+                                    frozen_knowledge_graph.get(
+                                        "revision_id"
+                                    ) or ""
+                                ),
                             )
-                            batch_report = validate_teaching_plan_batch_v3(
+                            batch_report = validate_teaching_execution_batch_v1(
                                 batch,
                                 batch_spec=spec,
                                 skeleton=skeleton,
                                 sections=planning_sections,
+                                knowledge_revision_id=str(
+                                    frozen_knowledge_graph.get(
+                                        "revision_id"
+                                    ) or ""
+                                ),
                             )
                 if not batch_report.get("passed"):
                     generation_source = "deterministic_local_fallback"
                     fallback_reason = (
                         fallback_reason or "model_output_failed_validation"
                     )
-                    batch = compile_fallback_teaching_batch(
+                    fallback_combined = compile_fallback_teaching_batch(
                         batch_spec=spec,
                         skeleton=skeleton,
                         sections=planning_sections,
                     )
-                    batch_report = validate_teaching_plan_batch_v3(
+                    batch = normalize_teaching_execution_batch_v1(
+                        fallback_combined,
+                        batch_id=batch_id,
+                        skeleton_revision_id=str(
+                            skeleton.get("revision_id") or ""
+                        ),
+                        knowledge_revision_id=str(
+                            frozen_knowledge_graph.get("revision_id") or ""
+                        ),
+                    )
+                    batch_report = validate_teaching_execution_batch_v1(
                         batch,
                         batch_spec=spec,
                         skeleton=skeleton,
                         sections=planning_sections,
+                        knowledge_revision_id=str(
+                            frozen_knowledge_graph.get("revision_id") or ""
+                        ),
                     )
                     if not batch_report.get("passed"):
                         raise AIProviderRequestError(
@@ -2595,6 +3240,9 @@ class CourseService(AIBase):
                         "status": "completed",
                         "section_ids": section_ids,
                         "skeleton_revision_id": skeleton.get("revision_id"),
+                        "knowledge_revision_id": frozen_knowledge_graph.get(
+                            "revision_id"
+                        ),
                         "revision_id": batch.get("revision_id"),
                         "attempt_count": attempt_count,
                         "validation_report": deepcopy(batch_report),
@@ -2688,7 +3336,7 @@ class CourseService(AIBase):
             on_phase,
             "course_teaching_plan_assembly",
             47,
-            "正在汇编唯一的全课教案并本地编译知识库",
+            "正在将冻结知识与教学执行汇编为唯一全课教案",
             phase_progress=0,
             phase_detail={
                 "artifact_type": "course_teaching_plan_assembly",
@@ -2698,12 +3346,17 @@ class CourseService(AIBase):
                 "total_sections": len(sections),
             },
         )
-        assembled = assemble_course_teaching_plan_v3(
-            skeleton=skeleton,
-            batches=[
+        merged_batches = merge_knowledge_and_teaching_batches(
+            knowledge_batches=ordered_knowledge_batches,
+            teaching_batches=[
                 results[str(spec.get("batch_id") or "")]
                 for spec in batch_specs
             ],
+            skeleton_revision_id=str(skeleton.get("revision_id") or ""),
+        )
+        assembled = assemble_course_teaching_plan_v3(
+            skeleton=skeleton,
+            batches=merged_batches,
             outline_revision_id=outline_revision_id,
         )
         course_teaching_plan = compile_course_teaching_plan_modules(
@@ -3175,7 +3828,10 @@ class CourseService(AIBase):
         scope = course_data.get("course_knowledge_scope_contract") or {}
         if (
             not isinstance(graph, dict)
-            or graph.get("status") != "identity_frozen"
+            or graph.get("status") not in {
+                "identity_frozen",
+                "knowledge_frozen",
+            }
             or graph.get("source_outline_revision_id")
             != scope.get("revision_id")
         ):

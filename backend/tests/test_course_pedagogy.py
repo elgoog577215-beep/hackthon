@@ -1,19 +1,19 @@
-from course_pedagogy import (
-    PedagogyMode,
-    SecondaryIntensity,
-    attach_module_plans_to_plan,
-    compile_subject_generation_template,
-    coerce_persisted_profile,
-    resolve_pedagogy_profile,
-    validate_module_registry,
-)
-from course_quality import evaluate_node_content, validate_blueprint
 from course_difficulty import (
     assess_readiness,
     attach_difficulty_contracts_to_plan,
     compile_difficulty_profile,
     decide_adaptation,
 )
+from course_pedagogy import (
+    PedagogyMode,
+    SecondaryIntensity,
+    attach_module_plans_to_plan,
+    coerce_persisted_profile,
+    compile_subject_generation_template,
+    resolve_pedagogy_profile,
+    validate_module_registry,
+)
+from course_quality import evaluate_node_content, validate_blueprint
 
 
 def test_module_registry_is_complete():
@@ -74,17 +74,20 @@ def test_subject_template_freezes_one_contract_for_all_downstream_stages():
 
     template = compile_subject_generation_template(profile)
 
-    assert template["schema_version"] == "subject_generation_template_v1"
+    assert template["schema_version"] == "subject_generation_template_v2"
     assert template["template_id"].startswith("subject/math_formal/")
     assert template["subject_variant"]["id"]
     assert "derives" in template["knowledge_contract"]["relation_priorities"]
     assert "math_formalization" in template["lesson_plan_contract"][
-        "required_lesson_module_ids"
+        "available_subject_module_ids"
     ]
     assert template["lesson_plan_contract"]["preferred_archetype_ids"]
     assert template["assessment_contract"]["final_performance"]
     assert template["downstream_order"] == [
-        "course_knowledge",
+        "course_outline",
+        "course_knowledge_identity",
+        "course_knowledge_enrichment",
+        "course_knowledge_freeze",
         "course_teaching_plan",
         "course_content",
         "course_assessment",

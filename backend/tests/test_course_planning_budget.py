@@ -14,13 +14,44 @@ from course_prompt_composer import CoursePromptComposer
 from course_service import CourseService
 from course_teaching_plan_v3 import (
     compile_course_knowledge_graph_draft,
+    compile_frozen_course_knowledge_graph,
+    merge_knowledge_and_teaching_batches,
+    normalize_course_knowledge_batch_v1,
+    normalize_teaching_execution_batch_v1,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
     restore_teaching_plan_skeleton_from_graph_draft,
+    validate_course_knowledge_batch_v1,
+    validate_teaching_execution_batch_v1,
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
+
+
+def _knowledge_detail(key, name):
+    return {
+        "knowledge_key": key,
+        "concept_group": "核心机制",
+        "group_description": "用于验证知识冻结",
+        "knowledge_type": "concept",
+        "conditions": [f"已识别{name}的对象"],
+        "boundaries": [f"条件不成立时不能使用{name}"],
+        "capability_points": [{
+            "observable_behavior": f"能独立说明{name}的条件",
+        }],
+        "misconceptions": [{
+            "observable_error_pattern": f"未检查条件就使用{name}",
+            "discrimination": "核对对象、条件与结论",
+            "repair_strategy": "补写条件清单后重做",
+        }],
+        "mastery_criteria": [{
+            "observable_performance": f"无提示完成{name}的变式任务",
+            "verification_method": "用正例、反例和边界例验证",
+        }],
+        "source_refs": [],
+        "confidence": "medium",
+    }
 
 
 def _section(index, chapter_id="chapter-1"):
@@ -77,6 +108,145 @@ def test_default_planning_has_no_whole_course_wall_clock_deadline():
     assert detail_waves > 0
     assert budget.batch_timeout_seconds == 90
     assert budget.total_timeout_seconds == 0
+
+
+def test_knowledge_freezes_before_teaching_and_merges_without_identity_drift():
+    sections = [_section(1)]
+    skeleton = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [
+            {
+                "knowledge_key": "K001",
+                "name": "基础对象",
+                "statement": "先识别任务中的基础对象。",
+                "owner_node_id": "L2-1-1",
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+            {
+                "knowledge_key": "K002",
+                "name": "条件判断",
+                "statement": "基于对象判断方法的成立条件。",
+                "owner_node_id": "L2-1-1",
+                "prerequisite_keys": ["K001"],
+                "module_ids": ["core_explanation"],
+            },
+        ],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001", "K002"],
+            "reused_knowledge_keys": [],
+        }],
+    }, outline_revision_id="outline-1")
+    spec = {"batch_id": "TP-B01", "section_ids": ["L2-1-1"]}
+    knowledge = normalize_course_knowledge_batch_v1({
+        "sections": [{
+            "node_id": "L2-1-1",
+            "knowledge_details": [
+                _knowledge_detail("K001", "基础对象"),
+                _knowledge_detail("K002", "条件判断"),
+            ],
+            "knowledge_relations": [{
+                "source_key": "K001",
+                "target_key": "K002",
+                "relation_type": "prerequisite",
+                "reason": "必须先识别对象，才能核对方法条件。",
+            }],
+        }],
+    }, batch_id="TP-B01", skeleton_revision_id=skeleton["revision_id"])
+    assert validate_course_knowledge_batch_v1(
+        knowledge,
+        batch_spec=spec,
+        skeleton=skeleton,
+        sections=sections,
+    )["passed"] is True
+
+    graph = compile_frozen_course_knowledge_graph(
+        skeleton=skeleton,
+        knowledge_batches=[knowledge],
+    )
+    assert graph["status"] == "knowledge_frozen"
+    assert graph["source_skeleton_revision_id"] == skeleton["revision_id"]
+
+    teaching = normalize_teaching_execution_batch_v1({
+        "sections": [{
+            "node_id": "L2-1-1",
+            "teaching_modules": [{
+                "module_id": "core_explanation",
+                "teaching_purpose": "建立对象与条件之间的判断链",
+                "knowledge_keys": ["K001", "K002"],
+                "teaching_guidance": "先识别对象，再用反例检查条件。",
+                "teacher_activity": "呈现正反两例并追问判断依据。",
+                "student_activity": "标注对象、条件并完成判断。",
+            }],
+            "key_difficulties": ["区分对象和成立条件"],
+            "teacher_activities": ["组织反例辨析"],
+            "student_activities": ["完成条件分类"],
+            "in_class_checks": ["独立完成一个边界例判断"],
+            "homework": ["设计一个反例并解释失效条件"],
+        }],
+    }, batch_id="TP-B01", skeleton_revision_id=skeleton["revision_id"],
+        knowledge_revision_id=graph["revision_id"])
+    assert validate_teaching_execution_batch_v1(
+        teaching,
+        batch_spec=spec,
+        skeleton=skeleton,
+        sections=sections,
+        knowledge_revision_id=graph["revision_id"],
+    )["passed"] is True
+    merged = merge_knowledge_and_teaching_batches(
+        knowledge_batches=[knowledge],
+        teaching_batches=[teaching],
+        skeleton_revision_id=skeleton["revision_id"],
+    )
+    assert merged[0]["sections"][0]["knowledge_details"]
+    assert merged[0]["sections"][0]["teaching_modules"]
+
+
+def test_stage_prompts_have_one_professional_responsibility_each():
+    composer = CoursePromptComposer()
+    spec = {"batch_id": "TP-B01", "section_ids": ["L2-1-1"]}
+    sections = build_compact_planning_context(
+        [_section(1)],
+        composition_style="balanced",
+    )["sections"]
+    registry = [{
+        "knowledge_key": "K001",
+        "name": "基础对象",
+        "statement": "识别基础对象。",
+        "owner_node_id": "L2-1-1",
+        "prerequisite_keys": [],
+        "module_ids": ["core_explanation"],
+    }]
+    identities = [{
+        "node_id": "L2-1-1",
+        "owned_knowledge_keys": ["K001"],
+        "reused_knowledge_keys": [],
+    }]
+    knowledge_prompt = composer.build_course_knowledge_batch_v1_prompt(
+        course_title="职责隔离课程",
+        positioning="验证链路",
+        batch_spec=spec,
+        batch_sections=sections,
+        knowledge_registry=registry,
+        section_identities=identities,
+        skeleton_revision_id="skeleton-1",
+    )
+    teaching_prompt = composer.build_teaching_execution_batch_v1_prompt(
+        course_title="职责隔离课程",
+        positioning="验证链路",
+        batch_spec=spec,
+        batch_sections=sections,
+        frozen_knowledge=[{
+            **registry[0],
+            **_knowledge_detail("K001", "基础对象"),
+        }],
+        section_identities=identities,
+        module_catalog=[{"module_id": "core_explanation"}],
+        knowledge_revision_id="knowledge-1",
+    )
+    assert "本阶段禁止返回 `teaching_modules`" in knowledge_prompt
+    assert "本阶段禁止返回 `knowledge_details`" in teaching_prompt
+    assert "冻结知识修订：knowledge-1" in teaching_prompt
 
 
 def test_compact_plan_is_promoted_to_one_stable_v3_contract():

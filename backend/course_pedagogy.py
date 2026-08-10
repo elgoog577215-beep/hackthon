@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from enum import Enum
 from math import ceil
-import re
-from typing import Any, Iterable
+from typing import Any
 
 from course_pedagogy_archetypes import (
     LESSON_ARCHETYPES,
@@ -22,7 +23,7 @@ from course_pedagogy_archetypes import (
 )
 
 PROFILE_VERSION = "subject_pedagogy_v2"
-SUBJECT_GENERATION_TEMPLATE_VERSION = "subject_generation_template_v1"
+SUBJECT_GENERATION_TEMPLATE_VERSION = "subject_generation_template_v2"
 
 
 class PedagogyMode(str, Enum):
@@ -673,6 +674,199 @@ SUBJECT_EVIDENCE_PRIORITIES: dict[PedagogyMode, tuple[str, ...]] = {
 }
 
 
+FORMAL_KNOWLEDGE_RELATION_TYPES = (
+    "prerequisite",
+    "derives",
+    "equivalent_to",
+    "contrasts_with",
+    "applies_to",
+    "generalizes",
+)
+
+
+# 这些合同不是可直接展示给教师的新产品概念，而是把历史人工纠偏中已经
+# 确认的学科教学逻辑冻结为下游 Prompt 可执行的规则。一级模式负责稳定的
+# 教学语法，内部 variant 与 lesson archetype 负责在同一语法内进一步收窄。
+SUBJECT_STAGE_CONTRACTS: dict[PedagogyMode, dict[str, tuple[str, ...]]] = {
+    PedagogyMode.GENERAL: {
+        "course_progression": (
+            "从真实问题进入核心概念，再形成可执行方法，最后进入案例应用与综合迁移",
+            "章节责任必须由知识或能力依赖推进，不能按百科目录平铺主题",
+        ),
+        "knowledge_focus": (
+            "知识点必须说明概念命题、成立条件、边界、例子与反例",
+            "方法型知识必须包含输入、判断、步骤、结果检查和适用条件",
+        ),
+        "lesson_sequence": (
+            "问题定向", "概念或方法建构", "解释性例子", "学习者行动", "反馈检查",
+        ),
+        "content_pattern": (
+            "先回答本节解决什么问题，再解释概念或方法，随后给出例子、反例和独立任务",
+        ),
+        "assessment_evidence": (
+            "解释概念边界", "执行方法", "在条件变化后迁移", "说明选择依据",
+        ),
+        "anti_patterns": (
+            "百科背景堆砌", "用清单代替判断", "只换名词的伪案例", "把章节摘要当综合迁移",
+        ),
+    },
+    PedagogyMode.MATH_FORMAL: {
+        "course_progression": (
+            "从直觉与多重表征进入正式定义，再推进性质、推导、策略、变式与综合建模",
+            "后续章节必须复用前序定义与推理能力，不能每章重新从术语介绍开始",
+        ),
+        "knowledge_focus": (
+            "定义、命题和公式必须保存对象、量词、成立条件、边界与反例",
+            "推导关系必须给关键步骤；易错必须定位到被误用的定义、条件或推理步骤",
+        ),
+        "lesson_sequence": (
+            "问题或直觉", "正式定义与符号", "推理或例题", "变式", "错误诊断", "独立论证或应用",
+        ),
+        "content_pattern": (
+            "直觉不得替代定义；每个关键步骤说明依据，并用变式或反例检验条件",
+        ),
+        "assessment_evidence": (
+            "独立求解", "补全或构造证明", "表征转换", "错误诊断", "形式化建模",
+        ),
+        "anti_patterns": (
+            "只列公式", "隐藏关键跳步", "把例证当证明", "变式只替换数字", "不检查适用条件",
+        ),
+    },
+    PedagogyMode.PROGRAMMING_ENGINEERING: {
+        "course_progression": (
+            "围绕一个可运行成果，从最小闭环逐步增加功能、机制、调试、测试和系统取舍",
+            "每章必须交付可验证增量，不能把语言语法或技术名词当作课程主线",
+        ),
+        "knowledge_focus": (
+            "知识点应覆盖行为契约、环境前提、数据或控制流、失败模式与验证方法",
+            "版本相关事实优先绑定官方文档、标准或可运行样例",
+        ),
+        "lesson_sequence": (
+            "需求与验收", "最小可运行示例", "机制拆解", "修改任务", "故障定位", "测试与复盘",
+        ),
+        "content_pattern": (
+            "代码必须可运行并给出环境、输入、输出和验证；解释必须连接实现与行为",
+        ),
+        "assessment_evidence": (
+            "运行成果", "需求增量", "调试记录", "边界测试", "架构取舍说明",
+        ),
+        "anti_patterns": (
+            "只贴代码", "只讲概念", "报错即根因", "无验收条件的项目", "脱离规模的架构名词堆砌",
+        ),
+    },
+    PedagogyMode.NATURAL_SCIENCE: {
+        "course_progression": (
+            "从可观察现象提出问题，经模型、调查与证据论证，回到预测、解释或设计应用",
+            "观察、模型、证据、解释和结论必须在全课结构中保持可区分",
+        ),
+        "knowledge_focus": (
+            "规律和模型必须包含变量、假设、尺度、适用边界与可检验证据",
+            "关系应表达推导、应用和一般化，不能把课程先后冒充科学因果",
+        ),
+        "lesson_sequence": (
+            "现象与问题", "假设或模型", "实验与证据", "解释与替代解释", "边界", "预测或设计",
+        ),
+        "content_pattern": (
+            "先区分观察与解释，再让结论强度与证据质量相称，并明确不确定性",
+        ),
+        "assessment_evidence": (
+            "提出可检验问题", "设计调查", "分析数据", "证据论证", "模型预测",
+        ),
+        "anti_patterns": (
+            "先给结论再伪装探究", "相关性直接写成因果", "忽略误差", "模型等同现实",
+        ),
+    },
+    PedagogyMode.LIFE_MEDICAL: {
+        "course_progression": (
+            "在正确尺度上从定位与结构进入功能、机制、调节、证据和情境推理",
+            "跨尺度连接必须说明中间机制，不能从分子事实直接跳到个体结论",
+        ),
+        "knowledge_focus": (
+            "知识点必须区分结构、功能、机制、调节与正常/异常表现",
+            "医学相关结论必须保存证据等级、适用人群和非诊疗边界",
+        ),
+        "lesson_sequence": (
+            "尺度与定位", "结构", "功能", "机制链", "调节与失衡", "证据或基础案例",
+        ),
+        "content_pattern": (
+            "先定位对象和尺度，再解释机制；案例只用于基础推理，不给个人诊断或治疗建议",
+        ),
+        "assessment_evidence": (
+            "结构功能解释", "机制链重建", "正常异常比较", "证据解读", "情境推理",
+        ),
+        "anti_patterns": (
+            "结构功能混写", "跨尺度跳跃", "个案代替证据", "输出个人诊疗建议",
+        ),
+    },
+    PedagogyMode.HUMANITIES_SOCIAL: {
+        "course_progression": (
+            "从问题意识与历史语境进入材料辨析、观点比较、因果解释、异议回应和综合论证",
+            "课程不能按人物、年代或理论名词机械罗列而缺少贯穿问题",
+        ),
+        "knowledge_focus": (
+            "知识点必须区分事实、材料、概念、主张和解释，并保存语境与争议边界",
+            "因果和比较关系必须说明证据与替代解释，不能把立场写成唯一事实",
+        ),
+        "lesson_sequence": (
+            "核心问题", "语境", "材料与来源批判", "主张与证据", "比较或因果", "异议与综合表达",
+        ),
+        "content_pattern": (
+            "每个解释回到材料证据，明确哪些是事实、哪些是解释，并认真处理反方论证",
+        ),
+        "assessment_evidence": (
+            "材料分析", "来源评价", "比较论证", "因果解释", "回应异议的写作或表达",
+        ),
+        "anti_patterns": (
+            "无材料的观点输出", "把争议解释写成事实", "时间线代替因果", "各打五十大板",
+        ),
+    },
+    PedagogyMode.LANGUAGE_LEARNING: {
+        "course_progression": (
+            "围绕真实沟通场景组织可理解输入、语言注意、受控练习、互动、调解和独立输出",
+            "词汇与语法只能服务场景任务，不能成为长期脱离表达的平行主线",
+        ),
+        "knowledge_focus": (
+            "知识点应包含形式、意义、语用条件、搭配、易混表达和真实语料来源",
+            "前置关系同时考虑理解负荷与产出能力，不能只按语法目录排序",
+        ),
+        "lesson_sequence": (
+            "场景目标", "可理解输入", "注意语言块与形式", "受控练习", "互动或调解", "独立输出与反馈修复",
+        ),
+        "content_pattern": (
+            "先让学习者理解真实输入，再注意形式并用于沟通；反馈必须指向可修复的表达差距",
+        ),
+        "assessment_evidence": (
+            "理解真实输入", "得体互动", "调解信息", "独立口头或书面输出", "反馈后修订",
+        ),
+        "anti_patterns": (
+            "孤立词表", "只讲语法术语", "机械翻译", "没有语境的句型替换", "无真实输出",
+        ),
+    },
+    PedagogyMode.BUSINESS_CAREER: {
+        "course_progression": (
+            "从真实业务问题和角色约束进入数据、框架、工具、决策取舍、交付物与效果复盘",
+            "最终成果必须可被真实标准评审，不能用框架记忆代替工作能力",
+        ),
+        "knowledge_focus": (
+            "知识点应包含决策条件、输入数据、工具边界、角色责任、指标与伦理风险",
+            "案例事实与教学假设必须分开，时效数据必须保留来源和时间",
+        ),
+        "lesson_sequence": (
+            "业务问题与角色", "事实和数据", "框架或工具", "方案比较", "决策与交付", "指标复盘与伦理",
+        ),
+        "content_pattern": (
+            "框架必须用于具体决策，明确输入、约束、取舍、交付标准和效果指标",
+        ),
+        "assessment_evidence": (
+            "业务诊断", "数据分析", "方案决策", "角色沟通", "可评审工作交付物",
+        ),
+        "anti_patterns": (
+            "口号化框架", "虚构业务事实", "无数据的精确结论", "没有取舍的方案", "不可评审交付物",
+        ),
+    },
+}
+
+
 def compile_subject_generation_template(
     profile: SubjectPedagogyProfile,
 ) -> dict[str, Any]:
@@ -684,6 +878,7 @@ def compile_subject_generation_template(
     silently choose different subject conventions.
     """
     primary = TEMPLATES[profile.primary_mode]
+    stage_contract = SUBJECT_STAGE_CONTRACTS[profile.primary_mode]
     variant = SUBJECT_VARIANTS.get(profile.subject_variant_id)
     preferred_archetype_ids = list(
         variant.preferred_archetype_ids if variant else ()
@@ -693,16 +888,18 @@ def compile_subject_generation_template(
         for archetype_id in preferred_archetype_ids
         if archetype_id in LESSON_ARCHETYPES
     ]
-    required_lesson_modules = list(
-        _dedupe(COMMON_LESSON_MODULES + primary.lesson_modules)
+    common_lesson_modules = list(COMMON_LESSON_MODULES)
+    available_subject_modules = list(
+        _dedupe(primary.lesson_modules + primary.conditional_modules)
     )
     if (
         profile.secondary_mode
         and profile.secondary_intensity == SecondaryIntensity.DUAL_CORE
     ):
-        required_lesson_modules = list(_dedupe(
-            tuple(required_lesson_modules)
+        available_subject_modules = list(_dedupe(
+            tuple(available_subject_modules)
             + TEMPLATES[profile.secondary_mode].lesson_modules
+            + TEMPLATES[profile.secondary_mode].conditional_modules
         ))
     secondary_id = (
         profile.secondary_mode.value if profile.secondary_mode else "none"
@@ -713,7 +910,8 @@ def compile_subject_generation_template(
             f"subject/{profile.primary_mode.value}/"
             f"{profile.subject_variant_id}+{secondary_id}"
         ),
-        "template_version": PROFILE_VERSION,
+        "template_version": SUBJECT_GENERATION_TEMPLATE_VERSION,
+        "profile_version": PROFILE_VERSION,
         "primary_mode": profile.primary_mode.value,
         "secondary_mode": (
             profile.secondary_mode.value if profile.secondary_mode else None
@@ -725,6 +923,23 @@ def compile_subject_generation_template(
         "subject_variant": {
             "id": profile.subject_variant_id,
             "label": profile.subject_variant_label,
+            "signals": list(variant.signals if variant else ()),
+            "preferred_archetype_ids": preferred_archetype_ids,
+            "planning_emphasis": [
+                str(item.get("purpose") or "")
+                for item in preferred_archetypes
+                if str(item.get("purpose") or "")
+            ],
+            "evidence_contracts": [
+                str(item.get("evidence_contract") or "")
+                for item in preferred_archetypes
+                if str(item.get("evidence_contract") or "")
+            ],
+            "guardrails": list(_dedupe(
+                guardrail
+                for item in preferred_archetypes
+                for guardrail in item.get("guardrails") or []
+            )),
         },
         "resolution": {
             "confidence": profile.confidence,
@@ -732,38 +947,90 @@ def compile_subject_generation_template(
             "rationale": profile.rationale,
             "user_locked": profile.user_locked,
         },
+        "course_architecture_contract": {
+            "progression": list(stage_contract["course_progression"]),
+            "preferred_archetype_sequence": preferred_archetype_ids,
+            "archetype_progression_contracts": preferred_archetypes,
+            "course_module_ids": [
+                item["module_id"] for item in build_course_module_plan(profile)
+            ],
+            "final_performance": profile.final_assessment,
+            "anti_patterns": list(stage_contract["anti_patterns"]),
+        },
         "knowledge_contract": {
+            "schema_version": "subject_knowledge_contract_v2",
             "required_node_fields": [
                 "statement", "conditions", "boundaries", "counterexamples",
                 "capability_points", "misconceptions", "mastery_criteria",
                 "source_refs",
             ],
+            "formal_relation_types": list(FORMAL_KNOWLEDGE_RELATION_TYPES),
             "relation_priorities": list(
                 SUBJECT_RELATION_PRIORITIES[profile.primary_mode]
             ),
+            "atomicity_rules": [
+                "一个知识点必须能被独立解释、练习、诊断和引用",
+                "知识名称不得复制章节或小节标题，也不得写成教学动作",
+                "能力、易错和掌握标准必须描述可观察证据，不得使用模板占位",
+            ],
+            "subject_focus": list(stage_contract["knowledge_focus"]),
+            "variant_guardrails": list(_dedupe(
+                guardrail
+                for item in preferred_archetypes
+                for guardrail in item.get("guardrails") or []
+            )),
+            "evidence_priorities": list(
+                SUBJECT_EVIDENCE_PRIORITIES[profile.primary_mode]
+            ),
+            "anti_patterns": list(stage_contract["anti_patterns"]),
             "quality_guardrails": list(profile.quality_guardrails),
         },
         "lesson_plan_contract": {
+            "schema_version": "subject_lesson_plan_contract_v2",
             "course_module_ids": [
                 item["module_id"] for item in build_course_module_plan(profile)
             ],
-            "required_lesson_module_ids": required_lesson_modules,
+            "common_lesson_module_ids": common_lesson_modules,
+            "available_subject_module_ids": available_subject_modules,
+            "module_selection_rule": (
+                "每节使用四个公共模块、当前课型模块，并且最多增加一个有明确信号的条件模块"
+            ),
             "preferred_archetype_ids": preferred_archetype_ids,
             "preferred_archetypes": preferred_archetypes,
+            "lesson_sequence": list(stage_contract["lesson_sequence"]),
+            "execution_standard": [
+                "每个模块必须绑定冻结知识并说明具体教学目的、教师动作、学生动作和检查证据",
+                "每节必须给出重点难点、课堂检查、作业或迁移任务，且分钟数与课时合同守恒",
+                "不同课型不得机械复制相同课堂流程",
+            ],
         },
         "content_contract": {
+            "schema_version": "subject_content_contract_v2",
             "enabled_module_ids": list(profile.enabled_module_ids),
-            "required_lesson_module_ids": required_lesson_modules,
+            "common_lesson_module_ids": common_lesson_modules,
+            "available_subject_module_ids": available_subject_modules,
+            "explanation_pattern": list(stage_contract["content_pattern"]),
+            "anti_patterns": list(stage_contract["anti_patterns"]),
             "quality_guardrails": list(profile.quality_guardrails),
         },
         "assessment_contract": {
+            "schema_version": "subject_assessment_contract_v2",
             "final_performance": profile.final_assessment,
             "evidence_priorities": list(
                 SUBJECT_EVIDENCE_PRIORITIES[profile.primary_mode]
             ),
+            "observable_evidence": list(
+                stage_contract["assessment_evidence"]
+            ),
+            "quality_standard": [
+                "题目或任务必须直接验证冻结掌握标准",
+                "不能用回忆术语替代目标要求的独立表现或迁移",
+            ],
         },
         "downstream_order": [
-            "course_knowledge", "course_teaching_plan",
+            "course_outline", "course_knowledge_identity",
+            "course_knowledge_enrichment", "course_knowledge_freeze",
+            "course_teaching_plan",
             "course_content", "course_assessment",
         ],
     }

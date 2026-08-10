@@ -138,13 +138,20 @@ def compile_course_knowledge_base(
                 ).strip()
                 if not name or not statement:
                     continue
+                point_source_refs = _unique([
+                    *source_refs,
+                    *(raw_point.get("source_refs") or []),
+                ])
                 normalized_name = _normalize_name(name)
                 existing = point_by_name.get(normalized_name)
                 if existing:
                     point_id = str(existing["knowledge_id"])
                     existing["section_refs"] = _unique([*existing["section_refs"], section_id])
                     existing["objective_refs"] = _unique([*existing["objective_refs"], *objective_refs])
-                    existing["source_refs"] = _unique([*existing["source_refs"], *source_refs])
+                    existing["source_refs"] = _unique([
+                        *existing["source_refs"],
+                        *point_source_refs,
+                    ])
                     existing["practice_refs"] = _unique([*existing["practice_refs"], *practice_refs])
                     existing["revision_id"] = _revision_id(existing, "ckpr_")
                     section_ids.append(point_id)
@@ -157,7 +164,7 @@ def compile_course_knowledge_base(
                         target_id=section_id,
                         teaching_role="reinforces",
                         importance="supporting",
-                        source_refs=source_refs,
+                        source_refs=point_source_refs,
                         binding_method="explicit_reuse",
                     )
                     continue
@@ -176,9 +183,15 @@ def compile_course_knowledge_base(
                     "conditions": _unique(raw_point.get("conditions") or []),
                     "boundaries": _unique(raw_point.get("boundaries") or []),
                     "counterexamples": _unique(raw_point.get("counterexamples") or []),
+                    "positive_examples": _unique(
+                        raw_point.get("positive_examples") or []
+                    ),
                     "aliases": _unique(raw_point.get("aliases") or []),
                     "entry_reason": str(raw_point.get("entry_reason") or "").strip(),
-                    "source_refs": source_refs,
+                    "source_refs": point_source_refs,
+                    "confidence": str(
+                        raw_point.get("confidence") or ""
+                    ).strip(),
                     "section_refs": [section_id],
                     "objective_refs": objective_refs,
                     "course_block_refs": [],
@@ -195,7 +208,13 @@ def compile_course_knowledge_base(
                 group_point_ids[group_id].append(point_id)
                 section_ids.append(point_id)
 
-                point_skills = _compile_skills(course_id, point, raw_point, section_id, source_refs)
+                point_skills = _compile_skills(
+                    course_id,
+                    point,
+                    raw_point,
+                    section_id,
+                    point_source_refs,
+                )
                 skill_units.extend(point_skills)
                 point_skill_ids = [str(item["skill_id"]) for item in point_skills]
                 misconceptions.extend(
@@ -205,7 +224,7 @@ def compile_course_knowledge_base(
                         raw_point,
                         point_skill_ids,
                         section_id,
-                        source_refs,
+                        point_source_refs,
                     )
                 )
                 mastery_criteria.extend(
@@ -215,7 +234,7 @@ def compile_course_knowledge_base(
                         raw_point,
                         point_skill_ids,
                         section_id,
-                        source_refs,
+                        point_source_refs,
                     )
                 )
                 _append_binding(
@@ -227,7 +246,7 @@ def compile_course_knowledge_base(
                     target_id=section_id,
                     teaching_role="introduces",
                     importance="primary",
-                    source_refs=source_refs,
+                    source_refs=point_source_refs,
                     binding_method="knowledge_blueprint",
                 )
                 for prerequisite_name in raw_point.get("prerequisite_names") or []:

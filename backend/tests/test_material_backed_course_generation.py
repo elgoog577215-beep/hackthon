@@ -219,7 +219,7 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
     module_sets = context.get("module_sets") or {}
     registry = []
     identities = []
-    key_index = 1
+    key_index = int(context.get("new_knowledge_key_start") or 1)
     for section in context["sections"]:
         label = labels.get(section["title"], section["title"])
         points = [
@@ -259,23 +259,50 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
 
 
 def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
-    section_match = re.search(
-        r"## 当前小节（已去重）\n(\[.*?\])\n\n"
-        r"## 当前批次知识与直接依赖闭包",
-        system_prompt,
-        re.S,
-    )
-    registry_match = re.search(
-        r"## 当前批次知识与直接依赖闭包（只读）\n"
-        r"(\[.*?\])\n\n## 当前批次知识职责",
-        system_prompt,
-        re.S,
-    )
-    identity_match = re.search(
-        r"## 当前批次知识职责（只读）\n(\[.*?\])\n\n## 共享课程块目录",
-        system_prompt,
-        re.S,
-    )
+    is_knowledge_only = "## 课程知识库详情批次 V1" in system_prompt
+    is_teaching_only = "## 冻结知识驱动的详细教案批次 V1" in system_prompt
+    if is_knowledge_only:
+        section_pattern = (
+            r"## 当前小节与准入证据\n(\[.*?\])\n\n"
+            r"## 当前知识与直接依赖闭包"
+        )
+        registry_pattern = (
+            r"## 当前知识与直接依赖闭包（身份只读）\n"
+            r"(\[.*?\])\n\n## 当前知识职责"
+        )
+        identity_pattern = (
+            r"## 当前知识职责（身份只读）\n(\[.*?\])\n\n"
+            r"## 学科知识合同"
+        )
+    elif is_teaching_only:
+        section_pattern = (
+            r"## 当前小节\n(\[.*?\])\n\n"
+            r"## 当前批次冻结知识"
+        )
+        registry_pattern = (
+            r"## 当前批次冻结知识（只读）\n"
+            r"(\[.*?\])\n\n## 当前知识职责"
+        )
+        identity_pattern = (
+            r"## 当前知识职责（只读）\n(\[.*?\])\n\n"
+            r"## 共享课程块目录"
+        )
+    else:
+        section_pattern = (
+            r"## 当前小节（已去重）\n(\[.*?\])\n\n"
+            r"## 当前批次知识与直接依赖闭包"
+        )
+        registry_pattern = (
+            r"## 当前批次知识与直接依赖闭包（只读）\n"
+            r"(\[.*?\])\n\n## 当前批次知识职责"
+        )
+        identity_pattern = (
+            r"## 当前批次知识职责（只读）\n(\[.*?\])\n\n"
+            r"## 共享课程块目录"
+        )
+    section_match = re.search(section_pattern, system_prompt, re.S)
+    registry_match = re.search(registry_pattern, system_prompt, re.S)
+    identity_match = re.search(identity_pattern, system_prompt, re.S)
     assert section_match and registry_match and identity_match, system_prompt
     sections = json.loads(section_match.group(1))
     registry = json.loads(registry_match.group(1))
@@ -310,6 +337,14 @@ def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
                     "repair_strategy": "先列条件清单，再逐项核对并修正推理",
                 }],
                 "mastery_criteria": point["mastery_criteria"],
+                "source_refs": [
+                    hint["evidence_id"]
+                    for hint in section.get("evidence_hints") or []
+                    if hint.get("evidence_id")
+                ],
+                "confidence": (
+                    "high" if section.get("evidence_hints") else "low"
+                ),
                 "aliases": [],
             })
         relations = []
@@ -320,13 +355,68 @@ def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
                 "relation_type": "prerequisite",
                 "reason": f"先掌握{registry_by_key[keys[0]]['name']}才能继续应用",
             })
-        payload.append({
+        module_keys = list(dict.fromkeys([
+            *identity_by_id[section["node_id"]].get(
+                "owned_knowledge_keys", []
+            ),
+            *identity_by_id[section["node_id"]].get(
+                "reused_knowledge_keys", []
+            ),
+        ]))
+        modules = [{
+            "module_id": module_id,
+            "teaching_purpose": f"用{module_id}完成{label}的独特教学职责",
+            "knowledge_keys": module_keys,
+            "teaching_guidance": f"围绕{label}安排解释、辨析与可检查任务",
+            "planned_minutes": 5,
+            "teacher_activity": f"组织{label}的具体讲解与追问",
+            "student_activity": f"完成{label}的独立解释与应用",
+        } for module_id in section.get("allowed_module_ids") or []]
+        item = {
             "node_id": section["node_id"],
             "knowledge_details": details,
             "knowledge_relations": relations,
-            "teaching_modules": [],
-        })
+            "teaching_modules": modules,
+            "planned_minutes": 45,
+            "key_difficulties": [f"辨清{label}的条件与边界"],
+            "teacher_activities": [f"组织{label}的反例辨析"],
+            "student_activities": [f"完成{label}的变式任务"],
+            "in_class_checks": [f"独立说明{label}并完成迁移"],
+            "homework": [f"完成一个{label}新情境任务"],
+        }
+        if is_knowledge_only:
+            item.pop("teaching_modules", None)
+            for field in (
+                "planned_minutes",
+                "key_difficulties",
+                "teacher_activities",
+                "student_activities",
+                "in_class_checks",
+                "homework",
+            ):
+                item.pop(field, None)
+        elif is_teaching_only:
+            item.pop("knowledge_details", None)
+            item.pop("knowledge_relations", None)
+        payload.append(item)
     return json.dumps({"sections": payload}, ensure_ascii=False)
+
+
+def _is_course_detail_batch_prompt(prompt):
+    return prompt.startswith((
+        "生成课程知识库批次",
+        "只修复知识库批次",
+        "生成冻结知识驱动的教案批次",
+        "只修复详细教案批次",
+        "生成详细小节教案批次",
+    ))
+
+
+def _is_teaching_execution_prompt(prompt):
+    return prompt.startswith((
+        "生成冻结知识驱动的教案批次",
+        "只修复详细教案批次",
+    ))
 
 
 def _multi_section_outline(labels):
@@ -715,7 +805,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
             return _teaching_skeleton_v3_response(
                 system_prompt, labels,
             )
-        if prompt.startswith("生成详细小节教案批次"):
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(
                 system_prompt, labels,
             )
@@ -747,8 +837,8 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v27"
-    assert len(calls) == 4
+    assert data["prompt_contract_version"] == "course_prompt_v28"
+    assert len(calls) == 5
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
     assert data["generation_mode"] == "fast"
@@ -787,7 +877,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
     ]
     assert teaching_stage["status"] == "completed"
     assert teaching_stage["strategy"] == "adaptive_skeleton_batches"
-    assert teaching_stage["model_call_count"] == 2
+    assert teaching_stage["model_call_count"] == 3
     assert teaching_stage["knowledge_compilation_model_call_count"] == 0
     assert teaching_stage["graph_compilation_model_call_count"] == 0
     assert data["course_teaching_plan"]["sections"]
@@ -830,7 +920,7 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
             return _teaching_skeleton_v3_response(
                 system_prompt, labels,
             )
-        if prompt.startswith("生成详细小节教案批次"):
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(
                 system_prompt, labels,
             )
@@ -858,7 +948,7 @@ async def test_course_service_resumes_from_persisted_pedagogy_checkpoint(monkeyp
         existing_course_data=existing,
     )
 
-    assert len(calls) == 4
+    assert len(calls) == 5
     assert calls[0].startswith("为「Python 工程实战」规划全课章节骨架")
     assert calls[2].startswith("规划全课知识职责骨架 V3")
     assert data["subject_pedagogy_profile"]["primary_mode"] == "programming_engineering"
@@ -1460,7 +1550,7 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
                 system_prompt,
                 title_to_label,
             )
-        if prompt.startswith("生成详细小节教案批次"):
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(
                 system_prompt,
                 title_to_label,
@@ -1477,11 +1567,13 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
         pedagogy_mode="math_formal",
     )
 
-    assert len(prompts) == 6
+    assert len(prompts) == 8
     assert prompts[1].startswith("只修复全课章节骨架")
     assert prompts[3].startswith("规划全课知识职责骨架 V3")
-    assert prompts[4].startswith("生成详细小节教案批次")
-    assert prompts[5].startswith("生成详细小节教案批次")
+    assert prompts[4].startswith("生成课程知识库批次")
+    assert prompts[5].startswith("生成课程知识库批次")
+    assert prompts[6].startswith("生成冻结知识驱动的教案批次")
+    assert prompts[7].startswith("生成冻结知识驱动的教案批次")
     assert data["course_plan_constraint_report"]["passed"] is True
     assert data["course_plan_constraint_report"]["actual"] == {
         "chapter_count": 1,
@@ -1587,7 +1679,7 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
             return _teaching_skeleton_v3_response(
                 system_prompt, title_to_label,
             )
-        if prompt.startswith("生成详细小节教案批次"):
+        if _is_course_detail_batch_prompt(prompt):
             active_batches += 1
             max_active_batches = max(max_active_batches, active_batches)
             await asyncio.sleep(0.003)
@@ -1640,12 +1732,12 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
     assert stage["batch_count"] == expected_batches
     assert stage["skeleton_chunk_count"] == expected_skeleton_chunks
     assert stage["model_call_count"] == (
-        expected_skeleton_chunks + expected_batches
+        expected_skeleton_chunks + (2 * expected_batches)
     )
     assert len(calls) == (
         expected_outline_calls
         + expected_skeleton_chunks
-        + expected_batches
+        + (2 * expected_batches)
     )
     assert max_active_batches == min(4, expected_batches)
     assert stage["knowledge_compilation_model_call_count"] == 0
@@ -1704,7 +1796,7 @@ async def test_single_section_course_never_uses_course_level_compact_path(
                 system_prompt,
                 title_to_label,
             )
-        if prompt.startswith("生成详细小节教案批次"):
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(
                 system_prompt,
                 title_to_label,
@@ -1730,9 +1822,9 @@ async def test_single_section_course_never_uses_course_level_compact_path(
     assert stage["semantic_status"] == "ai_complete"
     assert stage["strategy"] == "adaptive_skeleton_batches"
     assert "compact_fallback_reason" not in stage
-    assert stage["model_call_count"] == 2
+    assert stage["model_call_count"] == 3
     assert stage["degraded"] is False
-    assert len(calls) == 4
+    assert len(calls) == 5
     assert not any(
         prompt.startswith("生成整门课所有小节教案")
         for prompt in calls
@@ -1923,7 +2015,7 @@ async def test_teaching_skeleton_restart_resumes_after_completed_chunk(
                 system_prompt,
                 title_to_label,
             )
-        if prompt.startswith("生成详细小节教案批次"):
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(
                 system_prompt,
                 title_to_label,
@@ -1979,12 +2071,13 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
         calls.append(prompt)
         if prompt.startswith("规划全课知识职责骨架 V3"):
             return _teaching_skeleton_v3_response(system_prompt, title_to_label)
-        if "TP-B02" in prompt and fail_second_batch:
-            return "{}"
         if (
-            prompt.startswith("生成详细小节教案批次")
-            or prompt.startswith("只修复详细教案批次")
+            "TP-B02" in prompt
+            and fail_second_batch
+            and _is_teaching_execution_prompt(prompt)
         ):
+            return "{}"
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(system_prompt, title_to_label)
         raise AssertionError(prompt)
 
@@ -2038,7 +2131,7 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
 
     resumed_calls = calls[calls_before_resume:]
     assert resumed_calls == [
-        "生成详细小节教案批次 TP-B02，只输出 JSON。"
+        "生成冻结知识驱动的教案批次 TP-B02，只输出 JSON。"
     ]
     assert stage["batches"]["TP-B01"]["revision_id"] == first_batch_revision
     assert stage["skeleton_strategy"] == "restored_from_graph_draft"
@@ -2080,16 +2173,18 @@ async def test_teaching_plan_automatically_retries_only_local_unit_once(
                 system_prompt,
                 title_to_label,
             )
-        if (
-            prompt.startswith("生成详细小节教案批次")
-            or prompt.startswith("只修复详细教案批次")
-        ):
+        if _is_teaching_execution_prompt(prompt):
             match = re.search(r"TP-B\d{2}", prompt)
             assert match
             batch_id = match.group(0)
             batch_calls[batch_id] = batch_calls.get(batch_id, 0) + 1
             if batch_id == "TP-B02" and batch_calls[batch_id] <= 2:
                 return "{}"
+            return _teaching_batch_v3_response(
+                system_prompt,
+                title_to_label,
+            )
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(
                 system_prompt,
                 title_to_label,
@@ -2231,12 +2326,15 @@ async def test_concurrent_batch_failures_degrade_only_failed_batches(monkeypatch
         if prompt.startswith("规划全课知识职责骨架 V3"):
             return _teaching_skeleton_v3_response(system_prompt, title_to_label)
         # Fail a later batch as well as an earlier one so the two race.
-        if any(batch_id in prompt for batch_id in ("TP-B02", "TP-B04")):
-            return "{}"
         if (
-            prompt.startswith("生成详细小节教案批次")
-            or prompt.startswith("只修复详细教案批次")
+            _is_teaching_execution_prompt(prompt)
+            and any(
+                batch_id in prompt
+                for batch_id in ("TP-B02", "TP-B04")
+            )
         ):
+            return "{}"
+        if _is_course_detail_batch_prompt(prompt):
             return _teaching_batch_v3_response(system_prompt, title_to_label)
         raise AssertionError(prompt)
 
