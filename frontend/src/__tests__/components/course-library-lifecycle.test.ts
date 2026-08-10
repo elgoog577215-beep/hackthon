@@ -141,6 +141,86 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(deleteCourse).toHaveBeenCalledWith('course-delete')
   })
 
+  it('每页最多展示六门课程，并提供完整的翻页与跳转操作', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = Array.from({ length: 8 }, (_, index) => ({
+      course_id: `course-${index + 1}`,
+      course_name: `课程 ${index + 1}`,
+      node_count: index + 1,
+    }))
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.course-item')).toHaveLength(6)
+    expect(wrapper.text()).toContain('课程 1')
+    expect(wrapper.text()).not.toContain('课程 7')
+
+    const pagination = wrapper.get('[aria-label="课程分页"]')
+    expect(pagination.classes()).toContain('library-pagination-dock')
+    expect(pagination.get('button[aria-label="上一页"]').attributes('disabled')).toBeDefined()
+    expect(pagination.get('button[aria-label="第 1 页"]').attributes('aria-current')).toBe('page')
+
+    await pagination.get('button[aria-label="下一页"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.course-item')).toHaveLength(2)
+    expect(wrapper.text()).toContain('课程 7')
+    expect(wrapper.text()).toContain('课程 8')
+    expect(wrapper.text()).not.toContain('课程 1')
+    expect(pagination.get('button[aria-label="下一页"]').attributes('disabled')).toBeDefined()
+
+    await pagination.get('input[aria-label="跳转页码"]').setValue('1')
+    await pagination.get('button[aria-label="跳转"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.course-item')).toHaveLength(6)
+    expect(wrapper.text()).toContain('课程 1')
+    expect(pagination.get('button[aria-label="第 1 页"]').attributes('aria-current')).toBe('page')
+  })
+
+  it('只有一页课程时隐藏分页，并保持单张课程卡片为两列网格中的固定列宽', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{ course_id: 'course-only', course_name: '单门课程', node_count: 1 }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.course-item')).toHaveLength(1)
+    expect(wrapper.get('.course-grid').attributes('data-layout')).toBe('two-column')
+    expect(wrapper.find('[aria-label="课程分页"]').exists()).toBe(false)
+  })
+
   it('新建课程后直接进入同一门课程的生成现场', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
