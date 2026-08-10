@@ -588,3 +588,63 @@ def test_daily_quota_model_is_skipped_after_first_failure(monkeypatch):
     )
 
     assert service._models_for(False) == ["model-b"]
+
+
+class TruncatedThenSuccessCompletions:
+    """First attempt hits the output ceiling, the retry has room to finish."""
+
+    def __init__(self):
+        self.requests = []
+
+    async def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if len(self.requests) == 1:
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        reasoning_content="thinking" * 40,
+                        content="partial",
+                    ),
+                    finish_reason="length",
+                )]),
+            ])
+        return _success_stream()
+
+
+@pytest.mark.asyncio
+async def test_truncated_output_retries_with_more_headroom(monkeypatch):
+    completions = TruncatedThenSuccessCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    result = await service._call_llm(
+        "prompt",
+        "system",
+        retry_count=2,
+        max_tokens=4096,
+        reject_truncated=True,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert len(completions.requests) == 2
+    # The retry must not repeat the same ceiling, or it just truncates again.
+    assert completions.requests[0]["max_tokens"] == 4096
+    assert completions.requests[1]["max_tokens"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_truncated_output_without_retry_budget_still_raises(monkeypatch):
+    completions = TruncatedThenSuccessCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    with pytest.raises(AIProviderRequestError):
+        await service._call_llm(
+            "prompt",
+            "system",
+            retry_count=1,
+            max_tokens=4096,
+            reject_truncated=True,
+            raise_on_failure=True,
+        )
+
+    assert len(completions.requests) == 1

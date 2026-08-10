@@ -39,7 +39,7 @@ class CourseGenerationDeadlineExceeded(AIProviderRequestError):
 class CourseGenerationBudget:
     max_input_chars: int = 20_000
     max_input_tokens: int = 7000
-    outline_max_output_tokens: int = 4096
+    outline_max_output_tokens: int = 8192
     content_max_output_tokens: int = 8192
     provider_max_attempts: int = 2
     # Legacy field name: structured calls now interpret this as continuous
@@ -66,7 +66,7 @@ class CourseGenerationBudget:
             ),
             outline_max_output_tokens=_env_int(
                 "COURSE_OUTLINE_MAX_OUTPUT_TOKENS",
-                4096,
+                8192,
                 minimum=1024,
                 maximum=8192,
             ),

@@ -3102,7 +3102,11 @@ class CourseService(AIBase):
         call_task = asyncio.create_task(self._call_llm(
             user_prompt,
             system_prompt,
-            retry_count=1,
+            # One retry inside the call: a single provider hiccup (truncated
+            # output, empty stream) otherwise discards the whole course run,
+            # and every stage above this only recovers at checkpoint level.
+            # `max_attempts` still caps the real number of provider requests.
+            retry_count=2,
             enable_thinking=enable_thinking,
             max_tokens=max_output_tokens,
             max_input_tokens=max_input_tokens,

@@ -1431,6 +1431,16 @@ class AIBase:
 
         last_error: Exception | None = None
         attempts = 0
+        # A truncated answer is not a transient network blip: retrying at the
+        # same ceiling usually truncates again.  Reasoning models spend this
+        # same budget on hidden thinking tokens, so the retry only pays off
+        # with real headroom.
+        requested_max_tokens = max_tokens or self.max_tokens
+        effective_max_tokens = requested_max_tokens
+        truncation_headroom_ceiling = max(
+            self.max_tokens,
+            requested_max_tokens * 2,
+        )
         primary_models = (
             self._models_for(use_fast_model, model_role)
             if self.api_key and not self._provider_failure
@@ -1502,7 +1512,7 @@ class AIBase:
                             {"role": "user", "content": prompt},
                         ],
                         "stream": True,
-                        "max_tokens": max_tokens or self.max_tokens,
+                        "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
                     }
                     if json_mode and self._supports_json_response_format():
@@ -1562,15 +1572,26 @@ class AIBase:
 
                     if truncated:
                         logger.warning(
-                            f"AI response truncated by max_tokens={max_tokens or self.max_tokens} "
+                            f"AI response truncated by max_tokens={effective_max_tokens} "
                             f"(Model: {model_id}, Attempt {attempt+1}/{retry_count}, "
                             f"chars={len(full_content)}) - downstream JSON/structure parsing "
                             "will likely fail on this output."
                         )
                         if reject_truncated:
+                            if effective_max_tokens < truncation_headroom_ceiling:
+                                effective_max_tokens = min(
+                                    truncation_headroom_ceiling,
+                                    effective_max_tokens * 2,
+                                )
+                                logger.info(
+                                    "Raising max_tokens to %d before retrying "
+                                    "the truncated request (Model: %s)",
+                                    effective_max_tokens,
+                                    model_id,
+                                )
                             raise AIResponseTruncated(
                                 "模型输出达到硬上限："
-                                f"max_tokens={max_tokens or self.max_tokens}，"
+                                f"max_tokens={effective_max_tokens}，"
                                 f"chars={len(full_content)}"
                             )
 
