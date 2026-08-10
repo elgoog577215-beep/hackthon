@@ -6,7 +6,7 @@ from practice_grading import PracticeGrader, _normalized, _repair_numeric_litera
 def _deterministic(expected, actual):
     answer_spec = {"type": "exact", "correct_answer": expected}
     answer_payload = {"value": actual}
-    return PracticeGrader._grade_deterministic(answer_spec, answer_payload)
+    return PracticeGrader._grade_deterministic({}, answer_spec, answer_payload)
 
 
 def test_normalized_none_is_not_zero():
@@ -121,6 +121,7 @@ def test_unanswered_normal_string_question_is_not_graded_correct():
 
 def test_multiple_choice_grading_is_order_independent():
     result = PracticeGrader._grade_deterministic(
+        {},
         {
             "type": "choice",
             "correct_option_ids": ["A", "C"],

@@ -14,6 +14,10 @@ from code_runner_client import (
     code_runner_client,
 )
 from practice_attempts import evidence_strength
+from question_choice_grading import (
+    grade_choice,
+    is_choice_question,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +45,11 @@ class PracticeGrader(AIBase):
                 answer_payload,
             )
         elif method in {"exact", "choice", "deterministic"}:
-            result = self._grade_deterministic(answer_spec, answer_payload)
+            result = self._grade_deterministic(
+                question,
+                answer_spec,
+                answer_payload,
+            )
         else:
             result = await self._grade_rubric(question, answer_payload)
         result["evidence_strength"] = strength
@@ -223,7 +231,16 @@ class PracticeGrader(AIBase):
         }
 
     @staticmethod
-    def _grade_deterministic(answer_spec: dict[str, Any], answer_payload: dict[str, Any]) -> dict[str, Any]:
+    def _grade_deterministic(
+        question: dict[str, Any],
+        answer_spec: dict[str, Any],
+        answer_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        # 选择题（含多选与判断）走确定性选项判定：它要按选项集合比较、要能给出
+        # 漏选/错选明细，还要支持显式开启的部分给分。放在这里而不是另开一条
+        # 判分分支，是为了不让选择题出现两套判分口径。
+        if is_choice_question(question, answer_spec):
+            return grade_choice(question, answer_spec, answer_payload)
         expected = answer_spec.get("correct_answer")
         if expected is None:
             expected = (
