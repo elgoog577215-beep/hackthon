@@ -413,9 +413,18 @@ def _story_repair_targets(
         duplicate_source_block_ids: list[str] | None = None,
         duplicate_page_ids: list[str] | None = None,
     ) -> dict[str, Any]:
+        unit_id = str(unit.get("teaching_unit_id") or "")
         return {
             "page_id": page_id,
-            "teaching_unit_id": str(unit.get("teaching_unit_id") or ""),
+            "teaching_unit_id": unit_id,
+            "allowed_page_count_range": [1, 3],
+            "observed_unit_page_ids": [
+                str(page.get("page_id") or "")
+                for page in pages
+                if isinstance(page, dict)
+                and str(page.get("teaching_unit_id") or "") == unit_id
+                and str(page.get("page_id") or "")
+            ],
             "allowed_template_layout_ids": list(
                 unit.get("allowed_template_layout_ids") or []
             ),

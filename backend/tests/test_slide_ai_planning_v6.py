@@ -292,16 +292,16 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
 
     assert len(calls) == 2
     repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert repair_target == {
-        "page_id": "page-1",
-        "teaching_unit_id": calls[0]["teaching_units"][0]["teaching_unit_id"],
-        "allowed_template_layout_ids": calls[0]["teaching_units"][0]["allowed_template_layout_ids"],
-        "required_source_block_ids": calls[0]["teaching_units"][0]["primary_block_ids"],
-        "missing_source_block_ids": [],
-        "duplicate_source_block_ids": [],
-        "duplicate_page_ids": [],
-        "allowed_title_candidates": calls[0]["teaching_units"][0]["title_candidates"],
-    }
+    assert repair_target["page_id"] == "page-1"
+    assert repair_target["teaching_unit_id"] == calls[0]["teaching_units"][0]["teaching_unit_id"]
+    assert repair_target["allowed_page_count_range"] == [1, 3]
+    assert repair_target["observed_unit_page_ids"] == ["page-1"]
+    assert repair_target["allowed_template_layout_ids"] == calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
+    assert repair_target["required_source_block_ids"] == calls[0]["teaching_units"][0]["primary_block_ids"]
+    assert repair_target["missing_source_block_ids"] == []
+    assert repair_target["duplicate_source_block_ids"] == []
+    assert repair_target["duplicate_page_ids"] == []
+    assert repair_target["allowed_title_candidates"] == calls[0]["teaching_units"][0]["title_candidates"]
     assert story.batches[0].attempts == 2
 
 
@@ -341,6 +341,77 @@ async def test_story_repair_names_missing_blocks_without_weakening_coverage() ->
     assert repair_target["missing_source_block_ids"] == ["feedback"]
     assert repair_target["duplicate_source_block_ids"] == []
     assert repair_target["required_source_block_ids"] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_repair_names_all_pages_when_unit_exceeds_page_limit() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-page-limit",
+        title="Observable workflow",
+        sections=[CourseSection(
+            section_id="chapter-limit",
+            title="Workflow checkpoints",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="workflow",
+            section_id="chapter-limit",
+            position=0,
+            role="concept",
+            payload={
+                "markdown": (
+                    "## Alpha checkpoint verifies input\n"
+                    "## Beta checkpoint executes action\n"
+                    "## Gamma checkpoint checks output\n"
+                    "## Delta checkpoint reports result"
+                ),
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        layout = unit["allowed_template_layout_ids"][0]
+        if len(calls) == 1:
+            pages = [{
+                "page_id": f"too-many-{index}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": unit["title_candidates"][index - 1],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            } for index in range(1, 5)]
+        else:
+            pages = [{
+                "page_id": "within-limit",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": pages,
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["allowed_page_count_range"] == [1, 3]
+    assert repair_target["observed_unit_page_ids"] == [
+        "too-many-1",
+        "too-many-2",
+        "too-many-3",
+        "too-many-4",
+    ]
     validate_slide_story_plan_v3(story, graph, template)
 
 
