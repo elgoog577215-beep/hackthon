@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { ElMessageBox } from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
@@ -60,12 +61,12 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('可以学习，有优化建议')
-    expect(wrapper.text()).toContain('20 个学习节点')
+    expect(wrapper.text()).not.toContain('20 个学习节点')
     expect(wrapper.find('.action-count').exists()).toBe(false)
     expect(wrapper.find('.generation-progress').exists()).toBe(false)
   })
 
-  it('为每门课程提供独立于生成任务的题库质量管理入口', async () => {
+  it('把题库管理收进每门课程的更多操作菜单', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-review', course_name: '热力学', node_count: 12 }]
@@ -87,6 +88,12 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="open-question-bank-review-course-review"]').exists()).toBe(false)
+    const menuTrigger = wrapper.get('[data-testid="course-actions-course-review"]')
+    expect(menuTrigger.attributes('aria-expanded')).toBe('false')
+    await menuTrigger.trigger('click')
+
+    expect(menuTrigger.attributes('aria-expanded')).toBe('true')
     const reviewButton = wrapper.get('[data-testid="open-question-bank-review-course-review"]')
     expect(reviewButton.text()).toContain('题库管理')
     await reviewButton.trigger('click')
@@ -97,6 +104,41 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(reviewCenter.props('courseId')).toBe('course-review')
     const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
     expect(taskCenter.props('modelValue')).toBe(false)
+    expect(wrapper.find('[data-testid="course-menu-course-review"]').exists()).toBe(false)
+  })
+
+  it('把删除课程放在更多操作菜单的危险操作区', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{ course_id: 'course-delete', course_name: '离散数学', node_count: 9 }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    const deleteCourse = vi.spyOn(courses, 'deleteCourse').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as any)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="course-actions-course-delete"]').trigger('click')
+    const deleteButton = wrapper.get('[data-testid="delete-course-course-delete"]')
+    expect(deleteButton.text()).toContain('删除课程')
+    await deleteButton.trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(deleteCourse).toHaveBeenCalledWith('course-delete')
   })
 
   it('新建课程后直接进入同一门课程的生成现场', async () => {
