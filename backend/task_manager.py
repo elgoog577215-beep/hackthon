@@ -7488,11 +7488,30 @@ class TaskManager:
             nonlocal question_bank_bundle
             node_id = str(event.get("node_id") or "")
             contracts = event.get("contracts") or {}
-            if not node_id or not event.get("passed") or not contracts:
+            if not node_id or not contracts:
                 return
+            # Checkpoint per question, not per section: keep whichever
+            # practice levels settled on their own merit even when a sibling
+            # in the same section failed, so a retry only redoes the failures.
+            requested_levels = list(failed_targets.get(node_id) or [])
+            settled_levels = [
+                str(level)
+                for level in (event.get("settled_practice_levels") or [])
+                if str(level) in contracts
+            ]
+            if not settled_levels:
+                return
+            persisted_levels = [
+                level for level in requested_levels if level in settled_levels
+            ] or settled_levels
+            settled_contracts = {
+                level: deepcopy(value)
+                for level, value in contracts.items()
+                if str(level) in set(settled_levels)
+            }
             partial_course = deepcopy(asset_course)
             partial_course["_assessment_generated_contracts"] = {
-                node_id: deepcopy(contracts),
+                node_id: settled_contracts,
             }
             partial_compilation = compile_learning_assets(partial_course)
             partial_question_bank = partial_compilation.pop(
@@ -7506,7 +7525,7 @@ class TaskManager:
                 partial_question_bank,
                 node_ids=[node_id],
                 practice_levels_by_node={
-                    node_id: failed_targets.get(node_id) or [],
+                    node_id: persisted_levels,
                 },
                 preserve_reviewed=True,
                 preserve_global_assessments=True,
@@ -7517,7 +7536,8 @@ class TaskManager:
                 question_bank_bundle,
                 activate=False,
             )
-            completed_repair_nodes.append(node_id)
+            if event.get("passed"):
+                completed_repair_nodes.append(node_id)
             await self._update_phase(
                 task_id,
                 "practice_repair",
@@ -7538,7 +7558,7 @@ class TaskManager:
                     "completed_node_ids": completed_repair_nodes,
                     "completed_node_count": len(completed_repair_nodes),
                     "target_node_count": len(failed_node_ids),
-                    "checkpoint_policy": "per_section",
+                    "checkpoint_policy": "per_question",
                 },
             )
 

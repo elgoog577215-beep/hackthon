@@ -2029,15 +2029,27 @@ class AssessmentGenerationOrchestrator:
                         await record_result(
                             await run_slot(PRACTICE_LEVELS.index(level), level)
                         )
+                # Per-question settlement: a level counts as done on its own
+                # merit, so one failing sibling no longer discards the work
+                # already spent on the others.
+                accepted_decisions = {"publish", "teacher_review"}
+                decided_levels = {
+                    str(item.get("practice_level") or "")
+                    for item in node_audit_items
+                    if str(item.get("final_decision") or "")
+                    in accepted_decisions
+                }
+                settled_practice_levels = [
+                    level
+                    for level in node_practice_levels
+                    if level in contracts[node_id] and level in decided_levels
+                ]
                 chapter_passed = bool(
                     not fatal_errors
                     and set(contracts[node_id]) == set(node_practice_levels)
                     and all(
                         str(item.get("final_decision") or "")
-                        in {
-                            "publish",
-                            "teacher_review",
-                        }
+                        in accepted_decisions
                         for item in node_audit_items
                     )
                 )
@@ -2048,6 +2060,9 @@ class AssessmentGenerationOrchestrator:
                             "node_id": node_id,
                             "node_name": str(node.get("node_name") or node_id),
                             "passed": chapter_passed,
+                            "settled_practice_levels": list(
+                                settled_practice_levels
+                            ),
                             "contracts": deepcopy(contracts[node_id]),
                             "audit_items": deepcopy(node_audit_items),
                             "audit_snapshot": _audit_snapshot(audit),
