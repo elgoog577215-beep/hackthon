@@ -158,6 +158,11 @@ def _normalize_story_batch_response(
     pages = payload.get("pages")
     if not isinstance(pages, list):
         return payload
+    used_titles = {
+        re.sub(r"\s+", "", str(title)).casefold()
+        for title in request.get("constraints", {}).get("forbidden_titles") or []
+        if str(title).strip()
+    }
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -187,6 +192,26 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
+        normalized_title = re.sub(
+            r"\s+",
+            "",
+            str(page.get("title") or ""),
+        ).casefold()
+        if unit is not None and normalized_title in used_titles:
+            replacement = next(
+                (
+                    str(candidate)
+                    for candidate in unit.get("title_candidates") or []
+                    if re.sub(r"\s+", "", str(candidate)).casefold()
+                    not in used_titles
+                ),
+                "",
+            )
+            if replacement:
+                page["title"] = replacement
+                normalized_title = re.sub(r"\s+", "", replacement).casefold()
+        if normalized_title:
+            used_titles.add(normalized_title)
         # Providers sometimes over-answer the story request with draft code,
         # annotations, or visual instructions. Those fields are not part of the
         # story contract and must never leak into the compiled deck. Project the

@@ -391,7 +391,7 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
 
 
 @pytest.mark.asyncio
-async def test_story_repair_excludes_titles_already_owned_by_another_page() -> None:
+async def test_story_normalizes_duplicate_titles_from_unused_source_candidates() -> None:
     document = _document(with_code=True)
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -402,13 +402,7 @@ async def test_story_repair_excludes_titles_already_owned_by_another_page() -> N
         unit = request["teaching_units"][0]
         source_ids = unit["primary_block_ids"]
         first_title = unit["title_candidates"][0]
-        second_title = (
-            first_title
-            if len(calls) == 1
-            else request["repair_feedback"]["repair_targets"][0][
-                "available_title_candidates"
-            ][0]
-        )
+        second_title = first_title
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -434,12 +428,9 @@ async def test_story_repair_excludes_titles_already_owned_by_another_page() -> N
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert target["duplicate_title"] == calls[0]["teaching_units"][0]["title_candidates"][0]
-    assert target["conflicting_page_ids"] == ["title-owner"]
-    assert target["duplicate_title"] in target["forbidden_titles"]
-    assert target["duplicate_title"] not in target["available_title_candidates"]
+    assert len(calls) == 1
+    assert story.pages[0].title == calls[0]["teaching_units"][0]["title_candidates"][0]
+    assert story.pages[1].title == calls[0]["teaching_units"][0]["title_candidates"][1]
     validate_slide_story_plan_v3(story, graph, template)
 
 
@@ -476,15 +467,7 @@ async def test_story_batches_reserve_titles_accepted_by_prior_chapters() -> None
     async def planner(request):
         calls.append(request)
         unit = request["teaching_units"][0]
-        forbidden = {
-            title.replace(" ", "").casefold()
-            for title in request["constraints"]["forbidden_titles"]
-        }
-        title = next(
-            candidate
-            for candidate in unit["title_candidates"]
-            if candidate.replace(" ", "").casefold() not in forbidden
-        )
+        title = unit["title_candidates"][0]
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
