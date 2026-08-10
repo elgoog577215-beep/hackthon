@@ -981,6 +981,12 @@ function layoutLabel(value: string) {
   background:linear-gradient(90deg,var(--deck-box-message),rgba(255,255,255,.68));
   box-shadow:.3cqw .34cqw 0 var(--deck-box-message-depth),0 .78cqw 1.9cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
 }
+.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim {
+  grid-template-columns:minmax(0,1fr);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim > i {
+  display:none;
+}
 .deck-canvas[data-theme="qizhi-classroom"] .deck-question-prompt,
 .deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim {
   padding:2.1cqw 2.4cqw;
