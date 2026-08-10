@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }))
@@ -55,6 +55,10 @@ beforeEach(() => {
   httpMock.post.mockReset()
   httpMock.delete.mockReset()
   vi.unstubAllGlobals()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('preferredRepresentationForType', () => {
@@ -150,6 +154,50 @@ describe('teaching representation progressive build', () => {
     expect(store.draftSlideQuality?.blockers?.[0]?.code).not.toBe('concept_card_overflow')
   })
 
+  it('retains compact step detail from streamed layout and page events', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      {
+        event: 'layout_plan',
+        stage: 'layout_plan',
+        progress: 20,
+        allocation_plan: {
+          pages: [
+            { page_id: 'slide:1' },
+            { page_id: 'slide:2' },
+            { page_id: 'slide:3' },
+          ],
+        },
+      },
+      {
+        event: 'slide_upsert',
+        progress: 48,
+        slide: { unit_id: 'slide:1', title: '向量的定义', blocks: [] },
+      },
+      {
+        event: 'build_complete',
+        progress: 100,
+        registry: { representations: [], specs: [] },
+        quality: { passed: true },
+      },
+    ])))
+    const store = useTeachingRepresentationsStore()
+
+    await store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+    })
+
+    expect(store.buildEstimatedSlideCount).toBe(3)
+    expect(store.buildCompletedUnitCount).toBe(1)
+    expect(store.buildDetail).toEqual(expect.objectContaining({
+      event: 'build_complete',
+      completed: 1,
+      total: 3,
+    }))
+    expect(store.buildDetail).not.toHaveProperty('allocation_plan')
+    expect(store.buildDetail).not.toHaveProperty('slide')
+  })
+
   it('posts mode and theme to the scoped slide variant stream', async () => {
     const fetchMock = vi.fn().mockResolvedValue(streamResponse([
       {
@@ -165,6 +213,9 @@ describe('teaching representation progressive build', () => {
     await store.buildSlideDeckVariant('course-1', {
       mode: 'teaching',
       theme: 'grid-notebook',
+      engineVersion: 'v6',
+      templatePackId: 'pptp-generic',
+      templatePackVersion: 4,
       forceRebuild: true,
       webImageRetrieval: {
         enabled: true,
@@ -179,6 +230,9 @@ describe('teaching representation progressive build', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       mode: 'teaching',
       theme: 'grid-notebook',
+      engine_version: 'v6',
+      template_pack_id: 'pptp-generic',
+      template_version: 4,
       force_rebuild: true,
       web_image_retrieval: {
         enabled: true,
@@ -289,6 +343,7 @@ describe('teaching representation progressive build', () => {
     expect(store.liveSlides).toEqual([])
     expect(store.buildProgress).toBe(0)
     expect(store.buildStage).toBe('')
+    expect(store.buildDisplayStep).toBe(0)
     expect(store.buildError).toBe('')
     expect(store.building).toBe(false)
 
@@ -504,6 +559,200 @@ describe('teaching representation progressive build', () => {
     ]), event => received.push(event.event))
 
     expect(received).toEqual(['deck_plan', 'slide_upsert', 'build_complete'])
+  })
+
+  it('keeps the main milestone monotonic through quality repairs and V5 candidate replays', async () => {
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const store = useTeachingRepresentationsStore()
+    const building = store.buildProgressive('course-1')
+
+    const push = async (event: Record<string, unknown>) => {
+      controller.enqueue(encoder.encode(
+        `event: ${event.event}\ndata: ${JSON.stringify(event)}\n\n`,
+      ))
+      await vi.waitFor(() => expect(store.buildDetail?.event).toBe(event.event))
+    }
+
+    await push({ event: 'slide_quality', progress: 96, quality: { passed: false } })
+    expect(store.buildStage).toBe('quality')
+    expect(store.buildDisplayStep).toBe(8)
+
+    await push({ event: 'semantic_repair', stage: 'semantic_repair', progress: 97, repair_attempts: 1 })
+    expect(store.buildStage).toBe('semantic_repair')
+    expect(store.buildDisplayStep).toBe(8)
+
+    await push({
+      event: 'slide_reset', stage: 'v5_candidate', progress: 97,
+      engine_schema: 'slide_deck_v5', candidate_stage: 'final_contract',
+    })
+    await push({
+      event: 'slide_upsert', stage: 'v5_candidate', progress: 97,
+      engine_schema: 'slide_deck_v5', candidate_stage: 'final_contract',
+      slide: { unit_id: 'slide:final', title: '最终候选页面' },
+    })
+    expect(store.buildStage).toBe('semantic_repair')
+    expect(store.buildDisplayStep).toBe(8)
+    expect(store.buildDetail).toEqual(expect.objectContaining({
+      event: 'slide_upsert',
+      candidateStage: 'final_contract',
+    }))
+
+    await push({ event: 'render_review', stage: 'render_review', progress: 98 })
+    expect(store.buildStage).toBe('render_review')
+    expect(store.buildDisplayStep).toBe(9)
+
+    await push({
+      event: 'slide_reset', stage: 'v5_candidate', progress: 99,
+      engine_schema: 'slide_deck_v5', candidate_stage: 'render_verified',
+    })
+    await push({
+      event: 'slide_upsert', stage: 'v5_candidate', progress: 99,
+      engine_schema: 'slide_deck_v5', candidate_stage: 'render_verified',
+      slide: { unit_id: 'slide:final', title: '渲染确认页面' },
+    })
+    expect(store.buildStage).toBe('render_review')
+    expect(store.buildDisplayStep).toBe(9)
+
+    await push({
+      event: 'build_complete', progress: 100,
+      registry: { representations: [], specs: [] }, quality: { passed: true },
+    })
+    controller.close()
+    await building
+    expect(store.buildDisplayStep).toBe(9)
+  })
+
+  it('uses the persisted V6 work manifest instead of legacy stage inference', async () => {
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const store = useTeachingRepresentationsStore()
+    const building = store.buildProgressive('generic-course', {
+      mode: 'teaching', theme: 'qizhi-classroom', engineVersion: 'v6',
+    })
+
+    const push = async (payload: Record<string, unknown>) => {
+      controller.enqueue(encoder.encode(
+        `event: slide_build_progress_v2\ndata: ${JSON.stringify({
+          event: 'slide_build_progress_v2',
+          progress: payload.percent,
+          stage: payload.stage,
+          slide_build_progress_v2: payload,
+        })}\n\n`,
+      ))
+      await vi.waitFor(() => expect(store.slideBuildProgressV2?.stage).toBe(payload.stage))
+    }
+
+    await push({
+      schema_version: 'slide_build_progress_v2', event_type: 'heartbeat', task_id: 'v6-task',
+      status: 'active', percent: 35, published: false, stage: 'story', step_index: 4,
+      step_count: 12, current_chapter_id: 'chapter-a', current_batch_id: 'story-2',
+      current_page_id: '', completed_items: 3, total_items: 12, completed_weight: 21,
+      total_weight: 60, elapsed_seconds: 14, provider_wait: true, retry_attempt: 1,
+      newly_discovered_work: 2, estimated_remaining_seconds: 26, failure: null,
+      items: [
+        { item_id: 'story-1', kind: 'ai_batch', stage: 'story', label: '故事批次 1', status: 'completed' },
+        { item_id: 'story-2', kind: 'ai_batch', stage: 'story', label: '故事批次 2', status: 'running' },
+      ],
+    })
+
+    expect(store.buildProgress).toBe(35)
+    expect(store.buildDisplayStep).toBe(3)
+    expect(store.buildDetail).toEqual(expect.objectContaining({
+      event: 'slide_build_progress_v2', completed: 3, total: 12,
+      itemId: 'story-2', retryAttempt: 1,
+    }))
+
+    await push({
+      ...store.slideBuildProgressV2,
+      event_type: 'update', percent: 28, stage: 'visual', step_index: 7, step_count: 15,
+      completed_items: 5, total_items: 15, provider_wait: false, retry_attempt: 0,
+      newly_discovered_work: 3, current_batch_id: 'visual-1',
+    })
+
+    expect(store.buildProgress).toBe(35)
+    expect(store.buildDisplayStep).toBe(6)
+    expect(store.slideBuildProgressV2?.total_items).toBe(15)
+
+    controller.enqueue(encoder.encode(
+      'event: build_complete\ndata: {"event":"build_complete","progress":100,"registry":{"representations":[],"specs":[]},"quality":{"passed":true}}\n\n',
+    ))
+    controller.close()
+    await building
+  })
+
+  it('restores V6 progress from the durable task snapshot after refresh', () => {
+    const store = useTeachingRepresentationsStore()
+    store.applyDurableBuildTask({
+      id: 'v6-recovery-task', status: 'running', progress: 18, phase: 'legacy-phase',
+      slide_build_progress_v2: {
+        schema_version: 'slide_build_progress_v2', event_type: 'heartbeat',
+        task_id: 'v6-recovery-task', status: 'active', percent: 44, published: false,
+        stage: 'render', step_index: 9, step_count: 14, current_chapter_id: 'chapter-b',
+        current_batch_id: '', current_page_id: 'page-3', completed_items: 8,
+        total_items: 14, completed_weight: 42, total_weight: 80, elapsed_seconds: 31,
+        provider_wait: false, retry_attempt: 0, newly_discovered_work: 0,
+        estimated_remaining_seconds: 28, failure: null, items: [],
+      },
+    })
+
+    expect(store.building).toBe(true)
+    expect(store.buildProgress).toBe(44)
+    expect(store.buildStage).toBe('render')
+    expect(store.buildDisplayStep).toBe(8)
+    expect(store.slideBuildProgressV2?.current_page_id).toBe('page-3')
+  })
+
+  it('does not let durable polling overwrite a newer active streamed stage', async () => {
+    vi.useFakeTimers()
+    const encoder = new TextEncoder()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController
+        controller.enqueue(encoder.encode(
+          'event: planner_started\ndata: {"event":"planner_started","progress":1,"task_id":"representation-job-live"}\n\n'
+          + 'event: visual_quality\ndata: {"event":"visual_quality","stage":"visual_quality","progress":96,"quality":{"passed":true}}\n\n',
+        ))
+      },
+    }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    httpMock.get.mockResolvedValue({ data: {
+      id: 'representation-job-live',
+      status: 'running',
+      progress: 96,
+      phase: 'slide_plan',
+    } })
+    const store = useTeachingRepresentationsStore()
+
+    const building = store.buildProgressive('course-1')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.buildStage).toBe('visual_quality')
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(httpMock.get).toHaveBeenCalledWith('/api/tasks/representation-job-live')
+    expect(store.buildStage).toBe('visual_quality')
+    expect(store.buildDisplayStep).toBe(8)
+
+    controller.enqueue(encoder.encode(
+      'event: build_complete\ndata: {"event":"build_complete","progress":100,"registry":{"representations":[],"specs":[]},"quality":{"passed":true}}\n\n',
+    ))
+    controller.close()
+    await building
+    vi.useRealTimers()
   })
 
   it('keeps the durable task id and exposes pause and cancel controls', async () => {

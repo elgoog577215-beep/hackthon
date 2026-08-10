@@ -51,4 +51,66 @@ describe('SlideDeckGeneratorDialog', () => {
       webImageRetrieval: { enabled: true, mode: 'wide_safe' },
     })
   })
+
+  it('shows personal templates and emits the locked template version', async () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, {
+      props: {
+        open: true,
+        personalTemplates: [{
+          pack_id: 'pptp-demo',
+          name: '学院蓝',
+          base_theme: 'academic-editorial',
+          status: 'published',
+          latest_version: 2,
+          v6_eligible: true,
+          preview: {},
+        }],
+      },
+    })
+
+    await wrapper.get('[data-testid="personal-template-tab"]').trigger('click')
+    expect(wrapper.text()).toContain('学院蓝')
+    await wrapper.get('[data-template-pack-id="pptp-demo"]').trigger('click')
+    await wrapper.find('.deck-generator__panel > footer > button').trigger('click')
+
+    expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({
+      theme: 'academic-editorial',
+      templatePackId: 'pptp-demo',
+      templatePackVersion: 2,
+    })
+  })
+
+  it('does not allow an unpublished V6 template contract to be selected', async () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, {
+      props: {
+        open: true,
+        personalTemplates: [{
+          pack_id: 'pptp-unverified',
+          name: '未校验模板',
+          base_theme: 'academic-editorial',
+          status: 'published',
+          latest_version: 1,
+          v6_eligible: false,
+        }],
+      },
+    })
+
+    await wrapper.get('[data-testid="personal-template-tab"]').trigger('click')
+    const template = wrapper.get('[data-template-pack-id="pptp-unverified"]')
+    expect(template.attributes('disabled')).toBeDefined()
+    await template.trigger('click')
+    await wrapper.find('.deck-generator__panel > footer > button').trigger('click')
+
+    expect(wrapper.emitted('confirm')?.[0]?.[0]).not.toHaveProperty('templatePackId')
+  })
+
+  it('offers a template creator entry without requiring a pptpack file', async () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, { props: { open: true } })
+
+    await wrapper.get('[data-testid="personal-template-tab"]').trigger('click')
+    await wrapper.get('[data-testid="create-template-pack"]').trigger('click')
+
+    expect(wrapper.emitted('create-template')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('.pptpack')
+  })
 })

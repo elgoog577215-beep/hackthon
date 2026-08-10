@@ -388,11 +388,14 @@ def resolve_slide_deck_schema(
     *,
     story_engine_enabled: bool,
     v5_enabled: bool = True,
-) -> Literal["slide_deck_v3", "slide_deck_v4", "slide_deck_v5"]:
-    """Select the requested engine without silently degrading an enabled V5 build."""
+    v6_enabled: bool = False,
+) -> Literal["slide_deck_v3", "slide_deck_v4", "slide_deck_v5", "slide_deck_v6"]:
+    """Select the requested engine without silently degrading an enabled build."""
     if not story_engine_enabled:
         return "slide_deck_v3"
     _course_logic_inputs(course_data)
+    if v6_enabled:
+        return "slide_deck_v6"
     return "slide_deck_v5" if v5_enabled else "slide_deck_v4"
 
 

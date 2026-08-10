@@ -1,5 +1,5 @@
 <template>
-  <section class="slide-workbench" :class="{ 'is-standalone': standalone }" :data-theme="previewTheme" :data-preview-source="previewSource" :data-engine-status="engineStatus">
+  <section class="slide-workbench" :class="{ 'is-standalone': standalone, 'has-build-progress': building }" :data-theme="previewTheme" :data-preview-source="previewSource" :data-engine-status="engineStatus">
     <header class="slide-workbench__toolbar">
       <div class="slide-workbench__identity">
         <button v-if="standalone" type="button" class="slide-workbench__back" :title="t('pptWorkspace.backToCourse', '返回课程')" @click="emit('back')">
@@ -25,10 +25,20 @@
           {{ t('pptWorkspace.publishedSchema', '已发布') }} {{ schemaLabel(publishedSchema) }}
         </small>
         <small
-          v-if="candidateStatus === 'v5_needs_manual_edit'"
+          v-if="candidateStatus === 'v5_needs_manual_edit' || candidateStatus === 'v6_needs_manual_edit'"
           class="slide-workbench__manual-status"
           data-testid="ppt-manual-edit-status"
-        >{{ t('pptWorkspace.manualEditCandidate', '完整 V5 已生成，部分页面需要人工调整') }}</small>
+        >{{ t('pptWorkspace.manualEditCandidate', '完整课件已生成，部分页面需要人工调整') }}</small>
+        <small
+          v-if="planningStatus?.story_ai?.status === 'completed'"
+          class="slide-workbench__manual-status"
+          data-testid="ppt-story-ai-status"
+        >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
+        <small
+          v-if="planningStatus?.visual_ai?.status"
+          class="slide-workbench__manual-status"
+          data-testid="ppt-visual-ai-status"
+        >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `视觉 AI 部分降级 · ${planningStatus.visual_ai.degraded_page_count || 0} 页需检查` : '视觉 AI 已完成' }}</small>
         <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
           {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
         </small>
@@ -91,10 +101,18 @@
           <Download v-else :size="16" /><span>{{ t('teachingRepresentations.exportPptx', '导出 PPTX') }}</span>
         </button>
       </div>
-      <div v-if="building" class="slide-workbench__progress" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
-        <i :style="{ width: `${progress}%` }"></i>
-      </div>
     </header>
+
+    <SlideDeckBuildProgress
+      v-if="building"
+      :progress="progress"
+      :stage="stage"
+      :step-index="buildStepIndex"
+      :detail="buildDetail"
+      :progress-v2="buildProgressV2"
+      :estimated-slide-count="estimatedSlideCount"
+      :variant="standalone ? 'toolbar' : 'embedded'"
+    />
 
     <div class="slide-workbench__body">
       <aside class="slide-thumbnails" :aria-label="t('teachingRepresentations.slides.pageList', '幻灯片页列表')">
@@ -126,6 +144,7 @@
           :page-count="slides.length"
           :deck-title="deckTitle"
           :theme="previewTheme"
+          :theme-overrides="themeOverrides"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -374,6 +393,7 @@
             :page-count="slides.length"
             :deck-title="deckTitle"
             :theme="previewTheme"
+            :theme-overrides="themeOverrides"
             :course-id="courseId"
             :representation-id="representationId"
             presenting
@@ -406,6 +426,8 @@ import { t } from '../shared/i18n'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type {
+  SlideBuildProgressV2,
+  SlideDeckBuildDetail,
   SlideDeckMode,
   SlideDeckPreviewSource,
   SlideDeckTheme,
@@ -417,6 +439,7 @@ import type { SlideVisual } from '../types/slideVisual'
 import { writePptSameSourceHighlight } from '../utils/ppt-same-source'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import SlideCanvas from './SlideCanvas.vue'
+import SlideDeckBuildProgress from './SlideDeckBuildProgress.vue'
 import TeachingImpactDialog from './TeachingImpactDialog.vue'
 
 interface SlideBlock {
@@ -480,6 +503,10 @@ const props = withDefaults(defineProps<{
   building: boolean
   progress: number
   stage: string
+  buildStepIndex?: number | null
+  buildDetail?: SlideDeckBuildDetail | null
+  buildProgressV2?: SlideBuildProgressV2 | null
+  estimatedSlideCount?: number
   error: string
   buildFailure?: TeachingRepresentationBuildFailure | null
   logicUpgrading?: boolean
@@ -489,18 +516,21 @@ const props = withDefaults(defineProps<{
   standalone?: boolean
   mode?: SlideDeckMode
   theme?: SlideDeckTheme
+  themeOverrides?: Record<string, string>
   variants?: TeachingRepresentation[]
   bundleParts?: Array<{ representationId: string; label: string }>
   activeBundlePartId?: string
-  engineStatus?: 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  engineStatus?: 'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
   targetSchema?: string
   candidateSchema?: string
   publishedSchema?: string
   candidateStatus?: string
+  planningStatus?: Record<string, any> | null
 }>(), {
   standalone: false,
   mode: 'teaching',
   theme: 'qingfeng-classroom',
+  themeOverrides: () => ({}),
   variants: () => [],
   bundleParts: () => [],
   activeBundlePartId: '',
@@ -509,9 +539,14 @@ const props = withDefaults(defineProps<{
   candidateSchema: '',
   publishedSchema: '',
   candidateStatus: '',
+  planningStatus: null,
   buildFailure: null,
   logicUpgrading: false,
   logicUpgradeError: '',
+  buildDetail: null,
+  buildProgressV2: null,
+  buildStepIndex: null,
+  estimatedSlideCount: 0,
 })
 
 const emit = defineEmits<{
@@ -581,6 +616,7 @@ const currentRepresentation = computed(() => (
   props.variants.find(item => item.representation_id === props.representationId) || null
 ))
 const engineStatusLabel = computed(() => ({
+  slide_deck_v6: '课程忠实演示 V6',
   slide_deck_v5: '课程叙事 V5',
   slide_deck_v4: '课程逻辑 V4',
   slide_deck_v3: '兼容模式 V3',
@@ -589,6 +625,7 @@ const engineStatusLabel = computed(() => ({
 }[props.engineStatus]))
 const schemaLabel = (value: string) => {
   const normalized = String(value || '')
+  if (normalized === 'slide_deck_v6') return 'V6'
   if (normalized === 'slide_deck_v5') return 'V5'
   if (normalized === 'slide_deck_v4') return 'V4'
   if (normalized === 'slide_deck_v3') return 'V3'
@@ -1189,6 +1226,7 @@ function classificationLabel(value: string) {
 
 <style scoped>
 .slide-workbench { min-width:0; min-height:0; height:100%; display:grid; grid-template-rows:58px minmax(0,1fr); background:#f7f8fc; }
+.slide-workbench.has-build-progress { grid-template-rows:58px auto minmax(0,1fr); }
 .slide-workbench__toolbar { position:relative; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:0 14px 0 18px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .slide-workbench__toolbar > div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }.slide-workbench__toolbar strong { overflow:hidden; color:var(--lz-text-strong); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.slide-workbench__toolbar small { flex:none; color:var(--lz-text-muted); font-size:9px; }
 .slide-workbench__status { min-height:24px; display:inline-flex; align-items:center; gap:5px; padding:0 8px; border-radius:6px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:700; }.slide-workbench__status[data-state="building"] { color:#4f46e5; background:#eef2ff; }.slide-workbench__status[data-state="warning"] { color:#b45309; background:#fffbeb; }
@@ -1207,7 +1245,6 @@ function classificationLabel(value: string) {
 .slide-workbench__commands .slide-workbench__theme button { min-height:28px; padding:0; border:0; border-radius:6px; color:#697586; background:transparent; box-shadow:none; }
 .slide-workbench__commands .slide-workbench__theme .legacy-theme-option { display:none; }
 .slide-workbench__configure-compact { display:none !important; }
-.slide-workbench__progress { position:absolute; inset:auto 0 -1px; height:2px; background:#eef0f8; }.slide-workbench__progress i { display:block; height:100%; background:#6d5dfb; transition:width .2s ease; }
 .slide-workbench__body { min-width:0; min-height:0; display:grid; grid-template-columns:176px minmax(430px,1fr) 236px; }
 .slide-thumbnails { min-height:0; overflow:auto; padding:10px 8px 18px; border-right:1px solid var(--lz-border); background:#fbfcff; }.slide-thumbnails > button { width:100%; display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:5px; margin:0 0 6px; padding:5px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }.slide-thumbnails > button:hover { background:#f3f5fb; }.slide-thumbnails > button.active { border-color:#a5b4fc; color:var(--lz-brand); background:#fff; box-shadow:0 4px 12px rgba(79,70,229,.08); }.slide-thumbnails > button.stale { border-left-color:#f59e0b; }.slide-thumbnails > button > span { padding-top:3px; font:700 8px ui-monospace,monospace; text-align:center; }
 .slide-thumbnail { aspect-ratio:16/9; min-width:0; overflow:hidden; display:flex; flex-direction:column; padding:8px; border:1px solid #e4e7f0; border-radius:4px; background:#fff; text-align:left; }.slide-thumbnail i { width:24px; height:2px; margin-bottom:6px; background:#6d5dfb; }.slide-thumbnail strong { display:-webkit-box; overflow:hidden; color:#27324a; font-size:7px; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.slide-thumbnail small { margin-top:auto; color:#98a2b3; font-size:6px; }.slide-thumbnail[data-layout="chapter"],.slide-thumbnail[data-layout="cover"] { background:linear-gradient(90deg,#eeeafe 0 31%,#fff 31%); }.slide-thumbnail[data-layout="code"] { background:linear-gradient(90deg,#202536 0 64%,#f6f7fc 64%); }.slide-thumbnail[data-layout="code"] strong { color:#fff; }
@@ -1260,6 +1297,7 @@ function classificationLabel(value: string) {
   background:#e9edf3;
   font-family:"Avenir Next","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
 }
+.slide-workbench.is-standalone.has-build-progress { grid-template-rows:74px auto minmax(0,1fr); }
 .is-standalone .slide-workbench__toolbar {
   z-index:8;
   padding:0 20px;
@@ -1316,8 +1354,6 @@ function classificationLabel(value: string) {
   box-shadow:0 7px 18px rgba(37,86,216,.28);
 }
 .is-standalone .slide-workbench__commands .slide-workbench__export:hover:not(:disabled) { border-color:#3973f1; background:#2d66e8; }
-.is-standalone .slide-workbench__progress { background:rgba(255,255,255,.08); }
-.is-standalone .slide-workbench__progress i { background:#53d4c8; }
 .is-standalone .slide-workbench__body { grid-template-columns:210px minmax(560px,1fr) 312px; }
 .is-standalone .slide-thumbnails {
   padding:15px 12px 28px;
@@ -1500,6 +1536,7 @@ function classificationLabel(value: string) {
 }
 @media (max-width:900px) {
   .slide-workbench.is-standalone { grid-template-rows:auto minmax(0,1fr); }
+  .slide-workbench.is-standalone.has-build-progress { grid-template-rows:auto auto minmax(0,1fr); }
   .is-standalone .slide-workbench__toolbar { min-height:72px; padding:10px 12px; }
   .is-standalone .slide-workbench__identity > div strong { max-width:42vw; }
   .is-standalone .slide-workbench__status,.is-standalone .slide-workbench__count { display:none; }

@@ -59,6 +59,7 @@ from routers import (
     knowledge_libraries, teaching_representations, course_evolution,
     teaching_plan_workbench,
     teacher_course_space,
+    ppt_template_packs,
 )
 
 @asynccontextmanager
@@ -178,6 +179,7 @@ app.include_router(practice.router, prefix="/api")
 app.include_router(question_bank.router, prefix="/api")
 app.include_router(diagnostics.router, prefix="/api")
 app.include_router(course_acceptance.router, prefix="/api")
+app.include_router(ppt_template_packs.router, prefix="/api")
 app.include_router(block_regeneration.router, prefix="/api")
 app.include_router(change_proposals.router, prefix="/api")
 app.include_router(change_proposals.authoring_router, prefix="/api")

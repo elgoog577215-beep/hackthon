@@ -168,6 +168,11 @@ from representation_compiler import (
     validate_compiled_representations,
 )
 from slide_ai_runtime import ai_slide_planning_enabled
+from slide_ai_planning_v6 import (
+    build_ai_base_story_planner_v6,
+    build_ai_base_visual_planner_v2,
+)
+from ppt_template_packs import ppt_template_pack_repository
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -188,6 +193,11 @@ from slide_deck_v5 import (
     build_signature_v5,
     compact_story_plan_v5,
 )
+from slide_deck_v6 import V6BuildError, compile_shadow_chapter_document
+from slide_deck_v6_orchestrator import (
+    SlideDeckV6CandidateRepository,
+    SlideDeckV6Orchestrator,
+)
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
@@ -203,6 +213,10 @@ from slide_visuals import (
 )
 from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
+)
 from teaching_representations import teaching_representation_repository
 from web_retrieval import (
     RetrievalRequest,
@@ -771,6 +785,7 @@ class TaskManager:
         storage_data_dir = Path(
             getattr(storage, "_data_dir", Path(TASKS_FILE).parent)
         )
+        self._storage_data_dir = storage_data_dir
         self._import_sources_dir = storage_data_dir / "course_import_sources"
         self._import_sources_dir.mkdir(parents=True, exist_ok=True)
         self._version_repository = version_repository or course_version_repository
@@ -4566,7 +4581,7 @@ class TaskManager:
                     exc.public_detail()
                     if isinstance(
                         exc,
-                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError),
+                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError, V6BuildError),
                     )
                     else None
                 )
@@ -4740,6 +4755,102 @@ class TaskManager:
         )
         await self._push_progress(task_id)
 
+    async def _process_slide_deck_variant_v6(
+        self,
+        *,
+        task_id: str,
+        document: Any,
+        course_view: dict[str, Any],
+        mode: str,
+        theme: str,
+        variant_key: str,
+        template_contract: TemplateLayoutPackContractV1,
+        template_digest_provider: Callable[[], str],
+        source_revision_provider: Callable[[], str],
+        publish_result: bool = True,
+        shadow_context: dict[str, Any] | None = None,
+    ) -> None:
+        """Run the strict V6 candidate through the shared durable boundary."""
+
+        orchestrator = SlideDeckV6Orchestrator(
+            representation_repository=teaching_representation_repository,
+            candidate_repository=SlideDeckV6CandidateRepository(
+                self._storage_data_dir / "slide_deck_v6_candidates"
+            ),
+            progress_root=self._storage_data_dir / "slide_build_progress_v2",
+        )
+
+        async def record_v6_progress(payload: dict[str, object]) -> None:
+            event = {
+                "event": "slide_build_progress_v2",
+                "progress": int(payload.get("percent") or 0),
+                "stage": str(payload.get("stage") or "building"),
+                "message": "V6 slide build is following the persisted server work plan",
+                "slide_build_progress_v2": deepcopy(payload),
+            }
+            await self._record_representation_event(task_id, event)
+
+        result = await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data=course_view,
+            mode=mode,
+            theme=theme,
+            story_planner=build_ai_base_story_planner_v6(),
+            visual_planner=build_ai_base_visual_planner_v2(),
+            source_revision_provider=source_revision_provider,
+            template_contract=template_contract,
+            template_digest_provider=template_digest_provider,
+            publish_result=publish_result,
+            shadow_context=shadow_context,
+            progress_callback=record_v6_progress,
+        )
+        public_result = {
+            "build": result,
+            "quality": result.get("quality") or {},
+            "registry": result.get("registry") or {},
+            "variant_key": variant_key,
+            "target_schema": "slide_deck_v6",
+            "shadow_context": dict(shadow_context or {}),
+        }
+        final_status = (
+            "completed_with_warnings"
+            if result.get("candidate_status") == "v6_needs_manual_edit"
+            else "completed"
+        )
+        async with self._lock:
+            current = self.tasks.get(task_id)
+            if not current or current.get("status") in {"paused", "cancelled"}:
+                return
+            current["result"] = public_result
+            current["completed_representation_types"] = (
+                [f"slide_deck:{variant_key}"] if publish_result else []
+            )
+            current["progress"] = 100
+            current["phase_progress"] = 100
+            current["phase"] = "complete"
+            current["current_phase"] = "complete"
+            current["message"] = (
+                "V6 shadow candidate completed with pages marked for manual review"
+                if not publish_result and final_status == "completed_with_warnings"
+                else "V6 shadow candidate passed all fidelity and render gates"
+                if not publish_result
+                else "V6 deck published with pages marked for manual review"
+                if final_status == "completed_with_warnings"
+                else "V6 deck passed the fidelity gates and was published"
+            )
+            current["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._record_representation_event(
+            task_id,
+            {"event": "build_complete", "progress": 100, **public_result},
+        )
+        await self._update_task_status(
+            task_id,
+            final_status,
+            message=str(self.tasks.get(task_id, {}).get("message") or "V6 build complete"),
+        )
+
     async def _process_slide_deck_variant_task(self, task_id: str) -> None:
         """Build one mode/theme PPT variant without rebuilding sibling artifacts."""
         task = self.tasks.get(task_id)
@@ -4758,8 +4869,14 @@ class TaskManager:
         document, canonical = await asyncio.to_thread(
             self._course_document_repository.load_document, course_id,
         )
-        if not canonical:
+        requested_schema = str(request.get("target_schema") or "")
+        shadow_only = bool(request.get("shadow_only"))
+        chapter_id = str(request.get("chapter_id") or "").strip()
+        if not canonical and not (requested_schema == "slide_deck_v6" and shadow_only):
             raise CourseDocumentConflict("Course must be canonical before building slide variants")
+        source_course_document_revision = str(document.document_revision or "")
+        if shadow_only:
+            document = compile_shadow_chapter_document(document, chapter_id)
         course_view = await asyncio.to_thread(
             self._course_document_repository.load_course_view, course_id,
         )
@@ -4781,8 +4898,9 @@ class TaskManager:
                 "SLIDE_DECK_V5_ENABLED",
                 "true",
             ).strip().lower() in {"1", "true", "yes", "on"},
+            v6_enabled=requested_schema == "slide_deck_v6",
         )
-        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5"}
+        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5", "slide_deck_v6"}
         source_revision = str(document.document_revision or "")
         await self._record_representation_event(task_id, {
             "event": "build_contract",
@@ -4791,6 +4909,67 @@ class TaskManager:
             "target_schema": slide_schema,
             "source_revision": source_revision,
         })
+        if slide_schema == "slide_deck_v6":
+            frozen_template_payload = request.get("template_contract")
+            template_contract = (
+                TemplateLayoutPackContractV1.model_validate(frozen_template_payload)
+                if isinstance(frozen_template_payload, dict)
+                else compile_builtin_template_layout_contract_v1(theme)
+            )
+            selector = request.get("template_selector") or {}
+            pack_id = str(selector.get("pack_id") or "")
+            if pack_id:
+                pack_version = int(
+                    selector.get("version") or template_contract.template_version
+                )
+                owner_id = str(selector.get("owner_id") or "")
+
+                def current_template_digest() -> str:
+                    return ppt_template_pack_repository.resolve_v6_layout_contract(
+                        pack_id,
+                        pack_version,
+                        owner_id,
+                    ).template_digest
+            else:
+                def current_template_digest() -> str:
+                    return compile_builtin_template_layout_contract_v1(
+                        template_contract.theme_id
+                    ).template_digest
+            if shadow_only:
+                def current_source_revision() -> str:
+                    current_document, _ = self._course_document_repository.load_document(course_id)
+                    return compile_shadow_chapter_document(
+                        current_document,
+                        chapter_id,
+                    ).document_revision
+            else:
+                def current_source_revision() -> str:
+                    return str(
+                        self._course_document_repository.load_document(course_id)[0].document_revision
+                        or ""
+                    )
+            await self._process_slide_deck_variant_v6(
+                task_id=task_id,
+                document=document,
+                course_view=course_view,
+                mode=mode,
+                theme=theme,
+                variant_key=variant_key,
+                template_contract=template_contract,
+                template_digest_provider=current_template_digest,
+                source_revision_provider=current_source_revision,
+                publish_result=not shadow_only,
+                shadow_context=(
+                    {
+                        "chapter_id": chapter_id,
+                        "source_course_document_revision": source_course_document_revision,
+                        "source_format": "canonical" if canonical else "legacy_projection",
+                    }
+                    if shadow_only
+                    else None
+                ),
+            )
+            return
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
         expected_signature = (
@@ -5283,6 +5462,22 @@ class TaskManager:
             history.append(event)
             task["event_history"] = history[-240:]
             task["last_event"] = event
+            progress_v2 = payload.get("slide_build_progress_v2")
+            if (
+                payload.get("event") == "slide_build_progress_v2"
+                and isinstance(progress_v2, dict)
+            ):
+                task["slide_build_progress_v2"] = deepcopy(progress_v2)
+                if str(progress_v2.get("status") or "") == "failed":
+                    failure = progress_v2.get("failure") or {}
+                    if isinstance(failure, dict):
+                        task["status"] = "failed"
+                        task["error_detail"] = deepcopy(failure)
+                        task["error"] = str(
+                            failure.get("message")
+                            or payload.get("message")
+                            or "V6 slide build failed"
+                        )
             if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")
