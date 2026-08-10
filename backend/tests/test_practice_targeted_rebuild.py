@@ -19,7 +19,9 @@ from downstream_rebuild import execute_rebuild, pipeline_for
 from practice_targeted_rebuild import (
     PRACTICE_REBUILD_RECEIPT_SCHEMA,
     build_practice_rebuild_runner,
+    build_rebuild_runners,
     practice_rebuild_receipts,
+    question_bank_job_enqueue,
     resolve_question_revisions,
 )
 from question_bank import approved_formal_tasks
@@ -393,3 +395,169 @@ def test_receipts_are_a_copy_not_the_live_list() -> None:
 def test_empty_bank_resolves_to_nothing() -> None:
     assert resolve_question_revisions(None, object_id="x", section_id="y") == []
     assert resolve_question_revisions({}, object_id="x", section_id="y") == []
+
+
+# --- 接线：与真实作业仓库对接 -----------------------------------------------
+
+
+def test_enqueue_creates_a_real_item_scoped_job(tmp_path) -> None:
+    """用真实的 QuestionBankRebuildJobRepository，不是 stub。
+
+    验证登记出来的作业确实是 scope="items" 的定向作业，且带着我们指定的
+    revision_ids——如果退化成 scope="nodes"，该节没受影响的题会被一起重出。
+    """
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    enqueue = question_bank_job_enqueue(
+        job_repository=repository,
+        actor_id="teacher-1",
+        knowledge_revision_id="ckb_rev_7",
+    )
+    job = enqueue(course_id="c1", revision_ids=["qbr_2", "qbr_1"], reason="知识变化")
+
+    assert job["scope"] == "items", "必须是定向重建，不是整节重出"
+    assert job["revision_ids"] == ["qbr_1", "qbr_2"]
+    assert job["mode"] == "incremental"
+    assert job["actor_id"] == "teacher-1"
+    assert job["status"] == "queued"
+    assert job["job_id"].startswith("qbr_")
+    # 作业带完整的 10 阶段，交给既有出题管线接手。
+    assert len(job["stages"]) == 10
+
+
+def test_same_knowledge_revision_does_not_create_duplicate_jobs(tmp_path) -> None:
+    """幂等：同一次知识修订重复点重建，不该堆出第二个作业。"""
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    enqueue = question_bank_job_enqueue(
+        job_repository=repository,
+        actor_id="teacher-1",
+        knowledge_revision_id="ckb_rev_7",
+    )
+    first = enqueue(course_id="c1", revision_ids=["qbr_1"])
+    second = enqueue(course_id="c1", revision_ids=["qbr_1"])
+    assert first["job_id"] == second["job_id"]
+
+
+def test_a_second_rebuild_coalesces_while_the_first_is_still_running(tmp_path) -> None:
+    """同一批题已有在跑的作业时，不再叠加第二个。
+
+    这是作业仓库自己的去重口径（`_same_active_scope`：scope + node_ids +
+    revision_ids + mode + actor + retrieval 全同且状态为 queued/running 才算
+    同一个），不是我这层的发明。教师连点两次不会排出两条重建。
+    """
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    first = question_bank_job_enqueue(
+        job_repository=repository, knowledge_revision_id="ckb_rev_7",
+    )(course_id="c1", revision_ids=["qbr_1"])
+    second = question_bank_job_enqueue(
+        job_repository=repository, knowledge_revision_id="ckb_rev_8",
+    )(course_id="c1", revision_ids=["qbr_1"])
+    assert first["job_id"] == second["job_id"]
+
+
+def test_a_new_knowledge_revision_rebuilds_again_after_the_first_finished(
+    tmp_path,
+) -> None:
+    """上一轮跑完之后，新一次知识修订必须能重新重建这道题。
+
+    否则题目会永久停在第一次重建的结果上，后续知识修订再也落不下来。
+    """
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    first = question_bank_job_enqueue(
+        job_repository=repository, knowledge_revision_id="ckb_rev_7",
+    )(course_id="c1", revision_ids=["qbr_1"])
+    repository.start(first["job_id"])
+    repository.complete(first["job_id"], result={"ok": True})
+
+    second = question_bank_job_enqueue(
+        job_repository=repository, knowledge_revision_id="ckb_rev_8",
+    )(course_id="c1", revision_ids=["qbr_1"])
+    assert first["job_id"] != second["job_id"]
+
+
+def test_a_different_question_set_is_always_a_distinct_job(tmp_path) -> None:
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    enqueue = question_bank_job_enqueue(
+        job_repository=repository, knowledge_revision_id="ckb_rev_7",
+    )
+    first = enqueue(course_id="c1", revision_ids=["qbr_1"])
+    second = enqueue(course_id="c1", revision_ids=["qbr_2"])
+    assert first["job_id"] != second["job_id"]
+
+
+def test_end_to_end_through_executor_with_real_job_repository(tmp_path) -> None:
+    """端到端：影响报告 -> executor -> practice runner -> 真实作业仓库。
+
+    这是任务书要接上的那一段的完整形状，中间不打桩。
+    """
+    from question_bank_jobs import QuestionBankRebuildJobRepository
+
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    bundle = _bundle(
+        _bank_item(item_id="qbi_1", revision_id="qbr_1", node_id="L2-1-1"),
+        _bank_item(item_id="qbi_2", revision_id="qbr_2", node_id="L2-2-1"),
+    )
+    snapshot = deepcopy(bundle)
+
+    runners = build_rebuild_runners(
+        bundle=bundle,
+        course_id="c1",
+        knowledge_revision_id="ckb_rev_7",
+        actor_id="teacher-1",
+        job_repository=repository,
+    )
+    downstream = build_downstream_state(
+        _impact(
+            needs_regeneration=[
+                {"type": "practice", "id": "qbr_1", "section_id": "L2-1-1",
+                 "reason": "知识陈述变化"},
+            ],
+            unchanged=[
+                {"type": "practice", "id": "qbr_2", "section_id": "L2-2-1",
+                 "reason": "未引用该知识"},
+            ],
+        ),
+        plan_revision_id="ckb_rev_7",
+    )
+    result = execute_rebuild(downstream, runners=runners)
+
+    # 受影响的题进入候选，未受影响的题原样不动。
+    states = {i["id"]: i["state"] for i in result["downstream"]["items"]}
+    assert states["qbr_1"] == "candidate"
+    assert states["qbr_2"] == "current"
+
+    # 真实作业已落盘，且是定向的。
+    active = repository.active_for_course("c1")
+    assert active is not None
+    assert active["scope"] == "items"
+    assert active["revision_ids"] == ["qbr_1"]
+
+    # 题库本身没有被 runner 动过——重建由既有出题管线做。
+    assert bundle == snapshot
+
+    # 逐题回执可追溯。
+    receipt = practice_rebuild_receipts(runners["practice"])[0]
+    assert receipt["question_revision_ids"] == ["qbr_1"]
+    assert receipt["knowledge_revision_id"] == "ckb_rev_7"
+    assert receipt["status"] == "candidate_ready"
+
+
+def test_only_practice_runner_is_registered() -> None:
+    """不给别人那条线塞占位实现。
+
+    缺 runner 时 executor 自己会标 blocked 并说明原因，那是诚实的缺口；
+    塞一个占位会把「没人实现」伪装成「实现了但失败」。
+    """
+    runners = build_rebuild_runners(
+        bundle=_bundle(), course_id="c1", enqueue=lambda **kw: {"job_id": "x"},
+    )
+    assert set(runners) == {"practice"}

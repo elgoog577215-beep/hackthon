@@ -254,10 +254,84 @@ def practice_rebuild_receipts(
     return deepcopy(getattr(runner, "receipts", []))
 
 
+def question_bank_job_enqueue(
+    *,
+    job_repository: Any = None,
+    actor_id: str = "",
+    knowledge_revision_id: str = "",
+) -> Callable[..., dict[str, Any]]:
+    """把既有定向重建作业仓库包成 runner 认识的 `enqueue`。
+
+    走 `scope="items"` 而不是 `scope="nodes"`：任务书要的是「受影响的题目按新
+    知识**定向**重建」。按小节重建会把该节没受影响的题目一起重出，既浪费一次
+    完整的 10 阶段出题，也会让教师已审阅过的好题平白进入重建流程。
+
+    去重口径由作业仓库自己定（`_same_active_scope`：同 scope + 同题目集合 +
+    同 mode/actor 且仍在 queued/running 才算同一个），所以教师连点两次不会叠出
+    两条重建；上一轮跑完之后，新一次知识修订能重新登记。`request_id` 只用于
+    追溯是哪次知识修订触发的，不承担去重。
+    """
+    repository = job_repository
+    if repository is None:
+        from question_bank_jobs import question_bank_rebuild_job_repository
+
+        repository = question_bank_rebuild_job_repository
+
+    def enqueue(*, course_id: str, revision_ids: list[str], reason: str = "") -> dict[str, Any]:
+        scoped = sorted({_text(item) for item in revision_ids if _text(item)})
+        request_id = "knowledge-rebuild:{}:{}".format(
+            _text(knowledge_revision_id) or "unknown",
+            ",".join(scoped),
+        )
+        job, _created = repository.create_job(
+            course_id,
+            request_id=request_id,
+            scope="items",
+            node_ids=[],
+            revision_ids=scoped,
+            mode="incremental",
+            actor_id=actor_id,
+        )
+        return job or {}
+
+    return enqueue
+
+
+def build_rebuild_runners(
+    *,
+    bundle: dict[str, Any] | None,
+    course_id: str,
+    knowledge_revision_id: str = "",
+    actor_id: str = "",
+    job_repository: Any = None,
+    enqueue: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
+    """组装交给 `execute_rebuild` 的 runners 字典。
+
+    只注册 `practice` 这一条——本任务线只负责练习题这一段。表达与正文的
+    runner 归各自那条线提供；这里不给它们塞占位实现，否则 executor 会把
+    「没人实现」误当成「实现了但失败」。缺 runner 时 executor 自己会标
+    `blocked` 并说明原因，那才是诚实的缺口。
+    """
+    practice_runner = build_practice_rebuild_runner(
+        bundle=bundle,
+        enqueue=enqueue or question_bank_job_enqueue(
+            job_repository=job_repository,
+            actor_id=actor_id,
+            knowledge_revision_id=knowledge_revision_id,
+        ),
+        course_id=course_id,
+        knowledge_revision_id=knowledge_revision_id,
+    )
+    return {"practice": practice_runner}
+
+
 __all__ = [
     "PRACTICE_OBJECT_TYPES",
     "PRACTICE_REBUILD_RECEIPT_SCHEMA",
     "build_practice_rebuild_runner",
+    "build_rebuild_runners",
     "practice_rebuild_receipts",
+    "question_bank_job_enqueue",
     "resolve_question_revisions",
 ]
