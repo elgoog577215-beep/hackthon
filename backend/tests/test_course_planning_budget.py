@@ -322,7 +322,22 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
             AIBase.estimate_request_tokens(user_prompt, system_prompt)
         )
 
-    assert len(batches) == 21
+    assert budget.batch_max_sections == 3
+    # 21 节 / 每章 3 节 -> 每批装满 3 节且不跨章，共 7 批。
+    assert len(batches) == 7
+    assert [
+        node_id
+        for spec in batches
+        for node_id in spec["section_ids"]
+    ] == [item["node_id"] for item in sections]
+    assert all(
+        len(spec["section_ids"]) <= budget.batch_max_sections
+        for spec in batches
+    )
+    assert all(
+        spec["estimated_output_tokens"] <= budget.max_output_tokens
+        for spec in batches
+    )
     assert max(prompt_tokens) <= budget.max_input_tokens
     assert prompt_chars < 100_000
 

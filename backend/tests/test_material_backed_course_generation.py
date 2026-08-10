@@ -1477,11 +1477,11 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
         pedagogy_mode="math_formal",
     )
 
-    assert len(prompts) == 6
+    # 同章 2 节在一批教案里生成（batch_max_sections=3），所以只有 1 次批次调用。
+    assert len(prompts) == 5
     assert prompts[1].startswith("只修复全课章节骨架")
     assert prompts[3].startswith("规划全课知识职责骨架 V3")
     assert prompts[4].startswith("生成详细小节教案批次")
-    assert prompts[5].startswith("生成详细小节教案批次")
     assert data["course_plan_constraint_report"]["passed"] is True
     assert data["course_plan_constraint_report"]["actual"] == {
         "chapter_count": 1,
@@ -1823,13 +1823,8 @@ async def test_total_timeout_fallback_preserves_completed_skeleton_and_batch():
     assert stage["batches"]["TP-B02"]["generation_source"] == (
         "deterministic_local_fallback"
     )
-    assert [item["unit"] for item in stage["fallback_units"]] == [
-        "TP-B02",
-        "TP-B03",
-        "TP-B04",
-        "TP-B05",
-        "TP-B06",
-    ]
+    # 6 节按每批 3 节切分：TP-B01 已完成并保留，只剩 TP-B02 需要本地兜底。
+    assert [item["unit"] for item in stage["fallback_units"]] == ["TP-B02"]
 
 
 @pytest.mark.asyncio
@@ -2002,7 +1997,8 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
     assert stage["status"] == "retry_required"
     assert stage["semantic_status"] == "retry_required"
     assert stage["degraded"] is True
-    assert stage["completed_batch_count"] == 6
+    # 6 节按每批 3 节切分成 2 批。
+    assert stage["completed_batch_count"] == 2
     assert stage["completed_section_count"] == 6
     assert stage["batches"]["TP-B01"]["status"] == "completed"
     assert stage["batches"]["TP-B01"]["generation_source"] == "model"
@@ -2028,7 +2024,7 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
     assert stage["batches"]["TP-B01"]["revision_id"] == first_batch_revision
     assert stage["status"] == "completed"
     assert stage["semantic_status"] == "ai_complete"
-    assert stage["completed_batch_count"] == 6
+    assert stage["completed_batch_count"] == 2
     assert course_data["course_teaching_plan"]["schema_version"] == "course_teaching_plan_v3"
     assert len([
         section for chapter in resumed["chapters"] for section in chapter["sections"]

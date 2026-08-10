@@ -41,9 +41,9 @@ class CoursePlanningBudget:
     # path. These limits only bound one model request; they never classify or
     # shrink a course into a separate small-course product mode.
     skeleton_max_sections: int = 2
-    batch_max_sections: int = 1
+    batch_max_sections: int = 3
     batch_max_knowledge: int = 15
-    max_input_tokens: int = 7000
+    max_input_tokens: int = 16_000
     max_output_tokens: int = 8000
     concurrency: int = 4
     # Legacy field name retained for callers: this is a continuous stream
@@ -59,7 +59,7 @@ class CoursePlanningBudget:
                 minimum=2, maximum=8,
             ),
             batch_max_sections=_env_int(
-                "COURSE_TEACHING_PLAN_BATCH_MAX_SECTIONS", 1,
+                "COURSE_TEACHING_PLAN_BATCH_MAX_SECTIONS", 3,
                 minimum=1, maximum=6,
             ),
             batch_max_knowledge=_env_int(
@@ -67,8 +67,8 @@ class CoursePlanningBudget:
                 minimum=2, maximum=30,
             ),
             max_input_tokens=_env_int(
-                "COURSE_TEACHING_PLAN_MAX_INPUT_TOKENS", 7000,
-                minimum=2000, maximum=8000,
+                "COURSE_TEACHING_PLAN_MAX_INPUT_TOKENS", 16_000,
+                minimum=2000, maximum=24_000,
             ),
             max_output_tokens=_env_int(
                 "COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", 8000,
