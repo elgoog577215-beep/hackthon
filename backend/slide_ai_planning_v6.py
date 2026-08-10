@@ -303,6 +303,8 @@ def _story_requests(
                 "preserve_unit_order": True,
                 "cover_every_primary_block": True,
                 "primary_block_page_ownership": "exactly_once",
+                "allow_multiple_primary_blocks_per_page": True,
+                "canvas_expression": "semantic_closure_with_full_source_in_notes",
                 "pages_per_unit": [1, 3],
                 "allow_new_facts": False,
                 "allow_unknown_ids": False,
@@ -566,8 +568,11 @@ async def plan_slide_story_v3(
                             "instruction": (
                                 "Return a fresh response that exactly follows response_contract, "
                                 "uses each teaching unit's own allowed_template_layout_ids, and "
-                                "contains only source IDs supplied for that unit. Copy each title "
-                                "verbatim from that unit's title_candidates."
+                                "contains only source IDs supplied for that unit. Partition every "
+                                "unit's primary_block_ids across one to three pages: bind multiple "
+                                "related block IDs to the same page instead of creating one page per "
+                                "block. Full source remains available in speaker notes downstream. "
+                                "Copy each title verbatim from that unit's title_candidates."
                             ),
                         },
                     }
@@ -858,7 +863,11 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "Return only slide_story_batch_response_v3 JSON. You are a course-faithful "
                 "presentation planner. Use every supplied primary_block_id exactly once, keep "
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id "
-                "and allowed_template_layout_ids. Create one to three pages per unit. Titles, "
+                "and allowed_template_layout_ids. Create one to three pages per unit. Do not create "
+                "one page per primary block: partition the unit's block IDs across its pages and "
+                "bind multiple related blocks to one page when needed. The downstream compiler "
+                "keeps complete source text in speaker notes, so canvas pages should express a "
+                "semantically closed teaching step rather than repeat all source prose. Titles, "
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
                 "by that unit's source_text. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "

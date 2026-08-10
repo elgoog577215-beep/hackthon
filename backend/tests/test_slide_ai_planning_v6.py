@@ -97,6 +97,10 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
     ]
     assert calls[0]["response_contract"]["forbidden_page_fields"] == ["content"]
     assert calls[0]["constraints"]["primary_block_page_ownership"] == "exactly_once"
+    assert calls[0]["constraints"]["allow_multiple_primary_blocks_per_page"] is True
+    assert calls[0]["constraints"]["canvas_expression"] == (
+        "semantic_closure_with_full_source_in_notes"
+    )
     assert {item["template_layout_id"] for item in supplied_layouts} == set(
         calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
     )
@@ -292,6 +296,9 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
 
     assert len(calls) == 2
     repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert "bind multiple related block IDs to the same page" in (
+        calls[1]["repair_feedback"]["instruction"]
+    )
     assert repair_target["page_id"] == "page-1"
     assert repair_target["teaching_unit_id"] == calls[0]["teaching_units"][0]["teaching_unit_id"]
     assert repair_target["allowed_page_count_range"] == [1, 3]
