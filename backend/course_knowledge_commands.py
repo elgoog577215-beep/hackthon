@@ -24,6 +24,7 @@ written by the course repository. This only gates *how* it changes.
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
@@ -36,6 +37,8 @@ from course_knowledge_impact import build_knowledge_impact_report
 from course_knowledge_revisions import knowledge_revision_event
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_versioning import stable_hash
+
+logger = logging.getLogger(__name__)
 
 KNOWLEDGE_CANDIDATE_SCHEMA = "course_knowledge_candidate_v1"
 KNOWLEDGE_RECEIPT_SCHEMA = "course_knowledge_receipt_v1"
@@ -243,7 +246,29 @@ class CourseKnowledgeCommandService:
         payload = deepcopy(proposed_knowledge_base)
 
         def mutation(raw: dict[str, Any]) -> None:
-            raw["course_knowledge_base"] = payload
+            # Re-stamp the source fingerprint against the course we are writing
+            # into. `apply_persisted_course_knowledge_base` refuses a stored
+            # base whose fingerprint no longer matches the course, and every
+            # real course in this repo already mismatches. Without this, a
+            # confirmed edit is committed, appears in the revision log, and is
+            # then silently discarded the next time the knowledge view is
+            # compiled — the teacher sees the change, then finds it gone.
+            from course_knowledge_base import course_knowledge_source_fingerprint
+            from course_repository import course_view_from_document
+
+            stamped = deepcopy(payload)
+            try:
+                view = (
+                    course_view_from_document(raw, raw["course_document"])
+                    if self.repository.is_canonical(raw)
+                    else raw
+                )
+                stamped["source_course_fingerprint"] = (
+                    course_knowledge_source_fingerprint(view)
+                )
+            except Exception:  # noqa: BLE001 - never block a valid commit on this
+                logger.warning("Could not restamp knowledge fingerprint", exc_info=True)
+            raw["course_knowledge_base"] = stamped
             raw["course_knowledge_quality_report"] = candidate.get("quality_report")
             history = list(raw.get("course_knowledge_revision_log") or [])
             history.append({
