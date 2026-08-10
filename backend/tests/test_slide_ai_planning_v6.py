@@ -82,6 +82,14 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
 
     assert len(calls) == 1
     supplied_layouts = calls[0]["teaching_units"][0]["allowed_template_layouts"]
+    assert calls[0]["response_contract"]["required_page_fields"] == [
+        "page_id",
+        "teaching_unit_id",
+        "template_layout_id",
+        "title",
+        "source_block_ids",
+    ]
+    assert calls[0]["response_contract"]["forbidden_page_fields"] == ["content"]
     assert {item["template_layout_id"] for item in supplied_layouts} == set(
         calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
     )
@@ -101,7 +109,10 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("response_shape", ["version_wrapper", "slides_alias"])
+@pytest.mark.parametrize(
+    "response_shape",
+    ["version_wrapper", "slides_alias", "derivable_page_fields"],
+)
 async def test_story_ai_accepts_lossless_versioned_response_shapes(
     response_shape: str,
 ) -> None:
@@ -137,6 +148,19 @@ async def test_story_ai_accepts_lossless_versioned_response_shapes(
                 "model": "generic-model",
                 "attempts": 2,
             }
+        if response_shape == "derivable_page_fields":
+            return {
+                "schema_version": "slide_story_batch_response_v3",
+                "chapter_id": request["chapter_id"],
+                "provider": "rotating-fixture",
+                "model": "generic-model",
+                "attempts": 1,
+                "pages": [{
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": page["template_layout_id"],
+                    "content": {"title": unit["source_text"][:24]},
+                }],
+            }
         return {
             **payload,
             "provider": "rotating-fixture",
@@ -150,6 +174,8 @@ async def test_story_ai_accepts_lossless_versioned_response_shapes(
 
     assert story.batches[0].provider == "rotating-fixture"
     assert story.batches[0].pages[0].source_block_ids == ["concept", "feedback"]
+    if response_shape == "derivable_page_fields":
+        assert story.batches[0].pages[0].page_id.startswith("v6page_")
     validate_slide_story_plan_v3(story, graph, template)
 
 

@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ai_base import AIBase
+from course_document import stable_hash
 from course_presentation_graph import CoursePresentationGraphV1, CoursePresentationUnitV1
 from slide_deck_v6 import (
     SlideStoryBatchV3,
@@ -107,6 +108,58 @@ def _normalize_versioned_response(
             raise ValueError(
                 f"Conflicting AI response fields: {collection_field} and {alias}"
             )
+    return payload
+
+
+def _normalize_story_batch_response(
+    raw: dict[str, Any],
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    payload = _normalize_versioned_response(
+        raw,
+        schema_version="slide_story_batch_response_v3",
+        collection_field="pages",
+        collection_aliases=("slides",),
+    )
+    units = {
+        str(unit.get("teaching_unit_id") or ""): unit
+        for unit in request.get("teaching_units") or []
+        if isinstance(unit, dict)
+    }
+    pages = payload.get("pages")
+    if not isinstance(pages, list):
+        return payload
+    normalized_pages: list[Any] = []
+    for ordinal, value in enumerate(pages):
+        if not isinstance(value, dict):
+            normalized_pages.append(value)
+            continue
+        page = dict(value)
+        content = page.pop("content", None)
+        if isinstance(content, dict):
+            if not str(page.get("title") or "").strip():
+                page["title"] = str(
+                    content.get("title") or content.get("eyebrow") or ""
+                ).strip()
+            if "summary" not in page:
+                summary = content.get("summary") or content.get("lead") or ""
+                page["summary"] = summary if isinstance(summary, str) else ""
+        unit_id = str(page.get("teaching_unit_id") or "")
+        unit = units.get(unit_id)
+        if unit is not None and not page.get("source_block_ids"):
+            page["source_block_ids"] = list(unit.get("primary_block_ids") or [])
+        if not str(page.get("page_id") or "").strip():
+            page["page_id"] = stable_hash(
+                {
+                    "chapter_id": request.get("chapter_id"),
+                    "ordinal": ordinal,
+                    "teaching_unit_id": unit_id,
+                    "template_layout_id": page.get("template_layout_id"),
+                },
+                prefix="v6page_",
+            )
+        normalized_pages.append(page)
+    payload["pages"] = normalized_pages
     return payload
 
 
@@ -211,6 +264,23 @@ def _story_requests(
                 "allow_new_facts": False,
                 "allow_unknown_ids": False,
             },
+            "response_contract": {
+                "schema_version": "slide_story_batch_response_v3",
+                "required_top_level_fields": [
+                    "schema_version",
+                    "chapter_id",
+                    "pages",
+                ],
+                "required_page_fields": [
+                    "page_id",
+                    "teaching_unit_id",
+                    "template_layout_id",
+                    "title",
+                    "source_block_ids",
+                ],
+                "optional_page_fields": ["summary"],
+                "forbidden_page_fields": ["content"],
+            },
             "teaching_units": [
                 {
                     "teaching_unit_id": unit.teaching_unit_id,
@@ -293,12 +363,7 @@ async def plan_slide_story_v3(
         try:
             raw = await _invoke(ai_planner, request, timeout_seconds)
             response = _StoryBatchResponse.model_validate(
-                _normalize_versioned_response(
-                    raw,
-                    schema_version="slide_story_batch_response_v3",
-                    collection_field="pages",
-                    collection_aliases=("slides",),
-                )
+                _normalize_story_batch_response(raw, request)
             )
             if response.schema_version != "slide_story_batch_response_v3":
                 raise ValueError("Unexpected story response schema")
@@ -531,7 +596,9 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id "
                 "and allowed_template_layout_ids. Create one to three pages per unit. Titles, "
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
-                "by that unit's source_text. Never invent teaching content."
+                "by that unit's source_text. Every page must contain exactly page_id, "
+                "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
+                "page level; never emit a nested content object. Never invent teaching content."
             ),
             use_fast_model=False,
             retry_count=1,
