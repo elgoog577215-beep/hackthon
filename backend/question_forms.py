@@ -131,7 +131,12 @@ def _is_fill_blank(
     if isinstance(input_contract, dict):
         if _text(input_contract.get("mode")) == "fill_blank":
             return True
-        if _as_list(input_contract.get("blanks")):
+        # 认「有没有这个键」而不是「列表空不空」。
+        #
+        # 填空槽位的公开合同里 blanks 是个占位空列表——真正的空位答案是私有的，
+        # 存在 solution_envelope 里。按空列表判会把一道真填空题分类成 short_answer，
+        # 真机实测就是这样：契约编译通过、判分五条用例全对，分类却说不是填空。
+        if "blanks" in input_contract:
             return True
     answer_spec = item.get("answer_spec")
     if isinstance(answer_spec, dict) and _as_list(answer_spec.get("blank_answers")):

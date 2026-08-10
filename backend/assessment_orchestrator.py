@@ -2935,6 +2935,15 @@ class AssessmentGenerationOrchestrator:
             # False——求解器把同一组答案换个顺序写出来就判不一致，约一半多选候选
             # 会因此被误判。判分侧 practice_grading._grade_typed 早就排序了，
             # 生成侧一直没有。这里复用判分侧同一套 id 归一，不各写一份。
+            fill_blank_validation = _validate_fill_blank_solution(
+                contract, solved,
+            )
+            if fill_blank_validation is not None:
+                validation = fill_blank_validation
+                _apply_independent_validation(
+                    contract, validation, independent,
+                )
+                return contract, validation, independent
             if _is_choice_contract(contract):
                 options = (
                     (contract.get("question_spec") or {}).get("options") or []
@@ -4154,6 +4163,60 @@ def _compact_batch_generation_context(
             if isinstance(reference, dict)
         ]
     return compact
+
+
+def _validate_fill_blank_solution(
+    contract: dict[str, Any],
+    solved: Any,
+) -> dict[str, Any] | None:
+    """填空题按空位逐个校验独立解答，返回 None 表示这不是填空题。
+
+    改动前填空题走的是 `answers_equivalent(exact_validator, canonical, solved)`
+    ——把「各空答案」当成一整段文本比字符串。求解器只要格式稍有出入就判不一致，
+    真机实测填空题 4/4 全部因 VALIDATION_FAILED + PROMPT_SOLUTION_CONTRADICTION
+    被丢弃。这里改成用既有的 `grade_fill_blank` 逐空判，与学生作答同一套判定。
+    """
+    blanks = (contract.get("solution_envelope") or {}).get("blanks")
+    if not isinstance(blanks, list) or not blanks:
+        return None
+    from question_fill_blank import compile_fill_blank_contract, grade_fill_blank
+
+    try:
+        compiled = compile_fill_blank_contract(
+            prompt=str(contract.get("prompt") or ""),
+            blanks=blanks,
+        )
+    except ValueError as error:
+        return {
+            "schema_version": "assessment_validator_result_v1",
+            "validation_mode": "fill_blank_validator",
+            "passed": False,
+            "status": "failed",
+            "deterministic": True,
+            "confidence": 1.0,
+            "requires_teacher_review": False,
+            "issue_code": "fill_blank_contract_invalid",
+            "details": {"error": str(error)},
+        }
+    submission = solved if isinstance(solved, dict) else {}
+    if "blanks" not in submission:
+        submission = {"blanks": submission}
+    graded = grade_fill_blank(compiled, submission)
+    passed = bool(graded.get("all_correct"))
+    return {
+        "schema_version": "assessment_validator_result_v1",
+        "validation_mode": "fill_blank_validator",
+        "passed": passed,
+        "status": "passed" if passed else "failed",
+        "deterministic": True,
+        "confidence": 1.0,
+        "requires_teacher_review": False,
+        "issue_code": None if passed else "fill_blank_solution_mismatch",
+        "details": {
+            "blank_count": graded.get("blank_count"),
+            "correct_count": graded.get("correct_count"),
+        },
+    }
 
 
 def _resolve_option_ids(value: Any, options: list[Any]) -> set[str]:

@@ -31,6 +31,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 CHOICE_GRADING_SCHEMA = "choice_grading_v1"
@@ -107,7 +108,17 @@ def canonical_option_ids(canonical_answer: Any) -> set[str]:
     if isinstance(canonical_answer, (list, tuple, set)):
         return _id_set(list(canonical_answer))
     single = _text(canonical_answer)
-    return {single} if single else set()
+    if not single:
+        return set()
+    # 多选答案常被写成一个串：「A、C」「A,C」「A C」。独立求解器尤其爱这么写。
+    # 拆开是为了能和选项 id 对上，不是放宽判定——拆出来的每一段仍要逐个匹配
+    # 真实存在的选项，对不上照样判不一致。
+    parts = [
+        part for part in re.split(r"[,，、;；/\s]+", single) if part
+    ]
+    if len(parts) > 1:
+        return {part.strip() for part in parts if part.strip()}
+    return {single}
 
 
 def correct_option_ids(

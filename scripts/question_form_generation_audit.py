@@ -209,6 +209,25 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
         },
     )
     elapsed = time.monotonic() - started
+    # 记录每个槽位的最终去向与失败原因——生成失败率与失败原因本身就是要如实
+    # 报告的结果，不能只报成功的那几道。
+    outcomes: dict[str, dict[str, Any]] = {}
+    for entry in (
+        prepared.get("_assessment_generation_audit") or {}
+    ).get("items") or []:
+        if str(entry.get("practice_level") or "") != "concept_check":
+            continue
+        attempts = entry.get("attempts") or []
+        codes: list[str] = []
+        for attempt in attempts:
+            for code in attempt.get("issue_codes") or []:
+                if code and code not in codes:
+                    codes.append(str(code))
+        outcomes[str(entry.get("node_id") or "")] = {
+            "final_decision": str(entry.get("final_decision") or ""),
+            "attempt_count": len(attempts),
+            "issue_codes": codes,
+        }
     bundle = build_question_bank(prepared)
     items = bundle.get("items") or []
 
@@ -297,9 +316,26 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
                     "input_contract": deepcopy(item.get("input_contract") or {}),
                     "cases": cases,
                 })
+        form_outcomes = [
+            {"node_id": node_id, **outcomes[node_id]}
+            for node_id in node_ids
+            if node_id in outcomes
+        ]
+        discarded = [
+            entry for entry in form_outcomes
+            if entry["final_decision"] != "publish"
+        ]
+        failure_codes: dict[str, int] = {}
+        for entry in discarded:
+            for code in entry["issue_codes"]:
+                failure_codes[code] = failure_codes.get(code, 0) + 1
         per_form_report[form] = {
             "requested": requested,
             "generated": generated,
+            "discarded": len(discarded),
+            "failure_issue_codes": dict(
+                sorted(failure_codes.items(), key=lambda kv: -kv[1])
+            ),
             "classified_as_declared": classified_ok,
             "graded_case_count": agree_total,
             "expected_agreement_hits": agree_hit,
