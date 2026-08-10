@@ -173,7 +173,7 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     const pagination = wrapper.get('[aria-label="课程分页"]')
     expect(pagination.classes()).toContain('library-pagination-dock')
-    expect(pagination.get('button[aria-label="上一页"]').attributes('disabled')).toBeDefined()
+    expect((pagination.get('button[aria-label="上一页"]').element as HTMLButtonElement).disabled).toBe(true)
     expect(pagination.get('button[aria-label="第 1 页"]').attributes('aria-current')).toBe('page')
 
     await pagination.get('button[aria-label="下一页"]').trigger('click')
@@ -183,15 +183,16 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.text()).toContain('课程 7')
     expect(wrapper.text()).toContain('课程 8')
     expect(wrapper.text()).not.toContain('课程 1')
-    expect(pagination.get('button[aria-label="下一页"]').attributes('disabled')).toBeDefined()
+    const secondPagePagination = wrapper.get('[aria-label="课程分页"]')
+    expect((secondPagePagination.get('button[aria-label="下一页"]').element as HTMLButtonElement).disabled).toBe(true)
 
-    await pagination.get('input[aria-label="跳转页码"]').setValue('1')
-    await pagination.get('button[aria-label="跳转"]').trigger('click')
+    await secondPagePagination.get('input[aria-label="跳转页码"]').setValue('1')
+    await secondPagePagination.get('form.pagination-jump').trigger('submit')
     await flushPromises()
 
     expect(wrapper.findAll('.course-item')).toHaveLength(6)
     expect(wrapper.text()).toContain('课程 1')
-    expect(pagination.get('button[aria-label="第 1 页"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('button[aria-label="第 1 页"]').attributes('aria-current')).toBe('page')
   })
 
   it('只有一页课程时隐藏分页，并保持单张课程卡片为两列网格中的固定列宽', async () => {

@@ -1,5 +1,8 @@
 <template>
-  <section class="course-library glass-panel-elevated">
+  <section
+    class="course-library glass-panel-elevated"
+    :class="{ 'course-library--paginated': totalPages > 1 }"
+  >
     <Teleport to="#app-header-route-actions">
       <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
         <button
@@ -116,7 +119,7 @@
       <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程或导入已有 Markdown 开始学习。') }}</span>
     </div>
 
-    <div v-else class="course-grid">
+    <div v-else ref="courseGridRef" class="course-grid" data-layout="two-column">
       <article
         v-for="{ course, status } in courseCards"
         :key="course.course_id"
@@ -224,6 +227,76 @@
       </article>
     </div>
 
+    <Teleport to="body">
+      <Transition name="pagination-dock">
+        <nav
+          v-if="!courseStore.loading && totalPages > 1"
+          class="library-pagination-dock"
+          :aria-label="t('courseLibrary.pagination.label', '课程分页')"
+        >
+          <button
+            type="button"
+            class="pagination-button pagination-button--direction"
+            :disabled="currentPage === 1"
+            :aria-label="t('courseLibrary.pagination.previous', '上一页')"
+            @click="selectPage(currentPage - 1)"
+          >
+            <ChevronLeft :size="17" />
+            <span>{{ t('courseLibrary.pagination.previous', '上一页') }}</span>
+          </button>
+
+          <span class="pagination-pages" role="group" :aria-label="t('courseLibrary.pagination.pageSelection', '页面选择')">
+            <template v-for="item in paginationItems" :key="`page-${item}`">
+              <span v-if="typeof item === 'string'" class="pagination-ellipsis" aria-hidden="true">…</span>
+              <button
+                v-else
+                type="button"
+                class="pagination-button pagination-button--page"
+                :class="{ active: item === currentPage }"
+                :aria-current="item === currentPage ? 'page' : undefined"
+                :aria-label="pageNumberLabel(item)"
+                @click="selectPage(item)"
+              >
+                {{ item }}
+              </button>
+            </template>
+          </span>
+
+          <button
+            type="button"
+            class="pagination-button pagination-button--direction"
+            :disabled="currentPage === totalPages"
+            :aria-label="t('courseLibrary.pagination.next', '下一页')"
+            @click="selectPage(currentPage + 1)"
+          >
+            <span>{{ t('courseLibrary.pagination.next', '下一页') }}</span>
+            <ChevronRight :size="17" />
+          </button>
+
+          <form class="pagination-jump" @submit.prevent="jumpToPage">
+            <label for="course-page-jump">{{ t('courseLibrary.pagination.jumpTo', '跳至') }}</label>
+            <input
+              id="course-page-jump"
+              v-model="pageJumpInput"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              :max="totalPages"
+              :aria-label="t('courseLibrary.pagination.jumpInput', '跳转页码')"
+            />
+            <span>{{ t('courseLibrary.pagination.pageUnit', '页') }}</span>
+            <button
+              type="submit"
+              class="pagination-jump__submit"
+              :aria-label="t('courseLibrary.pagination.jump', '跳转')"
+            >
+              {{ t('courseLibrary.pagination.jump', '跳转') }}
+            </button>
+          </form>
+        </nav>
+      </Transition>
+    </Teleport>
+
     <CourseGenerationDialog
       v-model="createDialogOpen"
       :busy="creating"
@@ -239,10 +312,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookMarked, BookOpenText, ChevronDown, Ellipsis, FilePlus2, FolderOpen, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookMarked, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseTaskCenter from '../components/CourseTaskCenter.vue'
 import QuestionBankReviewCenter from '../components/QuestionBankReviewCenter.vue'
@@ -256,7 +329,11 @@ import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume
 const router = useRouter()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
+const COURSES_PER_PAGE = 6
 const query = ref('')
+const currentPage = ref(1)
+const pageJumpInput = ref('')
+const courseGridRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const createMenuRef = ref<HTMLElement | null>(null)
 const createMenuTriggerRef = ref<HTMLButtonElement | null>(null)
@@ -275,12 +352,33 @@ const filteredCourses = computed(() => {
   if (!keyword) return courseStore.courseList
   return courseStore.courseList.filter(course => course.course_name.toLocaleLowerCase().includes(keyword))
 })
-const courseCards = computed(() => filteredCourses.value.map(course => ({
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredCourses.value.length / COURSES_PER_PAGE)))
+const paginatedCourses = computed(() => {
+  const start = (currentPage.value - 1) * COURSES_PER_PAGE
+  return filteredCourses.value.slice(start, start + COURSES_PER_PAGE)
+})
+const courseCards = computed(() => paginatedCourses.value.map(course => ({
   course,
   status: courseStatus(course.course_id),
 })))
+const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
+  const pages = totalPages.value
+  if (pages <= 7) return Array.from({ length: pages }, (_, index) => index + 1)
+  if (currentPage.value <= 4) return [1, 2, 3, 4, 5, 'end-ellipsis', pages]
+  if (currentPage.value >= pages - 3) return [1, 'start-ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages]
+  return [1, 'start-ellipsis', currentPage.value - 1, currentPage.value, currentPage.value + 1, 'end-ellipsis', pages]
+})
 const attentionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskNeedsAttention).length)
 const latestResumeCourse = computed(() => latestResumableCourse(courseStore.courseList))
+
+watch(query, () => {
+  currentPage.value = 1
+  closeCourseMenu()
+})
+
+watch(totalPages, pages => {
+  if (currentPage.value > pages) currentPage.value = pages
+})
 
 onMounted(async () => {
   document.addEventListener('pointerdown', closeOpenMenusOnOutsidePointer)
@@ -335,6 +433,26 @@ function toggleCourseMenu(courseId: string) {
 
 function closeCourseMenu() {
   openCourseMenuId.value = ''
+}
+
+function pageNumberLabel(page: number) {
+  return t('courseLibrary.pagination.pageNumber', '第 {page} 页').replace('{page}', String(page))
+}
+
+async function selectPage(page: number) {
+  const nextPage = Math.max(1, Math.min(totalPages.value, page))
+  if (nextPage === currentPage.value) return
+  currentPage.value = nextPage
+  pageJumpInput.value = ''
+  closeCourseMenu()
+  await nextTick()
+  courseGridRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+}
+
+function jumpToPage() {
+  const page = Number.parseInt(pageJumpInput.value, 10)
+  if (!Number.isFinite(page)) return
+  void selectPage(page)
 }
 
 function courseStatus(courseId: string) {
@@ -540,6 +658,23 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
 .course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
+.course-library--paginated { padding-bottom:118px; }
+.library-pagination-dock { position:fixed; z-index:90; left:50%; bottom:max(18px,env(safe-area-inset-bottom)); max-width:calc(100vw - 32px); min-height:54px; display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; border:1px solid rgba(203,213,225,.82); border-radius:16px; background:rgba(255,255,255,.94); box-shadow:0 18px 46px rgba(51,65,85,.2),0 4px 14px rgba(79,70,229,.1); backdrop-filter:blur(16px); transform:translateX(-50%); }
+.pagination-pages { display:flex; align-items:center; gap:5px; }
+.pagination-button { height:34px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid rgba(203,213,225,.76); border-radius:9px; color:var(--lz-text-secondary); background:#fff; font-size:12px; font-weight:700; cursor:pointer; transition:border-color .15s ease,color .15s ease,background .15s ease,transform .15s ease; }
+.pagination-button:hover:not(:disabled),.pagination-button:focus-visible { border-color:#a5b4fc; color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; transform:translateY(-1px); }
+.pagination-button:disabled { color:var(--lz-text-muted); background:var(--lz-surface-muted); cursor:not-allowed; opacity:.58; }
+.pagination-button--direction { min-width:78px; padding:0 10px; }
+.pagination-button--page { width:34px; padding:0; }
+.pagination-button--page.active { border-color:transparent; color:#fff; background:linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow:0 5px 12px rgba(99,102,241,.22); }
+.pagination-ellipsis { width:22px; color:var(--lz-text-muted); font-size:13px; text-align:center; }
+.pagination-jump { display:flex; align-items:center; gap:5px; margin-left:3px; padding-left:11px; border-left:1px solid rgba(226,232,240,.92); color:var(--lz-text-muted); font-size:11px; white-space:nowrap; }
+.pagination-jump input { width:46px; height:32px; padding:0 5px; border:1px solid rgba(203,213,225,.84); border-radius:8px; color:var(--lz-text); background:#fff; font-size:12px; font-weight:700; text-align:center; outline:none; }
+.pagination-jump input:focus { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.12); }
+.pagination-jump__submit { height:32px; padding:0 10px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:11px; font-weight:800; cursor:pointer; }
+.pagination-jump__submit:hover,.pagination-jump__submit:focus-visible { color:#fff; background:var(--lz-brand); outline:none; }
+.pagination-dock-enter-active,.pagination-dock-leave-active { transition:opacity .16s ease,transform .16s ease; }
+.pagination-dock-enter-from,.pagination-dock-leave-to { opacity:0; transform:translate(-50%,8px); }
 .library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
 .library-state strong { color: var(--lz-text); font-size: 15px; }
 .library-state span { font-size: 12px; }
@@ -551,6 +686,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 }
 @media (max-width:700px) {
   .course-library { padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
+  .course-library--paginated { padding-bottom:126px; }
   .library-header { align-items:stretch; flex-direction:column; }
   .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
   .create-course-menu__panel { left:0; right:0; width:auto; }
@@ -566,6 +702,10 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-menu-trigger { top:15px; right:15px; }
   .course-menu { top:53px; right:15px; }
   .course-copy h2 { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .library-pagination-dock { width:calc(100vw - 24px); max-width:none; flex-wrap:wrap; gap:6px; padding:7px 8px; border-radius:14px; }
+  .pagination-button--direction { min-width:34px; width:34px; padding:0; }
+  .pagination-button--direction > span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .pagination-jump { width:100%; justify-content:center; margin-left:0; padding:5px 0 0; border-top:1px solid rgba(226,232,240,.92); border-left:0; }
 }
 @media (max-width:620px) {
   .library-global-actions { gap:2px; }

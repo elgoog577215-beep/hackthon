@@ -144,6 +144,17 @@
     "openHint": "Enter course",
     "retry": "Retry",
     "moreActions": "More actions",
+    "pagination": {
+      "label": "Course pagination",
+      "previous": "Previous page",
+      "next": "Next page",
+      "pageSelection": "Page selection",
+      "pageNumber": "Page {page}",
+      "jumpTo": "Go to",
+      "jumpInput": "Page to open",
+      "pageUnit": "page",
+      "jump": "Go"
+    },
     "resume": {
       "reading": "Continue learning",
       "practice": "Continue unfinished practice",
