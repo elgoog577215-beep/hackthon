@@ -154,18 +154,20 @@ def test_prompt_context_exposes_current_responsibility_without_copying_course():
     course["course_coherence_contract"] = compile_course_coherence_contract(course)
 
     context = course_coherence_prompt_context(course, "L2-1-2")
-    _, system_prompt = CoursePromptComposer().build_content_prompt(
+    user_prompt, system_prompt = CoursePromptComposer().build_content_prompt(
         course_data=course,
         node=course["nodes"][2],
         context="无资料",
     )
+    # 节点专属内容现在在 user 消息里，模型收到的是两段拼接。
+    full_prompt = system_prompt + user_prompt
 
     assert "必须承接：1.1 函数表示" in context
     assert "本节唯一推进：能够从函数图像判断单调性和最值" in context
     assert "留给后续节点展开：函数建模" in context
     assert "本节之后实际进入：1.3 实际建模" in context
-    assert "## 全课总编契约" in system_prompt
-    assert context in system_prompt
+    assert "## 全课总编契约" in full_prompt
+    assert context in full_prompt
 
 
 def test_content_prompt_exposes_stable_module_heading_and_role_contract():
@@ -180,13 +182,14 @@ def test_content_prompt_exposes_stable_module_heading_and_role_contract():
         "prompt_instruction": "说明学习者完成后能做什么",
     }]
 
-    _, system_prompt = CoursePromptComposer().build_content_prompt(
+    user_prompt, system_prompt = CoursePromptComposer().build_content_prompt(
         course_data=course,
         node=node,
         context="无资料",
     )
 
-    assert "必需模块 `## 本节任务` [角色=objective]" in system_prompt
+    # 模块契约是节点专属的，现在在 user 消息里；输出规则仍在 system。
+    assert "必需模块 `## 本节任务` [角色=objective]" in user_prompt
     assert "当前节点名称已经由页面显示" in system_prompt
     assert "`###` 及更深标题只用于模块内部" in system_prompt
 
@@ -359,11 +362,9 @@ async def test_coherence_repair_only_accepts_a_candidate_that_removes_blocking_i
 
 
 def test_content_prompts_share_one_stable_course_prefix_across_nodes():
-    """同课程各节的 system prompt 必须共享一段稳定前缀，才能命中 prefix cache。
+    """全课各节的 system prompt 必须逐字节相同，节点专属内容只出现在 user 消息。
 
-    真正的不变量是顺序：全课共享内容必须整体排在任何节点专属内容之前。
-    只要顺序成立，前缀长度就随课程体量自然增长；这里的 fixture 很小，
-    所以只对长度取一个保守下限，主检查放在顺序与分叉点上。
+    这样可缓存前缀覆盖整个 system 段，且不依赖"节点内容恰好开头相同"这种巧合。
     """
     course = _course()
     course["course_coherence_contract"] = compile_course_coherence_contract(
@@ -373,27 +374,22 @@ def test_content_prompts_share_one_stable_course_prefix_across_nodes():
     sections = [
         node for node in course["nodes"] if node.get("node_level") == 2
     ]
-    prompts = [
+    pairs = [
         composer.build_content_prompt(
             course_data=course,
             node=node,
             context="",
-        )[1]
+        )
         for node in sections
     ]
+    system_prompts = {system for _user, system in pairs}
 
-    def shared_prefix(left: str, right: str) -> int:
-        limit = min(len(left), len(right))
-        for index in range(limit):
-            if left[index] != right[index]:
-                return index
-        return limit
+    # 核心不变量：system 段与节点无关。
+    assert len(system_prompts) == 1
+    system_prompt = system_prompts.pop()
+    assert len(system_prompt) > 1200
 
-    divergence = min(shared_prefix(prompts[0], other) for other in prompts[1:])
-    stable_prefix = prompts[0][:divergence]
-
-    assert divergence > 1200
-    # 全课共享块必须完整落在分叉点之前。
+    # 全课共享块留在 system。
     for heading in (
         "## 输出契约",
         "## 课程",
@@ -402,35 +398,26 @@ def test_content_prompts_share_one_stable_course_prefix_across_nodes():
         "## 当前课程知识身份边界",
         "## 当前课程教学边界",
     ):
-        assert heading in stable_prefix
-    # 任何一节的节点名都不得出现在共享前缀里。
-    for node in sections:
-        assert node["node_name"] not in stable_prefix
+        assert heading in system_prompt
 
-    # 顺序不变量：最后一个共享块也必须排在第一个节点专属块之前。
-    first_prompt = prompts[0]
-    last_shared = max(
-        first_prompt.index(heading)
-        for heading in (
-            "## 输出契约",
-            "## 课程块编排画像",
-            "## 全课难度能力契约",
-            "## 当前课程知识身份边界",
-            "## 当前课程教学边界",
-        )
-    )
-    first_node_specific = min(
-        first_prompt.index(heading)
-        for heading in (
-            "## 总体教案对本节的引领",
-            "## 本节学科课型",
-            "## 当前节点契约",
-            "## 当前课程知识库契约",
-            "## 全课总编契约",
-            "## 当前节点难度契约",
-            "## 当前节点证据契约",
-            "## 本节教学模块",
-            "## 持久化上下文",
-        )
-    )
-    assert last_shared < first_node_specific
+    # 节点专属块与节点名都不得留在 system。
+    for node in sections:
+        assert node["node_name"] not in system_prompt
+    for heading in (
+        "## 总体教案对本节的引领",
+        "## 本节学科课型",
+        "## 当前节点契约",
+        "## 当前课程知识库契约",
+        "## 全课总编契约",
+        "## 当前节点难度契约",
+        "## 当前节点证据契约",
+        "## 本节教学模块",
+        "## 持久化上下文",
+    ):
+        assert heading not in system_prompt
+        assert all(heading in user for user, _system in pairs)
+
+    # 指令仍在 user 末尾，节点专属内容在它之前。
+    for (user, _system), node in zip(pairs, sections, strict=True):
+        assert user.rstrip().endswith("只输出 Markdown。")
+        assert user.index("## 当前节点契约") < user.index("撰写「")

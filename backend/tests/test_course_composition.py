@@ -307,7 +307,7 @@ def test_final_course_block_keeps_difficulty_recipe_selection_trace():
         "node_content": "",
         "content_blocks": [],
     }
-    _user_prompt, system_prompt = CoursePromptComposer().build_content_prompt(
+    _user_prompt, _system_prompt = CoursePromptComposer().build_content_prompt(
         course_data={
             "course_id": "course-difficulty-recipe",
             "course_name": "难度配方测试",
@@ -319,6 +319,8 @@ def test_final_course_block_keeps_difficulty_recipe_selection_trace():
         node=node,
         context="无资料",
     )
+    # 节点专属内容现在在 user 消息里，模型收到的是两段拼接。
+    system_prompt = _system_prompt + _user_prompt
     assert "必需模块 `## 证明与推导`" in system_prompt
     assert "必需模块 `## 数学建模`" in system_prompt
     assert "必需模块 `## 迁移挑战`" in system_prompt

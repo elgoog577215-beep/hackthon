@@ -793,8 +793,10 @@ class CoursePromptComposer:
 不得编造来源；使用资料事实时追加 `[[evidence:证据ID]]`，且只能用允许列表中的 ID。
 数学使用 `$...$` 或 `$$...$$`；列表使用真实 Markdown 语法。
 
-## 当前小节
+## 课程
 - 课程：{clip_text(course_data.get('course_name'), 96)}
+"""
+            node_brief = f"""## 当前小节
 - 节点：{node_name}
 - 目标：{objective}
 - 知识：{key_points or '按当前知识库契约'}
@@ -815,14 +817,13 @@ class CoursePromptComposer:
 
 ## 持久化上下文（已压缩）
 {context or '无额外资料或前序摘要。'}
-{continuation_contract}
-"""
-            user_prompt = (
+{continuation_contract}"""
+            instruction = (
                 f"续写「{node_name}」，只输出追加正文。"
                 if continuation
                 else f"撰写「{node_name}」正文，只输出 Markdown。"
             )
-            return user_prompt, system_prompt
+            return f"{node_brief}\n\n{instruction}", system_prompt
 
         course_name = (
             clip_text(course_data.get("course_name"), 180)
@@ -908,8 +909,10 @@ class CoursePromptComposer:
 {teaching_context}
 
 内容必须通过学习任务、支架方式、独立性和验收证据展现难度；不得仅靠术语、篇幅、公式、代码量或题量展现难度。
-
-## 总体教案对本节的引领
+"""
+        # 节点专属内容放进 user 消息：system prompt 因此在全课各节之间
+        # 完全一致，可缓存前缀覆盖整个 system 段而不只是它的前半部分。
+        node_brief = f"""## 总体教案对本节的引领
 {teaching_guidance}
 
 ## 本节学科课型
@@ -945,13 +948,13 @@ class CoursePromptComposer:
 
 ## 持久化上下文
 {context or '无额外资料或前置摘要。'}
-{continuation_contract}
-"""
-        user_prompt = (
+{continuation_contract}"""
+        instruction = (
             f"继续撰写「{node_name}」，只输出追加正文。"
             if continuation
             else f"撰写「{node_name}」完整正文，只输出 Markdown。"
         )
+        user_prompt = f"{node_brief}\n\n{instruction}"
         return user_prompt, system_prompt
 
     @staticmethod
