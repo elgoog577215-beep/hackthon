@@ -677,6 +677,11 @@ def _story_repair_targets(
             "story_title_capacity_exceeded",
             "story_unsupported_title",
         }
+        layout_repair_required = error.failure.code in {
+            "template_layout_artifact_mismatch",
+            "template_layout_intent_mismatch",
+            "template_layout_unavailable",
+        }
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -690,6 +695,11 @@ def _story_repair_targets(
             ],
             "page_intent": page_intent,
             "allowed_template_layout_ids": page_allowed_layout_ids,
+            "required_template_layout_id": (
+                str(page_allowed_layout_ids[0])
+                if layout_repair_required and page_allowed_layout_ids
+                else ""
+            ),
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
             "missing_source_block_ids": list(missing_source_block_ids or []),
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
@@ -859,6 +869,8 @@ async def plan_slide_story_v3(
                                 "Copy each title verbatim from that unit's title_candidates and keep "
                                 "it within that unit's title_max_chars. Set "
                                 "a repair target's title exactly to required_title when provided. Set "
+                                "its template_layout_id exactly to required_template_layout_id when "
+                                "provided. Set "
                                 "summary to empty unless its complete wording is directly supported "
                                 "by that unit's source_text; never add identifiers or facts."
                             ),

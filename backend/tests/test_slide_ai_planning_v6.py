@@ -433,7 +433,9 @@ async def test_story_batch_repairs_layout_from_page_level_source_intent() -> Non
         concept_layout = (
             unit["allowed_template_layout_ids"][0]
             if len(calls) == 1
-            else _layout_for_request_blocks(unit, [concept_id])
+            else request["repair_feedback"]["repair_targets"][0][
+                "required_template_layout_id"
+            ]
         )
         return {
             "schema_version": "slide_story_batch_response_v3",
@@ -468,6 +470,9 @@ async def test_story_batch_repairs_layout_from_page_level_source_intent() -> Non
     target = repair_feedback["repair_targets"][0]
     assert repair_feedback["code"] == "template_layout_intent_mismatch"
     assert target["page_intent"] == "concept_explanation"
+    assert target["required_template_layout_id"] in target[
+        "allowed_template_layout_ids"
+    ]
     assert story.pages[0].template_layout_id in target["allowed_template_layout_ids"]
     assert story.pages[0].template_layout_id != calls[0]["teaching_units"][0][
         "allowed_template_layout_ids"
