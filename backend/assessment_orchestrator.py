@@ -71,6 +71,36 @@ AssessmentChapterCallback = Callable[
 ]
 
 
+class ModelSolveBudgetExhausted(AIProviderRequestError):
+    """这道题已用完按题的模型求解预算（G3）。
+
+    独立求解承担真实的正确性验证，不能跳过；但也不能无上限地重试。用完预算的
+    题必须进 waiting_review 交人判断，**不是**再回去重写一轮——重写会再要一次
+    求解，正是要止住的循环。
+    """
+
+    def __init__(self, used: int, limit: int) -> None:
+        super().__init__("model_solve_budget_exhausted")
+        self.used = used
+        self.limit = limit
+
+
+def _consume_solve_budget(solve_budget: dict[str, int] | None) -> None:
+    """扣掉一次模型求解预算，用完则抛 ModelSolveBudgetExhausted。
+
+    合批求解与直连求解都要经过这里——只管其中一条会让预算形同虚设。
+    """
+    if solve_budget is None:
+        return
+    limit = int(solve_budget.get("limit") or 0)
+    if limit <= 0:
+        return
+    used = int(solve_budget.get("used") or 0)
+    if used >= limit:
+        raise ModelSolveBudgetExhausted(used, limit)
+    solve_budget["used"] = used + 1
+
+
 class SemanticPreflightFailure(AIProviderRequestError):
     """A repairable semantic failure found before independent solving."""
 
@@ -2352,6 +2382,13 @@ class AssessmentGenerationOrchestrator:
             final_attempt_index = (
                 generation_policy.max_generation_attempts - 1
             )
+            # 按题累计的模型求解预算，跨全部重试轮次共享（G3）。
+            solve_budget = {
+                "used": 0,
+                "limit": int(
+                    generation_policy.max_model_solve_calls_per_question
+                ),
+            }
             for attempt_index in range(
                 generation_policy.max_generation_attempts
             ):
@@ -2450,6 +2487,7 @@ class AssessmentGenerationOrchestrator:
                         audit,
                         generation_policy=generation_policy,
                         solution_batcher=solution_batcher,
+                        solve_budget=solve_budget,
                     )
                     semantic_report = await self._semantic_report(
                         contract,
@@ -2459,6 +2497,37 @@ class AssessmentGenerationOrchestrator:
                         audit=audit,
                         semantic_batcher=semantic_batcher,
                     )
+                except ModelSolveBudgetExhausted as exc:
+                    # 用完按题预算：停下来交人判断，不再重写。
+                    # 继续重写会再要一次求解，正是要止住的循环。
+                    item_audit["model_solve_budget"] = {
+                        "used": exc.used,
+                        "limit": exc.limit,
+                        "exhausted": True,
+                    }
+                    # 这一轮也要进 attempts，否则审计里看不出它是怎么停的。
+                    item_audit["attempts"].append({
+                        "attempt": attempt_index + 1,
+                        "score": 0,
+                        "passed": False,
+                        "decision": "discard",
+                        "issue_codes": ["MODEL_SOLVE_BUDGET_EXHAUSTED"],
+                    })
+                    last_quality = {
+                        "schema_version": "question_quality_report_v2",
+                        "passed": False,
+                        "score": 0,
+                        "decision": "discard",
+                        "issues": [{
+                            "code": "MODEL_SOLVE_BUDGET_EXHAUSTED",
+                            "severity": "critical",
+                            "message": (
+                                f"这道题已用完模型独立求解预算（{exc.used}/{exc.limit}），"
+                                "转人工复核，不再自动重写。"
+                            ),
+                        }],
+                    }
+                    break
                 except SemanticPreflightFailure as exc:
                     issue_codes = [
                         str(issue.get("code") or "")
@@ -2719,6 +2788,7 @@ class AssessmentGenerationOrchestrator:
         *,
         generation_policy: AssessmentGenerationPolicy,
         solution_batcher: _IndependentSolutionBatcher | None,
+        solve_budget: dict[str, int] | None = None,
     ) -> tuple[
         dict[str, Any],
         dict[str, Any],
@@ -2763,6 +2833,13 @@ class AssessmentGenerationOrchestrator:
                 audit["local_independent_solution_count"] = int(
                     audit.get("local_independent_solution_count") or 0
                 ) + 1
+        if independent is None:
+            # G3：按题的模型求解预算，一轮求解只扣一次。
+            #
+            # 合批与直连是同一轮求解的两条实现路径（合批拿不到结果时会落到直连），
+            # 所以必须在这里统一扣一次，而不是两个分支各扣一次——各扣一次会把
+            # 一轮求解算成两次，健康的题也会被误判为超预算。
+            _consume_solve_budget(solve_budget)
         if independent is None and solution_batcher is not None:
             independent = await solution_batcher.solve(
                 public_question_spec=public_spec,

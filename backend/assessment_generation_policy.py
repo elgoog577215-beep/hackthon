@@ -76,6 +76,14 @@ class AssessmentGenerationPolicy:
     max_provider_attempts: int | None
     compact_candidate: bool
     prefer_local_solver: bool
+    # 每道题最多允许几次「模型独立求解」调用（跨全部重试轮次累计）。
+    #
+    # G3：独立求解承担真实的正确性验证（拿模型独立解出的答案去核对生成时锁定的
+    # canonical answer），所以不能一刀切删掉。但改动前它没有任何按题的预算——
+    # 单轮内有 2 次格式重试，外层最多 4 轮，于是一道病态的题最坏能烧掉 8 次求解。
+    # 这里给一个按题的上限：能本地确定性求解的题根本走不到模型（M1），必须模型
+    # 求解的题保留但限次，超限进 waiting_review 而不是继续重写。
+    max_model_solve_calls_per_question: int
     stage_timeouts: dict[str, float | None]
 
     @property
@@ -138,6 +146,7 @@ def resolve_assessment_generation_policy(
             max_provider_attempts=1,
             compact_candidate=True,
             prefer_local_solver=True,
+            max_model_solve_calls_per_question=2,
             stage_timeouts={
                 "generate": 45.0,
                 "repair": 35.0,
@@ -153,6 +162,7 @@ def resolve_assessment_generation_policy(
         solution_batch_size=1,
         max_provider_attempts=None,
         compact_candidate=False,
+        max_model_solve_calls_per_question=3,
         # 本地确定性解题器在 deliberate 档也开。
         #
         # 它不是"快但不准"的近似：`IndependentSolverRegistry.solve` 只在题目

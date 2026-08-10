@@ -569,9 +569,16 @@ async def test_three_disagreements_discard_only_failed_slot():
         "thermo-1"
     ]["objective_practice"]
 
+    # G3：按题的模型求解预算止住了「一道病态题反复求解」的循环。
+    #
+    # 改动前 generate 3 + repair 3 + solve 6 = 12 次模型调用，最后仍然 discard。
+    # 独立求解承担真实的正确性验证，所以不能删；但也不该无上限重试。现在求解
+    # 用满 3 次预算即停，转人工复核——结论相同（discard），求解从 6 降到 5，
+    # 且第 4 轮不再白跑一次求解。
     assert model.generate_calls == 3
     assert model.repair_calls == 3
-    assert model.solve_calls == 6
+    assert model.solve_calls == 5
+    assert model.solve_calls <= 6, "求解次数不得回退到无预算时的水平"
     assert contract["generation_status"] == "discarded"
     audit_item = next(
         item
@@ -580,6 +587,15 @@ async def test_three_disagreements_discard_only_failed_slot():
         ]
         if item["practice_level"] == "objective_practice"
     )
+    # 停在哪、为什么停，审计里要看得出来
+    assert audit_item["model_solve_budget"] == {
+        "used": 3,
+        "limit": 3,
+        "exhausted": True,
+    }
+    assert audit_item["attempts"][-1]["issue_codes"] == [
+        "MODEL_SOLVE_BUDGET_EXHAUSTED"
+    ]
     assert len(audit_item["attempts"]) == 4
     assert audit_item["final_decision"] == "discard"
 

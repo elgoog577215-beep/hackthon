@@ -260,3 +260,54 @@ def test_generation_schema_carries_the_solver_kind_hint() -> None:
     batch = _batch_generation_prompt([context])
     assert "numeric_expression" in batch, "批量中文 schema 未带合法 kind"
     del hint
+
+
+# --- G3：按题的模型求解预算 -------------------------------------------------
+
+
+def test_both_profiles_bound_model_solving_per_question() -> None:
+    """独立求解不能删（它承担真实正确性验证），但必须有按题上限。"""
+    deliberate = resolve_assessment_generation_policy("deliberate")
+    fast = resolve_assessment_generation_policy("fast")
+
+    assert deliberate.max_model_solve_calls_per_question == 3
+    assert fast.max_model_solve_calls_per_question == 2
+    # 预算必须够健康题走完「首轮 + 一轮修复」，否则会误杀正常题
+    assert deliberate.max_model_solve_calls_per_question >= 2
+
+
+def test_solve_budget_counts_one_per_round_not_per_branch() -> None:
+    """合批与直连是同一轮求解的两条实现路径，只能扣一次。
+
+    两个分支各扣一次会把一轮算成两次，健康的题也会被误判超预算——我第一版
+    就是这么写的，被 test_orchestrator_uses_bounded_repair_and_isolates_solver
+    抓住了。
+    """
+    from assessment_orchestrator import (
+        ModelSolveBudgetExhausted,
+        _consume_solve_budget,
+    )
+
+    budget = {"used": 0, "limit": 2}
+    _consume_solve_budget(budget)
+    assert budget["used"] == 1
+    _consume_solve_budget(budget)
+    assert budget["used"] == 2
+
+    try:
+        _consume_solve_budget(budget)
+    except ModelSolveBudgetExhausted as exc:
+        assert exc.used == 2
+        assert exc.limit == 2
+    else:
+        raise AssertionError("用完预算必须抛出，不能静默继续求解")
+
+
+def test_solve_budget_is_opt_in() -> None:
+    """没传预算（例如诊断链路复用求解）时不设限，行为不变。"""
+    from assessment_orchestrator import _consume_solve_budget
+
+    _consume_solve_budget(None)
+    unlimited = {"used": 99, "limit": 0}
+    _consume_solve_budget(unlimited)
+    assert unlimited["used"] == 99
