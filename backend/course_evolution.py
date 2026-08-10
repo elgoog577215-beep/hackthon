@@ -57,6 +57,10 @@ CANONICAL_OPERATION_TYPES = frozenset({
     "REORDER_COURSE_BLOCK",
     "ADJUST_COURSE_DIFFICULTY",
 })
+# How long an operation the learner explicitly declined stays out of follow-up
+# proposals. Long enough that "I said no" is respected across a study session,
+# short enough that a later, genuinely different course state can offer it again.
+DECLINED_OPERATION_COOLDOWN_DAYS = 7
 
 
 class EvidenceAnchor(BaseModel):
@@ -692,6 +696,62 @@ def _application_outcome(
     }
 
 
+def _declined_operations(
+    change_set: CourseEvolutionPlan,
+    *,
+    declined_at: str,
+) -> list[dict[str, Any]]:
+    """Record the operations the learner reviewed and chose not to apply.
+
+    ``excluded_operation_ids`` alone is only a receipt field. Follow-up planners
+    need to know *what* was declined and until when, otherwise the next
+    adjustment re-proposes exactly the item the learner already said no to.
+    """
+    existing = {
+        str(item.get("operation_id") or ""): item
+        for item in change_set.impact_summary.get("declined_operations") or []
+        if isinstance(item, dict)
+    }
+    cooldown_until = (
+        datetime.fromisoformat(declined_at)
+        + timedelta(days=DECLINED_OPERATION_COOLDOWN_DAYS)
+    ).isoformat()
+    operations_by_id = {
+        operation.operation_id: operation
+        for operation in change_set.operations
+    }
+    declined: list[dict[str, Any]] = []
+    for operation_id in change_set.excluded_operation_ids:
+        operation = operations_by_id.get(operation_id)
+        if operation is None:
+            continue
+        previous = existing.get(operation_id) or {}
+        declined.append({
+            "operation_id": operation_id,
+            "operation_type": operation.operation_type,
+            "target_block_id": operation.target_block_id,
+            "target_section_id": operation.target_section_id,
+            "reason": "learner_declined_at_partial_acceptance",
+            "declined_at": str(previous.get("declined_at") or declined_at),
+            "cooldown_until": cooldown_until,
+        })
+    return declined
+
+
+def _declined_operation_ids(
+    change_set: CourseEvolutionPlan,
+    *,
+    now: str,
+) -> set[str]:
+    """Operation IDs whose decline cooldown has not expired yet."""
+    return {
+        str(item.get("operation_id") or "")
+        for item in change_set.impact_summary.get("declined_operations") or []
+        if isinstance(item, dict)
+        and str(item.get("cooldown_until") or "") > now
+    }
+
+
 def _finalize_applied_change_set(
     state: CourseEvolutionState,
     change_set: CourseEvolutionPlan,
@@ -728,6 +788,10 @@ def _finalize_applied_change_set(
         "document_revision": str(receipt.get("document_revision") or ""),
         "committed_at": change_set.accepted_at,
     }
+    change_set.impact_summary["declined_operations"] = _declined_operations(
+        change_set,
+        declined_at=change_set.accepted_at,
+    )
     hypothesis = _hypothesis(state, change_set.hypothesis_id)
     baseline_evidence = [
         item for item in state.evidence_items
@@ -803,8 +867,14 @@ def create_adjustment_plan(
     if existing:
         return state
 
+    now = _now()
+    suppressed_operation_ids = _declined_operation_ids(source, now=now)
     operations: list[CourseEvolutionOperation] = []
     for operation in source.operations:
+        # An item the learner reviewed and declined must not come back inside the
+        # follow-up adjustment; only the support they actually kept is reworked.
+        if operation.operation_id in suppressed_operation_ids:
+            continue
         payload = deepcopy(operation.payload)
         if operation.operation_type in {"INSERT_COURSE_SUPPORT", "INSERT_PERSONAL_SUPPORT"}:
             payload["body"] = (
@@ -833,7 +903,10 @@ def create_adjustment_plan(
             "payload": payload,
         }, deep=True))
 
-    now = _now()
+    if not operations:
+        raise ValueError(
+            "Every operation in this adaptation was declined; there is nothing to adjust",
+        )
     document_repository = document_repository or _default_document_repository()
     document, canonical = document_repository.load_document(course_id)
     if not canonical:
@@ -863,6 +936,9 @@ def create_adjustment_plan(
             **deepcopy(source.impact_summary),
             "adjustment_of": source.change_set_id,
             "protected": list(source.impact_summary.get("protected") or []),
+            # The source plan's own command group and receipt describe a commit
+            # that already happened; a fresh pending plan must not inherit them.
+            "command_group": {},
         },
         expected_effect="用更具体的状态对照替换无效支持，再通过同能力任务复验。",
         created_at=now,
@@ -1241,7 +1317,16 @@ def course_evolution_view(
             for item in state.hypotheses
         ),
         "pending_change_set_count": sum(item.status == "pending" for item in state.change_sets),
+        # A plan whose course commit is still in flight is neither pending review
+        # nor applied; surfacing it separately keeps both counts honest.
+        "applying_change_set_count": sum(
+            item.status == "accepted" for item in state.change_sets
+        ),
         "applied_change_set_count": sum(item.status == "applied" for item in state.change_sets),
+        "declined_operation_count": sum(
+            len(item.impact_summary.get("declined_operations") or [])
+            for item in state.change_sets
+        ),
     }
     return payload
 
@@ -1530,10 +1615,15 @@ def _evaluate_hypotheses_and_candidates(
             item for item in state.change_sets
             if item.hypothesis_id == hypothesis_id
             and item.evidence_ids == hypothesis.support_evidence_ids
-            and item.status in {"pending", "applied"}
+            # ``accepted`` is a plan whose course commit is still in flight. It
+            # already owns this evidence, so a duplicate candidate must not be
+            # generated alongside it.
+            and item.status in {"pending", "accepted", "applied"}
         ), None)
         if existing:
-            hypothesis.status = "candidate_created" if existing.status == "pending" else "evaluating"
+            hypothesis.status = (
+                "candidate_created" if existing.status == "pending" else "evaluating"
+            )
             continue
         rejected = next((
             item for item in reversed(state.change_sets)

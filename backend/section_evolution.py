@@ -1542,7 +1542,9 @@ def ensure_challenge_suggestions(
             and plan.growth_direction == "challenge"
             and plan.target_section_id == section_id
             and plan.evidence_ids == evidence_ids
-            and plan.status in {"pending", "applied"}
+            # ``accepted`` means the course commit for that plan is still in
+            # flight; it already covers this evidence, so no duplicate here.
+            and plan.status in {"pending", "accepted", "applied"}
             for plan in state.change_sets
         ):
             continue

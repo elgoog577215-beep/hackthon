@@ -1154,6 +1154,137 @@ def test_released_command_group_can_still_be_rejected(tmp_path, monkeypatch):
     assert all(block.status != "retired" for block in final_document.blocks)
 
 
+def test_operations_excluded_at_partial_acceptance_are_not_reproposed(tmp_path):
+    """Declining one item of a plan must be remembered, not quietly retried.
+
+    A follow-up adjustment reworks the support the learner kept. Carrying the
+    item they explicitly declined back into that adjustment is the "rejected
+    item keeps coming back" failure, so the exclusion needs a durable record.
+    """
+    course = _course()
+    state, anchor, _mastered = _mixed_family_plan(course)
+    plan = state.change_sets[0]
+    # Two scaffold operations so one can be kept and one declined.
+    plan.operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="补一段原因解释。",
+            payload={"body": "先说明为什么需要这一步。"},
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-checkpoint",
+            operation_type="ADD_CHECKPOINT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="加一次理解检查。",
+            payload={"body": "确认操作顺序。", "prompt": "先做哪一步？"},
+        ),
+    ]
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        selected_operation_ids=["operation-support"],
+        repository=repository,
+        document_repository=document_repository,
+    )
+    source = applied.change_sets[0]
+    assert source.selected_operation_ids == ["operation-support"]
+    assert source.excluded_operation_ids == ["operation-checkpoint"]
+    declined = source.impact_summary["declined_operations"]
+    assert [item["operation_id"] for item in declined] == ["operation-checkpoint"]
+    assert declined[0]["operation_type"] == "ADD_CHECKPOINT"
+    assert declined[0]["declined_at"]
+    assert declined[0]["cooldown_until"] > declined[0]["declined_at"]
+
+    # The follow-up adjustment must rework only what the learner accepted.
+    source.effect_evaluation = {"status": "ineffective"}
+    repository.save(applied)
+    adjusted = create_adjustment_plan(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    replacement = next(
+        item for item in adjusted.change_sets
+        if item.replaces_change_set_id == "plan-mixed-family"
+    )
+    assert [item.operation_type for item in replacement.operations] == [
+        "INSERT_COURSE_SUPPORT",
+    ]
+    assert replacement.impact_summary["declined_operations"] == declined
+
+
+def test_declined_operation_returns_after_its_cooldown_expires(tmp_path):
+    """A cooldown suppresses re-proposal; it does not ban the item forever."""
+    course = _course()
+    state, anchor, _mastered = _mixed_family_plan(course)
+    plan = state.change_sets[0]
+    plan.operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="补一段原因解释。",
+            payload={"body": "先说明为什么需要这一步。"},
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-checkpoint",
+            operation_type="ADD_CHECKPOINT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="加一次理解检查。",
+            payload={"body": "确认操作顺序。", "prompt": "先做哪一步？"},
+        ),
+    ]
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        selected_operation_ids=["operation-support"],
+        repository=repository,
+        document_repository=document_repository,
+    )
+    source = applied.change_sets[0]
+    source.effect_evaluation = {"status": "ineffective"}
+    # Expire the cooldown as time would.
+    source.impact_summary["declined_operations"][0]["cooldown_until"] = (
+        "2020-01-01T00:00:00+00:00"
+    )
+    repository.save(applied)
+
+    adjusted = create_adjustment_plan(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    replacement = next(
+        item for item in adjusted.change_sets
+        if item.replaces_change_set_id == "plan-mixed-family"
+    )
+    assert sorted(item.operation_type for item in replacement.operations) == [
+        "ADD_CHECKPOINT",
+        "INSERT_COURSE_SUPPORT",
+    ]
+
+
 def test_demo_mode_relaxes_strong_contract(monkeypatch):
     weak = "不理解为什么复合变换要先右后左，请用动画解释一下。"
     contract = course_evolution._strong_self_report_contract(weak)
