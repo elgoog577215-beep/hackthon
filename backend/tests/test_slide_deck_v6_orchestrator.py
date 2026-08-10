@@ -234,6 +234,38 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_progress_discovers_known_ai_and_render_work_before_reporting_99(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    events: list[dict] = []
+
+    await orchestrator.build(
+        task_id="task-v6-progress-discovery",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+        progress_callback=lambda event: events.append(event),
+    )
+
+    assert all(
+        event["percent"] < 99
+        for event in events
+        if event["stage"] in {"source", "course_graph", "story", "visual"}
+    )
+    assert [event["percent"] for event in events] == sorted(
+        event["percent"] for event in events
+    )
+    assert events[-1]["percent"] == 100
+    assert events[-1]["finalized"] is True
+
+
+@pytest.mark.asyncio
 async def test_shadow_candidate_runs_all_gates_without_replacing_the_public_registry(tmp_path: Path) -> None:
     document = _document()
     orchestrator, representations, candidates = _orchestrator(tmp_path)
