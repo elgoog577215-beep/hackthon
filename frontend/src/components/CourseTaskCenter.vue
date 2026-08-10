@@ -330,6 +330,13 @@ import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
+import {
+  qualityIssueKey,
+  reviewBlockingIssues,
+  reviewIssueMessage,
+  reviewIssueSuggestion,
+  reviewIssueTarget,
+} from '@/utils/review-issues'
 import { courseProductionTaskDetail } from '@/utils/course-production'
 import {
   observableTaskPhase,
@@ -497,10 +504,7 @@ const confirmCurrentStepLabel = computed(() => (
     ? t('courseTasks.review.publish', '确认并发布课程')
     : t('courseTasks.review.confirm', '确认这一步，继续生成')
 ))
-const releaseIssues = computed<any[]>(() => dedupeReviewIssues([
-  ...(reviewArtifact.value?.blocking_issues || []),
-  ...(reviewArtifact.value?.source_chain?.issues || []),
-]))
+const releaseIssues = computed<any[]>(() => reviewBlockingIssues(reviewArtifact.value))
 const assetCountEntries = computed(() => (
   Object.entries(reviewArtifact.value?.asset_counts || {})
     .map(([type, count]) => ({ type, count: Number(count || 0) }))
@@ -803,46 +807,6 @@ function learningAssetLabel(type: string) {
     overview: '课程总览',
     chapter_progression_contracts: '章节进阶规则',
   }[type] || type)
-}
-function reviewIssueMessage(issue: any) {
-  if (String(issue?.code || '') === 'teaching_plan:local_fallback') {
-    return t(
-      'courseTasks.review.teachingPlanFallback',
-      '部分教案单元使用本地保底生成，请重点复核标记小节的教学语义。',
-    )
-  }
-  return String(issue?.message || issue || '')
-}
-function reviewIssueTarget(issue: any) {
-  return String(issue?.target_id || issue?.node_id || issue?.asset_id || '')
-}
-function reviewIssueSuggestion(issue: any) {
-  return String(issue?.suggestion || '')
-}
-function qualityIssueKey(issue: any, index: number) {
-  return `${String(issue?.code || issue?.issue_id || 'issue')}-${reviewIssueTarget(issue)}-${index}`
-}
-function dedupeReviewIssues(issues: any[]) {
-  const result: any[] = []
-  const positions = new Map<string, number>()
-  for (const raw of issues) {
-    if (!raw) continue
-    const issue = typeof raw === 'object' ? { ...raw } : { message: String(raw) }
-    const message = reviewIssueMessage(issue).trim()
-    const target = reviewIssueTarget(issue).trim()
-    const key = `${message}\u0000${target}\u0000${String(issue.severity || '')}`
-    const position = positions.get(key)
-    if (position === undefined) {
-      positions.set(key, result.length)
-      result.push(issue)
-      continue
-    }
-    const existing = result[position]
-    for (const [field, value] of Object.entries(issue)) {
-      if (value !== undefined && value !== null && value !== '' && !existing[field]) existing[field] = value
-    }
-  }
-  return result
 }
 function shouldShowGenerationReview(task: TaskView) {
   return task.status === 'waiting_for_review' || task.recovery?.state === 'quality_blocked'

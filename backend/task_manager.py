@@ -58,6 +58,8 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
+from ai_provider_route import provider_route_snapshot
+from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -2738,7 +2740,7 @@ class TaskManager:
                 "updated_at": task.get("updated_at"),
             },
         }
-        if status == "completed" or self._publication_receipt(task):
+        if self._task_is_published(task):
             return {
                 **base,
                 "state": "completed",
@@ -2955,6 +2957,7 @@ class TaskManager:
             return {**base, "checkpoint": checkpoint}
         if status == "completed_with_warnings" and (
             task.get("phase") == "quality_failed"
+            or task.get("publication_allowed") is False
             or workspace.get("status") == "quality_failed"
         ):
             return self._quality_recovery_contract(
@@ -3411,10 +3414,7 @@ class TaskManager:
             "reason": "当前任务不需要恢复",
             "checkpoint": checkpoint,
         }
-        if status == "completed" or (
-            status == "completed_with_warnings"
-            and task.get("publication_allowed") is not False
-        ):
+        if self._task_is_published(task):
             return {
                 **base,
                 "state": "completed",
@@ -3487,12 +3487,53 @@ class TaskManager:
             view["quality"] = public_quality
         view["logs"] = deepcopy((task.get("logs") or [])[-PUBLIC_TASK_LOG_LIMIT:])
         view["recovery"] = self._task_recovery_summary(task)
+        # Which provider is currently serving calls. Process-wide, not per task:
+        # one AIBase client is shared by every concurrent job.
+        view["provider_route"] = provider_route_snapshot()
         return view
 
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
         view = deepcopy(task)
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
+
+    def _task_is_published(self, task: dict[str, Any]) -> bool:
+        """Single answer to "did this job actually publish a course?".
+
+        Both recovery projections must agree, otherwise the task list and the
+        resume button describe the same job differently.
+
+        ``completed`` is conclusive on its own. ``completed_with_warnings`` is
+        not: a job can finish with warnings and never reach publication, so it
+        only counts when a publication receipt exists. A receipt is also
+        authoritative for a job still marked ``running`` — that is how a restart
+        recognises work that finished publishing before the process died.
+        """
+        status = str(task.get("status") or "")
+        if status == "completed":
+            return True
+        if status == "completed_with_warnings" and task.get("publication_allowed") is False:
+            return False
+        return self._publication_receipt(task) is not None
+
+    def _failed_node_report_entry(
+        self, task_id: str, node: dict[str, Any]
+    ) -> dict[str, Any]:
+        """One failed section, as the production stage renders it.
+
+        Carries the stable code alongside the raw text so the UI can explain the
+        failure and say whether continuing is worth attempting, instead of
+        printing a truncated exception string.
+        """
+        node_id = str(node.get("node_id") or "")
+        return {
+            "node_id": node_id,
+            "node_name": node.get("node_name", ""),
+            "error": node.get("error_summary", "Unknown error"),
+            "error_code": node.get("error_code") or "generation_failed",
+            "retryable": bool(node.get("error_retryable", True)),
+            "retry_count": self._node_retries.get(task_id, {}).get(node_id, 0),
+        }
 
     def _publication_receipt(self, task: dict[str, Any]) -> dict[str, Any] | None:
         if not task.get("workspace_id"):
@@ -4577,21 +4618,39 @@ class TaskManager:
                     task_id, exc, task.get("status"),
                 )
             else:
+                failure = classify_generation_failure(exc)
                 error_detail = (
                     exc.public_detail()
                     if isinstance(
                         exc,
                         (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError, V6BuildError),
                     )
-                    else None
+                    else {
+                        "code": failure["code"],
+                        "translation_key": failure["translation_key"],
+                        "retryable": failure["retryable"],
+                    }
                 )
+                async with self._lock:
+                    current = self.tasks.get(task_id)
+                    if current is not None:
+                        current["error_code"] = str(
+                            error_detail.get("code") or failure["code"]
+                        )
+                        # The backend emits a code, not prose: user-facing copy
+                        # is resolved through the frontend i18n layer so it stays
+                        # bilingual. Clear any message left by an earlier run.
+                        current["error_user_message"] = None
+                        self.save_tasks()
                 await self._update_task_status(
                     task_id,
                     "failed",
-                    error=str(exc),
+                    error=failure["technical_detail"],
                     error_detail=error_detail,
                 )
-                await self._record_workspace_failure(task_id, str(exc))
+                await self._record_workspace_failure(
+                    task_id, failure["technical_detail"]
+                )
         finally:
             self._running_job_tasks.pop(task_id, None)
 
@@ -6551,6 +6610,7 @@ class TaskManager:
                         raise
 
                     except Exception as e:
+                        failure = classify_generation_failure(e)
                         non_retryable = getattr(e, "retryable", True) is False
                         draft = existing_draft + "".join(accumulated)
                         if draft:
@@ -6602,6 +6662,8 @@ class TaskManager:
                             await self._set_node_status(
                                 task_id, course_id, node_id, NodeStatus.ERROR,
                                 error_summary=error_msg[:200],
+                                error_code=failure["code"],
+                                error_retryable=failure["retryable"],
                             )
 
                             self._add_log_entry(
@@ -6628,6 +6690,8 @@ class TaskManager:
                                         "node_id": node_id,
                                         "node_name": node_name,
                                         "error": error_msg[:200],
+                                        "error_code": failure["code"],
+                                        "retryable": failure["retryable"],
                                         "retry_count": retry_count,
                                     },
                                 )
@@ -7264,6 +7328,7 @@ class TaskManager:
                 "error": task.get("error"),
                 "error_code": task.get("error_code"),
                 "error_user_message": task.get("error_user_message"),
+                "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
                 "current_nodes": current_nodes,
@@ -8169,14 +8234,7 @@ class TaskManager:
                 "task_id": task_id,
                 "course_id": course_id,
                 "failed_nodes": [
-                    {
-                        "node_id": n.get("node_id", ""),
-                        "node_name": n.get("node_name", ""),
-                        "error": n.get("error_summary", "Unknown error"),
-                        "retry_count": self._node_retries.get(
-                            task_id, {}
-                        ).get(n.get("node_id", ""), 0),
-                    }
+                    self._failed_node_report_entry(task_id, n)
                     for n in failed_nodes
                 ],
                 "total_failed": len(failed_nodes),
@@ -8275,14 +8333,24 @@ class TaskManager:
         node_id: str,
         status: NodeStatus,
         error_summary: str | None = None,
+        error_code: str | None = None,
+        error_retryable: bool | None = None,
     ) -> None:
-        """Update a node's generation_status in course data."""
+        """Update a node's generation_status in course data.
+
+        ``error_summary`` stays the raw technical text; ``error_code`` is the
+        stable classification the UI explains the failure from.
+        """
         def update(course_data: dict[str, Any]) -> dict[str, Any]:
             for node in course_data.get("nodes", []):
                 if node.get("node_id") == node_id:
                     node["generation_status"] = status.value
                     if error_summary is not None:
                         node["error_summary"] = error_summary
+                    if error_code is not None:
+                        node["error_code"] = error_code
+                    if error_retryable is not None:
+                        node["error_retryable"] = error_retryable
                     break
             return course_data
 

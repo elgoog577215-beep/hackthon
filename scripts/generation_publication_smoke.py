@@ -33,6 +33,14 @@ from task_manager import TaskManager  # noqa: E402
 
 TERMINAL_STATUSES = {"completed", "completed_with_warnings", "failed", "conflict"}
 
+# The human confirmation gates, in the order a run hits them. This used to be a
+# hardcoded {"outline", "release"} pair from when the chain had four steps; the
+# chain now has five (GUIDED_STEP_KEYS) and pauses at `teaching` too, which made
+# the smoke abort on a perfectly healthy run. `requirements` is confirmed by
+# submitting the form and `content` is auto-confirmed by the worker, so neither
+# appears here — only the steps that actually reach `waiting_for_review`.
+REVIEW_GATE_STEPS = ("outline", "teaching", "release")
+
 
 async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
     started = time.monotonic()
@@ -87,8 +95,11 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                     if not review:
                         raise RuntimeError("任务等待确认，但没有可读取的审阅产物")
                     step = str(review.get("step") or "")
-                    if step not in {"outline", "release"}:
-                        raise RuntimeError(f"烟测遇到非四步链路节点：{step or 'unknown'}")
+                    if step not in REVIEW_GATE_STEPS:
+                        raise RuntimeError(
+                            f"烟测遇到未知确认门：{step or 'unknown'}"
+                            f"（当前链路确认门：{'、'.join(REVIEW_GATE_STEPS)}）"
+                        )
                     if not review.get("can_confirm"):
                         artifact = review.get("artifact") or {}
                         blocking = artifact.get("blocking_issues") or []
@@ -183,9 +194,10 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 failures.append("发布后的课程文档为空")
             if manager.get_generation_workspace_course(course_id) is not None:
                 failures.append("已发布工作区仍覆盖正式课程读取")
-            if confirmed_steps != ["outline", "release"]:
+            if confirmed_steps != list(REVIEW_GATE_STEPS):
                 failures.append(
-                    f"两个人工确认门顺序异常：{confirmed_steps}"
+                    f"人工确认门顺序异常：{confirmed_steps}"
+                    f"（期望：{list(REVIEW_GATE_STEPS)}）"
                 )
             if teaching_plan.get("schema_version") != "course_teaching_plan_v3":
                 failures.append("正式全课教案不是 course_teaching_plan_v3")
