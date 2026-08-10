@@ -307,6 +307,43 @@ def _story_requests(
     ]
 
 
+def _validate_story_batch_candidate(
+    *,
+    graph: CoursePresentationGraphV1,
+    template: TemplateLayoutPackContractV1,
+    request: dict[str, Any],
+    batch: SlideStoryBatchV3,
+) -> None:
+    requested_unit_ids = {
+        str(unit.get("teaching_unit_id") or "")
+        for unit in request.get("teaching_units") or []
+        if isinstance(unit, dict)
+    }
+    units = [
+        unit for unit in graph.units
+        if unit.teaching_unit_id in requested_unit_ids
+    ]
+    scoped_graph = graph.model_copy(update={
+        "units": units,
+        "formal_block_ids": [
+            block_id
+            for unit in units
+            for block_id in unit.primary_block_ids
+        ],
+        "primary_block_coverage": 1.0,
+        "diagnostics": [],
+    })
+    validate_slide_story_plan_v3(
+        SlideStoryPlanV3(
+            source_document_revision=graph.source_document_revision,
+            template_digest=template.template_digest,
+            batches=[batch],
+        ),
+        scoped_graph,
+        template,
+    )
+
+
 async def plan_slide_story_v3(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -361,34 +398,105 @@ async def plan_slide_story_v3(
         })
         started = time.perf_counter()
         try:
-            raw = await _invoke(ai_planner, request, timeout_seconds)
-            response = _StoryBatchResponse.model_validate(
-                _normalize_story_batch_response(raw, request)
-            )
-            if response.schema_version != "slide_story_batch_response_v3":
-                raise ValueError("Unexpected story response schema")
-            if response.chapter_id != request["chapter_id"]:
-                raise ValueError("Story response chapter does not match its request")
-            pages: list[SlideStoryPageV3] = []
-            for item in response.pages:
-                pages.append(
-                    SlideStoryPageV3(
-                        **item.model_dump(mode="json"),
-                        page_ordinal=page_ordinal,
+            contract_error: Exception | None = None
+            for validation_attempt in range(2):
+                attempt_request = request
+                if validation_attempt:
+                    attempt_request = {
+                        **request,
+                        "repair_feedback": {
+                            "attempt": validation_attempt + 1,
+                            "code": (
+                                contract_error.failure.code
+                                if isinstance(contract_error, V6BuildError)
+                                else "story_response_contract_invalid"
+                            ),
+                            "message": str(contract_error or ""),
+                            "instruction": (
+                                "Return a fresh response that exactly follows response_contract, "
+                                "uses each teaching unit's own allowed_template_layout_ids, and "
+                                "contains only source IDs supplied for that unit."
+                            ),
+                        },
+                    }
+                    await _notify_batch(batch_callback, {
+                        "phase": "started",
+                        "kind": "story",
+                        "batch_index": batch_index,
+                        "batch_id": batch_id,
+                        "chapter_id": str(request["chapter_id"]),
+                        "resumed": False,
+                        "retry_attempt": validation_attempt,
+                    })
+                try:
+                    raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
+                    response = _StoryBatchResponse.model_validate(
+                        _normalize_story_batch_response(raw, request)
                     )
-                )
-                page_ordinal += 1
+                    if response.schema_version != "slide_story_batch_response_v3":
+                        raise ValueError("Unexpected story response schema")
+                    if response.chapter_id != request["chapter_id"]:
+                        raise ValueError("Story response chapter does not match its request")
+                    local_pages = [
+                        SlideStoryPageV3(
+                            **item.model_dump(mode="json"),
+                            page_ordinal=index,
+                        )
+                        for index, item in enumerate(response.pages)
+                    ]
+                    candidate_batch = SlideStoryBatchV3(
+                        batch_id=batch_id,
+                        chapter_id=response.chapter_id,
+                        provider=response.provider or "shared-ai-pool",
+                        model=response.model or "provider-selected",
+                        duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
+                        attempts=response.attempts + validation_attempt,
+                        validation_status="passed",
+                        pages=local_pages,
+                    )
+                    _validate_story_batch_candidate(
+                        graph=graph,
+                        template=template,
+                        request=request,
+                        batch=candidate_batch,
+                    )
+                    pages = [
+                        page.model_copy(update={"page_ordinal": page_ordinal + index})
+                        for index, page in enumerate(local_pages)
+                    ]
+                    page_ordinal += len(pages)
+                    batch = candidate_batch.model_copy(update={"pages": pages})
+                    break
+                except (ValidationError, ValueError, V6BuildError) as error:
+                    contract_error = error
+                    if validation_attempt == 0:
+                        continue
+                    if isinstance(error, V6BuildError):
+                        raise V6BuildError(
+                            stage=error.failure.stage,
+                            code=error.failure.code,
+                            message=error.failure.message,
+                            retryable=True,
+                            chapter_id=str(request["chapter_id"]),
+                            page_id=error.failure.page_id,
+                            batch_id=batch_id,
+                        ) from error
+                    raise
+            else:  # pragma: no cover - the bounded loop either succeeds or raises
+                raise RuntimeError("Story response repair loop exited unexpectedly")
             batch = SlideStoryBatchV3(
                     batch_id=batch_id,
-                    chapter_id=response.chapter_id,
-                    provider=response.provider or "shared-ai-pool",
-                    model=response.model or "provider-selected",
-                    duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
-                    attempts=response.attempts,
+                    chapter_id=batch.chapter_id,
+                    provider=batch.provider,
+                    model=batch.model,
+                    duration_ms=max(batch.duration_ms, round((time.perf_counter() - started) * 1000)),
+                    attempts=batch.attempts,
                     validation_status="passed",
-                    pages=pages,
+                    pages=batch.pages,
             )
             batches.append(batch)
+        except V6BuildError:
+            raise
         except Exception as error:
             code, retryable = _failure_category(error, prefix="story_ai_batch")
             raise V6BuildError(

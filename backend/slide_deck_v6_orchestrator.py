@@ -412,6 +412,7 @@ class SlideDeckV6Orchestrator:
                         chapter_id=str(event["chapter_id"]),
                         batch_id=work_id,
                         provider_wait=True,
+                        retry_attempt=int(event.get("retry_attempt") or 0),
                     )
                 else:
                     batch = event["batch"]

@@ -212,6 +212,77 @@ async def test_story_balance_failure_is_not_misreported_as_rate_limiting() -> No
 
 
 @pytest.mark.asyncio
+async def test_story_batch_retries_a_template_contract_violation_before_failing() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = 0
+
+    async def planner(request):
+        nonlocal calls
+        calls += 1
+        unit = request["teaching_units"][0]
+        layout = (
+            "template-layout-not-in-contract"
+            if calls == 1
+            else unit["allowed_template_layout_ids"][0]
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"page-{calls}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": unit["source_text"][:24],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert calls == 2
+    assert story.batches[0].attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_story_batch_reports_the_exact_contract_error_after_bounded_repair() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = 0
+
+    async def planner(request):
+        nonlocal calls
+        calls += 1
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"invalid-{calls}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": "template-layout-not-in-contract",
+                "title": unit["source_text"][:24],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert calls == 2
+    assert captured.value.failure.code == "template_layout_unavailable"
+    assert captured.value.failure.chapter_id == "chapter-a"
+    assert captured.value.failure.batch_id == "story-1"
+
+
+@pytest.mark.asyncio
 async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
 
