@@ -62,4 +62,16 @@ describe('SlideCanvas renderer theme contract', () => {
     expect(source).toContain('--deck-box-message-depth')
     expect(source).toContain('inset 0 .12cqw 0')
   })
+
+  it('renders the Qizhi hero claim card with one accent rail', () => {
+    const heroCardCss = cssVariables(
+      '.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim',
+    )
+    const innerRailCss = cssVariables(
+      '.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim > i',
+    )
+
+    expect(heroCardCss).toContain('grid-template-columns:minmax(0,1fr);')
+    expect(innerRailCss).toContain('display:none;')
+  })
 })
