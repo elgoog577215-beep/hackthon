@@ -150,6 +150,50 @@ describe('teaching representation progressive build', () => {
     expect(store.draftSlideQuality?.blockers?.[0]?.code).not.toBe('concept_card_overflow')
   })
 
+  it('retains compact step detail from streamed layout and page events', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(streamResponse([
+      {
+        event: 'layout_plan',
+        stage: 'layout_plan',
+        progress: 20,
+        allocation_plan: {
+          pages: [
+            { page_id: 'slide:1' },
+            { page_id: 'slide:2' },
+            { page_id: 'slide:3' },
+          ],
+        },
+      },
+      {
+        event: 'slide_upsert',
+        progress: 48,
+        slide: { unit_id: 'slide:1', title: '向量的定义', blocks: [] },
+      },
+      {
+        event: 'build_complete',
+        progress: 100,
+        registry: { representations: [], specs: [] },
+        quality: { passed: true },
+      },
+    ])))
+    const store = useTeachingRepresentationsStore()
+
+    await store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+    })
+
+    expect(store.buildEstimatedSlideCount).toBe(3)
+    expect(store.buildCompletedUnitCount).toBe(1)
+    expect(store.buildDetail).toEqual(expect.objectContaining({
+      event: 'build_complete',
+      completed: 1,
+      total: 3,
+    }))
+    expect(store.buildDetail).not.toHaveProperty('allocation_plan')
+    expect(store.buildDetail).not.toHaveProperty('slide')
+  })
+
   it('posts mode and theme to the scoped slide variant stream', async () => {
     const fetchMock = vi.fn().mockResolvedValue(streamResponse([
       {

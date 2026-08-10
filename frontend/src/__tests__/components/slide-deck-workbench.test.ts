@@ -37,6 +37,45 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
+  it('shows a five-step build progress panel with the current page detail', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-1',
+        deckTitle: '数据结构',
+        slides,
+        staleUnitIds: [],
+        building: true,
+        progress: 46,
+        stage: 'slide_build',
+        error: '',
+        quality: null,
+        standalone: true,
+        buildDetail: {
+          event: 'slide_upsert',
+          itemTitle: '向量的定义',
+          completed: 2,
+          total: 12,
+        },
+        estimatedSlideCount: 12,
+      },
+    })
+
+    const panel = wrapper.find('[data-testid="slide-build-progress"]')
+    expect(panel.exists()).toBe(true)
+    expect(panel.attributes('aria-live')).toBe('polite')
+    expect(panel.text()).toContain('正在逐页生成教学内容')
+    expect(panel.text()).toContain('第 2 / 12 页')
+    expect(panel.text()).toContain('向量的定义')
+    expect(panel.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('46')
+    expect(panel.findAll('[data-build-step]')).toHaveLength(5)
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(2)
+    expect(panel.findAll('[data-build-step][data-state="active"]')).toHaveLength(1)
+
+    await wrapper.setProps({ building: false })
+    expect(wrapper.find('[data-testid="slide-build-progress"]').exists()).toBe(false)
+  })
+
   it('keeps the toolbar focused on teaching materials and opens the material overview', async () => {
     const store = useTeachingRepresentationsStore()
     const build = vi.spyOn(store, 'buildProgressive')
