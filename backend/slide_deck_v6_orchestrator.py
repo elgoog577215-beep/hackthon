@@ -163,6 +163,7 @@ class SlideDeckV6Orchestrator:
                 document,
                 teaching_plan=dict(course_data.get("course_teaching_plan") or {}),
                 knowledge_snapshot=dict(course_data.get("course_knowledge_base") or {}),
+                coherence_contract=dict(course_data.get("course_coherence_contract") or {}),
                 template_contract=template,
                 locale=str(course_data.get("language") or course_data.get("locale") or "zh-CN"),
             )

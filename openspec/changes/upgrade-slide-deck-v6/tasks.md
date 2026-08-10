@@ -14,7 +14,7 @@
 
 ## 3. AI story and visual planning
 
-- [ ] 3.1 Implement `slide_story_plan_v3` schemas, chapter batching, AIBase invocation and persisted diagnostics.
+- [x] 3.1 Implement `slide_story_plan_v3` schemas, chapter batching, AIBase invocation and persisted diagnostics.
 - [x] 3.2 Enforce 100% primary-block coverage, order/dependency preservation, known IDs and grounded factual tokens; fail the whole candidate on any story-batch failure.
 - [x] 3.3 Implement `slide_visual_plan_v2` schemas, bounded concurrency, source-backed decisions and page-level degradations.
 - [x] 3.4 Mark allowed degradations `v6_needs_manual_edit`; hard-fail subject, source, capacity and template loss.
@@ -24,7 +24,7 @@
 - [ ] 4.1 Implement `slide_deck_v6`, 1～3 page unit allocation, typed slot materialization and full-source speaker notes.
 - [ ] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
 - [ ] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
-- [ ] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
+- [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
 
 ## 5. Adaptive progress
 

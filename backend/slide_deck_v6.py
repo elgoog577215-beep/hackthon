@@ -68,6 +68,8 @@ class PptSourceContractV2(_StrictModel):
     teaching_plan_digest: str
     knowledge_revision: str
     knowledge_digest: str
+    coherence_revision: str
+    coherence_digest: str
     template_id: str
     template_version: str
     template_digest: str
@@ -216,19 +218,37 @@ def compile_ppt_source_contract_v2(
     *,
     teaching_plan: dict[str, Any],
     knowledge_snapshot: dict[str, Any],
+    coherence_contract: dict[str, Any],
     template_contract: TemplateLayoutPackContractV1,
     locale: str,
 ) -> PptSourceContractV2:
     blocks = _formal_blocks(document)
     block_payload = [block.model_dump(mode="json") for block in blocks]
-    teaching_plan_revision = str(teaching_plan.get("revision") or teaching_plan.get("version") or "")
-    knowledge_revision = str(knowledge_snapshot.get("revision") or knowledge_snapshot.get("version") or "")
+    teaching_plan_revision = str(
+        teaching_plan.get("revision_id")
+        or teaching_plan.get("revision")
+        or teaching_plan.get("version")
+        or ""
+    )
+    knowledge_revision = str(
+        knowledge_snapshot.get("revision_id")
+        or knowledge_snapshot.get("revision")
+        or knowledge_snapshot.get("version")
+        or ""
+    )
+    coherence_revision = str(
+        coherence_contract.get("revision_id")
+        or coherence_contract.get("revision")
+        or coherence_contract.get("version")
+        or ""
+    )
     values = {
         "course_id": document.course_id,
         "document_revision": document.document_revision,
         "blocks": block_payload,
         "teaching_plan": teaching_plan,
         "knowledge": knowledge_snapshot,
+        "coherence": coherence_contract,
         "template_digest": template_contract.template_digest,
         "locale": locale,
     }
@@ -241,6 +261,8 @@ def compile_ppt_source_contract_v2(
         teaching_plan_digest=stable_hash(teaching_plan, prefix="plan_"),
         knowledge_revision=knowledge_revision,
         knowledge_digest=stable_hash(knowledge_snapshot, prefix="knowledge_"),
+        coherence_revision=coherence_revision,
+        coherence_digest=stable_hash(coherence_contract, prefix="coherence_"),
         template_id=template_contract.template_id,
         template_version=template_contract.template_version,
         template_digest=template_contract.template_digest,

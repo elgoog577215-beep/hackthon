@@ -1001,6 +1001,22 @@ def test_v5_can_be_explicitly_rolled_back_to_v4() -> None:
     ) == "slide_deck_v4"
 
 
+def test_v6_can_be_selected_without_changing_v5_rollback_behavior() -> None:
+    course = _course_with_teaching_plan()
+
+    assert resolve_slide_deck_schema(
+        course,
+        story_engine_enabled=True,
+        v6_enabled=True,
+    ) == "slide_deck_v6"
+    assert resolve_slide_deck_schema(
+        course,
+        story_engine_enabled=True,
+        v6_enabled=False,
+        v5_enabled=False,
+    ) == "slide_deck_v4"
+
+
 def test_v4_signature_binds_teaching_logic_revisions() -> None:
     course = _course_with_teaching_plan()
     document = document_from_legacy_course(course)

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from queue import Queue
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -143,6 +143,7 @@ class SlideDeckVariantBuildRequest(BaseModel):
 
     mode: SlideDeckMode = "teaching"
     theme: SlideDeckTheme = "qizhi-classroom"
+    engine_version: Literal["v5", "v6"] | None = None
     force_rebuild: bool = False
     web_image_retrieval: WebImageRetrievalConfig = Field(
         default_factory=WebImageRetrievalConfig
@@ -172,6 +173,8 @@ def _reconciled_registry(course_id: str) -> dict:
     payload["slide_deck_target_schema"] = (
         "slide_deck_v3"
         if not story_engine_enabled
+        else "slide_deck_v6"
+        if v4_eligible and _v6_enabled() and _v6_default_enabled()
         else "slide_deck_v5"
         if v4_eligible and _v5_enabled()
         else "slide_deck_v4"
@@ -275,6 +278,74 @@ def _v5_enabled() -> bool:
         "SLIDE_DECK_V5_ENABLED",
         "true",
     ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _v6_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_DECK_V6_ENABLED",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _v6_default_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_DECK_V6_DEFAULT_ENABLED",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_requested_slide_schema(
+    course_view: dict[str, Any],
+    request: SlideDeckVariantBuildRequest,
+) -> str:
+    request_v6 = request.engine_version == "v6" or (
+        request.engine_version is None and _v6_default_enabled()
+    )
+    if request_v6 and not _v6_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "slide_deck_v6_disabled",
+                "message": "V6 shadow builds are not enabled on this service.",
+                "action": "enable_slide_deck_v6",
+                "retryable": False,
+            },
+        )
+    if request_v6 and not _story_engine_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "v6_story_ai_disabled",
+                "message": "V6 requires the story AI planning service.",
+                "action": "enable_story_ai",
+                "retryable": False,
+                "stage": "story",
+            },
+        )
+    return resolve_slide_deck_schema(
+        course_view,
+        story_engine_enabled=_story_engine_enabled(),
+        v5_enabled=_v5_enabled(),
+        v6_enabled=request_v6,
+    )
+
+
+def _require_durable_v6_orchestrator(
+    target_schema: str,
+    task_manager: Any | None,
+) -> None:
+    if target_schema != "slide_deck_v6" or task_manager is not None:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "v6_orchestrator_unavailable",
+            "message": "V6 requires the durable AI planning service; the last published deck remains available.",
+            "action": "retry_after_service_recovery",
+            "retryable": True,
+            "stage": "orchestration",
+        },
+    )
 
 
 def _expected_slide_signature(
@@ -559,8 +630,8 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     name = str(payload.get("event") or "message")
                     yield f"id: {sequence}\nevent: {name}\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
                 status = str(task.get("status") or "")
-                if status in {"completed", "failed", "cancelled", "paused"}:
-                    if status != "completed" and not any(
+                if status in {"completed", "completed_with_warnings", "failed", "cancelled", "paused"}:
+                    if status not in {"completed", "completed_with_warnings"} and not any(
                         str(item.get("event") or "") == "error" for item in history
                     ):
                         failure_detail = task.get("error_detail") or {}
@@ -688,11 +759,7 @@ async def stream_slide_deck_variant_build(
         "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
     }
     try:
-        target_schema = resolve_slide_deck_schema(
-            course_view,
-            story_engine_enabled=_story_engine_enabled(),
-            v5_enabled=_v5_enabled(),
-        )
+        target_schema = _resolve_requested_slide_schema(course_view, body)
     except SlideStoryPlanPrerequisiteError as exc:
         raise HTTPException(status_code=409, detail=exc.public_detail()) from exc
     registry = get_teaching_representation_repository().load(course_id)
@@ -813,6 +880,7 @@ async def stream_slide_deck_variant_build(
         )
 
     task_manager = get_task_manager_optional()
+    _require_durable_v6_orchestrator(target_schema, task_manager)
     if task_manager is not None:
         task_id = await task_manager.create_task(
             course_id,

@@ -105,8 +105,9 @@ def test_source_contract_freezes_course_and_template_digests() -> None:
 
     source = compile_ppt_source_contract_v2(
         document,
-        teaching_plan={"revision": "plan-r7"},
-        knowledge_snapshot={"revision": "knowledge-r2"},
+        teaching_plan={"revision_id": "plan-r7"},
+        knowledge_snapshot={"revision_id": "knowledge-r2"},
+        coherence_contract={"revision_id": "coherence-r4"},
         template_contract=template,
         locale="zh-CN",
     )
@@ -114,6 +115,9 @@ def test_source_contract_freezes_course_and_template_digests() -> None:
     assert source.schema_version == "ppt_source_contract_v2"
     assert source.course_document_revision == document.document_revision
     assert source.active_block_ids == ["b1", "b2", "b3", "b4", "b5", "b6", "b7"]
+    assert source.teaching_plan_revision == "plan-r7"
+    assert source.knowledge_revision == "knowledge-r2"
+    assert source.coherence_revision == "coherence-r4"
     assert source.template_digest == template.template_digest
     assert source.source_digest.startswith("pptsrc_")
 

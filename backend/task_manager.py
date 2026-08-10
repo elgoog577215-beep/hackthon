@@ -168,6 +168,10 @@ from representation_compiler import (
     validate_compiled_representations,
 )
 from slide_ai_runtime import ai_slide_planning_enabled
+from slide_ai_planning_v6 import (
+    build_ai_base_story_planner_v6,
+    build_ai_base_visual_planner_v2,
+)
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -187,6 +191,11 @@ from slide_deck_v5 import (
     allocation_from_story_plan_v5,
     build_signature_v5,
     compact_story_plan_v5,
+)
+from slide_deck_v6 import V6BuildError
+from slide_deck_v6_orchestrator import (
+    SlideDeckV6CandidateRepository,
+    SlideDeckV6Orchestrator,
 )
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
@@ -771,6 +780,7 @@ class TaskManager:
         storage_data_dir = Path(
             getattr(storage, "_data_dir", Path(TASKS_FILE).parent)
         )
+        self._storage_data_dir = storage_data_dir
         self._import_sources_dir = storage_data_dir / "course_import_sources"
         self._import_sources_dir.mkdir(parents=True, exist_ok=True)
         self._version_repository = version_repository or course_version_repository
@@ -4566,7 +4576,7 @@ class TaskManager:
                     exc.public_detail()
                     if isinstance(
                         exc,
-                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError),
+                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError, V6BuildError),
                     )
                     else None
                 )
@@ -4740,6 +4750,95 @@ class TaskManager:
         )
         await self._push_progress(task_id)
 
+    async def _process_slide_deck_variant_v6(
+        self,
+        *,
+        task_id: str,
+        document: Any,
+        course_view: dict[str, Any],
+        mode: str,
+        theme: str,
+        variant_key: str,
+    ) -> None:
+        """Run the strict V6 candidate through the shared durable boundary."""
+
+        orchestrator = SlideDeckV6Orchestrator(
+            representation_repository=teaching_representation_repository,
+            candidate_repository=SlideDeckV6CandidateRepository(
+                self._storage_data_dir / "slide_deck_v6_candidates"
+            ),
+            progress_root=self._storage_data_dir / "slide_build_progress_v2",
+        )
+
+        async def record_v6_progress(payload: dict[str, object]) -> None:
+            event = {
+                "event": "slide_build_progress_v2",
+                "progress": int(payload.get("percent") or 0),
+                "stage": str(payload.get("stage") or "building"),
+                "message": "V6 slide build is following the persisted server work plan",
+                "slide_build_progress_v2": deepcopy(payload),
+            }
+            await self._record_representation_event(task_id, event)
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if current:
+                    current["slide_build_progress_v2"] = deepcopy(payload)
+                    current["updated_at"] = datetime.now().isoformat()
+                    self.save_tasks()
+
+        result = await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data=course_view,
+            mode=mode,
+            theme=theme,
+            story_planner=build_ai_base_story_planner_v6(),
+            visual_planner=build_ai_base_visual_planner_v2(),
+            source_revision_provider=lambda: str(
+                self._course_document_repository.load_document(document.course_id)[0].document_revision
+                or ""
+            ),
+            progress_callback=record_v6_progress,
+        )
+        public_result = {
+            "build": result,
+            "quality": result.get("quality") or {},
+            "registry": result.get("registry") or {},
+            "variant_key": variant_key,
+            "target_schema": "slide_deck_v6",
+        }
+        final_status = (
+            "completed_with_warnings"
+            if result.get("candidate_status") == "v6_needs_manual_edit"
+            else "completed"
+        )
+        async with self._lock:
+            current = self.tasks.get(task_id)
+            if not current or current.get("status") in {"paused", "cancelled"}:
+                return
+            current["result"] = public_result
+            current["completed_representation_types"] = [f"slide_deck:{variant_key}"]
+            current["progress"] = 100
+            current["phase_progress"] = 100
+            current["phase"] = "complete"
+            current["current_phase"] = "complete"
+            current["message"] = (
+                "V6 deck published with pages marked for manual review"
+                if final_status == "completed_with_warnings"
+                else "V6 deck passed the fidelity gates and was published"
+            )
+            current["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._record_representation_event(
+            task_id,
+            {"event": "build_complete", "progress": 100, **public_result},
+        )
+        await self._update_task_status(
+            task_id,
+            final_status,
+            message=str(self.tasks.get(task_id, {}).get("message") or "V6 build complete"),
+        )
+
     async def _process_slide_deck_variant_task(self, task_id: str) -> None:
         """Build one mode/theme PPT variant without rebuilding sibling artifacts."""
         task = self.tasks.get(task_id)
@@ -4774,6 +4873,7 @@ class TaskManager:
             "SLIDE_STORY_ENGINE_V2_ENABLED",
             "true",
         ).strip().lower() in {"1", "true", "yes", "on"}
+        requested_schema = str(request.get("target_schema") or "")
         slide_schema = resolve_slide_deck_schema(
             course_view,
             story_engine_enabled=story_engine_enabled,
@@ -4781,8 +4881,9 @@ class TaskManager:
                 "SLIDE_DECK_V5_ENABLED",
                 "true",
             ).strip().lower() in {"1", "true", "yes", "on"},
+            v6_enabled=requested_schema == "slide_deck_v6",
         )
-        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5"}
+        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5", "slide_deck_v6"}
         source_revision = str(document.document_revision or "")
         await self._record_representation_event(task_id, {
             "event": "build_contract",
@@ -4791,6 +4892,16 @@ class TaskManager:
             "target_schema": slide_schema,
             "source_revision": source_revision,
         })
+        if slide_schema == "slide_deck_v6":
+            await self._process_slide_deck_variant_v6(
+                task_id=task_id,
+                document=document,
+                course_view=course_view,
+                mode=mode,
+                theme=theme,
+                variant_key=variant_key,
+            )
+            return
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
         expected_signature = (
