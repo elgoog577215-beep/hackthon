@@ -1,3 +1,4 @@
+import asyncio
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 
@@ -1342,3 +1343,216 @@ def test_manual_refresh_reports_when_only_semantic_duplicates_exist(
         response.json()["detail"]["code"]
         == "no_diverse_alternative_question"
     )
+
+
+# --- J1: 量规评分与作答诊断的并发与互不伪装 ---------------------------------
+#
+# 提交端点 (routers/practice.py) 用 asyncio.gather(..., return_exceptions=True)
+# 同时发起评分与诊断。这两条链路必须满足两个性质：
+#   1. 真并发——不是一条跑完再跑另一条；
+#   2. 互不伪装——任意一方失败或不可用时，另一方的结论仍然成立且如实上报，
+#      失败的一方降级为显式的 pending_review / unavailable，而不是被对方的
+#      结果顶替，也不能把失败静默写成"通过"。
+
+
+def _slow_marker_setup(monkeypatch, tmp_path, *, grade_impl, diagnose_impl):
+    """提交一次作答，评分与诊断分别由传入的实现接管。"""
+    repository, client, attempt = _submit_setup(monkeypatch, tmp_path)
+
+    class FakeGrader:
+        async def grade(self, question, attempt):
+            return await grade_impl(question, attempt)
+
+    class FakeAnalysis:
+        async def diagnose_answer(self, question, attempt):
+            return await diagnose_impl(question, attempt)
+
+    monkeypatch.setattr(practice_router, "practice_grader", FakeGrader())
+    monkeypatch.setattr(
+        practice_router,
+        "practice_analysis_service",
+        FakeAnalysis(),
+    )
+    return repository, client, attempt
+
+
+def _submit(client, attempt, request_id):
+    return client.post(
+        f"/api/courses/c1/practice/attempts/{attempt['attempt_id']}/submit",
+        json={
+            "expected_revision": 2,
+            "answer_payload": {"text": "大小和方向"},
+            "active_seconds": 12,
+            "request_id": request_id,
+        },
+    )
+
+
+def test_grading_and_diagnosis_run_concurrently_not_sequentially(
+    monkeypatch, tmp_path
+):
+    """两条链路必须真并发：交错的进入/离开顺序证明它们同时在飞。
+
+    若实现改成顺序 await，时间线会是 grade_enter/grade_exit/diagnose_enter/…，
+    本测试的 diagnose_enter 早于 grade_exit 的断言就会失败。
+    """
+    timeline = []
+    both_entered = asyncio.Event()
+    entered = {"n": 0}
+
+    async def mark_entered():
+        entered["n"] += 1
+        if entered["n"] == 2:
+            both_entered.set()
+        # 双方都进入之前不许返回——顺序执行会在这里超时。
+        await asyncio.wait_for(both_entered.wait(), timeout=5)
+
+    async def grade(question, attempt):
+        timeline.append("grade_enter")
+        await mark_entered()
+        timeline.append("grade_exit")
+        return {
+            "status": "graded",
+            "score": 100,
+            "passed": True,
+            "rubric_results": [],
+            "feedback": "已达到本题量规",
+            "grading_confidence": 0.95,
+            "grading_method": "rubric_ai",
+            "mastery_eligible": True,
+        }
+
+    async def diagnose(question, attempt):
+        timeline.append("diagnose_enter")
+        await mark_entered()
+        timeline.append("diagnose_exit")
+        return {"status": "completed", "diagnosis": {"issues": []}}
+
+    _, client, attempt = _slow_marker_setup(
+        monkeypatch, tmp_path, grade_impl=grade, diagnose_impl=diagnose
+    )
+
+    response = _submit(client, attempt, "submit-concurrent-0001")
+
+    assert response.status_code == 200
+    # 两侧都进入之后才有任何一侧退出 —— 这只有并发才做得到。
+    assert timeline[:2] == ["grade_enter", "diagnose_enter"] or timeline[:2] == [
+        "diagnose_enter",
+        "grade_enter",
+    ]
+    assert set(timeline[2:]) == {"grade_exit", "diagnose_exit"}
+
+
+def test_diagnosis_failure_does_not_invalidate_a_real_grade(
+    monkeypatch, tmp_path
+):
+    """诊断炸了，评分结论依然成立，并且诊断如实标记为 unavailable。"""
+
+    async def grade(question, attempt):
+        return {
+            "status": "graded",
+            "score": 88,
+            "passed": True,
+            "rubric_results": [],
+            "feedback": "已达到本题量规",
+            "grading_confidence": 0.9,
+            "grading_method": "rubric_ai",
+            "mastery_eligible": True,
+        }
+
+    async def diagnose(question, attempt):
+        raise RuntimeError("analysis provider exploded")
+
+    repository, client, attempt = _slow_marker_setup(
+        monkeypatch, tmp_path, grade_impl=grade, diagnose_impl=diagnose
+    )
+
+    response = _submit(client, attempt, "submit-diagnosis-down-0001")
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    # 评分不被诊断的失败拖下水。
+    assert result["passed"] is True
+    assert result["score"] == 88
+    assert result["mastery_eligible"] is True
+    # 诊断如实降级，不伪装成"没有问题"。
+    assert result["answer_diagnosis"]["status"] == "unavailable"
+    assert result["answer_diagnosis"]["reason"] == "analysis_model_failed"
+    assert "diagnosis" not in result["answer_diagnosis"]
+
+    stored = next(
+        item
+        for item in repository.list("u1", "c1")
+        if item["attempt_id"] == attempt["attempt_id"]
+    )
+    assert stored["status"] == "graded"
+    assert stored["result"]["answer_diagnosis"]["status"] == "unavailable"
+
+
+def test_grading_failure_does_not_fabricate_a_pass_and_keeps_diagnosis(
+    monkeypatch, tmp_path
+):
+    """评分炸了，必须落到 pending_review，且不得从诊断里推出通过。"""
+
+    async def grade(question, attempt):
+        raise RuntimeError("grading provider exploded")
+
+    async def diagnose(question, attempt):
+        return {
+            "status": "completed",
+            "student_response": {"approach": "分别列出了两个属性"},
+            "diagnosis": {"issues": []},
+            "student_feedback": {"summary": "两个属性都已说明。"},
+        }
+
+    repository, client, attempt = _slow_marker_setup(
+        monkeypatch, tmp_path, grade_impl=grade, diagnose_impl=diagnose
+    )
+
+    response = _submit(client, attempt, "submit-grading-down-0001")
+
+    assert response.status_code == 200
+    body = response.json()
+    result = body["result"]
+    # 没有分数就不给分数，绝不能因为诊断说"没问题"就判通过。
+    assert result["status"] == "pending_review"
+    assert result["passed"] is None
+    assert result["score"] is None
+    assert result["mastery_eligible"] is False
+    # 诊断结论仍然完整保留。
+    assert result["answer_diagnosis"]["status"] == "completed"
+    assert result["answer_diagnosis"]["diagnosis"]["issues"] == []
+
+    stored = next(
+        item
+        for item in repository.list("u1", "c1")
+        if item["attempt_id"] == attempt["attempt_id"]
+    )
+    # pending_review 落库为 grading（等待评阅），不是 graded。
+    assert stored["status"] == "grading"
+    assert stored["result"]["mastery_eligible"] is False
+
+
+def test_both_sides_down_yields_no_grade_and_no_diagnosis(
+    monkeypatch, tmp_path
+):
+    """两侧同时不可用时，两边都如实降级，不产生任何伪造结论。"""
+
+    async def grade(question, attempt):
+        raise RuntimeError("grading provider exploded")
+
+    async def diagnose(question, attempt):
+        raise RuntimeError("analysis provider exploded")
+
+    _, client, attempt = _slow_marker_setup(
+        monkeypatch, tmp_path, grade_impl=grade, diagnose_impl=diagnose
+    )
+
+    response = _submit(client, attempt, "submit-both-down-0001")
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["status"] == "pending_review"
+    assert result["passed"] is None
+    assert result["mastery_eligible"] is False
+    assert result["answer_diagnosis"]["status"] == "unavailable"
