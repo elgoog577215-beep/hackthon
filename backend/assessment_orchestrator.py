@@ -3544,6 +3544,7 @@ def _contract_from_candidate(
     for field in (
         "canonical_answer",
         "acceptable_answers",
+        "blanks",
         "rubric",
         "validator_config",
         "misconception_rules",
@@ -4170,6 +4171,86 @@ def _is_multi_answer_choice(contract: dict[str, Any]) -> bool:
     return len(canonical_option_ids(canonical)) > 1
 
 
+_TRUE_FALSE_ALLOWED_TEXTS = "正确/错误、对/错、是/否、true/false"
+
+
+def _form_directive(question_form: str) -> str:
+    """按槽位声明的作答形态下发题面约束。
+
+    改动前这里写死「标准答案必须对应一个 option id」——多选是被 prompt 明确
+    禁止的，不是没提。single_choice 分支的措辞与改动前**逐字相同**，保证默认
+    路径的 prompt 不变（prompt 一变，既有题目的生成结果就不可比）。
+    """
+    if question_form == "multiple_choice":
+        return (
+            "本题是多选题：必须提供至少四个互斥 options，其中**两个或以上**成立；"
+            "canonical_answer 必须是这些正确 option id 组成的 JSON 数组"
+            "（例如 [\"A\",\"C\"]），不得只给一个。"
+            "每个不成立的选项都必须在 misconception_rules 里写明它对应的具体误解，"
+            "不得是随意编造的干扰项。"
+        )
+    if question_form == "true_false":
+        return (
+            "本题是判断题：必须**恰好两个** options，且选项文本只能取以下成对表述"
+            f"之一：{_TRUE_FALSE_ALLOWED_TEXTS}。"
+            "canonical_answer 必须是其中一个 option id。"
+            "题面必须是一个可判定真伪的完整命题，不能是开放问题。"
+        )
+    if question_form == "fill_blank":
+        return (
+            "本题是填空题：stimulus 或 task 的题面中用 {{1}}、{{2}} 标出空位"
+            "（编号从 1 连续递增，最多 20 空），options 必须为空数组；"
+            "solution.blanks 必须为每个空位给出 "
+            "{\"blank_id\": \"1\", \"answer\": 标准答案, "
+            "\"match_mode\": \"exact\"|\"numeric\"|\"symbolic\", "
+            "\"acceptable_answers\": [其他可接受写法]}；"
+            "题面里出现的每个空位都必须有对应的 blanks 条目，数量一致。"
+            "match_mode 按答案性质选：数值带单位用 numeric，代数表达式用 symbolic，"
+            "其余用 exact。"
+        )
+    return (
+        "选择题必须提供至少两个唯一 options，标准答案必须对应"
+        "一个 option id。"
+    )
+
+
+def _batch_form_directives(batch: list[dict[str, Any]]) -> str:
+    """批量 prompt 里逐条下发各 item 的形态约束。
+
+    一批题可能混着不同形态，所以不能像改动前那样发一条全局的「canonical_answer
+    必须是唯一option id」——那会让声明为多选的 item 被 prompt 反向要求成单选。
+    只出现一种形态时退化成一句，措辞与单题路径一致。
+    """
+    # 批量项的形状是 {"slot_id": ..., "context": {...}}，slot_id 已被
+    # _batch_generation_payload 提到外层，assessment_slot 在 context 里面。
+    forms = [
+        str(
+            ((item.get("context") or {}).get("assessment_slot") or {})
+            .get("question_form")
+            or ""
+        )
+        for item in batch
+    ]
+    unique_forms = sorted({form for form in forms})
+    if len(unique_forms) <= 1:
+        return (
+            _form_directive(unique_forms[0] if unique_forms else "")
+            + "非选择题options必须为空数组。"
+        )
+    lines = ["本批题目的作答形态各不相同，按 slot_id 各自遵守："]
+    for item, form in zip(batch, forms):
+        slot_id = str(item.get("slot_id") or "")
+        lines.append(f"- {slot_id}：{_form_directive(form)}")
+    lines.append("非选择题options必须为空数组。")
+    return "\n".join(lines)
+
+
+def _slot_question_form(context: dict[str, Any]) -> str:
+    return str(
+        (context.get("assessment_slot") or {}).get("question_form") or ""
+    )
+
+
 def _solver_contract_kind_hint() -> str:
     """告诉模型 `solver_contract.kind` 只能填哪几个值。
 
@@ -4272,6 +4353,12 @@ def _generation_prompt_v2(
                 "Answer payload matching the input mode"
             ),
             "acceptable_answers": [],
+            "blanks": [{
+                "blank_id": "Matches a {{n}} placeholder in the prompt",
+                "answer": "The canonical answer for this blank",
+                "match_mode": "exact | numeric | symbolic",
+                "acceptable_answers": [],
+            }],
             "rubric": ["Observable scoring criterion"],
             "validator_config": {},
             "misconception_rules": [],
@@ -4305,6 +4392,9 @@ def _generation_prompt_v2(
     }
     if compact:
         output_schema["solution"].pop("worked_solution", None)
+    if _slot_question_form(context) != "fill_blank":
+        # 非填空题不该输出 blanks；留在 schema 里模型会照着填一个空壳。
+        output_schema["solution"].pop("blanks", None)
     answer_first_directive = (
         "Treat question_design_brief as immutable. First lock one verifiable "
         "answer fact, canonical answer and validator; then select the smallest "
@@ -4345,8 +4435,8 @@ def _generation_prompt_v2(
             else "与worked_solution"
         )
         + "，不得把答案或内部Markdown标记"
-        "写入题面。选择题必须提供至少两个唯一 options，标准答案必须对应"
-        "一个 option id。"
+        "写入题面。"
+        + _form_directive(_slot_question_form(context))
         + (
             "不要输出worked_solution；独立求解器会在验证后补全教学解析。"
             if compact
@@ -4527,6 +4617,12 @@ def _batch_generation_prompt(
             ),
             "canonical_answer": "与input_mode匹配的答案payload",
             "acceptable_answers": [],
+            "blanks": [{
+                "blank_id": "与题面中 {{n}} 空位编号一致",
+                "answer": "该空的标准答案",
+                "match_mode": "exact | numeric | symbolic",
+                "acceptable_answers": [],
+            }],
             "rubric": ["可观察的评分标准"],
             "validator_config": {},
             "misconception_rules": [],
@@ -4560,6 +4656,13 @@ def _batch_generation_prompt(
     }
     if compact:
         candidate_schema["solution"].pop("worked_solution", None)
+    if not any(
+        str(
+            (context.get("assessment_slot") or {}).get("question_form") or ""
+        ) == "fill_blank"
+        for context in contexts
+    ):
+        candidate_schema["solution"].pop("blanks", None)
     shared_context, batch = _batch_generation_payload(contexts)
     envelope = {
         "candidates": [{
@@ -4575,8 +4678,7 @@ def _batch_generation_prompt(
         "公式组合或解题路径；仅改变题型、措辞、标签、背景或数字不算新题。"
         "每道题必须遵守各自question_design_brief.diversity_plan，"
         "并至少在实例、认知动作、推理路径三项中的两项与其他题不同。\n"
-        "选择题必须至少包含两个互斥选项，canonical_answer必须是"
-        "唯一option id；非选择题options必须为空数组。"
+        + _batch_form_directives(batch)
         + (
             "快速候选不得输出worked_solution；独立求解器将在验证后"
             "生成唯一一份完整教学解析。"
