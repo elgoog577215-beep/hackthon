@@ -67,6 +67,16 @@
         {{ t('courseWorkspace.inlineAi.askHint', '围绕这一个内容块提出你的问题。') }}
       </p>
 
+      <p
+        v-if="assistantMessage?.status === 'failed' && assistantMessage.failure_code"
+        class="inline-ai-result__failure"
+        data-testid="inline-ai-model-failure"
+        role="status"
+      >
+        {{ modelFailureLabel(assistantMessage.failure_code) }}
+        <span>{{ modelFailureHint(assistantMessage.failure_retryable) }}</span>
+      </p>
+
       <div v-if="canCollectFeedback" class="inline-ai-feedback" :aria-busy="feedbackState === 'saving'">
         <span>{{ t('courseWorkspace.inlineAi.feedbackPrompt', '这次回答解决你的问题了吗？') }}</span>
         <div>
@@ -175,6 +185,7 @@ import { useCourseStore } from '../stores/course'
 import { useNoteStore } from '../stores/notes'
 import type { ContentBlock, Node as CourseNode } from '../stores/types'
 import { t } from '../shared/i18n'
+import { modelFailureHint, modelFailureLabel } from '../utils/ai-teacher-failures'
 
 type InlineAIAction = 'explain' | 'example' | 'simplify' | 'ask'
 type SaveState = 'idle' | 'saving' | 'saved' | 'local_only' | 'failed'
@@ -530,6 +541,8 @@ async function removeResult() {
 .inline-ai-result__loading span:nth-child(3) { width:58%; }
 .inline-ai-result__loading small { margin-top:2px; color:var(--lz-text-secondary); font-size:10px; font-weight:600; }
 .inline-ai-result__empty { margin:0; color:var(--lz-text-muted); font-size:11px; }
+.inline-ai-result__failure { display:grid; gap:2px; margin:9px 0 0; padding:8px 9px; border-left:3px solid var(--lz-danger); border-radius:0 8px 8px 0; color:#991b1b; background:var(--lz-danger-soft); font-size:10px; line-height:1.45; overflow-wrap:anywhere; }
+.inline-ai-result__failure span { color:#a75757; font-size:9px; }
 .inline-ai-composer { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 30px 34px; align-items:end; gap:6px; margin-top:10px; padding:7px 7px 7px 11px; border:1px solid rgba(165,180,252,.72); border-radius:10px; background:#fff; box-shadow:0 4px 14px rgba(79,70,229,.06); }
 .inline-ai-composer textarea { width:100%; min-height:40px; max-height:120px; resize:vertical; border:0; padding:3px 0; color:var(--lz-text); background:transparent; font:inherit; font-size:12px; line-height:1.5; outline:none; }
 .inline-ai-composer textarea::placeholder { color:var(--lz-text-muted); }

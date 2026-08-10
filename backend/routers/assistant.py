@@ -7,6 +7,7 @@ import json
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
+from ai_qa_service import classify_model_failure
 from ai_teacher_actions import execute_proposal, propose_action
 from ai_teacher_context import build_ai_teacher_context, context_public_summary
 from ai_teacher_retrieval import (
@@ -328,8 +329,12 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             ):
                 full_text += chunk
                 yield chunk
-        except Exception:
-            error_message = "AI 老师暂时不可用，课程和正式学习任务仍可继续使用。"
+        except Exception as exc:
+            # The service classifies provider failures itself and normally
+            # reports them inside the stream. Anything escaping here failed
+            # before or outside that path, so classify it the same way rather
+            # than reporting one opaque code.
+            failure = classify_model_failure(exc)
             await run_in_threadpool(
                 ai_teacher_repository.append_message,
                 user_id,
@@ -338,16 +343,67 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                 {
                     "message_id": assistant_message_id,
                     "role": "assistant",
-                    "content": error_message,
+                    "content": failure.message,
                     "context_ref": public_context.get("scene") or {},
                     "sources": answer_public.get("sources") or [],
                     "retrieval_receipt": retrieval_receipt,
                     "status": "failed",
+                    "failure_code": failure.code,
                 },
             )
-            yield _qa_event("error", {"code": "model_unavailable", "message": error_message})
+            yield _qa_event("error", {
+                "code": failure.code,
+                "message": failure.message,
+                "retryable": failure.retryable,
+            })
             yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
             return
+
+        streamed_error = _extract_sse_error(full_text)
+        if streamed_error:
+            # A classified mid-stream failure. Persist whatever the learner
+            # already read together with the reason, so a reload does not show
+            # a blank turn and does not present partial text as a full answer.
+            partial = fallback_notice + _extract_sse_answer(full_text)
+            await run_in_threadpool(
+                ai_teacher_repository.append_message,
+                user_id,
+                req.course_id,
+                conversation_id,
+                {
+                    "message_id": assistant_message_id,
+                    "role": "assistant",
+                    "content": partial or str(streamed_error.get("message") or ""),
+                    "context_ref": public_context.get("scene") or {},
+                    "task_ref": req.task_ref,
+                    "sources": answer_public.get("sources") or [],
+                    "retrieval_receipt": retrieval_receipt,
+                    "status": "failed",
+                    "failure_code": str(streamed_error.get("code") or "model_unavailable"),
+                },
+            )
+            record_learning_event(
+                event_type="assistant_answer_failed",
+                actor="assistant",
+                source="ai_teacher.ask_events",
+                user_id=user_id,
+                course_id=req.course_id,
+                course_version_id=course.get("current_course_version_id"),
+                node_id=req.node_id,
+                node_name=req.node_name,
+                evidence={
+                    "question": summarize_text(req.question),
+                    "conversation_id": conversation_id,
+                },
+                result={
+                    "failure_code": str(streamed_error.get("code") or "model_unavailable"),
+                    "retryable": bool(streamed_error.get("retryable")),
+                    "output_chars": len(partial),
+                },
+            )
+            yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
+            return
+
         answer = fallback_notice + _extract_sse_answer(full_text)
         await run_in_threadpool(
             ai_teacher_repository.append_message,
@@ -452,6 +508,23 @@ def _stable_user_message_id(
 def _extract_sse_answer(text: str) -> str:
     chunks: list[str] = []
     final_answer = ""
+    for event_name, payload in _iter_sse_events(text):
+        if event_name == "answer":
+            chunks.append(str(payload.get("chunk") or ""))
+        elif event_name == "final_answer":
+            final_answer = str(payload.get("answer") or "")
+    return final_answer or "".join(chunks)
+
+
+def _extract_sse_error(text: str) -> dict | None:
+    """Return the classified failure the answer stream reported, if any."""
+    for event_name, payload in _iter_sse_events(text):
+        if event_name == "error":
+            return payload
+    return None
+
+
+def _iter_sse_events(text: str):
     for block in text.replace("\r\n", "\n").split("\n\n"):
         event_name = ""
         data_lines: list[str] = []
@@ -466,11 +539,8 @@ def _extract_sse_answer(text: str) -> str:
             payload = json.loads("\n".join(data_lines))
         except json.JSONDecodeError:
             continue
-        if event_name == "answer":
-            chunks.append(str(payload.get("chunk") or ""))
-        elif event_name == "final_answer":
-            final_answer = str(payload.get("answer") or "")
-    return final_answer or "".join(chunks)
+        if isinstance(payload, dict):
+            yield event_name, payload
 
 
 def _assistant_demo_mode(course_id: str) -> bool:

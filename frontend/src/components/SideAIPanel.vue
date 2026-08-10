@@ -509,6 +509,19 @@
                 </div>
               </div>
 
+              <div
+                v-if="message.status === 'failed' && message.failure_code"
+                class="model-failure"
+                data-testid="ai-model-failure"
+                role="status"
+              >
+                <AlertCircle :size="14" />
+                <div>
+                  <strong>{{ modelFailureLabel(message.failure_code) }}</strong>
+                  <small>{{ modelFailureHint(message.failure_retryable) }}</small>
+                </div>
+              </div>
+
               <p
                 v-if="message.retrieval_status"
                 :class="['message-retrieval-status', `is-${message.retrieval_status}`]"
@@ -684,6 +697,7 @@ import type {
 } from '../types/changeProposal'
 import logger from '../utils/logger'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
+import { modelFailureHint, modelFailureLabel } from '../utils/ai-teacher-failures'
 
 const props = defineProps<{
   visible: boolean
@@ -1738,6 +1752,10 @@ onUnmounted(() => {
 .message-retrieval-status { width:max-content; max-width:100%; margin:0; border-radius:999px; padding:3px 7px; color:#475569; background:#f1f5f9; font-size:9px; }
 .message-retrieval-status.is-completed { color:#166534; background:#dcfce7; }
 .message-retrieval-status.is-failed_fallback_local { color:#9a3412; background:#ffedd5; }
+.model-failure { min-width:0; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:start; gap:7px; padding:8px 9px; border-left:3px solid var(--lz-danger); border-radius:0 8px 8px 0; color:#991b1b; background:var(--lz-danger-soft); }
+.model-failure > div { min-width:0; display:grid; gap:2px; }
+.model-failure strong { font-size:10px; line-height:1.4; overflow-wrap:anywhere; }
+.model-failure small { color:#a75757; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
 .message-commands button { min-height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid #e0e7ff; border-radius: 7px; color: var(--lz-brand-strong); background: #fff; font-size: 9px; cursor: pointer; }
 .message-commands button:hover { background: #f5f3ff; }
 

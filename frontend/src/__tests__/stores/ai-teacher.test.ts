@@ -190,6 +190,66 @@ describe('AI teacher store', () => {
     )
   })
 
+  it('保留分类后的模型失败代码与已经读到的半截回答', async () => {
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/ai-teacher/conversations') return Promise.resolve({ data: { conversations: [] } })
+      return Promise.resolve({ data: { ...emptyConversation } })
+    })
+    httpMock.post.mockResolvedValue({ data: { ...emptyConversation } })
+    const sse = [
+      'event: context\ndata: {"conversation_id":"aic-1","user_message_id":"user-1","assistant_message_id":"assistant-1"}\n\n',
+      'event: answer\ndata: {"chunk":"线性相关的意思是"}\n\n',
+      'event: error\ndata: {"code":"model_rate_limited","message":"AI 模型当前繁忙，请稍后重试。","retryable":true}\n\n',
+      'event: done\ndata: {"conversation_id":"aic-1"}\n\n',
+    ].join('')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sse, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })))
+
+    const store = useAITeacherStore()
+    let observed: AIMessage | undefined
+    await store.sendMessage({
+      courseId: 'course-1',
+      question: '什么是线性相关？',
+      onAssistantMessage: message => { observed = message },
+    })
+
+    expect(observed?.status).toBe('failed')
+    expect(observed?.failure_code).toBe('model_rate_limited')
+    expect(observed?.failure_retryable).toBe(true)
+    // The partial answer must survive — the error copy does not overwrite it.
+    expect(observed?.content).toBe('线性相关的意思是')
+  })
+
+  it('把不可重试的模型失败标记为不可重试', async () => {
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/ai-teacher/conversations') return Promise.resolve({ data: { conversations: [] } })
+      return Promise.resolve({ data: { ...emptyConversation } })
+    })
+    httpMock.post.mockResolvedValue({ data: { ...emptyConversation } })
+    const sse = [
+      'event: context\ndata: {"conversation_id":"aic-1","assistant_message_id":"assistant-1"}\n\n',
+      'event: error\ndata: {"code":"model_auth_failed","message":"AI 模型认证失败，请联系管理员检查密钥。","retryable":false}\n\n',
+      'event: done\ndata: {"conversation_id":"aic-1"}\n\n',
+    ].join('')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sse, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })))
+
+    const store = useAITeacherStore()
+    let observed: AIMessage | undefined
+    await store.sendMessage({
+      courseId: 'course-1',
+      question: '什么是线性相关？',
+      onAssistantMessage: message => { observed = message },
+    })
+
+    expect(observed?.failure_code).toBe('model_auth_failed')
+    expect(observed?.failure_retryable).toBe(false)
+  })
+
   it('把被拒绝的确认当作真实回执，而不是成功动作', async () => {
     // The backend now answers every terminal confirm outcome with a receipt.
     // A `stale` receipt means nothing was written, so the proposal must not be

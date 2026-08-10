@@ -220,6 +220,38 @@ describe('SideAIPanel', () => {
     expect(receipt.find('button').exists()).toBe(false)
   })
 
+  it('把分类后的模型失败显示成可判断的状态，而不是笼统的不可用', () => {
+    // A rate limit is worth retrying; a missing key is not. Both used to render
+    // the same "AI teacher unavailable" line.
+    const wrapper = mountPanel([
+      {
+        message_id: 'assistant-busy',
+        role: 'assistant',
+        content: '线性相关的意思是',
+        status: 'failed',
+        failure_code: 'model_rate_limited',
+        failure_retryable: true,
+      },
+      {
+        message_id: 'assistant-authless',
+        role: 'assistant',
+        content: '',
+        status: 'failed',
+        failure_code: 'model_auth_failed',
+        failure_retryable: false,
+      },
+    ])
+
+    const failures = wrapper.findAll('[data-testid="ai-model-failure"]')
+    expect(failures).toHaveLength(2)
+    expect(failures[0]!.text()).toContain('AI 模型当前繁忙')
+    expect(failures[0]!.text()).toContain('可以重试')
+    expect(failures[1]!.text()).toContain('AI 模型认证失败')
+    expect(failures[1]!.text()).toContain('重试无法解决')
+    // Whatever the learner already read stays on screen.
+    expect(wrapper.text()).toContain('线性相关的意思是')
+  })
+
   it('AI 提问写入事实后立即刷新统一课程生长状态', async () => {
     const wrapper = mountPanel()
     const aiStore = useAITeacherStore()
@@ -660,6 +692,32 @@ describe('SideAIPanel', () => {
       const receipt = wrapper.get('.action-receipt')
       expect(receipt.text()).toContain('Saved as a note')
       expect(receipt.text()).not.toContain('已保存为笔记')
+    } finally {
+      await setLocale('zh')
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('英文模式下模型失败使用英文分类文案', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
+    await setLocale('en')
+
+    try {
+      const wrapper = mountPanel([{
+        message_id: 'assistant-en-failure',
+        role: 'assistant',
+        content: '',
+        status: 'failed',
+        failure_code: 'model_timeout',
+        failure_retryable: true,
+      }])
+
+      const failure = wrapper.get('[data-testid="ai-model-failure"]')
+      expect(failure.text()).toContain('The AI model timed out')
+      expect(failure.text()).not.toContain('超时')
     } finally {
       await setLocale('zh')
       vi.unstubAllGlobals()

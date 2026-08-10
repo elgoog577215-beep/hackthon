@@ -5,9 +5,134 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ai_base import AIBase
+from ai_base import (
+    AIBase,
+    AIProviderRequestError,
+    AIProviderUnavailable,
+    AIRequestBudgetExceeded,
+    AIResponseTruncated,
+)
+from ai_capacity import ModelCapacityCoolingDown
 from ai_teacher_context import format_ai_teacher_context_prompt
 from prompts import get_prompt
+
+
+class AITeacherModelFailure(RuntimeError):
+    """One AI-teacher answer failed, with the provider's failure kind preserved.
+
+    `ai_base` already distinguishes auth, quota, rate limit, timeout, budget and
+    truncation, and already fails over across configured models before giving
+    up. Collapsing all of that into a single opaque error is what made a model
+    outage look identical to a bad API key in the UI, so this carries the class
+    of failure — plus whatever text the learner already saw — to the SSE layer.
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool,
+        partial_text: str = "",
+    ) -> None:
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.partial_text = partial_text
+        super().__init__(f"{code}: {message}")
+
+
+# Teacher-facing Chinese copy is the server-side audit line; the client
+# localizes from `code`.
+_FAILURE_COPY: dict[str, tuple[str, bool]] = {
+    "model_not_configured": ("AI 老师尚未配置模型，请联系管理员。", False),
+    "model_auth_failed": ("AI 模型认证失败，请联系管理员检查密钥。", False),
+    "model_quota_exhausted": ("AI 模型额度已用完，请稍后再试或联系管理员。", False),
+    "model_request_too_large": ("这次提问的上下文过大，请缩小选区或换个更具体的问题。", False),
+    "model_rate_limited": ("AI 模型当前繁忙，请稍后重试。", True),
+    "model_timeout": ("AI 模型响应超时，请重试。", True),
+    "model_response_truncated": ("AI 回答被长度限制截断，内容不完整。", True),
+    "model_unavailable": ("AI 老师暂时不可用，课程和正式学习任务仍可继续使用。", True),
+}
+
+_PROVIDER_REASON_CODES = {
+    "not_configured": "model_not_configured",
+    "authentication_failed": "model_auth_failed",
+}
+
+
+def classify_model_failure(
+    error: Exception,
+    *,
+    partial_text: str = "",
+) -> AITeacherModelFailure:
+    """Map an `ai_base` provider error onto one stable AI-teacher failure code."""
+    code = _failure_code(error)
+    message, retryable = _FAILURE_COPY[code]
+    return AITeacherModelFailure(
+        code,
+        message,
+        retryable=retryable,
+        partial_text=partial_text,
+    )
+
+
+def _failure_code(error: Exception) -> str:
+    if isinstance(error, AITeacherModelFailure):
+        return error.code
+    if isinstance(error, AIProviderUnavailable):
+        return _PROVIDER_REASON_CODES.get(
+            str(getattr(error, "reason", "") or ""),
+            "model_unavailable",
+        )
+    if isinstance(error, AIRequestBudgetExceeded):
+        return "model_request_too_large"
+    if isinstance(error, AIResponseTruncated):
+        return "model_response_truncated"
+    if isinstance(error, ModelCapacityCoolingDown):
+        return "model_rate_limited"
+    return _failure_code_from_text(str(error))
+
+
+def _failure_code_from_text(text: str) -> str:
+    """Fall back to the provider's own wording when no typed error survived.
+
+    Providers routinely surface rate limits and quota exhaustion as prose in a
+    generic error, and some stream the failure as ordinary answer text. Reuse
+    the same markers `ai_base` matches on so both layers agree on the kind.
+    """
+    lowered = text.lower()
+    if "not configured" in lowered:
+        return "model_not_configured"
+    if any(marker in lowered for marker in (
+        "authentication",
+        "invalid api key",
+        "invalid_api_key",
+        "unauthorized",
+        "forbidden",
+        "permission denied",
+        "permission_denied",
+    )):
+        return "model_auth_failed"
+    if any(marker in lowered for marker in (
+        "insufficient_quota",
+        "insufficient balance",
+        "exceeded your current quota",
+        "exceeded today's quota",
+        "额度",
+    )):
+        return "model_quota_exhausted"
+    if any(marker in lowered for marker in (
+        "rate limit",
+        "limit_burst_rate",
+        "速率限制",
+        "429",
+        "cooling_down",
+    )):
+        return "model_rate_limited"
+    if any(marker in lowered for marker in ("timed out", "timeout", "超时")):
+        return "model_timeout"
+    return "model_unavailable"
 
 
 class AIQAService(AIBase):
@@ -44,11 +169,23 @@ class AIQAService(AIBase):
 用户问题：{question}
 
 请直接回答当前问题。不要假装已经写入笔记、错题或复习任务；需要改变系统状态时，只能说明建议动作。"""
-        async for chunk in self._stream_llm(prompt, system_prompt):
-            normalized = chunk.strip()
-            if normalized.startswith("[Error:") or normalized == "AI Service not configured.":
-                raise RuntimeError("AI provider unavailable")
-            yield chunk
+        emitted = ""
+        try:
+            async for chunk in self._stream_llm(prompt, system_prompt):
+                normalized = chunk.strip()
+                if normalized.startswith("[Error:") or normalized == "AI Service not configured.":
+                    # Some providers stream their failure as ordinary text
+                    # instead of raising, so classify the text too.
+                    raise classify_model_failure(
+                        AIProviderRequestError(normalized),
+                        partial_text=emitted,
+                    )
+                emitted += chunk
+                yield chunk
+        except AITeacherModelFailure:
+            raise
+        except Exception as exc:
+            raise classify_model_failure(exc, partial_text=emitted) from exc
 
     async def answer_question_events(self, *args: Any, **kwargs: Any):
         """Emit structured SSE blocks without asking the client to parse answer text."""
@@ -56,19 +193,34 @@ class AIQAService(AIBase):
         full_text = ""
         sent_until = 0
         collecting_metadata = False
-        async for chunk in self.answer_question_stream(*args, **kwargs):
-            full_text += chunk
-            split_idx = full_text.find(delimiter)
-            if split_idx == -1 and not collecting_metadata:
-                safe_end = max(0, len(full_text) - len(delimiter) + 1)
-                if safe_end > sent_until:
-                    yield self._qa_event("answer", {"chunk": full_text[sent_until:safe_end]})
-                    sent_until = safe_end
-            elif split_idx != -1 and not collecting_metadata:
-                unsent_answer = full_text[sent_until:split_idx]
-                if unsent_answer:
-                    yield self._qa_event("answer", {"chunk": unsent_answer})
-                collecting_metadata = True
+        try:
+            async for chunk in self.answer_question_stream(*args, **kwargs):
+                full_text += chunk
+                split_idx = full_text.find(delimiter)
+                if split_idx == -1 and not collecting_metadata:
+                    safe_end = max(0, len(full_text) - len(delimiter) + 1)
+                    if safe_end > sent_until:
+                        yield self._qa_event("answer", {"chunk": full_text[sent_until:safe_end]})
+                        sent_until = safe_end
+                elif split_idx != -1 and not collecting_metadata:
+                    unsent_answer = full_text[sent_until:split_idx]
+                    if unsent_answer:
+                        yield self._qa_event("answer", {"chunk": unsent_answer})
+                    collecting_metadata = True
+        except AITeacherModelFailure as failure:
+            # Flush whatever the learner already read, then say what went wrong.
+            # A failed answer has no trustworthy final_answer or metadata, so
+            # neither is emitted — the caller must treat this as incomplete.
+            answer_end = full_text.find(delimiter)
+            visible_end = len(full_text) if answer_end == -1 else answer_end
+            if visible_end > sent_until:
+                yield self._qa_event("answer", {"chunk": full_text[sent_until:visible_end]})
+            yield self._qa_event("error", {
+                "code": failure.code,
+                "message": failure.message,
+                "retryable": failure.retryable,
+            })
+            return
 
         if not collecting_metadata and sent_until < len(full_text):
             yield self._qa_event("answer", {"chunk": full_text[sent_until:]})
