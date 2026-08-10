@@ -38,6 +38,14 @@ _MARKDOWN_TITLE_RE = re.compile(
     r"\*\*([^*\n]{4,72})\*\*|^#{1,6}\s+([^\n]{4,72})",
     re.MULTILINE,
 )
+_STORY_PAGE_CONTRACT_FIELDS = frozenset({
+    "page_id",
+    "teaching_unit_id",
+    "template_layout_id",
+    "title",
+    "summary",
+    "source_block_ids",
+})
 
 
 class _StrictModel(BaseModel):
@@ -163,7 +171,16 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
-        normalized_pages.append(page)
+        # Providers sometimes over-answer the story request with draft code,
+        # annotations, or visual instructions. Those fields are not part of the
+        # story contract and must never leak into the compiled deck. Project the
+        # response onto the declared contract, then let the strict source/layout
+        # validators below decide whether the usable story fields are valid.
+        normalized_pages.append({
+            field: page[field]
+            for field in _STORY_PAGE_CONTRACT_FIELDS
+            if field in page
+        })
     payload["pages"] = normalized_pages
     return payload
 

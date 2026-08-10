@@ -186,6 +186,45 @@ async def test_story_ai_accepts_lossless_versioned_response_shapes(
 
 
 @pytest.mark.asyncio
+async def test_story_ai_discards_unconsumed_page_drafts_before_strict_validation() -> None:
+    """Cross-subject provider over-answering must not become ungrounded deck content."""
+
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = 0
+
+    async def planner(request):
+        nonlocal calls
+        calls += 1
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "page-over-answer",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+                "code": "invented_output_that_must_not_be_consumed()",
+                "annotation": "provider-only draft instruction",
+                "visual_direction": {"kind": "diagram"},
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert calls == 1
+    page_payload = story.batches[0].pages[0].model_dump(mode="json")
+    assert "code" not in page_payload
+    assert "annotation" not in page_payload
+    assert "visual_direction" not in page_payload
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
 async def test_one_story_batch_failure_fails_the_candidate_without_fallback() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
