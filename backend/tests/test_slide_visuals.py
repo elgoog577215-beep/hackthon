@@ -30,6 +30,7 @@ from slide_visuals import (
     _source_clauses,
     _visual_anchor,
     _visual_plan_batches,
+    _visual_plan_concurrency,
     _visual_plan_request,
     deterministic_visual_plan,
     plan_slide_visuals,
@@ -1437,6 +1438,19 @@ def test_visual_planning_batches_never_mix_chapters() -> None:
         len({page.chapter_id for page in batch if page.chapter_id}) <= 1
         for batch in batches
     )
+
+
+def test_visual_plan_concurrency_matches_shared_provider_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_VISUAL_PLAN_CONCURRENCY", raising=False)
+    assert _visual_plan_concurrency(8) == 2
+
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "999")
+    assert _visual_plan_concurrency(8) == 4
+
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "not-a-number")
+    assert _visual_plan_concurrency(8) == 2
 
 
 @pytest.mark.asyncio
