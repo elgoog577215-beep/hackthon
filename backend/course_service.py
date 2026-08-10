@@ -201,6 +201,23 @@ def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any
     ]
 
 
+def _stamp_evidence_revision(
+    target: dict[str, Any] | None,
+    source: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """把证据修订 ID 从 plan 盖到另一个阶段产物上（E1 验收用）。
+
+    教案是独立的 V3 对象而非 plan 的副本，且它的 `revision_id` 由自身内容
+    哈希得出——所以不能在组装时塞字段（会改变教案修订），只能在这里补盖。
+    """
+    if not isinstance(target, dict) or not isinstance(source, dict):
+        return target
+    revision = str(source.get("evidence_package_revision_id") or "")
+    if revision:
+        target["evidence_package_revision_id"] = revision
+    return target
+
+
 def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
     if issue.get("code") == "coherence:incorrect_next_section_handoff":
         return (
@@ -903,6 +920,10 @@ class CourseService(AIBase):
         )
         evidence_coverage_plan["package_revision_id"] = evidence_package.package_revision_id
         artifacts["evidence_coverage_plan"] = evidence_coverage_plan
+        # 把修订 ID 盖在 plan 上：plan 会流向目录、教案、正文与练习产物，
+        # 盖一次即可让各阶段产物都能自证"我用的是哪一份证据"。
+        # 这是 E1 验收（各阶段引用同一修订）能被独立核对的前提。
+        plan["evidence_package_revision_id"] = evidence_package.package_revision_id
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
@@ -1449,7 +1470,7 @@ class CourseService(AIBase):
                 "resumed": True,
             })
             course_data.update({
-                "course_teaching_plan": official_plan,
+                "course_teaching_plan": _stamp_evidence_revision(official_plan, planned_course),
                 "course_plan": deepcopy(planned_course),
                 "knowledge_relations": deepcopy(
                     planned_course.get("knowledge_relations") or []
@@ -2601,7 +2622,7 @@ class CourseService(AIBase):
         teaching_stage.pop("failed_batch_id", None)
         teaching_stage.pop("failed_batch_ids", None)
         course_data.update({
-            "course_teaching_plan": course_teaching_plan,
+            "course_teaching_plan": _stamp_evidence_revision(course_teaching_plan, planned_course),
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(
                 planned_course.get("knowledge_relations") or []
@@ -2900,7 +2921,7 @@ class CourseService(AIBase):
         })
         course_data.update({
             "course_teaching_plan_skeleton": skeleton,
-            "course_teaching_plan": course_teaching_plan,
+            "course_teaching_plan": _stamp_evidence_revision(course_teaching_plan, planned_course),
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(
                 planned_course.get("knowledge_relations") or []

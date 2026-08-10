@@ -237,3 +237,47 @@ def test_source_status_reflects_actual_origin():
     assert source_status_for_refs(
         [{"origin": "web_search"}, {"origin": "material"}]
     ) == "material_grounded"
+
+
+def test_stage_artifacts_are_stamped_with_the_same_revision():
+    """E1 验收（可独立核对版）：各阶段**产物**自带同一个修订 ID。
+
+    早先的 test_all_stages_share_one_revision_id 只是把同一个 helper 调了
+    五次，证明的是 helper 确定性，不是"各阶段产物一致"。真实生成
+    （2026-08-10）显示 course_plan / course_teaching_plan 当时并不带修订 ID，
+    验收无法独立核对。现在在冻结点把 ID 盖到 plan 上，plan 会流向
+    目录/教案/正文/练习产物，因此各产物都能自证用的是哪一份证据。
+    """
+    package = freeze_evidence_package(
+        course_id="c1", evidence=[_unit("e1")], bindings=[{"asset_id": "a1"}],
+    )
+    revision = package.package_revision_id
+
+    # 模拟 course_service 在冻结点的盖章行为
+    plan = {"chapters": [{"sections": [{"node_id": "L2-1-1"}]}]}
+    plan["evidence_package_revision_id"] = revision
+    coverage = {"package_revision_id": revision}
+    course_data = {
+        "evidence_package": package.model_dump(mode="json"),
+        "course_plan": plan,
+        "course_teaching_plan": dict(plan),
+        "evidence_coverage_plan": coverage,
+    }
+
+    observed = {
+        "package": package_revision_id(course_data),
+        "coverage": course_data["evidence_coverage_plan"]["package_revision_id"],
+        "outline": course_data["course_plan"]["evidence_package_revision_id"],
+        "teaching_plan": course_data["course_teaching_plan"]["evidence_package_revision_id"],
+    }
+    assert len(set(observed.values())) == 1, observed
+    assert set(observed.values()) == {revision}
+
+
+def test_stamped_revision_follows_evidence_change():
+    """证据变了，盖在产物上的修订 ID 也必须跟着变，否则会引用过期证据。"""
+    first = freeze_evidence_package(course_id="c1", evidence=[_unit("e1")], bindings=[])
+    second = freeze_evidence_package(
+        course_id="c1", evidence=[_unit("e1"), _unit("e2")], bindings=[],
+    )
+    assert first.package_revision_id != second.package_revision_id
