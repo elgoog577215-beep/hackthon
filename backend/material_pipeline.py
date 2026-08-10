@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -53,6 +54,7 @@ async def prepare_course_materials(
     legacy_materials: list[Any] | None,
     repository: MaterialRepository = material_repository,
     on_progress: MaterialProgressCallback | None = None,
+    web_search_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     bindings = [_normalize_binding(item) for item in material_bindings or []]
     legacy_metadata: list[dict[str, Any]] = []
@@ -76,6 +78,15 @@ async def prepare_course_materials(
         })
         if all(existing.asset_id != binding.asset_id for existing in bindings):
             bindings.append(binding)
+
+    # 联网检索到的资料在此转成普通资料资产，之后与教师导入资料同路解析、
+    # 同路进证据目录，不建立平行真源。
+    web_ingestion = await _ingest_web_candidates(
+        course_id=course_id,
+        report=web_search_report,
+        bindings=bindings,
+        repository=repository,
+    )
 
     assets: list[dict[str, Any]] = []
     parsed_summaries: list[dict[str, Any]] = []
@@ -157,7 +168,68 @@ async def prepare_course_materials(
         "parsed_documents": parsed_summaries,
         "evidence_catalog": evidence_catalog,
         "material_cards": cards,
+        "web_search": web_ingestion,
     }
+
+
+async def _ingest_web_candidates(
+    *,
+    course_id: str,
+    report: dict[str, Any] | None,
+    bindings: list[MaterialBinding],
+    repository: MaterialRepository,
+) -> dict[str, Any]:
+    """把联网候选写成资料资产并追加绑定。
+
+    单条失败只跳过该条，不影响其余资料与整体生成。
+    """
+    summary: dict[str, Any] = {
+        "enabled": bool((report or {}).get("enabled")),
+        "status": str((report or {}).get("status") or "disabled"),
+        "degraded": bool((report or {}).get("degraded", True)),
+        "queries": list((report or {}).get("queries") or []),
+        "rejected": list((report or {}).get("rejected") or []),
+        "message_code": str((report or {}).get("message_code") or "web_search_disabled"),
+        "sources": [],
+        "ingested_count": 0,
+        "failed_count": 0,
+    }
+    candidates = list((report or {}).get("candidates") or [])
+    if not candidates:
+        return summary
+
+    from web_material_search import candidate_to_binding, candidate_to_markdown
+
+    for index, candidate in enumerate(candidates, start=1):
+        try:
+            asset = await repository.create_text_asset(
+                filename=_web_filename(candidate, index),
+                content=candidate_to_markdown(candidate),
+                upload_batch_id=f"web-{course_id}",
+            )
+            binding = _normalize_binding(candidate_to_binding(candidate, asset.asset_id))
+        except Exception:
+            summary["failed_count"] = int(summary["failed_count"]) + 1
+            continue
+        if all(existing.asset_id != binding.asset_id for existing in bindings):
+            bindings.append(binding)
+        summary["sources"].append({
+            "asset_id": asset.asset_id,
+            "url": candidate.get("url") or "",
+            "domain": candidate.get("domain") or "",
+            "title": candidate.get("title") or "",
+            "credibility": candidate.get("credibility") or "low",
+            "retrieved_at": candidate.get("retrieved_at") or "",
+            "reuse_policy": binding.reuse_policy,
+            "rights_basis": binding.rights_basis,
+        })
+        summary["ingested_count"] = int(summary["ingested_count"]) + 1
+    return summary
+
+
+def _web_filename(candidate: dict[str, Any], index: int) -> str:
+    domain = re.sub(r"[^A-Za-z0-9.-]+", "-", str(candidate.get("domain") or "web")).strip("-")
+    return f"web-{index:02d}-{domain or 'source'}.md"[:120]
 
 
 async def _notify(callback: MaterialProgressCallback | None, detail: dict[str, Any]) -> None:

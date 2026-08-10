@@ -493,3 +493,44 @@ def test_later_section_reuses_one_course_knowledge_identity_through_bindings():
     recompiled = compile_course_knowledge_base(course)
     assert recompiled["lifecycle_status"] == "active"
     assert course["nodes"][1]["reused_knowledge_names"] == ["容量耗尽判定"]
+
+
+def test_relation_plan_contract_is_only_claimed_when_decisions_survive():
+    """没有逐点关系决定时不得声称 relation_plan 契约。
+
+    course_plan 里的 knowledge_relation_schema_version 会长期留存，但逐点
+    decisions 由生成管线产出、无法从蓝图重新推导。若重编译时仍然声称该契约，
+    知识库会撞上自己的 incomplete_relation_decisions 门而整体 degraded ——
+    实测 4 门真实课程里有 2 门因此把 67–77 个节点的健康知识库变成空的
+    "需要升级"视图，教师连知识树都看不到。
+    """
+    course = _course()
+    course["course_plan"] = {"knowledge_relation_schema_version": "course_relation_plan_v1"}
+    # 蓝图里没有 knowledge_relation_decisions，重编译无法产出逐点决定。
+
+    knowledge_base = compile_course_knowledge_base(course)
+
+    assert knowledge_base["relation_decisions"] == []
+    assert knowledge_base["relation_plan_schema_version"] is None
+    quality = knowledge_base["quality_report"]
+    assert "incomplete_relation_decisions" not in {
+        issue["code"] for issue in quality["issues"]
+    }
+    assert knowledge_base["knowledge_points"], "知识点不应因关系契约而被清空"
+
+
+def test_relation_plan_contract_is_kept_when_decisions_exist():
+    """有逐点决定时契约照常生效，门禁不被削弱。"""
+    course = _course()
+    course["course_plan"] = {"knowledge_relation_schema_version": "course_relation_plan_v1"}
+    compiled = compile_course_knowledge_base(deepcopy(course))
+    decisions = [
+        {"knowledge_id": point["knowledge_id"], "decision": "course_entry", "reason": "入口"}
+        for point in compiled["knowledge_points"]
+    ]
+    course["course_plan"]["knowledge_relation_decisions"] = decisions
+
+    knowledge_base = compile_course_knowledge_base(course)
+
+    assert knowledge_base["relation_plan_schema_version"] == "course_relation_plan_v1"
+    assert len(knowledge_base["relation_decisions"]) == len(decisions)

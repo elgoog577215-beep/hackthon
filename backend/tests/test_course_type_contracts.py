@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 from pydantic import ValidationError
 from starlette.requests import Request
@@ -11,6 +9,7 @@ from course_generation_workflow import (
     normalize_course_outline_contract,
 )
 from course_prompt_composer import CoursePromptComposer
+from course_pedagogy import resolve_pedagogy_profile
 from course_type_contracts import ENABLED_COURSE_TYPES, resolve_course_type
 from course_versioning import build_blueprint_draft
 from models import CourseGenerationRequest
@@ -440,7 +439,7 @@ def test_outline_prompt_and_blueprint_expose_type_and_path_reason():
         subject="玻璃杯设计",
         audience="大学生",
         brief=brief,
-        profile=SimpleNamespace(to_dict=lambda: {"primary_mode": "general"}),
+        profile=resolve_pedagogy_profile(subject="玻璃杯设计"),
         difficulty_profile={},
         gap_assessment={},
         adaptation_decision={},

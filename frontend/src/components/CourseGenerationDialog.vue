@@ -411,7 +411,6 @@
                       </button>
                     </div>
                   </fieldset>
-
                   <div class="strategy-settings">
                     <div class="strategy-settings__heading">
                       <strong>{{ t('courseGeneration.form.strategy', '课程策略') }}</strong>
@@ -441,13 +440,6 @@
                     </div>
                   </div>
                 </div>
-              </section>
-
-              <section class="generation-advanced-settings__assessment">
-                <AssessmentGenerationProfileSelector
-                  v-model="form.assessmentGenerationProfile"
-                  :disabled="busy"
-                />
               </section>
 
               <section>
@@ -540,7 +532,6 @@ import {
 import MaterialInputPanel from './MaterialInputPanel.vue'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
-import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
@@ -628,7 +619,6 @@ const form = reactive({
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
-  assessmentGenerationProfile: 'fast' as 'fast' | 'deliberate',
   retrievalEnabled: false,
   requirements: '',
   targetAudience: '大学生',
@@ -771,7 +761,6 @@ async function submit() {
         ? { secondary_mode: form.secondaryMode, secondary_intensity: 'collaborative' as const }
         : {}),
       generation_mode: 'review_blueprint',
-      assessment_generation_profile: form.assessmentGenerationProfile,
       course_purpose: form.courseType === 'exam' ? 'exam_sprint' : 'systematic',
       course_type: form.courseType,
       course_intent: form.courseType === 'project'

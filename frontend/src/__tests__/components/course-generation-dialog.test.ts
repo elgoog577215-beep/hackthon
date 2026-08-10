@@ -138,7 +138,6 @@ describe('CourseGenerationDialog', () => {
         secondary_mode: 'natural_science',
         secondary_intensity: 'collaborative',
         generation_mode: 'review_blueprint',
-        assessment_generation_profile: 'fast',
         course_type: 'systematic',
         course_intent: {
           schema_version: 'course_intent_v1',
@@ -161,28 +160,23 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
-  it('允许显式选择思考版并说明快速版仍保留必要思考', async () => {
+  it('只提供一种高质量自适应生成策略', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
     })
 
-    expect(wrapper.text()).toContain('复杂题和关键修复仍会保留必要思考')
-    expect(
-      wrapper.get('[data-testid="assessment-profile-fast"]')
-        .attributes('aria-pressed'),
-    ).toBe('true')
-    await wrapper.get('[data-testid="assessment-profile-deliberate"]')
-      .trigger('click')
+    expect(wrapper.find('[data-testid="assessment-profile-fast"]').exists())
+      .toBe(false)
+    expect(wrapper.find('[data-testid="assessment-profile-deliberate"]').exists())
+      .toBe(false)
     await wrapper.get('#course-subject').setValue('数理逻辑')
     await wrapper.find('.generation-dialog__footer .primary-button')
       .trigger('click')
     await flushPromises()
 
-    expect(
-      (wrapper.emitted('generate')?.[0]?.[0] as any)
-        .options.assessment_generation_profile,
-    ).toBe('deliberate')
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options)
+      .not.toHaveProperty('assessment_generation_profile')
   })
 
   it('把课堂约束写入生成请求，并阻止不合理的章节规模', async () => {

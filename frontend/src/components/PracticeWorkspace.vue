@@ -73,11 +73,6 @@
         <strong>{{ emptyState.title }}</strong>
         <span>{{ emptyState.body }}</span>
         <div v-if="canRebuildQuestionBank" class="question-bank-rebuild">
-          <AssessmentGenerationProfileSelector
-            v-model="assessmentGenerationProfile"
-            compact
-            :disabled="questionBankRebuilding"
-          />
           <button
             type="button"
             class="primary-command"
@@ -461,7 +456,6 @@ import {
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import PracticeAnswerRenderer from './PracticeAnswerRenderer.vue'
-import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { t } from '../shared/i18n'
 import { isQuestionBankRepairReason, practiceAvailabilityCopy } from '../utils/course-availability'
@@ -471,7 +465,6 @@ import { hasMeaningfulAnswer } from '../utils/answer-payload'
 import { presentSolutionValue } from '../utils/solution-presentation'
 import {
   runQuestionBankRebuild,
-  type AssessmentGenerationProfile,
   type QuestionBankRebuildJob,
 } from '../utils/question-bank-rebuild'
 
@@ -494,7 +487,6 @@ const hintLoadingLevel = ref<number | null>(null)
 const questionBankRebuilding = ref(false)
 const questionBankRebuildError = ref('')
 const questionBankRebuildJob = ref<QuestionBankRebuildJob | null>(null)
-const assessmentGenerationProfile = ref<AssessmentGenerationProfile>('fast')
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let rebuildAbortController: AbortController | null = null
 
@@ -894,7 +886,6 @@ async function rebuildQuestionBank() {
         scope: nodeScoped ? 'nodes' : 'course',
         node_ids: nodeScoped ? [String(props.nodeId)] : [],
         mode: 'incremental',
-        assessment_generation_profile: assessmentGenerationProfile.value,
         retrieval_enabled: retrievalEnabled,
       },
       {

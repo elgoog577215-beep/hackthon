@@ -62,7 +62,7 @@ def test_task_manager_history_survives_restart(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generation_job_persists_assessment_profile_and_legacy_default(
+async def test_generation_job_normalizes_legacy_assessment_profiles(
     tmp_path,
     monkeypatch,
 ):
@@ -75,7 +75,10 @@ async def test_generation_job_persists_assessment_profile_and_legacy_default(
         request_snapshot={"assessment_generation_profile": "fast"},
         enqueue=False,
     )
-    assert manager.tasks[task_id]["assessment_generation_profile"] == "fast"
+    assert manager.tasks[task_id]["assessment_generation_profile"] == "adaptive"
+    assert manager.tasks[task_id]["request_snapshot"][
+        "assessment_generation_profile"
+    ] == "adaptive"
     assert manager.tasks[task_id][
         "assessment_generation_policy_version"
     ] == ASSESSMENT_GENERATION_POLICY_VERSION
@@ -90,7 +93,7 @@ async def test_generation_job_persists_assessment_profile_and_legacy_default(
     restarted = TaskManager(storage=None, course_service=None, ws_service=None)
 
     assert restarted.tasks["legacy"]["assessment_generation_profile"] == (
-        "deliberate"
+        "adaptive"
     )
 
 

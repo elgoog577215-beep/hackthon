@@ -20,7 +20,10 @@ from course_difficulty import (
     DifficultyProfile,
 )
 from course_knowledge_map import normalize_knowledge_structure
-from course_pedagogy import SubjectPedagogyProfile
+from course_pedagogy import (
+    SubjectPedagogyProfile,
+    compile_subject_generation_template,
+)
 from course_type_contracts import apply_course_type_brief
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
@@ -100,6 +103,7 @@ def build_course_generation_artifacts(
         "material_bindings": prepared.get("material_bindings") or [],
         "parsed_documents": prepared.get("parsed_documents") or [],
         "evidence_catalog": prepared.get("evidence_catalog") or [],
+        "web_material_search": prepared.get("web_search") or {"enabled": False},
         "evidence_coverage_plan": {
             "plan_version": "evidence_coverage_v1",
             "strategy": grounding_strategy,
@@ -149,6 +153,9 @@ def attach_pedagogy_profile(
     artifacts: dict[str, Any], profile: SubjectPedagogyProfile
 ) -> dict[str, Any]:
     artifacts["subject_pedagogy_profile"] = profile.to_dict()
+    artifacts["subject_generation_template"] = (
+        compile_subject_generation_template(profile)
+    )
     return artifacts
 
 
@@ -2579,6 +2586,9 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
         ),
         "knowledge_relations": deepcopy(plan.get("knowledge_relations") or []),
         "subject_pedagogy_profile": artifacts.get("subject_pedagogy_profile") or plan.get("subject_pedagogy_profile") or {},
+        "subject_generation_template": artifacts.get(
+            "subject_generation_template"
+        ) or plan.get("subject_generation_template") or {},
         "course_composition_profile": artifacts.get("course_composition_profile") or plan.get("course_composition_profile") or {},
         "course_block_distribution": plan.get("course_block_distribution") or {},
         "difficulty_profile": artifacts.get("difficulty_profile") or plan.get("difficulty_profile") or {},
@@ -2686,6 +2696,12 @@ def attach_generation_artifacts_to_plan(
             section.setdefault("examples_plan", _example_plan_for_refs(refs, artifacts))
             section.setdefault("exercise_plan", _exercise_plan_for_refs(refs, artifacts))
     plan["generation_pipeline_version"] = PIPELINE_VERSION
+    plan["subject_pedagogy_profile"] = deepcopy(
+        artifacts.get("subject_pedagogy_profile") or {}
+    )
+    plan["subject_generation_template"] = deepcopy(
+        artifacts.get("subject_generation_template") or {}
+    )
     return plan
 
 

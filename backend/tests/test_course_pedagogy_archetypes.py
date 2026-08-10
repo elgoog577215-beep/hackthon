@@ -322,6 +322,7 @@ def test_archetype_contract_reaches_content_prompt_and_teacher_plan():
     )
 
     assert "## 本节学科课型" in prompt
+    assert "学科生成模板" in prompt
     assert "测试与重构" in prompt
     assert "在保持外部行为不变的前提下" in prompt
     assert "不能机械复用同一学科的固定段落套路" in prompt

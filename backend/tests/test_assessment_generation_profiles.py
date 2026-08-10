@@ -11,37 +11,41 @@ from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers.question_bank import QuestionBankRebuildRequest
 
 
-def test_generation_profile_defaults_use_bounded_adaptive_behavior() -> None:
+def test_generation_uses_one_adaptive_profile_and_normalizes_legacy_inputs() -> None:
     course_request = CourseGenerationRequest(subject="线性代数")
     rebuild_request = QuestionBankRebuildRequest()
 
-    assert course_request.assessment_generation_profile == "fast"
-    assert rebuild_request.assessment_generation_profile == "fast"
+    assert course_request.assessment_generation_profile == "adaptive"
+    assert rebuild_request.assessment_generation_profile == "adaptive"
     assert QuestionBankRebuildRequest(
         assessment_generation_profile="fast"
-    ).assessment_generation_profile == "fast"
+    ).assessment_generation_profile == "adaptive"
+    assert QuestionBankRebuildRequest(
+        assessment_generation_profile="deliberate"
+    ).assessment_generation_profile == "adaptive"
 
 
-def test_fast_policy_has_bounded_repairs_and_provider_budget() -> None:
-    policy = resolve_assessment_generation_policy("fast")
+def test_adaptive_policy_keeps_full_quality_budget_and_batches_work() -> None:
+    policy = resolve_assessment_generation_policy("adaptive")
 
     assert policy.version == ASSESSMENT_GENERATION_POLICY_VERSION
-    assert policy.profile == "fast"
-    assert policy.max_generation_attempts == 2
+    assert policy.profile == "adaptive"
+    assert policy.max_generation_attempts == 4
     assert policy.generation_batch_size == 3
     assert policy.solution_batch_size == 2
-    assert policy.max_provider_attempts == 1
-    assert policy.compact_candidate is True
+    assert policy.max_provider_attempts is None
+    assert policy.compact_candidate is False
+    assert policy.prefer_local_solver is True
     assert policy.stage_timeouts == {
-        "generate": 45.0,
-        "repair": 35.0,
-        "solve": 35.0,
-        "review": 30.0,
+        "generate": None,
+        "repair": None,
+        "solve": None,
+        "review": None,
     }
 
 
-def test_fast_policy_keeps_deliberation_for_complex_items() -> None:
-    policy = resolve_assessment_generation_policy("fast")
+def test_adaptive_policy_keeps_deliberation_for_complex_items() -> None:
+    policy = resolve_assessment_generation_policy("adaptive")
     context = {
         "assessment_slot": {
             "input_mode": "code",
@@ -69,8 +73,8 @@ def test_fast_policy_keeps_deliberation_for_complex_items() -> None:
     assert "semantic_repair" in repair_policy.thinking_reason_codes
 
 
-def test_fast_policy_keeps_simple_items_non_thinking_and_batchable() -> None:
-    policy = resolve_assessment_generation_policy("fast")
+def test_adaptive_policy_keeps_simple_items_non_thinking_and_batchable() -> None:
+    policy = resolve_assessment_generation_policy("adaptive")
 
     call_policy = policy.call_policy("generate", {
         "assessment_slot": {
@@ -125,7 +129,7 @@ def test_deliberation_is_selective_and_reasoned() -> None:
 def test_global_thinking_switch_vetoes_provider_request(monkeypatch) -> None:
     monkeypatch.setenv("AI_THINKING_ENABLED", "false")
 
-    policy = resolve_assessment_generation_policy("fast")
+    policy = resolve_assessment_generation_policy("adaptive")
     call_policy = policy.call_policy(
         "solve",
         {"input_contract": {"mode": "code"}},
@@ -135,7 +139,7 @@ def test_global_thinking_switch_vetoes_provider_request(monkeypatch) -> None:
     assert call_policy.thinking_reason_codes == ()
 
 
-def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
+def test_legacy_profile_aliases_share_one_rebuild_job_identity(tmp_path) -> None:
     repository = QuestionBankRebuildJobRepository(tmp_path)
 
     fast, fast_created = repository.create_job(
@@ -158,10 +162,10 @@ def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
     )
 
     assert fast_created is True
-    assert deliberate_created is True
-    assert fast["job_id"] != deliberate["job_id"]
-    assert fast["assessment_generation_profile"] == "fast"
-    assert deliberate["assessment_generation_profile"] == "deliberate"
+    assert deliberate_created is False
+    assert fast["job_id"] == deliberate["job_id"]
+    assert fast["assessment_generation_profile"] == "adaptive"
+    assert deliberate["assessment_generation_profile"] == "adaptive"
     assert fast["assessment_generation_policy_version"] == (
         ASSESSMENT_GENERATION_POLICY_VERSION
     )

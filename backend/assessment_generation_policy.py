@@ -1,4 +1,10 @@
-"""Execution policies for fast and deliberate assessment generation."""
+"""One adaptive execution policy for assessment generation.
+
+Legacy ``fast`` and ``deliberate`` inputs are accepted only at the boundary
+and normalize to the same policy.  Throughput comes from safe batching,
+parallel work, deterministic solvers, and scoped repair; semantic complexity
+still decides when model reasoning is required.
+"""
 
 from __future__ import annotations
 
@@ -6,14 +12,14 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-AssessmentGenerationProfile = Literal["fast", "deliberate"]
+AssessmentGenerationProfile = Literal["adaptive"]
 AssessmentGenerationScope = Literal[
     "full_generation",
     "scoped_repair",
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v3"
+    "assessment_generation_policy_v4"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -89,16 +95,6 @@ class AssessmentGenerationPolicy:
     ) -> AssessmentModelCallPolicy:
         resolved_context = context or {}
         decision = requires_deliberation(stage, resolved_context)
-        if self.profile == "deliberate":
-            if stage == "review":
-                decision = DeliberationDecision(False)
-            elif stage == "generate" and resolved_context.get(
-                "batch_generation"
-            ):
-                decision = DeliberationDecision(
-                    True,
-                    ("deliberate_batch_generation",),
-                )
         if not _global_thinking_enabled():
             decision = DeliberationDecision(False)
         return AssessmentModelCallPolicy(
@@ -114,48 +110,27 @@ class AssessmentGenerationPolicy:
 def normalize_assessment_generation_profile(
     value: str | None,
 ) -> AssessmentGenerationProfile:
-    normalized = str(value or "deliberate").strip().lower()
-    if normalized not in {"fast", "deliberate"}:
+    normalized = str(value or "adaptive").strip().lower()
+    if normalized not in {"adaptive", "fast", "deliberate"}:
         raise ValueError(
-            "assessment_generation_profile must be fast or deliberate"
+            "assessment_generation_profile must be adaptive"
         )
-    return normalized  # type: ignore[return-value]
+    return "adaptive"
 
 
 def resolve_assessment_generation_policy(
     profile: str | None,
 ) -> AssessmentGenerationPolicy:
-    normalized = normalize_assessment_generation_profile(profile)
-    if normalized == "fast":
-        # ``fast`` is an adaptive bounded policy, not a quality-off switch.
-        # Simple slots stay batchable and non-thinking, while complex input,
-        # validation, risk, source uncertainty, and semantic repairs retain
-        # explicit deliberation through ``call_policy``.
-        return AssessmentGenerationPolicy(
-            profile="fast",
-            version=ASSESSMENT_GENERATION_POLICY_VERSION,
-            max_generation_attempts=2,
-            generation_batch_size=3,
-            solution_batch_size=2,
-            max_provider_attempts=1,
-            compact_candidate=True,
-            prefer_local_solver=True,
-            stage_timeouts={
-                "generate": 45.0,
-                "repair": 35.0,
-                "solve": 35.0,
-                "review": 30.0,
-            },
-        )
+    normalize_assessment_generation_profile(profile)
     return AssessmentGenerationPolicy(
-        profile="deliberate",
+        profile="adaptive",
         version=ASSESSMENT_GENERATION_POLICY_VERSION,
         max_generation_attempts=4,
-        generation_batch_size=2,
-        solution_batch_size=1,
+        generation_batch_size=3,
+        solution_batch_size=2,
         max_provider_attempts=None,
         compact_candidate=False,
-        prefer_local_solver=False,
+        prefer_local_solver=True,
         stage_timeouts={
             "generate": None,
             "repair": None,

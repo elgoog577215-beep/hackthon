@@ -2,6 +2,7 @@ from course_pedagogy import (
     PedagogyMode,
     SecondaryIntensity,
     attach_module_plans_to_plan,
+    compile_subject_generation_template,
     coerce_persisted_profile,
     resolve_pedagogy_profile,
     validate_module_registry,
@@ -63,6 +64,31 @@ def test_unknown_subject_falls_back_to_general_not_natural_science():
     profile = resolve_pedagogy_profile(subject="一个全新的主题代号")
     assert profile.primary_mode == PedagogyMode.GENERAL
     assert profile.confidence == "low"
+
+
+def test_subject_template_freezes_one_contract_for_all_downstream_stages():
+    profile = resolve_pedagogy_profile(
+        subject="微积分",
+        requirements="完整推导、变式练习和错因分析",
+    )
+
+    template = compile_subject_generation_template(profile)
+
+    assert template["schema_version"] == "subject_generation_template_v1"
+    assert template["template_id"].startswith("subject/math_formal/")
+    assert template["subject_variant"]["id"]
+    assert "derives" in template["knowledge_contract"]["relation_priorities"]
+    assert "math_formalization" in template["lesson_plan_contract"][
+        "required_lesson_module_ids"
+    ]
+    assert template["lesson_plan_contract"]["preferred_archetype_ids"]
+    assert template["assessment_contract"]["final_performance"]
+    assert template["downstream_order"] == [
+        "course_knowledge",
+        "course_teaching_plan",
+        "course_content",
+        "course_assessment",
+    ]
 
 
 def test_subject_title_outweighs_generic_application_wording():

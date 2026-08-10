@@ -762,13 +762,16 @@ async def test_node_uses_one_batch_generation_call_when_supported():
 
     audit = prepared["_assessment_generation_audit"]
     assert model.batch_generate_calls == 1
-    assert model.batch_evaluate_calls == 1
+    # Two simple slots share the batch while the complex slot keeps its own
+    # reasoning and semantic review call.
+    assert model.batch_evaluate_calls == 0
     assert model.generate_calls == 1
     assert model.solve_calls == 3
     assert audit["batch_generation_calls"] == 1
     assert audit["batch_generation_fallback_count"] == 0
-    assert audit["batch_semantic_evaluation_calls"] == 1
+    assert audit["batch_semantic_evaluation_calls"] == 0
     assert audit["batch_semantic_fallback_count"] == 0
+    assert audit["semantic_evaluation_calls"] == 1
     assert audit["generation_calls"] == 2
     assert audit["model_call_count"] == 6
     assert len(audit["call_timings"]) == 6
@@ -920,10 +923,10 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert set(prepared["_assessment_generated_contracts"]) == {
         "thermo-2",
     }
-    assert model.batch_generate_calls == 0
-    assert model.generate_calls == 3
-    assert model.solve_calls == 4
-    assert model.repair_calls == 1
+    assert model.batch_generate_calls == 1
+    assert model.generate_calls == 1
+    assert model.solve_calls == 3
+    assert model.repair_calls == 0
     assert [event["completed_items"] for event in progress_events] == [
         1,
         2,
@@ -945,7 +948,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert len(chapter_events[0]["audit_items"]) == 3
     assert chapter_events[0]["audit_snapshot"][
         "assessment_generation_profile"
-    ] == "deliberate"
+    ] == "adaptive"
     assert chapter_events[0]["audit_snapshot"][
         "assessment_generation_policy_version"
     ]
@@ -953,14 +956,14 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert chapter_events[0]["audit_snapshot"]["wall_clock_ms"] >= 0
 
 
-async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
+async def test_adaptive_policy_batches_candidates_and_simple_solutions():
     model = ProfileAwareBatchModel()
 
     prepared = await AssessmentGenerationOrchestrator(
         model=model
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="adaptive",
         generation_scope="full_generation",
     )
 
@@ -970,10 +973,10 @@ async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
     assert model.generation_batch_sizes == [2]
     assert 2 in model.solve_batch_sizes
     assert model.generate_calls == 1
-    assert audit["assessment_generation_profile"] == "fast"
+    assert audit["assessment_generation_profile"] == "adaptive"
     assert audit["assessment_generation_policy_version"]
-    assert audit["max_generation_attempts_per_question"] == 2
-    assert audit["max_repairs_per_question"] == 1
+    assert audit["max_generation_attempts_per_question"] == 4
+    assert audit["max_repairs_per_question"] == 3
     assert audit["thinking_requested_call_count"] >= 1
     assert audit["batched_logical_call_count"] >= 1
     assert audit["batched_item_count"] >= 2
@@ -989,14 +992,14 @@ async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
     )
 
 
-async def test_fast_profile_batches_all_failed_repairs_once():
+async def test_adaptive_policy_batches_failed_repairs():
     model = BatchRepairAwareModel()
 
     prepared = await AssessmentGenerationOrchestrator(
         model=model
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="adaptive",
         generation_scope="full_generation",
     )
 
@@ -1014,12 +1017,12 @@ async def test_fast_profile_batches_all_failed_repairs_once():
     assert audit["failure_count"] == 0
 
 
-async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
+async def test_adaptive_batch_repair_falls_back_per_slot_without_losing_quality():
     prepared = await AssessmentGenerationOrchestrator(
         model=PartialBatchRepairModel()
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="adaptive",
         generation_scope="full_generation",
     )
 
@@ -1028,20 +1031,20 @@ async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
     assert {
         contract["generation_status"]
         for contract in contracts.values()
-    } == {"discarded", "ready"}
-    assert audit["failure_count"] == 2
+    } == {"ready"}
+    assert audit["failure_count"] == 0
     assert audit["batch_repair_fallback_count"] == 1
     assert sum(
         item["final_decision"] == "discard"
         for item in audit["items"]
-    ) == 2
+    ) == 0
     assert sum(
         item["final_decision"] == "publish"
         for item in audit["items"]
-    ) == 1
+    ) == 3
 
 
-def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
+def test_adaptive_batch_prompt_deduplicates_shared_course_context() -> None:
     shared_marker = "SHARED_COURSE_FACTS_MARKER"
     contexts = [
         {
@@ -1061,21 +1064,21 @@ def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
         for index in range(3)
     ]
 
-    prompt = _batch_generation_prompt(contexts, compact=True)
+    prompt = _batch_generation_prompt(contexts, compact=False)
 
     assert prompt.count(shared_marker) == 1
     for index in range(3):
         assert prompt.count(f"slot-{index}") == 1
 
 
-async def test_fast_profile_stops_after_one_repair_attempt():
+async def test_adaptive_policy_uses_full_repair_budget_before_discard():
     model = DisagreeingModel()
 
     prepared = await AssessmentGenerationOrchestrator(
         model=model
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="adaptive",
         generation_scope="scoped_repair",
     )
 
@@ -1087,6 +1090,6 @@ async def test_fast_profile_stops_after_one_repair_attempt():
         for item in prepared["_assessment_generation_audit"]["items"]
         if item["practice_level"] == "objective_practice"
     )
-    assert model.repair_calls == 1
-    assert len(audit_item["attempts"]) == 2
+    assert model.repair_calls == 3
+    assert len(audit_item["attempts"]) == 4
     assert contract["generation_status"] == "discarded"

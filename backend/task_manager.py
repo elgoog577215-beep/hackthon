@@ -1103,6 +1103,12 @@ class TaskManager:
         """
         task_id = task_id or str(uuid.uuid4())
         now = datetime.now().isoformat()
+        request_snapshot = deepcopy(request_snapshot or {})
+        request_snapshot["assessment_generation_profile"] = (
+            normalize_assessment_generation_profile(
+                request_snapshot.get("assessment_generation_profile")
+            )
+        )
         task: dict[str, Any] = {
             "id": task_id,
             "course_id": course_id,
@@ -1130,7 +1136,7 @@ class TaskManager:
             "error": None,
             "retry_count": 0,
             "logs": [],
-            "request_snapshot": request_snapshot or {},
+            "request_snapshot": request_snapshot,
             "assessment_generation_profile": (
                 normalize_assessment_generation_profile(
                     (request_snapshot or {}).get(
@@ -1359,6 +1365,9 @@ class TaskManager:
             "asset_preferences": deepcopy(request_snapshot.get("asset_preferences") or {}),
             "web_question_enrichment": deepcopy(
                 request_snapshot.get("web_question_enrichment") or {"enabled": False}
+            ),
+            "web_material_ingest": deepcopy(
+                request_snapshot.get("web_material_ingest") or {}
             ),
         }
         workspace_created = False
@@ -3660,7 +3669,7 @@ class TaskManager:
             "phase": phase,
             "assessment_generation_profile": str(
                 task.get("assessment_generation_profile")
-                or "deliberate"
+                or "adaptive"
             ),
             "assessment_generation_policy_version": str(
                 task.get("assessment_generation_policy_version")
@@ -6235,6 +6244,7 @@ class TaskManager:
                     web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
                     retrieval_enabled=bool((request.get("retrieval") or {}).get("enabled")),
                     retrieval_actor_id=str(request.get("_retrieval_actor_id") or "") or None,
+                    web_material_ingest=request.get("web_material_ingest") or {},
                     existing_course_data=course_data,
                     stop_after_outline=stop_after_outline,
                     on_phase=on_phase,
@@ -7247,7 +7257,7 @@ class TaskManager:
                         )
                     )
                 except ValueError:
-                    persisted_generation_profile = "deliberate"
+                    persisted_generation_profile = "adaptive"
                 task["assessment_generation_profile"] = (
                     persisted_generation_profile
                 )
@@ -7954,7 +7964,7 @@ class TaskManager:
                 (self.tasks[task_id].get("request_snapshot") or {}).get(
                     "assessment_generation_profile"
                 )
-                or "deliberate"
+                or "adaptive"
             ),
             generation_scope="scoped_repair",
         )
@@ -8191,7 +8201,7 @@ class TaskManager:
                     (task.get("request_snapshot") or {}).get(
                         "assessment_generation_profile"
                     )
-                    or "deliberate"
+                    or "adaptive"
                 ),
                 generation_scope="full_generation",
             )

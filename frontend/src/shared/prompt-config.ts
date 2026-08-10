@@ -358,7 +358,6 @@ export interface GenerateCourseParams {
   secondary_mode?: PedagogyMode;
   secondary_intensity?: SecondaryIntensity;
   generation_mode?: 'review_blueprint';
-  assessment_generation_profile?: 'fast' | 'deliberate';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   course_type?: CourseType;
   course_intent?: CourseIntent;
@@ -367,12 +366,19 @@ export interface GenerateCourseParams {
     mode?: 'auto_on_gap' | 'off' | 'always';
     enabled?: boolean;
   };
+  /** 联网研究授权；检索开关与策略由团队检索网关拥有。 */
   retrieval?: {
     enabled: boolean;
   };
   preflight_acceptance?: {
     preflight_id: string;
     accepted_issue_codes: string[];
+  };
+  /** 联网结果落成资料资产时的取舍；不承载检索配置。 */
+  web_material_ingest?: {
+    skip_ingest?: boolean;
+    excluded_source_ids?: string[];
+    excluded_urls?: string[];
   };
 }
 

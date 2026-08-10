@@ -22,6 +22,7 @@ from course_pedagogy_archetypes import (
 )
 
 PROFILE_VERSION = "subject_pedagogy_v2"
+SUBJECT_GENERATION_TEMPLATE_VERSION = "subject_generation_template_v1"
 
 
 class PedagogyMode(str, Enum):
@@ -609,6 +610,163 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
         "交付一个可评价的业务方案、分析、沟通或决策成果",
     ),
 }
+
+
+SUBJECT_RELATION_PRIORITIES: dict[PedagogyMode, tuple[str, ...]] = {
+    PedagogyMode.GENERAL: (
+        "prerequisite", "applies_to", "contrasts_with",
+    ),
+    PedagogyMode.MATH_FORMAL: (
+        "prerequisite", "derives", "equivalent_to", "contrasts_with",
+        "applies_to", "generalizes",
+    ),
+    PedagogyMode.PROGRAMMING_ENGINEERING: (
+        "prerequisite", "applies_to", "contrasts_with", "generalizes",
+    ),
+    PedagogyMode.NATURAL_SCIENCE: (
+        "prerequisite", "derives", "applies_to", "generalizes",
+        "contrasts_with",
+    ),
+    PedagogyMode.LIFE_MEDICAL: (
+        "prerequisite", "derives", "generalizes", "contrasts_with",
+        "applies_to",
+    ),
+    PedagogyMode.HUMANITIES_SOCIAL: (
+        "prerequisite", "contrasts_with", "derives", "generalizes",
+        "applies_to",
+    ),
+    PedagogyMode.LANGUAGE_LEARNING: (
+        "prerequisite", "equivalent_to", "contrasts_with", "applies_to",
+        "generalizes",
+    ),
+    PedagogyMode.BUSINESS_CAREER: (
+        "prerequisite", "applies_to", "contrasts_with", "generalizes",
+    ),
+}
+
+
+SUBJECT_EVIDENCE_PRIORITIES: dict[PedagogyMode, tuple[str, ...]] = {
+    PedagogyMode.GENERAL: (
+        "teacher_material", "authoritative_reference", "worked_case",
+    ),
+    PedagogyMode.MATH_FORMAL: (
+        "definition_or_theorem_source", "verified_derivation", "worked_example",
+    ),
+    PedagogyMode.PROGRAMMING_ENGINEERING: (
+        "official_documentation", "versioned_standard", "runnable_example",
+    ),
+    PedagogyMode.NATURAL_SCIENCE: (
+        "primary_evidence", "authoritative_dataset", "review_or_standard",
+    ),
+    PedagogyMode.LIFE_MEDICAL: (
+        "authoritative_guideline", "primary_evidence", "review_or_textbook",
+    ),
+    PedagogyMode.HUMANITIES_SOCIAL: (
+        "primary_source", "contextual_source", "scholarly_interpretation",
+    ),
+    PedagogyMode.LANGUAGE_LEARNING: (
+        "authentic_language_sample", "usage_reference", "performance_example",
+    ),
+    PedagogyMode.BUSINESS_CAREER: (
+        "real_case", "operating_data", "professional_standard_or_framework",
+    ),
+}
+
+
+def compile_subject_generation_template(
+    profile: SubjectPedagogyProfile,
+) -> dict[str, Any]:
+    """Compile one versioned subject contract for every generation stage.
+
+    ``TEMPLATES``, ``SUBJECT_VARIANTS`` and ``LESSON_ARCHETYPES`` remain the
+    rule sources.  This function only freezes their resolved projection so a
+    checkpoint cannot let knowledge, lesson plans, content, and assessments
+    silently choose different subject conventions.
+    """
+    primary = TEMPLATES[profile.primary_mode]
+    variant = SUBJECT_VARIANTS.get(profile.subject_variant_id)
+    preferred_archetype_ids = list(
+        variant.preferred_archetype_ids if variant else ()
+    )
+    preferred_archetypes = [
+        LESSON_ARCHETYPES[archetype_id].to_dict(stage="adaptive")
+        for archetype_id in preferred_archetype_ids
+        if archetype_id in LESSON_ARCHETYPES
+    ]
+    required_lesson_modules = list(
+        _dedupe(COMMON_LESSON_MODULES + primary.lesson_modules)
+    )
+    if (
+        profile.secondary_mode
+        and profile.secondary_intensity == SecondaryIntensity.DUAL_CORE
+    ):
+        required_lesson_modules = list(_dedupe(
+            tuple(required_lesson_modules)
+            + TEMPLATES[profile.secondary_mode].lesson_modules
+        ))
+    secondary_id = (
+        profile.secondary_mode.value if profile.secondary_mode else "none"
+    )
+    return {
+        "schema_version": SUBJECT_GENERATION_TEMPLATE_VERSION,
+        "template_id": (
+            f"subject/{profile.primary_mode.value}/"
+            f"{profile.subject_variant_id}+{secondary_id}"
+        ),
+        "template_version": PROFILE_VERSION,
+        "primary_mode": profile.primary_mode.value,
+        "secondary_mode": (
+            profile.secondary_mode.value if profile.secondary_mode else None
+        ),
+        "secondary_intensity": (
+            profile.secondary_intensity.value
+            if profile.secondary_intensity else None
+        ),
+        "subject_variant": {
+            "id": profile.subject_variant_id,
+            "label": profile.subject_variant_label,
+        },
+        "resolution": {
+            "confidence": profile.confidence,
+            "evidence": list(profile.evidence),
+            "rationale": profile.rationale,
+            "user_locked": profile.user_locked,
+        },
+        "knowledge_contract": {
+            "required_node_fields": [
+                "statement", "conditions", "boundaries", "counterexamples",
+                "capability_points", "misconceptions", "mastery_criteria",
+                "source_refs",
+            ],
+            "relation_priorities": list(
+                SUBJECT_RELATION_PRIORITIES[profile.primary_mode]
+            ),
+            "quality_guardrails": list(profile.quality_guardrails),
+        },
+        "lesson_plan_contract": {
+            "course_module_ids": [
+                item["module_id"] for item in build_course_module_plan(profile)
+            ],
+            "required_lesson_module_ids": required_lesson_modules,
+            "preferred_archetype_ids": preferred_archetype_ids,
+            "preferred_archetypes": preferred_archetypes,
+        },
+        "content_contract": {
+            "enabled_module_ids": list(profile.enabled_module_ids),
+            "required_lesson_module_ids": required_lesson_modules,
+            "quality_guardrails": list(profile.quality_guardrails),
+        },
+        "assessment_contract": {
+            "final_performance": profile.final_assessment,
+            "evidence_priorities": list(
+                SUBJECT_EVIDENCE_PRIORITIES[profile.primary_mode]
+            ),
+        },
+        "downstream_order": [
+            "course_knowledge", "course_teaching_plan",
+            "course_content", "course_assessment",
+        ],
+    }
 
 
 LEGACY_MODE_ALIASES = {

@@ -180,6 +180,32 @@ class GenerationPreflightAcceptance(BaseModel):
     accepted_issue_codes: List[str] = Field(default_factory=list, max_length=30)
 
 
+class WebMaterialIngestInput(BaseModel):
+    """联网结果落成资料资产时的教师侧取舍。
+
+    检索本身的开关、限额与域名策略由 `RetrievalInput` 与团队检索网关拥有，
+    这里只表达"哪些已检索到的来源不要进资料链"，不重复承载检索配置。
+    """
+
+    # 关闭时联网结果只作为本次生成的引用，不落成资料资产。
+    skip_ingest: bool = False
+    # 教师审阅后逐条剔除；优先用网关的 source_id，兼容直接给 URL。
+    excluded_source_ids: List[str] = Field(default_factory=list)
+    excluded_urls: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        for key in ("excluded_source_ids", "excluded_urls"):
+            raw = normalized.get(key)
+            if isinstance(raw, str):
+                normalized[key] = [item.strip() for item in raw.split(",") if item.strip()]
+        return normalized
+
+
 CourseType = Literal["systematic", "project", "inquiry", "exam"]
 
 
@@ -301,10 +327,7 @@ class CourseGenerationRequest(BaseModel):
         Literal["light", "collaborative", "dual_core"]
     ] = None
     generation_mode: Literal["fast", "review_blueprint"] = "review_blueprint"
-    assessment_generation_profile: Literal[
-        "fast",
-        "deliberate",
-    ] = "fast"
+    assessment_generation_profile: Literal["adaptive"] = "adaptive"
     course_purpose: Literal[
         "systematic",
         "exam_sprint",
@@ -317,6 +340,17 @@ class CourseGenerationRequest(BaseModel):
     web_question_enrichment: WebQuestionEnrichmentInput = Field(
         default_factory=WebQuestionEnrichmentInput
     )
+    web_material_ingest: WebMaterialIngestInput = Field(
+        default_factory=WebMaterialIngestInput
+    )
+
+    @field_validator("assessment_generation_profile", mode="before")
+    @classmethod
+    def normalize_legacy_assessment_profile(cls, value: Any) -> str:
+        normalized = str(value or "adaptive").strip().lower()
+        if normalized in {"adaptive", "fast", "deliberate"}:
+            return "adaptive"
+        return normalized
 
     @model_validator(mode="before")
     @classmethod

@@ -22,7 +22,11 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
 )
-from course_pedagogy import SubjectPedagogyProfile, module_block_role
+from course_pedagogy import (
+    SubjectPedagogyProfile,
+    compile_subject_generation_template,
+    module_block_role,
+)
 from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
@@ -68,7 +72,7 @@ class CoursePromptComposer:
     ) -> str:
         """Build the small global decision used before parallel chapter expansion."""
         planning_brief = brief
-        profile_data = profile.to_dict()
+        template_data = compile_subject_generation_template(profile)
         if detail_level != "full":
             compact_chars = 220 if detail_level == "compact" else 100
             compact_items = 8 if detail_level == "compact" else 4
@@ -80,8 +84,8 @@ class CoursePromptComposer:
                 max_list_items=compact_items,
                 max_depth=4 if detail_level == "compact" else 3,
             )
-            profile_data = compact_value(
-                profile_data,
+            template_data = compact_value(
+                template_data,
                 max_string_chars=140 if detail_level == "compact" else 72,
                 max_list_items=6 if detail_level == "compact" else 3,
                 max_depth=3,
@@ -138,8 +142,8 @@ class CoursePromptComposer:
 - 就绪差距：{json.dumps(gap_assessment, ensure_ascii=False)}
 - 适配决策：{json.dumps(adaptation_decision, ensure_ascii=False)}
 
-## 教学画像
-{json.dumps(profile_data, ensure_ascii=False)}
+## 学科生成模板
+{json.dumps(template_data, ensure_ascii=False)}
 
 ## 资料摘要
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
@@ -151,7 +155,7 @@ class CoursePromptComposer:
 4. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
 5. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
 6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
-7. 教学画像中的学科分型、质量底线和最终考核是章节推进的设计依据：课程必须为最终
+7. 学科生成模板中的学科分型、知识关系、质量底线和最终考核是章节推进的设计依据：课程必须为最终
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
 8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
@@ -670,6 +674,9 @@ class CoursePromptComposer:
         detail_level: str = "full",
     ) -> tuple[str, str]:
         profile = course_data.get("subject_pedagogy_profile") or {}
+        subject_template = (
+            course_data.get("subject_generation_template") or {}
+        )
         difficulty_profile = course_data.get("difficulty_profile") or {}
         difficulty_contract = node.get("difficulty_contract") or {}
         modules = node.get("module_plan") or []
@@ -679,6 +686,12 @@ class CoursePromptComposer:
             max_text = 180 if detail_level == "compact" else 96
             profile = compact_value(
                 profile,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
+                max_depth=3,
+            )
+            subject_template = compact_value(
+                subject_template,
                 max_string_chars=max_text,
                 max_list_items=6 if detail_level == "compact" else 3,
                 max_depth=3,
@@ -892,7 +905,7 @@ class CoursePromptComposer:
 ## 课程
 - 名称：{course_name}
 - 学习对象：{audience}
-- 教学画像：{json.dumps(profile, ensure_ascii=False)}
+- 学科生成模板：{json.dumps(subject_template or profile, ensure_ascii=False)}
 
 ## 课程块编排画像
 {format_composition_profile(composition_profile)}

@@ -665,7 +665,7 @@ class _SemanticEvaluationBatcher:
         self.max_wait_seconds = max(0.0, max_wait_seconds)
         self.generation_policy = (
             generation_policy
-            or resolve_assessment_generation_policy("deliberate")
+            or resolve_assessment_generation_policy("adaptive")
         )
         self._lock = asyncio.Lock()
         self._pending: list[
@@ -1266,7 +1266,7 @@ class AssessmentGenerationOrchestrator:
         on_progress: AssessmentProgressCallback | None = None,
         on_chapter_complete: AssessmentChapterCallback | None = None,
         reference_package: dict[str, Any] | None = None,
-        generation_profile: str = "deliberate",
+        generation_profile: str = "adaptive",
         generation_scope: str | None = None,
     ) -> dict[str, Any]:
         generation_policy = resolve_assessment_generation_policy(
@@ -1410,10 +1410,7 @@ class AssessmentGenerationOrchestrator:
                 on_chapter_complete=on_chapter_complete,
                 total_items=total_items,
                 practice_levels_by_node=requested_levels_by_node,
-                use_batch_generation=(
-                    resolved_generation_scope == "full_generation"
-                    or generation_policy.profile == "fast"
-                ),
+                use_batch_generation=True,
                 generation_policy=generation_policy,
             )
             completed_items = total_items
@@ -1867,17 +1864,38 @@ class AssessmentGenerationOrchestrator:
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
         quality_lock = asyncio.Lock()
-        slot_parallelism = self.slot_concurrency
-        if callable(
+        # Scoped generation may run one active slot in several nodes.  Keep
+        # enough global slots for the configured node concurrency; otherwise
+        # a slow slot in the first node serializes every later node even though
+        # the orchestration contract explicitly allows them to progress in
+        # parallel.
+        supports_generation_batch = callable(
             getattr(
                 self.model,
                 "generate_candidate_batch",
                 None,
             )
-        ):
+        )
+        active_node_limit = max(
+            1,
+            min(self.node_concurrency, len(target_nodes)),
+        )
+        if supports_generation_batch:
+            slot_parallelism = self.slot_concurrency
             slot_parallelism = max(
                 slot_parallelism,
                 len(PRACTICE_LEVELS),
+            )
+            per_node_slot_parallelism = len(PRACTICE_LEVELS)
+        else:
+            slot_parallelism = max(
+                self.slot_concurrency,
+                active_node_limit,
+            )
+            per_node_slot_parallelism = (
+                self.slot_concurrency
+                if active_node_limit == 1
+                else max(1, slot_parallelism // active_node_limit)
             )
         semaphore = asyncio.Semaphore(slot_parallelism)
         node_semaphore = asyncio.Semaphore(self.node_concurrency)
@@ -1944,14 +1962,13 @@ class AssessmentGenerationOrchestrator:
                     generation_policy=generation_policy,
                     max_wait_seconds=0.01,
                 )
-                repair_batcher = (
-                    _CandidateRepairBatcher(
-                        model=self.model,
-                        audit=audit,
-                        generation_policy=generation_policy,
-                    )
-                    if generation_policy.profile == "fast"
-                    else None
+                repair_batcher = _CandidateRepairBatcher(
+                    model=self.model,
+                    audit=audit,
+                    generation_policy=generation_policy,
+                )
+                node_slot_semaphore = asyncio.Semaphore(
+                    per_node_slot_parallelism
                 )
 
                 async def run_slot(
@@ -1963,27 +1980,28 @@ class AssessmentGenerationOrchestrator:
                     dict[str, Any],
                     Exception | None,
                 ]:
-                    async with semaphore:
-                        return await self._generate_slot_contract(
-                            prepared=prepared,
-                            node=node,
-                            profile=profile,
-                            objective=objective,
-                            blueprint=blueprint,
-                            reference_package=reference_package,
-                            practice_level=practice_level,
-                            variant_index=variant_index,
-                            audit=audit,
-                            accepted_questions=accepted_questions,
-                            quality_lock=quality_lock,
-                            initial_candidate=initial_candidates.get(
-                                practice_level
-                            ),
-                            semantic_batcher=semantic_batcher,
-                            solution_batcher=solution_batcher,
-                            repair_batcher=repair_batcher,
-                            generation_policy=generation_policy,
-                        )
+                    async with node_slot_semaphore:
+                        async with semaphore:
+                            return await self._generate_slot_contract(
+                                prepared=prepared,
+                                node=node,
+                                profile=profile,
+                                objective=objective,
+                                blueprint=blueprint,
+                                reference_package=reference_package,
+                                practice_level=practice_level,
+                                variant_index=variant_index,
+                                audit=audit,
+                                accepted_questions=accepted_questions,
+                                quality_lock=quality_lock,
+                                initial_candidate=initial_candidates.get(
+                                    practice_level
+                                ),
+                                semantic_batcher=semantic_batcher,
+                                solution_batcher=solution_batcher,
+                                repair_batcher=repair_batcher,
+                                generation_policy=generation_policy,
+                            )
 
                 fatal_errors: list[Exception] = []
                 node_audit_items: list[dict[str, Any]] = []
@@ -2147,16 +2165,10 @@ class AssessmentGenerationOrchestrator:
             list[dict[str, Any]],
         ] = {}
         for context in contexts:
-            if generation_policy.profile == "deliberate":
-                call_policy = generation_policy.call_policy(
-                    "generate",
-                    {"batch_generation": True},
-                )
-            else:
-                call_policy = generation_policy.call_policy(
-                    "generate",
-                    context,
-                )
+            call_policy = generation_policy.call_policy(
+                "generate",
+                context,
+            )
             grouped.setdefault(
                 (
                     call_policy.enable_thinking,
@@ -2179,11 +2191,7 @@ class AssessmentGenerationOrchestrator:
                     continue
                 call_policy = generation_policy.call_policy(
                     "generate",
-                    (
-                        {"batch_generation": True}
-                        if generation_policy.profile == "deliberate"
-                        else batch_contexts[0]
-                    ),
+                    batch_contexts[0],
                 )
                 audit["generation_calls"] += 1
                 audit["batch_generation_calls"] += 1
@@ -3099,7 +3107,7 @@ def _audit_snapshot(audit: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "assessment_generation_profile": str(
-            audit.get("assessment_generation_profile") or "deliberate"
+            audit.get("assessment_generation_profile") or "adaptive"
         ),
         "assessment_generation_policy_version": str(
             audit.get("assessment_generation_policy_version")

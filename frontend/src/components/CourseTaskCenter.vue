@@ -80,6 +80,62 @@
               </dl>
             </section>
 
+            <section
+              v-if="webSearchSummary"
+              class="web-search-summary"
+              data-testid="web-search-summary"
+              :aria-label="t('courseGeneration.materials.webSearch.reviewTitle', '联网资料审阅')"
+            >
+              <header class="web-search-summary__head">
+                <strong>{{ t('courseGeneration.materials.webSearch.label', '联网资料') }}</strong>
+                <span class="web-search-summary__status" :data-degraded="webSearchSummary.degraded">
+                  {{ webSearchSummary.statusLabel }}
+                </span>
+              </header>
+              <p v-if="webSearchSummary.degraded" class="web-search-summary__degraded" role="status">
+                {{ webSearchSummary.message || t('courseGeneration.materials.webSearch.degraded', '本次未获取联网资料，仅使用已有资料') }}
+              </p>
+              <p class="web-search-summary__hint">
+                {{ t('courseGeneration.materials.webSearch.reviewHint', '采用前请确认出处与内容适用性；引用内容会保留出处，不作为原创产物。') }}
+              </p>
+              <div v-if="webSearchSummary.queries.length" class="web-search-summary__queries">
+                <dt>{{ t('courseGeneration.materials.webSearch.queries', '检索关键词') }}</dt>
+                <dd>
+                  <span v-for="query in webSearchSummary.queries" :key="query">{{ query }}</span>
+                </dd>
+              </div>
+              <ul v-if="webSearchSummary.sources.length" class="web-search-summary__sources">
+                <li
+                  v-for="source in webSearchSummary.sources"
+                  :key="source.sourceId || source.url"
+                >
+                  <div class="web-search-summary__source-line">
+                    <a :href="source.url" target="_blank" rel="noopener noreferrer nofollow">{{ source.title }}</a>
+                  </div>
+                  <small>
+                    {{ t('courseGeneration.materials.webSearch.trustValue', '可信度：{value}')
+                        .replace('{value}', t(`courseGeneration.materials.webSearch.trustLevel.${source.credibility}`, source.credibility)) }}
+                    · {{ t('courseGeneration.materials.webSearch.fetchedAtValue', '抓取时间：{value}')
+                        .replace('{value}', source.retrievedAt) }}
+                  </small>
+                </li>
+              </ul>
+              <p v-if="!webSearchSummary.degraded && !webSearchSummary.sources.length" class="web-search-summary__empty">
+                {{ t('courseGeneration.materials.webSearch.none', '本次没有联网资料') }}
+              </p>
+              <details v-if="webSearchSummary.rejected.length" class="web-search-summary__rejected">
+                <summary>
+                  {{ t('courseGeneration.materials.webSearch.rejectedCount', '已排除 {count} 条').replace('{count}', String(webSearchSummary.rejected.length)) }}
+                </summary>
+                <ul>
+                  <li v-for="item in webSearchSummary.rejected" :key="item.url">
+                    <span>{{ item.url }}</span>
+                    <small>{{ item.reasonLabel }}</small>
+                  </li>
+                </ul>
+              </details>
+            </section>
+
             <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
               <header class="guided-workflow__heading">
                 <div>
@@ -452,6 +508,43 @@ const phaseItemProgress = computed(() => {
     completed: Math.max(0, Number(detail.completed_items || 0)),
     total,
     label,
+  }
+})
+const webSearchSummary = computed(() => {
+  const detail = selectedTask.value?.phaseDetail || {}
+  const raw = (detail as Record<string, any>).web_search
+  if (!raw || typeof raw !== 'object') return null
+  if (!raw.enabled) return null
+  const sources = Array.isArray(raw.sources) ? raw.sources : []
+  const rejected = Array.isArray(raw.rejected) ? raw.rejected : []
+  const status = String(raw.status || '')
+  return {
+    status,
+    statusLabel: t(`courseGeneration.materials.webSearch.status.${status}`, status),
+    // degraded 时明确告诉教师本次没有联网资料，而不是静默留白。
+    degraded: Boolean(raw.degraded),
+    messageCode: String(raw.message_code || ''),
+    message: raw.message_code
+      ? t(`courseGeneration.materials.webSearch.messageCode.${raw.message_code}`, '')
+      : '',
+    queries: (Array.isArray(raw.queries) ? raw.queries : []).map((item: unknown) => String(item)),
+    sources: sources.map((item: Record<string, any>) => {
+      const sourceId = String(item.source_id || '')
+      const url = String(item.url || '')
+      return {
+        sourceId,
+        url,
+        title: String(item.title || item.domain || url),
+        domain: String(item.domain || ''),
+        credibility: String(item.credibility || 'low'),
+        retrievedAt: String(item.retrieved_at || ''),
+      }
+    }),
+    rejected: rejected.map((item: Record<string, any>) => ({
+      url: String(item.url || ''),
+      reason: String(item.reason || ''),
+      reasonLabel: t(`courseGeneration.materials.webSearch.reason.${item.reason}`, String(item.reason || '')),
+    })),
   }
 })
 const blueprintNodes = computed<any[]>(() => Array.isArray(blueprintDraft.value?.nodes)
@@ -1087,6 +1180,27 @@ function formatDuration(seconds: number) {
 .task-observability > summary strong { color:var(--lz-text); font-size:11px; }
 .task-observability > summary small { color:var(--lz-text-muted); font-size:9px; line-height:1.4; }
 .task-observability > summary > small { flex:none; padding:4px 7px; border-radius:999px; background:var(--lz-surface-muted); font-weight:700; }
+.web-search-summary { padding:18px 0; border-bottom:1px solid var(--lz-border); display:grid; gap:9px; }
+.web-search-summary__head { display:flex; align-items:center; gap:10px; }
+.web-search-summary__head strong { font-size:13px; color:var(--lz-text-strong); }
+.web-search-summary__status { font-size:11px; padding:2px 8px; border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.web-search-summary__status[data-degraded="true"] { color:#92400e; background:#fef3c7; }
+.web-search-summary__degraded { margin:0; font-size:12px; color:#92400e; }
+.web-search-summary__hint,.web-search-summary__empty { margin:0; font-size:11px; color:var(--lz-text-muted); }
+.web-search-summary__queries { display:grid; gap:5px; }
+.web-search-summary__queries dt { font-size:11px; color:var(--lz-text-muted); }
+.web-search-summary__queries dd { margin:0; display:flex; flex-wrap:wrap; gap:6px; }
+.web-search-summary__queries dd span { font-size:11px; padding:2px 8px; border-radius:6px; color:var(--lz-text); background:var(--lz-surface-muted,#f1f5f9); }
+.web-search-summary__sources { margin:0; padding:0; list-style:none; display:grid; gap:8px; }
+.web-search-summary__sources li { display:grid; gap:2px; min-width:0; }
+.web-search-summary__source-line { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.web-search-summary__source-line a { min-width:0; flex:1 1 auto; }
+.web-search-summary__sources a { font-size:12px; color:var(--lz-brand-strong); overflow-wrap:anywhere; }
+.web-search-summary__sources small,.web-search-summary__rejected small { font-size:11px; color:var(--lz-text-muted); }
+.web-search-summary__rejected summary { font-size:11px; color:var(--lz-text-muted); cursor:pointer; }
+.web-search-summary__rejected ul { margin:8px 0 0; padding:0; list-style:none; display:grid; gap:6px; }
+.web-search-summary__rejected li { display:grid; gap:2px; font-size:11px; overflow-wrap:anywhere; word-break:break-all; min-width:0; }
+.web-search-summary__rejected li span { min-width:0; overflow-wrap:anywhere; word-break:break-all; }
 .task-observability ol { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); margin:0; padding:0; list-style:none; }
 .task-observability[open] ol { padding:5px 0 20px; }
 .task-observability__stage { position:relative; min-width:0; display:grid; justify-items:center; gap:5px; padding:0 3px; color:var(--lz-text-muted); text-align:center; }
