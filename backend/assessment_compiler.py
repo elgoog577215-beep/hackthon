@@ -240,6 +240,17 @@ def compile_formal_task_contract(
             validation_mode=validation_mode,
             answer_spec=answer_spec,
         )
+    # Stepwise submission is offered only where a derivation actually exists to
+    # break apart, and never on choice items — a single selection has no steps.
+    # This is an *offer*, not a requirement: the student may always answer whole
+    # (see stepwise_answers), so enabling it never forces anyone to work stepwise.
+    input_contract["stepwise"] = bool(
+        input_contract.get("stepwise")
+        or (
+            input_mode not in {"choice", ""}
+            and len(_reference_step_texts(solution_envelope, answer_spec)) >= 2
+        )
+    )
     practice_level = str(
         next(
             iter(item.get("practice_levels") or []),
@@ -532,6 +543,46 @@ def _selected_option_id(canonical: Any) -> str:
         or canonical.get("option_id")
         or ""
     ).strip()
+
+
+def _reference_step_texts(
+    solution_envelope: dict[str, Any] | None,
+    answer_spec: dict[str, Any],
+) -> list[str]:
+    """Private reasoning steps behind an item, for stepwise capability only.
+
+    Returns text only so callers cannot leak it into a student payload by
+    accident; the compiler uses just the count.
+    """
+    envelope = solution_envelope or {}
+    for source in (
+        envelope.get("solution_steps"),
+        (envelope.get("solution") or {}).get("steps")
+        if isinstance(envelope.get("solution"), dict)
+        else None,
+        answer_spec.get("solution_steps"),
+        answer_spec.get("criteria"),
+    ):
+        if not isinstance(source, list):
+            continue
+        texts = [
+            text
+            for text in (
+                str(
+                    entry.get("text")
+                    or entry.get("statement")
+                    or entry.get("step")
+                    or ""
+                ).strip()
+                if isinstance(entry, dict)
+                else str(entry or "").strip()
+                for entry in source
+            )
+            if text
+        ]
+        if texts:
+            return texts
+    return []
 
 
 def _grading_method(

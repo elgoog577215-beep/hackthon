@@ -51,6 +51,7 @@ from solution_presentation import (
     present_solution_representation,
     present_solution_value,
 )
+from stepwise_answers import extract_steps
 from storage import storage
 
 router = APIRouter(prefix="/courses/{course_id}/practice", tags=["practice"])
@@ -1332,7 +1333,17 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
 
 
 def _has_answer(payload: dict[str, Any]) -> bool:
-    return any(value not in (None, "", [], {}) for value in payload.values())
+    meaningful = {
+        key: value
+        for key, value in payload.items()
+        if value not in (None, "", [], {})
+    }
+    # A `steps` list whose every entry is blank is the student having opened the
+    # stepwise editor without writing anything.  Left as-is it would satisfy the
+    # emptiness guard and be graded as a real zero-scoring answer.
+    if "steps" in meaningful and not extract_steps(payload):
+        meaningful.pop("steps")
+    return bool(meaningful)
 
 
 def _missing_answer_fields(
