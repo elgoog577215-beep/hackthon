@@ -301,6 +301,7 @@ def _story_requests(
             "constraints": {
                 "preserve_unit_order": True,
                 "cover_every_primary_block": True,
+                "primary_block_page_ownership": "exactly_once",
                 "pages_per_unit": [1, 3],
                 "allow_new_facts": False,
                 "allow_unknown_ids": False,
@@ -409,6 +410,8 @@ def _story_repair_targets(
         *,
         page_id: str = "",
         missing_source_block_ids: list[str] | None = None,
+        duplicate_source_block_ids: list[str] | None = None,
+        duplicate_page_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         return {
             "page_id": page_id,
@@ -418,28 +421,46 @@ def _story_repair_targets(
             ),
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
             "missing_source_block_ids": list(missing_source_block_ids or []),
+            "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
+            "duplicate_page_ids": list(duplicate_page_ids or []),
             "allowed_title_candidates": list(unit.get("title_candidates") or []),
         }
 
     failed_page_id = str(error.failure.page_id or "")
     if not failed_page_id:
-        covered = {
-            str(block_id)
-            for page in pages
-            if isinstance(page, dict)
-            for block_id in page.get("source_block_ids") or []
-        }
+        block_page_ids: dict[str, list[str]] = defaultdict(list)
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            page_id = str(page.get("page_id") or "")
+            for block_id in page.get("source_block_ids") or []:
+                block_page_ids[str(block_id)].append(page_id)
+        covered = set(block_page_ids)
         missing_targets = []
         for unit in units.values():
-            missing = [
+            primary_ids = [
                 str(block_id)
                 for block_id in unit.get("primary_block_ids") or []
-                if str(block_id) not in covered
             ]
-            if missing:
-                missing_targets.append(
-                    target_for(unit, missing_source_block_ids=missing)
-                )
+            missing = [block_id for block_id in primary_ids if block_id not in covered]
+            duplicates = [
+                block_id
+                for block_id in primary_ids
+                if len(block_page_ids.get(block_id) or []) > 1
+            ]
+            if missing or duplicates:
+                duplicate_pages = list(dict.fromkeys(
+                    page_id
+                    for block_id in duplicates
+                    for page_id in block_page_ids.get(block_id) or []
+                    if page_id
+                ))
+                missing_targets.append(target_for(
+                    unit,
+                    missing_source_block_ids=missing,
+                    duplicate_source_block_ids=duplicates,
+                    duplicate_page_ids=duplicate_pages,
+                ))
         return missing_targets
     failed_page = next(
         (
