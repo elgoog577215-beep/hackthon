@@ -421,3 +421,32 @@ def test_content_prompts_share_one_stable_course_prefix_across_nodes():
     for (user, _system), node in zip(pairs, sections, strict=True):
         assert user.rstrip().endswith("只输出 Markdown。")
         assert user.index("## 当前节点契约") < user.index("撰写「")
+
+
+def test_incorrect_next_section_claim_is_removed_locally():
+    from course_coherence import remove_incorrect_next_section_claim
+
+    content = (
+        "## 函数图像性质\n\n"
+        "本节利用图像判断单调性和最值，并说明判断边界。\n"
+        "下一节我们将学习如何从函数图像判断单调性和最值。\n\n"
+        "## 独立任务\n\n请分析一个新图像并写出单调区间。"
+    )
+    excerpt = "下一节我们将学习如何从函数图像判断单调性和最值。"
+
+    repaired = remove_incorrect_next_section_claim(content, excerpt)
+
+    assert "下一节" not in repaired
+    # 其余正文一字不动。
+    assert "本节利用图像判断单调性和最值" in repaired
+    assert "## 独立任务" in repaired
+    assert "请分析一个新图像并写出单调区间。" in repaired
+
+
+def test_unlocatable_claim_leaves_content_for_model_repair():
+    from course_coherence import remove_incorrect_next_section_claim
+
+    content = "## 正文\n\n本节没有任何预告句。"
+
+    assert remove_incorrect_next_section_claim(content, "下一节讲别的") == content
+    assert remove_incorrect_next_section_claim(content, "") == content

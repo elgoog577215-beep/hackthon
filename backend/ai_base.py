@@ -126,6 +126,8 @@ class AIBase:
     """
     _working_model_cache = {}
     _model_failure_cache: dict[tuple[str, str], float] = {}
+    # (hostname, model_id) pairs that rejected response_format with a 400.
+    _json_mode_unsupported: set[tuple[str, str]] = set()
 
     def __init__(self):
         # 通过环境变量配置 API 密钥
@@ -246,12 +248,28 @@ class AIBase:
     def _supports_json_response_format(
         self,
         api_base: str | None = None,
+        model_id: str | None = None,
     ) -> bool:
         hostname = (urlparse(api_base or self.api_base).hostname or "").casefold()
-        return hostname not in {
+        if hostname in {
             "api-inference.modelscope.cn",
             "api.modelscope.cn",
-        }
+        }:
+            return False
+        return (
+            hostname,
+            str(model_id or ""),
+        ) not in AIBase._json_mode_unsupported
+
+    @classmethod
+    def _remember_json_mode_unsupported(
+        cls,
+        api_base: str | None,
+        model_id: str | None,
+    ) -> None:
+        """Cache one provider's 400 on ``response_format`` for later calls."""
+        hostname = (urlparse(api_base or "").hostname or "").casefold()
+        cls._json_mode_unsupported.add((hostname, str(model_id or "")))
 
     async def _wait_for_request_slot(self) -> None:
         if self._minimum_request_interval <= 0:
@@ -1101,7 +1119,8 @@ class AIBase:
                         ),
                     }
                     if json_mode and self._supports_json_response_format(
-                        self.modelscope_fallback_api_base
+                        self.modelscope_fallback_api_base,
+                        model_id=model_id,
                     ):
                         request_options["response_format"] = {
                             "type": "json_object"
@@ -1515,7 +1534,9 @@ class AIBase:
                         "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
                     }
-                    if json_mode and self._supports_json_response_format():
+                    if json_mode and self._supports_json_response_format(
+                        model_id=model_id
+                    ):
                         request_options["response_format"] = {
                             "type": "json_object"
                         }
@@ -1540,6 +1561,12 @@ class AIBase:
                                 and self._error_status_code(format_error) == 400
                             ):
                                 raise
+                            # Remember the rejection: without this every later
+                            # call pays the same wasted 400 round trip.
+                            self._remember_json_mode_unsupported(
+                                self.api_base,
+                                model_id,
+                            )
                             request_options.pop("response_format", None)
                             await self._wait_for_request_slot()
                             physical_request_count += 1

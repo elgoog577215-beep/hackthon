@@ -651,3 +651,36 @@ __all__ = [
     "evaluate_course_coherence",
     "course_coherence_prompt_context",
 ]
+
+
+def remove_incorrect_next_section_claim(
+    content: str,
+    excerpt: str,
+) -> str:
+    """Locally delete one mis-stated "下一节" sentence.
+
+    Deleting a sentence the detector already located is a pure text edit;
+    routing it through a model rewrites the whole section for no gain.
+    Returns the content unchanged when the sentence cannot be located, so the
+    caller can still fall back to a model repair.
+    """
+    marker = str(excerpt or "").strip()
+    if not marker or not content:
+        return content
+    for claim in _next_section_claims(content):
+        if not claim:
+            continue
+        if not (claim.startswith(marker) or marker.startswith(claim)):
+            continue
+        # The claim was matched on punctuation-stripped text, so rebuild the
+        # search against the original content rather than assuming equality.
+        pattern = re.escape(claim.rstrip("。！？"))
+        repaired, count = re.subn(
+            rf"{pattern}[。！？]?\s*",
+            "",
+            content,
+            count=1,
+        )
+        if count:
+            return re.sub(r"\n{3,}", "\n\n", repaired).strip()
+    return content

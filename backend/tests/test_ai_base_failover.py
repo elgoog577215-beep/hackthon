@@ -648,3 +648,43 @@ async def test_truncated_output_without_retry_budget_still_raises(monkeypatch):
         )
 
     assert len(completions.requests) == 1
+
+
+class JsonModeRejectingCompletions:
+    """First call rejects response_format with 400, then succeeds without it."""
+
+    def __init__(self):
+        self.requests = []
+
+    async def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if "response_format" in kwargs:
+            raise _make_status_error(400, "response_format is not supported")
+        return _success_stream()
+
+
+@pytest.mark.asyncio
+async def test_json_mode_rejection_is_cached_per_provider_model(monkeypatch):
+    AIBase._json_mode_unsupported.clear()
+    completions = JsonModeRejectingCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    first = await service._call_llm(
+        "prompt", "system", retry_count=1, json_mode=True,
+        raise_on_failure=True,
+    )
+    assert first == "ok-answer"
+    # 探测一次：带 response_format 被拒，然后去掉重发。
+    assert len(completions.requests) == 2
+    assert "response_format" in completions.requests[0]
+    assert "response_format" not in completions.requests[1]
+
+    second = await service._call_llm(
+        "prompt", "system", retry_count=1, json_mode=True,
+        raise_on_failure=True,
+    )
+    assert second == "ok-answer"
+    # 第二次不该再浪费一次 400 往返。
+    assert len(completions.requests) == 3
+    assert "response_format" not in completions.requests[2]
+    AIBase._json_mode_unsupported.clear()

@@ -37,6 +37,7 @@ from content_blocks import (
 from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
+    remove_incorrect_next_section_claim,
 )
 from course_composition import (
     attach_composition_to_plan,
@@ -4662,17 +4663,29 @@ class CourseService(AIBase):
                 **issue,
                 "suggestion": _coherence_repair_suggestion(issue),
             }
-            repair_user, repair_system = self._prompt_composer.build_repair_prompt(
-                course_data=working,
-                node=node,
-                content=str(node.get("node_content") or ""),
-                issues=[repair_issue],
-            )
-            repaired = await self._call_llm(
-                repair_user,
-                repair_system,
-                enable_thinking=True,
-            )
+            # Deleting one mis-stated "下一节" sentence is a pure text edit the
+            # detector already located; only pay for a model rewrite when the
+            # local edit cannot resolve it.
+            repaired = ""
+            if issue.get("code") == "coherence:incorrect_next_section_handoff":
+                locally_repaired = remove_incorrect_next_section_claim(
+                    str(node.get("node_content") or ""),
+                    str(issue.get("excerpt") or ""),
+                )
+                if locally_repaired != str(node.get("node_content") or ""):
+                    repaired = locally_repaired
+            if not repaired:
+                repair_user, repair_system = self._prompt_composer.build_repair_prompt(
+                    course_data=working,
+                    node=node,
+                    content=str(node.get("node_content") or ""),
+                    issues=[repair_issue],
+                )
+                repaired = await self._call_llm(
+                    repair_user,
+                    repair_system,
+                    enable_thinking=True,
+                )
             if not repaired:
                 continue
             repaired_raw = self.clean_response_text(repaired)
