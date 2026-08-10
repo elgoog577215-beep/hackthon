@@ -305,3 +305,143 @@ def test_question_repair_remaps_every_formal_revision_reference():
         "qrr-new",
         "qr-other",
     ]
+
+
+# --- J2: 诊断只用可见证据（常驻回归） ----------------------------------------
+#
+# 现有 prompt 已经守住"不得补写学生没有表达的推理"这条诚实性底线，本节把它
+# 钉成常驻回归，防止后续被改坏。覆盖三种可见证据不足的形态：
+#   - 空白答案：什么都没写；
+#   - 半截答案：只做了一半就停笔；
+#   - 单选：只有"选了哪个选项"这一条证据（已有一条测试，这里补 prompt 约束）。
+
+
+def _short_answer_question():
+    question = _question()
+    question.update({
+        "prompt": "说明两个向量相同需要满足哪些条件，并给出判断依据。",
+        "question_type": "short_answer",
+        "question_analysis": {
+            "status": "passed",
+            "question_understanding": {"task_goal": "说明向量相同的条件"},
+        },
+    })
+    return question
+
+
+def _capture_diagnosis(question, answer_payload, free_result):
+    """跑一次 diagnose_answer，返回 (传给模型的 payload 列表, 归一化结果)。"""
+    service = PracticeAnalysisService()
+    service.client = object()
+    calls = []
+
+    async def fake_call_json(payload, *, system_prompt):
+        calls.append((payload, system_prompt))
+        if len(calls) == 1:
+            return free_result
+        return {
+            "mapping": {
+                "knowledge_ids": ["kp-1"],
+                "skill_ids": [],
+                "misconception_ids": [],
+            },
+            "issue_mappings": [],
+            "student_feedback": {
+                "summary": "目前还看不到可评阅的作答证据。",
+                "next_action": "先写下你判断两个向量相同时用到的第一个条件。",
+            },
+        }
+
+    service._call_json = fake_call_json
+    result = asyncio.run(service.diagnose_answer(
+        question,
+        {"submitted_answer_payload": answer_payload},
+    ))
+    return calls, result
+
+
+def test_blank_answer_diagnosis_carries_no_invented_reasoning():
+    """空白答案：模型只拿到空 payload，禁止补写推理的约束必须在 prompt 里。"""
+    question = _short_answer_question()
+    free = {
+        "task_goal": "说明向量相同的条件",
+        "required_actions": ["列出条件", "给出判断依据"],
+        "student_approach": "",
+        "correct_parts": [],
+        "behavior_gap": "没有提交任何可评阅内容",
+        "issues": [],
+        "uncertainty": "答案为空，无法判断学习者的思路",
+    }
+    calls, result = _capture_diagnosis(question, {"text": ""}, free)
+
+    payload, system_prompt = calls[0]
+    # 送进模型的就是学生真实写下的东西——空的。
+    assert payload["student_answer"] == {"text": ""}
+    # 这条禁令必须常驻在 prompt 里。
+    assert "不得补写学生没有表达的推理" in system_prompt
+
+    # 归一化后不得凭空出现"学生的思路"或"做对的部分"。
+    assert result["status"] == "completed"
+    assert result["student_response"]["approach"] == ""
+    assert result["student_response"]["correct_parts"] == []
+    # 证据不足必须落在 uncertainty 上，而不是被写成结论。
+    assert result["diagnosis"]["uncertainty"] == "答案为空，无法判断学习者的思路"
+    assert result["diagnosis"]["issues"] == []
+
+
+def test_half_finished_answer_diagnosis_keeps_unwritten_steps_uncertain():
+    """半截答案：只认学生写下来的那一半，没写的那一半只能进 uncertainty。"""
+    question = _short_answer_question()
+    half = "两个向量相同，首先大小要相等，"
+    free = {
+        "task_goal": "说明向量相同的条件",
+        "required_actions": ["列出条件", "给出判断依据"],
+        "student_approach": "写到大小相等就停笔了",
+        "correct_parts": ["识别出大小是必要条件之一"],
+        "behavior_gap": "没有写出方向条件，也没有给出判断依据",
+        "issues": [{
+            "issue_id": "I1",
+            "title": "条件不完整",
+            "what_happened": "只写了大小相等，句子未写完",
+            "why_it_matters": "缺少方向条件就无法判定两个向量相同",
+            "evidence": ["答案止于“首先大小要相等，”"],
+            "confidence": 0.8,
+        }],
+        "uncertainty": "学生是否知道方向条件无法从这半句判断",
+    }
+    calls, result = _capture_diagnosis(question, {"text": half}, free)
+
+    payload, system_prompt = calls[0]
+    assert payload["student_answer"] == {"text": half}
+    assert "不得补写学生没有表达的推理" in system_prompt
+
+    # 只保留写下来的部分，不得替学生"补完"方向条件。
+    assert result["student_response"]["correct_parts"] == [
+        "识别出大小是必要条件之一"
+    ]
+    issue = result["diagnosis"]["issues"][0]
+    # 每条问题都必须带可见证据。
+    assert issue["evidence"] == ["答案止于“首先大小要相等，”"]
+    # 没写出来的部分只能是不确定，不能变成"学生不知道方向条件"这种断言。
+    assert result["diagnosis"]["uncertainty"] == (
+        "学生是否知道方向条件无法从这半句判断"
+    )
+
+
+def test_single_choice_prompt_forbids_inferring_unshown_reasoning():
+    """单选：prompt 必须常驻"只能描述选了哪一种判断"的降级约束。"""
+    from practice_analysis import _ANSWER_FREE_SYSTEM_PROMPT
+
+    assert "不得补写学生没有表达的推理" in _ANSWER_FREE_SYSTEM_PROMPT
+    assert "single_choice" in _ANSWER_FREE_SYSTEM_PROMPT
+    assert "只能描述" in _ANSWER_FREE_SYSTEM_PROMPT
+    assert "不得声称其使用了某个计算步骤" in _ANSWER_FREE_SYSTEM_PROMPT
+    assert "必须写入 uncertainty" in _ANSWER_FREE_SYSTEM_PROMPT
+
+
+def test_mapping_prompt_forbids_inventing_ids_to_fill_the_slot():
+    """同源映射：不得为了填 ID 强行套库，ID 只能来自 assessment_intent。"""
+    from practice_analysis import _ANSWER_MAPPING_SYSTEM_PROMPT
+
+    assert "不得为了填 ID 强行套库" in _ANSWER_MAPPING_SYSTEM_PROMPT
+    assert "ID 只能来自 assessment_intent" in _ANSWER_MAPPING_SYSTEM_PROMPT
