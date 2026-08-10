@@ -30,9 +30,13 @@ from learning_events import load_learning_events
 from learning_records import learning_record_repository
 from product_runtime_policy import demo_overrides_enabled
 from practice_attempts import practice_attempt_repository
+from teaching_representations import teaching_representation_repository
 
 COURSE_EVOLUTION_SCHEMA = "course_evolution_v2"
 COURSE_COMMAND_GROUP_SCHEMA = "course_evolution_command_group_v1"
+COURSE_EVOLUTION_REPRESENTATION_IMPACT_SCHEMA = (
+    "course_evolution_representation_impact_v1"
+)
 HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
@@ -1878,12 +1882,81 @@ def _build_change_set(
             "source_practice_task_ids": source_practice_task_ids,
             "validation_task_ids": validation_task_ids,
             "protected": ["范围外课程内容", "其他课程", "历史作答", "笔记原文", "课程知识库"],
-            "representation_impacts": ["当前位置解释", "分步演示", "下一节承接", "后续顺序检查", "独立理解检查"],
+            "representation_impacts": _representation_impacts(
+                state.course_id,
+                hypothesis.affected_block_ids,
+                sorted(affected_section_ids),
+            ),
         },
         expected_effect="减少同类概念求助，并提高后续独立解释与正式练习表现。",
         created_at=now,
         updated_at=now,
     )
+
+
+def _representation_impacts(
+    course_id: str,
+    block_ids: list[str],
+    section_ids: list[str],
+) -> dict[str, Any]:
+    """Name the teaching representations that actually cite the changed blocks.
+
+    Read from the representation registry's own ``source_bindings`` rather than
+    from a descriptive guess: a teacher deciding whether to accept a change needs
+    to know which slide deck or handout really goes stale. Impact analysis is
+    read-only decoration around the course change, so a registry failure degrades
+    to ``unavailable`` instead of blocking the candidate — and never silently
+    reports "nothing is affected" when it simply could not look.
+    """
+    target_block_ids = {value for value in block_ids if value}
+    target_section_ids = {value for value in section_ids if value}
+    try:
+        registry = teaching_representation_repository.load(course_id)
+    except Exception:
+        return {
+            "schema_version": COURSE_EVOLUTION_REPRESENTATION_IMPACT_SCHEMA,
+            "source": "unavailable",
+            "reason": "representation_registry_unavailable",
+            "impacted": [],
+            "impacted_count": 0,
+        }
+
+    impacted: list[dict[str, Any]] = []
+    for representation in registry.representations:
+        matched_block_ids = sorted({
+            str(binding.block_id)
+            for binding in representation.source_bindings
+            if binding.block_id and str(binding.block_id) in target_block_ids
+        })
+        matched_section_ids = sorted({
+            str(binding.section_id)
+            for binding in representation.source_bindings
+            # A representation bound to a whole section is only impacted through
+            # that section when it does not name a block; otherwise the block
+            # match above is the precise answer.
+            if binding.section_id
+            and not binding.block_id
+            and str(binding.section_id) in target_section_ids
+        })
+        if not matched_block_ids and not matched_section_ids:
+            continue
+        impacted.append({
+            "representation_id": representation.representation_id,
+            "representation_type": representation.representation_type,
+            "status": representation.status,
+            "matched_block_ids": matched_block_ids,
+            "matched_section_ids": matched_section_ids,
+        })
+    impacted.sort(key=lambda item: item["representation_id"])
+    return {
+        "schema_version": COURSE_EVOLUTION_REPRESENTATION_IMPACT_SCHEMA,
+        "source": "teaching_representation_registry",
+        "reason": (
+            "" if impacted else "no_registered_representation_binds_these_blocks"
+        ),
+        "impacted": impacted,
+        "impacted_count": len(impacted),
+    }
 
 
 def _targeted_practice_for(

@@ -335,6 +335,182 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     assert "范围外课程内容" in change_set.impact_summary["protected"]
 
 
+def _register_representation(
+    repository,
+    document,
+    *,
+    representation_id: str,
+    representation_type: str,
+    block_id: str,
+):
+    """Register one teaching representation bound to a real course block."""
+    from teaching_representations import (
+        TeachingRepresentation,
+        source_binding_for_document,
+    )
+
+    block = next(item for item in document.blocks if item.block_id == block_id)
+    binding = source_binding_for_document(
+        document,
+        section_id=block.section_id,
+        block_id=block_id,
+    )
+    now = "2026-08-10T00:00:00+00:00"
+    return repository.register_representation(TeachingRepresentation(
+        representation_id=representation_id,
+        course_id=document.course_id,
+        representation_type=representation_type,
+        source_bindings=[binding],
+        spec_id=f"spec-{representation_id}",
+        revision=f"rev-{representation_id}",
+        status="ready",
+        created_at=now,
+        updated_at=now,
+    ))
+
+
+def test_downstream_impact_is_read_from_real_source_bindings(
+    tmp_path,
+    monkeypatch,
+):
+    """Impact must name the artifacts that actually cite the changed blocks.
+
+    A fixed descriptive list looks like analysis but is identical for every
+    course, so a teacher cannot tell what a change really touches. The impact
+    has to come from registered source bindings, and stay empty and honest when
+    a course has none.
+    """
+    from teaching_representations import TeachingRepresentationRepository
+
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    representation_repository = TeachingRepresentationRepository(tmp_path / "reps")
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    untouched = next(item for item in document.blocks if item.section_id == "section-5")
+    _register_representation(
+        representation_repository,
+        document,
+        representation_id="rep-slides",
+        representation_type="slide_deck",
+        block_id=target.block_id,
+    )
+    _register_representation(
+        representation_repository,
+        document,
+        representation_id="rep-handout",
+        representation_type="handout",
+        block_id=target.block_id,
+    )
+    # Bound to a block outside the change; must not be reported as impacted.
+    _register_representation(
+        representation_repository,
+        document,
+        representation_id="rep-unrelated",
+        representation_type="handout",
+        block_id=untouched.block_id,
+    )
+    monkeypatch.setattr(
+        course_evolution,
+        "teaching_representation_repository",
+        representation_repository,
+    )
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path / "evolution"),
+    )
+    impact = state.change_sets[0].impact_summary["representation_impacts"]
+
+    assert impact["schema_version"] == "course_evolution_representation_impact_v1"
+    assert impact["source"] == "teaching_representation_registry"
+    impacted = {item["representation_id"]: item for item in impact["impacted"]}
+    assert set(impacted) == {"rep-slides", "rep-handout"}
+    assert impacted["rep-slides"]["representation_type"] == "slide_deck"
+    assert target.block_id in impacted["rep-slides"]["matched_block_ids"]
+    assert impact["impacted_count"] == 2
+
+
+def test_downstream_impact_reports_no_registered_representations_honestly(
+    tmp_path,
+    monkeypatch,
+):
+    """With nothing registered the impact is empty, not a plausible-looking list."""
+    from teaching_representations import TeachingRepresentationRepository
+
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    monkeypatch.setattr(
+        course_evolution,
+        "teaching_representation_repository",
+        TeachingRepresentationRepository(tmp_path / "reps"),
+    )
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path / "evolution"),
+    )
+    impact = state.change_sets[0].impact_summary["representation_impacts"]
+
+    assert impact["impacted"] == []
+    assert impact["impacted_count"] == 0
+    assert impact["reason"] == "no_registered_representation_binds_these_blocks"
+
+
+def test_downstream_impact_survives_an_unreadable_representation_registry(
+    tmp_path,
+    monkeypatch,
+):
+    """A registry failure must degrade to 'unknown', never to a fabricated list.
+
+    Impact analysis is read-only decoration around the course change; it must
+    not block the candidate, and it must not claim zero impact when it simply
+    could not look.
+    """
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+
+    class _BrokenRepository:
+        def load(self, _course_id):
+            raise OSError("representation registry unavailable")
+
+    monkeypatch.setattr(
+        course_evolution,
+        "teaching_representation_repository",
+        _BrokenRepository(),
+    )
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path / "evolution"),
+    )
+    impact = state.change_sets[0].impact_summary["representation_impacts"]
+
+    assert impact["impacted"] == []
+    assert impact["source"] == "unavailable"
+    assert impact["reason"] == "representation_registry_unavailable"
+
+
 def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independent_validation(
     tmp_path,
     monkeypatch,
