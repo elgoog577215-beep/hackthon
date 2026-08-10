@@ -3232,6 +3232,37 @@ def _legacy_item(course_data: dict[str, Any], task: dict[str, Any]) -> dict[str,
     return item
 
 
+def _counts_towards_coverage(item: dict[str, Any]) -> bool:
+    """这道题能否计入覆盖率（L1）。
+
+    口径必须与**学生真正拿得到的题**一致，也就是 `approved_formal_tasks` 的过滤
+    条件。此前少了最后一条：V2 题若编译合同校验没过，`approved_formal_tasks`
+    会跳过它（:495-506），学生根本看不到，但覆盖率仍把它算成已覆盖——于是一个
+    目标显示"有题"，学生打开却是空的。
+
+    「字段完整」不等于「合同通过」，这正是清单要纠正的。
+    """
+    if item.get("lifecycle_status") != "approved":
+        return False
+    if not (item.get("quality_report") or {}).get("passed"):
+        return False
+    if item.get("assessment_role") not in {
+        "practice",
+        "imported_practice",
+        "web_enriched_practice",
+    }:
+        return False
+    if (
+        (item.get("question_spec") or {}).get("schema_version")
+        == "question_spec_v2"
+        and not (
+            (item.get("compiled_contract_validation") or {}).get("passed")
+        )
+    ):
+        return False
+    return True
+
+
 def _coverage_report(
     course_data: dict[str, Any],
     nodes: list[dict[str, Any]],
@@ -3250,13 +3281,7 @@ def _coverage_report(
     covered = {
         objective
         for item in items
-        if item.get("lifecycle_status") == "approved"
-        and (item.get("quality_report") or {}).get("passed")
-        and item.get("assessment_role") in {
-            "practice",
-            "imported_practice",
-            "web_enriched_practice",
-        }
+        if _counts_towards_coverage(item)
         for objective in item.get("course_objective_refs") or []
     }
     imported_nodes = {
