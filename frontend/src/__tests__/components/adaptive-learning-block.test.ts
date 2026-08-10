@@ -106,9 +106,60 @@ describe('AdaptiveLearningBlock', () => {
 
     expect(wrapper.find('.structured-animation').exists()).toBe(true)
     expect(wrapper.find('.structured-animation').text()).toContain('矩阵复合：分步变换演示')
-    await wrapper.find('.structured-animation__timeline button:nth-child(2)').trigger('click')
+    expect(wrapper.find('.structured-animation__controls button:first-child').attributes('disabled')).toBeDefined()
+    await wrapper.find('.structured-animation__timeline li:nth-child(2) button').trigger('click')
     expect(wrapper.find('.structured-animation__frame').text()).toContain('观察结果')
+    expect(wrapper.find('.structured-animation__controls button:last-child').attributes('disabled')).toBeDefined()
+    await wrapper.find('.structured-animation__controls button:first-child').trigger('click')
+    expect(wrapper.find('.structured-animation__frame').text()).toContain('确定输入')
     expect(wrapper.find('.adaptive-block__fallback').text()).toContain('关键帧')
+  })
+
+  it('播放时按每个关键帧的时长推进，并在最后一步停止', async () => {
+    vi.useFakeTimers()
+    try {
+      const animation: AdaptiveBlock = {
+        ...block,
+        adaptive_block_id: 'animation-timing-1',
+        kind: 'animation',
+        role: 'accepted_personal_course_growth',
+        payload: {
+          ...block.payload,
+          animation_spec: {
+            schema_version: 'animation_spec_v1',
+            animation_id: 'timing-1',
+            title: '分步时序',
+            scene: { kind: 'state_transition', renderer: 'step_timeline_v1' },
+            object_bindings: [],
+            knowledge_refs: [],
+            keyframes: [
+              { index: 1, label: '输入', state: { description: '输入状态' }, transformations: [], duration_ms: 500, pause_after: true },
+              { index: 2, label: '中间', state: { description: '中间状态' }, transformations: [], duration_ms: 900, pause_after: true },
+              { index: 3, label: '输出', state: { description: '输出状态' }, transformations: [], duration_ms: 500, pause_after: true },
+            ],
+            fallback_frames: [],
+            accessibility_text: '依次展示输入、中间和输出。',
+          },
+        },
+      }
+      const wrapper = mount(AdaptiveLearningBlock, { props: { block: animation } })
+
+      await wrapper.get('.structured-animation__play').trigger('click')
+      vi.advanceTimersByTime(500)
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.structured-animation__frame').text()).toContain('中间状态')
+
+      vi.advanceTimersByTime(899)
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.structured-animation__frame').text()).toContain('中间状态')
+
+      vi.advanceTimersByTime(1)
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.structured-animation__frame').text()).toContain('输出状态')
+      expect(wrapper.find('.structured-animation__play').attributes('title')).toBe('重新播放')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('理解检查可直接进入正式独立复验并记录实际使用证据', async () => {
