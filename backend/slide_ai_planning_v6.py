@@ -386,6 +386,53 @@ def _validate_story_batch_candidate(
     )
 
 
+def _story_repair_targets(
+    request: dict[str, Any],
+    response_payload: dict[str, Any] | None,
+    error: Exception | None,
+) -> list[dict[str, Any]]:
+    """Describe a rejected page using only its frozen request constraints."""
+
+    if response_payload is None or not isinstance(error, V6BuildError):
+        return []
+    failed_page_id = str(error.failure.page_id or "")
+    if not failed_page_id:
+        return []
+    pages = response_payload.get("pages")
+    if not isinstance(pages, list):
+        return []
+    failed_page = next(
+        (
+            page for page in pages
+            if isinstance(page, dict)
+            and str(page.get("page_id") or "") == failed_page_id
+        ),
+        None,
+    )
+    if failed_page is None:
+        return []
+    unit_id = str(failed_page.get("teaching_unit_id") or "")
+    unit = next(
+        (
+            item for item in request.get("teaching_units") or []
+            if isinstance(item, dict)
+            and str(item.get("teaching_unit_id") or "") == unit_id
+        ),
+        None,
+    )
+    if unit is None:
+        return []
+    return [{
+        "page_id": failed_page_id,
+        "teaching_unit_id": unit_id,
+        "allowed_template_layout_ids": list(
+            unit.get("allowed_template_layout_ids") or []
+        ),
+        "required_source_block_ids": list(unit.get("primary_block_ids") or []),
+        "allowed_title_candidates": list(unit.get("title_candidates") or []),
+    }]
+
+
 async def plan_slide_story_v3(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -441,6 +488,7 @@ async def plan_slide_story_v3(
         started = time.perf_counter()
         try:
             contract_error: Exception | None = None
+            previous_response_payload: dict[str, Any] | None = None
             for validation_attempt in range(2):
                 attempt_request = request
                 if validation_attempt:
@@ -454,6 +502,11 @@ async def plan_slide_story_v3(
                                 else "story_response_contract_invalid"
                             ),
                             "message": str(contract_error or ""),
+                            "repair_targets": _story_repair_targets(
+                                request,
+                                previous_response_payload,
+                                contract_error,
+                            ),
                             "instruction": (
                                 "Return a fresh response that exactly follows response_contract, "
                                 "uses each teaching unit's own allowed_template_layout_ids, and "
@@ -473,8 +526,12 @@ async def plan_slide_story_v3(
                     })
                 try:
                     raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
+                    previous_response_payload = _normalize_story_batch_response(
+                        raw,
+                        request,
+                    )
                     response = _StoryBatchResponse.model_validate(
-                        _normalize_story_batch_response(raw, request)
+                        previous_response_payload
                     )
                     if response.schema_version != "slide_story_batch_response_v3":
                         raise ValueError("Unexpected story response schema")

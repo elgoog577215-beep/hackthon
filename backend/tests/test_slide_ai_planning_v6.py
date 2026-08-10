@@ -261,15 +261,14 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
-    calls = 0
+    calls = []
 
     async def planner(request):
-        nonlocal calls
-        calls += 1
+        calls.append(request)
         unit = request["teaching_units"][0]
         layout = (
             "template-layout-not-in-contract"
-            if calls == 1
+            if len(calls) == 1
             else unit["allowed_template_layout_ids"][0]
         )
         return {
@@ -279,7 +278,7 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
             "model": "generic-model",
             "attempts": 1,
             "pages": [{
-                "page_id": f"page-{calls}",
+                "page_id": f"page-{len(calls)}",
                 "teaching_unit_id": unit["teaching_unit_id"],
                 "template_layout_id": layout,
                 "title": unit["source_text"][:24],
@@ -290,7 +289,15 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert calls == 2
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target == {
+        "page_id": "page-1",
+        "teaching_unit_id": calls[0]["teaching_units"][0]["teaching_unit_id"],
+        "allowed_template_layout_ids": calls[0]["teaching_units"][0]["allowed_template_layout_ids"],
+        "required_source_block_ids": calls[0]["teaching_units"][0]["primary_block_ids"],
+        "allowed_title_candidates": calls[0]["teaching_units"][0]["title_candidates"],
+    }
     assert story.batches[0].attempts == 2
 
 
