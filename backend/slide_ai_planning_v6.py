@@ -447,6 +447,7 @@ def _story_unit_request(
         "prerequisite_unit_ids": unit.prerequisite_unit_ids,
         "source_text": unit.source_text,
         "title_max_chars": title_max_chars,
+        "title_policy": "copy_verbatim_from_title_candidates",
         "title_candidates": _grounded_title_candidates(
             unit.source_text,
             max_chars=title_max_chars,
@@ -664,6 +665,18 @@ def _story_repair_targets(
                 unit.get("allowed_template_layout_ids") or [],
             )
         )
+        available_title_candidates = [
+            title
+            for title in allowed_title_candidates
+            if (not title_max_chars or len(str(title)) <= title_max_chars)
+            and re.sub(r"\s+", "", str(title)).casefold()
+            not in normalized_forbidden_titles
+        ]
+        title_repair_required = error.failure.code in {
+            "duplicate_slide_title",
+            "story_title_capacity_exceeded",
+            "story_unsupported_title",
+        }
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -682,13 +695,12 @@ def _story_repair_targets(
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
             "duplicate_page_ids": list(duplicate_page_ids or []),
             "allowed_title_candidates": allowed_title_candidates,
-            "available_title_candidates": [
-                title
-                for title in allowed_title_candidates
-                if (not title_max_chars or len(str(title)) <= title_max_chars)
-                and re.sub(r"\s+", "", str(title)).casefold()
-                not in normalized_forbidden_titles
-            ],
+            "available_title_candidates": available_title_candidates,
+            "required_title": (
+                str(available_title_candidates[0])
+                if title_repair_required and available_title_candidates
+                else ""
+            ),
             "title_max_chars": title_max_chars,
             "current_title": current_title,
             "duplicate_title": current_title if conflicting_page_ids else "",
@@ -846,6 +858,7 @@ async def plan_slide_story_v3(
                                 "block. Full source remains available in speaker notes downstream. "
                                 "Copy each title verbatim from that unit's title_candidates and keep "
                                 "it within that unit's title_max_chars. Set "
+                                "a repair target's title exactly to required_title when provided. Set "
                                 "summary to empty unless its complete wording is directly supported "
                                 "by that unit's source_text; never add identifiers or facts."
                             ),

@@ -382,6 +382,44 @@ async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -
 
 
 @pytest.mark.asyncio
+async def test_story_batch_requires_an_exact_source_title_during_repair() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        title = (
+            "Quantum credential exchange"
+            if len(calls) == 1
+            else request["repair_feedback"]["repair_targets"][0]["required_title"]
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "generic-grounded-title",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": title,
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair_feedback = calls[1]["repair_feedback"]
+    target = repair_feedback["repair_targets"][0]
+    assert repair_feedback["code"] == "story_unsupported_title"
+    assert target["required_title"] in target["available_title_candidates"]
+    assert story.pages[0].title == target["required_title"]
+
+
+@pytest.mark.asyncio
 async def test_story_batch_repairs_layout_from_page_level_source_intent() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
