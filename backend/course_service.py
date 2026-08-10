@@ -1604,9 +1604,17 @@ class CourseService(AIBase):
                     accumulated = normalized_checkpoint
                     processed_sections = list(checkpoint_sections)
                     resumed_chunk_count = checkpoint_chunk_count
-            for chunk_index, chunk_sections in enumerate(chunks, start=1):
-                if chunk_index <= resumed_chunk_count:
-                    continue
+            async def request_skeleton_chunk(
+                chunk_index: int,
+                chunk_sections: list[dict[str, Any]],
+                prior_snapshot: dict[str, Any],
+            ) -> dict[str, Any]:
+                """Build and fire one shard against a frozen prior snapshot.
+
+                Shards inside one wave cannot see each other, so this only
+                reads ``prior_snapshot``.  Key minting stays authoritative in
+                the local merge, which runs later in directory order.
+                """
                 chunk_context = build_compact_planning_context(
                     chunk_sections,
                     composition_style=str(
@@ -1618,7 +1626,7 @@ class CourseService(AIBase):
                     ),
                 )
                 prior_registry = list(
-                    accumulated.get("knowledge_registry") or []
+                    prior_snapshot.get("knowledge_registry") or []
                 )
                 chunk_context["new_knowledge_key_start"] = (
                     len(prior_registry) + 1
@@ -1693,7 +1701,6 @@ class CourseService(AIBase):
                 failure_reason = ""
                 part: dict[str, Any] = {}
                 if selected is not None:
-                    prompt_detail_levels.append(selected.detail_level)
                     await self._notify_phase(
                         on_phase,
                         "course_teaching_plan_skeleton",
@@ -1747,7 +1754,30 @@ class CourseService(AIBase):
                     )
                 else:
                     failure_reason = "chunk_prompt_did_not_fit"
+                return {
+                    "chunk_index": chunk_index,
+                    "chunk_sections": chunk_sections,
+                    "chunk_levels": chunk_levels,
+                    "prompts": prompts,
+                    "selected": selected,
+                    "part": part,
+                    "failure_reason": failure_reason,
+                }
 
+            async def settle_skeleton_chunk(
+                result: dict[str, Any],
+            ) -> None:
+                """Merge one shard, then correct or locally compile it."""
+                nonlocal accumulated
+                chunk_index = int(result["chunk_index"])
+                chunk_sections = result["chunk_sections"]
+                chunk_levels = result["chunk_levels"]
+                prompts = result["prompts"]
+                selected = result["selected"]
+                part = result["part"]
+                failure_reason = str(result["failure_reason"] or "")
+                if selected is not None:
+                    prompt_detail_levels.append(selected.detail_level)
                 candidate = merge_teaching_skeleton_part(
                     accumulated,
                     part,
@@ -1893,6 +1923,42 @@ class CourseService(AIBase):
                     "fallback_units": deepcopy(fallback_units),
                 })
                 await self._notify_checkpoint(on_checkpoint, course_data)
+
+            pending_chunks = [
+                (index, sections)
+                for index, sections in enumerate(chunks, start=1)
+                if index > resumed_chunk_count
+            ]
+            # Shards inside one wave run concurrently; each wave still starts
+            # from every earlier wave's frozen knowledge, so cross-shard reuse
+            # and prerequisites keep their directory-order meaning.
+            wave_size = max(1, self._teaching_plan_budget.concurrency)
+            for offset in range(0, len(pending_chunks), wave_size):
+                wave = pending_chunks[offset:offset + wave_size]
+                prior_snapshot = deepcopy(accumulated)
+                wave_results = await asyncio.gather(
+                    *(
+                        request_skeleton_chunk(
+                            index,
+                            sections,
+                            prior_snapshot,
+                        )
+                        for index, sections in wave
+                    ),
+                    return_exceptions=True,
+                )
+                failure = next(
+                    (
+                        item
+                        for item in wave_results
+                        if isinstance(item, BaseException)
+                    ),
+                    None,
+                )
+                if failure is not None:
+                    raise failure
+                for result in wave_results:
+                    await settle_skeleton_chunk(result)
             final_report = validate_teaching_plan_skeleton_v3(
                 accumulated,
                 sections=planning_sections,

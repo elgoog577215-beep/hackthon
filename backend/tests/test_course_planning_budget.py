@@ -166,6 +166,83 @@ def test_skeleton_shards_rekey_and_reconcile_cross_shard_reuse():
     ]
 
 
+def test_concurrent_shards_reconcile_duplicate_knowledge_names_as_reuse():
+    """并发分片彼此看不见对方，同名知识必须本地收敛成"首次负责 + 复用"。"""
+    prior = {
+        "knowledge_registry": [{
+            "knowledge_key": "K001",
+            "name": "条件概率的定义",
+            "statement": "条件概率是在给定事件发生下的概率",
+            "owner_node_id": "L2-1-1",
+            "reused_in_node_ids": [],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001"],
+            "reused_knowledge_keys": [],
+        }],
+    }
+    # 后一分片并不知道前一分片已经冻结了同名知识，于是自己又铸了一个键。
+    part = {
+        "knowledge_registry": [
+            {
+                "knowledge_key": "K001",
+                "name": "条件概率的定义",
+                "statement": "条件概率是在给定事件发生下的概率",
+                "owner_node_id": "L2-1-2",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+            {
+                "knowledge_key": "K002",
+                "name": "乘法公式",
+                "statement": "乘法公式由条件概率定义直接改写得到",
+                "owner_node_id": "L2-1-2",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": ["K001"],
+                "module_ids": ["core_explanation"],
+            },
+        ],
+        "sections": [{
+            "node_id": "L2-1-2",
+            "owned_knowledge_keys": ["K001", "K002"],
+            "reused_knowledge_keys": [],
+        }],
+    }
+
+    merged = merge_teaching_skeleton_part(
+        prior,
+        part,
+        outline_revision_id="outline-1",
+    )
+
+    # 同名知识不再复制成第二条注册表记录。
+    assert [
+        item["knowledge_key"] for item in merged["knowledge_registry"]
+    ] == ["K001", "K002"]
+    assert [
+        item["name"] for item in merged["knowledge_registry"]
+    ] == ["条件概率的定义", "乘法公式"]
+    # 重复的那条从"首次负责"降级为"复用"，首次负责仍归目录更靠前的小节。
+    assert merged["sections"][1]["owned_knowledge_keys"] == ["K002"]
+    assert merged["sections"][1]["reused_knowledge_keys"] == ["K001"]
+    assert merged["knowledge_registry"][0]["owner_node_id"] == "L2-1-1"
+    assert merged["knowledge_registry"][0]["reused_in_node_ids"] == [
+        "L2-1-2"
+    ]
+    # 跨分片前置引用重指到留存下来的那个键。
+    assert merged["knowledge_registry"][1]["prerequisite_keys"] == ["K001"]
+
+    report = validate_teaching_plan_skeleton_v3(
+        merged,
+        sections=[_section(1), _section(2)],
+    )
+    assert report["passed"] is True
+
+
 def test_batch_planner_prefers_chapter_boundaries_and_enforces_budgets():
     sections = [
         *[_section(index, "chapter-1") for index in range(1, 5)],

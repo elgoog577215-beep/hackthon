@@ -1545,9 +1545,12 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
     calls: list[str] = []
     active_batches = 0
     max_active_batches = 0
+    active_skeleton_chunks = 0
+    max_active_skeleton_chunks = 0
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
         nonlocal active_batches, max_active_batches
+        nonlocal active_skeleton_chunks, max_active_skeleton_chunks
         calls.append(prompt)
         if "全课章节骨架 V2" in system_prompt:
                 return json.dumps({
@@ -1584,9 +1587,17 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
                 ],
             }, ensure_ascii=False)
         if prompt.startswith("规划全课知识职责骨架 V3"):
-            return _teaching_skeleton_v3_response(
+            active_skeleton_chunks += 1
+            max_active_skeleton_chunks = max(
+                max_active_skeleton_chunks,
+                active_skeleton_chunks,
+            )
+            await asyncio.sleep(0.003)
+            response = _teaching_skeleton_v3_response(
                 system_prompt, title_to_label,
             )
+            active_skeleton_chunks -= 1
+            return response
         if prompt.startswith("生成详细小节教案批次"):
             active_batches += 1
             max_active_batches = max(max_active_batches, active_batches)
@@ -1648,6 +1659,10 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
         + expected_batches
     )
     assert max_active_batches == min(4, expected_batches)
+    assert max_active_skeleton_chunks == min(
+        service._teaching_plan_budget.concurrency,
+        expected_skeleton_chunks,
+    )
     assert stage["knowledge_compilation_model_call_count"] == 0
     assert stage["graph_compilation_model_call_count"] == 0
     assert stage["section_count"] == section_count
