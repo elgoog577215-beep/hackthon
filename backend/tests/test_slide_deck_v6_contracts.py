@@ -11,6 +11,7 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    _bounded_slot_content,
     _complete_sentence_excerpt,
     build_signature_v6,
     compile_shadow_chapter_document,
@@ -30,6 +31,32 @@ def test_sentence_excerpt_never_exceeds_its_template_budget():
     assert len(excerpt) <= 35
     assert excerpt.endswith("…")
     assert excerpt[:-1] in source
+
+
+def test_item_slot_uses_source_excerpts_within_template_limits():
+    block = _block(
+        "field-checks",
+        "field-section",
+        0,
+        role="feedback",
+        text="\n".join(
+            f"- Evidence check {index} includes a detailed source-grounded explanation"
+            for index in range(1, 9)
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="items",
+        max_chars=90,
+        max_items=3,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert len(content) <= 90
+    assert len(content.splitlines()) <= 3
+    assert all(line.rstrip("…") in block.payload["markdown"] for line in content.splitlines())
 
 
 def _block(

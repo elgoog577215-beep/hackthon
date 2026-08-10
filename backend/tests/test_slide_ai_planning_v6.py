@@ -3,7 +3,10 @@ import asyncio
 import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
-from course_presentation_graph import compile_course_presentation_graph
+from course_presentation_graph import (
+    compile_course_presentation_graph,
+    teaching_intent_for_roles,
+)
 from slide_ai_planning_v6 import plan_slide_story_v3, plan_slide_visuals_v2
 from slide_deck_v6 import V6BuildError, validate_slide_story_plan_v3
 from template_layout_contract import compile_builtin_template_layout_contract_v1
@@ -47,6 +50,20 @@ def _document(*, with_code: bool = False) -> CourseDocument:
             blocks=blocks,
         )
     )
+
+
+def _layout_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
+    block_metadata = {
+        block["block_id"]: block for block in unit["primary_blocks"]
+    }
+    roles = [block_metadata[block_id]["role"] for block_id in block_ids]
+    artifacts = {
+        artifact
+        for block_id in block_ids
+        for artifact in block_metadata[block_id]["artifact_kinds"]
+    }
+    intent = teaching_intent_for_roles(roles, artifacts)
+    return unit["allowed_template_layout_ids_by_page_intent"][intent][0]
 
 
 @pytest.mark.asyncio
@@ -303,7 +320,11 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
     assert repair_target["teaching_unit_id"] == calls[0]["teaching_units"][0]["teaching_unit_id"]
     assert repair_target["allowed_page_count_range"] == [1, 3]
     assert repair_target["observed_unit_page_ids"] == ["page-1"]
-    assert repair_target["allowed_template_layout_ids"] == calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
+    assert repair_target["page_intent"] == calls[0]["teaching_units"][0]["teaching_intent"]
+    assert repair_target["allowed_template_layout_ids"] == (
+        calls[0]["teaching_units"][0]["allowed_template_layout_ids_by_page_intent"]
+        [repair_target["page_intent"]]
+    )
     assert repair_target["required_source_block_ids"] == calls[0]["teaching_units"][0]["primary_block_ids"]
     assert repair_target["missing_source_block_ids"] == []
     assert repair_target["duplicate_source_block_ids"] == []
@@ -361,6 +382,61 @@ async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -
 
 
 @pytest.mark.asyncio
+async def test_story_batch_repairs_layout_from_page_level_source_intent() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        concept_id, feedback_id = unit["primary_block_ids"]
+        concept_layout = (
+            unit["allowed_template_layout_ids"][0]
+            if len(calls) == 1
+            else _layout_for_request_blocks(unit, [concept_id])
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "generic-concept-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": concept_layout,
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [concept_id],
+                },
+                {
+                    "page_id": "generic-feedback-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [feedback_id],
+                    ),
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair_feedback = calls[1]["repair_feedback"]
+    target = repair_feedback["repair_targets"][0]
+    assert repair_feedback["code"] == "template_layout_intent_mismatch"
+    assert target["page_intent"] == "concept_explanation"
+    assert story.pages[0].template_layout_id in target["allowed_template_layout_ids"]
+    assert story.pages[0].template_layout_id != calls[0]["teaching_units"][0][
+        "allowed_template_layout_ids"
+    ][0]
+
+
+@pytest.mark.asyncio
 async def test_story_repair_names_missing_blocks_without_weakening_coverage() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
@@ -381,7 +457,7 @@ async def test_story_repair_names_missing_blocks_without_weakening_coverage() ->
             "pages": [{
                 "page_id": f"coverage-{len(calls)}",
                 "teaching_unit_id": unit["teaching_unit_id"],
-                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "template_layout_id": _layout_for_request_blocks(unit, source_ids),
                 "title": unit["title_candidates"][0],
                 "summary": "",
                 "source_block_ids": source_ids,
@@ -450,10 +526,13 @@ async def test_story_normalizes_duplicate_titles_from_unused_source_candidates()
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
             "pages": [
-                {
+                    {
                     "page_id": "title-owner",
                     "teaching_unit_id": unit["teaching_unit_id"],
-                    "template_layout_id": unit["allowed_template_layout_ids"][0],
+                        "template_layout_id": _layout_for_request_blocks(
+                            unit,
+                            source_ids[:1],
+                        ),
                     "title": first_title,
                     "summary": "",
                     "source_block_ids": source_ids[:1],
@@ -461,7 +540,10 @@ async def test_story_normalizes_duplicate_titles_from_unused_source_candidates()
                 {
                     "page_id": "title-conflict",
                     "teaching_unit_id": unit["teaching_unit_id"],
-                    "template_layout_id": unit["allowed_template_layout_ids"][0],
+                        "template_layout_id": _layout_for_request_blocks(
+                            unit,
+                            source_ids[1:],
+                        ),
                     "title": second_title,
                     "summary": "",
                     "source_block_ids": source_ids[1:],
