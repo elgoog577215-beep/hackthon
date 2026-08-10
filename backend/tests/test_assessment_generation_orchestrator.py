@@ -965,16 +965,26 @@ async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
     )
 
     audit = prepared["_assessment_generation_audit"]
-    assert model.generation_batch_sizes == [3]
+    # The two simple slots share one non-thinking batch. The complex slot is
+    # deliberately isolated so speed does not disable necessary reasoning.
+    assert model.generation_batch_sizes == [2]
     assert 2 in model.solve_batch_sizes
-    assert model.generate_calls == 0
+    assert model.generate_calls == 1
     assert audit["assessment_generation_profile"] == "fast"
     assert audit["assessment_generation_policy_version"]
     assert audit["max_generation_attempts_per_question"] == 2
     assert audit["max_repairs_per_question"] == 1
-    assert audit["thinking_requested_call_count"] == 0
-    assert all(
+    assert audit["thinking_requested_call_count"] >= 1
+    assert audit["batched_logical_call_count"] >= 1
+    assert audit["batched_item_count"] >= 2
+    assert audit["max_batch_size"] >= 2
+    assert audit["effective_items_per_logical_call"] >= 1
+    assert any(
         timing.get("thinking_requested") is False
+        for timing in audit["call_timings"]
+    )
+    assert any(
+        timing.get("thinking_requested") is True
         for timing in audit["call_timings"]
     )
 
@@ -991,14 +1001,14 @@ async def test_fast_profile_batches_all_failed_repairs_once():
     )
 
     audit = prepared["_assessment_generation_audit"]
-    assert model.repair_batch_sizes == [3]
+    assert model.repair_batch_sizes == [2]
     assert model.repair_calls == 0
     assert audit["repair_calls"] == 1
     assert audit["batch_repair_calls"] == 1
     assert audit["batch_repair_fallback_count"] == 0
     assert any(
         timing.get("operation") == "repair_batch"
-        and timing.get("batch_size") == 3
+        and timing.get("batch_size") == 2
         for timing in audit["call_timings"]
     )
     assert audit["failure_count"] == 0
@@ -1018,13 +1028,17 @@ async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
     assert {
         contract["generation_status"]
         for contract in contracts.values()
-    } == {"discarded"}
-    assert audit["failure_count"] == 3
+    } == {"discarded", "ready"}
+    assert audit["failure_count"] == 2
     assert audit["batch_repair_fallback_count"] == 1
-    assert all(
+    assert sum(
         item["final_decision"] == "discard"
         for item in audit["items"]
-    )
+    ) == 2
+    assert sum(
+        item["final_decision"] == "publish"
+        for item in audit["items"]
+    ) == 1
 
 
 def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:

@@ -304,7 +304,7 @@ class CourseGenerationRequest(BaseModel):
     assessment_generation_profile: Literal[
         "fast",
         "deliberate",
-    ] = "deliberate"
+    ] = "fast"
     course_purpose: Literal[
         "systematic",
         "exam_sprint",

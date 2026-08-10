@@ -77,6 +77,15 @@ def test_projects_overall_plan_and_binds_section_knowledge_ids():
     assert projection["overall"]["target_audience"].startswith("已经学习")
     assert projection["overall"]["chapters"][0]["learning_focus"] == "建立斜率的几何与情境直觉"
     assert projection["overall"]["assessment_methods"] == ["出口题"]
+    assert projection["formal_readiness"]["schema_version"] == (
+        "formal_lesson_plan_readiness_v1"
+    )
+    assert projection["formal_readiness"]["status"] == "needs_completion"
+    assert projection["formal_readiness"]["ready_for_print"] is False
+    assert any(
+        item["code"] == "formal_plan_missing_lesson_duration"
+        for item in projection["formal_readiness"]["issues"]
+    )
     assert projection["overall"]["knowledge_tags"] == [{
         "knowledge_id": "knowledge-slope",
         "name": "一次函数斜率",

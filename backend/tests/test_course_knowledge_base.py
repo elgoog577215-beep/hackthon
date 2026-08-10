@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from content_blocks import set_node_content_blocks
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -134,9 +136,41 @@ def test_course_knowledge_base_keeps_local_hierarchy_without_formal_subject_pack
     assert knowledge_base["relations"][0]["relation_type"] == "prerequisite"
     assert knowledge_base["quality_report"]["metrics"]["misconception_coverage"] == 0.5
     assert knowledge_base["quality_report"]["metrics"]["mastery_coverage"] == 1.0
+    assert knowledge_base["quality_report"]["coverage"]["relation_type_counts"]["prerequisite"] == 1
+    assert knowledge_base["quality_report"]["metrics"]["graph_structure"] == "dependency_only"
+    assert knowledge_base["quality_report"]["metrics"]["semantic_relation_coverage"] == 0.0
     assert knowledge_base["quality_report"]["underfilled"]["missing_counterexample_knowledge_ids"]
     assert knowledge_base["improvement_points"] == []
     assert validate_course_knowledge_base(knowledge_base, course_data=course)["passed"] is True
+
+
+def test_large_dependency_only_graph_is_reported_as_incomplete_semantics():
+    course = _course()
+    section = course["nodes"][0]
+    points = section["knowledge_structure"][0]["knowledge_points"]
+    template = points[-1]
+    for index in range(3, 7):
+        prior_name = points[-1]["name"]
+        name = f"扩容语义 {index}"
+        points.append({
+            **deepcopy(template),
+            "name": name,
+            "statement": f"{name} 是用于验证知识图谱语义完整度的独立陈述。",
+            "entry_reason": "",
+            "relations": [],
+            "prerequisite_names": [prior_name],
+        })
+
+    knowledge_base = compile_course_knowledge_base(course)
+    report = knowledge_base["quality_report"]
+    issue_codes = {item["code"] for item in report["issues"]}
+
+    assert report["passed"] is True
+    assert report["strict_passed"] is False
+    assert report["metrics"]["graph_structure"] == "dependency_only"
+    assert report["coverage"]["used_relation_type_count"] == 1
+    assert "dependency_only_knowledge_graph" in issue_codes
+    assert "missing_semantic_crosslinks" in issue_codes
 
 
 def test_course_knowledge_base_preserves_richer_knowledge_types():

@@ -23,6 +23,24 @@ const plan: CourseTeachingPlanProjection = {
   section_count: 1,
   knowledge_point_count: 1,
   teaching_module_count: 1,
+  formal_readiness: {
+    schema_version: 'formal_lesson_plan_readiness_v1',
+    status: 'needs_completion',
+    ready_for_print: false,
+    critical_count: 1,
+    major_count: 0,
+    issue_count: 1,
+    expected_section_count: 1,
+    covered_section_count: 1,
+    issues: [{
+      code: 'formal_plan_duration_mismatch',
+      severity: 'critical',
+      scope: 'section',
+      node_id: 'section-1',
+      field: 'teaching_modules.planned_minutes',
+      message: '教学环节合计 20 分钟，与课时 45 分钟不一致',
+    }],
+  },
   overall: {
     course_title: '生成式人工智能教学应用设计',
     positioning: '面向师范生的课堂应用设计课程',
@@ -86,5 +104,30 @@ describe('正式教案文档', () => {
     expect(text).toContain('完成一页教学应用设计说明')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.find('.formal-lesson-plan__footer').text()).toContain('teaching-plan-7')
+    expect(wrapper.get('[data-testid="formal-lesson-plan-readiness"]').attributes('data-status')).toBe('needs_completion')
+    expect(text).toContain('交付前还需补齐教案')
+    expect(text).toContain('教学环节合计 20 分钟')
+  })
+
+  it('明确标记已经通过正式检查的可交付教案', () => {
+    const readyPlan = structuredClone(plan)
+    readyPlan.formal_readiness = {
+      schema_version: 'formal_lesson_plan_readiness_v1',
+      status: 'ready',
+      ready_for_print: true,
+      critical_count: 0,
+      major_count: 0,
+      issue_count: 0,
+      expected_section_count: 1,
+      covered_section_count: 1,
+      issues: [],
+    }
+
+    const wrapper = mount(FormalLessonPlanDocument, {
+      props: { plan: readyPlan, nodes },
+    })
+
+    expect(wrapper.get('[data-testid="formal-lesson-plan-readiness"]').attributes('data-status')).toBe('ready')
+    expect(wrapper.text()).toContain('教案结构完整，可打印交付')
   })
 })

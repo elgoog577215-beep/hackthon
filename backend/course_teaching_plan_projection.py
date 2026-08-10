@@ -218,6 +218,198 @@ def _project_overall_plan(
     }
 
 
+def _compile_formal_readiness(
+    course_data: dict[str, Any],
+    *,
+    overall: dict[str, Any],
+    sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Check whether the deterministic teacher document is deliverable."""
+    issues: list[dict[str, Any]] = []
+
+    def add(
+        code: str,
+        field: str,
+        message: str,
+        *,
+        node_id: str = "",
+        severity: str = "critical",
+    ) -> None:
+        issues.append({
+            "code": code,
+            "severity": severity,
+            "scope": "section" if node_id else "course",
+            "node_id": node_id,
+            "field": field,
+            "message": message,
+        })
+
+    for field, message in (
+        ("course_title", "缺少正式教案名称"),
+        ("positioning", "缺少课程定位"),
+        ("target_audience", "缺少教学对象"),
+    ):
+        if not _text(overall.get(field)):
+            add(f"formal_plan_missing_{field}", field, message)
+    if not overall.get("learning_objectives"):
+        add(
+            "formal_plan_missing_objectives",
+            "learning_objectives",
+            "缺少可检查的总体教学目标",
+        )
+
+    classroom = overall.get("classroom") or {}
+    for field, message in (
+        ("total_class_hours", "缺少总课时"),
+        ("lesson_duration_minutes", "缺少单课时时长"),
+        ("teaching_context", "缺少授课场景"),
+        ("class_profile", "缺少班级学情说明"),
+    ):
+        if not classroom.get(field):
+            add(f"formal_plan_missing_{field}", field, message)
+    if not classroom.get("teaching_preparation"):
+        add(
+            "formal_plan_missing_preparation",
+            "teaching_preparation",
+            "缺少课前准备",
+            severity="major",
+        )
+    if not (
+        overall.get("assessment_methods")
+        or classroom.get("course_assessment_plan")
+    ):
+        add(
+            "formal_plan_missing_assessment",
+            "assessment_methods",
+            "缺少课程评价安排",
+        )
+
+    course_plan = course_data.get("course_plan") or {}
+    expected_ids = [
+        _text(section.get("node_id"))
+        for chapter in course_plan.get("chapters") or []
+        if isinstance(chapter, dict)
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict) and _text(section.get("node_id"))
+    ]
+    actual_ids = {_text(section.get("node_id")) for section in sections}
+    for node_id in expected_ids:
+        if node_id not in actual_ids:
+            add(
+                "formal_plan_missing_section",
+                "sections",
+                "目录中的课时尚未进入正式教案",
+                node_id=node_id,
+            )
+    if not sections:
+        add(
+            "formal_plan_empty_process",
+            "sections",
+            "缺少分课时教学过程",
+        )
+
+    for section in sections:
+        node_id = _text(section.get("node_id"))
+        planned = section.get("planned_minutes")
+        if not isinstance(planned, int) or planned <= 0:
+            add(
+                "formal_plan_missing_lesson_duration",
+                "planned_minutes",
+                "课时缺少有效时长",
+                node_id=node_id,
+            )
+        if not section.get("key_points"):
+            add(
+                "formal_plan_missing_key_points",
+                "key_points",
+                "课时缺少教学重点",
+                node_id=node_id,
+            )
+        if not section.get("key_difficulties"):
+            add(
+                "formal_plan_missing_difficulties",
+                "key_difficulties",
+                "课时缺少教学难点",
+                node_id=node_id,
+            )
+        if not section.get("in_class_checks"):
+            add(
+                "formal_plan_missing_checks",
+                "in_class_checks",
+                "课时缺少课堂评价证据",
+                node_id=node_id,
+            )
+        if not section.get("homework"):
+            add(
+                "formal_plan_missing_homework",
+                "homework",
+                "课时缺少课后任务",
+                node_id=node_id,
+                severity="major",
+            )
+        modules = section.get("teaching_modules") or []
+        if not modules:
+            add(
+                "formal_plan_missing_process_modules",
+                "teaching_modules",
+                "课时缺少可执行的教学环节",
+                node_id=node_id,
+            )
+            continue
+        module_minutes = 0
+        module_minutes_complete = True
+        for module in modules:
+            minutes = module.get("planned_minutes")
+            if not isinstance(minutes, int) or minutes <= 0:
+                module_minutes_complete = False
+            else:
+                module_minutes += minutes
+            if not _text(module.get("teacher_activity")):
+                add(
+                    "formal_plan_missing_teacher_activity",
+                    "teaching_modules.teacher_activity",
+                    "教学环节缺少教师活动",
+                    node_id=node_id,
+                )
+            if not _text(module.get("student_activity")):
+                add(
+                    "formal_plan_missing_student_activity",
+                    "teaching_modules.student_activity",
+                    "教学环节缺少学生活动",
+                    node_id=node_id,
+                )
+        if not module_minutes_complete:
+            add(
+                "formal_plan_missing_module_minutes",
+                "teaching_modules.planned_minutes",
+                "教学环节缺少时长",
+                node_id=node_id,
+            )
+        elif isinstance(planned, int) and planned > 0 and module_minutes != planned:
+            add(
+                "formal_plan_duration_mismatch",
+                "teaching_modules.planned_minutes",
+                f"教学环节合计 {module_minutes} 分钟，与课时 {planned} 分钟不一致",
+                node_id=node_id,
+            )
+
+    critical_count = sum(
+        item["severity"] == "critical" for item in issues
+    )
+    major_count = sum(item["severity"] == "major" for item in issues)
+    return {
+        "schema_version": "formal_lesson_plan_readiness_v1",
+        "status": "ready" if critical_count == 0 else "needs_completion",
+        "ready_for_print": critical_count == 0,
+        "critical_count": critical_count,
+        "major_count": major_count,
+        "issue_count": len(issues),
+        "expected_section_count": len(expected_ids),
+        "covered_section_count": len(set(expected_ids) & actual_ids),
+        "issues": issues,
+    }
+
+
 def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     """Expose teaching intent without prompts, hidden reasoning, or diagnostics."""
     plan = course_data.get("course_teaching_plan")
@@ -275,6 +467,10 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     status = str(stage.get("status") or "")
     if not status:
         status = "completed" if sections else "pending"
+    overall = _project_overall_plan(
+        course_data,
+        sections=sections,
+    )
     return {
         "schema_version": "course_teaching_plan_projection_v1",
         "status": status,
@@ -291,8 +487,10 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
         "teaching_module_count": int(
             stage.get("teaching_module_count") or 0
         ),
-        "overall": _project_overall_plan(
+        "overall": overall,
+        "formal_readiness": _compile_formal_readiness(
             course_data,
+            overall=overall,
             sections=sections,
         ),
         "sections": sections,

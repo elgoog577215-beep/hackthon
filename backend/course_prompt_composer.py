@@ -27,7 +27,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v26"
+PROMPT_CONTRACT_VERSION = "course_prompt_v27"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -535,8 +535,7 @@ class CoursePromptComposer:
             )
         return f"""## 详细小节教案批次 V3
 
-全课知识身份已经冻结。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
-修改其他批次。只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
+只展开当前批次；知识身份与其他批次只读。仅输出有效 JSON，不输出正文、题目或解释。
 
 ## 课程与批次
 - 课程：{course_title}
@@ -565,8 +564,9 @@ class CoursePromptComposer:
 2. 每个知识详情必须给出成立条件或边界、可观察能力、至少一个可信易错点和可验证
    掌握标准；凡是存在典型反例或不适用情境的知识，还必须给出至少一个具体反例，
    不得用“视情况而定”等模板句代替。易错点必须包含具体错误表现、判别方法与修复策略。
-3. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
-   也不得修改骨架冻结的前置关系。
+3. 关系限注册键且不得改冻结前置。前置仅指必要依赖；按真实语义使用 `derives|
+   equivalent_to|contrasts_with|applies_to|generalizes`（推导附步骤、对比附判别、
+   应用附条件），不得凑数或用顺序、包含冒充。
 4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
 5. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
@@ -616,8 +616,8 @@ class CoursePromptComposer:
       "knowledge_relations": [{{
         "source_key": "K001",
         "target_key": "K002",
-        "relation_type": "prerequisite",
-        "reason": "具体语义理由"
+        "relation_type": "六类正式关系之一",
+        "reason": "具体理由"
       }}],
       "teaching_modules": [{{
         "module_id": "core_explanation",

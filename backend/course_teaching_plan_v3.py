@@ -711,6 +711,36 @@ def validate_teaching_plan_batch_v3(
                 issues.append(_issue("teaching_batch:future_relation_endpoint", f"小节 {node_id} 的知识关系引用了未来批次保留的知识键"))
             elif not ({relation.get("source_key"), relation.get("target_key")} & set(expected_keys)):
                 issues.append(_issue("teaching_batch:unrelated_relation", f"小节 {node_id} 只能返回至少连接一个本节新知识的关系"))
+            relation_type = str(relation.get("relation_type") or "")
+            if relation_type not in {
+                "prerequisite",
+                "derives",
+                "equivalent_to",
+                "contrasts_with",
+                "applies_to",
+                "generalizes",
+            }:
+                issues.append(_issue(
+                    "teaching_batch:invalid_relation_type",
+                    f"小节 {node_id} 的知识关系类型 {relation_type or '空'} 不在六类正式关系中",
+                ))
+            if not str(relation.get("reason") or "").strip():
+                issues.append(_issue(
+                    "teaching_batch:relation_missing_reason",
+                    f"小节 {node_id} 的知识关系缺少具体语义理由",
+                ))
+            if relation_type == "derives" and not relation.get("derivation_steps"):
+                issues.append(_issue(
+                    "teaching_batch:derivation_missing_steps",
+                    f"小节 {node_id} 的推导关系缺少关键步骤",
+                ))
+            if relation_type == "contrasts_with" and not str(
+                relation.get("distinction") or ""
+            ).strip():
+                issues.append(_issue(
+                    "teaching_batch:contrast_missing_distinction",
+                    f"小节 {node_id} 的对比关系缺少判别维度",
+                ))
         for module in actual.get("teaching_modules") or []:
             if module.get("module_id") not in allowed_modules:
                 issues.append(_issue("teaching_batch:unknown_module", f"小节 {node_id} 返回了不允许的课程块"))

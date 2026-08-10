@@ -28,6 +28,30 @@
       </dl>
     </header>
 
+    <aside
+      v-if="readiness"
+      class="formal-lesson-plan__readiness"
+      :data-status="readiness.status"
+      data-testid="formal-lesson-plan-readiness"
+      aria-live="polite"
+    >
+      <div class="formal-lesson-plan__readiness-mark" aria-hidden="true">{{ readiness.ready_for_print ? '✓' : '!' }}</div>
+      <div>
+        <strong>{{ readiness.ready_for_print
+          ? t('courseGeneration.lessonPlan.formalReadyTitle', '教案结构完整，可打印交付')
+          : t('courseGeneration.lessonPlan.formalNeedsCompletionTitle', '交付前还需补齐教案') }}</strong>
+        <p>{{ readiness.ready_for_print
+          ? t('courseGeneration.lessonPlan.formalReadyHelp', '课时、活动与评价证据已经通过正式教案检查。')
+          : t('courseGeneration.lessonPlan.formalNeedsCompletionHelp', '发现 {count} 项影响交付的问题。').replace('{count}', String(readiness.critical_count)) }}</p>
+        <ul v-if="!readiness.ready_for_print && readinessIssues.length">
+          <li v-for="issue in readinessIssues" :key="`${issue.node_id}-${issue.code}-${issue.field}`">
+            <span v-if="issue.node_id">{{ sectionTitle(issue.node_id, 0) }}：</span>{{ issue.message }}
+          </li>
+        </ul>
+      </div>
+      <span class="formal-lesson-plan__readiness-count">{{ readiness.covered_section_count }}/{{ readiness.expected_section_count || plan.section_count }}</span>
+    </aside>
+
     <section class="formal-lesson-plan__section formal-lesson-plan__section--summary">
       <div>
         <header>
@@ -182,6 +206,10 @@ const props = withDefaults(defineProps<{
 
 const overall = computed(() => props.plan.overall)
 const classroom = computed(() => overall.value?.classroom || {})
+const readiness = computed(() => props.plan.formal_readiness)
+const readinessIssues = computed(() => (
+  readiness.value?.issues.filter(issue => issue.severity === 'critical').slice(0, 3) || []
+))
 const nodeNames = computed(() => new Map(props.nodes.map(node => [node.node_id, node.node_name])))
 
 function unique(values: Array<string | undefined | null>): string[] {
@@ -251,6 +279,15 @@ function teachingRows(section: CourseTeachingPlanSection) {
 .formal-lesson-plan__cover dl > div { min-width:0; padding:11px 13px; border-right:1px solid #dfe3eb; border-bottom:1px solid #dfe3eb; }
 .formal-lesson-plan__cover dt { color:#8992a1; font-size:11px; }
 .formal-lesson-plan__cover dd { margin:4px 0 0; overflow:hidden; color:#364259; font-size:13px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+.formal-lesson-plan__readiness { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:start; gap:13px; margin:22px 50px 0; padding:15px 17px; border:1px solid #ead9b7; border-radius:10px; color:#6f501d; background:#fffaf0; }
+.formal-lesson-plan__readiness[data-status="ready"] { border-color:#c6e6d7; color:#17664d; background:#f2fbf7; }
+.formal-lesson-plan__readiness-mark { width:26px; height:26px; display:grid; place-items:center; border-radius:999px; color:#fff; background:#b7791f; font-size:13px; font-weight:900; }
+.formal-lesson-plan__readiness[data-status="ready"] .formal-lesson-plan__readiness-mark { background:#16805f; }
+.formal-lesson-plan__readiness strong { display:block; font-size:13px; }
+.formal-lesson-plan__readiness p { margin:3px 0 0; color:inherit; opacity:.8; font-size:11px; line-height:1.5; }
+.formal-lesson-plan__readiness ul { gap:3px; margin-top:8px; padding-left:17px; }
+.formal-lesson-plan__readiness li { color:inherit; font-size:11px; line-height:1.45; }
+.formal-lesson-plan__readiness-count { padding:4px 7px; border-radius:999px; background:rgba(255,255,255,.65); font:800 10px/1.2 ui-monospace,SFMono-Regular,monospace; }
 .formal-lesson-plan__section { padding:36px 50px; border-bottom:1px solid #e8eaef; }
 .formal-lesson-plan__section--summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:36px; }
 .formal-lesson-plan__section--summary > div { min-width:0; }
@@ -294,6 +331,7 @@ function teachingRows(section: CourseTeachingPlanSection) {
   .formal-lesson-plan__cover { grid-template-columns:1fr; gap:26px; padding:36px 30px; }
   .formal-lesson-plan__cover dl { max-width:620px; }
   .formal-lesson-plan__section { padding:30px; }
+  .formal-lesson-plan__readiness { margin-inline:30px; }
   .formal-lesson-plan__three-column { grid-template-columns:1fr; }
   .formal-lesson-plan__lesson { overflow-x:auto; }
   .formal-lesson-plan table { min-width:760px; }
@@ -305,6 +343,8 @@ function teachingRows(section: CourseTeachingPlanSection) {
   .formal-lesson-plan__cover h3 { font-size:26px; }
   .formal-lesson-plan__cover dl,.formal-lesson-plan__section--summary,.formal-lesson-plan__two-column { grid-template-columns:1fr; }
   .formal-lesson-plan__section { padding:26px 20px; }
+  .formal-lesson-plan__readiness { grid-template-columns:auto minmax(0,1fr); margin:18px 20px 0; }
+  .formal-lesson-plan__readiness-count { grid-column:2; justify-self:start; }
   .formal-lesson-plan__footer { align-items:flex-start; flex-direction:column; padding:16px 20px; }
 }
 @media print {

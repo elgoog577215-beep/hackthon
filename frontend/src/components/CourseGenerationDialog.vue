@@ -1027,14 +1027,22 @@ async function submit() {
   .teaching-settings__core { grid-template-columns: 1fr; gap: 22px; }
   .course-type-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .compact-grid { grid-template-columns: 1fr 1fr; }
-  .teacher-brief-section__core,.teacher-brief-section__advanced-grid { grid-template-columns:1fr; }
+  .teacher-brief-section__core { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .teacher-brief-section__advanced-grid { grid-template-columns:1fr; }
   .generation-dialog__footer { align-items: stretch; flex-direction: column; padding: 10px 16px 14px; }
   .footer-actions,.footer-actions button { width: 100%; }
   .footer-actions button { flex: 1; }
 }
 @media (max-width: 520px) {
   .segmented-options--three,.segmented-options--two,.compact-grid { grid-template-columns: 1fr; }
-  .course-type-options,.project-fields { grid-template-columns: 1fr; }
+  .course-type-options { grid-template-columns: repeat(2,minmax(0,1fr)); gap:8px; }
+  .course-type-option { min-height:64px; grid-template-columns:26px minmax(0,1fr) 15px; gap:7px; padding:9px 8px; }
+  .course-type-option__icon { width:26px; height:26px; }
+  .course-type-option__copy { align-self:center; }
+  .course-type-option__copy > span:last-child { display:none; }
+  .course-type-option__heading strong { font-size:12px; }
+  .course-type-option__check { width:15px; height:15px; }
+  .project-fields { grid-template-columns: 1fr; }
   .project-field--wide { grid-column: auto; }
   .segmented-options button { min-height: 52px; }
   .strategy-settings__heading { align-items: flex-start; flex-direction: column; gap: 3px; }

@@ -146,7 +146,7 @@ def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     assert payload["status"] == "queued"
     assert payload["job_id"].startswith("qbr_")
     assert payload["scope"] == "nodes"
-    assert payload["assessment_generation_profile"] == "deliberate"
+    assert payload["assessment_generation_profile"] == "fast"
     assert payload["node_ids"] == ["node-1", "node-2"]
     assert payload["status_url"].endswith(
         f"/question-bank/rebuilds/{payload['job_id']}"

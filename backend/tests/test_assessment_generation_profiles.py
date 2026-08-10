@@ -11,12 +11,12 @@ from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers.question_bank import QuestionBankRebuildRequest
 
 
-def test_generation_profile_defaults_preserve_legacy_behavior() -> None:
+def test_generation_profile_defaults_use_bounded_adaptive_behavior() -> None:
     course_request = CourseGenerationRequest(subject="线性代数")
     rebuild_request = QuestionBankRebuildRequest()
 
-    assert course_request.assessment_generation_profile == "deliberate"
-    assert rebuild_request.assessment_generation_profile == "deliberate"
+    assert course_request.assessment_generation_profile == "fast"
+    assert rebuild_request.assessment_generation_profile == "fast"
     assert QuestionBankRebuildRequest(
         assessment_generation_profile="fast"
     ).assessment_generation_profile == "fast"
@@ -40,7 +40,7 @@ def test_fast_policy_has_bounded_repairs_and_provider_budget() -> None:
     }
 
 
-def test_fast_policy_never_requests_thinking_for_complex_items() -> None:
+def test_fast_policy_keeps_deliberation_for_complex_items() -> None:
     policy = resolve_assessment_generation_policy("fast")
     context = {
         "assessment_slot": {
@@ -55,10 +55,33 @@ def test_fast_policy_never_requests_thinking_for_complex_items() -> None:
         "issue_codes": ["semantic_contradiction"],
     }
 
-    for stage in ("generate", "repair", "solve", "review"):
+    for stage in ("generate", "solve", "review"):
         call_policy = policy.call_policy(stage, context)
-        assert call_policy.enable_thinking is False
-        assert call_policy.thinking_reason_codes == ()
+        assert call_policy.enable_thinking is True
+        assert set(call_policy.thinking_reason_codes) >= {
+            "complex_input_mode",
+            "complex_validation_mode",
+            "complex_task",
+            "high_risk",
+        }
+    repair_policy = policy.call_policy("repair", context)
+    assert repair_policy.enable_thinking is True
+    assert "semantic_repair" in repair_policy.thinking_reason_codes
+
+
+def test_fast_policy_keeps_simple_items_non_thinking_and_batchable() -> None:
+    policy = resolve_assessment_generation_policy("fast")
+
+    call_policy = policy.call_policy("generate", {
+        "assessment_slot": {
+            "input_mode": "choice",
+            "validation_mode": "exact_validator",
+        },
+    })
+
+    assert call_policy.enable_thinking is False
+    assert call_policy.thinking_reason_codes == ()
+    assert policy.generation_batch_size == 3
 
 
 def test_deliberation_is_selective_and_reasoned() -> None:

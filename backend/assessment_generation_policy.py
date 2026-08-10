@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v2"
+    "assessment_generation_policy_v3"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -89,9 +89,7 @@ class AssessmentGenerationPolicy:
     ) -> AssessmentModelCallPolicy:
         resolved_context = context or {}
         decision = requires_deliberation(stage, resolved_context)
-        if self.profile == "fast":
-            decision = DeliberationDecision(False)
-        else:
+        if self.profile == "deliberate":
             if stage == "review":
                 decision = DeliberationDecision(False)
             elif stage == "generate" and resolved_context.get(
@@ -129,6 +127,10 @@ def resolve_assessment_generation_policy(
 ) -> AssessmentGenerationPolicy:
     normalized = normalize_assessment_generation_profile(profile)
     if normalized == "fast":
+        # ``fast`` is an adaptive bounded policy, not a quality-off switch.
+        # Simple slots stay batchable and non-thinking, while complex input,
+        # validation, risk, source uncertainty, and semantic repairs retain
+        # explicit deliberation through ``call_policy``.
         return AssessmentGenerationPolicy(
             profile="fast",
             version=ASSESSMENT_GENERATION_POLICY_VERSION,

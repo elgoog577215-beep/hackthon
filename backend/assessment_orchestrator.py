@@ -3136,6 +3136,17 @@ def _audit_snapshot(audit: dict[str, Any]) -> dict[str, Any]:
             audit.get("provider_queue_wait_ms") or 0
         ),
         "batch_sizes": batch_sizes,
+        "batched_logical_call_count": sum(
+            size > 1 for size in batch_sizes
+        ),
+        "batched_item_count": sum(
+            size for size in batch_sizes if size > 1
+        ),
+        "max_batch_size": max(batch_sizes, default=0),
+        "effective_items_per_logical_call": round(
+            sum(batch_sizes) / max(1, len(batch_sizes)),
+            3,
+        ),
         "model_ids": sorted({
             str(item.get("model_id") or "")
             for item in audit.get("physical_calls") or []

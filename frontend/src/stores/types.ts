@@ -182,6 +182,24 @@ export interface CourseTeachingPlanProjection {
   knowledge_point_count: number
   teaching_module_count: number
   overall?: CourseTeachingPlanOverall
+  formal_readiness?: {
+    schema_version: 'formal_lesson_plan_readiness_v1'
+    status: 'ready' | 'needs_completion'
+    ready_for_print: boolean
+    critical_count: number
+    major_count: number
+    issue_count: number
+    expected_section_count: number
+    covered_section_count: number
+    issues: Array<{
+      code: string
+      severity: 'critical' | 'major'
+      scope: 'course' | 'section'
+      node_id?: string
+      field: string
+      message: string
+    }>
+  }
   sections: CourseTeachingPlanSection[]
 }
 

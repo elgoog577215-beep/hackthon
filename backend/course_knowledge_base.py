@@ -12,6 +12,7 @@ from course_versioning import stable_hash
 
 COURSE_KNOWLEDGE_BASE_SCHEMA = "course_knowledge_base_v2"
 COURSE_KNOWLEDGE_VIEW_SCHEMA = "knowledge_library_view_v3"
+COURSE_KNOWLEDGE_QUALITY_SCHEMA = "course_knowledge_quality_v3"
 
 RELATION_TYPES = {
     "prerequisite",
@@ -787,6 +788,53 @@ def validate_course_knowledge_base(
         if point_id not in inbound and not str(point.get("entry_reason") or "").strip():
             issues.append(_issue("point_missing_inbound_or_entry", "relations", "major", f"知识点「{point.get('name')}」尚未说明为何从这里开始学习"))
 
+    relation_type_counts = {
+        relation_type: sum(
+            str(item.get("relation_type") or "") == relation_type
+            for item in relations
+        )
+        for relation_type in sorted(RELATION_TYPES)
+    }
+    used_relation_types = {
+        relation_type
+        for relation_type, count in relation_type_counts.items()
+        if count
+    }
+    semantic_relations = [
+        item for item in relations
+        if str(item.get("relation_type") or "") != "prerequisite"
+    ]
+    semantic_connected = {
+        str(endpoint)
+        for item in semantic_relations
+        for endpoint in (
+            item.get("source_knowledge_id"),
+            item.get("target_knowledge_id"),
+        )
+        if str(endpoint or "") in point_ids
+    }
+    grounded_relations = [
+        item for item in relations if item.get("source_refs")
+    ]
+    if (
+        len(points) >= 6
+        and len(relations) >= max(3, len(points) // 2)
+        and used_relation_types == {"prerequisite"}
+    ):
+        issues.append(_issue(
+            "dependency_only_knowledge_graph",
+            "relations",
+            "major",
+            "知识图谱目前只有前置依赖，尚未表达推导、易混、应用或泛化等课程语义",
+        ))
+    if len(points) >= 6 and not semantic_relations:
+        issues.append(_issue(
+            "missing_semantic_crosslinks",
+            "relations",
+            "major",
+            "全课知识点尚无非前置语义关系，无法支持易混辨析、迁移应用和多视图检索",
+        ))
+
     if (knowledge_base.get("generation_audit") or {}).get("invalid_relation_candidates"):
         issues.append(_issue("invalid_relation_candidates", "relations", "major", "已忽略六类白名单之外的知识关系候选"))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_relation_candidates"):
@@ -820,8 +868,6 @@ def validate_course_knowledge_base(
         ) > 1:
             issues.append(_issue("imprecise_block_binding", "bindings", "major", f"内容块 {binding.get('target_id')} 尚未精确绑定"))
 
-    critical_count = sum(item["severity"] == "critical" for item in issues)
-    major_count = sum(item["severity"] == "major" for item in issues)
     relation_covered = len(inbound) / len(points) if points else 0.0
     points_with_counterexamples = {
         str(item.get("knowledge_id") or "") for item in points
@@ -838,6 +884,17 @@ def validate_course_knowledge_base(
     points_with_mastery = set(criteria_by_point) & point_ids
     point_count = len(points)
 
+    if point_count >= 6 and len(points_with_sources) / point_count < 0.5:
+        issues.append(_issue(
+            "insufficient_knowledge_source_grounding",
+            "grounding",
+            "major",
+            "少于一半知识点绑定了可追溯资料或检索证据，知识库需要补充来源锚点",
+        ))
+
+    critical_count = sum(item["severity"] == "critical" for item in issues)
+    major_count = sum(item["severity"] == "major" for item in issues)
+
     def detail_ratio(count: int) -> float:
         return round(count / point_count, 4) if point_count else 0.0
 
@@ -853,7 +910,7 @@ def validate_course_knowledge_base(
         ),
     }
     return {
-        "schema_version": "course_knowledge_quality_v2",
+        "schema_version": COURSE_KNOWLEDGE_QUALITY_SCHEMA,
         "passed": critical_count == 0,
         "strict_passed": not issues,
         "score": max(0, 100 - 15 * critical_count - 5 * major_count),
@@ -870,8 +927,28 @@ def validate_course_knowledge_base(
             "misconception_count": len(mistakes),
             "mastery_criterion_count": len(criteria),
             "relation_count": len(relations),
+            "relation_type_counts": relation_type_counts,
+            "used_relation_type_count": len(used_relation_types),
+            "semantic_relation_count": len(semantic_relations),
+            "grounded_relation_count": len(grounded_relations),
             "relation_decision_count": len(relation_decisions),
             "relation_coverage": round(relation_covered, 4),
+            "relation_type_coverage": round(
+                len(used_relation_types) / len(RELATION_TYPES), 4
+            ),
+            "semantic_relation_coverage": detail_ratio(
+                len(semantic_connected)
+            ),
+            "relation_provenance_coverage": round(
+                len(grounded_relations) / len(relations), 4
+            ) if relations else 0.0,
+            "graph_structure": (
+                "empty"
+                if not relations
+                else "dependency_only"
+                if used_relation_types == {"prerequisite"}
+                else "semantic_graph"
+            ),
             "binding_count": len(bindings),
             "points_with_counterexamples": len(points_with_counterexamples),
             "points_with_misconceptions": len(points_with_misconceptions),
@@ -882,6 +959,22 @@ def validate_course_knowledge_base(
         "metrics": {
             "mapped_ratio": round(len(section_ids & bound_sections) / len(section_ids), 4) if section_ids else 0.0,
             "relation_coverage": round(relation_covered, 4),
+            "relation_type_coverage": round(
+                len(used_relation_types) / len(RELATION_TYPES), 4
+            ),
+            "semantic_relation_coverage": detail_ratio(
+                len(semantic_connected)
+            ),
+            "relation_provenance_coverage": round(
+                len(grounded_relations) / len(relations), 4
+            ) if relations else 0.0,
+            "graph_structure": (
+                "empty"
+                if not relations
+                else "dependency_only"
+                if used_relation_types == {"prerequisite"}
+                else "semantic_graph"
+            ),
             "atomic_ratio": round(sum(item.get("granularity_status") == "atomic" for item in points) / len(points), 4) if points else 0.0,
             "counterexample_coverage": detail_ratio(len(points_with_counterexamples)),
             "misconception_coverage": detail_ratio(len(points_with_misconceptions)),

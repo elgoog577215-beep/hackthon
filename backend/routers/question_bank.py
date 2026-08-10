@@ -83,7 +83,7 @@ class QuestionBankRebuildRequest(BaseModel):
     assessment_generation_profile: Literal[
         "fast",
         "deliberate",
-    ] = "deliberate"
+    ] = "fast"
 
     @model_validator(mode="after")
     def validate_scope(self):

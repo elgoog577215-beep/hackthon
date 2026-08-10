@@ -80,33 +80,13 @@
               </dl>
             </section>
 
-            <section class="task-observability" :aria-label="t('taskObservability.label', '任务处理阶段')">
-              <ol>
-                <li
-                  v-for="stage in selectedObservableStages"
-                  :key="stage.key"
-                  class="task-observability__stage"
-                  :data-status="stage.status"
-                  :aria-current="stage.status === 'active' || stage.status === 'error' || stage.status === 'paused' ? 'step' : undefined"
-                >
-                  <span class="task-observability__marker">
-                    <CircleCheck v-if="stage.status === 'completed'" :size="13" />
-                    <TriangleAlert v-else-if="stage.status === 'error' || stage.status === 'blocked'" :size="13" />
-                    <CirclePause v-else-if="stage.status === 'paused'" :size="13" />
-                    <LoaderCircle v-else-if="stage.status === 'active'" class="spin" :size="13" />
-                    <CircleDashed v-else :size="13" />
-                  </span>
-                  <strong>{{ stage.label }}</strong>
-                  <small>{{ observableStageStatusLabel(stage.status) }}</small>
-                </li>
-              </ol>
-              <p v-if="selectedHeartbeat.state === 'stalled'" class="task-heartbeat-alert" role="status">
-                <Clock3 :size="15" />
-                {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
-              </p>
-            </section>
-
             <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
+              <header class="guided-workflow__heading">
+                <div>
+                  <strong>{{ t('courseTasks.workflow.visibleTitle', '你只需要关注这四步') }}</strong>
+                  <span>{{ t('courseTasks.workflow.visibleHelp', '需要你确认时，系统会停在对应步骤。') }}</span>
+                </div>
+              </header>
               <ol>
                 <li v-for="step in workflowSteps" :key="step.key" :data-status="step.displayStatus">
                   <button
@@ -129,6 +109,42 @@
                 </li>
               </ol>
             </section>
+
+            <details
+              class="task-observability"
+              :open="!workflowSteps.length || selectedHeartbeat.state === 'stalled'"
+            >
+              <summary>
+                <span>
+                  <strong>{{ t('taskObservability.detailTitle', '运行详情') }}</strong>
+                  <small>{{ t('taskObservability.detailHelp', '资料解析、检索、模型生成与质量检查') }}</small>
+                </span>
+                <small>{{ selectedObservableStages.length }} {{ t('taskObservability.stageUnit', '个阶段') }}</small>
+              </summary>
+              <ol :aria-label="t('taskObservability.label', '任务处理阶段')">
+                <li
+                  v-for="stage in selectedObservableStages"
+                  :key="stage.key"
+                  class="task-observability__stage"
+                  :data-status="stage.status"
+                  :aria-current="stage.status === 'active' || stage.status === 'error' || stage.status === 'paused' ? 'step' : undefined"
+                >
+                  <span class="task-observability__marker">
+                    <CircleCheck v-if="stage.status === 'completed'" :size="13" />
+                    <TriangleAlert v-else-if="stage.status === 'error' || stage.status === 'blocked'" :size="13" />
+                    <CirclePause v-else-if="stage.status === 'paused'" :size="13" />
+                    <LoaderCircle v-else-if="stage.status === 'active'" class="spin" :size="13" />
+                    <CircleDashed v-else :size="13" />
+                  </span>
+                  <strong>{{ stage.label }}</strong>
+                  <small>{{ observableStageStatusLabel(stage.status) }}</small>
+                </li>
+              </ol>
+              <p v-if="selectedHeartbeat.state === 'stalled'" class="task-heartbeat-alert" role="status">
+                <Clock3 :size="15" />
+                {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
+              </p>
+            </details>
 
             <section v-if="shouldShowGenerationReview(selectedTask)" class="generation-review">
               <header>
@@ -1064,8 +1080,15 @@ function formatDuration(seconds: number) {
 .task-summary h3 { margin:11px 0 5px; color:var(--lz-text-strong); font-size:21px; }.task-summary p { margin:0; color:var(--lz-text-secondary); font-size:12px; line-height:1.55; }
 .task-progress { height:6px; margin:20px 0 17px; overflow:hidden; border-radius:3px; background:var(--lz-surface-muted); }.task-progress span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); transition:width .2s ease; }
 .task-summary dl { margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.task-summary dl div { min-width:0; }.task-summary dt { color:var(--lz-text-muted); font-size:10px; }.task-summary dd { margin:4px 0 0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
-.task-observability { padding:22px 0; border-bottom:1px solid var(--lz-border); }
+.task-observability { padding:0; border-bottom:1px solid var(--lz-border); }
+.task-observability > summary { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:16px; color:var(--lz-text-secondary); cursor:pointer; list-style:none; }
+.task-observability > summary::-webkit-details-marker { display:none; }
+.task-observability > summary > span { min-width:0; display:grid; gap:3px; }
+.task-observability > summary strong { color:var(--lz-text); font-size:11px; }
+.task-observability > summary small { color:var(--lz-text-muted); font-size:9px; line-height:1.4; }
+.task-observability > summary > small { flex:none; padding:4px 7px; border-radius:999px; background:var(--lz-surface-muted); font-weight:700; }
 .task-observability ol { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); margin:0; padding:0; list-style:none; }
+.task-observability[open] ol { padding:5px 0 20px; }
 .task-observability__stage { position:relative; min-width:0; display:grid; justify-items:center; gap:5px; padding:0 3px; color:var(--lz-text-muted); text-align:center; }
 .task-observability__stage:not(:last-child)::after { content:""; position:absolute; z-index:0; top:12px; left:calc(50% + 15px); right:calc(-50% + 15px); height:1px; background:var(--lz-border); }
 .task-observability__marker { position:relative; z-index:1; width:25px; height:25px; display:grid; place-items:center; border:1px solid var(--lz-border); border-radius:50%; color:var(--lz-text-muted); background:#fff; }
@@ -1079,8 +1102,12 @@ function formatDuration(seconds: number) {
 .task-observability__stage[data-status="paused"] .task-observability__marker { color:var(--lz-text-secondary); background:var(--lz-surface-muted); }
 .task-heartbeat-alert { display:flex; align-items:flex-start; gap:7px; margin:16px 0 0; padding:10px 12px; border-radius:8px; color:#9a4d13; background:#fff8ed; font-size:11px; line-height:1.5; }
 .task-heartbeat-alert svg { flex:0 0 auto; margin-top:1px; }
-.guided-workflow { padding:22px 0; border-bottom:1px solid var(--lz-border); }
-.guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); list-style:none; }
+.guided-workflow { padding:20px 0 22px; border-bottom:1px solid var(--lz-border); }
+.guided-workflow__heading { margin-bottom:17px; }
+.guided-workflow__heading strong,.guided-workflow__heading span { display:block; }
+.guided-workflow__heading strong { color:var(--lz-text); font-size:12px; }
+.guided-workflow__heading span { margin-top:3px; color:var(--lz-text-muted); font-size:9px; }
+.guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; }
 .guided-workflow li { position:relative; min-width:0; display:grid; justify-items:center; gap:7px; color:var(--lz-text-muted); text-align:center; }
 .guided-workflow li:not(:last-child)::after { content:""; position:absolute; z-index:0; top:14px; left:calc(50% + 18px); right:calc(-50% + 18px); height:1px; background:var(--lz-border); }
 .guided-workflow__step { min-width:0; width:100%; display:grid; justify-items:center; gap:7px; padding:0 3px; border:0; color:inherit; background:transparent; text-align:center; }
@@ -1111,5 +1138,5 @@ function formatDuration(seconds: number) {
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail__scroll { padding:20px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:18px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:116px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail__scroll { padding:17px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; }.guided-workflow ol { grid-template-columns:repeat(4,minmax(0,1fr)); }.task-observability ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:18px; }.task-observability__stage:nth-child(3n)::after { display:none; }.guided-workflow li strong { min-height:2.4em; display:-webkit-box; overflow:hidden; font-size:9px; line-height:1.2; text-overflow:clip; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.guided-workflow li small { font-size:8px; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
 </style>
