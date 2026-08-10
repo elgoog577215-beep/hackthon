@@ -32,6 +32,7 @@ from assessment_diversity import (
 )
 from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
+from hint_leakage import measure_deepest_hint_overlap
 from practice_contracts import (
     project_default_single_choice,
 )
@@ -3569,13 +3570,20 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
             "requires_unseen_equivalent_validation": True,
         },
         "frozen_with_item_revision": True,
-        "leakage_check": {
-            "passed": not leakage and all(
+        "leakage_check": _leakage_check(
+            not leakage and all(
                 _normalize_text(str(level.get("content") or "")) != prompt
                 for level in levels
             ),
-            "checked_at_compile_time": True,
-        },
+            levels,
+            {
+                "solution_spec": answer_spec.get("solution_spec") or {},
+                "canonical_answer": answer_spec.get("canonical_answer"),
+                "legacy_answer_spec": {
+                    "correct_answer": answer_spec.get("correct_answer"),
+                },
+            },
+        ),
     }
 
 
@@ -3711,13 +3719,35 @@ def _solution_graph_hint_contract(
             "requires_unseen_equivalent_validation": True,
         },
         "frozen_with_item_revision": True,
-        "leakage_check": {
-            "passed": not leakage and all(
+        "leakage_check": _leakage_check(
+            not leakage and all(
                 _normalize_text(level["content"]) != prompt
                 for level in levels
             ),
-            "checked_at_compile_time": True,
-        },
+            levels,
+            solution_envelope,
+        ),
+    }
+
+
+def _leakage_check(
+    base_passed: bool,
+    levels: list[dict[str, Any]],
+    private_solution: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile-time hint safety: verbatim answer check plus deepest-hint overlap.
+
+    The verbatim check (``base_passed``) catches a hint that prints the answer.
+    ``measure_deepest_hint_overlap`` catches the subtler failure it cannot see: a
+    level-3 hint that restates the entire private derivation while omitting the
+    final number.  Hints are legitimately derived from the same reasoning path,
+    so only the two unambiguous conditions fail the gate — see hint_leakage.
+    """
+    overlap = measure_deepest_hint_overlap(levels, private_solution)
+    return {
+        "passed": bool(base_passed and not overlap.get("leaked")),
+        "checked_at_compile_time": True,
+        "deepest_hint_overlap": overlap,
     }
 
 

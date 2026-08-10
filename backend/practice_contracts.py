@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from hint_leakage import measure_deepest_hint_overlap
 from reasoning_paths import compile_reasoning_support
 from solution_presentation import present_solution_value
 
@@ -586,9 +587,24 @@ def _complete_hint_policy(item: dict[str, Any]) -> None:
         "requires_unseen_equivalent_validation": True,
     })
     contract.setdefault("frozen_with_item_revision", True)
+    answer_spec = item.get("answer_spec") or {}
+    overlap = measure_deepest_hint_overlap(
+        contract.get("levels") or [],
+        {
+            "solution_spec": answer_spec.get("solution_spec") or {},
+            "canonical_answer": answer_spec.get("canonical_answer"),
+            "legacy_answer_spec": {
+                "correct_answer": answer_spec.get("correct_answer"),
+            },
+        },
+    )
     contract.setdefault("leakage_check", {
-        "passed": _legacy_hint_does_not_reveal_answer(item),
+        "passed": (
+            _legacy_hint_does_not_reveal_answer(item)
+            and not overlap.get("leaked")
+        ),
         "checked_at_compile_time": True,
+        "deepest_hint_overlap": overlap,
     })
 
 
