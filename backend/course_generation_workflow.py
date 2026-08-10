@@ -100,6 +100,7 @@ def build_course_generation_artifacts(
         "material_bindings": prepared.get("material_bindings") or [],
         "parsed_documents": prepared.get("parsed_documents") or [],
         "evidence_catalog": prepared.get("evidence_catalog") or [],
+        "web_material_search": prepared.get("web_search") or {"enabled": False},
         "evidence_coverage_plan": {
             "plan_version": "evidence_coverage_v1",
             "strategy": grounding_strategy,
@@ -177,6 +178,15 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
     for chapter_index, chapter in enumerate(plan.get("chapters") or [], start=1):
         chapter["chapter_number"] = chapter_index
         chapter.setdefault("title", f"第{chapter_index}章")
+        raw_planning_stages = (
+            chapter.get("planning_stages")
+            or ([chapter.get("planning_stage")] if chapter.get("planning_stage") else [])
+        )
+        chapter["planning_stages"] = [
+            str(item).strip()
+            for item in raw_planning_stages
+            if str(item or "").strip()
+        ]
         chapter.setdefault("learning_focus", chapter.get("title", ""))
         chapter["learning_path_role"] = _normalize_learning_path_role(
             chapter.get("learning_path_role")
@@ -190,6 +200,11 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
             section.setdefault(
                 "path_reason",
                 chapter.get("path_reason") or "课程主路径",
+            )
+            section["planning_stages"] = list(
+                section.get("planning_stages")
+                or chapter.get("planning_stages")
+                or []
             )
             raw_number = str(section.get("section_number") or "").strip()
             raw_id = str(section.get("id") or section.get("node_id") or "").strip()
@@ -2511,6 +2526,7 @@ def build_course_blueprint_from_plan(plan: dict[str, Any], artifacts: dict[str, 
                 "difficulty_contract": section.get("difficulty_contract", {}),
                 "learning_path_role": section.get("learning_path_role", "standard"),
                 "path_reason": section.get("path_reason", "课程主路径"),
+                "planning_stages": section.get("planning_stages", []),
             })
 
     teaching_plan_revision_id = str(

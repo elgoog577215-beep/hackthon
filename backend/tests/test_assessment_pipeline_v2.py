@@ -680,6 +680,271 @@ def test_question_that_references_code_requires_a_visible_fenced_block():
     }
 
 
+def test_quality_gate_accepts_substantive_unity_csharp_fence():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        f"{contract['question_spec']['stimulus']['rendered_text']}\n"
+        "```csharp\n"
+        "void FixedUpdate() {\n"
+        "    velocity = Vector3.right * speed;\n"
+        "    rb.AddForce(velocity);\n"
+        "}\n"
+        "```"
+    )
+    task = (
+        f"{contract['question_spec']['task']['rendered_text']} "
+        "并根据上述代码说明 FixedUpdate 的作用。"
+    )
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["hard_gates"]["code_rendering"] is True
+    assert "CODE_MATERIAL_NOT_RENDERABLE" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_gate_accepts_typed_unity_csharp_methods():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "```csharp\n"
+        "void Update() {\n"
+        "    float move = Input.GetAxis(\"Horizontal\") * 5f;\n"
+        "    transform.Translate(move * Vector3.right);\n"
+        "}\n\n"
+        "void FixedUpdate() {\n"
+        "    rigidbody.AddForce(Vector3.right * 10f);\n"
+        "}\n"
+        "```"
+    )
+    task = "根据上述代码定位帧率依赖，并给出修复后的回调分配。"
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["hard_gates"]["code_rendering"] is True
+    assert "CODE_MATERIAL_NOT_RENDERABLE" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_quality_gate_rejects_incorrect_unity_fixedupdate_timing_facts():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "某 Unity 角色在 Update 和 FixedUpdate 中重复移动：\n\n"
+        "```csharp\n"
+        "public float speed = 10f;\n"
+        "void Update() {\n"
+        "    rb.MovePosition(rb.position + Vector3.forward * speed);\n"
+        "}\n"
+        "void FixedUpdate() {\n"
+        "    rb.MovePosition(rb.position + Vector3.forward * speed);\n"
+        "}\n"
+        "```"
+    )
+    task = "分析 60 FPS 下的执行轨迹，并修复物理移动逻辑。"
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+    contract["solution_envelope"]["canonical_answer"] = {
+        "trace": "每帧移动两次",
+        "diagnosis": "重复调用",
+        "result_check": "仅保留 FixedUpdate",
+    }
+    contract["solution_envelope"]["worked_solution"] = {
+        "schema_version": "worked_solution_v1",
+        "summary": "两个回调重复调用 MovePosition，导致移动距离翻倍。",
+        "steps": [
+            {
+                "title": "执行轨迹",
+                "explanation": (
+                    "在 60 FPS 下，Update 每秒运行 60 次，"
+                    "FixedUpdate 默认也至少运行 60 次。"
+                ),
+                "calculation": (
+                    "单帧总位移 = speed + speed = 2 * speed。"
+                ),
+                "result": "速度翻倍。",
+            },
+            {
+                "title": "修复",
+                "explanation": "删除 Update 中的物理操作。",
+                "result": "只在 FixedUpdate 中移动。",
+            },
+        ],
+        "final_answer": {
+            "trace": "每帧移动两次",
+            "diagnosis": "重复调用",
+            "result_check": "仅保留 FixedUpdate",
+        },
+        "checks": ["确认每帧只移动一次"],
+    }
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    issue_codes = {issue["code"] for issue in report["issues"]}
+    assert report["passed"] is False
+    assert report["decision"] == "repair"
+    assert "UNITY_FIXEDUPDATE_RATE_INVALID" in issue_codes
+    assert "UNITY_SPEED_STEP_MISMATCH" in issue_codes
+
+
+def test_quality_gate_accepts_correct_unity_fixed_step_facts():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "某 Unity 角色把每秒速度直接当成单步位移：\n\n"
+        "```csharp\n"
+        "public float speed = 10f;\n"
+        "void FixedUpdate() {\n"
+        "    rb.MovePosition(rb.position + Vector3.forward * speed);\n"
+        "}\n"
+        "```"
+    )
+    task = "找出错误，并说明默认固定时间步下的调用频率与正确单步位移。"
+    contract["question_type"] = "debugging_trace"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+    contract["solution_envelope"]["canonical_answer"] = {
+        "rate": "50 Hz",
+        "step": "speed * Time.fixedDeltaTime",
+    }
+    contract["solution_envelope"]["worked_solution"] = {
+        "schema_version": "worked_solution_v1",
+        "summary": "默认 fixedDeltaTime 为 0.02 秒，所以物理步通常为 50 Hz。",
+        "steps": [
+            {
+                "title": "计算",
+                "explanation": "每次 FixedUpdate 按固定时间步推进。",
+                "calculation": "10 * 0.02 = 0.2",
+                "result": "每个物理步移动 0.2 个单位。",
+            }
+        ],
+        "final_answer": {
+            "rate": "50 Hz",
+            "step": "speed * Time.fixedDeltaTime",
+        },
+        "checks": ["50 * 0.2 = 10 个单位/秒"],
+    }
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    issue_codes = {issue["code"] for issue in report["issues"]}
+    assert "UNITY_FIXEDUPDATE_RATE_INVALID" not in issue_codes
+    assert "UNITY_SPEED_STEP_MISMATCH" not in issue_codes
+
+
+def test_state_trace_transfer_can_use_visible_states_without_code():
+    contract, objective, slot = _quality_contract()
+    contract = deepcopy(contract)
+    stimulus = (
+        "策略A在 Update 读取玩家位置；策略B在 FixedUpdate 读取；"
+        "策略C在 LateUpdate 读取。玩家由物理引擎移动，渲染帧率为60Hz，"
+        "固定时间步为50Hz。"
+    )
+    task = (
+        "跟踪一帧内玩家与相机的状态变化，判断哪种策略能避免"
+        "位置滞后，并解释其余策略的状态差异。"
+    )
+    contract["question_type"] = "state_trace_transfer"
+    contract["question_spec"]["stimulus"]["rendered_text"] = stimulus
+    contract["question_spec"]["task"]["rendered_text"] = task
+    contract["prompt"] = f"{stimulus}\n{task}"
+    contract["input_materials"] = [stimulus]
+
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "passed": True,
+            "confidence": 1.0,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+        },
+    )
+
+    assert report["hard_gates"]["code_rendering"] is True
+    assert "CODE_MATERIAL_NOT_RENDERABLE" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_debugging_trace_cannot_publish_with_only_a_code_placeholder():
     contract, objective, slot = _quality_contract()
     contract = deepcopy(contract)

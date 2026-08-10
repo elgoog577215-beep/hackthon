@@ -306,6 +306,62 @@ def test_fragmenter_drops_quoted_diagram_id_authoring_metadata() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("kind", "content", "expected_text"),
+    [
+        (
+            "paragraph",
+            "没有自然句号的Unity状态同步说明" * 50,
+            "没有自然句号的Unity状态同步说明" * 50,
+        ),
+        (
+            "list_item",
+            "- " + "单个列表项同时解释输入状态和输出状态" * 45,
+            "单个列表项同时解释输入状态和输出状态" * 45,
+        ),
+    ],
+)
+def test_fragmenter_partitions_oversized_atomic_prose_without_losing_text(
+    kind: str,
+    content: str,
+    expected_text: str,
+) -> None:
+    course = source_course()
+    course["nodes"][0]["content_blocks"][0]["content"] = content
+    document = document_from_legacy_course(course)
+
+    fragments = [
+        fragment
+        for fragment in fragment_course_document(document)
+        if fragment.block_id == "block-core" and fragment.kind == kind
+    ]
+
+    assert len(fragments) > 1
+    assert all(len(fragment.text) <= 230 for fragment in fragments)
+    assert "".join(fragment.text for fragment in fragments) == expected_text
+
+
+def test_fragmenter_partitions_oversized_display_formula_at_safe_boundaries() -> None:
+    course = source_course()
+    formula_body = " + ".join(f"x_{{{index}}}" for index in range(1, 90)) + " = 0"
+    course["nodes"][0]["content_blocks"][0]["content"] = f"$${formula_body}$$"
+    document = document_from_legacy_course(course)
+
+    fragments = [
+        fragment
+        for fragment in fragment_course_document(document)
+        if fragment.block_id == "block-core" and fragment.kind == "formula"
+    ]
+
+    assert len(fragments) > 1
+    assert all(len(fragment.text) <= 230 for fragment in fragments)
+    assert all(
+        fragment.text.startswith("$$") and fragment.text.endswith("$$")
+        for fragment in fragments
+    )
+    assert "".join(fragment.text[2:-2] for fragment in fragments) == formula_body
+
+
 def test_pagination_keeps_enumeration_unit_and_next_heading_with_its_body() -> None:
     course = source_course()
     course["nodes"][0]["content_blocks"][0]["content"] = (
@@ -1140,6 +1196,190 @@ def test_mode_theme_variants_are_cached_independently_and_do_not_replace_core_sp
                 and item.representation_id == representation_id
                 for item in registry.representations
             )
+
+
+def test_failed_variant_rebuild_emits_the_structured_terminal_quality(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import representation_compiler
+
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    def fail_compile(*_args, **_kwargs):
+        raise ValueError("final SlideDeckContent schema mismatch")
+
+    monkeypatch.setattr(
+        representation_compiler,
+        "compile_slide_deck_variant",
+        fail_compile,
+    )
+
+    result = rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        progress_callback=events.append,
+    )
+
+    terminal = events[-1]
+    assert terminal["event"] == "build_failed"
+    assert terminal["code"] == "slide_variant_rebuild_failed"
+    assert terminal["quality"] == result["quality"]
+    assert terminal["quality"]["blockers"][0]["message"] == (
+        "final SlideDeckContent schema mismatch"
+    )
+
+
+def test_requested_v5_without_story_plan_fails_closed_with_actionable_reason(
+    tmp_path: Path,
+) -> None:
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    result = rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        requested_schema="slide_deck_v5",
+        story_plan=None,
+        progress_callback=events.append,
+    )
+
+    assert result["candidate_status"] == "v5_failed"
+    assert result["failure"] == {
+        "stage": "source_preflight",
+        "code": "v5_story_plan_missing",
+        "message": "V5 构建缺少课程级 story plan。",
+        "retryable": True,
+        "source_revision": document.document_revision,
+    }
+    assert events[-1]["event"] == "build_failed"
+    assert events[-1]["failure"] == result["failure"]
+    assert not any(event.get("event") == "slide_upsert" for event in events)
+    assert not repository.load(document.course_id).representations
+
+
+def test_requested_v5_rejects_source_revision_change_before_atomic_commit(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import representation_compiler
+
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    events: list[dict] = []
+
+    monkeypatch.setattr(
+        representation_compiler,
+        "compile_slide_deck_variant",
+        lambda *_args, **_kwargs: {
+            "status": "ready",
+            "quality": {"passed": True, "score": 100, "blockers": []},
+        },
+    )
+
+    result = rebuild_slide_deck_variant_safely(
+        document,
+        course,
+        repository,
+        mode="teaching",
+        theme="qizhi-classroom",
+        requested_schema="slide_deck_v5",
+        story_plan={"schema_version": "slide_story_plan_v2"},
+        progress_callback=events.append,
+        source_revision_provider=lambda: "newer-course-revision",
+    )
+
+    assert result["candidate_status"] == "v5_failed"
+    assert result["failure"]["code"] == "v5_source_revision_conflict"
+    assert result["failure"]["stage"] == "source_commit"
+    assert result["failure"]["retryable"] is True
+    assert events[-1]["event"] == "build_failed"
+    assert events[-1]["failure"] == result["failure"]
+    assert not repository.load(document.course_id).representations
+
+
+def test_requested_v5_rejects_a_non_v5_compiler_candidate(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import representation_compiler
+    from slide_deck_v5 import SlideDeckV5BuildError
+
+    course = source_course()
+    document = document_from_legacy_course(course)
+    repository = TeachingRepresentationRepository(tmp_path / "registry")
+    monkeypatch.setattr(
+        representation_compiler,
+        "slide_deck_v5_enabled",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "compile_slide_deck_v5",
+        lambda *_args, **_kwargs: {
+            "schema_version": "slide_deck_v4",
+            "title": "invalid candidate",
+            "slides": [],
+            "quality_report": {},
+            "quality_summary": {},
+        },
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "export_structured_slide_deck",
+        lambda _content, path, **_kwargs: path,
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "audit_exported_pptx",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "issues": [],
+            "blockers": [],
+        },
+    )
+    monkeypatch.setattr(
+        representation_compiler,
+        "validate_slide_deck_v5",
+        lambda *_args, **_kwargs: {
+            "passed": True,
+            "score": 100,
+            "issues": [],
+            "blockers": [],
+        },
+    )
+
+    with pytest.raises(SlideDeckV5BuildError) as captured:
+        representation_compiler.compile_slide_deck_variant(
+            document,
+            course,
+            repository,
+            mode="teaching",
+            theme="qizhi-classroom",
+            requested_schema="slide_deck_v5",
+            story_plan={"schema_version": "slide_story_plan_v2"},
+        )
+
+    assert captured.value.public_detail() == {
+        "stage": "compiler",
+        "code": "v5_schema_mismatch",
+        "message": "V5 编译器返回了非 V5 候选。",
+        "retryable": False,
+        "source_revision": document.document_revision,
+    }
+    assert not repository.load(document.course_id).representations
 
 
 def test_v3_export_is_editable_widescreen_and_uses_variant_theme(tmp_path: Path) -> None:

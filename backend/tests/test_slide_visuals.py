@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +30,7 @@ from slide_visuals import (
     _source_clauses,
     _visual_anchor,
     _visual_plan_batches,
+    _visual_plan_concurrency,
     _visual_plan_request,
     deterministic_visual_plan,
     plan_slide_visuals,
@@ -246,7 +248,9 @@ def test_display_heading_prefers_local_title_and_complete_short_phrase() -> None
     )
 
     assert _display_heading(explicit_heading) == "🔍 深度原理/底层机制"
-    assert _display_heading(classification_heading) == "根据系统与环境之间的交互方式"
+    assert _display_heading(classification_heading) == (
+        "根据系统与环境之间的交互方式，热力学将系统分为三类"
+    )
 
 
 def test_dense_prose_relation_is_suppressed_when_it_repeats_the_source() -> None:
@@ -940,6 +944,95 @@ def test_visual_plan_takeaway_cannot_add_an_unbound_number() -> None:
         )
 
 
+def test_visual_plan_rejects_chart_without_numeric_source_data() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    raw = deterministic_visual_plan(
+        document,
+        allocation,
+        fragments,
+    ).model_dump(mode="json")
+    allocation_by_id = {page.page_id: page for page in allocation.pages}
+    page = next(
+        item
+        for item in raw["pages"]
+        if allocation_by_id[item["page_id"]].fragment_ids
+    )
+    page["visual_anchor"] = {
+        "visual_id": "invalid-empty-chart",
+        "kind": "chart",
+        "purpose": "comparison",
+        "source_fragment_ids": list(
+            allocation_by_id[page["page_id"]].fragment_ids
+        ),
+        "alt_text": "A chart without source values",
+        "parameters": {"series": []},
+    }
+
+    with pytest.raises(ValueError, match="Chart visual data is incomplete"):
+        validate_visual_plan(
+            SlideVisualPlanV1.model_validate(raw),
+            allocation,
+            fragments,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ai_visual_page_with_invalid_chart_uses_page_fallback() -> None:
+    course = visual_course()
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    baseline = deterministic_visual_plan(document, allocation, fragments)
+    raw = baseline.model_dump(mode="json")
+    allocation_by_id = {page.page_id: page for page in allocation.pages}
+    page = next(
+        item
+        for item in raw["pages"]
+        if allocation_by_id[item["page_id"]].fragment_ids
+    )
+    page_id = page["page_id"]
+    page["visual_anchor"] = {
+        "visual_id": "invalid-empty-chart",
+        "kind": "chart",
+        "purpose": "comparison",
+        "source_fragment_ids": list(
+            allocation_by_id[page_id].fragment_ids
+        ),
+        "alt_text": "A chart without source values",
+        "parameters": {"series": []},
+    }
+
+    async def planner(_request):
+        return raw
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+    resolved_page = next(
+        item for item in resolved.pages if item.page_id == page_id
+    )
+
+    assert resolved_page.planner == "deterministic_fallback"
+    assert resolved_page.visual_anchor.kind != "chart"
+    assert resolved.deck_brief["ai_visual_pages_fallback"] >= 1
+
+
 @pytest.mark.asyncio
 async def test_ai_visual_plan_discards_rewritten_body_without_losing_visual() -> None:
     course = visual_course()
@@ -1138,6 +1231,101 @@ async def test_long_deck_uses_bounded_visual_planning_batches() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cross_subject_visual_batches_run_with_bounded_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    course = {
+        "course_id": "delivery-workflow-course",
+        "course_name": "Reliable Software Delivery",
+        "nodes": [
+            {
+                "node_id": f"chapter-{index}",
+                "parent_node_id": "root",
+                "node_name": title,
+                "node_level": 1,
+                "content_blocks": [{
+                    "block_id": f"workflow-{index}",
+                    "title": title,
+                    "content": content,
+                    "metadata": {"role": "concept"},
+                }],
+            }
+            for index, (title, content) in enumerate((
+                (
+                    "Validate the change",
+                    "Check the proposed change, record evidence, and stop when validation fails.",
+                ),
+                (
+                    "Package the release",
+                    "Build one immutable artifact, attach its revision, and retain the audit trail.",
+                ),
+                (
+                    "Promote safely",
+                    "Deploy the verified artifact, observe health checks, and keep rollback available.",
+                ),
+            ), start=1)
+        ],
+    }
+    document = document_from_legacy_course(course)
+    fragments = fragment_course_document(document)
+    allocation = deterministic_slide_allocation(
+        document,
+        fragments,
+        mode="teaching",
+        theme="qizhi-classroom",
+    )
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "2")
+    active_calls = 0
+    peak_calls = 0
+    completion_order: list[int] = []
+
+    async def planner(request: dict) -> dict:
+        nonlocal active_calls, peak_calls
+        batch_index = int(request["batch_index"])
+        active_calls += 1
+        peak_calls = max(peak_calls, active_calls)
+        try:
+            await asyncio.sleep(0.04 if batch_index % 2 == 0 else 0.01)
+            page_ids = {page["page_id"] for page in request["pages"]}
+            batch_allocation = allocation.model_copy(update={
+                "pages": [
+                    page for page in allocation.pages
+                    if page.page_id in page_ids
+                ],
+            })
+            return deterministic_visual_plan(
+                document,
+                batch_allocation,
+                fragments,
+            ).model_dump(mode="json")
+        finally:
+            completion_order.append(batch_index)
+            active_calls -= 1
+
+    resolved = await plan_slide_visuals(
+        document,
+        allocation,
+        fragments,
+        ai_planner=planner,
+    )
+
+    assert len(_visual_plan_batches(allocation, 12)) >= 3
+    assert peak_calls == 2
+    assert completion_order != sorted(completion_order)
+    assert [page.page_id for page in resolved.pages] == [
+        page.page_id for page in allocation.pages
+    ]
+    assert resolved.deck_brief["planner"] == "ai"
+    assert resolved.deck_brief["ai_visual_batch_concurrency"] == 2
+    assert resolved.deck_brief["ai_visual_peak_concurrency"] == 2
+    assert resolved.deck_brief["ai_visual_planning_duration_ms"] > 0
+    timings = resolved.deck_brief["ai_visual_batch_timings"]
+    assert [item["batch_index"] for item in timings] == list(range(len(timings)))
+    assert all(item["status"] == "accepted" for item in timings)
+    assert all(item["duration_ms"] >= 0 for item in timings)
+
+
+@pytest.mark.asyncio
 async def test_visual_batch_accepts_pages_only_provider_envelope() -> None:
     course = visual_course()
     document = document_from_legacy_course(course)
@@ -1250,6 +1438,19 @@ def test_visual_planning_batches_never_mix_chapters() -> None:
         len({page.chapter_id for page in batch if page.chapter_id}) <= 1
         for batch in batches
     )
+
+
+def test_visual_plan_concurrency_matches_shared_provider_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_VISUAL_PLAN_CONCURRENCY", raising=False)
+    assert _visual_plan_concurrency(8) == 2
+
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "999")
+    assert _visual_plan_concurrency(8) == 4
+
+    monkeypatch.setenv("AI_VISUAL_PLAN_CONCURRENCY", "not-a-number")
+    assert _visual_plan_concurrency(8) == 2
 
 
 @pytest.mark.asyncio

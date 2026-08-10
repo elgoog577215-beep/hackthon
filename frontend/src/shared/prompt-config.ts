@@ -52,15 +52,15 @@ export interface InquiryCourseIntent {
   core_question: string;
   existing_understanding?: string;
   evidence_scope?: string;
-  desired_output?: string;
+  desired_output: string;
 }
 
 export interface ExamCourseIntent {
   schema_version: 'course_intent_v1';
   type: 'exam';
   exam_name: string;
-  exam_date?: string;
-  exam_scope?: string;
+  exam_date: string;
+  exam_scope: string;
   current_preparation?: string;
 }
 
@@ -306,6 +306,7 @@ export interface GenerateCourseParams {
   secondary_mode?: PedagogyMode;
   secondary_intensity?: SecondaryIntensity;
   generation_mode?: 'review_blueprint';
+  assessment_generation_profile?: 'fast' | 'deliberate';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   course_type?: CourseType;
   course_intent?: CourseIntent;
@@ -314,8 +315,15 @@ export interface GenerateCourseParams {
     mode?: 'auto_on_gap' | 'off' | 'always';
     enabled?: boolean;
   };
+  /** 联网研究授权；检索开关与策略由团队检索网关拥有。 */
   retrieval?: {
     enabled: boolean;
+  };
+  /** 联网结果落成资料资产时的取舍；不承载检索配置。 */
+  web_material_ingest?: {
+    skip_ingest?: boolean;
+    excluded_source_ids?: string[];
+    excluded_urls?: string[];
   };
 }
 
@@ -411,6 +419,31 @@ export function validateGenerateCourseParams(
       ];
       for (const field of requiredProjectFields) {
         if (!project[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+    }
+  }
+
+  if (params.course_type === 'inquiry') {
+    const inquiry = params.course_intent?.type === 'inquiry' ? params.course_intent : null;
+    if (!inquiry) {
+      errors.push('an inquiry course_intent is required when course_type is inquiry');
+    } else {
+      for (const field of ['core_question', 'desired_output'] as const) {
+        if (!inquiry[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+    }
+  }
+
+  if (params.course_type === 'exam') {
+    const exam = params.course_intent?.type === 'exam' ? params.course_intent : null;
+    if (!exam) {
+      errors.push('an exam course_intent is required when course_type is exam');
+    } else {
+      for (const field of ['exam_name', 'exam_date', 'exam_scope'] as const) {
+        if (!exam[field]?.trim()) errors.push(`course_intent.${field} is required`);
+      }
+      if (exam.exam_date && !/^\d{4}-\d{2}-\d{2}$/.test(exam.exam_date)) {
+        errors.push('course_intent.exam_date must use YYYY-MM-DD format');
       }
     }
   }

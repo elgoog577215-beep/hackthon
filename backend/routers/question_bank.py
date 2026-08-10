@@ -6,6 +6,7 @@ import asyncio
 import atexit
 from concurrent.futures import Future
 from copy import deepcopy
+import inspect
 import logging
 import os
 from threading import Event, Thread
@@ -16,6 +17,9 @@ from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 
 from assessment_orchestrator import AssessmentGenerationOrchestrator
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+)
 from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
@@ -76,6 +80,10 @@ class QuestionBankRebuildRequest(BaseModel):
     mode: Literal["incremental", "full"] = "incremental"
     resume_existing: bool = True
     retrieval_enabled: bool = False
+    assessment_generation_profile: Literal[
+        "fast",
+        "deliberate",
+    ] = "deliberate"
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -486,6 +494,58 @@ def _generation_summary(
             ),
         },
         "generation_calls": audit.get("generation_calls", 0),
+        "assessment_generation_profile": audit.get(
+            "assessment_generation_profile",
+            "deliberate",
+        ),
+        "assessment_generation_policy_version": audit.get(
+            "assessment_generation_policy_version",
+            ASSESSMENT_GENERATION_POLICY_VERSION,
+        ),
+        "logical_call_count": audit.get("logical_call_count", 0),
+        "wall_clock_ms": audit.get("wall_clock_ms", 0),
+        "physical_model_call_count": audit.get(
+            "physical_model_call_count",
+            0,
+        ),
+        "provider_attempt_count": audit.get(
+            "provider_attempt_count",
+            0,
+        ),
+        "estimated_input_tokens": audit.get(
+            "estimated_input_tokens",
+            0,
+        ),
+        "estimated_output_tokens": audit.get(
+            "estimated_output_tokens",
+            0,
+        ),
+        "provider_queue_wait_ms": audit.get(
+            "provider_queue_wait_ms",
+            0,
+        ),
+        "model_ids": deepcopy(audit.get("model_ids") or []),
+        "batch_sizes": deepcopy(audit.get("batch_sizes") or []),
+        "thinking_requested_call_count": audit.get(
+            "thinking_requested_call_count",
+            0,
+        ),
+        "thinking_requested_duration_ms": audit.get(
+            "thinking_requested_duration_ms",
+            0,
+        ),
+        "non_thinking_duration_ms": audit.get(
+            "non_thinking_duration_ms",
+            0,
+        ),
+        "first_pass_pass_rate": audit.get(
+            "first_pass_pass_rate",
+            0,
+        ),
+        "review_required_rate": audit.get(
+            "review_required_rate",
+            0,
+        ),
         "repair_calls": audit.get("repair_calls", 0),
         "failure_count": audit.get("failure_count", 0),
         "diversity_rejection_count": audit.get(
@@ -580,6 +640,49 @@ async def rebuild_question_bank(
                     "code": "question_bank_rebuild_item_nodes_missing",
                 },
             )
+    checkpoint = course.get("question_bank_chapter_rebuild") or {}
+    if (
+        payload.scope == "course"
+        and payload.resume_existing
+        and str(checkpoint.get("status") or "") in {"running", "failed"}
+        and str(
+            checkpoint.get("assessment_generation_profile")
+            or "deliberate"
+        ) != payload.assessment_generation_profile
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "assessment_generation_profile_mismatch",
+                "checkpoint_profile": str(
+                    checkpoint.get("assessment_generation_profile")
+                    or "deliberate"
+                ),
+            },
+        )
+    active = question_bank_rebuild_job_repository.active_for_course(
+        course_id
+    )
+    if active and not _same_rebuild_request(
+        active,
+        payload=payload,
+        actor_id=actor_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "question_bank_rebuild_conflict",
+                "active_job_id": active.get("job_id"),
+                "active_profile": active.get(
+                    "assessment_generation_profile",
+                    "deliberate",
+                ),
+                "status_url": (
+                    f"/api/courses/{course_id}/question-bank/"
+                    f"rebuilds/{active.get('job_id')}"
+                ),
+            },
+        )
     job, created = (
         question_bank_rebuild_job_repository.create_job(
             course_id,
@@ -597,6 +700,9 @@ async def rebuild_question_bank(
                 )
             ),
             retrieval_enabled=payload.retrieval_enabled,
+            assessment_generation_profile=(
+                payload.assessment_generation_profile
+            ),
         )
     )
     if created:
@@ -609,6 +715,29 @@ async def rebuild_question_bank(
     return _job_response(
         job,
         deduplicated=not created,
+    )
+
+
+def _same_rebuild_request(
+    job: dict[str, Any],
+    *,
+    payload: QuestionBankRebuildRequest,
+    actor_id: str,
+) -> bool:
+    return bool(
+        str(job.get("scope") or "") == payload.scope
+        and sorted(str(value) for value in job.get("node_ids") or [])
+        == payload.node_ids
+        and sorted(
+            str(value) for value in job.get("revision_ids") or []
+        ) == payload.revision_ids
+        and str(job.get("mode") or "") == payload.mode
+        and str(job.get("actor_id") or "") == actor_id
+        and bool(job.get("retrieval_enabled"))
+        is bool(payload.retrieval_enabled)
+        and str(
+            job.get("assessment_generation_profile") or "deliberate"
+        ) == payload.assessment_generation_profile
     )
 
 
@@ -954,6 +1083,10 @@ async def _execute_question_bank_rebuild(
         and checkpoint.get("status") in {"running", "failed"}
         and checkpoint.get("blueprint_revision_id")
         == assessment_blueprint.get("blueprint_revision_id")
+        and str(
+            checkpoint.get("assessment_generation_profile")
+            or "deliberate"
+        ) == payload.assessment_generation_profile
     )
     checkpoint_node_ids = {
         str(node_id)
@@ -1085,6 +1218,12 @@ async def _execute_question_bank_rebuild(
         chapter_course["_assessment_generation_audit"] = {
             "schema_version": "question_generation_audit_v2",
             "course_id": course_id,
+            "assessment_generation_profile": (
+                payload.assessment_generation_profile
+            ),
+            "assessment_generation_policy_version": (
+                ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "planned_item_count": 3,
             "failure_count": 0,
             "items": deepcopy(event.get("audit_items") or []),
@@ -1135,9 +1274,19 @@ async def _execute_question_bank_rebuild(
             ]
             if isinstance(item, dict)
         }
+        event_audit_snapshot = deepcopy(
+            event.get("audit_snapshot") or {}
+        )
         merged_bundle["generation_audit"] = {
             "schema_version": "question_generation_audit_v2",
+            **event_audit_snapshot,
             "campaign_id": campaign_id,
+            "assessment_generation_profile": (
+                payload.assessment_generation_profile
+            ),
+            "assessment_generation_policy_version": (
+                ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "planned_item_count": total_chapters * 3,
             "published_item_count": len(audit_by_slot),
             "failure_count": 0,
@@ -1187,6 +1336,12 @@ async def _execute_question_bank_rebuild(
                 ),
                 "campaign_id": campaign_id,
                 "job_id": job_id,
+                "assessment_generation_profile": (
+                    payload.assessment_generation_profile
+                ),
+                "assessment_generation_policy_version": (
+                    ASSESSMENT_GENERATION_POLICY_VERSION
+                ),
                 "blueprint_revision_id": (
                     assessment_blueprint.get(
                         "blueprint_revision_id"
@@ -1269,18 +1424,23 @@ async def _execute_question_bank_rebuild(
             },
         )
 
-    course_for_bank = (
-        await assessment_generation_orchestrator.prepare_course(
-            course_for_bank,
-            node_ids=target_node_ids,
-            on_progress=report_generation_progress,
-            on_chapter_complete=(
-                publish_completed_chapter
-                if chapter_publication_enabled
-                else None
-            ),
-            reference_package=reference_package,
-        )
+    course_for_bank = await _prepare_course_compat(
+        assessment_generation_orchestrator,
+        course_for_bank,
+        node_ids=target_node_ids,
+        on_progress=report_generation_progress,
+        on_chapter_complete=(
+            publish_completed_chapter
+            if chapter_publication_enabled
+            else None
+        ),
+        reference_package=reference_package,
+        generation_profile=payload.assessment_generation_profile,
+        generation_scope=(
+            "full_generation"
+            if payload.scope == "course"
+            else "scoped_repair"
+        ),
     )
     if chapter_publication_enabled:
         if failed_chapters:
@@ -1541,6 +1701,35 @@ def _require_complete_generation(
             f"discarded={discarded},"
             f"details={failures[:5]}"
         )
+
+
+async def _prepare_course_compat(
+    orchestrator: Any,
+    course: dict[str, Any],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Keep injectable legacy orchestrators working during policy rollout."""
+
+    method = orchestrator.prepare_course
+    parameters = inspect.signature(method).parameters.values()
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+    supported_names = {
+        parameter.name
+        for parameter in parameters
+    }
+    supported_kwargs = (
+        kwargs
+        if accepts_kwargs
+        else {
+            key: value
+            for key, value in kwargs.items()
+            if key in supported_names
+        }
+    )
+    return await method(course, **supported_kwargs)
 
 
 def _rebuild_response(

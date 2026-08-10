@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import os
 import re
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -27,20 +30,25 @@ from slide_layout_registry import (
     select_layout_v2,
 )
 from slide_semantics import (
+    PresentationGrammarV1,
     compile_ppt_semantic_units,
+    compile_subject_presentation_contract_v1,
     semantic_unit_index,
 )
 
 SLIDE_STORY_PLAN_V2_SCHEMA = "slide_story_plan_v2"
 V5_SEMANTIC_CORE_REASONS = frozenset({
     "v5_semantic_grouping",
+    "v5_subject_artifact_excerpt",
     "ai_source_bound_directive",
 })
 SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA = (
     "slide_story_chapter_directives_v2"
 )
-SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.5"
+SLIDE_STORY_ENGINE_V2_VERSION = "course_logic_story_engine_v2.6"
 STORY_BEAT_TEXT_CAPACITY = 230
+DEFAULT_STORY_AI_MAX_BEATS_PER_REQUEST = 24
+DEFAULT_STORY_AI_MAX_REQUEST_CHARACTERS = 64000
 
 ClaimSourceKind = Literal[
     "learning_objective",
@@ -139,6 +147,9 @@ class StoryBeatV2(_StrictModel):
         default_factory=list,
         max_length=4,
     )
+    presentation_intent: str = ""
+    presentation_grammar: PresentationGrammarV1 | None = None
+    subject_artifact_kinds: list[str] = Field(default_factory=list)
 
 
 class StoryBeatDirectiveV2(_StrictModel):
@@ -377,11 +388,14 @@ def resolve_slide_deck_schema(
     *,
     story_engine_enabled: bool,
     v5_enabled: bool = True,
-) -> Literal["slide_deck_v3", "slide_deck_v4", "slide_deck_v5"]:
-    """Select the requested engine without silently degrading an enabled V5 build."""
+    v6_enabled: bool = False,
+) -> Literal["slide_deck_v3", "slide_deck_v4", "slide_deck_v5", "slide_deck_v6"]:
+    """Select the requested engine without silently degrading an enabled build."""
     if not story_engine_enabled:
         return "slide_deck_v3"
     _course_logic_inputs(course_data)
+    if v6_enabled:
+        return "slide_deck_v6"
     return "slide_deck_v5" if v5_enabled else "slide_deck_v4"
 
 
@@ -799,8 +813,13 @@ def compile_slide_story_plan_v2(
     fragments_by_block: dict[str, list[ContentFragmentV1]] = defaultdict(list)
     for fragment in sorted(fragments, key=lambda item: item.ordinal):
         fragments_by_block[fragment.block_id].append(fragment)
-    semantic_by_fragment = semantic_unit_index(
-        compile_ppt_semantic_units(document, fragments)
+    semantic_units = compile_ppt_semantic_units(document, fragments)
+    semantic_by_fragment = semantic_unit_index(semantic_units)
+    subject_contract = compile_subject_presentation_contract_v1(
+        document,
+        course_data,
+        semantic_units,
+        fragments,
     )
     plan_by_section = {
         str(section.get("node_id") or ""): section
@@ -1011,6 +1030,11 @@ def compile_slide_story_plan_v2(
         communication_brief=brief,
         source_revisions=revisions,
         chapters=stories,
+        planning_diagnostics={
+            "subject_presentation_contract": subject_contract.model_dump(
+                mode="json"
+            ),
+        },
     )
 
 
@@ -1573,6 +1597,178 @@ def _normalize_chapter_directives_v2(
     return normalized
 
 
+def _story_ai_limit(name: str, default: int) -> int:
+    try:
+        configured = int(str(os.getenv(name, default)).strip())
+    except (TypeError, ValueError):
+        return default
+    return max(1, configured)
+
+
+def _story_planning_request_for_beats_v2(
+    request: dict[str, Any],
+    beats: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return one source-bounded beat batch without unrelated chapter payload."""
+    batched = deepcopy(request)
+    batched["beat_catalog"] = deepcopy(beats)
+    all_fragments = {
+        str(item.get("fragment_id") or ""): item
+        for item in request.get("fragments") or []
+        if str(item.get("fragment_id") or "")
+    }
+    referenced_fragment_ids: set[str] = set()
+
+    def collect_known_fragment_ids(value: Any) -> None:
+        if isinstance(value, dict):
+            for child in value.values():
+                collect_known_fragment_ids(child)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for child in value:
+                collect_known_fragment_ids(child)
+            return
+        candidate = str(value or "").strip()
+        if candidate in all_fragments:
+            referenced_fragment_ids.add(candidate)
+
+    collect_known_fragment_ids(beats)
+    batched["fragments"] = [
+        deepcopy(item)
+        for fragment_id, item in all_fragments.items()
+        if fragment_id in referenced_fragment_ids
+    ]
+
+    section_ids = {
+        str(item.get("section_id") or "")
+        for item in batched["fragments"]
+        if str(item.get("section_id") or "")
+    }
+    chapter_id = str((request.get("scope") or {}).get("chapter_id") or "")
+    if chapter_id:
+        section_ids.add(chapter_id)
+    projection = deepcopy(request.get("course_teaching_plan_projection") or {})
+    projection["sections"] = [
+        deepcopy(item)
+        for item in projection.get("sections") or []
+        if str(item.get("node_id") or "") in section_ids
+    ]
+    batched["course_teaching_plan_projection"] = projection
+
+    selected_beat_ids = {
+        str(item.get("beat_id") or "")
+        for item in beats
+        if str(item.get("beat_id") or "")
+    }
+    chapter_contract = deepcopy(request.get("chapter_contract") or {})
+    chapter_contract["episode_order"] = [
+        {
+            **deepcopy(item),
+            "beat_ids": [
+                beat_id
+                for beat_id in item.get("beat_ids") or []
+                if beat_id in selected_beat_ids
+            ],
+        }
+        for item in chapter_contract.get("episode_order") or []
+        if any(
+            beat_id in selected_beat_ids
+            for beat_id in item.get("beat_ids") or []
+        )
+    ]
+    batched["chapter_contract"] = chapter_contract
+
+    allowed_layout_ids = {
+        str(layout.get("layout_id") or "")
+        for beat in beats
+        for layout in beat.get("allowed_layouts") or []
+        if str(layout.get("layout_id") or "")
+    } | {
+        str(beat.get("current_layout_id") or "")
+        for beat in beats
+        if str(beat.get("current_layout_id") or "")
+    }
+    batched["layout_registry"] = [
+        deepcopy(item)
+        for item in request.get("layout_registry") or []
+        if str(item.get("layout_id") or "") in allowed_layout_ids
+    ]
+
+    subject_contract = deepcopy(
+        request.get("subject_presentation_contract") or {}
+    )
+    characteristic_ids = subject_contract.get("characteristic_fragment_ids")
+    if isinstance(characteristic_ids, dict):
+        subject_contract["characteristic_fragment_ids"] = {
+            key: [
+                fragment_id
+                for fragment_id in values or []
+                if fragment_id in referenced_fragment_ids
+            ]
+            for key, values in characteristic_ids.items()
+        }
+    batched["subject_presentation_contract"] = subject_contract
+    return batched
+
+
+def _story_planning_request_batches_v2(
+    request: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Bound provider input/output while preserving exact source ownership."""
+    beats = list(request.get("beat_catalog") or [])
+    if not beats:
+        return [request]
+    max_beats = _story_ai_limit(
+        "SLIDE_STORY_AI_MAX_BEATS_PER_REQUEST",
+        DEFAULT_STORY_AI_MAX_BEATS_PER_REQUEST,
+    )
+    max_characters = _story_ai_limit(
+        "SLIDE_STORY_AI_MAX_REQUEST_CHARACTERS",
+        DEFAULT_STORY_AI_MAX_REQUEST_CHARACTERS,
+    )
+    serialized = json.dumps(
+        request,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+    if len(beats) <= max_beats and len(serialized) <= max_characters:
+        return [request]
+
+    initial_groups = [
+        beats[index:index + max_beats]
+        for index in range(0, len(beats), max_beats)
+    ]
+    batches: list[dict[str, Any]] = []
+
+    def append_bounded(group: list[dict[str, Any]]) -> None:
+        candidate = _story_planning_request_for_beats_v2(request, group)
+        candidate_size = len(json.dumps(
+            candidate,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        ))
+        if candidate_size <= max_characters or len(group) == 1:
+            batches.append(candidate)
+            return
+        midpoint = max(1, len(group) // 2)
+        append_bounded(group[:midpoint])
+        append_bounded(group[midpoint:])
+
+    for group in initial_groups:
+        append_bounded(group)
+
+    batch_count = len(batches)
+    for batch_index, batch in enumerate(batches):
+        batch["scope"] = {
+            **deepcopy(batch.get("scope") or {}),
+            "beat_batch_index": batch_index,
+            "beat_batch_count": batch_count,
+        }
+    return batches
+
+
 async def plan_slide_story_v2(
     document: CourseDocument,
     course_data: dict[str, Any],
@@ -1597,6 +1793,7 @@ async def plan_slide_story_v2(
     )
     if fallback.mode != mode or fallback.theme != theme:
         raise ValueError("Story planning baseline does not match the requested variant")
+    baseline_diagnostics = deepcopy(fallback.planning_diagnostics or {})
     if ai_planner is None:
         fallback.fallback_reason = "no_ai_story_planner"
         return fallback
@@ -1760,6 +1957,12 @@ async def plan_slide_story_v2(
                 "source_revisions": fallback.source_revisions.model_dump(
                     mode="json",
                 ),
+                "subject_presentation_contract": deepcopy(
+                    (fallback.planning_diagnostics or {}).get(
+                        "subject_presentation_contract"
+                    )
+                    or {}
+                ),
                 "allowed_scene_kinds": list(_SCENE_ORDER),
                 "layout_registry": registry_summary_v2(),
                 "beat_catalog": beat_catalog,
@@ -1851,14 +2054,33 @@ async def plan_slide_story_v2(
                 )
                 return chapter_candidate.chapters[0]
 
-            try:
+            def validate_directives(
+                raw: dict[str, Any],
+            ) -> dict[str, Any]:
+                normalized = _normalize_chapter_directives_v2(raw)
+                if normalized is None:
+                    raise ValueError(
+                        "AI story batch returned no chapter directives"
+                    )
+                _apply_chapter_directives_v2(
+                    chapter=chapter,
+                    raw=normalized,
+                    fragment_catalog=fragment_catalog,
+                    semantic_by_fragment=semantic_by_fragment,
+                )
+                return normalized
+
+            async def invoke_with_validation_retry(
+                planner_request: dict[str, Any],
+                validator: Callable[[dict[str, Any]], Any],
+            ) -> Any:
                 async with semaphore:
-                    raw = await invoke_planner(request)
+                    raw = await invoke_planner(planner_request)
                 try:
-                    planned = validate_response(raw)
+                    return validator(raw)
                 except ValueError as validation_error:
                     retry_request = {
-                        **request,
+                        **planner_request,
                         "validation_retry": {
                             "attempt": 1,
                             "errors": [{
@@ -1873,7 +2095,45 @@ async def plan_slide_story_v2(
                     }
                     async with semaphore:
                         retry_raw = await invoke_planner(retry_request)
-                    planned = validate_response(retry_raw)
+                    return validator(retry_raw)
+
+            try:
+                planner_requests = _story_planning_request_batches_v2(request)
+                if len(planner_requests) == 1:
+                    planned = await invoke_with_validation_retry(
+                        planner_requests[0],
+                        validate_response,
+                    )
+                else:
+                    batch_directives = await asyncio.gather(*(
+                        invoke_with_validation_retry(
+                            planner_request,
+                            validate_directives,
+                        )
+                        for planner_request in planner_requests
+                    ))
+                    merged_directives = {
+                        "schema_version": (
+                            SLIDE_STORY_CHAPTER_DIRECTIVES_V2_SCHEMA
+                        ),
+                        "chapter_id": chapter.chapter_id,
+                        "beat_directives": [
+                            directive
+                            for batch in batch_directives
+                            for directive in batch.get("beat_directives") or []
+                        ],
+                        "episode_directives": [
+                            directive
+                            for batch in batch_directives
+                            for directive in batch.get("episode_directives") or []
+                        ],
+                    }
+                    planned = _apply_chapter_directives_v2(
+                        chapter=chapter,
+                        raw=merged_directives,
+                        fragment_catalog=fragment_catalog,
+                        semantic_by_fragment=semantic_by_fragment,
+                    )
                 return planned, None
             except Exception as exc:
                 code = (
@@ -1911,6 +2171,7 @@ async def plan_slide_story_v2(
             if item[1] is not None
         ]
         diagnostics = {
+            **baseline_diagnostics,
             "chapter_count": chapter_count,
             "successful_chapter_count": chapter_count - len(chapter_failures),
             "failed_chapter_count": len(chapter_failures),
@@ -1949,6 +2210,7 @@ async def plan_slide_story_v2(
     except Exception as exc:
         fallback.fallback_reason = "invalid_or_failed_ai_story_plan"
         fallback.planning_diagnostics = {
+            **baseline_diagnostics,
             "chapter_count": len(fallback.chapters),
             "successful_chapter_count": 0,
             "failed_chapter_count": len(fallback.chapters),

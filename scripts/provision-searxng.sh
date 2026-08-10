@@ -142,11 +142,12 @@ smoke_ready=0
 for attempt in $(seq 1 3); do
     if curl --fail --silent --show-error --max-time 12 \
         --request POST \
-        --data 'q=Lingzhi retrieval smoke test' \
+        --data-urlencode 'q=Unity MonoBehaviour GameObject 中文教程' \
         --data 'format=json' \
         --data 'categories=general,science' \
         --data 'safesearch=2' \
-        --data 'language=en' \
+        --data 'language=zh-CN' \
+        --data 'timeout_limit=4' \
         http://127.0.0.1:8080/search \
         | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert payload.get("results")'; then
         smoke_ready=1
@@ -161,12 +162,38 @@ if [ "$smoke_ready" -ne 1 ]; then
     exit 1
 fi
 
+log "执行图片搜索冒烟"
+image_smoke_ready=0
+for attempt in $(seq 1 3); do
+    if curl --fail --silent --show-error --max-time 20 \
+        --request POST \
+        --data-urlencode 'q=human heart anatomy' \
+        --data 'format=json' \
+        --data 'categories=images' \
+        --data 'engines=public domain image archive,bing images,baidu images,quark images,sogou images' \
+        --data 'safesearch=2' \
+        --data 'language=all' \
+        --data 'timeout_limit=12' \
+        http://127.0.0.1:8080/search \
+        | python3 -c 'import json, sys; payload=json.load(sys.stdin); assert isinstance(payload.get("results"), list); assert payload.get("results"); assert any(item.get("img_src") for item in payload["results"])'; then
+        image_smoke_ready=1
+        break
+    fi
+    log "图片搜索冒烟第 $attempt 次未通过"
+    sleep 3
+done
+if [ "$image_smoke_ready" -ne 1 ]; then
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=120
+    log "SearXNG 图片搜索冒烟未通过"
+    exit 1
+fi
+
 log "写入应用联网配置并重启服务"
 app_env_backup="$(mktemp "${APP_ENV_FILE}.backup.XXXXXX")"
 cp --preserve=mode,ownership,timestamps "$APP_ENV_FILE" "$app_env_backup"
 upsert_env_value "$APP_ENV_FILE" "WEB_RETRIEVAL_PROVIDER" "searxng"
 upsert_env_value "$APP_ENV_FILE" "SEARXNG_BASE_URL" "http://127.0.0.1:8080"
-upsert_env_value "$APP_ENV_FILE" "SEARXNG_REQUEST_TIMEOUT_SECONDS" "6"
+upsert_env_value "$APP_ENV_FILE" "SEARXNG_REQUEST_TIMEOUT_SECONDS" "12"
 upsert_env_value "$APP_ENV_FILE" "WEB_RETRIEVAL_V2_MODE" "$RETRIEVAL_MODE"
 upsert_env_value "$APP_ENV_FILE" "WEB_RETRIEVAL_V2_USER_IDS" "$RETRIEVAL_USER_IDS"
 app_env_changed=1

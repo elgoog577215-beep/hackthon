@@ -193,6 +193,51 @@ describe('validateGenerateCourseParams', () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  it('问题探究与考试冲刺校验各自的专用规划输入', () => {
+    const inquiry = validateGenerateCourseParams({
+      ...validParams,
+      course_type: 'inquiry',
+      composition_style: 'inquiry_driven',
+      course_intent: {
+        schema_version: 'course_intent_v1',
+        type: 'inquiry',
+        core_question: '生成式 AI 会如何改变大学评价？',
+        desired_output: '带证据边界的判断报告',
+      },
+    })
+    const exam = validateGenerateCourseParams({
+      ...validParams,
+      course_type: 'exam',
+      composition_style: 'example_driven',
+      course_intent: {
+        schema_version: 'course_intent_v1',
+        type: 'exam',
+        exam_name: '大学英语六级考试',
+        exam_date: '2026-12-20',
+        exam_scope: '听力、阅读、翻译与写作',
+      },
+    })
+    const incompleteExam = validateGenerateCourseParams({
+      ...validParams,
+      course_type: 'exam',
+      composition_style: 'example_driven',
+      course_intent: {
+        schema_version: 'course_intent_v1',
+        type: 'exam',
+        exam_name: '大学英语六级考试',
+        exam_date: '',
+        exam_scope: '',
+      },
+    })
+
+    expect(inquiry.valid).toBe(true)
+    expect(exam.valid).toBe(true)
+    expect(incompleteExam.errors).toEqual(expect.arrayContaining([
+      'course_intent.exam_date is required',
+      'course_intent.exam_scope is required',
+    ]))
+  })
+
   it('旧 style 仍可作为历史参数通过兼容校验', () => {
     const result = validateGenerateCourseParams({
       subject: '机器学习',

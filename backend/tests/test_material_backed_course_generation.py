@@ -369,6 +369,7 @@ def _outline_skeleton_v2_response(plan):
                     chapter.get("learning_focus")
                     or f"完成第 {index} 阶段学习任务"
                 ),
+                "planning_stages": chapter.get("planning_stages") or [],
                 "section_count": len(chapter.get("sections") or []),
             }
             for index, chapter in enumerate(
@@ -682,6 +683,13 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         "chapters": [{
             "chapter_number": 1,
             "title": "导数基础",
+            "planning_stages": [
+                "scope_diagnosis",
+                "priority_review",
+                "targeted_practice",
+                "mock_assessment",
+                "final_consolidation",
+            ],
             "learning_focus": "从变化率理解导数",
             "sections": [{
                 "section_number": "1.1",
@@ -739,7 +747,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v25"
+    assert data["prompt_contract_version"] == "course_prompt_v26"
     assert len(calls) == 4
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"
@@ -886,6 +894,8 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
 async def test_outline_provider_failure_is_not_reported_as_structure_error():
     service = CourseService()
     service.api_key = None
+    service.modelscope_fallback_api_key = None
+    service.modelscope_fallback_client = None
 
     with pytest.raises(AIProviderUnavailable, match="not_configured"):
         await service._call_llm_with_heartbeat(

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -444,5 +446,19 @@ describe('Course knowledge library', () => {
 
     expect(wrapper.get('.knowledge-tree-governance-error').text()).toContain('原课程与旧知识结构保持不变')
     expect(wrapper.get('.knowledge-tree-governance-error').text()).not.toContain(internalMessage)
+  })
+})
+
+describe('知识修订确认后的静默刷新（真机验收发现）', () => {
+  it('确认成功触发的刷新不进入整页加载态，也不跳回根节点', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/components/KnowledgeLibrary.vue'), 'utf-8',
+    )
+    // 维护面板挂在详情区里；整页 loading 会把详情区换成 spinner，
+    // 面板连同刚拿到的操作回执和"重建"入口一起被卸载。
+    expect(source).toContain('@applied="loadLibrary({ quiet: true })"')
+    expect(source).toContain('if (!options.quiet) loading.value = true')
+    // 刷新后要停在原来的节点，而不是无条件回根。
+    expect(source).toContain('const previousId = selectedNode.value?.knowledge_id')
   })
 })

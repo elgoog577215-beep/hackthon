@@ -19,6 +19,26 @@
           aria-live="polite"
           aria-atomic="true"
         >{{ liveStatusSummary }}</p>
+        <p
+          v-if="isStalled && !isTerminal"
+          class="formation-heartbeat-alert"
+          role="status"
+        >
+          <Clock3 :size="15" />
+          {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
+        </p>
+        <p
+          v-if="usingFallbackProvider"
+          class="formation-fallback-alert"
+          role="status"
+          data-testid="provider-fallback-notice"
+        >
+          <Route :size="15" />
+          <span>
+            <strong>{{ t('courseGeneration.production.fallbackProvider', '已切换备用模型服务') }}</strong>
+            {{ t('courseGeneration.production.fallbackProviderHelp', '主模型服务暂时不可用，当前内容由备用服务生成；已完成内容不受影响，主服务恢复后会自动切回。') }}
+          </span>
+        </p>
       </header>
 
       <section class="formation-outline" :aria-label="t('courseGeneration.production.navigatorLabel', '课程结构')">
@@ -169,6 +189,17 @@
           <div v-if="savedItems.length" class="formation-recovery__saved">
             <span v-for="item in savedItems" :key="item"><Check :size="11" />{{ item }}</span>
           </div>
+          <div v-if="failedNodes.length" class="formation-recovery__failures">
+            <strong>{{ t('courseGeneration.production.failedSections', '未完成的小节（{count}）').replace('{count}', String(failedNodes.length)) }}</strong>
+            <ul>
+              <li v-for="node in failedNodes" :key="node.node_id">
+                <span>{{ node.node_name || node.node_id }}</span>
+                <small v-if="node.retry_count">{{ t('courseGeneration.production.retriedTimes', '已重试 {count} 次').replace('{count}', String(node.retry_count)) }}</small>
+                <em v-if="nodeFailureReason(node)">{{ nodeFailureReason(node) }}</em>
+              </li>
+            </ul>
+            <p>{{ t('courseGeneration.production.failedSectionsHelp', '其余小节已保存；继续时只重做这些小节。') }}</p>
+          </div>
           <details v-if="technicalError">
             <summary>{{ t('courseGeneration.production.technicalReason', '查看技术原因') }}</summary>
             <code>{{ technicalError }}</code>
@@ -195,8 +226,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  Check, ChevronDown, CircleDashed, CirclePause, Database, GitBranch,
-  GitCompareArrows, LoaderCircle, RotateCw, Sprout, TriangleAlert,
+  Check, ChevronDown, CircleDashed, CirclePause, Clock3, Database, GitBranch,
+  GitCompareArrows, LoaderCircle, RotateCw, Route, Sprout, TriangleAlert,
 } from 'lucide-vue-next'
 import type { Node, Task } from '../stores/types'
 import { t } from '../shared/i18n'
@@ -206,9 +237,11 @@ import {
   courseProductionRecoveryDetail,
   courseProductionStageIndex,
   courseProductionStageKey,
+  courseProductionStageLabel,
   courseProductionStageStatus,
   type CourseProductionStageKey,
 } from '../utils/course-production'
+import { taskHeartbeatState, taskUserError } from '../utils/task-observability'
 
 const props = withDefaults(defineProps<{
   task?: Task
@@ -249,7 +282,7 @@ type GrowthChapter = {
 }
 
 const expandedChapterIds = ref<Set<string>>(new Set())
-const isProjectCourse = computed(() => props.task?.courseType === 'project')
+const courseType = computed(() => props.task?.courseType || 'systematic')
 const stageIndex = computed(() => courseProductionStageIndex(props.task))
 const stageKey = computed(() => courseProductionStageKey(props.task))
 const stageStatus = computed(() => courseProductionStageStatus(props.task, stageIndex.value))
@@ -396,23 +429,12 @@ function growthSectionStateLabel(state: GrowthSectionStatus) {
   return t('courseGeneration.workspace.waiting', '等待生成')
 }
 
-const stageLabels = computed<Record<CourseProductionStageKey, string>>(() => ({
-  requirements: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectRequirements', '项目需求')
-    : t('courseGeneration.lifecycle.requirements', '需求'),
-  outline: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectOutline', '个人路径')
-    : t('courseGeneration.lifecycle.outline', '目录'),
-  teaching: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectTeaching', '能力与知识')
-    : t('courseGeneration.lifecycle.teaching', '教案与知识库'),
-  content: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectContent', '项目课程')
-    : t('courseGeneration.lifecycle.content', '正文生成'),
-  release: isProjectCourse.value
-    ? t('courseGeneration.lifecycle.projectRelease', '确认课程')
-    : t('courseGeneration.lifecycle.release', '确认发布'),
-}))
+const stageLabels = computed<Record<CourseProductionStageKey, string>>(() => Object.fromEntries(
+  ['requirements', 'outline', 'teaching', 'content', 'release'].map(stage => [
+    stage,
+    courseProductionStageLabel(props.task, stage as CourseProductionStageKey),
+  ]),
+) as Record<CourseProductionStageKey, string>)
 const statusLabels = computed(() => ({
   active: t('courseGeneration.lifecycle.inProgress', '进行中'),
   review: t('courseGeneration.lifecycle.needsConfirmation', '待确认'),
@@ -472,43 +494,67 @@ const savedItems = computed(() => {
 const savedSummary = computed(() => savedItems.value.length
   ? t('courseGeneration.production.savedInline', '已保存：{items}').replace('{items}', savedItems.value.join(' · '))
   : '')
-const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => isProjectCourse.value
-  ? {
+const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => {
+  if (courseType.value === 'project') return {
       requirements: t('courseGeneration.production.projectRequirementsNext', '项目需求确定后立即形成第一版个人路径，后续学习证据仍可继续校准它。'),
       outline: t('courseGeneration.production.projectOutlineNext', '确认个人路径后，系统会为每个项目节点生成能力与知识安排。'),
       teaching: t('courseGeneration.production.projectTeachingNext', '确认能力与知识安排后，课程会沿项目依赖逐节生成。'),
       content: t('courseGeneration.production.projectContentNext', '所有项目课程内容完成后，系统检查它们能否共同支撑最终交付物。'),
       release: t('courseGeneration.production.projectReleaseNext', '确认后，当前页面会原地切换为你的项目学习现场。'),
     }
-  : {
+  if (courseType.value === 'inquiry') return {
+    requirements: t('courseGeneration.production.inquiryRequirementsNext', '问题与结论形态确定后，系统会先形成问题树和证据路径。'),
+    outline: t('courseGeneration.production.inquiryOutlineNext', '确认问题路径后，系统会为每个阶段生成证据方法、反例检验与判断标准。'),
+    teaching: t('courseGeneration.production.inquiryTeachingNext', '确认证据与方法后，课程会沿问题依赖逐节生成。'),
+    content: t('courseGeneration.production.inquiryContentNext', '所有探究内容完成后，系统检查证据、反例与结论边界是否闭合。'),
+    release: t('courseGeneration.production.inquiryReleaseNext', '确认后，当前页面会原地切换为问题探究学习现场。'),
+  }
+  if (courseType.value === 'exam') return {
+    requirements: t('courseGeneration.production.examRequirementsNext', '考试日期与范围确定后，系统会形成按时间和薄弱点排序的冲刺计划。'),
+    outline: t('courseGeneration.production.examOutlineNext', '确认冲刺计划后，系统会为每个阶段生成考点、专项练习和检查标准。'),
+    teaching: t('courseGeneration.production.examTeachingNext', '确认考点与练习后，课程会按复习优先级逐节生成。'),
+    content: t('courseGeneration.production.examContentNext', '所有冲刺内容完成后，系统检查考纲覆盖、模拟验证和考前巩固是否完整。'),
+    release: t('courseGeneration.production.examReleaseNext', '确认后，当前页面会原地切换为考试冲刺学习现场。'),
+  }
+  return {
       requirements: t('courseGeneration.production.requirementsNext', '需求确认后立即生成课程目录；不会再增加额外确认门。'),
       outline: t('courseGeneration.production.outlineNext', '目录确认后，系统生成全课教案与知识库；教案等待你确认后才开始正文。'),
       teaching: t('courseGeneration.production.teachingNext', '确认全课教案后，正文会按依赖波次并行生成，并把已完成内容立即显示出来。'),
       content: t('courseGeneration.production.contentNext', '所有小节完成后进入确定性发布检查，不追加 AI 返工循环。'),
       release: t('courseGeneration.production.releaseNext', '确认发布后，当前页面会原地切换为正式学习现场。'),
-    })
+    }
+})
 const footerHint = computed(() => nextDetails.value[stageKey.value])
 const recoveryDetail = computed(() => courseProductionRecoveryDetail(props.task))
-const technicalError = computed(() => String(props.task?.error || '').trim())
+const userError = computed(() => taskUserError({
+  error: props.task?.error,
+  errorCode: props.task?.errorCode,
+  errorUserMessage: props.task?.errorUserMessage,
+}))
+const heartbeat = computed(() => props.task
+  ? taskHeartbeatState(props.task)
+  : { state: 'unknown' as const, ageSeconds: null })
+const isStalled = computed(() => heartbeat.value.state === 'stalled')
+// Process-wide: one provider serves every job, so this is not per-course state.
+const usingFallbackProvider = computed(() => props.task?.providerRoute?.route === 'fallback')
+const failedNodes = computed(() => props.task?.failedNodes || [])
+
+// Each failed section explains itself: one section can hit a rate limit while
+// another exceeds the input budget, and those need different next actions.
+function nodeFailureReason(node: { error_code?: string; error?: string }): string {
+  if (!node.error_code) return ''
+  return taskUserError({ errorCode: node.error_code, error: node.error }).message
+}
+const technicalError = computed(() => userError.value.technicalDetail)
 const terminalTitle = computed(() => {
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedTitle', '课程生产已暂停')
   if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedTitle', '课程生产需要处理冲突')
   return t('courseGeneration.production.interruptedTitle', '课程生产暂时中断')
 })
 const friendlyError = computed(() => {
-  const error = technicalError.value.toLowerCase()
-  if (/authentication|credential|api[_ -]?key/.test(error)) {
-    return t('courseGeneration.production.authError', 'AI 服务暂时无法完成身份校验。')
-  }
-  if (/timeout|timed out/.test(error)) {
-    return t('courseGeneration.production.timeoutError', 'AI 服务响应超时，本阶段尚未完成。')
-  }
-  if (/unavailable|connection|network/.test(error)) {
-    return t('courseGeneration.production.unavailableError', 'AI 服务暂时不可用，本阶段尚未完成。')
-  }
   if (stageStatus.value === 'paused') return t('courseGeneration.production.pausedDescription', '当前模型调用已经停止。')
   if (stageStatus.value === 'blocked') return t('courseGeneration.production.blockedDescription', '当前产物与课程真源存在冲突。')
-  return t('courseGeneration.production.genericError', '本阶段尚未完成。')
+  return userError.value.message || t('courseGeneration.production.genericError', '本阶段尚未完成。')
 })
 const resumeLabel = computed(() => props.task?.status === 'paused'
   ? t('courseGeneration.production.continueAction', '继续课程生产')
@@ -563,6 +609,33 @@ const resumeLabel = computed(() => props.task?.status === 'paused'
   font-size:13px;
   line-height:1.6;
 }
+.formation-sheet__header p.formation-heartbeat-alert {
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  margin:10px 0 0;
+  padding:10px 12px;
+  border-radius:8px;
+  color:#9a4d13;
+  background:#fff8ed;
+  font-size:11px;
+  line-height:1.5;
+}
+.formation-heartbeat-alert svg { flex:0 0 auto; margin-top:1px; }
+.formation-sheet__header p.formation-fallback-alert {
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  margin:10px 0 0;
+  padding:10px 12px;
+  border-radius:8px;
+  color:#4f55b5;
+  background:#f1f2fb;
+  font-size:11px;
+  line-height:1.5;
+}
+.formation-fallback-alert svg { flex:0 0 auto; margin-top:1px; }
+.formation-fallback-alert strong { margin-right:5px; font-weight:800; }
 .formation-outline { padding:0 26px; }
 .formation-outline > header {
   display:flex;
@@ -1085,6 +1158,32 @@ li[data-state="failed"] .formation-outline__status { color:#b54708; }
   font-size:11px;
   font-weight:750;
 }
+.formation-recovery__failures {
+  margin-top:9px;
+  padding:9px 11px;
+  border-radius:9px;
+  background:rgba(255,255,255,.66);
+}
+.formation-recovery__failures strong { color:#8a4b12; font-size:11px; font-weight:800; }
+.formation-recovery__failures ul { margin:5px 0 0; padding:0; list-style:none; display:grid; gap:3px; }
+.formation-recovery__failures li {
+  display:flex;
+  align-items:baseline;
+  flex-wrap:wrap;
+  gap:6px;
+  color:#75431c;
+  font-size:11px;
+  line-height:1.5;
+}
+.formation-recovery__failures li small { color:#a07a55; font-size:10px; }
+.formation-recovery__failures li em {
+  flex:1 1 100%;
+  color:#8a6b4f;
+  font-size:10px;
+  font-style:normal;
+  line-height:1.5;
+}
+.formation-recovery__failures p { margin:6px 0 0; color:#8a6b4f; font-size:10px; line-height:1.5; }
 .formation-recovery details { margin-top:8px; color:#8a6b4f; font-size:11px; }
 .formation-recovery summary { width:max-content; cursor:pointer; }
 .formation-recovery code {

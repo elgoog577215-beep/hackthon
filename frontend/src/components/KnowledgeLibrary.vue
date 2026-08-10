@@ -113,7 +113,7 @@
               <AlertCircle :size="24" />
               <strong>{{ t('knowledgeLibrary.loadFailed', '知识库暂时无法读取') }}</strong>
               <span>{{ loadError }}</span>
-              <button type="button" @click="loadLibrary">
+              <button type="button" @click="loadLibrary()">
                 <RefreshCw :size="15" />
                 {{ t('knowledgeLibrary.retry', '重新载入') }}
               </button>
@@ -369,6 +369,13 @@
                     </div>
                   </section>
 
+                  <KnowledgeCommandPanel
+                    v-if="selectedNode.node_type === 'knowledge_point' && courseStore.currentCourseId"
+                    :course-id="courseStore.currentCourseId"
+                    :point="commandPanelPoint"
+                    @applied="loadLibrary({ quiet: true })"
+                  />
+
                   <footer class="knowledge-tree-detail-footer">
                     <div>
                       <span>{{ sourceLabel(selectedNode.source_status) }}</span>
@@ -423,6 +430,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
+import KnowledgeCommandPanel from './KnowledgeCommandPanel.vue'
 import KnowledgeRelationGraph from './KnowledgeRelationGraph.vue'
 import { t } from '../shared/i18n'
 import http from '../utils/http'
@@ -667,6 +675,14 @@ const relatedKnowledge = computed(() => {
   return entries
 })
 
+// The command panel only ever targets an atomic knowledge point; concept
+// groups and sections are structure, not something a knowledge command edits.
+const commandPanelPoint = computed(() => {
+  const node = selectedNode.value
+  if (!node || node.node_type !== 'knowledge_point') return null
+  return { knowledge_id: node.knowledge_id, name: node.name, statement: node.statement }
+})
+
 const jumpTarget = computed(() => {
   if (!selectedNode.value) return ''
   if (selectedNode.value.section_ids.length) return selectedNode.value.section_ids[0]
@@ -726,10 +742,12 @@ function selectFirstMatch(): void {
   if (match) selectNode(match.node, match.hasChildren)
 }
 
-async function loadLibrary(): Promise<void> {
+async function loadLibrary(options: { quiet?: boolean } = {}): Promise<void> {
   const courseId = courseStore.currentCourseId
   if (!courseId) return
-  loading.value = true
+  // 静默刷新：知识修订确认后要拉取新数据，但不能翻成整页加载态——那会把
+  // 详情区连同维护面板一起卸载，教师刚拿到的操作回执和"重建"入口随之消失。
+  if (!options.quiet) loading.value = true
   loadError.value = ''
   try {
     const response = await http.get(`/api/courses/${courseId}/learning-assets`)
@@ -747,7 +765,15 @@ async function loadLibrary(): Promise<void> {
         .filter((node: KnowledgeNode) => ['course', 'chapter', 'section', 'concept_group'].includes(node.node_type) && node.covered_by_course)
         .map((node: KnowledgeNode) => node.knowledge_id),
     )
-    selectedNode.value = view.nodes.find((node: KnowledgeNode) => node.knowledge_id === view.root_node_id) || view.nodes[0] || null
+    // 重载后尽量停在教师原来看的节点：知识修订确认成功会触发一次 loadLibrary，
+    // 若无条件跳回根节点，维护面板会被卸载，教师刚做完的操作回执和"重建"入口
+    // 一起消失，看起来像什么都没发生。
+    const previousId = selectedNode.value?.knowledge_id
+    selectedNode.value =
+      (previousId ? view.nodes.find((node: KnowledgeNode) => node.knowledge_id === previousId) : null)
+      || view.nodes.find((node: KnowledgeNode) => node.knowledge_id === view.root_node_id)
+      || view.nodes[0]
+      || null
     mobileDetailOpen.value = false
     focusRequestedKnowledge()
     viewMode.value = 'tree'

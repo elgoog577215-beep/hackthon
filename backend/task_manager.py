@@ -37,6 +37,10 @@ from assessment_contracts import (
     compile_assessment_objectives,
     compile_course_assessment_profile,
 )
+from assessment_generation_policy import (
+    ASSESSMENT_GENERATION_POLICY_VERSION,
+    normalize_assessment_generation_profile,
+)
 from assessment_orchestrator import AssessmentGenerationOrchestrator
 from assessment_retrieval import (
     compile_local_reference_package,
@@ -54,6 +58,8 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
+from ai_provider_route import provider_route_snapshot
+from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
@@ -164,6 +170,11 @@ from representation_compiler import (
     validate_compiled_representations,
 )
 from slide_ai_runtime import ai_slide_planning_enabled
+from slide_ai_planning_v6 import (
+    build_ai_base_story_planner_v6,
+    build_ai_base_visual_planner_v2,
+)
+from ppt_template_packs import ppt_template_pack_repository
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -179,9 +190,15 @@ from slide_deck_v4 import (
     build_signature_v4,
 )
 from slide_deck_v5 import (
+    SlideDeckV5BuildError,
     allocation_from_story_plan_v5,
     build_signature_v5,
     compact_story_plan_v5,
+)
+from slide_deck_v6 import V6BuildError, compile_shadow_chapter_document
+from slide_deck_v6_orchestrator import (
+    SlideDeckV6CandidateRepository,
+    SlideDeckV6Orchestrator,
 )
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
@@ -198,6 +215,10 @@ from slide_visuals import (
 )
 from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
+)
 from teaching_representations import teaching_representation_repository
 from web_retrieval import (
     RetrievalRequest,
@@ -213,6 +234,7 @@ LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
 DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
+QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.2"
 
 # 内容完整性阈值（字符数）
 CONTENT_COMPLETE_THRESHOLD = 600
@@ -439,6 +461,174 @@ def _public_representation_quality(
     }
 
 
+async def _rebuild_slide_variant_with_quality_fallback(
+    *,
+    document: Any,
+    course_view: dict[str, Any],
+    repository: Any,
+    mode: str,
+    theme: str,
+    slide_schema: str,
+    allocation_plan: SlideAllocationPlanV2,
+    visual_plan: SlideVisualPlanV1,
+    story_plan: SlideStoryPlanV2 | Any | None,
+    progress_callback: Callable[[dict[str, Any]], None],
+    checkpoint_callback: (
+        Callable[
+            [SlideAllocationPlanV2, SlideVisualPlanV1, SlideStoryPlanV2],
+            Awaitable[None],
+        ]
+        | None
+    ),
+    resume_slides: list[dict[str, Any]],
+    source_revision_provider: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    """Retry a rejected V5 draft with the strict source-only plan.
+
+    The first candidate still runs through the normal shadow repository. Its
+    terminal ``build_blocked`` event is converted into a non-terminal fallback
+    event so clients do not settle the build before the deterministic candidate
+    has been evaluated. This also covers deterministic semantic plans: a new
+    course must still reach the stricter ``quality_fallback`` profile when the
+    ordinary deterministic plan cannot satisfy the final page contract.
+    """
+
+    fallback_enabled = os.getenv(
+        "SLIDE_DECK_V5_QUALITY_FALLBACK_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    story_diagnostics = (
+        story_plan.get("planning_diagnostics")
+        if isinstance(story_plan, dict)
+        else getattr(story_plan, "planning_diagnostics", None)
+    )
+    compaction_profile = str(
+        (story_diagnostics or {}).get("compaction_profile") or ""
+    ) if isinstance(story_diagnostics, dict) else ""
+    fallback_allowed = bool(
+        fallback_enabled
+        and slide_schema == "slide_deck_v5"
+        and story_plan is not None
+        and compaction_profile != "quality_fallback"
+    )
+    fallback_event_emitted = False
+
+    def primary_progress(payload: dict[str, Any]) -> None:
+        nonlocal fallback_event_emitted
+        if (
+            fallback_allowed
+            and payload.get("event") in {"build_blocked", "build_failed"}
+        ):
+            quality = payload.get("quality") or {}
+            blockers = list(quality.get("blockers") or [])
+            progress_callback({
+                "event": "quality_fallback",
+                "stage": "quality_fallback",
+                "progress": 85,
+                "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
+                "initial_score": int(quality.get("score") or 0),
+                "initial_blocker_count": int(
+                    quality.get("blocker_count") or len(blockers)
+                ),
+            })
+            fallback_event_emitted = True
+            return
+        progress_callback(payload)
+
+    build = await asyncio.to_thread(
+        rebuild_slide_deck_variant_safely,
+        document,
+        course_view,
+        repository,
+        mode=mode,
+        theme=theme,
+        allocation_plan=allocation_plan,
+        visual_plan=visual_plan,
+        story_plan=story_plan,
+        progress_callback=primary_progress,
+        resume_slides=resume_slides,
+        requested_schema=slide_schema,
+        source_revision_provider=source_revision_provider,
+    )
+    initial_quality = build.get("quality") or {}
+    if initial_quality.get("passed") or not fallback_allowed:
+        return {
+            "build": build,
+            "allocation_plan": allocation_plan,
+            "visual_plan": visual_plan,
+            "story_plan": story_plan,
+            "used_deterministic_fallback": False,
+            "initial_quality": None,
+        }
+
+    if not fallback_event_emitted:
+        blockers = list(initial_quality.get("blockers") or [])
+        progress_callback({
+            "event": "quality_fallback",
+            "stage": "quality_fallback",
+            "progress": 85,
+            "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
+            "initial_score": int(initial_quality.get("score") or 0),
+            "initial_blocker_count": int(
+                initial_quality.get("blocker_count") or len(blockers)
+            ),
+        })
+
+    source_fragments = fragment_course_document(document)
+    deterministic_story = compact_story_plan_v5(
+        document,
+        compile_slide_story_plan_v2(
+            document,
+            course_view,
+            source_fragments,
+            mode=mode,
+            theme=theme,
+        ),
+        source_fragments,
+        profile="quality_fallback",
+    )
+    deterministic_allocation, _ = allocation_from_story_plan_v5(
+        document,
+        source_fragments,
+        deterministic_story,
+    )
+    deterministic_visual = await plan_slide_visuals(
+        document,
+        deterministic_allocation,
+        source_fragments,
+        ai_planner=None,
+    )
+    if checkpoint_callback is not None:
+        await checkpoint_callback(
+            deterministic_allocation,
+            deterministic_visual,
+            deterministic_story,
+        )
+    fallback_build = await asyncio.to_thread(
+        rebuild_slide_deck_variant_safely,
+        document,
+        course_view,
+        repository,
+        mode=mode,
+        theme=theme,
+        allocation_plan=deterministic_allocation,
+        visual_plan=deterministic_visual,
+        story_plan=deterministic_story,
+        progress_callback=progress_callback,
+        resume_slides=[],
+        requested_schema=slide_schema,
+        source_revision_provider=source_revision_provider,
+    )
+    return {
+        "build": fallback_build,
+        "allocation_plan": deterministic_allocation,
+        "visual_plan": deterministic_visual,
+        "story_plan": deterministic_story,
+        "used_deterministic_fallback": True,
+        "initial_quality": initial_quality,
+    }
+
+
 class TaskRecoveryConflict(RuntimeError):
     def __init__(self, message: str, *, recovery: dict[str, Any]) -> None:
         super().__init__(message)
@@ -597,6 +787,7 @@ class TaskManager:
         storage_data_dir = Path(
             getattr(storage, "_data_dir", Path(TASKS_FILE).parent)
         )
+        self._storage_data_dir = storage_data_dir
         self._import_sources_dir = storage_data_dir / "course_import_sources"
         self._import_sources_dir.mkdir(parents=True, exist_ok=True)
         self._version_repository = version_repository or course_version_repository
@@ -763,6 +954,16 @@ class TaskManager:
             "retry_count": 0,
             "logs": [],
             "request_snapshot": request_snapshot or {},
+            "assessment_generation_profile": (
+                normalize_assessment_generation_profile(
+                    (request_snapshot or {}).get(
+                        "assessment_generation_profile"
+                    )
+                )
+            ),
+            "assessment_generation_policy_version": (
+                ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "node_drafts": {},
             "operation": str((request_snapshot or {}).get("operation") or "generate"),
             "candidate_id": (request_snapshot or {}).get("candidate_id"),
@@ -963,6 +1164,9 @@ class TaskManager:
             "asset_preferences": deepcopy(request_snapshot.get("asset_preferences") or {}),
             "web_question_enrichment": deepcopy(
                 request_snapshot.get("web_question_enrichment") or {"enabled": False}
+            ),
+            "web_material_ingest": deepcopy(
+                request_snapshot.get("web_material_ingest") or {}
             ),
         }
         workspace_created = False
@@ -2539,7 +2743,7 @@ class TaskManager:
                 "updated_at": task.get("updated_at"),
             },
         }
-        if status == "completed" or self._publication_receipt(task):
+        if self._task_is_published(task):
             return {
                 **base,
                 "state": "completed",
@@ -2756,6 +2960,7 @@ class TaskManager:
             return {**base, "checkpoint": checkpoint}
         if status == "completed_with_warnings" and (
             task.get("phase") == "quality_failed"
+            or task.get("publication_allowed") is False
             or workspace.get("status") == "quality_failed"
         ):
             return self._quality_recovery_contract(
@@ -2821,6 +3026,124 @@ class TaskManager:
         return {**base, "checkpoint": checkpoint}
 
     @staticmethod
+    def _restore_confirmed_outline_identity(
+        course_data: dict[str, Any],
+        confirmed_snapshot: dict[str, Any],
+        *,
+        expected_revision: str,
+        request: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Restore only frozen outline identity fields after derived drift.
+
+        The candidate is accepted only when its artifact hash exactly matches
+        the revision the user confirmed. Course content and every downstream
+        field remain untouched.
+        """
+        current_nodes = {
+            str(node.get("node_id") or ""): node
+            for node in course_data.get("nodes") or []
+            if isinstance(node, dict) and node.get("node_id")
+        }
+        confirmed_nodes = [
+            node
+            for node in confirmed_snapshot.get("nodes") or []
+            if isinstance(node, dict) and node.get("node_id")
+        ]
+        confirmed_ids = [str(node.get("node_id") or "") for node in confirmed_nodes]
+        if not confirmed_ids or set(confirmed_ids) != set(current_nodes):
+            return None
+
+        identity_fields = (
+            "node_id",
+            "parent_node_id",
+            "node_name",
+            "node_level",
+            "learning_objective",
+            "prerequisite_node_ids",
+            "scope_boundary",
+            "assessment",
+        )
+        restored = deepcopy(course_data)
+        restored["course_name"] = str(
+            confirmed_snapshot.get("course_name")
+            or course_data.get("course_name")
+            or ""
+        )
+        confirmed_outline = (
+            confirmed_snapshot.get("course_outline")
+            or confirmed_snapshot.get("course_plan")
+            or {}
+        )
+        if not isinstance(confirmed_outline, dict) or not confirmed_outline.get(
+            "chapters"
+        ):
+            return None
+        restored["course_outline"] = deepcopy(confirmed_outline)
+
+        restored_nodes: list[dict[str, Any]] = []
+        for confirmed_node in confirmed_nodes:
+            node_id = str(confirmed_node.get("node_id") or "")
+            restored_node = deepcopy(current_nodes[node_id])
+            for field in identity_fields:
+                if field in confirmed_node:
+                    restored_node[field] = deepcopy(confirmed_node[field])
+                else:
+                    restored_node.pop(field, None)
+            restored_nodes.append(restored_node)
+        restored["nodes"] = restored_nodes
+
+        actual_revision = guided_artifact_revision(
+            "outline",
+            restored,
+            request=request or {},
+        )
+        if actual_revision != expected_revision:
+            return None
+        return restored
+
+    def _restore_task_confirmed_outline_snapshot(
+        self,
+        task: dict[str, Any],
+        course_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        workflow = task.get("guided_workflow")
+        if not isinstance(workflow, dict):
+            raise CourseVersionConflict("Missing guided workflow for outline repair")
+        outline_state = guided_step_state(workflow, "outline")
+        expected_revision = str(outline_state.get("artifact_revision") or "")
+        blueprint_revision = str(course_data.get("course_outline_revision_id") or "")
+        if not expected_revision or not blueprint_revision:
+            raise CourseVersionConflict("Missing confirmed outline revision")
+        try:
+            snapshot = self._version_repository.get_blueprint_revision(
+                str(task.get("course_id") or course_data.get("course_id") or ""),
+                blueprint_revision,
+            )
+        except KeyError as exc:
+            raise CourseVersionConflict(
+                "Confirmed outline snapshot is unavailable"
+            ) from exc
+        restored = self._restore_confirmed_outline_identity(
+            course_data,
+            snapshot,
+            expected_revision=expected_revision,
+            request=task.get("request_snapshot") or {},
+        )
+        if restored is None:
+            raise CourseVersionConflict(
+                "Confirmed outline snapshot does not match the approved revision"
+            )
+        repairs = restored.setdefault("generation_lineage_repairs", [])
+        repairs.append({
+            "schema_version": "generation_lineage_repair_v1",
+            "repair_type": "restore_confirmed_outline_snapshot",
+            "blueprint_revision_id": blueprint_revision,
+            "artifact_revision": expected_revision,
+            "repaired_at": datetime.now().isoformat(),
+        })
+        return restored
+
+    @staticmethod
     def _quality_failure_summary(
         course_data: dict[str, Any],
         *,
@@ -2862,6 +3185,11 @@ class TaskManager:
             is_asset = bool(issue.get("asset_type")) or code.startswith("asset:")
             if code == "difficulty:double_spike":
                 scopes.add("difficulty_contract")
+            elif (
+                code == "outline_revision_mismatch"
+                and course_data.get("course_outline_revision_id")
+            ):
+                scopes.add("confirmed_outline_snapshot")
             elif is_asset and str(issue.get("asset_type") or "questions") == "questions":
                 scopes.add("learning_assets")
             else:
@@ -2889,7 +3217,14 @@ class TaskManager:
             prefix="qf_",
         )
         previous = previous if isinstance(previous, dict) else {}
-        same_failure = bool(blockers) and previous.get("fingerprint") == fingerprint
+        same_policy = (
+            previous.get("repair_policy_version") == QUALITY_REPAIR_POLICY_VERSION
+        )
+        same_failure = (
+            bool(blockers)
+            and previous.get("fingerprint") == fingerprint
+            and same_policy
+        )
         previous_count = int(previous.get("repeat_count") or 0)
         repeat_count = (
             previous_count + 1
@@ -2898,9 +3233,15 @@ class TaskManager:
             if same_failure
             else 1
         )
-        order = ["difficulty_contract", "learning_assets", "manual_review"]
+        order = [
+            "difficulty_contract",
+            "confirmed_outline_snapshot",
+            "learning_assets",
+            "manual_review",
+        ]
         return {
             "fingerprint": fingerprint,
+            "repair_policy_version": QUALITY_REPAIR_POLICY_VERSION,
             "repeat_count": repeat_count,
             "blocker_count": len(blockers),
             "repair_scopes": [scope for scope in order if scope in scopes],
@@ -3020,6 +3361,14 @@ class TaskManager:
         total_nodes = int(task.get("total_nodes") or 0)
         checkpoint = {
             "phase": phase,
+            "assessment_generation_profile": str(
+                task.get("assessment_generation_profile")
+                or "deliberate"
+            ),
+            "assessment_generation_policy_version": str(
+                task.get("assessment_generation_policy_version")
+                or ASSESSMENT_GENERATION_POLICY_VERSION
+            ),
             "completed_nodes": completed_nodes,
             "total_nodes": total_nodes,
             "draft_node_ids": list((task.get("node_drafts") or {}).keys()),
@@ -3068,10 +3417,7 @@ class TaskManager:
             "reason": "当前任务不需要恢复",
             "checkpoint": checkpoint,
         }
-        if status == "completed" or (
-            status == "completed_with_warnings"
-            and task.get("publication_allowed") is not False
-        ):
+        if self._task_is_published(task):
             return {
                 **base,
                 "state": "completed",
@@ -3144,12 +3490,53 @@ class TaskManager:
             view["quality"] = public_quality
         view["logs"] = deepcopy((task.get("logs") or [])[-PUBLIC_TASK_LOG_LIMIT:])
         view["recovery"] = self._task_recovery_summary(task)
+        # Which provider is currently serving calls. Process-wide, not per task:
+        # one AIBase client is shared by every concurrent job.
+        view["provider_route"] = provider_route_snapshot()
         return view
 
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
         view = deepcopy(task)
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
+
+    def _task_is_published(self, task: dict[str, Any]) -> bool:
+        """Single answer to "did this job actually publish a course?".
+
+        Both recovery projections must agree, otherwise the task list and the
+        resume button describe the same job differently.
+
+        ``completed`` is conclusive on its own. ``completed_with_warnings`` is
+        not: a job can finish with warnings and never reach publication, so it
+        only counts when a publication receipt exists. A receipt is also
+        authoritative for a job still marked ``running`` — that is how a restart
+        recognises work that finished publishing before the process died.
+        """
+        status = str(task.get("status") or "")
+        if status == "completed":
+            return True
+        if status == "completed_with_warnings" and task.get("publication_allowed") is False:
+            return False
+        return self._publication_receipt(task) is not None
+
+    def _failed_node_report_entry(
+        self, task_id: str, node: dict[str, Any]
+    ) -> dict[str, Any]:
+        """One failed section, as the production stage renders it.
+
+        Carries the stable code alongside the raw text so the UI can explain the
+        failure and say whether continuing is worth attempting, instead of
+        printing a truncated exception string.
+        """
+        node_id = str(node.get("node_id") or "")
+        return {
+            "node_id": node_id,
+            "node_name": node.get("node_name", ""),
+            "error": node.get("error_summary", "Unknown error"),
+            "error_code": node.get("error_code") or "generation_failed",
+            "retryable": bool(node.get("error_retryable", True)),
+            "retry_count": self._node_retries.get(task_id, {}).get(node_id, 0),
+        }
 
     def _publication_receipt(self, task: dict[str, Any]) -> dict[str, Any] | None:
         if not task.get("workspace_id"):
@@ -3700,6 +4087,8 @@ class TaskManager:
             if quality_repair:
                 task["quality_repair_requested"] = True
                 task["quality_repair_scopes"] = sorted(repair_scopes)
+                if "confirmed_outline_snapshot" in repair_scopes:
+                    task["outline_repair_requested"] = True
                 if "learning_assets" in repair_scopes:
                     task["asset_repair_requested"] = True
             task["updated_at"] = datetime.now().isoformat()
@@ -4232,18 +4621,39 @@ class TaskManager:
                     task_id, exc, task.get("status"),
                 )
             else:
+                failure = classify_generation_failure(exc)
                 error_detail = (
                     exc.public_detail()
-                    if isinstance(exc, SlideStoryPlanPrerequisiteError)
-                    else None
+                    if isinstance(
+                        exc,
+                        (SlideStoryPlanPrerequisiteError, SlideDeckV5BuildError, V6BuildError),
+                    )
+                    else {
+                        "code": failure["code"],
+                        "translation_key": failure["translation_key"],
+                        "retryable": failure["retryable"],
+                    }
                 )
+                async with self._lock:
+                    current = self.tasks.get(task_id)
+                    if current is not None:
+                        current["error_code"] = str(
+                            error_detail.get("code") or failure["code"]
+                        )
+                        # The backend emits a code, not prose: user-facing copy
+                        # is resolved through the frontend i18n layer so it stays
+                        # bilingual. Clear any message left by an earlier run.
+                        current["error_user_message"] = None
+                        self.save_tasks()
                 await self._update_task_status(
                     task_id,
                     "failed",
-                    error=str(exc),
+                    error=failure["technical_detail"],
                     error_detail=error_detail,
                 )
-                await self._record_workspace_failure(task_id, str(exc))
+                await self._record_workspace_failure(
+                    task_id, failure["technical_detail"]
+                )
         finally:
             self._running_job_tasks.pop(task_id, None)
 
@@ -4407,6 +4817,102 @@ class TaskManager:
         )
         await self._push_progress(task_id)
 
+    async def _process_slide_deck_variant_v6(
+        self,
+        *,
+        task_id: str,
+        document: Any,
+        course_view: dict[str, Any],
+        mode: str,
+        theme: str,
+        variant_key: str,
+        template_contract: TemplateLayoutPackContractV1,
+        template_digest_provider: Callable[[], str],
+        source_revision_provider: Callable[[], str],
+        publish_result: bool = True,
+        shadow_context: dict[str, Any] | None = None,
+    ) -> None:
+        """Run the strict V6 candidate through the shared durable boundary."""
+
+        orchestrator = SlideDeckV6Orchestrator(
+            representation_repository=teaching_representation_repository,
+            candidate_repository=SlideDeckV6CandidateRepository(
+                self._storage_data_dir / "slide_deck_v6_candidates"
+            ),
+            progress_root=self._storage_data_dir / "slide_build_progress_v2",
+        )
+
+        async def record_v6_progress(payload: dict[str, object]) -> None:
+            event = {
+                "event": "slide_build_progress_v2",
+                "progress": int(payload.get("percent") or 0),
+                "stage": str(payload.get("stage") or "building"),
+                "message": "V6 slide build is following the persisted server work plan",
+                "slide_build_progress_v2": deepcopy(payload),
+            }
+            await self._record_representation_event(task_id, event)
+
+        result = await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data=course_view,
+            mode=mode,
+            theme=theme,
+            story_planner=build_ai_base_story_planner_v6(),
+            visual_planner=build_ai_base_visual_planner_v2(),
+            source_revision_provider=source_revision_provider,
+            template_contract=template_contract,
+            template_digest_provider=template_digest_provider,
+            publish_result=publish_result,
+            shadow_context=shadow_context,
+            progress_callback=record_v6_progress,
+        )
+        public_result = {
+            "build": result,
+            "quality": result.get("quality") or {},
+            "registry": result.get("registry") or {},
+            "variant_key": variant_key,
+            "target_schema": "slide_deck_v6",
+            "shadow_context": dict(shadow_context or {}),
+        }
+        final_status = (
+            "completed_with_warnings"
+            if result.get("candidate_status") == "v6_needs_manual_edit"
+            else "completed"
+        )
+        async with self._lock:
+            current = self.tasks.get(task_id)
+            if not current or current.get("status") in {"paused", "cancelled"}:
+                return
+            current["result"] = public_result
+            current["completed_representation_types"] = (
+                [f"slide_deck:{variant_key}"] if publish_result else []
+            )
+            current["progress"] = 100
+            current["phase_progress"] = 100
+            current["phase"] = "complete"
+            current["current_phase"] = "complete"
+            current["message"] = (
+                "V6 shadow candidate completed with pages marked for manual review"
+                if not publish_result and final_status == "completed_with_warnings"
+                else "V6 shadow candidate passed all fidelity and render gates"
+                if not publish_result
+                else "V6 deck published with pages marked for manual review"
+                if final_status == "completed_with_warnings"
+                else "V6 deck passed the fidelity gates and was published"
+            )
+            current["updated_at"] = datetime.now().isoformat()
+            self.save_tasks()
+        await self._record_representation_event(
+            task_id,
+            {"event": "build_complete", "progress": 100, **public_result},
+        )
+        await self._update_task_status(
+            task_id,
+            final_status,
+            message=str(self.tasks.get(task_id, {}).get("message") or "V6 build complete"),
+        )
+
     async def _process_slide_deck_variant_task(self, task_id: str) -> None:
         """Build one mode/theme PPT variant without rebuilding sibling artifacts."""
         task = self.tasks.get(task_id)
@@ -4425,8 +4931,14 @@ class TaskManager:
         document, canonical = await asyncio.to_thread(
             self._course_document_repository.load_document, course_id,
         )
-        if not canonical:
+        requested_schema = str(request.get("target_schema") or "")
+        shadow_only = bool(request.get("shadow_only"))
+        chapter_id = str(request.get("chapter_id") or "").strip()
+        if not canonical and not (requested_schema == "slide_deck_v6" and shadow_only):
             raise CourseDocumentConflict("Course must be canonical before building slide variants")
+        source_course_document_revision = str(document.document_revision or "")
+        if shadow_only:
+            document = compile_shadow_chapter_document(document, chapter_id)
         course_view = await asyncio.to_thread(
             self._course_document_repository.load_course_view, course_id,
         )
@@ -4448,9 +4960,78 @@ class TaskManager:
                 "SLIDE_DECK_V5_ENABLED",
                 "true",
             ).strip().lower() in {"1", "true", "yes", "on"},
+            v6_enabled=requested_schema == "slide_deck_v6",
         )
-        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5"}
+        use_story_engine = slide_schema in {"slide_deck_v4", "slide_deck_v5", "slide_deck_v6"}
         source_revision = str(document.document_revision or "")
+        await self._record_representation_event(task_id, {
+            "event": "build_contract",
+            "progress": 2,
+            "stage": "source_preflight",
+            "target_schema": slide_schema,
+            "source_revision": source_revision,
+        })
+        if slide_schema == "slide_deck_v6":
+            frozen_template_payload = request.get("template_contract")
+            template_contract = (
+                TemplateLayoutPackContractV1.model_validate(frozen_template_payload)
+                if isinstance(frozen_template_payload, dict)
+                else compile_builtin_template_layout_contract_v1(theme)
+            )
+            selector = request.get("template_selector") or {}
+            pack_id = str(selector.get("pack_id") or "")
+            if pack_id:
+                pack_version = int(
+                    selector.get("version") or template_contract.template_version
+                )
+                owner_id = str(selector.get("owner_id") or "")
+
+                def current_template_digest() -> str:
+                    return ppt_template_pack_repository.resolve_v6_layout_contract(
+                        pack_id,
+                        pack_version,
+                        owner_id,
+                    ).template_digest
+            else:
+                def current_template_digest() -> str:
+                    return compile_builtin_template_layout_contract_v1(
+                        template_contract.theme_id
+                    ).template_digest
+            if shadow_only:
+                def current_source_revision() -> str:
+                    current_document, _ = self._course_document_repository.load_document(course_id)
+                    return compile_shadow_chapter_document(
+                        current_document,
+                        chapter_id,
+                    ).document_revision
+            else:
+                def current_source_revision() -> str:
+                    return str(
+                        self._course_document_repository.load_document(course_id)[0].document_revision
+                        or ""
+                    )
+            await self._process_slide_deck_variant_v6(
+                task_id=task_id,
+                document=document,
+                course_view=course_view,
+                mode=mode,
+                theme=theme,
+                variant_key=variant_key,
+                template_contract=template_contract,
+                template_digest_provider=current_template_digest,
+                source_revision_provider=current_source_revision,
+                publish_result=not shadow_only,
+                shadow_context=(
+                    {
+                        "chapter_id": chapter_id,
+                        "source_course_document_revision": source_course_document_revision,
+                        "source_format": "canonical" if canonical else "legacy_projection",
+                    }
+                    if shadow_only
+                    else None
+                ),
+            )
+            return
         saved_revision = str(task.get("representation_source_document_revision") or "")
         saved_variant = str(task.get("representation_variant_key") or "")
         expected_signature = (
@@ -4521,7 +5102,21 @@ class TaskManager:
                 visual_plan = None
             latest_slides: dict[str, dict[str, Any]] = {}
             for event in task.get("event_history") or []:
+                if event.get("event") == "quality_fallback":
+                    latest_slides = {}
+                    continue
                 if event.get("event") != "slide_upsert" or not isinstance(event.get("slide"), dict):
+                    continue
+                if (
+                    slide_schema == "slide_deck_v5"
+                    and (
+                        event.get("engine_schema") != "slide_deck_v5"
+                        or event.get("candidate_stage") not in {
+                            "final_contract",
+                            "render_verified",
+                        }
+                    )
+                ):
                     continue
                 slide = deepcopy(event["slide"])
                 unit_id = str(slide.get("unit_id") or "")
@@ -4692,6 +5287,7 @@ class TaskManager:
             "fallback_reason": allocation_plan.fallback_reason,
             "estimated_slide_count": len(allocation_plan.pages),
             "variant_key": variant_key,
+            "target_schema": slide_schema,
         })
         loop = asyncio.get_running_loop()
 
@@ -4727,21 +5323,69 @@ class TaskManager:
             )
             future.result(timeout=10)
 
-        build = await asyncio.to_thread(
-            rebuild_slide_deck_variant_safely,
-            document,
-            course_view,
-            teaching_representation_repository,
+        async def save_fallback_checkpoint(
+            fallback_allocation: SlideAllocationPlanV2,
+            fallback_visual: SlideVisualPlanV1,
+            fallback_story: SlideStoryPlanV2,
+        ) -> None:
+            async with self._lock:
+                current = self.tasks.get(task_id)
+                if not current or current.get("status") in {"paused", "cancelled"}:
+                    return
+                current["representation_deck_plan_v3"] = (
+                    fallback_allocation.model_dump(mode="json")
+                )
+                current["representation_story_plan_v2"] = (
+                    fallback_story.model_dump(mode="json")
+                )
+                current["representation_visual_plan_v1"] = (
+                    fallback_visual.model_dump(mode="json")
+                )
+                current["representation_asset_fingerprints"] = {}
+                current["representation_generation_seeds"] = {}
+                current["updated_at"] = datetime.now().isoformat()
+                self.save_tasks()
+
+        build_attempt = await _rebuild_slide_variant_with_quality_fallback(
+            document=document,
+            course_view=course_view,
+            repository=teaching_representation_repository,
             mode=mode,
             theme=theme,
+            slide_schema=slide_schema,
             allocation_plan=allocation_plan,
             visual_plan=visual_plan,
             story_plan=story_plan,
             progress_callback=progress,
+            checkpoint_callback=save_fallback_checkpoint,
             resume_slides=resume_slides,
+            source_revision_provider=lambda: str(
+                self._course_document_repository.load_document(course_id)[0].document_revision
+                or ""
+            ),
         )
+        build = build_attempt["build"]
+        allocation_plan = build_attempt["allocation_plan"]
+        visual_plan = build_attempt["visual_plan"]
+        story_plan = build_attempt["story_plan"]
         quality = build.get("quality") or {}
         if not quality.get("passed"):
+            failure = build.get("failure") or {}
+            if slide_schema == "slide_deck_v5" and failure:
+                raise SlideDeckV5BuildError(
+                    stage=str(failure.get("stage") or "quality_gate"),
+                    code=str(failure.get("code") or "v5_quality_gate_failed"),
+                    message=str(
+                        failure.get("message")
+                        or "V5 候选未通过完整性或可读性门禁。"
+                    ),
+                    retryable=bool(failure.get("retryable")),
+                    source_revision=str(
+                        failure.get("source_revision") or source_revision
+                    ),
+                    chapter_id=str(failure.get("chapter_id") or ""),
+                    page_id=str(failure.get("page_id") or ""),
+                )
             raise RuntimeError("slide_deck_variant_quality_gate_failed")
         registry = teaching_representation_repository.load(course_id)
         result = {
@@ -4749,6 +5393,15 @@ class TaskManager:
             "quality": quality,
             "registry": registry.model_dump(mode="json"),
             "variant_key": variant_key,
+            "quality_fallback": {
+                "used": bool(build_attempt["used_deterministic_fallback"]),
+                "initial_score": (
+                    (build_attempt.get("initial_quality") or {}).get("score")
+                ),
+                "initial_blocker_count": len(
+                    (build_attempt.get("initial_quality") or {}).get("blockers") or []
+                ),
+            },
         }
         async with self._lock:
             current = self.tasks.get(task_id)
@@ -4760,6 +5413,7 @@ class TaskManager:
             current["phase_progress"] = 100
             current["phase"] = "complete"
             current["current_phase"] = "complete"
+            current.pop("quality", None)
             current["message"] = f"{variant_key} 课件已通过质量门并发布"
             current["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
@@ -4870,7 +5524,23 @@ class TaskManager:
             history.append(event)
             task["event_history"] = history[-240:]
             task["last_event"] = event
-            if payload.get("event") == "build_blocked":
+            progress_v2 = payload.get("slide_build_progress_v2")
+            if (
+                payload.get("event") == "slide_build_progress_v2"
+                and isinstance(progress_v2, dict)
+            ):
+                task["slide_build_progress_v2"] = deepcopy(progress_v2)
+                if str(progress_v2.get("status") or "") == "failed":
+                    failure = progress_v2.get("failure") or {}
+                    if isinstance(failure, dict):
+                        task["status"] = "failed"
+                        task["error_detail"] = deepcopy(failure)
+                        task["error"] = str(
+                            failure.get("message")
+                            or payload.get("message")
+                            or "V6 slide build failed"
+                        )
+            if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")
                 )
@@ -5230,6 +5900,7 @@ class TaskManager:
                 course_purpose=str(request.get("course_purpose") or "systematic"),
                 asset_preferences=request.get("asset_preferences") or {},
                 web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
+                web_material_ingest=request.get("web_material_ingest") or {},
                 existing_course_data=course_data,
                 stop_after_outline=stop_after_outline,
                 on_phase=on_phase,
@@ -5943,6 +6614,7 @@ class TaskManager:
                         raise
 
                     except Exception as e:
+                        failure = classify_generation_failure(e)
                         non_retryable = getattr(e, "retryable", True) is False
                         draft = existing_draft + "".join(accumulated)
                         if draft:
@@ -5994,6 +6666,8 @@ class TaskManager:
                             await self._set_node_status(
                                 task_id, course_id, node_id, NodeStatus.ERROR,
                                 error_summary=error_msg[:200],
+                                error_code=failure["code"],
+                                error_retryable=failure["retryable"],
                             )
 
                             self._add_log_entry(
@@ -6020,6 +6694,8 @@ class TaskManager:
                                         "node_id": node_id,
                                         "node_name": node_name,
                                         "error": error_msg[:200],
+                                        "error_code": failure["code"],
+                                        "retryable": failure["retryable"],
                                         "retry_count": retry_count,
                                     },
                                 )
@@ -6163,6 +6839,24 @@ class TaskManager:
                 task.setdefault("phase_progress", 0)
                 task.setdefault("phase_detail", {})
                 task.setdefault("request_snapshot", {})
+                try:
+                    persisted_generation_profile = (
+                        normalize_assessment_generation_profile(
+                            task.get("assessment_generation_profile")
+                            or (task.get("request_snapshot") or {}).get(
+                                "assessment_generation_profile"
+                            )
+                        )
+                    )
+                except ValueError:
+                    persisted_generation_profile = "deliberate"
+                task["assessment_generation_profile"] = (
+                    persisted_generation_profile
+                )
+                task.setdefault(
+                    "assessment_generation_policy_version",
+                    ASSESSMENT_GENERATION_POLICY_VERSION,
+                )
                 task.setdefault("node_drafts", {})
                 task.setdefault("operation", "generate")
                 task.setdefault("candidate_id", None)
@@ -6638,6 +7332,7 @@ class TaskManager:
                 "error": task.get("error"),
                 "error_code": task.get("error_code"),
                 "error_user_message": task.get("error_user_message"),
+                "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
                 "current_nodes": current_nodes,
@@ -6672,21 +7367,39 @@ class TaskManager:
     @staticmethod
     def _failed_practice_targets(
         assets: dict[str, list[dict[str, Any]]],
+        *,
+        expected_node_ids: list[str] | None = None,
     ) -> dict[str, list[str]]:
-        """Return only rejected learner-facing exercise slots by section."""
+        """Return rejected and completely absent exercise slots by section."""
+        expected_levels = (
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        )
         failed: dict[str, list[str]] = {}
+        valid_slots: set[tuple[str, str]] = set()
         for question in assets.get("questions") or []:
             quality = question.get("quality_report") or {}
-            if (
+            node_id = str(question.get("node_id") or "")
+            practice_level = str(question.get("practice_level") or "")
+            valid = (
                 question.get("quality_status") != "passed"
                 or quality.get("passed") is not True
                 or not question.get("practice_contract_revision_id")
                 or not question.get("input_contract")
-            ):
-                node_id = str(question.get("node_id") or "")
-                practice_level = str(question.get("practice_level") or "")
-                if node_id and practice_level:
-                    failed.setdefault(node_id, []).append(practice_level)
+            ) is False
+            if node_id and practice_level and valid:
+                valid_slots.add((node_id, practice_level))
+            elif node_id and practice_level:
+                failed.setdefault(node_id, []).append(practice_level)
+
+        for node_id in expected_node_ids or []:
+            normalized_node_id = str(node_id or "")
+            if not normalized_node_id:
+                continue
+            for practice_level in expected_levels:
+                if (normalized_node_id, practice_level) not in valid_slots:
+                    failed.setdefault(normalized_node_id, []).append(practice_level)
         return {
             node_id: list(dict.fromkeys(levels))
             for node_id, levels in failed.items()
@@ -6705,8 +7418,28 @@ class TaskManager:
         the former gap where the generation pipeline required universal
         exercises but never invoked the universal assessment orchestrator.
         """
-        failed_targets = self._failed_practice_targets(
-            asset_bundle.get("assets") or {}
+        asset_plan = asset_bundle.get("plan") or {}
+        questions_enabled = (
+            not asset_plan
+            or "questions" in (asset_plan.get("enabled_asset_types") or [])
+        )
+        expected_node_ids = (
+            [
+                str(node.get("node_id") or "")
+                for node in asset_course.get("nodes") or []
+                if int(node.get("node_level") or 1) == 2
+                and node.get("node_id")
+            ]
+            if questions_enabled
+            else []
+        )
+        failed_targets = (
+            self._failed_practice_targets(
+                asset_bundle.get("assets") or {},
+                expected_node_ids=expected_node_ids,
+            )
+            if questions_enabled
+            else {}
         )
         failed_node_ids = list(failed_targets)
         if not failed_node_ids:
@@ -6731,6 +7464,25 @@ class TaskManager:
             },
         )
         completed_repair_nodes: list[str] = []
+
+        async def checkpoint_repair_progress(event: dict[str, Any]) -> None:
+            completed_items = max(0, int(event.get("completed_items") or 0))
+            total_items = max(1, int(event.get("total_items") or 0))
+            await self._update_phase(
+                task_id,
+                "practice_repair",
+                94,
+                f"正在生成并验证练习 {completed_items}/{total_items}",
+                phase_progress=(
+                    70 + int(min(completed_items, total_items) / total_items * 20)
+                ),
+                phase_detail={
+                    "completed_item_count": completed_items,
+                    "target_item_count": total_items,
+                    "target_node_count": len(failed_node_ids),
+                    "repair_scope": "failed_practice_only",
+                },
+            )
 
         async def checkpoint_repaired_node(event: dict[str, Any]) -> None:
             nonlocal question_bank_bundle
@@ -6794,11 +7546,19 @@ class TaskManager:
             asset_course,
             node_ids=failed_node_ids,
             practice_levels_by_node=failed_targets,
+            on_progress=checkpoint_repair_progress,
             on_chapter_complete=checkpoint_repaired_node,
             reference_package=deepcopy(
                 asset_course.get("_question_reference_package") or {}
             )
             or None,
+            generation_profile=str(
+                (self.tasks[task_id].get("request_snapshot") or {}).get(
+                    "assessment_generation_profile"
+                )
+                or "deliberate"
+            ),
+            generation_scope="scoped_repair",
         )
         repaired_compilation = compile_learning_assets(prepared_course)
         rebuilt_question_bank = repaired_compilation.pop("question_bank_bundle")
@@ -6821,7 +7581,8 @@ class TaskManager:
         )
         repaired_assets.pop("question_bank_bundle", None)
         remaining_targets = self._failed_practice_targets(
-            repaired_assets.get("assets") or {}
+            repaired_assets.get("assets") or {},
+            expected_node_ids=expected_node_ids,
         )
         remaining_node_ids = list(remaining_targets)
         return repaired_question_bank, repaired_assets, {
@@ -6847,11 +7608,32 @@ class TaskManager:
         if not task:
             raise ValueError("Task not found")
         fresh_course = self._load_task_course(task_id) or course_data
+        if task.get("outline_repair_requested"):
+            fresh_course = self._restore_task_confirmed_outline_snapshot(
+                task,
+                fresh_course,
+            )
+            await self._save_task_course(task_id, fresh_course)
+            await self._update_phase(
+                task_id,
+                "quality_repair",
+                85,
+                "已恢复教师确认的目录版本，正在定向修复学习资产",
+                phase_progress=10,
+                phase_detail={
+                    "repair_scope": "confirmed_outline_snapshot",
+                    "outline_artifact_revision": guided_step_state(
+                        task["guided_workflow"],
+                        "outline",
+                    ).get("artifact_revision"),
+                },
+            )
         stage_artifacts = fresh_course.setdefault("generation_stage_artifacts", {})
         prepared = stage_artifacts.get("content_candidate") or {}
         repair_requested = bool(
             task.get("asset_repair_requested")
             or task.get("quality_repair_requested")
+            or task.get("outline_repair_requested")
         )
         if (
             not repair_requested
@@ -6991,6 +7773,13 @@ class TaskManager:
             asset_course = await self._assessment_orchestrator.prepare_course(
                 asset_course,
                 reference_package=reference_package,
+                generation_profile=str(
+                    (task.get("request_snapshot") or {}).get(
+                        "assessment_generation_profile"
+                    )
+                    or "deliberate"
+                ),
+                generation_scope="full_generation",
             )
         asset_bundle = compile_learning_assets(asset_course)
         question_bank_bundle = asset_bundle.pop("question_bank_bundle")
@@ -7179,6 +7968,7 @@ class TaskManager:
                 )
         await self._save_task_course(task_id, fresh_course)
         task.pop("asset_repair_requested", None)
+        task.pop("outline_repair_requested", None)
         task.pop("quality_repair_requested", None)
         task.pop("quality_repair_scopes", None)
         await self._update_progress(task_id, fresh_course)
@@ -7448,14 +8238,7 @@ class TaskManager:
                 "task_id": task_id,
                 "course_id": course_id,
                 "failed_nodes": [
-                    {
-                        "node_id": n.get("node_id", ""),
-                        "node_name": n.get("node_name", ""),
-                        "error": n.get("error_summary", "Unknown error"),
-                        "retry_count": self._node_retries.get(
-                            task_id, {}
-                        ).get(n.get("node_id", ""), 0),
-                    }
+                    self._failed_node_report_entry(task_id, n)
                     for n in failed_nodes
                 ],
                 "total_failed": len(failed_nodes),
@@ -7554,14 +8337,24 @@ class TaskManager:
         node_id: str,
         status: NodeStatus,
         error_summary: str | None = None,
+        error_code: str | None = None,
+        error_retryable: bool | None = None,
     ) -> None:
-        """Update a node's generation_status in course data."""
+        """Update a node's generation_status in course data.
+
+        ``error_summary`` stays the raw technical text; ``error_code`` is the
+        stable classification the UI explains the failure from.
+        """
         def update(course_data: dict[str, Any]) -> dict[str, Any]:
             for node in course_data.get("nodes", []):
                 if node.get("node_id") == node_id:
                     node["generation_status"] = status.value
                     if error_summary is not None:
                         node["error_summary"] = error_summary
+                    if error_code is not None:
+                        node["error_code"] = error_code
+                    if error_retryable is not None:
+                        node["error_retryable"] = error_retryable
                     break
             return course_data
 

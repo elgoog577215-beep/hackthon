@@ -57,6 +57,7 @@ describe('CourseGenerationDialog', () => {
         secondary_mode: 'natural_science',
         secondary_intensity: 'collaborative',
         generation_mode: 'review_blueprint',
+        assessment_generation_profile: 'fast',
         course_type: 'systematic',
         course_intent: {
           schema_version: 'course_intent_v1',
@@ -77,6 +78,30 @@ describe('CourseGenerationDialog', () => {
         }),
       }),
     })
+  })
+
+  it('允许显式选择思考版并说明快速版仍保留必要思考', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    expect(wrapper.text()).toContain('复杂题和关键修复仍会保留必要思考')
+    expect(
+      wrapper.get('[data-testid="assessment-profile-fast"]')
+        .attributes('aria-pressed'),
+    ).toBe('true')
+    await wrapper.get('[data-testid="assessment-profile-deliberate"]')
+      .trigger('click')
+    await wrapper.get('#course-subject').setValue('数理逻辑')
+    await wrapper.find('.generation-dialog__footer .primary-button')
+      .trigger('click')
+    await flushPromises()
+
+    expect(
+      (wrapper.emitted('generate')?.[0]?.[0] as any)
+        .options.assessment_generation_profile,
+    ).toBe('deliberate')
   })
 
   it('把课堂约束写入生成请求，并阻止不合理的章节规模', async () => {
@@ -161,7 +186,7 @@ describe('CourseGenerationDialog', () => {
     expect(reopenedId).not.toBe(changedId)
   })
 
-  it('将重复策略收敛为四种课程类型，并只开放系统学习与项目实战', () => {
+  it('将重复策略收敛为四种可用课程类型', () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -174,13 +199,13 @@ describe('CourseGenerationDialog', () => {
 
     expect(wrapper.findAll('.difficulty-options .difficulty-option')).toHaveLength(3)
     expect(wrapper.findAll('.course-type-option')).toHaveLength(4)
-    expect(wrapper.findAll('.course-type-option:disabled')).toHaveLength(2)
+    expect(wrapper.findAll('.course-type-option:disabled')).toHaveLength(0)
     expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(3)
     expect(wrapper.find('[data-testid="web-retrieval"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
     expect(wrapper.text()).toContain('课程类型决定学习过程如何组织')
-    expect(wrapper.text()).toContain('即将开放')
+    expect(wrapper.text()).not.toContain('即将开放')
   })
 
   it('辅助学科不能与手动选择的主学科相同', async () => {
@@ -246,6 +271,79 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
+  it('问题探究提交核心问题、证据边界与预期结论', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    await wrapper.get('[data-course-type="inquiry"]').trigger('click')
+    expect(wrapper.find('[data-testid="inquiry-intent-form"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('已有认识会作为待检验假设')
+    expect(wrapper.text()).toContain('问题路径')
+    expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#inquiry-core-question').setValue('生成式 AI 会如何改变大学教学评价？')
+    await wrapper.get('#inquiry-desired-output').setValue('形成一份带证据边界的判断报告')
+    await wrapper.get('#inquiry-understanding').setValue('传统作业的区分度可能下降')
+    await wrapper.get('#inquiry-evidence-scope').setValue('近三年高校实践与研究论文')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('generate')?.[0]?.[0]).toEqual({
+      subject: '生成式 AI 会如何改变大学教学评价？',
+      options: expect.objectContaining({
+        course_type: 'inquiry',
+        composition_style: 'inquiry_driven',
+        course_purpose: 'systematic',
+        course_intent: {
+          schema_version: 'course_intent_v1',
+          type: 'inquiry',
+          core_question: '生成式 AI 会如何改变大学教学评价？',
+          existing_understanding: '传统作业的区分度可能下降',
+          evidence_scope: '近三年高校实践与研究论文',
+          desired_output: '形成一份带证据边界的判断报告',
+        },
+      }),
+    })
+  })
+
+  it('考试冲刺提交考试日期、考纲范围与当前准备度', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    await wrapper.get('[data-course-type="exam"]').trigger('click')
+    expect(wrapper.find('[data-testid="exam-intent-form"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('先定优先级，再用练习校准')
+    expect(wrapper.text()).toContain('冲刺计划')
+
+    await wrapper.get('#exam-name').setValue('大学英语六级考试')
+    await wrapper.get('#exam-date').setValue('2026-12-20')
+    await wrapper.get('#exam-scope').setValue('听力、阅读、翻译与写作')
+    await wrapper.get('#exam-preparation').setValue('长对话和写作较弱，每周可投入 8 小时')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('generate')?.[0]?.[0]).toEqual({
+      subject: '大学英语六级考试',
+      options: expect.objectContaining({
+        course_type: 'exam',
+        composition_style: 'example_driven',
+        course_purpose: 'exam_sprint',
+        course_intent: {
+          schema_version: 'course_intent_v1',
+          type: 'exam',
+          exam_name: '大学英语六级考试',
+          exam_date: '2026-12-20',
+          exam_scope: '听力、阅读、翻译与写作',
+          current_preparation: '长对话和写作较弱，每周可投入 8 小时',
+        },
+      }),
+    })
+  })
+
   it('英文模式完整解释四种课程类型，不泄漏中文或翻译键', async () => {
     await setLocale('en')
     const wrapper = mount(CourseGenerationDialog, {
@@ -263,7 +361,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.text()).toContain('Project practice')
     expect(wrapper.text()).toContain('Inquiry learning')
     expect(wrapper.text()).toContain('Exam sprint')
-    expect(wrapper.text()).toContain('Coming soon')
+    expect(wrapper.text()).not.toContain('Coming soon')
     expect(wrapper.text()).toContain('More classroom settings')
     expect(wrapper.text()).not.toContain('courseGeneration.')
     expect(wrapper.text()).not.toContain('课程类型')

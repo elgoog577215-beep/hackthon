@@ -7,6 +7,7 @@ const { get, post } = vi.hoisted(() => ({
 vi.mock('@/utils/http', () => ({ default: { get, post } }))
 
 import {
+  QuestionBankRebuildPollingDetached,
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
 } from '@/utils/question-bank-rebuild'
@@ -239,5 +240,47 @@ describe('runQuestionBankRebuild', () => {
       resumeQuestionBankRebuild('course-1'),
     ).resolves.toBeNull()
     expect(post).not.toHaveBeenCalled()
+  })
+
+  it('stops local polling without marking the background job as failed', async () => {
+    post.mockResolvedValue({
+      data: {
+        job_id: 'job-background',
+        status: 'running',
+        progress: 42,
+        status_url: '/api/jobs/job-background',
+      },
+    })
+    get.mockResolvedValue({
+      data: {
+        job_id: 'job-background',
+        status: 'running',
+        progress: 45,
+        status_url: '/api/jobs/job-background',
+      },
+    })
+
+    const promise = runQuestionBankRebuild(
+      'course-1',
+      {
+        request_id: 'request-background',
+        scope: 'course',
+        node_ids: [],
+        mode: 'full',
+        assessment_generation_profile: 'fast',
+      },
+      { pollIntervalMs: 0, maxPolls: 1 },
+    )
+
+    await expect(promise).rejects.toBeInstanceOf(
+      QuestionBankRebuildPollingDetached,
+    )
+    await expect(promise).rejects.toMatchObject({
+      code: 'question_bank_polling_detached',
+      job: expect.objectContaining({
+        status: 'running',
+        progress: 45,
+      }),
+    })
   })
 })

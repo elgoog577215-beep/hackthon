@@ -8,11 +8,18 @@ use_default_settings:
       - startpage
       - qwant
       - yahoo
+      - sogou
+      - quark
       - wikipedia
       - arxiv
       - pubmed
       - openalex
       - crossref
+      - bing images
+      - baidu images
+      - quark images
+      - sogou images
+      - public domain image archive
 
 general:
   debug: false
@@ -33,7 +40,7 @@ server:
 
 outgoing:
   request_timeout: 3.0
-  max_request_timeout: 4.0
+  max_request_timeout: 12.0
 
 ui:
   query_in_title: false
@@ -51,9 +58,24 @@ engines:
     disabled: false
   - name: yahoo
     disabled: false
+  - name: sogou
+    disabled: false
+  - name: quark
+    disabled: false
   - name: wikipedia
     display_type: ["infobox", "list"]
   - name: openalex
     disabled: false
   - name: crossref
+    disabled: false
+  - name: bing images
+    base_url: https://cn.bing.com
+    disabled: false
+  - name: baidu images
+    disabled: false
+  - name: quark images
+    disabled: false
+  - name: sogou images
+    disabled: false
+  - name: public domain image archive
     disabled: false

@@ -304,79 +304,38 @@ class TeachingRepresentationRepository:
             registry = self.load(spec.course_id)
             registry.specs = [item for item in registry.specs if item.spec_id != spec.spec_id]
             registry.specs.append(spec)
-            spec_node_id = f"spec::{spec.spec_id}"
-            unit_prefix = f"spec-unit::{spec.spec_id}::"
-            graph = registry.derivation_graph
-            graph.nodes = [
-                node for node in graph.nodes
-                if node.node_id != spec_node_id and not node.node_id.startswith(unit_prefix)
+            self._bind_spec(registry.derivation_graph, spec)
+            return self.save(registry)
+
+    def publish_spec_and_representation(
+        self,
+        spec: TeachingRepresentationSpec,
+        representation: TeachingRepresentation,
+        *,
+        dependency_kind: DependencyKind = "semantic_content",
+        rebuild_policy: Literal["automatic", "on_demand", "manual"] = "automatic",
+    ) -> TeachingRepresentationRegistry:
+        """Persist a final spec and its public pointer in one registry write."""
+
+        if spec.course_id != representation.course_id or spec.spec_id != representation.spec_id:
+            raise RepresentationConflict("Spec and representation publication targets differ")
+        with self._lock(spec.course_id):
+            registry = self.load(spec.course_id)
+            registry.specs = [item for item in registry.specs if item.spec_id != spec.spec_id]
+            registry.specs.append(spec)
+            registry.representations = [
+                item
+                for item in registry.representations
+                if item.representation_id != representation.representation_id
             ]
-            graph.nodes.append(DerivationNode(
-                node_id=spec_node_id,
-                node_type="spec",
-                object_id=spec.spec_id,
-                revision_or_fingerprint=spec.revision,
-            ))
-            graph.edges = [
-                edge for edge in graph.edges
-                if edge.to_node_id != spec_node_id
-                and not edge.from_node_id.startswith(unit_prefix)
-                and not edge.to_node_id.startswith(unit_prefix)
-            ]
-            units = spec.unit_bindings or {"__whole__": spec.source_bindings}
-            for unit_id, bindings in units.items():
-                unit_node_id = f"{unit_prefix}{unit_id}"
-                graph.nodes.append(DerivationNode(
-                    node_id=unit_node_id,
-                    node_type="spec",
-                    object_id=f"{spec.spec_id}:{unit_id}",
-                    revision_or_fingerprint=stable_hash({
-                        "spec_revision": spec.revision,
-                        "unit_id": unit_id,
-                    }, prefix="tur_"),
-                ))
-                graph.edges.append(DerivationEdge(
-                    edge_id=stable_hash({
-                        "course_id": spec.course_id,
-                        "source": unit_node_id,
-                        "target": spec_node_id,
-                    }, prefix="dre_"),
-                    from_node_id=unit_node_id,
-                    to_node_id=spec_node_id,
-                    dependency_scope={"unit_id": unit_id},
-                ))
-                for binding in bindings:
-                    for source_key, revision in binding.source_revisions.items():
-                        source_node_id = f"source::{source_key}"
-                        source_node = next(
-                            (node for node in graph.nodes if node.node_id == source_node_id),
-                            None,
-                        )
-                        if source_node is None:
-                            source_node = DerivationNode(
-                                node_id=source_node_id,
-                                node_type="source",
-                                object_id=source_key,
-                                revision_or_fingerprint=revision,
-                            )
-                            graph.nodes.append(source_node)
-                        else:
-                            source_node.revision_or_fingerprint = revision
-                            source_node.status = "current"
-                        graph.edges.append(DerivationEdge(
-                            edge_id=stable_hash({
-                                "course_id": spec.course_id,
-                                "source": source_node_id,
-                                "target": unit_node_id,
-                            }, prefix="dre_"),
-                            from_node_id=source_node_id,
-                            to_node_id=unit_node_id,
-                            dependency_scope={
-                                "unit_id": unit_id,
-                                "section_id": binding.section_id,
-                                "block_id": binding.block_id,
-                            },
-                        ))
+            registry.representations.append(representation)
+            self._bind_spec(registry.derivation_graph, spec)
+            self._bind_representation(
+                registry.derivation_graph,
+                representation,
+                dependency_kind=dependency_kind,
+                rebuild_policy=rebuild_policy,
+            )
             return self.save(registry)
 
     def register_representation(
@@ -558,6 +517,84 @@ class TeachingRepresentationRepository:
             if event:
                 registry = self.apply_revision_event(course_id, event)
         return registry
+
+    @staticmethod
+    def _bind_spec(
+        graph: AssetDerivationGraph,
+        spec: TeachingRepresentationSpec,
+    ) -> None:
+        spec_node_id = f"spec::{spec.spec_id}"
+        unit_prefix = f"spec-unit::{spec.spec_id}::"
+        graph.nodes = [
+            node for node in graph.nodes
+            if node.node_id != spec_node_id and not node.node_id.startswith(unit_prefix)
+        ]
+        graph.nodes.append(DerivationNode(
+            node_id=spec_node_id,
+            node_type="spec",
+            object_id=spec.spec_id,
+            revision_or_fingerprint=spec.revision,
+        ))
+        graph.edges = [
+            edge for edge in graph.edges
+            if edge.to_node_id != spec_node_id
+            and not edge.from_node_id.startswith(unit_prefix)
+            and not edge.to_node_id.startswith(unit_prefix)
+        ]
+        units = spec.unit_bindings or {"__whole__": spec.source_bindings}
+        for unit_id, bindings in units.items():
+            unit_node_id = f"{unit_prefix}{unit_id}"
+            graph.nodes.append(DerivationNode(
+                node_id=unit_node_id,
+                node_type="spec",
+                object_id=f"{spec.spec_id}:{unit_id}",
+                revision_or_fingerprint=stable_hash({
+                    "spec_revision": spec.revision,
+                    "unit_id": unit_id,
+                }, prefix="tur_"),
+            ))
+            graph.edges.append(DerivationEdge(
+                edge_id=stable_hash({
+                    "course_id": spec.course_id,
+                    "source": unit_node_id,
+                    "target": spec_node_id,
+                }, prefix="dre_"),
+                from_node_id=unit_node_id,
+                to_node_id=spec_node_id,
+                dependency_scope={"unit_id": unit_id},
+            ))
+            for binding in bindings:
+                for source_key, revision in binding.source_revisions.items():
+                    source_node_id = f"source::{source_key}"
+                    source_node = next(
+                        (node for node in graph.nodes if node.node_id == source_node_id),
+                        None,
+                    )
+                    if source_node is None:
+                        source_node = DerivationNode(
+                            node_id=source_node_id,
+                            node_type="source",
+                            object_id=source_key,
+                            revision_or_fingerprint=revision,
+                        )
+                        graph.nodes.append(source_node)
+                    else:
+                        source_node.revision_or_fingerprint = revision
+                        source_node.status = "current"
+                    graph.edges.append(DerivationEdge(
+                        edge_id=stable_hash({
+                            "course_id": spec.course_id,
+                            "source": source_node_id,
+                            "target": unit_node_id,
+                        }, prefix="dre_"),
+                        from_node_id=source_node_id,
+                        to_node_id=unit_node_id,
+                        dependency_scope={
+                            "unit_id": unit_id,
+                            "section_id": binding.section_id,
+                            "block_id": binding.block_id,
+                        },
+                    ))
 
     @staticmethod
     def _bind_representation(
