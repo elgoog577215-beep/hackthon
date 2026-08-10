@@ -40,6 +40,7 @@ from question_generation import (
     generate_question_contract,
     validate_question_spec,
 )
+from question_forms import classify_question_form, question_form_distribution
 from question_knowledge_binding import resolve_node_knowledge_binding
 from storage import DATA_DIR
 
@@ -175,6 +176,7 @@ def build_question_bank(
     solution_envelopes.update(final_solutions)
     legacy = [_legacy_item(course_data, item) for item in legacy_tasks]
     items = [*imported, *generated, *finals, *legacy]
+    _stamp_question_forms(items)
     _mark_near_duplicate_risks(items)
     _apply_tiered_review_policy(items, assessment_profile)
 
@@ -3263,6 +3265,14 @@ def _coverage_report(
     ]
     missing = [data for objective, data in required.items() if objective not in covered]
     count = len(required)
+    # H1d：题库按规范作答形态的分布。question_type 表达的是学科教学意图
+    # （同一种作答形态在不同学科族下有不同取值），答不了教师问的「这门课
+    # 填空题占比多少」；question_form 与学科无关，只描述怎么作答怎么判分。
+    publishable = [
+        item for item in items
+        if item.get("lifecycle_status") == "approved"
+        and (item.get("quality_report") or {}).get("passed")
+    ]
     return {
         "required_objective_count": count,
         "covered_objective_count": count - len(missing),
@@ -3270,6 +3280,10 @@ def _coverage_report(
         "missing_required_objectives": missing,
         "gaps": gaps,
         "status": "complete" if not missing else "blocked",
+        "question_form_distribution": question_form_distribution(items),
+        "publishable_question_form_distribution": question_form_distribution(
+            publishable
+        ),
     }
 
 
@@ -3299,6 +3313,22 @@ def _deduplicate_imported_items(items: list[dict[str, Any]]) -> list[dict[str, A
         existing["formal_task"] = _stored_formal_task_from_item(existing)
         existing["formal_task_revision_id"] = existing["formal_task"]["revision_id"]
     return result
+
+
+def _stamp_question_forms(items: list[dict[str, Any]]) -> None:
+    """给每道题打上规范作答形态（H1d）。
+
+    落库层此前只有 `question_type`，而它按学科族分裂（同一种作答形态在不同学科
+    下叫不同名字），题库因此无法按题型检索与配比。教师导入路径更是仅凭有没有
+    options 压成 single_choice / short_answer 两态，把导入题的真实形态丢掉。
+
+    这里补的是投影，不是第二真源：`question_type` 原样保留，判定只看已有的
+    结构化事实（input_contract.mode / options / answer_spec），判不出就落
+    unspecified，不按题干文本猜。
+    """
+    for item in items:
+        if isinstance(item, dict):
+            item["question_form"] = classify_question_form(item)
 
 
 def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
