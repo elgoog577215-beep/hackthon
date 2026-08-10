@@ -500,11 +500,7 @@ def _load_registry_slide_source(
 
 
 async def _plan_registry_slide_deck(course_id: str) -> SlideDeckPlanV1:
-    document, course_view = await run_in_threadpool(
-        _load_registry_slide_source,
-        course_id,
-        allow_legacy_projection=body.shadow_only,
-    )
+    document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
     return await plan_slide_deck(
         document,
         course_view,
@@ -912,7 +908,11 @@ async def stream_slide_deck_variant_build(
     await get_course_or_404(course_id)
     theme = normalize_slide_deck_theme(body.theme)
     variant_key = slide_deck_variant_key(body.mode, theme)
-    document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    document, course_view = await run_in_threadpool(
+        _load_registry_slide_source,
+        course_id,
+        allow_legacy_projection=body.shadow_only,
+    )
     course_view = deepcopy(course_view)
     course_view["generation_request"] = {
         **(course_view.get("generation_request") or {}),
