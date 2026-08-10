@@ -198,6 +198,46 @@ def _normalize_story_batch_response(
             == source_ids
         ]
         return matching[0] if len(matching) == 1 else None
+
+    def allowed_layout_ids_for_page(
+        unit: dict[str, Any],
+        page: dict[str, Any],
+    ) -> list[str]:
+        block_metadata = {
+            str(block.get("block_id") or ""): block
+            for block in unit.get("primary_blocks") or []
+            if isinstance(block, dict)
+        }
+        source_ids = [
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        ]
+        roles = [
+            str(block_metadata.get(block_id, {}).get("role") or "")
+            for block_id in source_ids
+            if str(block_metadata.get(block_id, {}).get("role") or "")
+        ]
+        artifacts = {
+            str(artifact)
+            for block_id in source_ids
+            for artifact in block_metadata.get(block_id, {}).get("artifact_kinds") or []
+            if str(artifact)
+        }
+        page_intent = (
+            teaching_intent_for_roles(roles, artifacts)
+            if roles or artifacts
+            else str(unit.get("teaching_intent") or "")
+        )
+        return [
+            str(layout.get("template_layout_id") or "")
+            for layout in unit.get("allowed_template_layouts") or []
+            if isinstance(layout, dict)
+            and page_intent in (layout.get("teaching_intents") or [])
+            and (
+                not artifacts
+                or artifacts.intersection(layout.get("artifact_kinds") or [])
+            )
+            and str(layout.get("template_layout_id") or "")
+        ]
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -227,6 +267,16 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
+        if unit is not None:
+            selected_layout_id = str(page.get("template_layout_id") or "")
+            unit_layout_ids = set(unit.get("allowed_template_layout_ids") or [])
+            page_layout_ids = allowed_layout_ids_for_page(unit, page)
+            if (
+                selected_layout_id in unit_layout_ids
+                and selected_layout_id not in page_layout_ids
+                and page_layout_ids
+            ):
+                page["template_layout_id"] = page_layout_ids[0]
         repair_target = repair_target_for(page)
         if repair_target is not None:
             required_title = str(repair_target.get("required_title") or "").strip()

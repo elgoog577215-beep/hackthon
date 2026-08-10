@@ -416,7 +416,7 @@ async def test_story_batch_requires_an_exact_source_title_during_repair() -> Non
 
 
 @pytest.mark.asyncio
-async def test_story_batch_repairs_layout_from_page_level_source_intent() -> None:
+async def test_story_batch_resolves_known_layout_from_page_level_source_intent() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -455,15 +455,12 @@ async def test_story_batch_repairs_layout_from_page_level_source_intent() -> Non
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    repair_feedback = calls[1]["repair_feedback"]
-    target = repair_feedback["repair_targets"][0]
-    assert repair_feedback["code"] == "template_layout_intent_mismatch"
-    assert target["page_intent"] == "concept_explanation"
-    assert target["required_template_layout_id"] in target[
-        "allowed_template_layout_ids"
-    ]
-    assert story.pages[0].template_layout_id in target["allowed_template_layout_ids"]
+    assert len(calls) == 1
+    expected_layout = _layout_for_request_blocks(
+        calls[0]["teaching_units"][0],
+        [calls[0]["teaching_units"][0]["primary_block_ids"][0]],
+    )
+    assert story.pages[0].template_layout_id == expected_layout
     assert story.pages[0].template_layout_id != calls[0]["teaching_units"][0][
         "allowed_template_layout_ids"
     ][0]
