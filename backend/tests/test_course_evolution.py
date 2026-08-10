@@ -989,6 +989,204 @@ def test_personal_path_fold_and_reorder_are_reviewed_course_operations_and_undoa
     ]
 
 
+def test_cross_section_resequence_moves_the_catalog_not_the_body(tmp_path):
+    """Structural growth must go through the catalog's own section command.
+
+    Moving a whole section is a change to the course outline. The plan carries a
+    RESEQUENCE_COURSE_PATH operation, and it lands in the same commit as the
+    block edits so the outline and the body can never disagree.
+    """
+    course = _course()
+    document = CourseDocument.model_validate(course["course_document"])
+    anchor = next(block for block in document.blocks if block.section_id == "section-1")
+    now = "2026-08-10T12:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="course_path_optimization",
+        claim="逆变换应当紧跟矩阵复合讲解。",
+        target_block_id=anchor.block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="先补一段承接说明。",
+            payload={"body": "说明为什么逆变换紧接复合讲解。"},
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-resequence",
+            operation_type="RESEQUENCE_COURSE_PATH",
+            target_block_id="",
+            target_section_id="section-3",
+            reason="把逆变换提前到矩阵复合之后，缩短前置到应用的跨度。",
+            payload={
+                "action": "RESEQUENCE",
+                "after_section_id": "section-1",
+                "before_preview": "位于结合律之后",
+                "after_preview": "移动到矩阵复合之后",
+            },
+        ),
+    ]
+    plan = CourseEvolutionPlan(
+        change_set_id="plan-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id=anchor.section_id,
+        base_revision_vector={
+            key: value
+            for key, value in revision_vector_for_document(document).revisions.items()
+            if key in {
+                f"section:{anchor.section_id}",
+                f"block:{anchor.block_id}",
+                "section_structure:section-3",
+            }
+        },
+        operations=operations,
+        allowed_scopes=["current"],
+        expected_effect="让逆变换紧跟其前置概念。",
+        created_at=now,
+        updated_at=now,
+    )
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    ))
+    document_repository = _document_repository(course)
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-resequence",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    ordered_sections = [
+        section.section_id
+        for section in sorted(
+            applied_document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+    assert ordered_sections.index("section-3") == ordered_sections.index("section-1") + 1
+    # Blocks stay owned by their own section; only the catalog moved.
+    assert {
+        block.section_id
+        for block in applied_document.blocks
+        if block.block_id in {
+            item.block_id
+            for item in document.blocks
+            if item.section_id == "section-3"
+        }
+    } == {"section-3"}
+    receipt = applied.change_sets[0].application_receipt
+    assert receipt["resequenced_section_ids"] == ["section-3"]
+    # The scaffold from the same plan landed in the same commit.
+    assert len(receipt["inserted_block_ids"]) == 1
+    assert receipt["document_revision"] == applied_document.document_revision
+
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-resequence",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    restored_document, _ = document_repository.load_document(course["course_id"])
+    restored_sections = [
+        section.section_id
+        for section in sorted(
+            restored_document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+    assert restored_sections == [
+        section.section_id
+        for section in sorted(
+            document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+
+
+def test_resequence_rejects_an_anchor_outside_the_course(tmp_path):
+    """An unknown anchor must fail the whole group, not reorder partially."""
+    course = _course()
+    document = CourseDocument.model_validate(course["course_document"])
+    now = "2026-08-10T12:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-bad-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="course_path_optimization",
+        claim="结构调整锚点无效。",
+        target_block_id=document.blocks[0].block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    plan = CourseEvolutionPlan(
+        change_set_id="plan-bad-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id="section-1",
+        operations=[
+            CourseEvolutionOperation(
+                operation_id="operation-resequence",
+                operation_type="RESEQUENCE_COURSE_PATH",
+                target_block_id="",
+                target_section_id="section-3",
+                reason="锚点不存在。",
+                payload={"action": "RESEQUENCE", "after_section_id": "section-missing"},
+            ),
+        ],
+        allowed_scopes=["current"],
+        expected_effect="不应生效。",
+        created_at=now,
+        updated_at=now,
+    )
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    ))
+    document_repository = _document_repository(course)
+    before, _ = document_repository.load_document(course["course_id"])
+
+    with pytest.raises(ValueError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-bad-resequence",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+
+    after, _ = document_repository.load_document(course["course_id"])
+    assert after.document_revision == before.document_revision
+
+
 def _mixed_family_plan(course: dict, *, change_set_id: str = "plan-mixed-family"):
     """One reviewed plan that mixes a teaching-scaffold and a canonical operation."""
     document = CourseDocument.model_validate(course["course_document"])

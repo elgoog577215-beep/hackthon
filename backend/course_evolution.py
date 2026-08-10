@@ -59,6 +59,7 @@ CANONICAL_OPERATION_TYPES = frozenset({
     "INSERT_COURSE_BLOCK",
     "FOLD_COURSE_BLOCK",
     "REORDER_COURSE_BLOCK",
+    "RESEQUENCE_COURSE_PATH",
     "ADJUST_COURSE_DIFFICULTY",
 })
 # How long an operation the learner explicitly declined stays out of follow-up
@@ -127,6 +128,7 @@ class CourseEvolutionOperation(BaseModel):
         "INSERT_COURSE_BLOCK",
         "FOLD_COURSE_BLOCK",
         "REORDER_COURSE_BLOCK",
+        "RESEQUENCE_COURSE_PATH",
         "ADJUST_COURSE_DIFFICULTY",
     ]
     target_block_id: str
@@ -557,7 +559,13 @@ def accept_change_set(
             raise ValueError("Replaced course evolution plan is no longer active")
         replaced_retire_block_ids = list(replaced.applied_block_ids)
 
-    replacements, insertions, folded_retire_block_ids, reorderings = _course_block_mutations(
+    (
+        replacements,
+        insertions,
+        folded_retire_block_ids,
+        reorderings,
+        section_moves,
+    ) = _course_block_mutations(
         change_set,
         document,
         selected_scope=selected_scope,
@@ -574,6 +582,7 @@ def accept_change_set(
         document,
         insertions=insertions,
         replacements=replacements,
+        section_moves=section_moves,
         accepted_operation_ids=accepted_operation_ids,
         excluded_operation_ids=excluded_operation_ids,
         accepted_operation_id_set=accepted_operation_id_set,
@@ -605,6 +614,7 @@ def accept_change_set(
                 *folded_retire_block_ids,
             ],
             reorderings=reorderings,
+            section_moves=section_moves,
             reason=f"学习证据驱动课程生长：{change_set.hypothesis_id}",
             actor=f"learner:{user_id}",
         ))
@@ -638,6 +648,7 @@ def _application_outcome(
     *,
     insertions: list[dict[str, Any]],
     replacements: list[dict[str, Any]],
+    section_moves: list[dict[str, str]],
     accepted_operation_ids: list[str],
     excluded_operation_ids: list[str],
     accepted_operation_id_set: set[str],
@@ -650,6 +661,21 @@ def _application_outcome(
     return {
         "inserted_block_ids": [item["block"].block_id for item in insertions],
         "replaced_block_ids": [str(item["block_id"]) for item in replacements],
+        "resequenced_section_ids": [
+            str(item["section_id"]) for item in section_moves
+        ],
+        # Where each moved section sat beforehand, so undo can put it back.
+        "section_move_journal": [
+            {
+                "section_id": str(item["section_id"]),
+                "after_section_id": str(item.get("after_section_id") or ""),
+                "before_after_section_id": _previous_section_id(
+                    document,
+                    str(item["section_id"]),
+                ),
+            }
+            for item in section_moves
+        ],
         "folded_block_ids": [
             operation.target_block_id
             for operation in change_set.operations
@@ -1014,7 +1040,12 @@ def undo_change_set(
     if change_set.status != "applied":
         raise ValueError(f"Course change set cannot be undone from {change_set.status}")
     if change_set.write_target == "course_document":
-        if not change_set.applied_block_ids:
+        # A pure catalog resequence changes no blocks, so an empty block list is
+        # only an error when the plan also recorded no section move.
+        if (
+            not change_set.applied_block_ids
+            and not change_set.application_receipt.get("section_move_journal")
+        ):
             raise ValueError("Applied course evolution plan has no recorded course blocks")
         document_repository = document_repository or _default_document_repository()
         document, canonical = document_repository.load_document(course_id)
@@ -1072,6 +1103,16 @@ def undo_change_set(
             for item in reversed(path_operation_journal)
             if item.get("operation_type") == "REORDER_COURSE_BLOCK"
         ]
+        reverse_section_moves = [
+            {
+                "section_id": str(item.get("section_id") or ""),
+                "after_section_id": str(item.get("before_after_section_id") or ""),
+            }
+            for item in reversed(
+                change_set.application_receipt.get("section_move_journal") or []
+            )
+            if str(item.get("section_id") or "")
+        ]
         try:
             receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
                 course_id,
@@ -1082,6 +1123,7 @@ def undo_change_set(
                 retire_block_ids=inserted_block_ids,
                 restore_block_ids=restore_block_ids,
                 reorderings=reverse_reorderings,
+                section_moves=reverse_section_moves,
                 reason=f"撤销学习证据驱动课程生长：{change_set.hypothesis_id}",
                 actor=f"learner:{user_id}",
             ))
@@ -3207,12 +3249,14 @@ def _course_block_mutations(
     list[dict[str, Any]],
     list[str],
     list[dict[str, str]],
+    list[dict[str, str]],
 ]:
     """Compile every reviewed operation of one plan into a single commit.
 
     Teaching scaffolds and canonical course operations are compiled by their own
     routine and merged here, so a plan that mixes both families still reaches the
-    course document as one atomic operation group.
+    course document as one atomic operation group. Section resequencing is
+    returned separately because it is a catalog change, not a block change.
     """
     replacements: list[dict[str, Any]] = []
     has_canonical_operations = any(
@@ -3228,6 +3272,7 @@ def _course_block_mutations(
                 selected_scope=selected_scope,
                 selected_operation_ids=selected_operation_ids,
             ),
+            [],
             [],
             [],
         )
@@ -3247,6 +3292,7 @@ def _course_block_mutations(
     section_ids = {section.section_id for section in document.sections}
     retire_block_ids: list[str] = []
     reorderings: list[dict[str, str]] = []
+    section_moves: list[dict[str, str]] = []
     for operation in change_set.operations:
         if operation.operation_type in SCAFFOLD_OPERATION_TYPES:
             continue
@@ -3281,6 +3327,22 @@ def _course_block_mutations(
             reorderings.append({
                 "block_id": current.block_id,
                 "after_block_id": after_block_id,
+            })
+            continue
+        if operation.operation_type == "RESEQUENCE_COURSE_PATH":
+            # Structural change goes to the catalog, never to the body: only the
+            # ordered section list owns course structure.
+            if operation.target_section_id not in section_ids:
+                raise ValueError("Course evolution resequence target is unavailable")
+            after_section_id = str(operation.payload.get("after_section_id") or "")
+            if after_section_id:
+                if after_section_id not in section_ids:
+                    raise ValueError("Course evolution resequence anchor is unavailable")
+                if after_section_id == operation.target_section_id:
+                    raise ValueError("Course evolution resequence cannot anchor to itself")
+            section_moves.append({
+                "section_id": operation.target_section_id,
+                "after_section_id": after_section_id,
             })
             continue
         proposed_raw = operation.payload.get("proposed_block")
@@ -3326,9 +3388,32 @@ def _course_block_mutations(
                 "block": proposed,
             })
 
-    if not replacements and not insertions and not retire_block_ids and not reorderings:
+    if (
+        not replacements
+        and not insertions
+        and not retire_block_ids
+        and not reorderings
+        and not section_moves
+    ):
         raise ValueError("Course evolution plan contains no content mutations")
-    return replacements, insertions, retire_block_ids, reorderings
+    return replacements, insertions, retire_block_ids, reorderings, section_moves
+
+
+def _previous_section_id(document: CourseDocument, section_id: str) -> str:
+    """The section that currently precedes ``section_id`` in the catalog."""
+    ordered = sorted(
+        document.sections,
+        key=lambda item: (item.position, item.section_id),
+    )
+    index = next(
+        (
+            position
+            for position, item in enumerate(ordered)
+            if item.section_id == section_id
+        ),
+        -1,
+    )
+    return ordered[index - 1].section_id if index > 0 else ""
 
 
 def _previous_active_block_id(

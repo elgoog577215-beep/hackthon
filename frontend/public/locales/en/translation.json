@@ -709,7 +709,7 @@
       "failed": "Not passed"
     },
     "sources": { "dialogue": "Dialogue and feedback", "record": "Learning record", "practice": "Formal practice" },
-    "operations": { "explanation": "Additional explanation", "transition": "Follow-up transition", "checkpoint": "Understanding check", "targetedPractice": "Targeted practice", "animation": "Step animation", "fold": "Fold mastered content", "reorder": "Reorganize learning order" },
+    "operations": { "explanation": "Additional explanation", "transition": "Follow-up transition", "checkpoint": "Understanding check", "targetedPractice": "Targeted practice", "animation": "Step animation", "fold": "Fold mastered content", "reorder": "Reorganize learning order", "resequence": "Cross-chapter resequence" },
     "sectionGrowth": {
       "stepsLabel": "Six course growth steps",
       "prompt": "How should this course change?",

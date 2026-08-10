@@ -709,7 +709,7 @@
       "failed": "未通过"
     },
     "sources": { "dialogue": "对话与反馈", "record": "学习记录", "practice": "正式练习" },
-    "operations": { "explanation": "补充解释", "transition": "后续承接", "checkpoint": "理解检查", "targetedPractice": "针对性练习", "animation": "分步演示", "fold": "折叠已会内容", "reorder": "重组学习顺序" },
+    "operations": { "explanation": "补充解释", "transition": "后续承接", "checkpoint": "理解检查", "targetedPractice": "针对性练习", "animation": "分步演示", "fold": "折叠已会内容", "reorder": "重组学习顺序", "resequence": "跨章节重排" },
     "sectionGrowth": {
       "stepsLabel": "课程生长六步",
       "prompt": "你希望课程怎样变化？",
