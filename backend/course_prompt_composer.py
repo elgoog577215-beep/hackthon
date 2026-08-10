@@ -582,6 +582,14 @@ class CoursePromptComposer:
    `derives` target 可由 source 推出，必填 `derivation_steps`（有序关键步骤，不可为空）；
    `contrasts_with` 两者易混需辨析（对称），必填 `distinction`（凭什么区分两者）。
    本节教学上确实成立的前置之外关系都要给出，但不要为凑数编造。
+   寻找关系时按下面的信号逐个自查，这三类最容易被漏掉：
+   - 写了某个知识点的易错点 `confused_with` 字段时，该易错对象若也是本节知识，
+     两者之间就应有一条 `contrasts_with`——学生会混淆，正是需要辨析的信号。
+   - 同一个对象在本节出现了两种表述（定义式与图像、文字规则与符号公式、
+     递推式与通项式），两者之间是 `equivalent_to`，不是前置。
+   - 一个知识点是另一个的特例（参数取特定值、条件更强、只适用于更窄的范围），
+     方向是一般 → 特例的 `generalizes`，不要写成 `prerequisite`。
+   自查后确实不成立就留空，宁缺毋滥；本节只有两三个知识点时没有这几类是正常的。
 7. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
 8. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和

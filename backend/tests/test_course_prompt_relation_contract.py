@@ -124,3 +124,48 @@ def test_every_example_relation_survives_the_compiler_gate() -> None:
     assert [item["rejection_reason"] for item in invalid] == []
     assert unresolved == []
     assert len(compiled) == len(examples)
+
+
+# --- 三类"实测从未产出"的关系需要触发引导（A1 真机验收后补） -----------------
+#
+# lz-web-search 用 2 小节课程实跑对照：非前置关系 0 -> 8 条，出现类型数 1/6 ->
+# 3/6，prompt 修复确实生效。但 equivalent_to / contrasts_with / generalizes
+# 三类**一条都没出现**。样本太小是可能原因之一，但另一个可能是：prompt 只说了
+# 每类"是什么"，没说"什么时候该去找一条"。定义能让模型在已经想到关系时选对
+# 类型，却不会促使它去**发现**关系。
+#
+# 所以补的是触发条件而不是更多定义，且必须是学科无关的可判断信号——写"数学里
+# 可以用等价"对物理课没有意义。
+
+
+def test_three_missing_types_have_explicit_triggers() -> None:
+    """三类关系必须各有一条"什么时候该用"的触发引导，不能只有定义。"""
+    prompt = _batch_prompt()
+    constraints = prompt[prompt.index("## 约束"): prompt.index("## JSON Schema")]
+    triggers = constraints[constraints.index("寻找关系时"):]
+
+    for name in ("equivalent_to", "contrasts_with", "generalizes"):
+        assert f"`{name}`" in triggers, f"{name} 缺少触发引导"
+
+
+def test_triggers_are_actionable_signals_not_restatements() -> None:
+    """触发条件必须指向可判断的信号，而不是把定义换个说法重写一遍。
+
+    判据取三个具体锚点：`contrasts_with` 挂到 `confused_with` 字段（该字段本来
+    就在易错点 schema 里，模型填了它就等于已经承认两者易混）；`equivalent_to`
+    指向"同一对象的两种表述"；`generalizes` 指向特例/一般的包含判断。
+    """
+    prompt = _batch_prompt()
+    triggers = prompt[prompt.index("寻找关系时"): prompt.index("## JSON Schema")]
+
+    assert "confused_with" in triggers
+    assert "两种表述" in triggers or "两种写法" in triggers
+    assert "特例" in triggers
+
+
+def test_triggers_do_not_invite_fabrication() -> None:
+    """给了触发条件更要守住底线：不成立就不写，宁缺毋滥。"""
+    prompt = _batch_prompt()
+    triggers = prompt[prompt.index("寻找关系时"): prompt.index("## JSON Schema")]
+
+    assert "不成立" in triggers or "不要为凑数" in triggers
