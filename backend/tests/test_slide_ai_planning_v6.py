@@ -170,6 +170,22 @@ async def test_one_story_batch_failure_fails_the_candidate_without_fallback() ->
 
 
 @pytest.mark.asyncio
+async def test_story_balance_failure_is_not_misreported_as_rate_limiting() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(_request):
+        raise RuntimeError("Error code: 429 - insufficient balance")
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert captured.value.failure.code == "story_ai_batch_balance_unavailable"
+    assert captured.value.failure.retryable is False
+
+
+@pytest.mark.asyncio
 async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
 

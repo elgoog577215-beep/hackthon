@@ -320,6 +320,24 @@ class SlideDeckV6Orchestrator:
         tracker.add_work([
             SlideWorkItemV2(item_id="source-contract", kind="local", stage="source", label="冻结课程与模板真源"),
             SlideWorkItemV2(item_id="course-graph", kind="local", stage="course_graph", label="构建完整教学单元图"),
+            SlideWorkItemV2(
+                item_id="materialize",
+                kind="local",
+                stage="materialize",
+                label="Compile source-faithful pages",
+            ),
+            SlideWorkItemV2(
+                item_id="quality",
+                kind="local",
+                stage="quality",
+                label="Run fidelity and render gates",
+            ),
+            SlideWorkItemV2(
+                item_id=finalize_item_id,
+                kind="local",
+                stage="publish" if publish_result else "shadow_finalize",
+                label="Publish atomically" if publish_result else "Finalize read-only shadow",
+            ),
         ])
         await _emit(progress_callback, tracker.snapshot())
         try:
@@ -351,7 +369,6 @@ class SlideDeckV6Orchestrator:
                 source_contract=source_contract.model_dump(mode="json"),
                 course_presentation_graph=graph.model_dump(mode="json"),
             )
-            tracker.complete("course-graph")
             story_sections = list(dict.fromkeys(unit.section_id for unit in graph.units))
             tracker.add_work([
                 SlideWorkItemV2(
@@ -363,7 +380,18 @@ class SlideDeckV6Orchestrator:
                     batch_id=f"story-{index + 1}",
                 )
                 for index, section_id in enumerate(story_sections)
+            ] + [
+                SlideWorkItemV2(
+                    item_id=f"visual-{index + 1}",
+                    kind="ai_batch",
+                    stage="visual",
+                    label=f"Visual planning batch {index + 1}",
+                    chapter_id=section_id,
+                    batch_id=f"visual-{index + 1}",
+                )
+                for index, section_id in enumerate(story_sections)
             ])
+            tracker.complete("course-graph")
             await _emit(progress_callback, tracker.snapshot())
 
             resumed_story_batches = [
@@ -412,6 +440,16 @@ class SlideDeckV6Orchestrator:
                     batch.model_dump(mode="json") for batch in story.batches
                 ],
             )
+            tracker.add_work([
+                SlideWorkItemV2(
+                    item_id=f"render-{page.page_id}",
+                    kind="render_page",
+                    stage="render",
+                    label=f"Compile planned page {page.page_ordinal + 1}",
+                    page_id=page.page_id,
+                )
+                for page in story.pages
+            ])
             tracker.add_work([
                 SlideWorkItemV2(
                     item_id=f"visual-{index + 1}",
@@ -488,7 +526,6 @@ class SlideDeckV6Orchestrator:
             current_work = "materialize"
             tracker.start("materialize")
             deck = compile_slide_deck_v6(document, graph, story, visual, template)
-            tracker.complete("materialize")
             tracker.add_work([
                 SlideWorkItemV2(
                     item_id=f"render-{page.page_id}",
@@ -499,6 +536,7 @@ class SlideDeckV6Orchestrator:
                 )
                 for page in deck.pages
             ])
+            tracker.complete("materialize")
             await _emit(progress_callback, tracker.snapshot())
 
             first_page = deck.pages[0]

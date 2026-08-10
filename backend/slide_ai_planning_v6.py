@@ -116,10 +116,10 @@ def _failure_category(error: BaseException, *, prefix: str) -> tuple[str, bool]:
         return f"{prefix}_timeout", True
     if any(token in message for token in ("401", "403", "authentication", "api key")):
         return f"{prefix}_authentication", False
-    if any(token in message for token in ("429", "rate limit", "too many requests")):
-        return f"{prefix}_rate_limited", True
     if any(token in message for token in ("balance", "quota", "credit")):
         return f"{prefix}_balance_unavailable", False
+    if any(token in message for token in ("429", "rate limit", "too many requests")):
+        return f"{prefix}_rate_limited", True
     return f"{prefix}_failed", True
 
 
