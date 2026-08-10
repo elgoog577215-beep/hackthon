@@ -1,10 +1,16 @@
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from slide_deck_v6 import V6BuildError
+from slide_build_progress_v2 import (
+    SlideBuildProgressManifestV2,
+    SlideBuildProgressRepositoryV2,
+    SlideWorkItemV2,
+)
 from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
@@ -116,6 +122,69 @@ def _orchestrator(tmp_path: Path) -> tuple[SlideDeckV6Orchestrator, TeachingRepr
     return orchestrator, representations, candidates
 
 
+def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_path: Path) -> None:
+    candidates = SlideDeckV6CandidateRepository(tmp_path / "candidates")
+    progress_root = tmp_path / "progress"
+    common = {"schema_version": "slide_deck_v6_candidate_v1", "course_id": "generic-course"}
+    candidates.save("ready", {
+        **common,
+        "task_id": "ready",
+        "status": "v6_ready",
+        "visual_plan": {"decisions": [{"degraded": False}, {"degraded": False}]},
+        "failure": None,
+    })
+    candidates.save("manual", {
+        **common,
+        "task_id": "manual",
+        "status": "v6_needs_manual_edit",
+        "visual_plan": {"decisions": [{"degraded": True}, {"degraded": False}]},
+        "failure": None,
+    })
+    candidates.save("story-failed", {
+        **common,
+        "task_id": "story-failed",
+        "status": "v6_failed",
+        "failure": {"stage": "story", "code": "story_ai_batch_timeout"},
+    })
+    candidates.save("template-failed", {
+        **common,
+        "task_id": "template-failed",
+        "status": "v6_failed",
+        "failure": {"stage": "template", "code": "template_layout_unavailable"},
+    })
+    now = datetime.now(timezone.utc).isoformat()
+    SlideBuildProgressRepositoryV2(progress_root).save(SlideBuildProgressManifestV2(
+        task_id="ready",
+        status="completed",
+        items=[SlideWorkItemV2(
+            item_id="source",
+            kind="local",
+            stage="source",
+            label="Freeze source",
+            status="completed",
+            discovered_at=now,
+            started_at="2026-01-01T00:00:00+00:00",
+            completed_at="2026-01-01T00:00:02+00:00",
+        )],
+        started_at=now,
+        updated_at=now,
+        last_event_at=now,
+    ))
+
+    metrics = candidates.summarize(
+        course_id="generic-course",
+        progress_root=progress_root,
+    )
+
+    assert metrics["total_builds"] == 4
+    assert metrics["success_rate"] == 0.5
+    assert metrics["story_ai_failure_rate"] == 0.25
+    assert metrics["visual_degradation_rate"] == 0.25
+    assert metrics["manual_edit_rate"] == 0.25
+    assert metrics["template_conflict_rate"] == 0.25
+    assert metrics["average_stage_duration_ms"] == {"source": 2000}
+
+
 @pytest.mark.asyncio
 async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path: Path) -> None:
     document = _document()
@@ -146,6 +215,22 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     spec = next(item for item in registry.specs if item.spec_id == representation.spec_id)
     assert spec.payload["content"]["schema_version"] == "slide_deck_v6"
     assert spec.payload["content"]["status"] == "v6_ready"
+    assert spec.payload["content"]["planning_status"] == {
+        "story_ai": {
+            "status": "completed",
+            "batch_count": 1,
+            "providers": ["fixture-pool"],
+        },
+        "visual_ai": {
+            "status": "completed",
+            "page_count": 1,
+            "degraded_page_count": 0,
+            "providers": ["fixture-pool"],
+        },
+    }
+    assert spec.payload["content"]["build_signature"]["signature"].startswith(
+        "slidebuildv6_"
+    )
 
 
 @pytest.mark.asyncio
@@ -287,7 +372,7 @@ async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_agai
                     item for item in unit["allowed_template_layout_ids"]
                     if item.endswith("/content-stack")
                 ),
-                "title": f"{chapter_id} 的观察任务",
+                "title": unit["source_text"][:40],
                 "summary": "",
                 "source_block_ids": unit["primary_block_ids"],
             }],

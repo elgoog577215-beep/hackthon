@@ -213,6 +213,9 @@ describe('teaching representation progressive build', () => {
     await store.buildSlideDeckVariant('course-1', {
       mode: 'teaching',
       theme: 'grid-notebook',
+      engineVersion: 'v6',
+      templatePackId: 'pptp-generic',
+      templatePackVersion: 4,
       forceRebuild: true,
       webImageRetrieval: {
         enabled: true,
@@ -227,6 +230,9 @@ describe('teaching representation progressive build', () => {
     expect(JSON.parse(String(init.body))).toEqual({
       mode: 'teaching',
       theme: 'grid-notebook',
+      engine_version: 'v6',
+      template_pack_id: 'pptp-generic',
+      template_version: 4,
       force_rebuild: true,
       web_image_retrieval: {
         enabled: true,

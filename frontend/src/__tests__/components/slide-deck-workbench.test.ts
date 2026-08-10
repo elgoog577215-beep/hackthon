@@ -37,6 +37,32 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
+  it('shows verified V6 story completion and visual degradation truthfully', () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'generic-course',
+        representationId: 'slides-v6',
+        deckTitle: 'Evidence workflow',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        quality: { passed: true },
+        candidateStatus: 'v6_needs_manual_edit',
+        planningStatus: {
+          story_ai: { status: 'completed', batch_count: 2 },
+          visual_ai: { status: 'partial_degraded', degraded_page_count: 1 },
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
+    expect(wrapper.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
+    expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
+  })
+
   it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {

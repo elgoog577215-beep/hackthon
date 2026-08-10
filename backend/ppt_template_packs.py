@@ -385,6 +385,8 @@ class PptTemplatePackRepository:
         manifest["status"] = "published"
         manifest["updated_at"] = snapshot["published_at"]
         manifest["manifest_digest"] = snapshot["manifest_digest"]
+        manifest["v6_eligible"] = bool(snapshot.get("v6_eligible"))
+        manifest["v6_validation_errors"] = list(snapshot.get("v6_validation_errors") or [])
         _atomic_json(self._manifest_path(pack_id), manifest)
         return self._public(snapshot)
 

@@ -21,6 +21,8 @@ export interface PersonalPptTemplatePack {
   latest_version: number
   version?: number
   manifest_digest?: string
+  v6_eligible?: boolean
+  v6_validation_errors?: string[]
   extracted_style?: Record<string, any>
   representative_pages?: Array<Record<string, any>>
   preview_slides?: Array<Record<string, any>>

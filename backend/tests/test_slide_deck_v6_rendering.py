@@ -141,3 +141,28 @@ def test_official_representation_export_dispatches_v6_without_legacy_schema_coer
 
     assert output.is_file()
     assert len(Presentation(output).slides) == len(deck.pages)
+
+
+def test_pptx_renderer_applies_the_frozen_template_theme_overrides(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import slide_deck_v6_renderer as renderer
+
+    _document, deck = _code_deck()
+    deck.template_theme_overrides = {
+        "accent": "315E7D",
+        "title_font": "Noto Serif SC",
+    }
+    observed: dict[str, str] = {}
+    original = renderer._render_slide
+
+    def capture(slide, unit, page_number, page_count, theme, assets):
+        observed.update(theme)
+        return original(slide, unit, page_number, page_count, theme, assets)
+
+    monkeypatch.setattr(renderer, "_render_slide", capture)
+    renderer.export_slide_deck_v6_pptx(deck, tmp_path / "personal-theme.pptx")
+
+    assert observed["accent"] == "315E7D"
+    assert observed["title_font"] == "Noto Serif SC"

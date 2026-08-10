@@ -121,6 +121,27 @@ def _allowed_layout_ids(
     return result
 
 
+def _layout_prompt_contract(
+    layout_id: str,
+    template: TemplateLayoutPackContractV1,
+) -> dict[str, Any]:
+    layout = template.get_layout(layout_id)
+    if layout is None:  # pragma: no cover - guarded by the closed registry
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message=f"Unknown template layout: {layout_id}",
+        )
+    return {
+        "template_layout_id": layout.template_layout_id,
+        "layout_slug": layout.layout_slug,
+        "teaching_intents": layout.teaching_intents,
+        "artifact_kinds": layout.artifact_kinds,
+        "slots": [slot.model_dump(mode="json") for slot in layout.slots],
+        "safe_continuation_layout_slugs": layout.safe_continuation_layout_slugs,
+    }
+
+
 def _story_requests(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -155,7 +176,13 @@ def _story_requests(
                     "teaching_plan_context": unit.teaching_plan_context,
                     "prerequisite_unit_ids": unit.prerequisite_unit_ids,
                     "source_text": unit.source_text,
-                    "allowed_template_layout_ids": _allowed_layout_ids(unit, template),
+                    "allowed_template_layout_ids": (
+                        allowed_layout_ids := _allowed_layout_ids(unit, template)
+                    ),
+                    "allowed_template_layouts": [
+                        _layout_prompt_contract(layout_id, template)
+                        for layout_id in allowed_layout_ids
+                    ],
                 }
                 for unit in by_section[section_id]
             ],

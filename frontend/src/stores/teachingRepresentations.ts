@@ -29,6 +29,8 @@ export interface SlideDeckBuildOptions {
   mode: SlideDeckMode
   theme: Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
   engineVersion?: 'v5' | 'v6'
+  templatePackId?: string
+  templatePackVersion?: number
   forceRebuild?: boolean
   webImageRetrieval?: {
     enabled: boolean
@@ -624,6 +626,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
                 mode: options.mode,
                 theme: options.theme,
                 ...(options.engineVersion ? { engine_version: options.engineVersion } : {}),
+                ...(options.templatePackId ? { template_pack_id: options.templatePackId } : {}),
+                ...(options.templatePackVersion == null ? {} : { template_version: options.templatePackVersion }),
                 force_rebuild: options.forceRebuild === true,
                 ...(options.webImageRetrieval ? {
                   web_image_retrieval: {

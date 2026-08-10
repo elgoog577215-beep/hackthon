@@ -25,10 +25,20 @@
           {{ t('pptWorkspace.publishedSchema', '已发布') }} {{ schemaLabel(publishedSchema) }}
         </small>
         <small
-          v-if="candidateStatus === 'v5_needs_manual_edit'"
+          v-if="candidateStatus === 'v5_needs_manual_edit' || candidateStatus === 'v6_needs_manual_edit'"
           class="slide-workbench__manual-status"
           data-testid="ppt-manual-edit-status"
-        >{{ t('pptWorkspace.manualEditCandidate', '完整 V5 已生成，部分页面需要人工调整') }}</small>
+        >{{ t('pptWorkspace.manualEditCandidate', '完整课件已生成，部分页面需要人工调整') }}</small>
+        <small
+          v-if="planningStatus?.story_ai?.status === 'completed'"
+          class="slide-workbench__manual-status"
+          data-testid="ppt-story-ai-status"
+        >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
+        <small
+          v-if="planningStatus?.visual_ai?.status"
+          class="slide-workbench__manual-status"
+          data-testid="ppt-visual-ai-status"
+        >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `视觉 AI 部分降级 · ${planningStatus.visual_ai.degraded_page_count || 0} 页需检查` : '视觉 AI 已完成' }}</small>
         <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
           {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
         </small>
@@ -134,6 +144,7 @@
           :page-count="slides.length"
           :deck-title="deckTitle"
           :theme="previewTheme"
+          :theme-overrides="themeOverrides"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -382,6 +393,7 @@
             :page-count="slides.length"
             :deck-title="deckTitle"
             :theme="previewTheme"
+            :theme-overrides="themeOverrides"
             :course-id="courseId"
             :representation-id="representationId"
             presenting
@@ -504,6 +516,7 @@ const props = withDefaults(defineProps<{
   standalone?: boolean
   mode?: SlideDeckMode
   theme?: SlideDeckTheme
+  themeOverrides?: Record<string, string>
   variants?: TeachingRepresentation[]
   bundleParts?: Array<{ representationId: string; label: string }>
   activeBundlePartId?: string
@@ -512,10 +525,12 @@ const props = withDefaults(defineProps<{
   candidateSchema?: string
   publishedSchema?: string
   candidateStatus?: string
+  planningStatus?: Record<string, any> | null
 }>(), {
   standalone: false,
   mode: 'teaching',
   theme: 'qingfeng-classroom',
+  themeOverrides: () => ({}),
   variants: () => [],
   bundleParts: () => [],
   activeBundlePartId: '',
@@ -524,6 +539,7 @@ const props = withDefaults(defineProps<{
   candidateSchema: '',
   publishedSchema: '',
   candidateStatus: '',
+  planningStatus: null,
   buildFailure: null,
   logicUpgrading: false,
   logicUpgradeError: '',

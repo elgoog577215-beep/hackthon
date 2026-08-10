@@ -24,6 +24,7 @@ from slide_deck_v6 import (
     SlideStoryBatchV3,
     SlideVisualDecisionV2,
     V6BuildError,
+    build_signature_v6,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
 )
@@ -37,6 +38,7 @@ from teaching_representations import (
     source_binding_for_document,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+from template_layout_contract import TemplateLayoutPackContractV1
 
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
@@ -72,6 +74,107 @@ class SlideDeckV6CandidateRepository:
         if not path.is_file():
             raise FileNotFoundError(task_id)
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def summarize(
+        self,
+        *,
+        course_id: str | None = None,
+        progress_root: str | Path | None = None,
+    ) -> dict[str, Any]:
+        """Aggregate terminal V6 outcomes without exposing course content."""
+
+        candidates: list[dict[str, Any]] = []
+        for path in self.root.glob("*.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if payload.get("schema_version") != "slide_deck_v6_candidate_v1":
+                continue
+            if payload.get("status") not in {"v6_ready", "v6_needs_manual_edit", "v6_failed"}:
+                continue
+            if course_id is not None and payload.get("course_id") != course_id:
+                continue
+            candidates.append(payload)
+
+        total = len(candidates)
+        successful = sum(
+            item.get("status") in {"v6_ready", "v6_needs_manual_edit"}
+            for item in candidates
+        )
+        failed = sum(item.get("status") == "v6_failed" for item in candidates)
+        manual = sum(item.get("status") == "v6_needs_manual_edit" for item in candidates)
+        story_failures = sum(
+            (item.get("failure") or {}).get("stage") == "story"
+            for item in candidates
+        )
+        template_conflicts = sum(
+            (
+                (item.get("failure") or {}).get("stage") == "template"
+                or "template" in str((item.get("failure") or {}).get("code") or "")
+            )
+            for item in candidates
+        )
+        visual_decisions = [
+            decision
+            for item in candidates
+            for decision in ((item.get("visual_plan") or {}).get("decisions") or [])
+        ]
+        degraded_visuals = sum(bool(item.get("degraded")) for item in visual_decisions)
+
+        duration_totals: dict[str, float] = {}
+        duration_counts: dict[str, int] = {}
+        resolved_progress_root = Path(progress_root).resolve() if progress_root else None
+        if resolved_progress_root and resolved_progress_root.is_dir():
+            for candidate in candidates:
+                task_id = str(candidate.get("task_id") or "")
+                if not task_id or any(
+                    not (character.isalnum() or character in "-_")
+                    for character in task_id
+                ):
+                    continue
+                path = (resolved_progress_root / f"{task_id}.json").resolve()
+                try:
+                    path.relative_to(resolved_progress_root)
+                    manifest = json.loads(path.read_text(encoding="utf-8"))
+                except (ValueError, OSError, json.JSONDecodeError):
+                    continue
+                for item in manifest.get("items") or []:
+                    started_at = str(item.get("started_at") or "")
+                    completed_at = str(item.get("completed_at") or "")
+                    stage = str(item.get("stage") or "")
+                    if not stage or not started_at or not completed_at:
+                        continue
+                    try:
+                        duration_ms = max(
+                            0.0,
+                            (datetime.fromisoformat(completed_at) - datetime.fromisoformat(started_at)).total_seconds()
+                            * 1000,
+                        )
+                    except ValueError:
+                        continue
+                    duration_totals[stage] = duration_totals.get(stage, 0.0) + duration_ms
+                    duration_counts[stage] = duration_counts.get(stage, 0) + 1
+
+        def rate(numerator: int, denominator: int = total) -> float:
+            return round(numerator / denominator, 4) if denominator else 0.0
+
+        return {
+            "schema_version": "slide_deck_v6_metrics_v1",
+            "course_id": course_id or "",
+            "total_builds": total,
+            "successful_builds": successful,
+            "failed_builds": failed,
+            "success_rate": rate(successful),
+            "story_ai_failure_rate": rate(story_failures),
+            "visual_degradation_rate": rate(degraded_visuals, len(visual_decisions)),
+            "manual_edit_rate": rate(manual),
+            "template_conflict_rate": rate(template_conflicts),
+            "average_stage_duration_ms": {
+                stage: round(duration_totals[stage] / duration_counts[stage])
+                for stage in sorted(duration_totals)
+            },
+        }
 
 
 async def _emit(callback: ProgressCallback | None, payload: dict[str, object]) -> None:
@@ -144,6 +247,7 @@ class SlideDeckV6Orchestrator:
         story_planner: Planner,
         visual_planner: Planner,
         source_revision_provider: Callable[[], str],
+        template_contract: TemplateLayoutPackContractV1 | None = None,
         template_digest_provider: Callable[[], str] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
@@ -171,7 +275,7 @@ class SlideDeckV6Orchestrator:
         graph = None
         story = None
         visual = None
-        template = compile_builtin_template_layout_contract_v1(theme)
+        template = template_contract or compile_builtin_template_layout_contract_v1(theme)
         checkpoint: dict[str, Any] = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
             "task_id": task_id,
@@ -368,16 +472,6 @@ class SlideDeckV6Orchestrator:
 
             tracker.add_work([
                 SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
-                *[
-                    SlideWorkItemV2(
-                        item_id=f"render-{page.page_id}",
-                        kind="render_page",
-                        stage="render",
-                        label=f"编译页面 {page.page_ordinal + 1}",
-                        page_id=page.page_id,
-                    )
-                    for page in story.pages
-                ],
                 SlideWorkItemV2(item_id="quality", kind="local", stage="quality", label="执行忠实度与渲染门禁"),
                 SlideWorkItemV2(item_id="publish", kind="local", stage="publish", label="原子发布正式课件"),
             ])
@@ -387,8 +481,19 @@ class SlideDeckV6Orchestrator:
             tracker.start("materialize")
             deck = compile_slide_deck_v6(document, graph, story, visual, template)
             tracker.complete("materialize")
+            tracker.add_work([
+                SlideWorkItemV2(
+                    item_id=f"render-{page.page_id}",
+                    kind="render_page",
+                    stage="render",
+                    label=f"Compile page {page.page_ordinal + 1}",
+                    page_id=page.page_id,
+                )
+                for page in deck.pages
+            ])
+            await _emit(progress_callback, tracker.snapshot())
 
-            first_page = story.pages[0]
+            first_page = deck.pages[0]
             current_work = f"render-{first_page.page_id}"
             tracker.start(current_work, page_id=first_page.page_id)
             try:
@@ -410,7 +515,7 @@ class SlideDeckV6Orchestrator:
                     )
             except V6BuildError:
                 raise
-            except BaseException as error:
+            except Exception as error:
                 raise V6BuildError(
                     stage="render",
                     code="render_export_failed",
@@ -433,7 +538,7 @@ class SlideDeckV6Orchestrator:
                     retryable=False,
                     page_id=failed_page_id,
                 )
-            for page in story.pages:
+            for page in deck.pages:
                 work_id = f"render-{page.page_id}"
                 if work_id != current_work:
                     tracker.start(work_id, page_id=page.page_id)
@@ -472,12 +577,44 @@ class SlideDeckV6Orchestrator:
                     message="Template revision changed while V6 was building",
                     retryable=True,
                 )
+            degraded_visual_count = sum(
+                1 for decision in visual.decisions if decision.degraded
+            )
+            planning_status = {
+                "story_ai": {
+                    "status": "completed",
+                    "batch_count": len(story.batches),
+                    "providers": list(dict.fromkeys(
+                        batch.provider for batch in story.batches if batch.provider
+                    )),
+                },
+                "visual_ai": {
+                    "status": (
+                        "partial_degraded" if degraded_visual_count else "completed"
+                    ),
+                    "page_count": len(visual.decisions),
+                    "degraded_page_count": degraded_visual_count,
+                    "providers": list(dict.fromkeys(
+                        decision.provider
+                        for decision in visual.decisions
+                        if decision.provider
+                    )),
+                },
+            }
             content = {
                 **deck.model_dump(mode="json"),
+                "build_signature": build_signature_v6(
+                    document=document,
+                    course_data=course_data,
+                    mode=mode,
+                    theme=theme,
+                    template_contract=template,
+                ),
                 "source_contract": source_contract.model_dump(mode="json"),
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "planning_status": planning_status,
             }
             unit_bindings = {
                 page.page_id: [
@@ -568,6 +705,7 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "planning_status": planning_status,
                 "deck": deck.model_dump(mode="json"),
                 "failure": None,
                 "updated_at": now,

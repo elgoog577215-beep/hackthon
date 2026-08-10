@@ -19,6 +19,7 @@ from template_layout_contract import TemplateLayoutPackContractV1
 
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v1"
 
 
 class _StrictModel(BaseModel):
@@ -188,6 +189,9 @@ class SlidePageV6(_StrictModel):
     artifact_kinds: list[str] = Field(default_factory=list)
     visual_decision: SlideVisualDecisionV2
     speaker_notes: SlideSpeakerNotesV2
+    continuation_of_page_id: str = ""
+    continuation_index: int = Field(default=1, ge=1, le=3)
+    continuation_count: int = Field(default=1, ge=1, le=3)
 
 
 class SlideDeckV6Quality(_StrictModel):
@@ -224,6 +228,7 @@ class SlideDeckV6(_StrictModel):
     template_id: str
     template_version: str
     template_digest: str
+    template_theme_overrides: dict[str, str] = Field(default_factory=dict)
     status: V6Status
     pages: list[SlidePageV6] = Field(min_length=1)
     quality: SlideDeckV6Quality
@@ -295,6 +300,39 @@ def compile_ppt_source_contract_v2(
     )
 
 
+def build_signature_v6(
+    *,
+    document: CourseDocument,
+    course_data: dict[str, Any],
+    mode: str,
+    theme: str,
+    template_contract: TemplateLayoutPackContractV1,
+) -> dict[str, Any]:
+    """Build the cache identity from the same frozen inputs consumed by V6."""
+
+    source = compile_ppt_source_contract_v2(
+        document,
+        teaching_plan=dict(course_data.get("course_teaching_plan") or {}),
+        knowledge_snapshot=dict(course_data.get("course_knowledge_base") or {}),
+        coherence_contract=dict(course_data.get("course_coherence_contract") or {}),
+        template_contract=template_contract,
+        locale=str(course_data.get("language") or course_data.get("locale") or "zh-CN"),
+    )
+    fields = {
+        "source_digest": source.source_digest,
+        "course_document_revision": source.course_document_revision,
+        "template_id": source.template_id,
+        "template_version": source.template_version,
+        "template_digest": source.template_digest,
+        "story_policy_version": source.story_policy_version,
+        "visual_policy_version": source.visual_policy_version,
+        "mode": mode,
+        "theme": theme,
+        "compiler_version": SLIDE_DECK_V6_COMPILER_VERSION,
+    }
+    return {**fields, "signature": stable_hash(fields, prefix="slidebuildv6_")}
+
+
 _PROTECTED_NUMBER_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?%?")
 _PROTECTED_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]{2,}\b")
 _CJK_SPAN_RE = re.compile(r"[\u3400-\u9fff]{2,}")
@@ -310,6 +348,25 @@ def _protected_tokens(text: str) -> set[str]:
         *(match.group(0).lower() for match in _PROTECTED_NUMBER_RE.finditer(text)),
         *(match.group(0).lower() for match in _PROTECTED_IDENTIFIER_RE.finditer(text)),
     }
+
+
+def _title_protected_tokens(text: str) -> set[str]:
+    """Keep exact-match protection for identifiers, without treating prose as code."""
+
+    protected = {
+        match.group(0).lower()
+        for match in _PROTECTED_NUMBER_RE.finditer(text)
+    }
+    for match in _PROTECTED_IDENTIFIER_RE.finditer(text):
+        token = match.group(0)
+        if (
+            any(character.isdigit() for character in token)
+            or any(character in "_." for character in token)
+            or (token.isupper() and len(token) > 1)
+            or any(character.isupper() for character in token[1:])
+        ):
+            protected.add(token.lower())
+    return protected
 
 
 def _grounding_terms(text: str) -> set[str]:
@@ -382,6 +439,23 @@ def validate_slide_story_plan_v3(
         page_count_by_unit[unit.teaching_unit_id] += 1
         if page_count_by_unit[unit.teaching_unit_id] > 3:
             raise V6BuildError(stage="story", code="teaching_unit_page_limit_exceeded", message="A teaching unit exceeds the one-to-three page contract", page_id=page.page_id)
+        normalized_title = re.sub(r"\s+", "", page.title).casefold()
+        if normalized_title in title_owners:
+            raise V6BuildError(
+                stage="story",
+                code="duplicate_slide_title",
+                message="Each V6 page must have a distinct teaching title",
+                page_id=page.page_id,
+            )
+        title_owners[normalized_title] = page.page_id
+        unsupported_title_tokens = _title_protected_tokens(page.title) - _title_protected_tokens(unit.source_text)
+        if unsupported_title_tokens or _semantic_grounding_ratio(page.title, unit.source_text) < 0.12:
+            raise V6BuildError(
+                stage="story",
+                code="story_unsupported_title",
+                message="Visible page title is not traceable to its frozen source unit",
+                page_id=page.page_id,
+            )
         unsupported = _protected_tokens(page.summary) - _protected_tokens(unit.source_text)
         if unsupported:
             raise V6BuildError(stage="story", code="story_unsupported_fact", message=f"Unsupported factual tokens: {', '.join(sorted(unsupported))}", page_id=page.page_id)
@@ -392,15 +466,6 @@ def validate_slide_story_plan_v3(
                 message="Story summary has insufficient lexical grounding in its frozen source unit",
                 page_id=page.page_id,
             )
-        normalized_title = re.sub(r"\s+", "", page.title).casefold()
-        if normalized_title in title_owners:
-            raise V6BuildError(
-                stage="story",
-                code="duplicate_slide_title",
-                message="Each V6 page must have a distinct teaching title",
-                page_id=page.page_id,
-            )
-        title_owners[normalized_title] = page.page_id
         observed_blocks.extend(page.source_block_ids)
     missing = [block_id for block_id in graph.formal_block_ids if block_id not in observed_blocks]
     if missing:
@@ -644,6 +709,178 @@ def _bounded_slot_content(
     return content
 
 
+def _block_with_source_excerpt(block: CourseBlock, content: str) -> CourseBlock:
+    payload = dict(block.payload or {})
+    key = next(
+        (candidate for candidate in ("markdown", "text", "content", "summary") if candidate in payload),
+        "text",
+    )
+    payload[key] = content
+    return block.model_copy(update={"payload": payload}, deep=True)
+
+
+def _pack_lines(
+    lines: list[str],
+    *,
+    max_lines: int,
+    max_chars: int,
+    prefix_lines: list[str] | None = None,
+) -> list[str]:
+    prefix = list(prefix_lines or [])
+    prefix_chars = len("\n".join(prefix))
+    allowed_lines = max_lines or max(1, len(lines))
+    if prefix and allowed_lines <= len(prefix):
+        raise ValueError("template_slot_capacity_exceeded")
+    chunks: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        candidate = [*prefix, *current, line]
+        candidate_text = "\n".join(candidate)
+        exceeds_lines = len(candidate) > allowed_lines
+        exceeds_chars = bool(max_chars and len(candidate_text) > max_chars)
+        if current and (exceeds_lines or exceeds_chars):
+            chunks.append("\n".join([*prefix, *current]))
+            current = [line]
+            candidate_text = "\n".join([*prefix, line])
+        else:
+            current.append(line)
+        if len([*prefix, *current]) > allowed_lines or (
+            max_chars and len("\n".join([*prefix, *current])) > max_chars
+        ):
+            raise ValueError("template_slot_capacity_exceeded")
+    if current:
+        chunks.append("\n".join([*prefix, *current]))
+    elif prefix and prefix_chars <= max_chars:
+        chunks.append("\n".join(prefix))
+    return chunks
+
+
+def _split_artifact_block(
+    block: CourseBlock,
+    *,
+    slot_kind: str,
+    max_chars: int,
+    max_lines: int,
+    max_rows: int,
+) -> list[CourseBlock]:
+    content = block_source_text(block)
+    lines = content.splitlines()
+    if slot_kind == "code":
+        chunks = _pack_lines(
+            lines,
+            max_lines=max_lines,
+            max_chars=max_chars,
+        )
+    elif slot_kind == "table":
+        header: list[str] = []
+        rows = lines
+        if len(lines) >= 2 and re.match(r"^\s*\|.*\|\s*$", lines[0]) and re.match(
+            r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$",
+            lines[1],
+        ):
+            header = lines[:2]
+            rows = lines[2:]
+        chunks = _pack_lines(
+            rows,
+            max_lines=(max_rows or max(1, len(rows))) + len(header),
+            max_chars=max_chars,
+            prefix_lines=header,
+        )
+    else:
+        return [block]
+    return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
+
+
+def _safe_artifact_page_blocks(
+    *,
+    page_id: str,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> list[list[CourseBlock]]:
+    artifact_slot = next(
+        (
+            slot
+            for slot in layout.slots
+            if slot.slot_kind in {"code", "table"}
+            and any(_block_matches_slot(block, slot.slot_kind) for block in source_blocks)
+        ),
+        None,
+    )
+    if artifact_slot is None:
+        return [source_blocks]
+    artifact_blocks = [
+        block
+        for block in source_blocks
+        if _block_matches_slot(block, artifact_slot.slot_kind)
+    ]
+    try:
+        _bounded_slot_content(
+            artifact_blocks,
+            slot_kind=artifact_slot.slot_kind,
+            max_chars=artifact_slot.max_chars,
+            max_items=artifact_slot.max_items,
+            max_lines=artifact_slot.max_lines,
+            max_rows=artifact_slot.max_rows,
+        )
+        return [source_blocks]
+    except ValueError as error:
+        if str(error) != "template_slot_capacity_exceeded":
+            raise
+    if layout.layout_slug not in set(layout.safe_continuation_layout_slugs):
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message="The selected template layout declares no safe artifact continuation",
+            page_id=page_id,
+        )
+    artifact_chunks: list[CourseBlock] = []
+    try:
+        for block in artifact_blocks:
+            artifact_chunks.extend(
+                _split_artifact_block(
+                    block,
+                    slot_kind=artifact_slot.slot_kind,
+                    max_chars=artifact_slot.max_chars,
+                    max_lines=artifact_slot.max_lines,
+                    max_rows=artifact_slot.max_rows,
+                )
+            )
+    except ValueError as error:
+        raise V6BuildError(
+            stage="template",
+            code="template_slot_capacity_exceeded",
+            message=f"A single source line exceeds template slot {artifact_slot.slot_id}",
+            page_id=page_id,
+        ) from error
+    if len(artifact_chunks) > 3:
+        raise V6BuildError(
+            stage="template",
+            code="teaching_unit_page_limit_exceeded",
+            message="A source artifact needs more than three template-safe pages",
+            page_id=page_id,
+        )
+    artifact_ids = {block.block_id for block in artifact_blocks}
+    non_artifact_blocks = [
+        block for block in source_blocks if block.block_id not in artifact_ids
+    ]
+    materializations: list[list[CourseBlock]] = []
+    for chunk in artifact_chunks:
+        by_position = [*non_artifact_blocks, chunk]
+        materializations.append(
+            sorted(by_position, key=lambda block: (block.position, block.block_id))
+        )
+    return materializations
+
+
+def _continuation_title(title: str, index: int, count: int, capacity: int) -> str:
+    if count == 1:
+        return title
+    suffix = f" ({index}/{count})"
+    if capacity and len(title) + len(suffix) > capacity:
+        title = title[: max(1, capacity - len(suffix))].rstrip()
+    return f"{title}{suffix}"
+
+
 def _materialize_template_regions(
     *,
     page_id: str,
@@ -776,48 +1013,93 @@ def compile_slide_deck_v6(
     units = _unit_map(graph)
     visual_by_page = {decision.page_id: decision for decision in visual.decisions}
     pages: list[SlidePageV6] = []
+    unit_page_counts = Counter(page.teaching_unit_id for page in story.pages)
     for story_page in sorted(story.pages, key=lambda item: item.page_ordinal):
         layout = template.get_layout(visual_by_page[story_page.page_id].resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="template", code="template_layout_unavailable", message="Resolved layout disappeared during final compilation", page_id=story_page.page_id)
         unit = units[story_page.teaching_unit_id]
         source_blocks = [blocks[block_id] for block_id in story_page.source_block_ids]
-        regions = _materialize_template_regions(
+        materializations = _safe_artifact_page_blocks(
             page_id=story_page.page_id,
-            title=story_page.title,
             layout=layout,
             source_blocks=source_blocks,
         )
-        pages.append(
-            SlidePageV6(
-                page_id=story_page.page_id,
-                page_ordinal=story_page.page_ordinal,
-                teaching_unit_id=story_page.teaching_unit_id,
-                title=story_page.title,
-                resolved_layout=layout.template_layout_id,
-                web_renderer_adapter=layout.web_renderer_adapter,
-                pptx_renderer_adapter=layout.pptx_renderer_adapter,
-                regions=regions,
-                source_block_ids=story_page.source_block_ids,
-                artifact_kinds=unit.artifact_kinds,
-                visual_decision=visual_by_page[story_page.page_id],
-                speaker_notes=SlideSpeakerNotesV2(
-                    source_document_revision=document.document_revision,
-                    teaching_unit_id=story_page.teaching_unit_id,
-                    source_blocks=[
-                        SourceNoteBlockV2(
-                            block_id=block.block_id,
-                            block_revision=block.internal_revision,
-                            full_text=block_source_text(block),
-                            source_kind=block.kind,
-                            source_payload=dict(block.payload or {}),
-                            asset_refs=list(block.asset_refs),
-                        )
-                        for block in source_blocks
-                    ],
-                ),
-            )
+        expanded_unit_count = (
+            unit_page_counts[story_page.teaching_unit_id]
+            - 1
+            + len(materializations)
         )
+        if expanded_unit_count > 3:
+            raise V6BuildError(
+                stage="template",
+                code="teaching_unit_page_limit_exceeded",
+                message="A teaching unit exceeds three template-safe pages after pagination",
+                page_id=story_page.page_id,
+            )
+        unit_page_counts[story_page.teaching_unit_id] = expanded_unit_count
+        title_slot = next(
+            (slot for slot in layout.slots if slot.slot_kind == "title"),
+            None,
+        )
+        continuation_count = len(materializations)
+        for continuation_index, materialized_blocks in enumerate(materializations, start=1):
+            page_id = (
+                story_page.page_id
+                if continuation_index == 1
+                else f"{story_page.page_id}--continuation-{continuation_index}"
+            )
+            title = _continuation_title(
+                story_page.title,
+                continuation_index,
+                continuation_count,
+                int(getattr(title_slot, "max_chars", 0) or 0),
+            )
+            regions = _materialize_template_regions(
+                page_id=page_id,
+                title=title,
+                layout=layout,
+                source_blocks=materialized_blocks,
+            )
+            decision = visual_by_page[story_page.page_id].model_copy(
+                update={"page_id": page_id},
+                deep=True,
+            )
+            pages.append(
+                SlidePageV6(
+                    page_id=page_id,
+                    page_ordinal=len(pages),
+                    teaching_unit_id=story_page.teaching_unit_id,
+                    title=title,
+                    resolved_layout=layout.template_layout_id,
+                    web_renderer_adapter=layout.web_renderer_adapter,
+                    pptx_renderer_adapter=layout.pptx_renderer_adapter,
+                    regions=regions,
+                    source_block_ids=story_page.source_block_ids,
+                    artifact_kinds=unit.artifact_kinds,
+                    visual_decision=decision,
+                    speaker_notes=SlideSpeakerNotesV2(
+                        source_document_revision=document.document_revision,
+                        teaching_unit_id=story_page.teaching_unit_id,
+                        source_blocks=[
+                            SourceNoteBlockV2(
+                                block_id=block.block_id,
+                                block_revision=block.internal_revision,
+                                full_text=block_source_text(block),
+                                source_kind=block.kind,
+                                source_payload=dict(block.payload or {}),
+                                asset_refs=list(block.asset_refs),
+                            )
+                            for block in source_blocks
+                        ],
+                    ),
+                    continuation_of_page_id=(
+                        story_page.page_id if continuation_index > 1 else ""
+                    ),
+                    continuation_index=continuation_index,
+                    continuation_count=continuation_count,
+                )
+            )
     formal_ids = graph.formal_block_ids
     visible = {
         block_id
@@ -825,17 +1107,29 @@ def compile_slide_deck_v6(
         for region in page.regions
         for block_id in region.source_block_ids
     }
-    noted = {
+    exact_noted = {
         item.block_id
         for page in pages
         for item in page.speaker_notes.source_blocks
-        if item.full_text or item.source_payload or item.asset_refs
+        if item.block_id in blocks
+        and item.block_revision == blocks[item.block_id].internal_revision
+        and item.full_text == block_source_text(blocks[item.block_id])
+        and item.source_kind == blocks[item.block_id].kind
+        and item.source_payload == dict(blocks[item.block_id].payload or {})
+        and item.asset_refs == list(blocks[item.block_id].asset_refs)
     }
+    observed_first_occurrences: list[str] = []
+    observed_set: set[str] = set()
+    for page in pages:
+        for block_id in page.source_block_ids:
+            if block_id not in observed_set:
+                observed_first_occurrences.append(block_id)
+                observed_set.add(block_id)
     denominator = max(1, len(formal_ids))
     quality = SlideDeckV6Quality(
         formal_block_visible_coverage=len(visible.intersection(formal_ids)) / denominator,
-        full_text_note_binding=len(noted.intersection(formal_ids)) / denominator,
-        source_order_preserved=True,
+        full_text_note_binding=len(exact_noted.intersection(formal_ids)) / denominator,
+        source_order_preserved=observed_first_occurrences == formal_ids,
         template_contract_passed=True,
         subject_artifacts_passed=True,
         web_pptx_contract_shared=all(page.web_renderer_adapter and page.pptx_renderer_adapter for page in pages),
@@ -850,6 +1144,7 @@ def compile_slide_deck_v6(
         template_id=template.template_id,
         template_version=template.template_version,
         template_digest=template.template_digest,
+        template_theme_overrides=dict(template.render_theme_overrides),
         status=status,
         pages=pages,
         quality=quality,
@@ -857,6 +1152,7 @@ def compile_slide_deck_v6(
 
 
 __all__ = [
+    "SLIDE_DECK_V6_COMPILER_VERSION",
     "PptSourceContractV2",
     "SlideDeckV6",
     "SlideStoryBatchV3",
@@ -866,6 +1162,7 @@ __all__ = [
     "SlideVisualPlanV2",
     "V6BuildError",
     "V6Failure",
+    "build_signature_v6",
     "compile_ppt_source_contract_v2",
     "compile_slide_deck_v6",
     "validate_slide_story_plan_v3",

@@ -81,6 +81,17 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
     assert len(calls) == 1
+    supplied_layouts = calls[0]["teaching_units"][0]["allowed_template_layouts"]
+    assert {item["template_layout_id"] for item in supplied_layouts} == set(
+        calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
+    )
+    assert all(item["slots"] for item in supplied_layouts)
+    assert all(
+        {"slot_id", "slot_kind", "required", "max_chars", "max_items", "max_lines", "max_rows"}
+        <= set(slot)
+        for item in supplied_layouts
+        for slot in item["slots"]
+    )
     assert story.batches[0].provider == "rotating-fixture"
     assert story.batches[0].validation_status == "passed"
     validate_slide_story_plan_v3(story, graph, template)

@@ -3,6 +3,7 @@ from fastapi import HTTPException
 
 from routers import teaching_representations as representation_router
 from routers.teaching_representations import SlideDeckVariantBuildRequest
+from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
 def _ready_course() -> dict:
@@ -79,3 +80,42 @@ def test_default_build_remains_v5_until_v6_rollout_switch_is_enabled(monkeypatch
         _ready_course(),
         request,
     ) == "slide_deck_v6"
+
+
+def test_v6_freezes_an_explicit_published_template_version(monkeypatch) -> None:
+    expected = compile_builtin_template_layout_contract_v1("qizhi-classroom").model_copy(
+        update={
+            "template_id": "pptp-generic",
+            "template_version": "7",
+            "template_digest": "tmpl_personal_v7",
+        }
+    )
+    captured: dict[str, object] = {}
+
+    def resolve(pack_id: str, version: int | None, owner_id: str):
+        captured.update(pack_id=pack_id, version=version, owner_id=owner_id)
+        return expected
+
+    monkeypatch.setattr(
+        representation_router.ppt_template_pack_repository,
+        "resolve_v6_layout_contract",
+        resolve,
+    )
+    request = SlideDeckVariantBuildRequest.model_validate({
+        "engine_version": "v6",
+        "template_pack_id": "pptp-generic",
+        "template_version": 7,
+    })
+
+    resolved = representation_router._resolve_v6_template_contract(
+        request,
+        owner_id="owner-generic",
+        theme="qizhi-classroom",
+    )
+
+    assert resolved.template_digest == "tmpl_personal_v7"
+    assert captured == {
+        "pack_id": "pptp-generic",
+        "version": 7,
+        "owner_id": "owner-generic",
+    }

@@ -210,3 +210,7 @@ def test_personal_template_requires_confirmed_mapping_before_v6_use(tmp_path: Pa
     assert len(contract.layouts) >= 18
     assert all(layout.template_layout_id.startswith(f"{draft['pack_id']}@2/") for layout in contract.layouts)
     assert all(layout.base_layout_id for layout in contract.layouts)
+    assert contract.render_theme_overrides["accent"] == "315E7D"
+    assert contract.render_theme_overrides["green"] == "B68A4C"
+    assert contract.render_theme_overrides["title"] == "17233A"
+    assert contract.render_theme_overrides["title_font"] == "Noto Serif SC"

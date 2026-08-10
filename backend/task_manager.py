@@ -172,6 +172,7 @@ from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     build_ai_base_visual_planner_v2,
 )
+from ppt_template_packs import ppt_template_pack_repository
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -212,6 +213,10 @@ from slide_visuals import (
 )
 from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
+)
 from teaching_representations import teaching_representation_repository
 from web_retrieval import (
     RetrievalRequest,
@@ -4759,6 +4764,8 @@ class TaskManager:
         mode: str,
         theme: str,
         variant_key: str,
+        template_contract: TemplateLayoutPackContractV1,
+        template_digest_provider: Callable[[], str],
     ) -> None:
         """Run the strict V6 candidate through the shared durable boundary."""
 
@@ -4798,6 +4805,8 @@ class TaskManager:
                 self._course_document_repository.load_document(document.course_id)[0].document_revision
                 or ""
             ),
+            template_contract=template_contract,
+            template_digest_provider=template_digest_provider,
             progress_callback=record_v6_progress,
         )
         public_result = {
@@ -4893,6 +4902,31 @@ class TaskManager:
             "source_revision": source_revision,
         })
         if slide_schema == "slide_deck_v6":
+            frozen_template_payload = request.get("template_contract")
+            template_contract = (
+                TemplateLayoutPackContractV1.model_validate(frozen_template_payload)
+                if isinstance(frozen_template_payload, dict)
+                else compile_builtin_template_layout_contract_v1(theme)
+            )
+            selector = request.get("template_selector") or {}
+            pack_id = str(selector.get("pack_id") or "")
+            if pack_id:
+                pack_version = int(
+                    selector.get("version") or template_contract.template_version
+                )
+                owner_id = str(selector.get("owner_id") or "")
+
+                def current_template_digest() -> str:
+                    return ppt_template_pack_repository.resolve_v6_layout_contract(
+                        pack_id,
+                        pack_version,
+                        owner_id,
+                    ).template_digest
+            else:
+                def current_template_digest() -> str:
+                    return compile_builtin_template_layout_contract_v1(
+                        template_contract.theme_id
+                    ).template_digest
             await self._process_slide_deck_variant_v6(
                 task_id=task_id,
                 document=document,
@@ -4900,6 +4934,8 @@ class TaskManager:
                 mode=mode,
                 theme=theme,
                 variant_key=variant_key,
+                template_contract=template_contract,
+                template_digest_provider=current_template_digest,
             )
             return
         saved_revision = str(task.get("representation_source_document_revision") or "")

@@ -385,11 +385,13 @@ const props = withDefaults(defineProps<{
   pageCount: number
   deckTitle: string
   theme?: SlideDeckTheme
+  themeOverrides?: Record<string, string>
   presenting?: boolean
   courseId?: string
   representationId?: string
 }>(), {
   theme: 'qingfeng-classroom',
+  themeOverrides: () => ({}),
   presenting: false,
   courseId: '',
   representationId: '',
@@ -621,8 +623,9 @@ const themeStyle = computed(() => {
     'academic-bluegray': 'academic-editorial',
   }
   const key = aliases[props.theme] || props.theme
-  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
-  if (!token) return {}
+  const baseToken = (themePack.themes as Record<string, Record<string, any>>)[key]
+  if (!baseToken) return {}
+  const token = { ...baseToken, ...props.themeOverrides }
   const visualAssets = token.visual_assets || {}
   const textBoxStyles = token.text_box_styles || {}
   const assetUrl = (value?: string) => resolvePublicAssetUrl(value, import.meta.env.BASE_URL)

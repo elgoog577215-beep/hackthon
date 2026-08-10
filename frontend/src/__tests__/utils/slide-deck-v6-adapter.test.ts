@@ -10,6 +10,7 @@ describe('slide deck V6 web adapter', () => {
       schema_version: 'slide_deck_v6',
       title: 'Event-driven interaction',
       theme: 'qizhi-classroom',
+      template_theme_overrides: { accent: '315E7D', title_font: 'Noto Serif SC' },
       pages: [{
         schema_version: 'slide_page_v6',
         page_id: 'page-code',
@@ -59,6 +60,7 @@ describe('slide deck V6 web adapter', () => {
     expect(slide.blocks[0]!.type).toBe('code')
     expect(slide.source_block_ids).toEqual(page.source_block_ids)
     expect(slide.speaker_notes).toContain('course-rev-1')
+    expect(slide.quality.template_theme_overrides).toEqual(content.template_theme_overrides)
   })
 
   it('fails closed when a V6 page references a layout absent from the published adapter contract', () => {

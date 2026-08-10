@@ -23,7 +23,7 @@
 
 - [x] 4.1 Implement `slide_deck_v6`, 1～3 page unit allocation, typed slot materialization and full-source speaker notes.
 - [x] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
-- [ ] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
+- [x] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
 - [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
 
 ## 5. Adaptive progress
@@ -34,7 +34,7 @@
 
 ## 6. Validation and rollout
 
-- [ ] 6.1 Run focused and full backend/frontend regressions, build, OpenSpec validation and hardcoding scan.
-- [ ] 6.2 Render/export cross-subject fixtures and verify notes, overflow, Web/PPTX parity and PPTX openability.
+- [x] 6.1 Run focused and full backend/frontend regressions, build, OpenSpec validation and hardcoding scan.
+- [x] 6.2 Render/export cross-subject fixtures and verify notes, overflow, Web/PPTX parity and PPTX openability.
 - [ ] 6.3 Run one shadow chapter through the official website chain for Unity, linear algebra and machine learning.
 - [ ] 6.4 Enable V6 as the default for new builds only after all three shadow gates pass; keep V5 readable/exportable and document rollback/metrics.

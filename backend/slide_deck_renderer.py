@@ -1643,8 +1643,8 @@ def _add_theme_page_background(
     """Select a low-distraction authored background for an interior slide."""
     candidates = {
         str(resolved_layout or "").strip(),
-        str(unit.layout or "").strip(),
-        str(unit.scene_kind or "").strip(),
+        str(getattr(unit, "layout", "") or "").strip(),
+        str(getattr(unit, "scene_kind", "") or "").strip(),
     }
     for profile in (theme.get("background_profiles") or {}).values():
         layouts = {str(value).strip() for value in profile.get("layouts") or []}

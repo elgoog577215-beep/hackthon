@@ -62,6 +62,7 @@ describe('SlideDeckGeneratorDialog', () => {
           base_theme: 'academic-editorial',
           status: 'published',
           latest_version: 2,
+          v6_eligible: true,
           preview: {},
         }],
       },
@@ -77,6 +78,30 @@ describe('SlideDeckGeneratorDialog', () => {
       templatePackId: 'pptp-demo',
       templatePackVersion: 2,
     })
+  })
+
+  it('does not allow an unpublished V6 template contract to be selected', async () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, {
+      props: {
+        open: true,
+        personalTemplates: [{
+          pack_id: 'pptp-unverified',
+          name: '未校验模板',
+          base_theme: 'academic-editorial',
+          status: 'published',
+          latest_version: 1,
+          v6_eligible: false,
+        }],
+      },
+    })
+
+    await wrapper.get('[data-testid="personal-template-tab"]').trigger('click')
+    const template = wrapper.get('[data-template-pack-id="pptp-unverified"]')
+    expect(template.attributes('disabled')).toBeDefined()
+    await template.trigger('click')
+    await wrapper.find('.deck-generator__panel > footer > button').trigger('click')
+
+    expect(wrapper.emitted('confirm')?.[0]?.[0]).not.toHaveProperty('templatePackId')
   })
 
   it('offers a template creator entry without requiring a pptpack file', async () => {

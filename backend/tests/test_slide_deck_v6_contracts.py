@@ -11,6 +11,7 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    build_signature_v6,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
     validate_slide_story_plan_v3,
@@ -143,6 +144,51 @@ def test_source_contract_freezes_course_and_template_digests() -> None:
     assert source.source_digest.startswith("pptsrc_")
 
 
+def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
+    document = _cross_subject_document()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    course_data = {
+        "language": "en",
+        "course_teaching_plan": {"revision_id": "plan-1", "sections": []},
+        "course_knowledge_base": {"revision_id": "knowledge-1"},
+        "course_coherence_contract": {"revision_id": "coherence-1"},
+    }
+
+    baseline = build_signature_v6(
+        document=document,
+        course_data=course_data,
+        mode="teaching",
+        theme="qizhi-classroom",
+        template_contract=template,
+    )
+    changed_source = build_signature_v6(
+        document=document,
+        course_data={
+            **course_data,
+            "course_teaching_plan": {
+                "revision_id": "plan-1",
+                "sections": [{"teaching_purpose": "A newly frozen purpose"}],
+            },
+        },
+        mode="teaching",
+        theme="qizhi-classroom",
+        template_contract=template,
+    )
+    changed_template = build_signature_v6(
+        document=document,
+        course_data=course_data,
+        mode="teaching",
+        theme="qizhi-classroom",
+        template_contract=template.model_copy(
+            update={"template_digest": "tmpl_changed"}
+        ),
+    )
+
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v1"
+    assert baseline["signature"] != changed_source["signature"]
+    assert baseline["signature"] != changed_template["signature"]
+
+
 def _valid_story(document: CourseDocument):
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -160,7 +206,7 @@ def _valid_story(document: CourseDocument):
                 page_id=f"p{index + 1}",
                 teaching_unit_id=unit.teaching_unit_id,
                 template_layout_id=template.layout_id(layout_slug),
-                title=f"第 {index + 1} 个教学任务",
+                title=unit.source_text[:40],
                 summary="",
                 source_block_ids=unit.primary_block_ids,
                 page_ordinal=index,
@@ -222,6 +268,15 @@ def test_story_plan_rejects_ungrounded_semantic_claim_without_numbers() -> None:
     story.batches[0].pages[0].summary = "采用量子纠缠协议完成远程身份认证。"
 
     with pytest.raises(V6BuildError, match="story_unsupported_semantic_claim"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_an_ungrounded_visible_title() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "Quantum credential exchange"
+
+    with pytest.raises(V6BuildError, match="story_unsupported_title"):
         validate_slide_story_plan_v3(story, graph, template)
 
 
@@ -450,6 +505,140 @@ def test_diagram_decision_requires_source_bound_nodes_and_edges() -> None:
         "direction": "horizontal",
     }
     assert validate_slide_visual_plan_v2(valid, story, graph, template) == "v6_ready"
+
+
+def _artifact_deck_fixture(
+    *,
+    artifact_kind: str,
+    artifact_text: str,
+) -> tuple[CourseDocument, object, object, SlideStoryPlanV3, SlideVisualPlanV2]:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id=f"generic-{artifact_kind}-pagination",
+            title="Generic evidence workflow",
+            sections=[CourseSection(section_id="section", title="Evidence", position=0)],
+            blocks=[
+                _block(
+                    "context",
+                    "section",
+                    0,
+                    role="concept",
+                    text="Read the evidence in source order and explain its observable result.",
+                ),
+                _block(
+                    "artifact",
+                    "section",
+                    1,
+                    role="example",
+                    kind=artifact_kind,
+                    text=artifact_text,
+                ),
+                _block(
+                    "interpretation",
+                    "section",
+                    2,
+                    role="reasoning",
+                    text="Use the displayed evidence to check the stated condition and result.",
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout_slug = "evidence-code" if artifact_kind == "code" else "evidence-table"
+    page = SlideStoryPageV3(
+        page_id="evidence-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id(layout_slug),
+        title="Inspect the complete evidence",
+        summary="Use the displayed evidence to check the stated condition and result.",
+        source_block_ids=graph.units[0].primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision=artifact_kind,
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+    return document, graph, template, story, visual
+
+
+def test_code_overflow_compiles_to_at_most_three_source_bound_safe_pages() -> None:
+    code = "\n".join(f"step_{index} = observe({index})" for index in range(55))
+    document, graph, template, story, visual = _artifact_deck_fixture(
+        artifact_kind="code",
+        artifact_text=code,
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert len(deck.pages) == 2
+    assert [page.continuation_index for page in deck.pages] == [1, 2]
+    assert all(page.continuation_count == 2 for page in deck.pages)
+    assert deck.pages[1].continuation_of_page_id == "evidence-page"
+    rendered_code = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "code"
+    )
+    assert rendered_code == code
+    assert all(
+        any(note.block_id == "artifact" and note.full_text == code for note in page.speaker_notes.source_blocks)
+        for page in deck.pages
+    )
+
+
+def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> None:
+    header = "| Habitat | Observation |\n|---|---|"
+    rows = "\n".join(f"| Zone {index} | Record {index} |" for index in range(17))
+    table = f"{header}\n{rows}"
+    document, graph, template, story, visual = _artifact_deck_fixture(
+        artifact_kind="table",
+        artifact_text=table,
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert len(deck.pages) == 2
+    table_regions = [
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "table"
+    ]
+    assert all(region.startswith(header) for region in table_regions)
+    assert sum(region.count("| Zone ") for region in table_regions) == 17
+
+
+def test_artifact_that_needs_more_than_three_pages_fails_explicitly() -> None:
+    code = "\n".join(f"step_{index} = observe({index})" for index in range(90))
+    document, graph, template, story, visual = _artifact_deck_fixture(
+        artifact_kind="code",
+        artifact_text=code,
+    )
+
+    with pytest.raises(V6BuildError, match="teaching_unit_page_limit_exceeded"):
+        compile_slide_deck_v6(document, graph, story, visual, template)
 
 
 def test_v6_modules_do_not_hardcode_course_identity_or_fixed_artifacts() -> None:

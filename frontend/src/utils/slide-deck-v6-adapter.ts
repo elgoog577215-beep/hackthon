@@ -41,6 +41,7 @@ interface V6Page {
 interface V6DeckLike {
   schema_version?: string
   pages?: V6Page[]
+  template_theme_overrides?: Record<string, string>
 }
 
 interface AdapterDefinition {
@@ -148,7 +149,10 @@ function pageVisuals(page: V6Page): Array<Record<string, unknown>> {
   return []
 }
 
-function adaptPage(page: V6Page): Record<string, any> {
+function adaptPage(
+  page: V6Page,
+  templateThemeOverrides: Record<string, string>,
+): Record<string, any> {
   const slug = layoutSlug(page.resolved_layout)
   const adapter = layouts[slug]
   if (!adapter) throw new Error(`v6_template_layout_adapter_missing:${page.resolved_layout}`)
@@ -175,11 +179,13 @@ function adaptPage(page: V6Page): Record<string, any> {
       v6_template_layout_id: page.resolved_layout,
       v6_layout_slug: slug,
       resolved_layout: adapter.renderer_layout,
+      template_theme_overrides: { ...templateThemeOverrides },
     },
   }
 }
 
 export function adaptSlideDeckV6ForWeb(content: V6DeckLike): Array<Record<string, any>> {
   if (content.schema_version !== 'slide_deck_v6' || !Array.isArray(content.pages)) return []
-  return content.pages.map(adaptPage)
+  const templateThemeOverrides = content.template_theme_overrides || {}
+  return content.pages.map(page => adaptPage(page, templateThemeOverrides))
 }

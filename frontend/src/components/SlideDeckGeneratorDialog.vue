@@ -47,7 +47,7 @@
             type="button"
             data-testid="personal-template-tab"
             :class="{ active: templateTab === 'personal' }"
-            @click="templateTab = 'personal'"
+            @click="templateTab = 'personal'; emit('load-templates')"
           >{{ t('pptTemplatePacks.personalTab', '我的模板') }}</button>
         </div>
         <div v-if="templateTab === 'builtin'" class="deck-generator__themes">
@@ -91,7 +91,7 @@
             type="button"
             :data-template-pack-id="item.pack_id"
             :class="{ active: selectedTemplatePack?.pack_id === item.pack_id }"
-            :disabled="!item.latest_version"
+            :disabled="!item.latest_version || !item.v6_eligible"
             @click="selectPersonalTemplate(item)"
           >
             <span>{{ item.name.slice(0, 1) }}</span>
@@ -153,6 +153,7 @@ export interface PersonalPptTemplatePack {
   base_theme: V3Theme
   status: 'draft' | 'published'
   latest_version: number
+  v6_eligible?: boolean
   preview?: Record<string, unknown>
 }
 
@@ -185,6 +186,7 @@ const emit = defineEmits<{
     templatePackVersion?: number
   }): void
   (event: 'create-template'): void
+  (event: 'load-templates'): void
 }>()
 
 const modelMode = ref<SlideDeckMode>(props.mode)
@@ -283,7 +285,7 @@ function selectBuiltinTheme(theme: V3Theme) {
 }
 
 function selectPersonalTemplate(template: PersonalPptTemplatePack) {
-  if (!template.latest_version) return
+  if (!template.latest_version || !template.v6_eligible) return
   selectedTemplatePack.value = template
   modelTheme.value = template.base_theme
 }

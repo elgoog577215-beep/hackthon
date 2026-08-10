@@ -61,6 +61,7 @@ class TemplateLayoutPackContractV1(_StrictModel):
     template_version: str
     template_digest: str
     theme_id: str
+    render_theme_overrides: dict[str, str] = Field(default_factory=dict)
     layouts: list[TemplateLayoutContractV1] = Field(min_length=1)
 
     def layout_id(self, slug: str) -> str:
@@ -295,11 +296,37 @@ def compile_personal_template_layout_contract_v1(
             if isinstance(item, dict)
         ],
     }
+    colors = {
+        str(key): str(value).strip().lstrip("#").upper()
+        for key, value in (extracted.get("colors") or {}).items()
+        if isinstance(value, str)
+        and len(str(value).strip().lstrip("#")) == 6
+        and all(character in "0123456789ABCDEFabcdef" for character in str(value).strip().lstrip("#"))
+    }
+    color_mapping = {
+        "accent1": "accent",
+        "accent2": "green",
+        "accent3": "amber",
+        "dk1": "title",
+        "dk2": "ink",
+        "lt1": "surface",
+        "lt2": "canvas",
+    }
+    render_theme_overrides = {
+        destination: colors[source]
+        for source, destination in color_mapping.items()
+        if source in colors
+    }
+    for source, destination in (("title_font", "title_font"), ("body_font", "body_font")):
+        value = str(extracted.get(source) or "").strip()
+        if value and len(value) <= 120 and not any(ord(character) < 32 for character in value):
+            render_theme_overrides[destination] = value
     return TemplateLayoutPackContractV1(
         template_id=pack_id,
         template_version=str(version),
         template_digest=stable_hash(digest_payload, prefix="tmpl_"),
         theme_id=base_theme,
+        render_theme_overrides=render_theme_overrides,
         layouts=layouts,
     )
 

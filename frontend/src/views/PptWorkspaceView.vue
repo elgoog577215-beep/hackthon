@@ -92,6 +92,7 @@
         :preview-source="store.slidePreviewSource"
         :mode="selectedMode"
         :theme="selectedTheme"
+        :theme-overrides="content?.template_theme_overrides || {}"
         :variants="slideVariants"
         :bundle-parts="activeBundleParts"
         :active-bundle-part-id="slideRepresentation?.representation_id || ''"
@@ -100,6 +101,7 @@
         :candidate-schema="store.slideCandidateSchema || String(content?.schema_version || '')"
         :published-schema="store.slidePublishedSchema || String(content?.schema_version || '')"
         :candidate-status="store.slideCandidateStatus || String(content?.candidate_status || '')"
+        :planning-status="content?.planning_status || null"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -144,8 +146,10 @@
       :busy="store.building"
       :closable="Boolean(slideRepresentation)"
       :fragment-count="estimatedFragmentCount"
+      :personal-templates="templatePacksStore.personal"
       @close="closeGenerator"
       @confirm="generateVariant"
+      @load-templates="templatePacksStore.load()"
     />
   </section>
 </template>
@@ -161,6 +165,7 @@ import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
+import { usePptTemplatePacksStore } from '../stores/pptTemplatePacks'
 import {
   normalizedBuildFailure,
   useTeachingRepresentationsStore,
@@ -179,6 +184,7 @@ import http from '../utils/http'
 const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
+const templatePacksStore = usePptTemplatePacksStore()
 const store = useTeachingRepresentationsStore()
 const initializing = ref(true)
 const aiVisible = ref(false)
@@ -513,6 +519,8 @@ async function generateVariant(value: {
   mode: SlideDeckMode
   theme: V3Theme
   webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+  templatePackId?: string
+  templatePackVersion?: number
 }) {
   if (!courseId.value || store.building) return
   if (slideEngineStatus.value === 'blocked') {
@@ -528,6 +536,9 @@ async function generateVariant(value: {
     await store.buildSlideDeckVariant(courseId.value, {
       mode: value.mode,
       theme: value.theme,
+      engineVersion: slideEngineStatus.value === 'slide_deck_v6' ? 'v6' : undefined,
+      templatePackId: value.templatePackId,
+      templatePackVersion: value.templatePackVersion,
       forceRebuild: forceGeneratorBuild.value,
       webImageRetrieval: value.webImageRetrieval,
     })

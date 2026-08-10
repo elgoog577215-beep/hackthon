@@ -251,7 +251,8 @@ def export_slide_deck_v6_pptx(
     presentation = Presentation()
     presentation.slide_width = Inches(13.333)
     presentation.slide_height = Inches(7.5)
-    theme = validate_theme(deck.theme)
+    theme = dict(validate_theme(deck.theme))
+    theme.update(deck.template_theme_overrides)
     assets = asset_repository or slide_asset_repository
     slides = [adapt_v6_page_to_slide_spec(page) for page in deck.pages]
     for index, unit in enumerate(slides):
