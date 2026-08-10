@@ -700,6 +700,65 @@ def _block_matches_slot(block: CourseBlock, slot_kind: str) -> bool:
     return bool(artifact and artifact in kinds)
 
 
+def _code_candidates(text: str) -> list[str]:
+    fenced = [
+        match.group(1).strip()
+        for match in re.finditer(
+            r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n(.*?)```",
+            text,
+            re.DOTALL,
+        )
+        if match.group(1).strip()
+    ]
+    return fenced or [text.strip()]
+
+
+def _bounded_code_content(
+    blocks: list[CourseBlock],
+    *,
+    max_chars: int,
+    max_lines: int,
+) -> str:
+    """Select source-only code excerpts; full code remains in speaker notes."""
+
+    if not blocks:
+        return ""
+    capacity = max_chars or 1600
+    line_capacity = max_lines or 24
+    per_block_chars = max(48, capacity // len(blocks))
+    per_block_lines = max(1, line_capacity // len(blocks))
+    excerpts: list[str] = []
+    for block in blocks:
+        candidates = _code_candidates(block_source_text(block))
+        candidate = max(
+            (
+                text for text in candidates
+                if len(text) <= per_block_chars
+                and len(text.splitlines()) <= per_block_lines
+            ),
+            key=len,
+            default=candidates[0],
+        )
+        selected: list[str] = []
+        for line in candidate.splitlines():
+            next_text = "\n".join([*selected, line])
+            if selected and (
+                len(selected) + 1 > per_block_lines
+                or len(next_text) > per_block_chars
+            ):
+                break
+            if len(next_text) > per_block_chars:
+                continue
+            selected.append(line)
+        excerpt = "\n".join(selected).strip()
+        if excerpt:
+            excerpts.append(excerpt)
+    content = "\n\n".join(excerpts)
+    if len(content) > capacity or len(content.splitlines()) > line_capacity:
+        raise ValueError("template_slot_capacity_exceeded")
+    return content
+
+
 def _bounded_slot_content(
     blocks: list[CourseBlock],
     *,
@@ -709,6 +768,12 @@ def _bounded_slot_content(
     max_lines: int,
     max_rows: int,
 ) -> str:
+    if slot_kind == "code":
+        return _bounded_code_content(
+            blocks,
+            max_chars=max_chars,
+            max_lines=max_lines,
+        )
     texts = [
         block_source_text(block)
         for block in blocks
@@ -717,12 +782,6 @@ def _bounded_slot_content(
     if not texts:
         return ""
     capacity = max_chars or 520
-    if slot_kind == "code":
-        content = "\n\n".join(texts)
-        lines = content.splitlines()
-        if (max_lines and len(lines) > max_lines) or len(content) > capacity:
-            raise ValueError("template_slot_capacity_exceeded")
-        return content.rstrip()
     if slot_kind == "table":
         content = "\n".join(texts)
         lines = content.splitlines()

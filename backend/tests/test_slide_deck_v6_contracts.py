@@ -319,7 +319,7 @@ def test_visual_plan_degrades_only_optional_visuals() -> None:
                 page_id="p1",
                 decision="text_native",
                 source_block_ids=["b1", "b2", "b3", "b4"],
-                resolved_template_layout_id=template.layout_id("content-stack"),
+                resolved_template_layout_id=story.pages[0].template_layout_id,
                 degraded=True,
                 degradation_reason="visual_provider_unavailable",
             ),
@@ -337,7 +337,6 @@ def test_visual_plan_degrades_only_optional_visuals() -> None:
 
     invalid = plan.model_copy(deep=True)
     invalid.decisions[1].decision = "text_native"
-    invalid.decisions[1].resolved_template_layout_id = template.layout_id("content-stack")
     with pytest.raises(V6BuildError, match="required_subject_representation_missing"):
         validate_slide_visual_plan_v2(invalid, story, graph, template)
 
@@ -610,7 +609,7 @@ def _artifact_deck_fixture(
     return document, graph, template, story, visual
 
 
-def test_code_overflow_compiles_to_at_most_three_source_bound_safe_pages() -> None:
+def test_code_overflow_uses_a_source_excerpt_and_keeps_full_code_in_notes() -> None:
     code = "\n".join(f"step_{index} = observe({index})" for index in range(55))
     document, graph, template, story, visual = _artifact_deck_fixture(
         artifact_kind="code",
@@ -619,17 +618,18 @@ def test_code_overflow_compiles_to_at_most_three_source_bound_safe_pages() -> No
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
-    assert len(deck.pages) == 2
-    assert [page.continuation_index for page in deck.pages] == [1, 2]
-    assert all(page.continuation_count == 2 for page in deck.pages)
-    assert deck.pages[1].continuation_of_page_id == "evidence-page"
+    assert len(deck.pages) == 1
+    assert deck.pages[0].continuation_index == 1
+    assert deck.pages[0].continuation_count == 1
     rendered_code = "\n".join(
         region.content
         for page in deck.pages
         for region in page.regions
         if region.content_kind == "code"
     )
-    assert rendered_code == code
+    assert rendered_code != code
+    assert rendered_code
+    assert all(line in code.splitlines() for line in rendered_code.splitlines())
     assert all(
         any(note.block_id == "artifact" and note.full_text == code for note in page.speaker_notes.source_blocks)
         for page in deck.pages
@@ -658,15 +658,26 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
     assert sum(region.count("| Zone ") for region in table_regions) == 17
 
 
-def test_artifact_that_needs_more_than_three_pages_fails_explicitly() -> None:
+def test_very_large_code_still_respects_page_limit_with_full_notes() -> None:
     code = "\n".join(f"step_{index} = observe({index})" for index in range(90))
     document, graph, template, story, visual = _artifact_deck_fixture(
         artifact_kind="code",
         artifact_text=code,
     )
 
-    with pytest.raises(V6BuildError, match="teaching_unit_page_limit_exceeded"):
-        compile_slide_deck_v6(document, graph, story, visual, template)
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert len(deck.pages) == 1
+    code_region = next(
+        region
+        for region in deck.pages[0].regions
+        if region.content_kind == "code"
+    )
+    assert len(code_region.content.splitlines()) < len(code.splitlines())
+    assert any(
+        note.block_id == "artifact" and note.full_text == code
+        for note in deck.pages[0].speaker_notes.source_blocks
+    )
 
 
 def test_v6_modules_do_not_hardcode_course_identity_or_fixed_artifacts() -> None:
