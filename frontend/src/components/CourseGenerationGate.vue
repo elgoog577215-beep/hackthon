@@ -32,6 +32,7 @@ import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { t } from '../shared/i18n'
+import { reviewBlockingIssues } from '../utils/review-issues'
 
 const props = defineProps<{
   courseId: string
@@ -59,10 +60,7 @@ const visible = computed(() => (
   && Boolean(reviewStep.value)
 ))
 const reviewArtifact = computed(() => generationReview.value?.artifact || {})
-const blockingIssues = computed<any[]>(() => [
-  ...(reviewArtifact.value?.blocking_issues || []),
-  ...(reviewArtifact.value?.source_chain?.issues || []),
-])
+const blockingIssues = computed<any[]>(() => reviewBlockingIssues(reviewArtifact.value))
 const canConfirm = computed(() => Boolean(generationReview.value?.can_confirm))
 const gateEyebrow = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.releaseEyebrow', '最后一步')

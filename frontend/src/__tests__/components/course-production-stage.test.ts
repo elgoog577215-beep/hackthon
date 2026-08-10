@@ -190,8 +190,127 @@ describe('CourseProductionStage', () => {
     expect(summary.text()).toBe('教案确认已完成，等待确认')
   })
 
-  it('教案确认后启动正文失败时按正文阶段显示中断', () => {
+  it('后端给出可读原因时直接展示它，并保留技术细节可展开', async () => {
     const task: Task = {
+      ...interruptedTask,
+      error: 'ProviderTimeout: batch 7 timed out after 120s',
+      errorCode: 'provider_timeout',
+      errorUserMessage: '教案第 7 批超时；已完成批次不会重做，继续即可从该批恢复。',
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+
+    expect(wrapper.text()).toContain('教案第 7 批超时')
+    expect(wrapper.get('.formation-recovery code').text()).toBe('ProviderTimeout: batch 7 timed out after 120s')
+  })
+
+  it('后端未给可读原因时由稳定基座按错误类型解释超时', async () => {
+    const task: Task = {
+      ...interruptedTask,
+      error: 'ProviderTimeout: request timed out',
+      errorCode: undefined,
+      errorUserMessage: undefined,
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+
+    expect(wrapper.text()).toContain('响应超时')
+  })
+
+  it('长任务心跳停滞时在生产现场提示，未停滞时不打扰', async () => {
+    const runningTask: Task = {
+      ...interruptedTask,
+      status: 'running',
+      error: undefined,
+      currentPhase: 'course_teaching_plan_batch',
+      heartbeatAt: new Date(Date.now() - 8 * 1000).toISOString(),
+    }
+    const wrapper = mount(CourseProductionStage, {
+      props: { task: runningTask, courseName: '量子力学' },
+    })
+    expect(wrapper.find('.formation-heartbeat-alert').exists()).toBe(false)
+
+    await wrapper.setProps({
+      task: { ...runningTask, heartbeatAt: new Date(Date.now() - 400 * 1000).toISOString() },
+    })
+    const alert = wrapper.get('.formation-heartbeat-alert')
+    expect(alert.attributes('role')).toBe('status')
+    expect(alert.text()).toContain('长时间没有更新')
+  })
+
+  it('把失败小节清单显示出来，而不是只说"部分完成"', () => {
+    // The backend already pushes a failure_report naming each failed section and
+    // its retry count; nothing rendered it, so the teacher could not tell which
+    // sections to look at.
+    const task: Task = {
+      ...interruptedTask,
+      failedNodes: [
+        { node_id: 'L2-1-1', node_name: '波函数', error: 'ProviderTimeout', retry_count: 2 },
+        { node_id: 'L2-2-3', node_name: '不确定性原理', error: 'ProviderTimeout', retry_count: 1 },
+      ],
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+
+    const failures = wrapper.get('.formation-recovery__failures')
+    expect(failures.text()).toContain('波函数')
+    expect(failures.text()).toContain('不确定性原理')
+    expect(failures.text()).toContain('2')
+  })
+
+  it('没有失败小节时不显示失败清单', () => {
+    const wrapper = mount(CourseProductionStage, {
+      props: { task: interruptedTask, courseName: '量子力学' },
+    })
+    expect(wrapper.find('.formation-recovery__failures').exists()).toBe(false)
+  })
+
+  it('失败小节各自显示可理解原因，不同小节可以有不同原因', () => {
+    const task: Task = {
+      ...interruptedTask,
+      failedNodes: [
+        {
+          node_id: 'L2-1-1', node_name: '波函数', error: 'RateLimitError: 429',
+          error_code: 'provider_rate_limited', retryable: true, retry_count: 3,
+        },
+        {
+          node_id: 'L2-2-3', node_name: '不确定性原理', error: 'payload too large',
+          error_code: 'generation_budget_exceeded', retryable: false, retry_count: 1,
+        },
+      ],
+    }
+    const wrapper = mount(CourseProductionStage, { props: { task, courseName: '量子力学' } })
+    const failures = wrapper.get('.formation-recovery__failures')
+
+    expect(failures.text()).toContain('请求过于频繁')
+    expect(failures.text()).toContain('超出单次生成的安全上限')
+  })
+
+  it('切换到备用模型服务时明确告知教师，主链正常时不打扰', async () => {
+    // The switch happens inside ai_base and used to be a server log only: the
+    // teacher had no way to know the course came from the backup service.
+    const wrapper = mount(CourseProductionStage, {
+      props: { task: interruptedTask, courseName: '量子力学' },
+    })
+    expect(wrapper.find('[data-testid="provider-fallback-notice"]').exists()).toBe(false)
+
+    await wrapper.setProps({
+      task: {
+        ...interruptedTask,
+        providerRoute: { route: 'fallback', fallback_endpoint: 'https://backup.test/v1', switch_count: 1 },
+      },
+    })
+    const notice = wrapper.get('[data-testid="provider-fallback-notice"]')
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain('已切换备用模型服务')
+    expect(notice.text()).toContain('主服务恢复后会自动切回')
+    // The endpoint is operator detail; it must not be shown to the teacher.
+    expect(notice.text()).not.toContain('backup.test')
+
+    await wrapper.setProps({
+      task: { ...interruptedTask, providerRoute: { route: 'primary' } },
+    })
+    expect(wrapper.find('[data-testid="provider-fallback-notice"]').exists()).toBe(false)
+  })
+
+  it('教案确认后启动正文失败时按正文阶段显示中断', () => {    const task: Task = {
       ...interruptedTask,
       currentPhase: 'teaching_plan_ready',
       guidedWorkflow: {
