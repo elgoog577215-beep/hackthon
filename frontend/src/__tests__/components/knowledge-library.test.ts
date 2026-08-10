@@ -293,6 +293,52 @@ describe('Course knowledge library', () => {
     expect(new Set(labels).size).toBe(3)
   })
 
+  it('整门课都没有资料依据时，课程层面必须给出一眼可见的结论', async () => {
+    // D2：逐点标签已经如实了，但教师要逐个点开 41 个知识点才能得出"这门课没有
+    // 任何外部来源"。项目红线是不得伪造证据 —— 那么"全部由模型生成"必须是一个
+    // 看一眼就成立的结论，不是一个需要自己推算的结论。
+    const patched = {
+      ...libraryView,
+      source_grounding: {
+        knowledge_point_count: 2,
+        material_grounded_count: 0,
+        web_grounded_count: 0,
+        course_generated_count: 2,
+        grounded_ratio: 0,
+        has_material_grounding: false,
+      },
+    }
+    httpMock.get.mockResolvedValue({
+      data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
+    })
+
+    const { wrapper } = await mountLibrary()
+
+    expect(wrapper.get('.knowledge-source-grounding').text()).toContain('无外部资料依据')
+  })
+
+  it('有资料依据时不得显示"无外部来源"的警示', async () => {
+    // 反向断言：横幅必须由数据驱动。若它恒显示，上一条也会通过。
+    const patched = {
+      ...libraryView,
+      source_grounding: {
+        knowledge_point_count: 2,
+        material_grounded_count: 2,
+        web_grounded_count: 0,
+        course_generated_count: 0,
+        grounded_ratio: 1,
+        has_material_grounding: true,
+      },
+    }
+    httpMock.get.mockResolvedValue({
+      data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
+    })
+
+    const { wrapper } = await mountLibrary()
+
+    expect(wrapper.find('.knowledge-source-grounding').exists()).toBe(false)
+  })
+
   it('从教案知识标签打开时直接定位对应原子知识', async () => {
     const { wrapper, courseStore } = await mountLibrary(
       'linear-combination-definition',

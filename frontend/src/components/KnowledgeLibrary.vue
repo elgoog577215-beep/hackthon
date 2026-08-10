@@ -67,6 +67,15 @@
             </button>
           </header>
 
+          <p
+            v-if="ungroundedNotice"
+            class="knowledge-source-grounding"
+            role="status"
+          >
+            <ShieldAlert :size="14" aria-hidden="true" />
+            <span>{{ ungroundedNotice }}</span>
+          </p>
+
           <nav
             v-if="libraryView?.nodes.length"
             class="knowledge-library-viewbar"
@@ -426,6 +435,7 @@ import {
   Network,
   RefreshCw,
   Search,
+  ShieldAlert,
   Target,
   X,
 } from 'lucide-vue-next'
@@ -496,6 +506,19 @@ const libraryReady = computed(() => (
   libraryView.value?.lifecycle_status === 'accepted'
   && Boolean(libraryView.value?.nodes.length)
 ))
+
+// D2：逐点的 source_status 已经如实，但要教师逐个点开知识点才能得出"这门课没有
+// 任何外部依据"。把课程层面的结论提到面板顶部，让"无来源"和"有来源"在打开知识库
+// 的第一眼就不一样。只在确实一条都没有时出现 —— 常显的横幅等于没有信息。
+const ungroundedNotice = computed(() => {
+  const grounding = libraryView.value?.source_grounding
+  if (!grounding || !grounding.knowledge_point_count) return ''
+  if (grounding.material_grounded_count || grounding.web_grounded_count) return ''
+  return t(
+    'knowledgeLibrary.noExternalGrounding',
+    '本课程无外部资料依据，全部知识由模型生成，发布前请自行复核',
+  )
+})
 
 const detectedPointCount = computed(() => Number(
   libraryView.value?.quality_report?.coverage?.knowledge_point_count
@@ -939,6 +962,8 @@ watch(() => courseStore.currentCourseId, () => {
 .knowledge-tree-close { width:36px; height:36px; border:1px solid #e2e5ef; border-radius:10px; }
 .knowledge-tree-close:hover { color:#d14343; border-color:#f0caca; background:#fff6f6; }
 .knowledge-tree-lifecycle { padding:4px 9px; border:1px solid #d8d2ff; border-radius:999px; color:#5f46d7; background:#f2efff; font-size:10px; font-weight:750; }
+.knowledge-source-grounding { flex:0 0 auto; display:flex; align-items:center; gap:8px; margin:0; padding:8px 20px; border-bottom:1px solid #f3e3c4; color:#8a6314; background:#fdf7e8; font-size:11px; font-weight:650; line-height:1.5; }
+.knowledge-source-grounding svg { flex:0 0 auto; }
 .knowledge-library-viewbar { min-height:42px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:5px 16px 5px 20px; border-bottom:1px solid #e7e9f2; background:#fff; }
 .knowledge-library-viewbar > div { display:flex; align-items:center; gap:3px; padding:3px; border:1px solid #e1e3ed; border-radius:9px; background:#f4f5f9; }
 .knowledge-library-viewbar button { min-height:28px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:#747b91; background:transparent; font-size:10.5px; font-weight:700; cursor:pointer; }

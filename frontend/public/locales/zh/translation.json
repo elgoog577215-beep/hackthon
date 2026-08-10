@@ -1146,6 +1146,7 @@
     "title": "知识库",
     "subtitle": "沿课程路径查看原子知识、能力与关系",
     "courseCoverage": "本课覆盖",
+    "noExternalGrounding": "本课程无外部资料依据，全部知识由模型生成，发布前请自行复核",
     "relationCount": "知识关系",
     "mappingRate": "路径覆盖",
     "relationCoverage": "关系覆盖",
