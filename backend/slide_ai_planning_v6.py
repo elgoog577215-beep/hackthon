@@ -508,6 +508,7 @@ def _story_repair_targets(
             None,
         )
         current_title = str((current_page or {}).get("title") or "")
+        current_summary = str((current_page or {}).get("summary") or "")
         normalized_current_title = re.sub(r"\s+", "", current_title).casefold()
         conflicting_page_ids = [
             str(page.get("page_id") or "")
@@ -564,6 +565,8 @@ def _story_repair_targets(
             "duplicate_title": current_title if conflicting_page_ids else "",
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
+            "current_summary": current_summary,
+            "summary_policy": "exact_source_excerpt_or_empty",
         }
 
     failed_page_id = str(error.failure.page_id or "")
@@ -711,7 +714,9 @@ async def plan_slide_story_v3(
                                 "unit's primary_block_ids across one to three pages: bind multiple "
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
-                                "Copy each title verbatim from that unit's title_candidates."
+                                "Copy each title verbatim from that unit's title_candidates. Set "
+                                "summary to empty unless its complete wording is directly supported "
+                                "by that unit's source_text; never add identifiers or facts."
                             ),
                         },
                     }

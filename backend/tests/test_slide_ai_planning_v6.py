@@ -312,6 +312,8 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
     assert repair_target["available_title_candidates"] == calls[0]["teaching_units"][0]["title_candidates"]
     assert repair_target["duplicate_title"] == ""
     assert repair_target["conflicting_page_ids"] == []
+    assert repair_target["current_summary"] == ""
+    assert repair_target["summary_policy"] == "exact_source_excerpt_or_empty"
     assert story.batches[0].attempts == 2
 
 
@@ -351,6 +353,40 @@ async def test_story_repair_names_missing_blocks_without_weakening_coverage() ->
     assert repair_target["missing_source_block_ids"] == ["feedback"]
     assert repair_target["duplicate_source_block_ids"] == []
     assert repair_target["required_source_block_ids"] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        summary = "UnsupportedIdentifier_999" if len(calls) == 1 else ""
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "summary-repair",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": unit["title_candidates"][0],
+                "summary": summary,
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert target["current_summary"] == "UnsupportedIdentifier_999"
+    assert target["summary_policy"] == "exact_source_excerpt_or_empty"
+    assert story.pages[0].summary == ""
     validate_slide_story_plan_v3(story, graph, template)
 
 
