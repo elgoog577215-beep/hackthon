@@ -553,6 +553,67 @@ async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() 
 
 
 @pytest.mark.asyncio
+async def test_visual_ai_projects_source_bound_aliases_and_discards_draft_code() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "generic-code-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/evidence-code")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=story_planner)
+    requests = []
+
+    async def visual_planner(request):
+        requests.append(request)
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision_type": "code",
+                "code_payload": {
+                    "language": "python",
+                    "code": "invented_code_must_not_be_consumed()",
+                },
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    decision = visual.decisions[0]
+    assert requests[0]["response_contract"]["forbidden_decision_fields"] == [
+        "decision_type",
+        "code_payload",
+    ]
+    assert decision.decision == "code"
+    assert decision.source_block_ids == story.pages[0].source_block_ids
+    assert decision.resolved_template_layout_id == story.pages[0].template_layout_id
+    assert decision.visual_payload == {}
+
+
+@pytest.mark.asyncio
 async def test_visual_batches_honor_shared_concurrency_limit() -> None:
     document = refresh_document_revision(
         CourseDocument(

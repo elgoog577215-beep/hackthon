@@ -47,6 +47,20 @@ _STORY_PAGE_CONTRACT_FIELDS = frozenset({
     "source_block_ids",
 })
 _STORY_SEMANTIC_MAX_ATTEMPTS = 3
+_VISUAL_DECISION_CONTRACT_FIELDS = frozenset({
+    "page_id",
+    "decision",
+    "source_block_ids",
+    "source_asset_ids",
+    "visual_payload",
+    "resolved_template_layout_id",
+    "provider",
+    "model",
+    "duration_ms",
+    "attempts",
+    "degraded",
+    "degradation_reason",
+})
 
 
 class _StrictModel(BaseModel):
@@ -183,6 +197,54 @@ def _normalize_story_batch_response(
             if field in page
         })
     payload["pages"] = normalized_pages
+    return payload
+
+
+def _normalize_visual_batch_response(
+    raw: dict[str, Any],
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    """Project provider output onto source-bound visual decisions."""
+
+    payload = _normalize_versioned_response(
+        raw,
+        schema_version="slide_visual_batch_response_v2",
+        collection_field="decisions",
+    )
+    pages = {
+        str(page.get("page_id") or ""): page
+        for page in request.get("pages") or []
+        if isinstance(page, dict)
+    }
+    decisions = payload.get("decisions")
+    if not isinstance(decisions, list):
+        return payload
+    normalized: list[Any] = []
+    for value in decisions:
+        if not isinstance(value, dict):
+            normalized.append(value)
+            continue
+        decision = dict(value)
+        if "decision" not in decision and "decision_type" in decision:
+            decision["decision"] = decision.pop("decision_type")
+        else:
+            decision.pop("decision_type", None)
+        page = pages.get(str(decision.get("page_id") or ""))
+        if page is not None:
+            if not decision.get("source_block_ids"):
+                decision["source_block_ids"] = list(
+                    page.get("source_block_ids") or []
+                )
+            if not str(decision.get("resolved_template_layout_id") or "").strip():
+                decision["resolved_template_layout_id"] = str(
+                    page.get("template_layout_id") or ""
+                )
+        normalized.append({
+            field: decision[field]
+            for field in _VISUAL_DECISION_CONTRACT_FIELDS
+            if field in decision
+        })
+    payload["decisions"] = normalized
     return payload
 
 
@@ -702,6 +764,18 @@ def _visual_request(
             "prefer_text_native_when_visual_is_not_meaningful": True,
             "preserve_required_artifacts": True,
         },
+        "response_contract": {
+            "schema_version": "slide_visual_batch_response_v2",
+            "required_top_level_fields": ["schema_version", "decisions"],
+            "required_decision_fields": [
+                "page_id",
+                "decision",
+                "source_block_ids",
+                "resolved_template_layout_id",
+            ],
+            "optional_decision_fields": ["source_asset_ids", "visual_payload"],
+            "forbidden_decision_fields": ["decision_type", "code_payload"],
+        },
         "pages": [
             {
                 "page_id": page.page_id,
@@ -780,10 +854,9 @@ async def plan_slide_visuals_v2(
             async with semaphore:
                 raw = await _invoke(ai_planner, request, timeout_seconds)
             response = _VisualBatchResponse.model_validate(
-                _normalize_versioned_response(
+                _normalize_visual_batch_response(
                     raw,
-                    schema_version="slide_visual_batch_response_v2",
-                    collection_field="decisions",
+                    request,
                 )
             )
             if response.schema_version != "slide_visual_batch_response_v2":
@@ -903,10 +976,13 @@ def build_ai_base_visual_planner_v2() -> Planner:
             json.dumps(request, ensure_ascii=False),
             system_prompt=(
                 "Return only slide_visual_batch_response_v2 JSON with exactly one decision per "
-                "page_id. Use only supplied source_block_ids and template_layout_id values. Preserve "
+                "page_id and follow response_contract exactly. Use decision, never decision_type. "
+                "Use only supplied source_block_ids and template_layout_id values. Preserve "
                 "required code, formula, table, data, experiment and source evidence. Choose "
                 "text_native when no meaningful visual is source-supported. Do not write slide copy "
-                "or invent labels, facts or data. For diagram decisions include visual_payload with "
+                "or invent labels, facts, data, code_payload, or other artifact payloads. The compiler "
+                "reads code, formulas and tables from frozen source blocks. For diagram decisions "
+                "include visual_payload with "
                 "two to six source-grounded nodes, source_block_ids per node, and valid edges. For "
                 "image or experiment decisions choose only supplied source_asset_ids."
             ),
