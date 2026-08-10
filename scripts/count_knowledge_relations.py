@@ -106,6 +106,25 @@ def main() -> int:
     blank = unique_counts.get("", 0)
     if blank:
         print(f"  (无类型字段: {blank})")
+    # 第二类失效：derives 缺 derivation_steps、contrasts_with 缺 distinction
+    # 会在编译期被静默丢弃（course_knowledge_base:706-709）。
+    # 只数 prompt 里出现了几个词是测不出这一层的，必须查必填字段。
+    incomplete: list[str] = []
+    for item in relations:
+        rtype = relation_type_of(item)
+        if rtype == "derives" and not item.get("derivation_steps"):
+            incomplete.append(f"derives 缺 derivation_steps: {endpoint_of(item,'source')}->{endpoint_of(item,'target')}")
+        if rtype == "contrasts_with" and not str(item.get("distinction") or "").strip():
+            incomplete.append(f"contrasts_with 缺 distinction: {endpoint_of(item,'source')}->{endpoint_of(item,'target')}")
+    if incomplete:
+        print()
+        print("必填字段缺失（编译期会被静默丢弃）:")
+        for line in incomplete[:8]:
+            print(f"  ! {line}")
+    else:
+        print()
+        print("必填字段: derives/contrasts_with 均完整（不会被静默丢弃）")
+
     print()
     print(f"出现类型数 : {present} / 6   （A1 要求 >= {REQUIRED_DISTINCT}）")
     print(f"A1 验收    : {'PASS' if present >= REQUIRED_DISTINCT else 'FAIL'}")
