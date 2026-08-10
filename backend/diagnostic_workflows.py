@@ -293,27 +293,41 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
     }.get(level, "process_error")
     claims = diagnosed_claims[:2] or (
         [
-            {"claim": claim, "candidate_mistake_point_ids": []}
+            {
+                "claim": claim,
+                "candidate_mistake_point_ids": [],
+                "attribution": "formal_failure",
+            }
             for claim in failed[:2]
         ] or [{
             "claim": f"尚未稳定达到：{task.get('learning_objective') or task.get('prompt')}",
-            "candidate_mistake_point_ids": list(task.get("mistake_point_ids") or []),
+            # 没有诊断结论也没有失败量规时，作答只证明"没达标"，不指向任何具体
+            # 错误，所以候选易错点必须为空 —— 候选的含义是"我们怀疑这些"。
+            # 该目标下声明的易错点另记为待测范围，供探针铺开提问，但不冒充结论。
+            "candidate_mistake_point_ids": [],
+            "probe_scope_mistake_point_ids": list(task.get("mistake_point_ids") or []),
+            "attribution": "unattributed",
         }]
     )
     misconceptions = [
         item for item in (course.get("learning_assets") or {}).get("misconceptions") or []
         if item.get("objective_revision_id") == task.get("objective_revision_id")
     ]
-    if misconceptions and not diagnosed_claims:
-        matched_id = str(misconceptions[0].get("mistake_point_id") or "")
-        claims.append({
-            "claim": f"可能混淆：{misconceptions[0].get('error_pattern')}",
-            "candidate_mistake_point_ids": [matched_id] if matched_id else [],
-        })
+    # 这里原来有一条兜底：没有诊断结论时取 misconceptions[0] 拼一条"可能混淆：…"
+    # 的假设。被选中的易错点与本次作答毫无关联——它只是列表里的第一个，同一目标
+    # 下其余易错点同样"可能"。下游会据此生成定向探针并写进补救单元，等于把
+    # "我们不知道"包装成"我们查到了"。无法归因时如实说无法归因，由探针去测。
     hypotheses = []
     for index, claim_entry in enumerate(claims[:3]):
         claim = str(claim_entry.get("claim") or "")
-        category = "boundary_confusion" if index >= len(failed) and misconceptions else default_category
+        attribution = str(claim_entry.get("attribution") or "diagnosed")
+        category = (
+            "boundary_confusion"
+            if attribution == "diagnosed"
+            and claim_entry.get("candidate_mistake_point_ids")
+            and misconceptions
+            else default_category
+        )
         hypothesis_id = stable_hash({
             "objective": task.get("objective_revision_id"), "category": category, "claim": claim,
         }, prefix="dh_")
@@ -322,6 +336,10 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
             "category": category,
             "claim": claim,
             "status": "testing",
+            # diagnosed | formal_failure | unattributed —— 归因依据的等级。
+            # `unattributed` 明确表示"这次失败无法定位到具体错误"，下游据此把
+            # candidate_mistake_point_ids 当作待测范围而不是结论。
+            "attribution": attribution,
             "confidence_level": (
                 "medium"
                 if float(claim_entry.get("confidence") or 0.0) >= 0.7
@@ -340,12 +358,18 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
                 or []
             ),
             "candidate_mistake_point_ids": list(claim_entry.get("candidate_mistake_point_ids") or []),
+            "probe_scope_mistake_point_ids": list(
+                claim_entry.get("probe_scope_mistake_point_ids") or []
+            ),
             "confirmed_mistake_point_ids": [],
             "evidence_for": [{
                 "attempt_id": attempt.get("attempt_id"),
                 "kind": (
                     "answer_diagnosis"
                     if claim_entry.get("source") == "answer_diagnosis"
+                    # 无法归因的失败不能标成 formal_failure：那会声称有量规证据。
+                    else "unattributed_failure"
+                    if attribution == "unattributed"
                     else "formal_failure"
                 ),
             }],
