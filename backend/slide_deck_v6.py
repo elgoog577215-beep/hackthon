@@ -551,6 +551,13 @@ def validate_slide_visual_plan_v2(
         layout = template.get_layout(decision.resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="visual", code="template_layout_unavailable", message="Visual plan selected an unknown template layout", page_id=page_id)
+        if decision.resolved_template_layout_id != page.template_layout_id:
+            raise V6BuildError(
+                stage="visual",
+                code="visual_layout_binding_mismatch",
+                message="Visual decision must retain the story page template layout",
+                page_id=page_id,
+            )
         unknown_assets = set(decision.source_asset_ids) - set(unit.source_asset_refs)
         if unknown_assets:
             raise V6BuildError(

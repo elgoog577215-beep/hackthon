@@ -614,6 +614,63 @@ async def test_visual_ai_projects_source_bound_aliases_and_discards_draft_code()
 
 
 @pytest.mark.asyncio
+async def test_visual_ai_repairs_required_subject_representation_per_batch() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "generic-required-code",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/evidence-code")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=story_planner)
+    calls = []
+
+    async def visual_planner(request):
+        calls.append(request)
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "table" if len(calls) == 1 else "code",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["page_id"] == "generic-required-code"
+    assert repair_target["required_artifact_kinds"] == ["code"]
+    assert repair_target["allowed_decisions"] == ["code"]
+    assert repair_target["required_template_layout_id"] == story.pages[0].template_layout_id
+    assert visual.decisions[0].decision == "code"
+
+
+@pytest.mark.asyncio
 async def test_visual_batches_honor_shared_concurrency_limit() -> None:
     document = refresh_document_revision(
         CourseDocument(
