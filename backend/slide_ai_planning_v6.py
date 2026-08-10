@@ -31,6 +31,7 @@ from template_layout_contract import TemplateLayoutPackContractV1
 
 
 Planner = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
+BatchLifecycleCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 
 
 class _StrictModel(BaseModel):
@@ -88,6 +89,17 @@ async def _invoke(planner: Planner, request: dict[str, Any], timeout_seconds: fl
     return result
 
 
+async def _notify_batch(
+    callback: BatchLifecycleCallback | None,
+    payload: dict[str, Any],
+) -> None:
+    if callback is None:
+        return
+    result = callback(payload)
+    if inspect.isawaitable(result):
+        await result
+
+
 def _allowed_layout_ids(
     unit: CoursePresentationUnitV1,
     template: TemplateLayoutPackContractV1,
@@ -140,6 +152,7 @@ def _story_requests(
                     "teaching_intent": unit.teaching_intent,
                     "artifact_kinds": unit.artifact_kinds,
                     "source_asset_ids": unit.source_asset_refs,
+                    "teaching_plan_context": unit.teaching_plan_context,
                     "prerequisite_unit_ids": unit.prerequisite_unit_ids,
                     "source_text": unit.source_text,
                     "allowed_template_layout_ids": _allowed_layout_ids(unit, template),
@@ -157,6 +170,8 @@ async def plan_slide_story_v3(
     *,
     ai_planner: Planner | None,
     timeout_seconds: float = 180.0,
+    batch_callback: BatchLifecycleCallback | None = None,
+    resume_batches: list[SlideStoryBatchV3] | None = None,
 ) -> SlideStoryPlanV3:
     if ai_planner is None:
         raise V6BuildError(
@@ -166,8 +181,41 @@ async def plan_slide_story_v3(
             retryable=True,
         )
     batches: list[SlideStoryBatchV3] = []
+    resumed_by_chapter = {
+        batch.chapter_id: batch
+        for batch in (resume_batches or [])
+        if batch.validation_status == "passed"
+    }
     page_ordinal = 0
     for batch_index, request in enumerate(_story_requests(graph, template)):
+        batch_id = f"story-{batch_index + 1}"
+        resumed = resumed_by_chapter.get(str(request["chapter_id"]))
+        if resumed is not None:
+            pages = [
+                page.model_copy(update={"page_ordinal": page_ordinal + index})
+                for index, page in enumerate(resumed.pages)
+            ]
+            page_ordinal += len(pages)
+            batch = resumed.model_copy(update={"batch_id": batch_id, "pages": pages})
+            batches.append(batch)
+            await _notify_batch(batch_callback, {
+                "phase": "completed",
+                "kind": "story",
+                "batch_index": batch_index,
+                "batch_id": batch_id,
+                "chapter_id": batch.chapter_id,
+                "resumed": True,
+                "batch": batch,
+            })
+            continue
+        await _notify_batch(batch_callback, {
+            "phase": "started",
+            "kind": "story",
+            "batch_index": batch_index,
+            "batch_id": batch_id,
+            "chapter_id": str(request["chapter_id"]),
+            "resumed": False,
+        })
         started = time.perf_counter()
         try:
             raw = await _invoke(ai_planner, request, timeout_seconds)
@@ -185,9 +233,8 @@ async def plan_slide_story_v3(
                     )
                 )
                 page_ordinal += 1
-            batches.append(
-                SlideStoryBatchV3(
-                    batch_id=f"story-{batch_index + 1}",
+            batch = SlideStoryBatchV3(
+                    batch_id=batch_id,
                     chapter_id=response.chapter_id,
                     provider=response.provider or "shared-ai-pool",
                     model=response.model or "provider-selected",
@@ -195,9 +242,9 @@ async def plan_slide_story_v3(
                     attempts=response.attempts,
                     validation_status="passed",
                     pages=pages,
-                )
             )
-        except BaseException as error:
+            batches.append(batch)
+        except Exception as error:
             code, retryable = _failure_category(error, prefix="story_ai_batch")
             raise V6BuildError(
                 stage="story",
@@ -205,8 +252,17 @@ async def plan_slide_story_v3(
                 message=str(error) or "Story AI batch failed",
                 retryable=retryable,
                 chapter_id=str(request["chapter_id"]),
-                batch_id=f"story-{batch_index + 1}",
+                batch_id=batch_id,
             ) from error
+        await _notify_batch(batch_callback, {
+            "phase": "completed",
+            "kind": "story",
+            "batch_index": batch_index,
+            "batch_id": batch_id,
+            "chapter_id": batch.chapter_id,
+            "resumed": False,
+            "batch": batch,
+        })
     plan = SlideStoryPlanV3(
         source_document_revision=graph.source_document_revision,
         template_digest=template.template_digest,
@@ -258,6 +314,8 @@ async def plan_slide_visuals_v2(
     ai_planner: Planner | None,
     concurrency: int = 3,
     timeout_seconds: float = 180.0,
+    batch_callback: BatchLifecycleCallback | None = None,
+    resume_decisions: list[SlideVisualDecisionV2] | None = None,
 ) -> SlideVisualPlanV2:
     if ai_planner is None:
         raise V6BuildError(
@@ -269,8 +327,39 @@ async def plan_slide_visuals_v2(
     limit = max(2, min(4, concurrency))
     semaphore = asyncio.Semaphore(limit)
     units = {unit.teaching_unit_id: unit for unit in graph.units}
+    resumed_by_page = {
+        decision.page_id: decision for decision in (resume_decisions or [])
+    }
 
-    async def plan_batch(batch: SlideStoryBatchV3) -> list[SlideVisualDecisionV2]:
+    async def plan_batch(
+        batch_index: int,
+        batch: SlideStoryBatchV3,
+    ) -> list[SlideVisualDecisionV2]:
+        batch_id = f"visual-{batch_index + 1}"
+        resumed = [
+            resumed_by_page[page.page_id]
+            for page in batch.pages
+            if page.page_id in resumed_by_page
+        ]
+        if len(resumed) == len(batch.pages):
+            await _notify_batch(batch_callback, {
+                "phase": "completed",
+                "kind": "visual",
+                "batch_index": batch_index,
+                "batch_id": batch_id,
+                "chapter_id": batch.chapter_id,
+                "resumed": True,
+                "decisions": resumed,
+            })
+            return resumed
+        await _notify_batch(batch_callback, {
+            "phase": "started",
+            "kind": "visual",
+            "batch_index": batch_index,
+            "batch_id": batch_id,
+            "chapter_id": batch.chapter_id,
+            "resumed": False,
+        })
         request = _visual_request(batch, graph, template)
         started = time.perf_counter()
         try:
@@ -280,7 +369,7 @@ async def plan_slide_visuals_v2(
             if response.schema_version != "slide_visual_batch_response_v2":
                 raise ValueError("Unexpected visual response schema")
             duration_ms = max(0, round((time.perf_counter() - started) * 1000))
-            return [
+            decisions = [
                 decision.model_copy(
                     update={
                         "provider": decision.provider or response.provider or "shared-ai-pool",
@@ -291,7 +380,7 @@ async def plan_slide_visuals_v2(
                 )
                 for decision in response.decisions
             ]
-        except BaseException as error:
+        except Exception as error:
             required_pages = [
                 page
                 for page in batch.pages
@@ -305,10 +394,10 @@ async def plan_slide_visuals_v2(
                     retryable=True,
                     chapter_id=batch.chapter_id,
                     page_id=required_pages[0].page_id,
-                    batch_id=batch.batch_id,
+                    batch_id=batch_id,
                 ) from error
             category, _ = _failure_category(error, prefix="visual_ai_batch")
-            return [
+            decisions = [
                 SlideVisualDecisionV2(
                     page_id=page.page_id,
                     decision="text_native",
@@ -320,8 +409,20 @@ async def plan_slide_visuals_v2(
                 )
                 for page in batch.pages
             ]
+        await _notify_batch(batch_callback, {
+            "phase": "completed",
+            "kind": "visual",
+            "batch_index": batch_index,
+            "batch_id": batch_id,
+            "chapter_id": batch.chapter_id,
+            "resumed": False,
+            "decisions": decisions,
+        })
+        return decisions
 
-    nested = await asyncio.gather(*(plan_batch(batch) for batch in story.batches))
+    nested = await asyncio.gather(*(
+        plan_batch(index, batch) for index, batch in enumerate(story.batches)
+    ))
     plan = SlideVisualPlanV2(
         source_document_revision=graph.source_document_revision,
         template_digest=template.template_digest,
@@ -378,7 +479,9 @@ def build_ai_base_visual_planner_v2() -> Planner:
                 "page_id. Use only supplied source_block_ids and template_layout_id values. Preserve "
                 "required code, formula, table, data, experiment and source evidence. Choose "
                 "text_native when no meaningful visual is source-supported. Do not write slide copy "
-                "or invent labels, facts or data."
+                "or invent labels, facts or data. For diagram decisions include visual_payload with "
+                "two to six source-grounded nodes, source_block_ids per node, and valid edges. For "
+                "image or experiment decisions choose only supplied source_asset_ids."
             ),
             use_fast_model=True,
             retry_count=1,

@@ -99,6 +99,27 @@ def test_course_graph_keeps_characteristic_artifact_with_context_and_result() ->
     assert graph.units[0].artifact_kinds == ["code"]
 
 
+def test_course_graph_carries_formal_teaching_plan_context_without_rewriting_source() -> None:
+    document = _cross_subject_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={
+        "sections": [{
+            "node_id": "s1",
+            "key_points": ["调查边界"],
+            "teaching_modules": [{
+                "module_id": "evidence-loop",
+                "teaching_purpose": "建立观察与核对闭环",
+                "knowledge_names": ["观察条件", "核对标准"],
+            }],
+        }],
+    })
+
+    first = graph.units[0]
+    assert first.teaching_plan_context["module_ids"] == ["evidence-loop"]
+    assert first.teaching_plan_context["teaching_purposes"] == ["建立观察与核对闭环"]
+    assert first.teaching_plan_context["knowledge_names"] == ["观察条件", "核对标准"]
+    assert "建立观察与核对闭环" not in first.source_text
+
+
 def test_source_contract_freezes_course_and_template_digests() -> None:
     document = _cross_subject_document()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -195,6 +216,15 @@ def test_story_plan_rejects_untraceable_factual_tokens() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_ungrounded_semantic_claim_without_numbers() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].summary = "采用量子纠缠协议完成远程身份认证。"
+
+    with pytest.raises(V6BuildError, match="story_unsupported_semantic_claim"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_visual_plan_degrades_only_optional_visuals() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
@@ -256,6 +286,16 @@ def test_final_deck_has_full_notes_and_template_native_layout_ids() -> None:
     assert {item.block_id for page in deck.pages for item in page.speaker_notes.source_blocks} == {
         "b1", "b2", "b3", "b4", "b5", "b6", "b7",
     }
+    table_note = next(
+        item
+        for page in deck.pages
+        for item in page.speaker_notes.source_blocks
+        if item.block_id == "b6"
+    )
+    assert table_note.source_kind == "table"
+    assert table_note.source_payload == next(
+        block.payload for block in document.blocks if block.block_id == "b6"
+    )
 
 
 def test_visible_slot_content_expresses_every_bound_source_block() -> None:
@@ -352,6 +392,64 @@ def test_visual_image_requires_a_source_asset_reference() -> None:
 
     with pytest.raises(V6BuildError, match="visual_source_asset_missing"):
         validate_slide_visual_plan_v2(visual, story, graph, template)
+
+
+def test_diagram_decision_requires_source_bound_nodes_and_edges() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-process-diagram",
+            title="样本核验流程",
+            sections=[CourseSection(section_id="section", title="核验", position=0)],
+            blocks=[_block(
+                "flow", "section", 0, role="reasoning", kind="diagram",
+                text="先采集样本，再核对时间与地点，最后形成结论。",
+            )],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="样本核验流程",
+        source_block_ids=["flow"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1", chapter_id="section", provider="fixture", model="fixture",
+            duration_ms=1, attempts=1, validation_status="passed", pages=[page],
+        )],
+    )
+    missing = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="diagram-page", decision="diagram", source_block_ids=["flow"],
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="visual_diagram_payload_missing"):
+        validate_slide_visual_plan_v2(missing, story, graph, template)
+
+    valid = missing.model_copy(deep=True)
+    valid.decisions[0].visual_payload = {
+        "nodes": [
+            {"node_id": "collect", "label": "采集样本", "source_block_ids": ["flow"]},
+            {"node_id": "verify", "label": "核对时间与地点", "source_block_ids": ["flow"]},
+            {"node_id": "conclude", "label": "形成结论", "source_block_ids": ["flow"]},
+        ],
+        "edges": [
+            {"source": "collect", "target": "verify", "label": "再"},
+            {"source": "verify", "target": "conclude", "label": "最后"},
+        ],
+        "direction": "horizontal",
+    }
+    assert validate_slide_visual_plan_v2(valid, story, graph, template) == "v6_ready"
 
 
 def test_v6_modules_do_not_hardcode_course_identity_or_fixed_artifacts() -> None:

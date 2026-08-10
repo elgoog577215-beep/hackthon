@@ -21,6 +21,8 @@ from slide_build_progress_v2 import (
     SlideWorkItemV2,
 )
 from slide_deck_v6 import (
+    SlideStoryBatchV3,
+    SlideVisualDecisionV2,
     V6BuildError,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
@@ -145,16 +147,69 @@ class SlideDeckV6Orchestrator:
         template_digest_provider: Callable[[], str] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
-        tracker = SlideBuildProgressTrackerV2.create(
-            task_id,
-            repository=self.progress_repository,
-        )
+        try:
+            tracker = SlideBuildProgressTrackerV2.load(
+                task_id,
+                repository=self.progress_repository,
+            )
+        except FileNotFoundError:
+            tracker = SlideBuildProgressTrackerV2.create(
+                task_id,
+                repository=self.progress_repository,
+            )
+        else:
+            if tracker.manifest.status != "active":
+                raise V6BuildError(
+                    stage="recovery",
+                    code="v6_terminal_task_requires_new_task",
+                    message="A terminal V6 task cannot be restarted with the same task ID",
+                    retryable=False,
+                )
+            tracker.resume_active()
         current_work = "source-contract"
         source_contract = None
         graph = None
         story = None
         visual = None
         template = compile_builtin_template_layout_contract_v1(theme)
+        checkpoint: dict[str, Any] = {
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "task_id": task_id,
+            "course_id": document.course_id,
+            "course_document_revision": document.document_revision,
+            "template_digest": template.template_digest,
+            "mode": mode,
+            "theme": theme,
+            "story_batches": [],
+            "visual_decisions": [],
+            "updated_at": _utc_now(),
+        }
+        try:
+            restored_checkpoint = self.candidates.load(task_id)
+        except FileNotFoundError:
+            restored_checkpoint = None
+        if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
+            identity = (
+                restored_checkpoint.get("course_id") == document.course_id
+                and restored_checkpoint.get("course_document_revision") == document.document_revision
+                and restored_checkpoint.get("template_digest") == template.template_digest
+                and restored_checkpoint.get("mode") == mode
+                and restored_checkpoint.get("theme") == theme
+            )
+            if not identity:
+                raise V6BuildError(
+                    stage="recovery",
+                    code="v6_recovery_contract_mismatch",
+                    message="Persisted V6 work belongs to a different frozen source or template",
+                    retryable=False,
+                )
+            checkpoint.update(restored_checkpoint)
+
+        def save_checkpoint(**updates: Any) -> None:
+            checkpoint.update(updates)
+            checkpoint["updated_at"] = _utc_now()
+            self.candidates.save(task_id, checkpoint)
+
         tracker.add_work([
             SlideWorkItemV2(item_id="source-contract", kind="local", stage="source", label="冻结课程与模板真源"),
             SlideWorkItemV2(item_id="course-graph", kind="local", stage="course_graph", label="构建完整教学单元图"),
@@ -185,6 +240,10 @@ class SlideDeckV6Orchestrator:
                     code="course_block_coverage_incomplete",
                     message="Course presentation graph does not own every formal block exactly once",
                 )
+            save_checkpoint(
+                source_contract=source_contract.model_dump(mode="json"),
+                course_presentation_graph=graph.model_dump(mode="json"),
+            )
             tracker.complete("course-graph")
             story_sections = list(dict.fromkeys(unit.section_id for unit in graph.units))
             tracker.add_work([
@@ -200,21 +259,52 @@ class SlideDeckV6Orchestrator:
             ])
             await _emit(progress_callback, tracker.snapshot())
 
-            for index, section_id in enumerate(story_sections):
-                current_work = f"story-{index + 1}"
-                tracker.start(
-                    current_work,
-                    chapter_id=section_id,
-                    batch_id=current_work,
-                    provider_wait=True,
-                )
+            resumed_story_batches = [
+                SlideStoryBatchV3.model_validate(item)
+                for item in checkpoint.get("story_batches") or []
+            ]
+            story_batches_by_id = {
+                batch.batch_id: batch for batch in resumed_story_batches
+            }
+
+            async def story_batch_progress(event: dict[str, Any]) -> None:
+                nonlocal current_work
+                work_id = str(event["batch_id"])
+                current_work = work_id
+                if event["phase"] == "started":
+                    tracker.start(
+                        work_id,
+                        chapter_id=str(event["chapter_id"]),
+                        batch_id=work_id,
+                        provider_wait=True,
+                    )
+                else:
+                    batch = event["batch"]
+                    story_batches_by_id[work_id] = batch
+                    save_checkpoint(story_batches=[
+                        story_batches_by_id[key].model_dump(mode="json")
+                        for key in sorted(story_batches_by_id)
+                    ])
+                    tracker.complete(work_id)
+                await _emit(progress_callback, tracker.snapshot())
+
             story = await _await_with_heartbeats(
-                plan_slide_story_v3(graph, template, ai_planner=story_planner),
+                plan_slide_story_v3(
+                    graph,
+                    template,
+                    ai_planner=story_planner,
+                    batch_callback=story_batch_progress,
+                    resume_batches=resumed_story_batches,
+                ),
                 tracker=tracker,
                 callback=progress_callback,
             )
-            for index in range(len(story_sections)):
-                tracker.complete(f"story-{index + 1}")
+            save_checkpoint(
+                story_plan=story.model_dump(mode="json"),
+                story_batches=[
+                    batch.model_dump(mode="json") for batch in story.batches
+                ],
+            )
             tracker.add_work([
                 SlideWorkItemV2(
                     item_id=f"visual-{index + 1}",
@@ -228,26 +318,53 @@ class SlideDeckV6Orchestrator:
             ])
             await _emit(progress_callback, tracker.snapshot())
 
-            for index, batch in enumerate(story.batches):
-                current_work = f"visual-{index + 1}"
-                tracker.start(
-                    current_work,
-                    chapter_id=batch.chapter_id,
-                    batch_id=current_work,
-                    provider_wait=True,
-                )
+            resumed_visual_decisions = [
+                SlideVisualDecisionV2.model_validate(item)
+                for item in checkpoint.get("visual_decisions") or []
+            ]
+            visual_decisions_by_page = {
+                decision.page_id: decision for decision in resumed_visual_decisions
+            }
+
+            async def visual_batch_progress(event: dict[str, Any]) -> None:
+                nonlocal current_work
+                work_id = str(event["batch_id"])
+                current_work = work_id
+                if event["phase"] == "started":
+                    tracker.start(
+                        work_id,
+                        chapter_id=str(event["chapter_id"]),
+                        batch_id=work_id,
+                        provider_wait=True,
+                    )
+                else:
+                    for decision in event["decisions"]:
+                        visual_decisions_by_page[decision.page_id] = decision
+                    save_checkpoint(visual_decisions=[
+                        visual_decisions_by_page[key].model_dump(mode="json")
+                        for key in sorted(visual_decisions_by_page)
+                    ])
+                    tracker.complete(work_id)
+                await _emit(progress_callback, tracker.snapshot())
+
             visual = await _await_with_heartbeats(
                 plan_slide_visuals_v2(
                     story,
                     graph,
                     template,
                     ai_planner=visual_planner,
+                    batch_callback=visual_batch_progress,
+                    resume_decisions=resumed_visual_decisions,
                 ),
                 tracker=tracker,
                 callback=progress_callback,
             )
-            for index in range(len(story.batches)):
-                tracker.complete(f"visual-{index + 1}")
+            save_checkpoint(
+                visual_plan=visual.model_dump(mode="json"),
+                visual_decisions=[
+                    decision.model_dump(mode="json") for decision in visual.decisions
+                ],
+            )
 
             tracker.add_work([
                 SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
@@ -476,9 +593,17 @@ class SlideDeckV6Orchestrator:
                 "progress": progress,
             }
         except V6BuildError as error:
-            if any(item.item_id == current_work for item in tracker.manifest.items):
+            failure_work = (
+                error.failure.batch_id
+                if any(
+                    item.item_id == error.failure.batch_id
+                    for item in tracker.manifest.items
+                )
+                else current_work
+            )
+            if any(item.item_id == failure_work for item in tracker.manifest.items):
                 tracker.fail(
-                    current_work,
+                    failure_work,
                     **error.failure.model_dump(mode="python"),
                 )
             failure_payload = {

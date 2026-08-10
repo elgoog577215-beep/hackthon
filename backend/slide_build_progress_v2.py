@@ -194,6 +194,22 @@ class SlideBuildProgressTrackerV2:
         self.manifest.current_context.batch_id = item.batch_id or self.manifest.current_context.batch_id
         self.manifest.current_context.page_id = item.page_id or self.manifest.current_context.page_id
 
+    def resume_active(self, *, now: datetime | None = None) -> None:
+        """Requeue work interrupted by a process restart without losing progress."""
+
+        if self.manifest.status != "active":
+            raise ValueError("Only an active V6 progress manifest can be resumed")
+        current = now or _utc_now()
+        for item in self.manifest.items:
+            if item.status == "running":
+                item.status = "pending"
+                item.started_at = ""
+        self.manifest.current_context.provider_wait = False
+        self.manifest.current_context.retry_attempt = 0
+        self._touch(current)
+        self._recalculate()
+        self._persist()
+
     def add_work(self, items: list[SlideWorkItemV2], *, now: datetime | None = None) -> None:
         current = now or _utc_now()
         known = {item.item_id for item in self.manifest.items}

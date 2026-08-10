@@ -86,6 +86,29 @@ def test_progress_manifest_resumes_after_repository_reload(tmp_path: Path) -> No
     assert restored.manifest.current_context.retry_attempt == 2
 
 
+def test_active_restart_requeues_only_interrupted_work_without_progress_rollback(
+    tmp_path: Path,
+) -> None:
+    repository = SlideBuildProgressRepositoryV2(tmp_path)
+    tracker = SlideBuildProgressTrackerV2.create("task-restart", repository=repository, now=_now())
+    tracker.add_work([
+        SlideWorkItemV2(item_id="story-1", kind="ai_batch", stage="story", label="故事 1"),
+        SlideWorkItemV2(item_id="story-2", kind="ai_batch", stage="story", label="故事 2"),
+    ], now=_now(1))
+    tracker.start("story-1", now=_now(2))
+    tracker.complete("story-1", now=_now(3))
+    tracker.start("story-2", now=_now(4), provider_wait=True)
+    before = tracker.manifest.display_percent
+
+    restored = SlideBuildProgressTrackerV2.load("task-restart", repository=repository)
+    restored.resume_active(now=_now(5))
+
+    assert restored.manifest.items[0].status == "completed"
+    assert restored.manifest.items[1].status == "pending"
+    assert restored.manifest.current_context.provider_wait is False
+    assert restored.manifest.display_percent == before
+
+
 def test_heartbeat_is_due_every_five_seconds_and_reports_provider_wait() -> None:
     tracker = SlideBuildProgressTrackerV2.create("task-v6", now=_now())
     tracker.add_work(

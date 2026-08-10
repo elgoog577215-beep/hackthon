@@ -14,6 +14,9 @@ interface V6NoteBlock {
   block_id: string
   block_revision: string
   full_text: string
+  source_kind?: string
+  source_payload?: Record<string, any>
+  asset_refs?: string[]
 }
 
 interface V6Page {
@@ -26,6 +29,7 @@ interface V6Page {
   visual_decision?: {
     decision?: string
     source_asset_ids?: string[]
+    visual_payload?: Record<string, any>
   }
   speaker_notes: {
     source_document_revision: string
@@ -57,7 +61,13 @@ function notesText(page: V6Page): string {
     `source_document_revision: ${page.speaker_notes.source_document_revision}`,
     `teaching_unit_id: ${page.speaker_notes.teaching_unit_id}`,
     ...page.speaker_notes.source_blocks.map(block => (
-      `[${block.block_id} @ ${block.block_revision}]\n${block.full_text}`
+      [
+        `[${block.block_id} @ ${block.block_revision}]`,
+        `source_kind: ${block.source_kind || 'rich_text'}`,
+        `asset_refs: ${JSON.stringify(block.asset_refs || [])}`,
+        block.full_text,
+        `source_payload: ${JSON.stringify(block.source_payload || {})}`,
+      ].join('\n')
     )),
   ].join('\n\n')
 }
@@ -96,6 +106,32 @@ function pageVisuals(page: V6Page): Array<Record<string, unknown>> {
   }]
   const table = page.regions.find(region => region.content_kind === 'table')
   if (table) return [{ kind: 'table', caption: table.slot_id, parameters: {} }]
+  if (String(page.visual_decision?.decision || '') === 'diagram') {
+    const payload = page.visual_decision?.visual_payload || {}
+    const nodes = Array.isArray(payload.nodes) ? payload.nodes : []
+    const edges = Array.isArray(payload.edges) ? payload.edges : []
+    if (nodes.length < 2 || !edges.length) {
+      throw new Error(`v6_visual_diagram_payload_missing:${page.page_id}`)
+    }
+    return [{
+      kind: 'rule_diagram',
+      caption: page.title,
+      nodes: nodes.map((node: Record<string, any>, index: number) => ({
+        node_id: String(node.node_id || ''),
+        label: String(node.label || ''),
+        emphasis: String(node.emphasis || (index === 0 ? 'primary' : 'supporting')),
+        source_fragment_ids: Array.isArray(node.source_block_ids) ? node.source_block_ids : [],
+      })),
+      edges,
+      source_fragment_ids: [...page.source_block_ids],
+      alt_text: page.title,
+      parameters: {
+        direction: String(payload.direction || 'vertical'),
+        template: 'process',
+        relation_evidence: [...page.source_block_ids],
+      },
+    }]
+  }
   if (['image', 'experiment'].includes(String(page.visual_decision?.decision || ''))) {
     const assetId = page.visual_decision?.source_asset_ids?.[0]
       || page.regions.flatMap(region => region.source_asset_refs || [])[0]

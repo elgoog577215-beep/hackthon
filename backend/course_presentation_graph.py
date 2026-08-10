@@ -41,6 +41,7 @@ class CoursePresentationUnitV1(_StrictModel):
     teaching_intent: str
     artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
     source_asset_refs: list[str] = Field(default_factory=list)
+    teaching_plan_context: dict[str, Any] = Field(default_factory=dict)
     prerequisite_unit_ids: list[str] = Field(default_factory=list)
     dependent_unit_ids: list[str] = Field(default_factory=list)
     source_text: str
@@ -145,6 +146,50 @@ def _ordered_formal_blocks(document: CourseDocument) -> list[CourseBlock]:
     )
 
 
+def _teaching_plan_context_by_section(
+    teaching_plan: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for section in (teaching_plan or {}).get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(
+            section.get("node_id")
+            or section.get("section_id")
+            or ""
+        ).strip()
+        if not section_id:
+            continue
+        modules = [
+            item for item in section.get("teaching_modules") or []
+            if isinstance(item, dict)
+        ]
+        result[section_id] = {
+            "key_points": list(dict.fromkeys(
+                str(item).strip()
+                for item in section.get("key_points") or []
+                if str(item).strip()
+            )),
+            "module_ids": list(dict.fromkeys(
+                str(module.get("module_id") or "").strip()
+                for module in modules
+                if str(module.get("module_id") or "").strip()
+            )),
+            "teaching_purposes": list(dict.fromkeys(
+                str(module.get("teaching_purpose") or "").strip()
+                for module in modules
+                if str(module.get("teaching_purpose") or "").strip()
+            )),
+            "knowledge_names": list(dict.fromkeys(
+                str(name).strip()
+                for module in modules
+                for name in module.get("knowledge_names") or []
+                if str(name).strip()
+            )),
+        }
+    return result
+
+
 def _partition_section(blocks: list[CourseBlock]) -> list[list[CourseBlock]]:
     groups: list[list[CourseBlock]] = []
     current: list[CourseBlock] = []
@@ -187,6 +232,7 @@ def compile_course_presentation_graph(
         by_section[block.section_id].append(block)
 
     units: list[CoursePresentationUnitV1] = []
+    plan_contexts = _teaching_plan_context_by_section(teaching_plan)
     previous_unit_id = ""
     for section_id in section_sequence:
         for blocks in _partition_section(by_section[section_id]):
@@ -220,6 +266,7 @@ def compile_course_presentation_graph(
                         if asset_ref
                     )
                 ),
+                teaching_plan_context=dict(plan_contexts.get(section_id) or {}),
                 prerequisite_unit_ids=[previous_unit_id] if previous_unit_id else [],
                 source_text="\n\n".join(
                     text for block in blocks if (text := block_source_text(block))

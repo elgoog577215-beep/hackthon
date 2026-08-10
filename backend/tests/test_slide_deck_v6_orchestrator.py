@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,35 @@ def _document() -> CourseDocument:
                     position=1,
                     role="feedback",
                     payload={"markdown": "核对时区分观察事实与后续解释。"},
+                ),
+            ],
+        )
+    )
+
+
+def _two_chapter_document() -> CourseDocument:
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="course-v6-restart-fixture",
+            title="跨章节现场观察",
+            sections=[
+                CourseSection(section_id="chapter-1", title="记录", position=0),
+                CourseSection(section_id="chapter-2", title="核对", position=1),
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="record",
+                    section_id="chapter-1",
+                    position=0,
+                    role="concept",
+                    payload={"markdown": "记录对象、时间与环境。"},
+                ),
+                CourseBlock(
+                    block_id="verify",
+                    section_id="chapter-2",
+                    position=0,
+                    role="concept",
+                    payload={"markdown": "核对事实、解释与结论。"},
                 ),
             ],
         )
@@ -225,3 +255,67 @@ async def test_render_audit_failure_keeps_the_previous_published_deck(
     after = next(item for item in representations.load(document.course_id).representations)
     assert after.spec_id == before.spec_id
     assert candidates.load("task-v6-render-failed")["failure"]["stage"] == "render"
+
+
+@pytest.mark.asyncio
+async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_again(
+    tmp_path: Path,
+) -> None:
+    document = _two_chapter_document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    calls: list[str] = []
+    interrupted = True
+
+    async def restartable_story(request):
+        nonlocal interrupted
+        chapter_id = request["chapter_id"]
+        calls.append(chapter_id)
+        if chapter_id == "chapter-2" and interrupted:
+            interrupted = False
+            raise asyncio.CancelledError()
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": chapter_id,
+            "provider": "fixture-pool",
+            "model": "fixture-story",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"page-{chapter_id}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    item for item in unit["allowed_template_layout_ids"]
+                    if item.endswith("/content-stack")
+                ),
+                "title": f"{chapter_id} 的观察任务",
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(asyncio.CancelledError):
+        await orchestrator.build(
+            task_id="task-v6-restart",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=restartable_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    result = await orchestrator.build(
+        task_id="task-v6-restart",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=restartable_story,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert result["status"] == "v6_ready"
+    assert calls.count("chapter-1") == 1
+    assert calls.count("chapter-2") == 2

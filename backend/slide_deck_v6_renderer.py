@@ -60,7 +60,10 @@ def _speaker_notes(page: SlidePageV6) -> str:
     sections.extend(
         "\n".join([
             f"[{block.block_id} @ {block.block_revision}]",
+            f"source_kind: {block.source_kind}",
+            f"asset_refs: {json.dumps(block.asset_refs, ensure_ascii=False)}",
             block.full_text,
+            f"source_payload: {json.dumps(block.source_payload, ensure_ascii=False, sort_keys=True)}",
         ])
         for block in page.speaker_notes.source_blocks
     )
@@ -124,20 +127,39 @@ def _visuals(page: SlidePageV6) -> list[dict[str, Any]]:
             "parameters": {"headers": headers, "rows": rows},
         }]
     if decision == "diagram":
+        payload = page.visual_decision.visual_payload
         nodes = [
             {
-                "node_id": region.region_id,
-                "label": region.content,
-                "emphasis": "primary" if index == 0 else "supporting",
+                "node_id": str(node.get("node_id") or ""),
+                "label": str(node.get("label") or ""),
+                "emphasis": str(node.get("emphasis") or ("primary" if index == 0 else "supporting")),
+                "source_fragment_ids": list(node.get("source_block_ids") or []),
             }
-            for index, region in enumerate(page.regions[:5])
+            for index, node in enumerate(payload.get("nodes") or [])
         ]
+        edges = [
+            {
+                "source": str(edge.get("source") or ""),
+                "target": str(edge.get("target") or ""),
+                "label": str(edge.get("label") or ""),
+                "relation": str(edge.get("relation") or "sequence"),
+            }
+            for edge in payload.get("edges") or []
+        ]
+        if len(nodes) < 2 or not edges:
+            raise ValueError(f"v6_visual_diagram_payload_missing:{page.page_id}")
         return [{
             "kind": "rule_diagram",
             "caption": page.title,
             "nodes": nodes,
-            "edges": [],
-            "parameters": {"direction": "vertical"},
+            "edges": edges,
+            "source_fragment_ids": list(page.source_block_ids),
+            "alt_text": page.title,
+            "parameters": {
+                "direction": str(payload.get("direction") or "vertical"),
+                "template": "process",
+                "relation_evidence": list(page.source_block_ids),
+            },
         }]
     if decision in {"image", "experiment"}:
         asset_ids = list(page.visual_decision.source_asset_ids)

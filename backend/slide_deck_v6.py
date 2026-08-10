@@ -132,6 +132,7 @@ class SlideVisualDecisionV2(_StrictModel):
     decision: VisualDecisionKind
     source_block_ids: list[str] = Field(min_length=1)
     source_asset_ids: list[str] = Field(default_factory=list)
+    visual_payload: dict[str, Any] = Field(default_factory=dict)
     resolved_template_layout_id: str
     provider: str = ""
     model: str = ""
@@ -152,6 +153,9 @@ class SourceNoteBlockV2(_StrictModel):
     block_id: str
     block_revision: str
     full_text: str
+    source_kind: str
+    source_payload: dict[str, Any] = Field(default_factory=dict)
+    asset_refs: list[str] = Field(default_factory=list)
 
 
 class SlideSpeakerNotesV2(_StrictModel):
@@ -293,6 +297,12 @@ def compile_ppt_source_contract_v2(
 
 _PROTECTED_NUMBER_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?%?")
 _PROTECTED_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]{2,}\b")
+_CJK_SPAN_RE = re.compile(r"[\u3400-\u9fff]{2,}")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+_GENERIC_GROUNDING_TERMS = {
+    "一个", "可以", "需要", "必须", "通过", "采用", "使用", "完成",
+    "进行", "形成", "当前", "相关", "内容", "方法", "过程", "结果",
+}
 
 
 def _protected_tokens(text: str) -> set[str]:
@@ -300,6 +310,27 @@ def _protected_tokens(text: str) -> set[str]:
         *(match.group(0).lower() for match in _PROTECTED_NUMBER_RE.finditer(text)),
         *(match.group(0).lower() for match in _PROTECTED_IDENTIFIER_RE.finditer(text)),
     }
+
+
+def _grounding_terms(text: str) -> set[str]:
+    terms = {
+        match.group(0).casefold()
+        for match in _LATIN_WORD_RE.finditer(text)
+    }
+    for match in _CJK_SPAN_RE.finditer(text):
+        span = match.group(0)
+        terms.update(
+            span[index:index + 2]
+            for index in range(max(0, len(span) - 1))
+        )
+    return {term for term in terms if term not in _GENERIC_GROUNDING_TERMS}
+
+
+def _semantic_grounding_ratio(claim: str, source: str) -> float:
+    claim_terms = _grounding_terms(claim)
+    if not claim_terms:
+        return 1.0
+    return len(claim_terms.intersection(_grounding_terms(source))) / len(claim_terms)
 
 
 def _unit_map(graph: CoursePresentationGraphV1) -> dict[str, CoursePresentationUnitV1]:
@@ -354,6 +385,13 @@ def validate_slide_story_plan_v3(
         unsupported = _protected_tokens(page.summary) - _protected_tokens(unit.source_text)
         if unsupported:
             raise V6BuildError(stage="story", code="story_unsupported_fact", message=f"Unsupported factual tokens: {', '.join(sorted(unsupported))}", page_id=page.page_id)
+        if page.summary and _semantic_grounding_ratio(page.summary, unit.source_text) < 0.12:
+            raise V6BuildError(
+                stage="story",
+                code="story_unsupported_semantic_claim",
+                message="Story summary has insufficient lexical grounding in its frozen source unit",
+                page_id=page.page_id,
+            )
         normalized_title = re.sub(r"\s+", "", page.title).casefold()
         if normalized_title in title_owners:
             raise V6BuildError(
@@ -399,6 +437,13 @@ def validate_slide_visual_plan_v2(
     for page_id, page in story_pages.items():
         decision = decisions[page_id]
         unit = units[page.teaching_unit_id]
+        if set(decision.source_block_ids) != set(page.source_block_ids):
+            raise V6BuildError(
+                stage="visual",
+                code="visual_source_binding_mismatch",
+                message="Visual decision must bind exactly the story page source blocks",
+                page_id=page_id,
+            )
         layout = template.get_layout(decision.resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="visual", code="template_layout_unavailable", message="Visual plan selected an unknown template layout", page_id=page_id)
@@ -417,6 +462,52 @@ def validate_slide_visual_plan_v2(
                 message="Image and experiment visuals require a frozen source asset reference",
                 page_id=page_id,
             )
+        if decision.decision == "diagram":
+            nodes = decision.visual_payload.get("nodes") or []
+            edges = decision.visual_payload.get("edges") or []
+            if not isinstance(nodes, list) or not isinstance(edges, list) or len(nodes) < 2 or not edges:
+                raise V6BuildError(
+                    stage="visual",
+                    code="visual_diagram_payload_missing",
+                    message="A diagram decision requires at least two source-bound nodes and one edge",
+                    page_id=page_id,
+                )
+            if len(nodes) > 6 or len(edges) > 10:
+                raise V6BuildError(
+                    stage="visual",
+                    code="visual_diagram_capacity_exceeded",
+                    message="Diagram nodes or edges exceed the template-safe capacity",
+                    page_id=page_id,
+                )
+            node_ids = {str(node.get("node_id") or "") for node in nodes if isinstance(node, dict)}
+            if "" in node_ids or len(node_ids) != len(nodes):
+                raise V6BuildError(
+                    stage="visual",
+                    code="visual_diagram_node_invalid",
+                    message="Diagram node IDs must be non-empty and unique",
+                    page_id=page_id,
+                )
+            for node in nodes:
+                if not isinstance(node, dict):
+                    raise V6BuildError(stage="visual", code="visual_diagram_node_invalid", message="Diagram node must be an object", page_id=page_id)
+                label = str(node.get("label") or "").strip()
+                node_sources = set(node.get("source_block_ids") or [])
+                if not label or not node_sources or not node_sources.issubset(set(page.source_block_ids)):
+                    raise V6BuildError(stage="visual", code="visual_diagram_node_unbound", message="Every diagram node needs a page source binding", page_id=page_id)
+                if _protected_tokens(label) - _protected_tokens(unit.source_text) or _semantic_grounding_ratio(label, unit.source_text) < 0.12:
+                    raise V6BuildError(stage="visual", code="visual_diagram_label_unsupported", message="Diagram node label is not grounded in source text", page_id=page_id)
+            if any(
+                not isinstance(edge, dict)
+                or str(edge.get("source") or "") not in node_ids
+                or str(edge.get("target") or "") not in node_ids
+                for edge in edges
+            ):
+                raise V6BuildError(
+                    stage="visual",
+                    code="visual_diagram_edge_invalid",
+                    message="Diagram edges must connect declared source-bound nodes",
+                    page_id=page_id,
+                )
         for artifact in unit.artifact_kinds:
             allowed = _REQUIRED_VISUAL_DECISION.get(artifact)
             if allowed and decision.decision not in allowed:
@@ -426,7 +517,15 @@ def validate_slide_visual_plan_v2(
                     message=f"Required {artifact} representation was replaced by {decision.decision}",
                     page_id=page_id,
                 )
-        if layout.artifact_kinds and decision.decision not in set(layout.artifact_kinds):
+        requires_artifact_slot = any(
+            slot.required and slot.slot_kind in {"code", "formula", "table", "visual"}
+            for slot in layout.slots
+        )
+        if (
+            requires_artifact_slot
+            and layout.artifact_kinds
+            and decision.decision not in set(layout.artifact_kinds)
+        ):
             raise V6BuildError(stage="visual", code="visual_layout_artifact_mismatch", message="Visual decision does not match the template artifact contract", page_id=page_id)
         if decision.degraded:
             if not decision.degradation_reason:
@@ -710,6 +809,9 @@ def compile_slide_deck_v6(
                             block_id=block.block_id,
                             block_revision=block.internal_revision,
                             full_text=block_source_text(block),
+                            source_kind=block.kind,
+                            source_payload=dict(block.payload or {}),
+                            asset_refs=list(block.asset_refs),
                         )
                         for block in source_blocks
                     ],
@@ -723,7 +825,12 @@ def compile_slide_deck_v6(
         for region in page.regions
         for block_id in region.source_block_ids
     }
-    noted = {item.block_id for page in pages for item in page.speaker_notes.source_blocks if item.full_text}
+    noted = {
+        item.block_id
+        for page in pages
+        for item in page.speaker_notes.source_blocks
+        if item.full_text or item.source_payload or item.asset_refs
+    }
     denominator = max(1, len(formal_ids))
     quality = SlideDeckV6Quality(
         formal_block_visible_coverage=len(visible.intersection(formal_ids)) / denominator,
