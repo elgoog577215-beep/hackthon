@@ -1425,6 +1425,7 @@
     "teacherBrief": {
       "title": "课堂交付约束",
       "help": "这些信息会写入课程生成契约，并成为全课教案的可审阅字段。",
+      "defaultAudience": "大学生",
       "targetAudience": "教学对象",
       "academicTerm": "开课学期",
       "academicTermPlaceholder": "例如：2026-2027 学年第一学期",

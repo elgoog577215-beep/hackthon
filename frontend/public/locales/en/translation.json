@@ -1425,6 +1425,7 @@
     "teacherBrief": {
       "title": "Classroom delivery constraints",
       "help": "These details become part of the generation contract and reviewable fields in the whole-course lesson plan.",
+      "defaultAudience": "University students",
       "targetAudience": "Learners",
       "academicTerm": "Academic term",
       "academicTermPlaceholder": "For example: Fall 2026",

@@ -30,6 +30,34 @@ describe('CourseLibraryView generation lifecycle', () => {
     await router.isReady()
   })
 
+  it('零课程时直接进入紧凑空状态，不展示无效搜索和计数', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = []
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.library-header h1').text()).toBe('课程库')
+    expect(wrapper.find('.library-header p').exists()).toBe(false)
+    expect(wrapper.classes()).toContain('course-library--empty')
+    expect(wrapper.find('.library-toolbar').exists()).toBe(false)
+    expect(wrapper.get('.library-state').text()).toContain('还没有课程')
+  })
+
   it('已发布的质量建议不占用待处理任务角标', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
