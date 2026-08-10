@@ -141,7 +141,9 @@
     "emptyTitle": "还没有课程",
     "emptyBody": "新建课程或导入已有 Markdown 开始学习。",
     "nodes": "个学习节点",
-    "openHint": "打开课程",
+    "openHint": "进入课程",
+    "retry": "重试",
+    "moreActions": "更多操作",
     "resume": {
       "reading": "继续上次学习",
       "practice": "继续未完成练习",

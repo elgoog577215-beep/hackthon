@@ -117,42 +117,110 @@
     </div>
 
     <div v-else class="course-grid">
-      <article v-for="course in filteredCourses" :key="course.course_id" class="course-item glass-panel">
-        <button type="button" class="course-main" @click="openCourse(course.course_id)">
-          <div class="course-mark"><BookMarked :size="19" /></div>
-          <div class="course-copy">
-            <span v-if="courseStatus(course.course_id).visible">{{ courseStatus(course.course_id).label }}</span>
+      <article
+        v-for="{ course, status } in courseCards"
+        :key="course.course_id"
+        class="course-item glass-panel"
+        :class="{ 'course-item--menu-open': openCourseMenuId === course.course_id }"
+        :data-state="status.tone"
+      >
+        <button
+          type="button"
+          class="course-main"
+          :title="status.active ? status.detail : course.course_name"
+          @click="handleCoursePrimary(course.course_id, status.active)"
+        >
+          <span class="course-mark"><BookMarked :size="21" /></span>
+          <span class="course-copy">
             <h2>{{ course.course_name }}</h2>
-            <p>{{ course.node_count || 0 }} {{ t('courseLibrary.nodes', '个学习节点') }}</p>
-          </div>
-        </button>
-
-        <button v-if="courseStatus(course.course_id).active" type="button" class="generation-progress" @click="openTaskCenter(course.course_id)">
-          <div>
-            <span>{{ courseStatus(course.course_id).detail }}</span>
-            <strong>{{ Math.round(courseStatus(course.course_id).progress) }}%</strong>
-          </div>
-          <div class="progress-track"><span :style="{ width: `${courseStatus(course.course_id).progress}%` }"></span></div>
-        </button>
-
-        <footer>
-          <span>{{ t('courseLibrary.openHint', '打开课程') }}</span>
-          <div class="course-footer-actions">
-            <button
-              type="button"
-              class="course-review-button"
-              :data-testid="`open-question-bank-review-${course.course_id}`"
-              :title="t('questionBank.openReview', '打开题库质量管理')"
-              @click="openQuestionBankReview(course.course_id)"
+            <span class="course-status" :class="`course-status--${status.tone}`">
+              <span class="course-status__dot" aria-hidden="true"></span>
+              <span>{{ status.label }}</span>
+              <strong v-if="status.active">{{ Math.round(status.progress) }}%</strong>
+            </span>
+            <span
+              v-if="status.active"
+              class="generation-progress"
+              role="progressbar"
+              :aria-label="status.detail"
+              :aria-valuenow="Math.round(status.progress)"
+              aria-valuemin="0"
+              aria-valuemax="100"
             >
-              <ShieldCheck :size="14" />
-              <span>{{ t('questionBank.reviewEntry', '题库管理') }}</span>
-            </button>
-            <button type="button" :title="t('courseLibrary.delete', '删除课程')" @click="deleteCourse(course.course_id, course.course_name)">
-              <Trash2 :size="15" />
-            </button>
-          </div>
-        </footer>
+              <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
+            </span>
+          </span>
+        </button>
+
+        <div
+          class="course-actions"
+          :data-course-menu-root="course.course_id"
+          @keydown.esc.stop.prevent="closeCourseMenu"
+        >
+          <button
+            v-if="!status.active"
+            type="button"
+            class="course-primary-action"
+            @click="openCourse(course.course_id)"
+          >
+            {{ t('courseLibrary.openHint', '进入课程') }}
+            <ArrowRight :size="17" />
+          </button>
+          <button
+            v-else-if="status.retryable"
+            type="button"
+            class="course-primary-action"
+            @click="openTaskCenter(course.course_id)"
+          >
+            {{ t('courseLibrary.retry', '重试') }}
+          </button>
+
+          <button
+            type="button"
+            class="course-menu-trigger"
+            :data-testid="`course-actions-${course.course_id}`"
+            aria-haspopup="menu"
+            :aria-controls="`course-menu-${course.course_id}`"
+            :aria-expanded="openCourseMenuId === course.course_id"
+            :aria-label="t('courseLibrary.moreActions', '更多操作')"
+            :title="t('courseLibrary.moreActions', '更多操作')"
+            @click.stop="toggleCourseMenu(course.course_id)"
+          >
+            <Ellipsis :size="20" />
+          </button>
+
+          <Transition name="course-menu">
+            <div
+              v-if="openCourseMenuId === course.course_id"
+              :id="`course-menu-${course.course_id}`"
+              class="course-menu"
+              :data-testid="`course-menu-${course.course_id}`"
+              role="menu"
+              @click.stop
+            >
+              <button
+                type="button"
+                class="course-menu__item"
+                role="menuitem"
+                :data-testid="`open-question-bank-review-${course.course_id}`"
+                @click="openQuestionBankReview(course.course_id)"
+              >
+                <ShieldCheck :size="17" />
+                <span>{{ t('questionBank.reviewEntry', '题库管理') }}</span>
+              </button>
+              <button
+                type="button"
+                class="course-menu__item course-menu__item--danger"
+                role="menuitem"
+                :data-testid="`delete-course-${course.course_id}`"
+                @click="deleteCourse(course.course_id, course.course_name)"
+              >
+                <Trash2 :size="17" />
+                <span>{{ t('courseLibrary.delete', '删除课程') }}</span>
+              </button>
+            </div>
+          </Transition>
+        </div>
       </article>
     </div>
 
@@ -174,7 +242,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookMarked, BookOpenText, ChevronDown, FilePlus2, FolderOpen, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookMarked, BookOpenText, ChevronDown, Ellipsis, FilePlus2, FolderOpen, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseTaskCenter from '../components/CourseTaskCenter.vue'
 import QuestionBankReviewCenter from '../components/QuestionBankReviewCenter.vue'
@@ -194,6 +262,7 @@ const createMenuRef = ref<HTMLElement | null>(null)
 const createMenuTriggerRef = ref<HTMLButtonElement | null>(null)
 const createMenuFirstItemRef = ref<HTMLButtonElement | null>(null)
 const createMenuOpen = ref(false)
+const openCourseMenuId = ref('')
 const createDialogOpen = ref(false)
 const taskCenterOpen = ref(false)
 const selectedTaskCourseId = ref('')
@@ -206,11 +275,15 @@ const filteredCourses = computed(() => {
   if (!keyword) return courseStore.courseList
   return courseStore.courseList.filter(course => course.course_name.toLocaleLowerCase().includes(keyword))
 })
+const courseCards = computed(() => filteredCourses.value.map(course => ({
+  course,
+  status: courseStatus(course.course_id),
+})))
 const attentionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskNeedsAttention).length)
 const latestResumeCourse = computed(() => latestResumableCourse(courseStore.courseList))
 
 onMounted(async () => {
-  document.addEventListener('pointerdown', closeCreateMenuOnOutsidePointer)
+  document.addEventListener('pointerdown', closeOpenMenusOnOutsidePointer)
   courseStore.currentCourseId = ''
   courseStore.currentCourseVersionId = ''
   courseStore.currentNode = null
@@ -220,10 +293,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', closeCreateMenuOnOutsidePointer)
+  document.removeEventListener('pointerdown', closeOpenMenusOnOutsidePointer)
 })
 
 async function toggleCreateMenu() {
+  closeCourseMenu()
   createMenuOpen.value = !createMenuOpen.value
   if (createMenuOpen.value) {
     await nextTick()
@@ -236,9 +310,12 @@ function closeCreateMenu(restoreFocus = false) {
   if (restoreFocus) createMenuTriggerRef.value?.focus()
 }
 
-function closeCreateMenuOnOutsidePointer(event: PointerEvent) {
-  if (!createMenuOpen.value || createMenuRef.value?.contains(event.target as Node)) return
-  closeCreateMenu()
+function closeOpenMenusOnOutsidePointer(event: PointerEvent) {
+  if (createMenuOpen.value && !createMenuRef.value?.contains(event.target as Node)) closeCreateMenu()
+  if (!openCourseMenuId.value) return
+  const target = event.target instanceof Element ? event.target : null
+  const courseMenuRoot = target?.closest<HTMLElement>('[data-course-menu-root]')
+  if (courseMenuRoot?.dataset.courseMenuRoot !== openCourseMenuId.value) closeCourseMenu()
 }
 
 function openBlankCourse() {
@@ -249,6 +326,15 @@ function openBlankCourse() {
 function openMarkdownImport() {
   closeCreateMenu()
   fileInput.value?.click()
+}
+
+function toggleCourseMenu(courseId: string) {
+  closeCreateMenu()
+  openCourseMenuId.value = openCourseMenuId.value === courseId ? '' : courseId
+}
+
+function closeCourseMenu() {
+  openCourseMenuId.value = ''
 }
 
 function courseStatus(courseId: string) {
@@ -267,7 +353,14 @@ function courseStatus(courseId: string) {
   }
   return {
     active,
-    visible: active || publishedWarning,
+    retryable: task?.status === 'error',
+    tone: task?.status === 'error'
+      ? 'danger'
+      : active
+        ? 'processing'
+        : publishedWarning
+          ? 'warning'
+          : 'ready',
     label: publishedWarning
       ? t('courseLibrary.status.readyWithSuggestions', '可以学习，有优化建议')
       : labels[task?.status || 'completed'] || t('courseLibrary.status.ready', '可以学习'),
@@ -289,10 +382,19 @@ function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean
 }
 
 function openCourse(courseId: string, nodeId?: string) {
+  closeCourseMenu()
   void router.push({
     name: 'learning',
     params: { courseId, ...(nodeId ? { nodeId } : {}) },
   })
+}
+
+function handleCoursePrimary(courseId: string, active: boolean) {
+  if (active) {
+    openTaskCenter(courseId)
+    return
+  }
+  openCourse(courseId)
 }
 
 function openGeneratingCourse(courseId: string) {
@@ -300,11 +402,13 @@ function openGeneratingCourse(courseId: string) {
 }
 
 function openTaskCenter(courseId = '') {
+  closeCourseMenu()
   selectedTaskCourseId.value = courseId
   taskCenterOpen.value = true
 }
 
 function openQuestionBankReview(courseId: string) {
+  closeCourseMenu()
   selectedReviewCourseId.value = courseId
   questionBankReviewOpen.value = true
 }
@@ -346,6 +450,7 @@ async function importCourse(event: Event) {
 }
 
 async function deleteCourse(courseId: string, courseName: string) {
+  closeCourseMenu()
   try {
     await ElMessageBox.confirm(
       t('courseLibrary.deleteConfirm', '删除课程“{name}”？').replace('{name}', courseName),
@@ -401,32 +506,49 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-toolbar label { width:min(360px,100%); height:38px; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .library-toolbar > span { color: var(--lz-text-muted); font-size: 12px; }
-.course-grid { width:100%; max-width:1280px; margin:0 auto; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:14px; }
-.course-item { min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.88); border-radius:16px; background:rgba(255,255,255,.78); box-shadow:0 5px 18px rgba(79,70,229,.06),inset 0 1px 0 rgba(255,255,255,.9); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
-.course-item:hover { border-color:rgba(165,180,252,.9); box-shadow:0 14px 30px rgba(79,70,229,.12); transform:translateY(-2px); }
-.course-main { width: 100%; min-height: 128px; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 18px; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.course-mark { width:40px; height:40px; display:grid; place-items:center; border-radius:12px; color:#fff; background:linear-gradient(135deg,#818cf8,#8b5cf6); box-shadow:0 6px 14px rgba(99,102,241,.18); }
-.course-copy { min-width: 0; }
-.course-copy > span { color: var(--lz-brand-strong); font-size: 10px; font-weight: 700; }
-.course-copy h2 { margin: 8px 0 7px; overflow: hidden; color: var(--lz-text-strong); font-size: 16px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.course-copy p { margin: 0; color: var(--lz-text-muted); font-size: 11px; }
-.generation-progress { width:100%; padding: 0 18px 15px; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
-.generation-progress > div:first-child { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; color: var(--lz-text-secondary); font-size: 10px; }
-.generation-progress span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.progress-track { height: 4px; overflow: hidden; border-radius: 2px; background: var(--lz-surface-muted); }
-.progress-track span { display: block; height: 100%; background: var(--lz-brand); }
-.course-item footer { min-height:40px; display:flex; align-items:center; justify-content:space-between; padding:0 12px 0 18px; border-top:1px solid rgba(226,232,240,.72); color:var(--lz-text-muted); font-size:10px; }
-.course-item footer button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--lz-text-muted); background: transparent; cursor: pointer; }
-.course-item footer button:hover { color: var(--lz-danger); background: var(--lz-danger-soft); }
-.course-footer-actions { display:flex; align-items:center; gap:3px; }
-.course-item footer .course-review-button { width:auto; display:inline-flex; align-items:center; gap:5px; padding:0 8px; color:var(--lz-brand-strong); }
-.course-item footer .course-review-button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.course-grid { width:100%; max-width:1280px; margin:0 auto; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+.course-item { position:relative; min-width:0; min-height:166px; display:grid; grid-template-columns:minmax(0,1fr) 146px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:16px; background:rgba(255,255,255,.86); box-shadow:0 4px 16px rgba(79,70,229,.045),inset 0 1px 0 rgba(255,255,255,.92); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
+.course-item--menu-open { z-index:30; }
+.course-main { min-width:0; min-height:164px; display:grid; grid-template-columns:52px minmax(0,1fr); align-items:center; gap:18px; padding:22px 10px 22px 24px; border:0; border-radius:16px 0 0 16px; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
+.course-mark { width:52px; height:52px; display:grid; place-items:center; border-radius:14px; color:#fff; background:linear-gradient(135deg,#818cf8,#7c3aed); box-shadow:0 7px 16px rgba(99,102,241,.2); }
+.course-copy { min-width:0; display:flex; flex-direction:column; align-items:stretch; }
+.course-copy h2 { margin:0 0 14px; overflow:hidden; color:var(--lz-text-strong); font-size:16px; font-weight:800; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.course-status { display:flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:12px; line-height:1; }
+.course-status strong { margin-left:2px; color:inherit; font-size:12px; font-weight:800; }
+.course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
+.course-status--processing { color:var(--lz-brand-strong); }
+.course-status--processing .course-status__dot { background:var(--lz-brand); }
+.course-status--danger { color:var(--lz-danger); }
+.course-status--danger .course-status__dot { background:var(--lz-danger); }
+.course-status--warning { color:#a16207; }
+.course-status--warning .course-status__dot { background:#d97706; }
+.generation-progress { display:block; width:min(100%,360px); margin-top:12px; }
+.progress-track { display:block; height:4px; overflow:hidden; border-radius:999px; background:var(--lz-surface-muted); }
+.progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
+.course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
+.course-actions { position:relative; min-width:0; display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-end; padding:18px 20px; }
+.course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 4px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; cursor:pointer; }
+.course-primary-action:hover,.course-primary-action:focus-visible { color:#4f46e5; background:var(--lz-brand-soft); outline:none; }
+.course-menu-trigger { position:absolute; top:18px; right:18px; width:34px; height:34px; display:grid; place-items:center; border:1px solid rgba(203,213,225,.72); border-radius:9px; color:var(--lz-text-secondary); background:rgba(255,255,255,.84); cursor:pointer; }
+.course-menu-trigger:hover,.course-menu-trigger:focus-visible,.course-menu-trigger[aria-expanded='true'] { border-color:#c7d2fe; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
+.course-menu { position:absolute; z-index:50; top:58px; right:18px; width:188px; overflow:hidden; padding:6px; border:1px solid rgba(203,213,225,.82); border-radius:12px; background:#fff; box-shadow:0 18px 38px rgba(51,65,85,.18),0 4px 10px rgba(79,70,229,.08); }
+.course-menu__item { width:100%; min-height:42px; display:flex; align-items:center; gap:10px; padding:0 11px; border:0; border-radius:8px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
+.course-menu__item:hover,.course-menu__item:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
+.course-menu__item--danger { margin-top:4px; border-top:1px solid rgba(226,232,240,.9); border-radius:0 0 8px 8px; color:var(--lz-danger); }
+.course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
+.course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
+.course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
 .library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
 .library-state strong { color: var(--lz-text); font-size: 15px; }
 .library-state span { font-size: 12px; }
 .spin { animation: spin 1s linear infinite; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width:980px) {
+  .course-grid { grid-template-columns:minmax(0,1fr); }
+}
 @media (max-width:700px) {
   .course-library { padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
   .library-header { align-items:stretch; flex-direction:column; }
@@ -437,8 +559,12 @@ async function deleteCourse(courseId: string, courseName: string) {
   .resume-card__action { grid-column:2; }
   .library-toolbar { margin-top:18px; }
   .library-toolbar > span { display:none; }
-  .course-grid { grid-template-columns:minmax(0,1fr); }
-  .course-main { min-height:116px; grid-template-columns:38px minmax(0,1fr); padding:16px; }
+  .course-item { min-height:150px; grid-template-columns:minmax(0,1fr) 116px; }
+  .course-main { min-height:148px; grid-template-columns:44px minmax(0,1fr); gap:13px; padding:18px 8px 18px 18px; }
+  .course-mark { width:44px; height:44px; border-radius:12px; }
+  .course-actions { padding:15px; }
+  .course-menu-trigger { top:15px; right:15px; }
+  .course-menu { top:53px; right:15px; }
   .course-copy h2 { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 }
 @media (max-width:620px) {

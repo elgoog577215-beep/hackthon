@@ -141,7 +141,9 @@
     "emptyTitle": "No courses yet",
     "emptyBody": "Create a course or import Markdown to begin.",
     "nodes": "learning nodes",
-    "openHint": "Open course",
+    "openHint": "Enter course",
+    "retry": "Retry",
+    "moreActions": "More actions",
     "resume": {
       "reading": "Continue learning",
       "practice": "Continue unfinished practice",
