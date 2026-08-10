@@ -307,3 +307,64 @@ def test_missing_or_malformed_diagnostics_keep_legacy_behaviour():
         assert [i["code"] for i in report["issues"]] == [
             i["code"] for i in baseline["issues"]
         ]
+
+
+def _codes(content: str) -> list[str]:
+    return [item["code"] for item in evaluate_node_content(content, _node())["issues"]]
+
+
+def test_table_without_delimiter_row_is_flagged():
+    """L3d: a table with no |---| renders as literal pipes."""
+    codes = _codes(_content("\n\n| 结构 | 复杂度 |\n| 数组 | O(n) |"))
+    assert "table_missing_delimiter" in codes
+
+
+def test_well_formed_table_is_accepted():
+    codes = _codes(
+        _content("\n\n| 结构 | 复杂度 |\n| --- | --- |\n| 数组 | O(n) |")
+    )
+    assert "table_missing_delimiter" not in codes
+    assert "table_delimiter_mismatch" not in codes
+
+
+def test_table_delimiter_column_mismatch_is_flagged():
+    codes = _codes(
+        _content("\n\n| 结构 | 复杂度 | 备注 |\n| --- | --- |\n| 数组 | O(n) | 连续 |")
+    )
+    assert "table_delimiter_mismatch" in codes
+
+
+def test_table_inside_a_code_fence_is_not_flagged():
+    """A Markdown sample shown as code is content, not structure."""
+    codes = _codes(
+        _content("\n\n```markdown\n| 结构 | 复杂度 |\n| 数组 | O(n) |\n```")
+    )
+    assert "table_missing_delimiter" not in codes
+
+
+def test_empty_blockquote_is_flagged():
+    codes = _codes(_content("\n\n>\n>"))
+    assert "empty_blockquote" in codes
+
+
+def test_blockquote_with_content_is_accepted():
+    codes = _codes(_content("\n\n> 注意：退化后查找复杂度变为线性。"))
+    assert "empty_blockquote" not in codes
+
+
+def test_ordered_list_restarting_midway_is_flagged():
+    codes = _codes(_content("\n\n1. 第一步\n2. 第二步\n1. 又从头开始\n2. 继续"))
+    assert "list_numbering_restart" in codes
+
+
+def test_continuous_ordered_list_is_accepted():
+    codes = _codes(_content("\n\n1. 第一步\n2. 第二步\n3. 第三步"))
+    assert "list_numbering_restart" not in codes
+
+
+def test_two_lists_separated_by_prose_are_not_flagged():
+    """A genuine second list after prose legitimately restarts at 1."""
+    codes = _codes(
+        _content("\n\n1. 第一步\n2. 第二步\n\n中间说明文字。\n\n1. 另一组\n2. 继续")
+    )
+    assert "list_numbering_restart" not in codes

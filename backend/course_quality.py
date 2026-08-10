@@ -144,6 +144,7 @@ def evaluate_node_content(
         issues.append(_issue("meta_preamble", "major", "正文包含模型寒暄或任务复述", "直接从课程正文开始", node_id))
     if text.count("```") % 2:
         issues.append(_issue("unclosed_code_fence", "critical", "代码块没有闭合", "闭合 Markdown 代码块", node_id))
+    issues.extend(_structural_markdown_issues(text, node_id))
     if re.search(r"(?m)^[ \t]*\$[ \t]*$", text):
         issues.append(_issue(
             "legacy_math_delimiter",
@@ -1055,6 +1056,130 @@ def _positive_int(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return number if number > 0 else 0
+
+
+def _structural_markdown_issues(text: str, node_id: str) -> list[dict[str, Any]]:
+    """Check table, list and blockquote structure.
+
+    Before this the gate had code-fence parity and nothing else: tables and
+    blockquotes had no criteria at all, and lists were only touched indirectly
+    by the formula-adjacency rule. A malformed table renders as a literal row of
+    pipes, which the learner reads as garbled text rather than data.
+
+    Deliberately conservative — these are text heuristics, and the authoritative
+    answer comes from the real renderer (L3b). They exist to catch the common
+    structural mistakes cheaply, so they only fire on unambiguous breakage.
+    """
+    issues: list[dict[str, Any]] = []
+    lines = text.splitlines()
+
+    # Walk once, skipping fenced code: a Markdown sample inside ``` is content,
+    # not structure to validate.
+    in_fence = False
+    body: list[str] = []
+    for line in lines:
+        if re.match(r"^\s*```", line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            body.append(line)
+
+    # --- tables -------------------------------------------------------------
+    # A GFM table needs a delimiter row (|---|---|) directly under its header,
+    # and every row needs a consistent column count. Without the delimiter the
+    # whole block renders as literal pipe characters.
+    for index, line in enumerate(body):
+        if not _looks_like_table_row(line):
+            continue
+        previous = body[index - 1] if index else ""
+        following = body[index + 1] if index + 1 < len(body) else ""
+        if _is_table_delimiter(line):
+            continue
+        if _is_table_delimiter(following):
+            # This is a header row; verify the delimiter matches its width.
+            if _table_columns(line) != _table_columns(following):
+                issues.append(_issue(
+                    "table_delimiter_mismatch",
+                    "major",
+                    "表格分隔行的列数与表头不一致，表格无法正确渲染",
+                    "让分隔行与表头保持相同列数",
+                    node_id,
+                ))
+            continue
+        if _looks_like_table_row(previous) or _is_table_delimiter(previous):
+            continue
+        # A pipe row that neither follows a table nor introduces one.
+        issues.append(_issue(
+            "table_missing_delimiter",
+            "major",
+            "表格缺少分隔行，整段会显示成竖线原文",
+            "在表头下方补一行 |---|---| 形式的分隔行",
+            node_id,
+        ))
+        break
+
+    # --- blockquotes --------------------------------------------------------
+    # `>` with no content is an empty quote box; the learner sees a stray bar.
+    if any(re.match(r"^\s*>\s*$", line) for line in body) and not any(
+        re.match(r"^\s*>\s*\S", line) for line in body
+    ):
+        issues.append(_issue(
+            "empty_blockquote",
+            "minor",
+            "引用块没有内容，只会渲染出一条空引用条",
+            "补齐引用内容或删除该引用块",
+            node_id,
+        ))
+
+    # --- lists --------------------------------------------------------------
+    # An ordered list that restarts at 1 mid-run usually means a blank line was
+    # lost and two separate lists were merged, which renumbers visibly wrong.
+    ordered_runs = _ordered_list_runs(body)
+    if any(len(run) > 1 and run.count(1) > 1 for run in ordered_runs):
+        issues.append(_issue(
+            "list_numbering_restart",
+            "minor",
+            "有序列表中途从 1 重新编号，渲染后的序号会与内容不符",
+            "合并为一个连续列表，或在两段列表之间补齐空行",
+            node_id,
+        ))
+    return issues
+
+
+def _looks_like_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.count("|") >= 2
+
+
+def _is_table_delimiter(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return False
+    return bool(re.fullmatch(r"\|(?:\s*:?-{3,}:?\s*\|)+", stripped))
+
+
+def _table_columns(line: str) -> int:
+    return len([cell for cell in line.strip().strip("|").split("|")])
+
+
+def _ordered_list_runs(body: list[str]) -> list[list[int]]:
+    """Group consecutive ordered-list markers into runs of their numbers."""
+    runs: list[list[int]] = []
+    current: list[int] = []
+    for line in body:
+        match = re.match(r"^\s*(\d+)\.\s+\S", line)
+        if match:
+            current.append(int(match.group(1)))
+            continue
+        if line.strip():
+            # Non-blank, non-list line ends the run; blank lines inside a list
+            # are normal spacing and must not split it.
+            if current:
+                runs.append(current)
+                current = []
+    if current:
+        runs.append(current)
+    return runs
 
 
 def _issue(
