@@ -104,11 +104,8 @@
     <div v-else-if="visual.kind === 'formula'" class="slide-visual__formula">
       <MarkdownRenderer :content="formulaMarkdown" :enable-code-run="false" />
     </div>
-    <div v-else-if="visual.kind === 'code'" class="slide-visual__symbol">
-      <b>&lt;/&gt;</b><span>{{ visual.alt_text }}</span>
-    </div>
     <div v-else-if="visual.kind === 'table'" class="slide-visual__table-wrap">
-      <table v-if="tableRows.length">
+      <table>
         <thead>
           <tr><th v-for="header in tableHeaders" :key="header">{{ header }}</th></tr>
         </thead>
@@ -118,13 +115,6 @@
           </tr>
         </tbody>
       </table>
-      <div v-else class="slide-visual__symbol">
-        <b>▦</b><span>{{ visual.alt_text }}</span>
-      </div>
-    </div>
-    <div v-else class="slide-visual__fallback">
-      <b>{{ purposeLabel }}</b>
-      <span>{{ visual.alt_text }}</span>
     </div>
 
     <figcaption class="slide-visual__sr-only">{{ visual.alt_text }}</figcaption>
@@ -135,6 +125,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import http from '../utils/http'
 import type { SlideVisual } from '../types/slideVisual'
+import { isRenderableSlideVisual } from '../utils/slideVisual'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const props = withDefaults(defineProps<{
@@ -147,19 +138,9 @@ const props = withDefaults(defineProps<{
   representationId: '',
 })
 
-const visual = computed(() => props.visuals?.[0])
+const visual = computed(() => props.visuals?.find(isRenderableSlideVisual))
 const imageUrl = ref('')
 const isImage = computed(() => ['source_image', 'retrieved_image', 'generated_illustration'].includes(visual.value?.kind || ''))
-const purposeLabel = computed(() => ({
-  structure: '概念结构',
-  process: '步骤关系',
-  comparison: '对比关系',
-  evidence: '关键证据',
-  application: '应用情境',
-  context: '学习情境',
-  exercise: '课堂练习',
-}[visual.value?.purpose || ''] || '解释性视觉'))
-
 function formatVisualText(value: unknown) {
   return String(value || '')
     .replace(/\\mathbb\{([A-Za-z])\}/g, '$1')

@@ -44,6 +44,7 @@
             @click="templateTab = 'builtin'"
           >{{ t('pptTemplatePacks.builtinTab', '内置模板') }}</button>
           <button
+            v-if="personalTemplatesEnabled"
             type="button"
             data-testid="personal-template-tab"
             :class="{ active: templateTab === 'personal' }"
@@ -74,7 +75,7 @@
             <small>{{ item.description }}</small>
           </button>
         </div>
-        <div v-else class="deck-generator__personal-templates">
+        <div v-else-if="personalTemplatesEnabled" class="deck-generator__personal-templates">
           <button
             type="button"
             class="deck-generator__create-template"
@@ -166,6 +167,7 @@ const props = withDefaults(defineProps<{
   fragmentCount?: number
   webImageRetrieval?: boolean
   personalTemplates?: PersonalPptTemplatePack[]
+  personalTemplatesEnabled?: boolean
 }>(), {
   mode: 'teaching',
   theme: 'qizhi-classroom',
@@ -174,6 +176,14 @@ const props = withDefaults(defineProps<{
   fragmentCount: 0,
   webImageRetrieval: false,
   personalTemplates: () => [],
+  personalTemplatesEnabled: true,
+})
+
+watch(() => props.personalTemplatesEnabled, enabled => {
+  if (!enabled && templateTab.value === 'personal') {
+    templateTab.value = 'builtin'
+    selectedTemplatePack.value = null
+  }
 })
 
 const emit = defineEmits<{

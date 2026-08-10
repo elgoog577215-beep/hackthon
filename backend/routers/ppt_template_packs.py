@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from xml.etree import ElementTree
 from typing import Any
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
@@ -20,6 +21,28 @@ from ppt_template_packs import (
 router = APIRouter(prefix="/ppt-template-packs", tags=["ppt-template-packs"])
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 ALLOWED_LOGO_TYPES = {"image/png", "image/svg+xml", "image/jpeg", "image/webp"}
+
+
+def _validate_passive_svg(payload: bytes) -> None:
+    lowered = payload.lower()
+    if b"<!doctype" in lowered or b"<!entity" in lowered:
+        raise HTTPException(status_code=422, detail="SVG logo must not contain a DTD")
+    try:
+        root = ElementTree.fromstring(payload)
+    except (ElementTree.ParseError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="SVG logo is malformed") from exc
+    blocked_tags = {"script", "foreignobject", "iframe", "object", "embed"}
+    for element in root.iter():
+        tag = str(element.tag).rsplit("}", 1)[-1].lower()
+        if tag in blocked_tags:
+            raise HTTPException(status_code=422, detail="SVG logo contains active content")
+        for raw_name, raw_value in element.attrib.items():
+            name = str(raw_name).rsplit("}", 1)[-1].lower()
+            value = str(raw_value).strip().lower()
+            if name.startswith("on") or "javascript:" in value:
+                raise HTTPException(status_code=422, detail="SVG logo contains active content")
+            if name in {"href", "src"} and value and not value.startswith(("#", "data:image/")):
+                raise HTTPException(status_code=422, detail="SVG logo contains an external reference")
 
 
 def _enabled() -> bool:
@@ -71,6 +94,7 @@ async def import_template_pack(
     brand_json: str = Form(default="{}"),
     reference_pptx: UploadFile | None = File(default=None),
     logo: UploadFile | None = File(default=None),
+    reference_images: list[UploadFile] | None = File(default=None),
 ) -> dict[str, Any]:
     _ensure_write_enabled()
     owner_id = _owner(request)
@@ -88,6 +112,8 @@ async def import_template_pack(
         media_type = str(logo.content_type or "").lower()
         if media_type not in ALLOWED_LOGO_TYPES:
             raise HTTPException(status_code=415, detail="Logo must be PNG, SVG, JPEG, or WebP")
+        if media_type == "image/svg+xml":
+            _validate_passive_svg(logo_payload)
         assets.append(
             {
                 "role": "logo",
@@ -96,6 +122,27 @@ async def import_template_pack(
                 "payload": logo_payload,
             }
         )
+    style_references = list(reference_images or [])
+    if len(style_references) > 5:
+        raise HTTPException(status_code=422, detail="At most five style reference images are allowed")
+    for upload in style_references:
+        payload = await _read_upload(upload, maximum=MAX_IMAGE_BYTES)
+        if payload is None:
+            continue
+        media_type = str(upload.content_type or "").lower()
+        if media_type not in ALLOWED_LOGO_TYPES:
+            raise HTTPException(
+                status_code=415,
+                detail="Style references must be PNG, SVG, JPEG, or WebP",
+            )
+        if media_type == "image/svg+xml":
+            _validate_passive_svg(payload)
+        assets.append({
+            "role": "style_reference",
+            "filename": upload.filename or "reference-image",
+            "mime_type": media_type,
+            "payload": payload,
+        })
     try:
         return ppt_template_pack_repository.create_draft(
             owner_id=owner_id,
@@ -164,7 +211,11 @@ def get_template_asset(
         path,
         media_type=asset.get("mime_type") or "application/octet-stream",
         filename=asset.get("filename") or path.name,
-        headers={"Cache-Control": "private, max-age=3600"},
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

@@ -7,7 +7,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from ppt_template_packs import PptTemplatePackRepository, TemplatePackError
+from ppt_template_packs import (
+    PptTemplatePackRepository,
+    TemplatePackError,
+    template_pack_variant_key,
+)
 from routers import ppt_template_packs as pack_router
 
 
@@ -43,6 +47,31 @@ def reference_pptx_bytes(*, width: int = 12_192_000, height: int = 6_858_000) ->
               </a:fontScheme></a:themeElements>
             </a:theme>""",
         )
+        archive.writestr(
+            "ppt/slides/slide1.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                   xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:cSld>
+                <p:bg><p:bgPr><a:solidFill><a:srgbClr val="F7F2E8"/></a:solidFill></p:bgPr></p:bg>
+                <p:spTree>
+                  <p:sp><p:spPr><a:xfrm><a:off x="914400" y="685800"/><a:ext cx="5486400" cy="1371600"/></a:xfrm></p:spPr><p:txBody><a:p/></p:txBody></p:sp>
+                  <p:pic/>
+                </p:spTree>
+              </p:cSld>
+            </p:sld>""",
+        )
+        archive.writestr(
+            "ppt/slides/slide2.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                   xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:cSld><p:spTree>
+                <p:sp><p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="9144000" cy="4572000"/></a:xfrm></p:spPr><p:txBody><a:p/></p:txBody></p:sp>
+              </p:spTree></p:cSld>
+            </p:sld>""",
+        )
+        archive.writestr("ppt/media/image1.png", b"reference-image")
     return buffer.getvalue()
 
 
@@ -61,10 +90,15 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert draft["extracted_style"]["aspect_ratio"] == "16:9"
     assert draft["extracted_style"]["colors"]["accent1"] == "315E7D"
     assert draft["extracted_style"]["title_font"] == "Noto Serif SC"
+    assert draft["extracted_style"]["background_candidates"][0]["color"] == "F7F2E8"
+    assert draft["extracted_style"]["slide_profiles"][0]["picture_count"] == 1
+    assert draft["extracted_style"]["text_box_structure"]["total"] == 2
+    assert draft["extracted_style"]["media_inventory"][0]["filename"] == "image1.png"
     assert len(draft["representative_pages"]) == 6
     assert len(draft["preview_slides"]) == 8
     assert len(draft["text_box_styles"]) == 10
     assert draft["text_box_styles"]["evidence"]["text"] == "F4F6F7"
+    assert draft["compiled_theme"]["label"] == "学院蓝"
 
     published_v1 = repository.publish(draft["pack_id"], "teacher-a")
     assert published_v1["version"] == 1
@@ -81,6 +115,16 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert locked_v1["name"] == "学院蓝"
     assert repository.resolve_version(draft["pack_id"], 1, "teacher-a")["manifest_digest"] == locked_v1["manifest_digest"]
     assert repository.resolve_version(draft["pack_id"], 2, "teacher-a")["name"] == "学院蓝新版"
+    assert published_v2["compiled_theme"]["label"] == "学院蓝新版"
+
+
+def test_template_variant_key_locks_the_pack_version() -> None:
+    assert template_pack_variant_key(
+        "teaching",
+        "academic-editorial",
+        "pptp-demo",
+        3,
+    ) == "teaching:academic-editorial:template:pptp-demo@3"
 
 
 def test_repository_is_owner_isolated_and_soft_delete_preserves_versions(tmp_path: Path) -> None:
@@ -103,6 +147,34 @@ def test_repository_is_owner_isolated_and_soft_delete_preserves_versions(tmp_pat
     repository.soft_delete(draft["pack_id"], "teacher-a")
     assert all(item["pack_id"] != draft["pack_id"] for item in repository.list_for_owner("teacher-a"))
     assert repository.resolve_version(draft["pack_id"], published["version"], "teacher-a")["version"] == 1
+
+
+def test_draft_update_rejects_untyped_brand_and_out_of_range_representative_pages(
+    tmp_path: Path,
+) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="受控模板",
+        base_theme="qizhi-classroom",
+        reference_pptx=reference_pptx_bytes(),
+        reference_filename="reference.pptx",
+        brand={},
+    )
+
+    with pytest.raises(TemplatePackError):
+        repository.update_draft(draft["pack_id"], "teacher-a", {"brand": ["invalid"]})
+    with pytest.raises(TemplatePackError):
+        repository.update_draft(
+            draft["pack_id"],
+            "teacher-a",
+            {
+                "representative_pages": [
+                    {"role": role, "slide_number": 99, "confirmed": True}
+                    for role in ("cover", "chapter", "content", "practice", "evidence", "recap")
+                ],
+            },
+        )
 
 
 def test_repository_rejects_malformed_or_macro_reference(tmp_path: Path) -> None:
@@ -214,3 +286,30 @@ def test_personal_template_requires_confirmed_mapping_before_v6_use(tmp_path: Pa
     assert contract.render_theme_overrides["green"] == "B68A4C"
     assert contract.render_theme_overrides["title"] == "17233A"
     assert contract.render_theme_overrides["title_font"] == "Noto Serif SC"
+
+
+def test_template_pack_import_rejects_active_svg_logo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    monkeypatch.setattr(pack_router, "ppt_template_pack_repository", repository)
+    monkeypatch.setenv("PPT_TEMPLATE_PACKS_ENABLED", "true")
+    app = FastAPI()
+    app.include_router(pack_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/ppt-template-packs/import",
+        headers={"X-User-Id": "teacher-a"},
+        data={"name": "Unsafe logo", "base_theme": "academic-editorial"},
+        files={
+            "logo": (
+                "logo.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+                "image/svg+xml",
+            ),
+        },
+    )
+
+    assert response.status_code == 422

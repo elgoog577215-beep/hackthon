@@ -155,6 +155,7 @@
           :deck-title="deckTitle"
           :theme="previewTheme"
           :theme-overrides="themeOverrides"
+          :template-pack="templatePack"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -404,6 +405,7 @@
             :deck-title="deckTitle"
             :theme="previewTheme"
             :theme-overrides="themeOverrides"
+            :template-pack="templatePack"
             :course-id="courseId"
             :representation-id="representationId"
             presenting
@@ -537,6 +539,7 @@ const props = withDefaults(defineProps<{
   publishedSchema?: string
   candidateStatus?: string
   planningStatus?: Record<string, any> | null
+  templatePack?: Record<string, any> | null
 }>(), {
   standalone: false,
   mode: 'teaching',
@@ -551,6 +554,7 @@ const props = withDefaults(defineProps<{
   publishedSchema: '',
   candidateStatus: '',
   planningStatus: null,
+  templatePack: null,
   buildFailure: null,
   buildResumable: false,
   logicUpgrading: false,
