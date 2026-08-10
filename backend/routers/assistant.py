@@ -1,5 +1,8 @@
 """AI 问答与聊天摘要路由。"""
 
+import asyncio
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 import hashlib
@@ -242,13 +245,27 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
                 confirmation_mode="user_command",
                 origin="user_command",
             )
-            receipt = await run_in_threadpool(
-                execute_proposal,
-                course,
-                user_id=user_id,
-                proposal_id=str(proposal.get("proposal_id") or ""),
-                idempotency_key=f"direct:{user_message.get('message_id')}:{direct_action}",
-            )
+            proposal_id = str(proposal.get("proposal_id") or "")
+            try:
+                receipt = await run_in_threadpool(
+                    execute_proposal,
+                    course,
+                    user_id=user_id,
+                    proposal_id=proposal_id,
+                    idempotency_key=f"direct:{user_message.get('message_id')}:{direct_action}",
+                )
+            except BaseException:
+                # A direct action is proposed and executed inside one turn, so
+                # a proposal left `presented` after the turn dies is a half
+                # action: nothing ran, yet it stays confirmable later against
+                # context the learner already abandoned. Cancel it explicitly.
+                await run_in_threadpool(
+                    _cancel_pending_proposal,
+                    user_id,
+                    req.course_id,
+                    proposal_id,
+                )
+                raise
             answer = str(receipt.get("summary") or "操作已处理。")
             await run_in_threadpool(
                 ai_teacher_repository.append_message,
@@ -322,6 +339,14 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
         full_text = ""
         if fallback_notice:
             yield _qa_event("answer", {"chunk": fallback_notice})
+
+        # One persistence path for every way this turn can end — completed,
+        # classified provider failure, or cancelled by the client. `finally`
+        # owns it so a disconnect (which resumes the generator at the await
+        # point with GeneratorExit/CancelledError, and cannot yield afterwards)
+        # still records the turn the learner actually saw.
+        outcome = "cancelled"
+        failure: dict[str, Any] = {}
         try:
             async for chunk in ai_service.answer_question_events(
                 question=req.question,
@@ -329,97 +354,112 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             ):
                 full_text += chunk
                 yield chunk
+            streamed_error = _extract_sse_error(full_text)
+            if streamed_error:
+                outcome, failure = "failed", streamed_error
+            else:
+                outcome = "completed"
+        except (GeneratorExit, asyncio.CancelledError):
+            raise
         except Exception as exc:
             # The service classifies provider failures itself and normally
             # reports them inside the stream. Anything escaping here failed
             # before or outside that path, so classify it the same way rather
             # than reporting one opaque code.
-            failure = classify_model_failure(exc)
-            await run_in_threadpool(
-                ai_teacher_repository.append_message,
-                user_id,
-                req.course_id,
-                conversation_id,
-                {
-                    "message_id": assistant_message_id,
-                    "role": "assistant",
-                    "content": failure.message,
-                    "context_ref": public_context.get("scene") or {},
-                    "sources": answer_public.get("sources") or [],
-                    "retrieval_receipt": retrieval_receipt,
-                    "status": "failed",
-                    "failure_code": failure.code,
-                },
-            )
-            yield _qa_event("error", {
-                "code": failure.code,
-                "message": failure.message,
-                "retryable": failure.retryable,
-            })
-            yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
-            return
-
-        streamed_error = _extract_sse_error(full_text)
-        if streamed_error:
-            # A classified mid-stream failure. Persist whatever the learner
-            # already read together with the reason, so a reload does not show
-            # a blank turn and does not present partial text as a full answer.
-            partial = fallback_notice + _extract_sse_answer(full_text)
-            await run_in_threadpool(
-                ai_teacher_repository.append_message,
-                user_id,
-                req.course_id,
-                conversation_id,
-                {
-                    "message_id": assistant_message_id,
-                    "role": "assistant",
-                    "content": partial or str(streamed_error.get("message") or ""),
-                    "context_ref": public_context.get("scene") or {},
-                    "task_ref": req.task_ref,
-                    "sources": answer_public.get("sources") or [],
-                    "retrieval_receipt": retrieval_receipt,
-                    "status": "failed",
-                    "failure_code": str(streamed_error.get("code") or "model_unavailable"),
-                },
-            )
-            record_learning_event(
-                event_type="assistant_answer_failed",
-                actor="assistant",
-                source="ai_teacher.ask_events",
+            classified = classify_model_failure(exc)
+            outcome = "failed"
+            failure = {
+                "code": classified.code,
+                "message": classified.message,
+                "retryable": classified.retryable,
+                "emit_error_event": True,
+            }
+        finally:
+            answer = fallback_notice + _extract_sse_answer(full_text)
+            await _persist_answer_turn(
+                outcome,
                 user_id=user_id,
-                course_id=req.course_id,
-                course_version_id=course.get("current_course_version_id"),
-                node_id=req.node_id,
-                node_name=req.node_name,
-                evidence={
-                    "question": summarize_text(req.question),
-                    "conversation_id": conversation_id,
-                },
-                result={
-                    "failure_code": str(streamed_error.get("code") or "model_unavailable"),
-                    "retryable": bool(streamed_error.get("retryable")),
-                    "output_chars": len(partial),
-                },
+                course=course,
+                req=req,
+                conversation_id=conversation_id,
+                assistant_message_id=assistant_message_id,
+                answer=answer,
+                scene=public_context.get("scene") or {},
+                sources=answer_public.get("sources") or [],
+                retrieval_receipt=retrieval_receipt,
+                failure=failure,
             )
+
+        if outcome == "failed":
+            if failure.get("emit_error_event"):
+                yield _qa_event("error", {
+                    "code": failure.get("code"),
+                    "message": failure.get("message"),
+                    "retryable": bool(failure.get("retryable")),
+                })
             yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
             return
 
-        answer = fallback_notice + _extract_sse_answer(full_text)
-        await run_in_threadpool(
-            ai_teacher_repository.append_message,
-            user_id,
-            req.course_id,
-            conversation_id,
-            {
-                "message_id": assistant_message_id,
-                "role": "assistant",
-                "content": answer,
-                "context_ref": public_context.get("scene") or {},
-                "task_ref": req.task_ref,
-                "sources": answer_public.get("sources") or [],
-                "retrieval_receipt": retrieval_receipt,
-            },
-        )
+        yield _qa_event("final_answer", {
+            "answer": answer,
+            "message_id": assistant_message_id,
+        })
+        yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
+
+    return StreamingResponse(
+        event_stream_with_event(),
+        media_type="text/event-stream"
+    )
+
+
+async def _persist_answer_turn(
+    outcome: str,
+    *,
+    user_id: str,
+    course: dict,
+    req: AskQuestionRequest,
+    conversation_id: str,
+    assistant_message_id: str,
+    answer: str,
+    scene: dict,
+    sources: list,
+    retrieval_receipt: dict,
+    failure: dict,
+) -> None:
+    """Record one assistant turn, whichever way the answer stream ended.
+
+    A cancelled turn keeps exactly the text the learner already read: dropping
+    it would make the turn look like it never happened, and inventing more
+    would present unseen model output as something they read.
+    """
+    failure_code = (
+        ""
+        if outcome == "completed"
+        else str(failure.get("code") or "") or ("cancelled" if outcome == "cancelled" else "model_unavailable")
+    )
+    content = answer
+    if outcome != "completed" and not content:
+        content = str(failure.get("message") or "")
+    await run_in_threadpool(
+        ai_teacher_repository.append_message,
+        user_id,
+        req.course_id,
+        conversation_id,
+        {
+            "message_id": assistant_message_id,
+            "role": "assistant",
+            "content": content,
+            "context_ref": scene,
+            "task_ref": req.task_ref,
+            "sources": sources,
+            "retrieval_receipt": retrieval_receipt,
+            **({} if outcome == "completed" else {
+                "status": "failed",
+                "failure_code": failure_code,
+            }),
+        },
+    )
+    if outcome == "completed":
         record_learning_event(
             event_type="assistant_answer_completed",
             actor="assistant",
@@ -432,24 +472,58 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             evidence={
                 "question": summarize_text(req.question),
                 "conversation_id": conversation_id,
-                "source_ids": [item.get("source_id") for item in answer_public.get("sources") or []],
+                "source_ids": [item.get("source_id") for item in sources],
             },
             result={
                 "answer_summary": summarize_text(answer),
-                "output_chars": len(full_text),
+                "output_chars": len(answer),
                 "metadata_emitted": True,
             },
         )
-        yield _qa_event("final_answer", {
-            "answer": answer,
-            "message_id": assistant_message_id,
-        })
-        yield _qa_event("done", {"conversation_id": conversation_id, "message_id": assistant_message_id})
-
-    return StreamingResponse(
-        event_stream_with_event(),
-        media_type="text/event-stream"
+        return
+    record_learning_event(
+        event_type=(
+            "assistant_answer_cancelled"
+            if outcome == "cancelled"
+            else "assistant_answer_failed"
+        ),
+        actor="assistant",
+        source="ai_teacher.ask_events",
+        user_id=user_id,
+        course_id=req.course_id,
+        course_version_id=course.get("current_course_version_id"),
+        node_id=req.node_id,
+        node_name=req.node_name,
+        evidence={
+            "question": summarize_text(req.question),
+            "conversation_id": conversation_id,
+        },
+        result={
+            "failure_code": failure_code,
+            "retryable": bool(failure.get("retryable", outcome == "cancelled")),
+            "output_chars": len(answer),
+        },
     )
+
+
+def _cancel_pending_proposal(user_id: str, course_id: str, proposal_id: str) -> None:
+    """Retire a direct-action proposal whose turn never reached execution."""
+    if not proposal_id:
+        return
+    try:
+        current = ai_teacher_repository.get_proposal(user_id, course_id, proposal_id)
+        if not current or current.get("status") not in {"presented", "confirmed", "executing"}:
+            return
+        ai_teacher_repository.update_proposal(
+            user_id,
+            course_id,
+            proposal_id,
+            status="cancelled",
+            changes={"failure_reason": "answer stream ended before execution"},
+        )
+    except (KeyError, ValueError, OSError):
+        # Best-effort cleanup: never let it mask the original failure.
+        pass
 
 
 def _direct_action(question: str) -> str | None:

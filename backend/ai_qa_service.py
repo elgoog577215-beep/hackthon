@@ -77,6 +77,20 @@ def classify_model_failure(
     )
 
 
+def _delimiter_safe_end(text: str, delimiter: str) -> int:
+    """How much of `text` can be released without splitting the delimiter.
+
+    Only a real trailing prefix of the delimiter has to be withheld. The old
+    rule held back a fixed `len(delimiter) - 1` characters unconditionally, so
+    an answer that never emits `---METADATA---` (the normal case) always lagged
+    the model by 13 characters, and a cancel dropped that tail entirely.
+    """
+    for size in range(min(len(delimiter) - 1, len(text)), 0, -1):
+        if text.endswith(delimiter[:size]):
+            return len(text) - size
+    return len(text)
+
+
 def _failure_code(error: Exception) -> str:
     if isinstance(error, AITeacherModelFailure):
         return error.code
@@ -188,7 +202,12 @@ class AIQAService(AIBase):
             raise classify_model_failure(exc, partial_text=emitted) from exc
 
     async def answer_question_events(self, *args: Any, **kwargs: Any):
-        """Emit structured SSE blocks without asking the client to parse answer text."""
+        """Emit structured SSE blocks without asking the client to parse answer text.
+
+        No `final_answer` is emitted here: the route owns that block because only
+        it knows the persisted `message_id`. Emitting one from both layers gave
+        clients two competing answers, one of which was never stored.
+        """
         delimiter = "---METADATA---"
         full_text = ""
         sent_until = 0
@@ -198,7 +217,7 @@ class AIQAService(AIBase):
                 full_text += chunk
                 split_idx = full_text.find(delimiter)
                 if split_idx == -1 and not collecting_metadata:
-                    safe_end = max(0, len(full_text) - len(delimiter) + 1)
+                    safe_end = _delimiter_safe_end(full_text, delimiter)
                     if safe_end > sent_until:
                         yield self._qa_event("answer", {"chunk": full_text[sent_until:safe_end]})
                         sent_until = safe_end
@@ -209,8 +228,8 @@ class AIQAService(AIBase):
                     collecting_metadata = True
         except AITeacherModelFailure as failure:
             # Flush whatever the learner already read, then say what went wrong.
-            # A failed answer has no trustworthy final_answer or metadata, so
-            # neither is emitted — the caller must treat this as incomplete.
+            # A failed answer has no trustworthy metadata, so none is emitted —
+            # the caller must treat this turn as incomplete.
             answer_end = full_text.find(delimiter)
             visible_end = len(full_text) if answer_end == -1 else answer_end
             if visible_end > sent_until:
@@ -225,8 +244,7 @@ class AIQAService(AIBase):
         if not collecting_metadata and sent_until < len(full_text):
             yield self._qa_event("answer", {"chunk": full_text[sent_until:]})
 
-        answer, metadata = self._split_answer_metadata(full_text)
-        yield self._qa_event("final_answer", {"answer": answer})
+        _answer, metadata = self._split_answer_metadata(full_text)
         yield self._qa_event("metadata", metadata)
 
     def _split_answer_metadata(self, text: str) -> tuple[str, dict[str, Any]]:
