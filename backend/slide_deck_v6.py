@@ -14,6 +14,8 @@ from course_presentation_graph import (
     CoursePresentationUnitV1,
     block_artifact_kinds,
     block_source_text,
+    page_artifact_kinds,
+    page_teaching_intent,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
 
@@ -470,8 +472,17 @@ def validate_slide_story_plan_v3(
         layout = template.get_layout(page.template_layout_id)
         if layout is None:
             raise V6BuildError(stage="template", code="template_layout_unavailable", message=f"Unknown V6 template layout: {page.template_layout_id}", page_id=page.page_id)
-        if unit.teaching_intent not in layout.teaching_intents:
+        page_intent = page_teaching_intent(unit, page.source_block_ids)
+        required_artifacts = page_artifact_kinds(unit, page.source_block_ids)
+        if page_intent not in layout.teaching_intents:
             raise V6BuildError(stage="template", code="template_layout_intent_mismatch", message="Template layout does not support the teaching intent", page_id=page.page_id)
+        if required_artifacts and not required_artifacts.intersection(layout.artifact_kinds):
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_artifact_mismatch",
+                message="Template layout does not express the page's source artifact",
+                page_id=page.page_id,
+            )
         title_slot = next(
             (slot for slot in layout.slots if slot.slot_kind == "title"),
             None,
@@ -831,17 +842,46 @@ def _bounded_slot_content(
             raise ValueError("template_slot_capacity_exceeded")
         return content.rstrip()
     if slot_kind == "items":
-        items: list[str] = []
+        items_by_block: list[list[str]] = []
         for text in texts:
             candidates = [
-                re.sub(r"^\s*(?:[-*+] |\d+[.)]\s*)", "", line).strip()
+                re.sub(
+                    r"^\s*(?:#{1,6}\s+|[-*+] |\d+[.)]\s*)",
+                    "",
+                    line,
+                ).strip()
                 for line in text.splitlines()
                 if line.strip()
             ]
-            items.extend(candidates or [text])
-        if (max_items and len(items) > max_items) or len("\n".join(items)) > capacity:
+            items_by_block.append(candidates or [text])
+        item_limit = max_items or sum(len(items) for items in items_by_block)
+        if len(items_by_block) > item_limit:
             raise ValueError("template_slot_capacity_exceeded")
-        return "\n".join(items).rstrip()
+        selected = [items[0] for items in items_by_block]
+        next_indexes = [1 for _items in items_by_block]
+        while len(selected) < item_limit:
+            added = False
+            for block_index, items in enumerate(items_by_block):
+                next_index = next_indexes[block_index]
+                if next_index >= len(items):
+                    continue
+                selected.append(items[next_index])
+                next_indexes[block_index] += 1
+                added = True
+                if len(selected) >= item_limit:
+                    break
+            if not added:
+                break
+        separator_cost = max(0, len(selected) - 1)
+        per_item_capacity = max(1, (capacity - separator_cost) // len(selected))
+        excerpts = [
+            _complete_sentence_excerpt(item, per_item_capacity)
+            for item in selected
+        ]
+        content = "\n".join(excerpts).rstrip()
+        if len(content) > capacity or (max_items and len(excerpts) > max_items):
+            raise ValueError("template_slot_capacity_exceeded")
+        return content
     if len(texts) == 1:
         return _complete_sentence_excerpt(texts[0], capacity)
     separator_cost = 2 * (len(texts) - 1)

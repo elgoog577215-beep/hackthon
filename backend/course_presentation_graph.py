@@ -37,6 +37,8 @@ class CoursePresentationUnitV1(_StrictModel):
     section_id: str
     source_ordinal: int = Field(ge=0)
     primary_block_ids: list[str] = Field(min_length=1)
+    primary_block_roles: dict[str, str] = Field(default_factory=dict)
+    primary_block_artifacts: dict[str, list[ArtifactKind]] = Field(default_factory=dict)
     supporting_block_ids: list[str] = Field(default_factory=list)
     teaching_intent: str
     artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
@@ -112,9 +114,11 @@ def block_artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
     return _artifact_kinds(block)
 
 
-def _teaching_intent(blocks: list[CourseBlock]) -> str:
-    roles = [block.role for block in blocks]
-    artifacts = {kind for block in blocks for kind in _artifact_kinds(block)}
+def teaching_intent_for_roles(
+    roles: list[str],
+    artifacts: set[str] | None = None,
+) -> str:
+    artifacts = artifacts or set()
     if artifacts:
         return "artifact_explanation"
     if any(role in {"activity", "checkpoint", "feedback"} for role in roles):
@@ -128,6 +132,43 @@ def _teaching_intent(blocks: list[CourseBlock]) -> str:
     if any(role == "summary" for role in roles):
         return "recap"
     return "concept_explanation"
+
+
+def _teaching_intent(blocks: list[CourseBlock]) -> str:
+    return teaching_intent_for_roles(
+        [block.role for block in blocks],
+        {kind for block in blocks for kind in _artifact_kinds(block)},
+    )
+
+
+def page_teaching_intent(
+    unit: CoursePresentationUnitV1,
+    source_block_ids: list[str],
+) -> str:
+    roles = [
+        unit.primary_block_roles.get(block_id, "")
+        for block_id in source_block_ids
+        if unit.primary_block_roles.get(block_id, "")
+    ]
+    artifacts = {
+        artifact
+        for block_id in source_block_ids
+        for artifact in unit.primary_block_artifacts.get(block_id, [])
+    }
+    if not roles and not artifacts:
+        return unit.teaching_intent
+    return teaching_intent_for_roles(roles, artifacts)
+
+
+def page_artifact_kinds(
+    unit: CoursePresentationUnitV1,
+    source_block_ids: list[str],
+) -> set[str]:
+    return {
+        artifact
+        for block_id in source_block_ids
+        for artifact in unit.primary_block_artifacts.get(block_id, [])
+    }
 
 
 def _ordered_formal_blocks(document: CourseDocument) -> list[CourseBlock]:
@@ -252,6 +293,12 @@ def compile_course_presentation_graph(
                 section_id=section_id,
                 source_ordinal=ordinal,
                 primary_block_ids=block_ids,
+                primary_block_roles={
+                    block.block_id: block.role for block in blocks
+                },
+                primary_block_artifacts={
+                    block.block_id: _artifact_kinds(block) for block in blocks
+                },
                 teaching_intent=_teaching_intent(blocks),
                 artifact_kinds=list(
                     dict.fromkeys(
@@ -311,4 +358,7 @@ __all__ = [
     "block_artifact_kinds",
     "block_source_text",
     "compile_course_presentation_graph",
+    "page_artifact_kinds",
+    "page_teaching_intent",
+    "teaching_intent_for_roles",
 ]
