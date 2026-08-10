@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
-  it('shows a five-step build progress panel with the current page detail', async () => {
+  it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
         courseId: 'course-1',
@@ -68,9 +68,44 @@ describe('SlideDeckWorkbench', () => {
     expect(panel.text()).toContain('第 2 / 12 页')
     expect(panel.text()).toContain('向量的定义')
     expect(panel.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('46')
-    expect(panel.findAll('[data-build-step]')).toHaveLength(5)
-    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(2)
+    expect(panel.findAll('[data-build-step]')).toHaveLength(10)
+    expect(panel.text()).toContain('设计教学主线')
+    expect(panel.text()).toContain('编排章节场景')
+    expect(panel.text()).toContain('规划页面结构')
+    expect(panel.text()).toContain('匹配语义版式')
+    expect(panel.text()).toContain('准备视觉素材')
+    expect(panel.text()).toContain('补图与语义修复')
+    expect(panel.text()).toContain('内容视觉质检')
+    expect(panel.text()).toContain('渲染与发布')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(6)
     expect(panel.findAll('[data-build-step][data-state="active"]')).toHaveLength(1)
+
+    await wrapper.setProps({
+      progress: 97,
+      stage: 'image_search',
+      buildDetail: {
+        event: 'image_search',
+        completed: 2,
+        total: 4,
+        itemTitle: '向量的几何意义',
+      },
+    })
+    expect(panel.text()).toContain('正在检索并核验教学图片')
+    expect(panel.text()).toContain('正在为「向量的几何意义」查找可用教学图片')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(7)
+
+    await wrapper.setProps({
+      progress: 99,
+      stage: 'render_repair',
+      buildDetail: {
+        event: 'render_repair',
+        completed: 12,
+        total: 12,
+        repairAttempt: 2,
+      },
+    })
+    expect(panel.text()).toContain('正在执行第 2 轮版式修复')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(9)
 
     await wrapper.setProps({ building: false })
     expect(wrapper.find('[data-testid="slide-build-progress"]').exists()).toBe(false)
