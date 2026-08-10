@@ -564,25 +564,31 @@ class CoursePromptComposer:
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
 2. 每个知识详情必须给出成立条件或边界、可观察能力、至少一个可信易错点和可验证
    掌握标准；易错点必须包含具体错误表现、判别方法与修复策略。
-3. `concept_group` 是本节知识点的分组，不是知识点的别名：同一小节里彼此相关的
+3. 掌握标准要能被判定：`observable_performance` 写清用什么任务、做到什么程度算
+   达标（能数的就写数量，如"3 道变式题全对"），`verification_method` 写清用什么
+   题、看什么作答表现判定。不要写"理解××""掌握××"这类无法判定的话。
+   `required_independence` 取 `scaffolded`/`guided`/`independent`（给范例/给追问/
+   完全独立），`required_transfer` 取 `recall`/`procedure`/`variation`/`novel`
+   （复述/照流程/变式/新情境）。两项按本知识点实际要求选，不要所有标准都填同一个值。
+4. `concept_group` 是本节知识点的分组，不是知识点的别名：同一小节里彼此相关的
    知识点必须共用同一个组名，每组通常聚合 2-4 个知识点。组名写知识问题域
    （例如"容量与扩容"），不要写成某个知识点的改写；一节通常 1-2 个组，只有确实
    互不相关时才增加。不要为了让组数变多而硬拆，也不要给每个知识点各起一个组名。
-4. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
+5. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
    也不得修改骨架冻结的前置关系。
-5. `relation_type` 按语义从六类中选，不要一律写 `prerequisite`；缺必填字段的关系整条丢弃。
+6. `relation_type` 按语义从六类中选，不要一律写 `prerequisite`；缺必填字段的关系整条丢弃。
    `prerequisite` 学习顺序依赖；`applies_to` source 是方法或原理、target 是应用对象；
    `generalizes` source 是一般情形、target 是其特例；`equivalent_to` 同一实质不同表述（对称）；
    `derives` target 可由 source 推出，必填 `derivation_steps`（有序关键步骤，不可为空）；
    `contrasts_with` 两者易混需辨析（对称），必填 `distinction`（凭什么区分两者）。
    本节教学上确实成立的前置之外关系都要给出，但不要为凑数编造。
-6. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
+7. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
-7. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
+8. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
    评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
-8. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
+9. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
-9. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
+10. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
    课堂检查、作业或备注；这些字段必须与教学场景和总课时相容，未知内容可以省略，不能编造资料来源。
 
 ## JSON Schema
@@ -613,10 +619,10 @@ class CoursePromptComposer:
           }}],
           "mastery_criteria": [{{
             "name": "掌握标准",
-            "observable_performance": "独立表现",
-            "required_independence": "independent",
-            "required_transfer": "variation",
-            "verification_method": "验证方法",
+            "observable_performance": "独立表现；写清用什么任务、做到什么程度算达标，能数的就给数量",
+            "required_independence": "scaffolded|guided|independent 三选一，按本知识点实际要求选",
+            "required_transfer": "recall|procedure|variation|novel 四选一，按本知识点实际要求选",
+            "verification_method": "验证方法；写清用什么题、看什么作答表现判定",
             "required_evidence_types": ["practice_attempt"]
           }}],
           "aliases": []

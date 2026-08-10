@@ -5744,6 +5744,10 @@ class CourseService(AIBase):
 2. 每个概念组至少拆出两个原子知识点；知识点必须有独立命题、条件或边界、可观察能力和掌握标准。
 3. 所有知识名称与关系只在当前课程内去重和复用，不得跨课程继承身份。
 4. 不生成提升点；易错点没有可靠内容时允许为空，禁止模板填充。
+5. 掌握标准的 `required_independence` 与 `required_transfer` 是**按知识点选择**的，
+   不要所有标准都填同一个值：入口性定义通常 `guided`+`recall` 或
+   `independent`+`procedure`，需要迁移到新情境的能力才用 `variation`/`novel`。
+   `observable_performance` 必须是可观察的做题或操作表现，不写「理解××」。
 
 ## 输出格式
 ```json
@@ -5768,8 +5772,8 @@ class CourseService(AIBase):
             "mastery_criteria": [{{
               "name": "掌握标准",
               "observable_performance": "独立可验证表现",
-              "required_independence": "independent",
-              "required_transfer": "variation",
+              "required_independence": "scaffolded|guided|independent 三选一，按本知识点实际要求选",
+              "required_transfer": "recall|procedure|variation|novel 四选一，按本知识点实际要求选",
               "verification_method": "验证方法"
             }}],
             "aliases": [],
