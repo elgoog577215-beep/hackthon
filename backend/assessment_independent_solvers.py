@@ -41,6 +41,16 @@ class IndependentSolverRegistry:
         registry.register("state_operations", _solve_state_operations)
         return registry
 
+    def kinds(self) -> tuple[str, ...]:
+        """已注册的确定性解法种类。
+
+        出题 prompt 用它来告诉模型 `solver_contract.kind` 只能填哪几个值。
+        必须从注册表实时读取而不是在 prompt 里另抄一份常量——抄一份就会在
+        新增/删除解法时悄悄失配，模型继续写一个没人认识的 kind，
+        `solve()` 一路返回 None，本地解题器看着是开着的却永远不生效。
+        """
+        return tuple(sorted(self._solvers))
+
     def register(self, kind: str, solver: LocalSolver) -> None:
         normalized = str(kind or "").strip()
         if not normalized:

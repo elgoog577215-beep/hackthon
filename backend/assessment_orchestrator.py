@@ -4043,6 +4043,26 @@ def _compact_batch_generation_context(
     return compact
 
 
+def _solver_contract_kind_hint() -> str:
+    """告诉模型 `solver_contract.kind` 只能填哪几个值。
+
+    这一句是本地确定性解题器能否真正生效的开关。`IndependentSolverRegistry.solve`
+    只在 kind 命中已注册解法时才接手；模型如果写了一个自造的 kind，解题器一路
+    返回 None，于是"本地解题器已打开"在日志里成立、在请求数上毫无变化。
+
+    种类从注册表实时读取，不在这里另抄一份常量——抄一份就会在增删解法时悄悄失配。
+    """
+    kinds = IndependentSolverRegistry.with_builtin_solvers().kinds()
+    return (
+        "Optional. Only fill when the answer is fully determined by the public "
+        "question text, and only with one of: "
+        + " / ".join(kinds)
+        + ". Omit this object entirely when the answer needs judgement, "
+        "interpretation, or knowledge outside the public text — a wrong or "
+        "invented kind is worse than no solver_contract."
+    )
+
+
 def _generation_prompt(context: dict[str, Any]) -> str:
     return (
         "生成一道原创、可作答、可评分的课程题目。"
@@ -4112,7 +4132,7 @@ def _generation_prompt_v2(
                 {"id": "B", "text": "Choice text"},
             ],
             "solver_contract": {
-                "kind": "Optional public deterministic solver kind",
+                "kind": _solver_contract_kind_hint(),
                 "expression": "Optional public numeric expression",
                 "unit": "Optional answer unit",
             },
@@ -4369,7 +4389,7 @@ def _batch_generation_prompt(
                 {"id": "B", "text": "选择题选项"},
             ],
             "solver_contract": {
-                "kind": "可选的公开确定性求解类型",
+                "kind": _solver_contract_kind_hint(),
                 "expression": "可选的公开数值表达式",
                 "unit": "可选答案单位",
             },

@@ -177,3 +177,86 @@ def test_local_solver_rejects_unsafe_or_incomplete_contract() -> None:
     assert registry.solve({
         "input_contract": {"mode": "choice"},
     }) is None
+
+
+# --- M1：本地确定性解题器在 deliberate 档也生效 -----------------------------
+
+
+def test_deliberate_profile_prefers_the_local_solver() -> None:
+    """生产用的 deliberate 档此前把本地解题器关着，每道题都要模型再解一遍。
+
+    打开它不降低验证强度：解题器只在题目自带可确定性求解的 solver_contract
+    时才接手，解不出就落回模型求解。
+    """
+    deliberate = resolve_assessment_generation_policy("deliberate")
+    fast = resolve_assessment_generation_policy("fast")
+
+    assert deliberate.prefer_local_solver is True
+    assert fast.prefer_local_solver is True
+
+
+def test_local_solver_still_declines_anything_it_cannot_prove() -> None:
+    """开关打开不等于放宽判定：解不了的一律返回 None，交回模型求解。"""
+    registry = IndependentSolverRegistry.with_builtin_solvers()
+
+    # 没有 solver_contract
+    assert registry.solve({"input_contract": {"mode": "short_text"}}) is None
+    # kind 不认识
+    assert registry.solve({
+        "solver_contract": {"kind": "essay_judgement", "expression": "1 + 1"},
+    }) is None
+    # kind 认识但表达式不可确定性求值
+    assert registry.solve({
+        "solver_contract": {"kind": "numeric_expression", "expression": "x + 1"},
+    }) is None
+    # 结果非有限
+    assert registry.solve({
+        "solver_contract": {"kind": "numeric_expression", "expression": "1 / 0"},
+    }) is None
+
+
+def test_registry_exposes_its_registered_kinds() -> None:
+    registry = IndependentSolverRegistry.with_builtin_solvers()
+    assert registry.kinds() == ("numeric_expression", "state_operations")
+
+
+def test_generation_prompt_names_exactly_the_registered_solver_kinds() -> None:
+    """防漂移：prompt 里写的 kind 必须与注册表一致。
+
+    模型只会照 schema 填值。如果 prompt 不说有哪些合法 kind（改动前就是
+    "Optional public deterministic solver kind" 这种空话），模型会自造一个
+    名字，`solve()` 一路返回 None——本地解题器看着是开着的，却永远不生效，
+    M1 的收益为零且没人会发现。
+    """
+    from assessment_orchestrator import _solver_contract_kind_hint
+
+    hint = _solver_contract_kind_hint()
+    registered = IndependentSolverRegistry.with_builtin_solvers().kinds()
+    for kind in registered:
+        assert kind in hint, f"prompt 未告知模型合法 kind：{kind}"
+    # 反向：prompt 不得宣传注册表里没有的解法
+    for token in ("symbolic_algebra", "code_execution", "essay_judgement"):
+        assert token not in hint
+
+
+def test_generation_schema_carries_the_solver_kind_hint() -> None:
+    """两份 schema（中/英）都要带上 kind 提示，不能只改一份。"""
+    from assessment_orchestrator import (
+        _batch_generation_prompt,
+        _generation_prompt_v2,
+        _solver_contract_kind_hint,
+    )
+
+    hint = _solver_contract_kind_hint()
+    context = {
+        "assessment_slot": {
+            "input_mode": "numeric_unit",
+            "validation_mode": "exact_validator",
+        },
+    }
+    single = _generation_prompt_v2(context)
+    assert "numeric_expression" in single, "英文 schema 未带合法 kind"
+
+    batch = _batch_generation_prompt([context])
+    assert "numeric_expression" in batch, "批量中文 schema 未带合法 kind"
+    del hint

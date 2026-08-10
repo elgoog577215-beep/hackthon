@@ -153,7 +153,17 @@ def resolve_assessment_generation_policy(
         solution_batch_size=1,
         max_provider_attempts=None,
         compact_candidate=False,
-        prefer_local_solver=False,
+        # 本地确定性解题器在 deliberate 档也开。
+        #
+        # 它不是"快但不准"的近似：`IndependentSolverRegistry.solve` 只在题目
+        # 自带 `solver_contract.kind` 且命中已注册的确定性解法时才返回结果，
+        # 解不出、算不动、结果不完整都返回 None 并原样落回模型求解
+        # （`assessment_orchestrator._solve_and_build`）。所以打开它只会把
+        # "本来就能被确定性算清的题"从模型手里接走，不会降低任何题的验证强度。
+        #
+        # 反过来说，deliberate 档关掉它并不换来更强的正确性——只是让模型把
+        # 同一道算术题再算一遍，这正是"6 道题 42 次请求"里最没有信息量的那部分。
+        prefer_local_solver=True,
         stage_timeouts={
             "generate": None,
             "repair": None,
