@@ -11,6 +11,8 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    _bounded_slot_content,
+    _complete_sentence_excerpt,
     build_signature_v6,
     compile_shadow_chapter_document,
     compile_ppt_source_contract_v2,
@@ -19,6 +21,42 @@ from slide_deck_v6 import (
     validate_slide_visual_plan_v2,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+def test_sentence_excerpt_never_exceeds_its_template_budget():
+    source = "A source sentence with no early punctuation and several additional words"
+
+    excerpt = _complete_sentence_excerpt(source, 35)
+
+    assert len(excerpt) <= 35
+    assert excerpt.endswith("…")
+    assert excerpt[:-1] in source
+
+
+def test_item_slot_uses_source_excerpts_within_template_limits():
+    block = _block(
+        "field-checks",
+        "field-section",
+        0,
+        role="feedback",
+        text="\n".join(
+            f"- Evidence check {index} includes a detailed source-grounded explanation"
+            for index in range(1, 9)
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="items",
+        max_chars=90,
+        max_items=3,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert len(content) <= 90
+    assert len(content.splitlines()) <= 3
+    assert all(line.rstrip("…") in block.payload["markdown"] for line in content.splitlines())
 
 
 def _block(
@@ -305,6 +343,23 @@ def test_story_plan_rejects_an_ungrounded_visible_title() -> None:
     story.batches[0].pages[0].title = "Quantum credential exchange"
 
     with pytest.raises(V6BuildError, match="story_unsupported_title"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    page = story.batches[0].pages[0]
+    layout = template.get_layout(page.template_layout_id)
+    assert layout is not None
+    title_capacity = next(
+        slot.max_chars for slot in layout.slots if slot.slot_kind == "title"
+    )
+    source_text = graph.units[0].source_text
+    page.title = source_text[: title_capacity + 1]
+    assert len(page.title) > title_capacity
+
+    with pytest.raises(V6BuildError, match="story_title_capacity_exceeded"):
         validate_slide_story_plan_v3(story, graph, template)
 
 

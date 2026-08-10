@@ -14,6 +14,8 @@ from course_presentation_graph import (
     CoursePresentationUnitV1,
     block_artifact_kinds,
     block_source_text,
+    page_artifact_kinds,
+    page_teaching_intent,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
 
@@ -470,8 +472,28 @@ def validate_slide_story_plan_v3(
         layout = template.get_layout(page.template_layout_id)
         if layout is None:
             raise V6BuildError(stage="template", code="template_layout_unavailable", message=f"Unknown V6 template layout: {page.template_layout_id}", page_id=page.page_id)
-        if unit.teaching_intent not in layout.teaching_intents:
+        page_intent = page_teaching_intent(unit, page.source_block_ids)
+        required_artifacts = page_artifact_kinds(unit, page.source_block_ids)
+        if page_intent not in layout.teaching_intents:
             raise V6BuildError(stage="template", code="template_layout_intent_mismatch", message="Template layout does not support the teaching intent", page_id=page.page_id)
+        if required_artifacts and not required_artifacts.intersection(layout.artifact_kinds):
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_artifact_mismatch",
+                message="Template layout does not express the page's source artifact",
+                page_id=page.page_id,
+            )
+        title_slot = next(
+            (slot for slot in layout.slots if slot.slot_kind == "title"),
+            None,
+        )
+        if title_slot and title_slot.max_chars and len(page.title) > title_slot.max_chars:
+            raise V6BuildError(
+                stage="story",
+                code="story_title_capacity_exceeded",
+                message="Story title exceeds the selected template title capacity",
+                page_id=page.page_id,
+            )
         if unit.source_ordinal < previous_unit_ordinal:
             raise V6BuildError(stage="story", code="story_dependency_order_invalid", message="Story reverses course teaching-unit order", page_id=page.page_id)
         previous_unit_ordinal = unit.source_ordinal
@@ -647,6 +669,8 @@ def validate_slide_visual_plan_v2(
 
 def _complete_sentence_excerpt(text: str, capacity: int) -> str:
     normalized = " ".join(text.split())
+    if capacity <= 0:
+        return ""
     if len(normalized) <= capacity:
         return normalized
     sentences = re.split(r"(?<=[。！？.!?])\s*", normalized)
@@ -658,25 +682,12 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
         if len(candidate) > capacity:
             break
         result = candidate
-    return result or normalized[:capacity].rstrip("，、;；:：") + "…"
-
-
-_SLOT_ROLE_PREFERENCES: dict[str, set[str]] = {
-    "driving_question": {"orientation", "objective", "checkpoint", "activity"},
-    "task": {"activity", "checkpoint", "orientation"},
-    "prompt": {"activity", "checkpoint", "orientation", "example"},
-    "criteria": {"feedback", "summary", "objective"},
-    "feedback": {"feedback", "answer", "remediation"},
-    "annotation": {"concept", "reasoning", "feedback", "remediation"},
-    "derivation": {"reasoning", "example"},
-    "reasoning": {"reasoning", "example"},
-    "interpretation": {"reasoning", "feedback", "summary"},
-    "explanation": {"concept", "reasoning", "feedback"},
-    "symptom": {"misconception", "counterexample"},
-    "cause": {"reasoning", "misconception"},
-    "repair": {"remediation", "feedback"},
-    "next_action": {"transfer", "application", "activity"},
-}
+    if result:
+        return result
+    if capacity == 1:
+        return normalized[:1]
+    excerpt = normalized[: capacity - 1].rstrip("，。！？,;: ")
+    return f"{excerpt}…"
 
 
 def _slot_artifact_kind(slot_kind: str) -> str:
@@ -813,17 +824,46 @@ def _bounded_slot_content(
             raise ValueError("template_slot_capacity_exceeded")
         return content.rstrip()
     if slot_kind == "items":
-        items: list[str] = []
+        items_by_block: list[list[str]] = []
         for text in texts:
             candidates = [
-                re.sub(r"^\s*(?:[-*+] |\d+[.)]\s*)", "", line).strip()
+                re.sub(
+                    r"^\s*(?:#{1,6}\s+|[-*+] |\d+[.)]\s*)",
+                    "",
+                    line,
+                ).strip()
                 for line in text.splitlines()
                 if line.strip()
             ]
-            items.extend(candidates or [text])
-        if (max_items and len(items) > max_items) or len("\n".join(items)) > capacity:
+            items_by_block.append(candidates or [text])
+        item_limit = max_items or sum(len(items) for items in items_by_block)
+        if len(items_by_block) > item_limit:
             raise ValueError("template_slot_capacity_exceeded")
-        return "\n".join(items).rstrip()
+        selected = [items[0] for items in items_by_block]
+        next_indexes = [1 for _items in items_by_block]
+        while len(selected) < item_limit:
+            added = False
+            for block_index, items in enumerate(items_by_block):
+                next_index = next_indexes[block_index]
+                if next_index >= len(items):
+                    continue
+                selected.append(items[next_index])
+                next_indexes[block_index] += 1
+                added = True
+                if len(selected) >= item_limit:
+                    break
+            if not added:
+                break
+        separator_cost = max(0, len(selected) - 1)
+        per_item_capacity = max(1, (capacity - separator_cost) // len(selected))
+        excerpts = [
+            _complete_sentence_excerpt(item, per_item_capacity)
+            for item in selected
+        ]
+        content = "\n".join(excerpts).rstrip()
+        if len(content) > capacity or (max_items and len(excerpts) > max_items):
+            raise ValueError("template_slot_capacity_exceeded")
+        return content
     if len(texts) == 1:
         return _complete_sentence_excerpt(texts[0], capacity)
     separator_cost = 2 * (len(texts) - 1)
@@ -1060,7 +1100,7 @@ def _materialize_template_regions(
     for index, slot in enumerate(text_slots):
         if not remaining:
             break
-        preferred_roles = _SLOT_ROLE_PREFERENCES.get(slot.slot_id, set())
+        preferred_roles = set(slot.source_roles)
         preferred = [block for block in remaining if block.role in preferred_roles]
         is_last_text_slot = index == len(text_slots) - 1
         if preferred:

@@ -18,7 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ai_base import AIBase
 from course_document import stable_hash
-from course_presentation_graph import CoursePresentationGraphV1, CoursePresentationUnitV1
+from course_presentation_graph import (
+    CoursePresentationGraphV1,
+    CoursePresentationUnitV1,
+    page_teaching_intent,
+    teaching_intent_for_roles,
+)
 from slide_deck_v6 import (
     SlideStoryBatchV3,
     SlideStoryPageV3,
@@ -163,6 +168,102 @@ def _normalize_story_batch_response(
         for title in request.get("constraints", {}).get("forbidden_titles") or []
         if str(title).strip()
     }
+    repair_targets = [
+        target
+        for target in (request.get("repair_feedback") or {}).get("repair_targets") or []
+        if isinstance(target, dict)
+    ]
+    repair_targets_by_page = {
+        str(target.get("page_id") or ""): target
+        for target in repair_targets
+        if str(target.get("page_id") or "")
+    }
+
+    def repair_target_for(page: dict[str, Any]) -> dict[str, Any] | None:
+        exact = repair_targets_by_page.get(str(page.get("page_id") or ""))
+        if exact is not None:
+            return exact
+        unit_id = str(page.get("teaching_unit_id") or "")
+        source_ids = {
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        }
+        matching = [
+            target
+            for target in repair_targets
+            if str(target.get("teaching_unit_id") or "") == unit_id
+            and {
+                str(block_id)
+                for block_id in target.get("current_source_block_ids") or []
+            }
+            == source_ids
+        ]
+        return matching[0] if len(matching) == 1 else None
+
+    def allowed_layout_ids_for_page(
+        unit: dict[str, Any],
+        page: dict[str, Any],
+    ) -> list[str]:
+        block_metadata = {
+            str(block.get("block_id") or ""): block
+            for block in unit.get("primary_blocks") or []
+            if isinstance(block, dict)
+        }
+        source_ids = [
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        ]
+        roles = [
+            str(block_metadata.get(block_id, {}).get("role") or "")
+            for block_id in source_ids
+            if str(block_metadata.get(block_id, {}).get("role") or "")
+        ]
+        artifacts = {
+            str(artifact)
+            for block_id in source_ids
+            for artifact in block_metadata.get(block_id, {}).get("artifact_kinds") or []
+            if str(artifact)
+        }
+        page_intent = (
+            teaching_intent_for_roles(roles, artifacts)
+            if roles or artifacts
+            else str(unit.get("teaching_intent") or "")
+        )
+        result: list[str] = []
+        for layout in unit.get("allowed_template_layouts") or []:
+            if not isinstance(layout, dict):
+                continue
+            layout_id = str(layout.get("template_layout_id") or "")
+            if not layout_id or page_intent not in (layout.get("teaching_intents") or []):
+                continue
+            if artifacts and not artifacts.intersection(layout.get("artifact_kinds") or []):
+                continue
+            if roles and not artifacts:
+                remaining_roles = list(roles)
+                required_text_slots = [
+                    slot
+                    for slot in layout.get("slots") or []
+                    if isinstance(slot, dict)
+                    and bool(slot.get("required"))
+                    and slot.get("slot_kind") in {"body", "items"}
+                ]
+                satisfiable = True
+                for slot in required_text_slots:
+                    source_roles = set(slot.get("source_roles") or [])
+                    matching_index = next(
+                        (
+                            index
+                            for index, role in enumerate(remaining_roles)
+                            if not source_roles or role in source_roles
+                        ),
+                        None,
+                    )
+                    if matching_index is None:
+                        satisfiable = False
+                        break
+                    remaining_roles.pop(matching_index)
+                if not satisfiable:
+                    continue
+            result.append(layout_id)
+        return result
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -192,6 +293,26 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
+        if unit is not None:
+            selected_layout_id = str(page.get("template_layout_id") or "")
+            unit_layout_ids = set(unit.get("allowed_template_layout_ids") or [])
+            page_layout_ids = allowed_layout_ids_for_page(unit, page)
+            if (
+                selected_layout_id in unit_layout_ids
+                and selected_layout_id not in page_layout_ids
+                and page_layout_ids
+            ):
+                page["template_layout_id"] = page_layout_ids[0]
+        repair_target = repair_target_for(page)
+        if repair_target is not None:
+            required_title = str(repair_target.get("required_title") or "").strip()
+            required_layout_id = str(
+                repair_target.get("required_template_layout_id") or ""
+            ).strip()
+            if required_title:
+                page["title"] = required_title
+            if required_layout_id:
+                page["template_layout_id"] = required_layout_id
         normalized_title = re.sub(
             r"\s+",
             "",
@@ -310,14 +431,16 @@ async def _notify_batch(
         await result
 
 
-def _allowed_layout_ids(
-    unit: CoursePresentationUnitV1,
+def _allowed_layout_ids_for(
+    teaching_intent: str,
+    required_artifacts: set[str],
     template: TemplateLayoutPackContractV1,
+    *,
+    teaching_unit_id: str,
 ) -> list[str]:
-    required_artifacts = set(unit.artifact_kinds)
     result = []
     for layout in template.layouts:
-        if unit.teaching_intent not in layout.teaching_intents:
+        if teaching_intent not in layout.teaching_intents:
             continue
         if required_artifacts and not required_artifacts.intersection(layout.artifact_kinds):
             continue
@@ -326,7 +449,7 @@ def _allowed_layout_ids(
         raise V6BuildError(
             stage="template",
             code="template_layout_unavailable",
-            message=f"No template layout supports teaching unit {unit.teaching_unit_id}",
+            message=f"No template layout supports teaching unit {teaching_unit_id}",
         )
     return result
 
@@ -352,14 +475,21 @@ def _layout_prompt_contract(
     }
 
 
-def _grounded_title_candidates(source_text: str) -> list[str]:
+def _grounded_title_candidates(
+    source_text: str,
+    *,
+    max_chars: int = 72,
+) -> list[str]:
+    capacity = max(4, max_chars)
     candidates: list[str] = []
     for match in _MARKDOWN_TITLE_RE.finditer(source_text):
         candidate = str(match.group(1) or match.group(2) or "").strip()
+        if len(candidate) > capacity:
+            candidate = candidate[:capacity].rstrip("，。！？,;: ")
         if candidate and candidate in source_text and candidate not in candidates:
             candidates.append(candidate)
     for segment in re.split(r"[\n。！？!?；;]", source_text):
-        candidate = segment.strip().strip("#*` ")[:72].strip()
+        candidate = segment.strip().strip("#*` ")[:capacity].strip()
         if (
             len(candidate) >= 4
             and candidate in source_text
@@ -369,6 +499,81 @@ def _grounded_title_candidates(source_text: str) -> list[str]:
         if len(candidates) >= 6:
             break
     return candidates[:6]
+
+
+def _story_unit_request(
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+) -> dict[str, Any]:
+    page_intents = {
+        page_teaching_intent(unit, [block_id])
+        for block_id in unit.primary_block_ids
+    }
+    page_intents.add(unit.teaching_intent)
+    ordered_page_intents = [
+        unit.teaching_intent,
+        *sorted(page_intents - {unit.teaching_intent}),
+    ]
+    allowed_layout_ids_by_page_intent = {
+        page_intent: _allowed_layout_ids_for(
+            page_intent,
+            (
+                set(unit.artifact_kinds)
+                if page_intent == "artifact_explanation"
+                else set()
+            ),
+            template,
+            teaching_unit_id=unit.teaching_unit_id,
+        )
+        for page_intent in ordered_page_intents
+    }
+    allowed_layout_ids = list(dict.fromkeys(
+        layout_id
+        for page_intent in ordered_page_intents
+        for layout_id in allowed_layout_ids_by_page_intent[page_intent]
+    ))
+    allowed_layouts = [
+        _layout_prompt_contract(layout_id, template)
+        for layout_id in allowed_layout_ids
+    ]
+    title_capacities = [
+        int(slot.get("max_chars") or 0)
+        for layout in allowed_layouts
+        for slot in layout["slots"]
+        if slot.get("slot_kind") == "title" and int(slot.get("max_chars") or 0) > 0
+    ]
+    title_max_chars = min(title_capacities) if title_capacities else 72
+    return {
+        "teaching_unit_id": unit.teaching_unit_id,
+        "source_ordinal": unit.source_ordinal,
+        "primary_block_ids": unit.primary_block_ids,
+        "primary_blocks": [
+            {
+                "block_id": block_id,
+                "role": unit.primary_block_roles.get(block_id, ""),
+                "artifact_kinds": unit.primary_block_artifacts.get(block_id, []),
+                "page_intent": page_teaching_intent(unit, [block_id]),
+            }
+            for block_id in unit.primary_block_ids
+        ],
+        "teaching_intent": unit.teaching_intent,
+        "artifact_kinds": unit.artifact_kinds,
+        "source_asset_ids": unit.source_asset_refs,
+        "teaching_plan_context": unit.teaching_plan_context,
+        "prerequisite_unit_ids": unit.prerequisite_unit_ids,
+        "source_text": unit.source_text,
+        "title_max_chars": title_max_chars,
+        "title_policy": "copy_verbatim_from_title_candidates",
+        "title_candidates": _grounded_title_candidates(
+            unit.source_text,
+            max_chars=title_max_chars,
+        ),
+        "allowed_template_layout_ids": allowed_layout_ids,
+        "allowed_template_layout_ids_by_page_intent": (
+            allowed_layout_ids_by_page_intent
+        ),
+        "allowed_template_layouts": allowed_layouts,
+    }
 
 
 def _story_requests(
@@ -415,25 +620,7 @@ def _story_requests(
                 "forbidden_page_fields": ["content"],
             },
             "teaching_units": [
-                {
-                    "teaching_unit_id": unit.teaching_unit_id,
-                    "source_ordinal": unit.source_ordinal,
-                    "primary_block_ids": unit.primary_block_ids,
-                    "teaching_intent": unit.teaching_intent,
-                    "artifact_kinds": unit.artifact_kinds,
-                    "source_asset_ids": unit.source_asset_refs,
-                    "teaching_plan_context": unit.teaching_plan_context,
-                    "prerequisite_unit_ids": unit.prerequisite_unit_ids,
-                    "source_text": unit.source_text,
-                    "title_candidates": _grounded_title_candidates(unit.source_text),
-                    "allowed_template_layout_ids": (
-                        allowed_layout_ids := _allowed_layout_ids(unit, template)
-                    ),
-                    "allowed_template_layouts": [
-                        _layout_prompt_contract(layout_id, template)
-                        for layout_id in allowed_layout_ids
-                    ],
-                }
+                _story_unit_request(unit, template)
                 for unit in by_section[section_id]
             ],
         }
@@ -562,6 +749,54 @@ def _story_repair_targets(
             for title in forbidden_titles
         }
         allowed_title_candidates = list(unit.get("title_candidates") or [])
+        title_max_chars = int(unit.get("title_max_chars") or 0)
+        current_source_block_ids = [
+            str(block_id)
+            for block_id in (current_page or {}).get("source_block_ids") or []
+        ]
+        block_metadata = {
+            str(block.get("block_id") or ""): block
+            for block in unit.get("primary_blocks") or []
+            if isinstance(block, dict)
+        }
+        current_roles = [
+            str(block_metadata.get(block_id, {}).get("role") or "")
+            for block_id in current_source_block_ids
+            if str(block_metadata.get(block_id, {}).get("role") or "")
+        ]
+        current_artifacts = {
+            str(artifact)
+            for block_id in current_source_block_ids
+            for artifact in block_metadata.get(block_id, {}).get("artifact_kinds") or []
+            if str(artifact)
+        }
+        page_intent = (
+            teaching_intent_for_roles(current_roles, current_artifacts)
+            if current_roles or current_artifacts
+            else str(unit.get("teaching_intent") or "")
+        )
+        page_allowed_layout_ids = list(
+            (unit.get("allowed_template_layout_ids_by_page_intent") or {}).get(
+                page_intent,
+                unit.get("allowed_template_layout_ids") or [],
+            )
+        )
+        available_title_candidates = [
+            title
+            for title in allowed_title_candidates
+            if (not title_max_chars or len(str(title)) <= title_max_chars)
+            and re.sub(r"\s+", "", str(title)).casefold()
+            not in normalized_forbidden_titles
+        ]
+        title_repair_required = error.failure.code in {
+            "duplicate_slide_title",
+            "story_title_capacity_exceeded",
+            "story_unsupported_title",
+        }
+        layout_repair_required = error.failure.code in {
+            "template_layout_artifact_mismatch",
+            "template_layout_intent_mismatch",
+        }
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -573,20 +808,27 @@ def _story_repair_targets(
                 and str(page.get("teaching_unit_id") or "") == unit_id
                 and str(page.get("page_id") or "")
             ],
-            "allowed_template_layout_ids": list(
-                unit.get("allowed_template_layout_ids") or []
+            "page_intent": page_intent,
+            "allowed_template_layout_ids": page_allowed_layout_ids,
+            "required_template_layout_id": (
+                str(page_allowed_layout_ids[0])
+                if layout_repair_required and page_allowed_layout_ids
+                else ""
             ),
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
+            "current_source_block_ids": current_source_block_ids,
             "missing_source_block_ids": list(missing_source_block_ids or []),
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
             "duplicate_page_ids": list(duplicate_page_ids or []),
             "allowed_title_candidates": allowed_title_candidates,
-            "available_title_candidates": [
-                title
-                for title in allowed_title_candidates
-                if re.sub(r"\s+", "", str(title)).casefold()
-                not in normalized_forbidden_titles
-            ],
+            "available_title_candidates": available_title_candidates,
+            "required_title": (
+                str(available_title_candidates[0])
+                if title_repair_required and available_title_candidates
+                else ""
+            ),
+            "title_max_chars": title_max_chars,
+            "current_title": current_title,
             "duplicate_title": current_title if conflicting_page_ids else "",
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
@@ -734,12 +976,17 @@ async def plan_slide_story_v3(
                             ),
                             "instruction": (
                                 "Return a fresh response that exactly follows response_contract, "
-                                "uses each teaching unit's own allowed_template_layout_ids, and "
+                                "derives each page's intent from its bound primary_blocks and uses "
+                                "only that intent's allowed_template_layout_ids_by_page_intent, and "
                                 "contains only source IDs supplied for that unit. Partition every "
                                 "unit's primary_block_ids across one to three pages: bind multiple "
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
-                                "Copy each title verbatim from that unit's title_candidates. Set "
+                                "Copy each title verbatim from that unit's title_candidates and keep "
+                                "it within that unit's title_max_chars. Set "
+                                "a repair target's title exactly to required_title when provided. Set "
+                                "its template_layout_id exactly to required_template_layout_id when "
+                                "provided. Set "
                                 "summary to empty unless its complete wording is directly supported "
                                 "by that unit's source_text; never add identifiers or facts."
                             ),
@@ -758,7 +1005,7 @@ async def plan_slide_story_v3(
                     raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
                     previous_response_payload = _normalize_story_batch_response(
                         raw,
-                        request,
+                        attempt_request,
                     )
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload
@@ -1175,8 +1422,10 @@ def build_ai_base_story_planner_v6() -> Planner:
             system_prompt=(
                 "Return only slide_story_batch_response_v3 JSON. You are a course-faithful "
                 "presentation planner. Use every supplied primary_block_id exactly once, keep "
-                "teaching units and prerequisites in order, and use only supplied teaching_unit_id "
-                "and allowed_template_layout_ids. Create one to three pages per unit. Do not create "
+                "teaching units and prerequisites in order, and use only supplied teaching_unit_id. "
+                "Derive each page intent from the roles and artifacts of its bound primary_blocks, "
+                "then select a layout from allowed_template_layout_ids_by_page_intent for that intent. "
+                "Create one to three pages per unit. Do not create "
                 "one page per primary block: partition the unit's block IDs across its pages and "
                 "bind multiple related blocks to one page when needed. The downstream compiler "
                 "keeps complete source text in speaker notes, so canvas pages should express a "
@@ -1185,7 +1434,8 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "by that unit's source_text. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
                 "page level; never emit a nested content object. Copy titles verbatim from the "
-                "selected teaching unit's title_candidates. Never invent teaching content."
+                "selected teaching unit's title_candidates and keep each title within the supplied "
+                "title_max_chars. Never invent teaching content."
             ),
             use_fast_model=False,
             retry_count=1,
