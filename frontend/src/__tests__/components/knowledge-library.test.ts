@@ -268,6 +268,31 @@ describe('Course knowledge library', () => {
     expect(first).not.toBe(second)
   })
 
+  it('联网来源不能显示成教师上传的资料来源', async () => {
+    // license_unknown 的网页与教师自己的教材如果显示成同一句话，教师就无从判断
+    // 该不该复核这条知识。三态必须各自可读，且互不相同。
+    // 逐个挂载，不能用 Promise.all：httpMock.get 是共享的，并发挂载会互相覆盖
+    // 返回值，三次读到的其实是同一种状态。
+    const labels: string[] = []
+    for (const status of ['material_grounded', 'web_grounded', 'course_generated']) {
+      const patched = {
+        ...libraryView,
+        nodes: libraryView.nodes.map(item => item.node_type === 'knowledge_point'
+          ? { ...item, source_status: status }
+          : item),
+      }
+      httpMock.get.mockResolvedValue({
+        data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
+      })
+      const { wrapper } = await mountLibrary()
+      await wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')[0].trigger('click')
+      labels.push(wrapper.get('.knowledge-tree-detail-footer').text())
+    }
+
+    expect(labels[1]).toContain('联网检索来源')
+    expect(new Set(labels).size).toBe(3)
+  })
+
   it('从教案知识标签打开时直接定位对应原子知识', async () => {
     const { wrapper, courseStore } = await mountLibrary(
       'linear-combination-definition',

@@ -210,3 +210,85 @@ def test_compiled_base_keeps_source_refs_for_every_point() -> None:
         "ev-material-0001" in (point.get("source_refs") or [])
         for point in base["knowledge_points"]
     )
+
+
+# --- 联网来源不得冒充教师上传资料 -------------------------------------------
+#
+# 上面的两态判据只看"有没有 source_refs"。`web_material_search.candidate_to_binding`
+# 已经在 main 上的真实路径里（`material_pipeline.py:184`）把联网结果转成普通
+# 资料绑定，只在 `source_metadata.origin` 留 `web_search` 标记，其证据块进的是
+# 同一个 evidence 目录，evidence_id 同样落到小节 evidence_refs。于是只有联网
+# 来源的知识点会被报成"有教师上传资料依据"——而那可能是 license_unknown 的
+# 网页。这比恒为 course_source 更糟：恒定值一眼看得出没信息量，假的
+# material_grounded 看起来却是可信的。
+
+
+WEB_EVIDENCE_ID = "ev-web-0001"
+
+
+def _web_course(*evidence_ids: str) -> dict:
+    """同一门课，小节挂上给定证据；来源由目录与绑定上的 origin 决定。"""
+    course = deepcopy(_course())
+    course["nodes"][0]["evidence_refs"] = list(evidence_ids)
+    course["evidence_catalog"] = [
+        {"evidence_id": WEB_EVIDENCE_ID, "asset_id": "asset-web"},
+        {"evidence_id": "ev-material-0001", "asset_id": "asset-material"},
+    ]
+    course["material_bindings"] = [
+        {
+            "asset_id": "asset-web",
+            "reuse_policy": "reference_only",
+            "rights_basis": "license_unknown",
+            "source_metadata": {"origin": "web_search", "url": "https://example.org/a"},
+        },
+        # 教师上传的绑定没有 origin 标记，这正是判据本身。
+        {"asset_id": "asset-material", "source_metadata": {}},
+    ]
+    return course
+
+
+def test_web_only_knowledge_is_not_reported_as_teacher_material() -> None:
+    """只有联网来源时必须报 `web_grounded`，不能冒充教师资料。"""
+    view = _view(_web_course(WEB_EVIDENCE_ID))
+
+    assert {node["source_status"] for node in _points(view)} == {"web_grounded"}
+
+
+def test_material_evidence_outranks_web_when_both_present() -> None:
+    """既有教师资料又有联网时按教师资料报——教师资料权威更高。"""
+    view = _view(_web_course("ev-material-0001", WEB_EVIDENCE_ID))
+
+    assert {node["source_status"] for node in _points(view)} == {"material_grounded"}
+
+
+def test_material_only_behaviour_is_unchanged_by_origin_awareness() -> None:
+    """纯教师资料的行为不能被这次修改改动。"""
+    view = _view(_web_course("ev-material-0001"))
+
+    assert {node["source_status"] for node in _points(view)} == {"material_grounded"}
+
+
+def test_web_source_refs_stay_traceable() -> None:
+    """状态变了，但证据必须照样能追——否则教师无法核实那条网页。"""
+    view = _view(_web_course(WEB_EVIDENCE_ID))
+
+    point = next(node for node in _points(view) if node["name"] == "动态数组扩容")
+
+    assert WEB_EVIDENCE_ID in point["source_refs"]
+
+
+def test_summary_buckets_web_separately_from_material() -> None:
+    """汇总必须与逐点同判据，否则明细说联网、汇总说有资料。"""
+    view = _view(_web_course(WEB_EVIDENCE_ID))
+
+    assert view["source_summary"] == {"web_grounded": len(_points(view))}
+
+
+def test_publish_grounding_does_not_count_web_as_material() -> None:
+    """落地率是"有教师资料"的比例，联网不能计入，否则又是一次虚高。"""
+    view = _view(_web_course(WEB_EVIDENCE_ID))
+
+    grounding = view["source_grounding"]
+
+    assert grounding["material_grounded_count"] == 0
+    assert grounding["knowledge_point_count"] > 0

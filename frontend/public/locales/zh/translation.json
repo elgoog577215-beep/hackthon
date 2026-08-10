@@ -1152,6 +1152,7 @@
     "qualityScore": "质量",
     "sources": "来源",
     "sourceMaterial": "资料来源",
+    "sourceWeb": "联网检索来源",
     "sourceModel": "模型推断",
     "candidateRelations": "候选关系",
     "notEnabled": "条未启用",

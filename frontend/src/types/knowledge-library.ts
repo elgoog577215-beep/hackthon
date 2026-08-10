@@ -1,10 +1,11 @@
 export type KnowledgeNodeType = 'course' | 'chapter' | 'section' | 'concept_group' | 'knowledge_point'
 
 /**
- * 知识记录的来源状态。只有两个值：当前流水线的 evidence_id 全部由上传文档派生，
- * 没有联网检索来源，所以不声明一个永远不会出现的 web_grounded。
+ * 知识记录的来源状态。三态各自可证：能追到教师上传资料、只能追到联网结果、
+ * 没有任何可追溯来源。联网单列而不并入 material_grounded，因为联网结果可能是
+ * license_unknown 的网页，教师需要据此决定要不要复核。
  */
-export type KnowledgeSourceStatus = 'material_grounded' | 'course_generated'
+export type KnowledgeSourceStatus = 'material_grounded' | 'web_grounded' | 'course_generated'
 
 export interface KnowledgeNode {
   knowledge_id: string
@@ -73,6 +74,8 @@ export interface KnowledgeRelation {
 export interface KnowledgeSourceGrounding {
   knowledge_point_count: number
   material_grounded_count: number
+  /** 只能追到联网结果的知识点数；不计入 material_grounded_count，避免落地率虚高 */
+  web_grounded_count: number
   course_generated_count: number
   grounded_ratio: number
   has_material_grounding: boolean

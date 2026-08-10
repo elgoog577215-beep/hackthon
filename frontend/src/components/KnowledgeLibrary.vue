@@ -871,6 +871,9 @@ function sourceLabel(source: string): string {
   // material_grounded 与 course_generated 必须显示成不同的话：教师要据此判断
   // 这条知识是有资料依据的，还是模型凭通用知识写的。
   if (source === 'material_grounded') return t('knowledgeLibrary.sourceMaterial', '资料来源')
+  // 联网必须与教师上传资料显示成不同的话，否则 license_unknown 的网页看起来
+  // 和教师自己的教材一样可信。
+  if (source === 'web_grounded') return t('knowledgeLibrary.sourceWeb', '联网检索来源')
   if (source === 'course_generated') return t('knowledgeLibrary.sourceModel', '模型推断')
   return t('knowledgeLibrary.sourceCourse', '当前课程知识库')
 }

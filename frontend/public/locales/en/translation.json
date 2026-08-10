@@ -1152,6 +1152,7 @@
     "qualityScore": "Quality",
     "sources": "Sources",
     "sourceMaterial": "Course materials",
+    "sourceWeb": "Web search source",
     "sourceModel": "Model inference",
     "candidateRelations": "Candidate relations",
     "notEnabled": "not enabled",

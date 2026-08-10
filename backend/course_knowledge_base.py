@@ -28,11 +28,18 @@ SYMMETRIC_RELATION_TYPES = {"equivalent_to", "contrasts_with"}
 # 已经变成"本节所有知识"的同义词。软门槛，不阻断发布。
 MAX_GROUP_POINTS = 5
 
-# 知识记录的来源状态。只有两个值，因为当前流水线只有一种可追溯来源：
-# material_evidence.py 从上传文档切块派生 evidence_id，没有联网检索来源。
-# 与其留一个永远不会出现的 `web_grounded` 让教师以为系统会查资料，不如只报
-# 能证明的两种情况。新增来源渠道时再扩这个词表。
+# 知识记录的来源状态。原本只有两个值，理由是"当前流水线只有上传资料一种可
+# 追溯来源"——这个理由已经不成立：`web_material_search.candidate_to_binding`
+# 把联网结果转成普通资料绑定（`material_pipeline.py:184` 是真实调用路径），
+# 只在 `source_metadata.origin` 上留 `web_search` 标记，其证据块进的是同一个
+# evidence 目录，evidence_id 同样落到小节 `evidence_refs`。
+#
+# 所以只看"有没有 source_refs"会把一条 license_unknown 的网页报成"教师上传
+# 资料依据"。那比恒定值更有害：恒定值教师一眼看得出没信息量，假的
+# material_grounded 看起来却是可信的。三态各自可证：有上传资料、只有联网、
+# 什么来源都没有。
 SOURCE_STATUS_MATERIAL = "material_grounded"
+SOURCE_STATUS_WEB = "web_grounded"
 SOURCE_STATUS_GENERATED = "course_generated"
 KNOWLEDGE_TYPES = {
     "definition",
@@ -1147,6 +1154,8 @@ def build_course_knowledge_library_view(
 ) -> dict[str, Any]:
     """Project course path + knowledge packages into the student read model."""
     course_data = course_data or {}
+    # 一门课算一次：逐条记录去查绑定会把 O(记录数) 变成 O(记录数 × 绑定数)。
+    web_evidence_ids = _web_evidence_ids(course_data)
     bindings_by_point: dict[str, dict[str, set[str]]] = {}
 
     def binding(point_id: str) -> dict[str, set[str]]:
@@ -1270,7 +1279,7 @@ def build_course_knowledge_library_view(
             "mastery_criterion_ids": [],
             "improvement_ids": [],
             "covered_by_course": True,
-            "source_status": _source_status(group),
+            "source_status": _source_status(group, web_evidence_ids),
             "source_refs": deepcopy(group.get("source_refs") or []),
             "status": group.get("status", "active"),
             "revision_id": group.get("revision_id"),
@@ -1305,7 +1314,7 @@ def build_course_knowledge_library_view(
             "aliases": deepcopy(point.get("aliases") or []),
             "learning_actions": _unique(skill_behaviors.get(point_id, [])),
             "typical_problems": [],
-            "source_status": _source_status(point),
+            "source_status": _source_status(point, web_evidence_ids),
             "source_refs": deepcopy(point.get("source_refs") or []),
             "status": point.get("status", "active"),
             "revision_id": point.get("revision_id"),
@@ -1333,7 +1342,7 @@ def build_course_knowledge_library_view(
         # 关系与四类知识记录用同一套来源判据。原来这里读的是 `source_type`
         # （编译期默认 `model_generated`）并兜底成 `course_source`，两个值都不在
         # 来源词表里，关系那一栏因此永远显示成未知来源。
-        "source_status": _source_status(item),
+        "source_status": _source_status(item, web_evidence_ids),
         "source_refs": deepcopy(item.get("source_refs") or []),
         "status": item.get("status", "accepted"),
         "revision_id": item.get("revision_id"),
@@ -1345,7 +1354,7 @@ def build_course_knowledge_library_view(
         "observable_behaviors": [item.get("observable_behavior")],
         "primary_knowledge_id": item.get("primary_knowledge_id"),
         "knowledge_ids": _unique([item.get("primary_knowledge_id"), *(item.get("supporting_knowledge_ids") or [])]),
-        "source_status": _source_status(item),
+        "source_status": _source_status(item, web_evidence_ids),
         "source_refs": deepcopy(item.get("source_refs") or []),
     } for item in knowledge_base.get("skill_units") or []]
     mistake_view = [{
@@ -1356,7 +1365,7 @@ def build_course_knowledge_library_view(
         "discrimination": item.get("discrimination"),
         "repair_strategy": item.get("repair_strategy"),
         "knowledge_ids": _unique([item.get("primary_knowledge_id"), *(item.get("related_knowledge_ids") or [])]),
-        "source_status": _source_status(item),
+        "source_status": _source_status(item, web_evidence_ids),
         "source_refs": deepcopy(item.get("source_refs") or []),
     } for item in knowledge_base.get("misconceptions") or []]
 
@@ -1411,9 +1420,11 @@ def build_course_knowledge_library_view(
         "generation_audit": deepcopy(knowledge_base.get("generation_audit") or {}),
         "source_summary": _source_summary(
             knowledge_base.get("knowledge_points") or [] if publishable else [],
+            web_evidence_ids,
         ),
         "source_grounding": _source_grounding(
             knowledge_base.get("knowledge_points") or [] if publishable else [],
+            web_evidence_ids,
         ),
     }
     payload["asset_id"] = stable_hash(
@@ -2146,23 +2157,59 @@ def _view_path_node(
     }
 
 
-def _source_status(record: dict[str, Any]) -> str:
-    """如实报告一条知识记录有没有可追溯的资料依据。
+def _web_evidence_ids(course_data: dict[str, Any] | None) -> frozenset[str]:
+    """课程里哪些 evidence_id 只能追到联网结果，而不是教师上传的资料。
 
-    判据就是记录自己的 `source_refs`：编译期它由 `_section_evidence_refs` 从
-    小节的 `evidence_refs` 与 `grounding_contract` 派生，所以有值意味着确实能
-    追到上传资料里的具体证据块。之前这里对四类记录一律写死 `course_source`，
-    教师界面上"有资料依据"与"模型凭通用知识写的"完全无法区分，来源落地率恒为
-    0 却没人看得见。
+    判据取自绑定上的 `source_metadata.origin`（`web_material_search` 写入
+    `web_search`），再经 `evidence_catalog` 的 `asset_id` 反查到 evidence_id。
+    教师上传的绑定没有这个标记，所以未知来源默认按上传资料处理——宁可少报一个
+    联网，也不要把教师自己的材料说成是网上抄的。
     """
-    return (
-        SOURCE_STATUS_MATERIAL
-        if [ref for ref in record.get("source_refs") or [] if str(ref).strip()]
-        else SOURCE_STATUS_GENERATED
-    )
+    if not isinstance(course_data, dict):
+        return frozenset()
+    web_assets = {
+        str(item.get("asset_id") or "")
+        for item in course_data.get("material_bindings") or []
+        if isinstance(item, dict)
+        and str((item.get("source_metadata") or {}).get("origin") or "") == "web_search"
+    }
+    web_assets.discard("")
+    if not web_assets:
+        return frozenset()
+    return frozenset(
+        str(item.get("evidence_id") or "")
+        for item in course_data.get("evidence_catalog") or []
+        if isinstance(item, dict) and str(item.get("asset_id") or "") in web_assets
+    ) - {""}
 
 
-def _source_summary(points: list[Any]) -> dict[str, int]:
+def _source_status(
+    record: dict[str, Any],
+    web_evidence_ids: frozenset[str] = frozenset(),
+) -> str:
+    """如实报告一条知识记录的来源属于哪一类。
+
+    判据是记录自己的 `source_refs`：编译期它由 `_section_evidence_refs` 从小节
+    的 `evidence_refs` 与 `grounding_contract` 派生，所以有值意味着确实能追到
+    具体证据块。之前这里对四类记录一律写死 `course_source`，教师界面上"有资料
+    依据"与"模型凭通用知识写的"完全无法区分，来源落地率恒为 0 却没人看得见。
+
+    只要还有一条证据来自上传资料就报 `material_grounded`：教师自己的材料权威
+    高于联网结果，`web_grounded` 留给"只有联网来源"这一种情况，读起来才是一个
+    需要复核的信号而不是噪声。
+    """
+    refs = [ref for ref in record.get("source_refs") or [] if str(ref).strip()]
+    if not refs:
+        return SOURCE_STATUS_GENERATED
+    if web_evidence_ids and all(str(ref).strip() in web_evidence_ids for ref in refs):
+        return SOURCE_STATUS_WEB
+    return SOURCE_STATUS_MATERIAL
+
+
+def _source_summary(
+    points: list[Any],
+    web_evidence_ids: frozenset[str] = frozenset(),
+) -> dict[str, int]:
     """按实际来源状态分桶计数，只列出真正出现的桶。
 
     汇总是教师看"这门课有多少知识点真有资料依据"的唯一入口；原来它直接写成
@@ -2172,12 +2219,15 @@ def _source_summary(points: list[Any]) -> dict[str, int]:
     for point in points:
         if not isinstance(point, dict):
             continue
-        status = _source_status(point)
+        status = _source_status(point, web_evidence_ids)
         summary[status] = summary.get(status, 0) + 1
     return summary
 
 
-def _source_grounding(points: list[Any]) -> dict[str, int | float | bool]:
+def _source_grounding(
+    points: list[Any],
+    web_evidence_ids: frozenset[str] = frozenset(),
+) -> dict[str, int | float | bool]:
     """发布层面回答"这门课到底有没有资料依据"，不让教师自己去推算。
 
     `source_summary` 是分桶字典：桶名会随词表变化，且一门完全没有资料的课与
@@ -2190,13 +2240,16 @@ def _source_grounding(points: list[Any]) -> dict[str, int | float | bool]:
     """
     counted = [point for point in points if isinstance(point, dict)]
     total = len(counted)
-    grounded = sum(
-        1 for point in counted if _source_status(point) == SOURCE_STATUS_MATERIAL
-    )
+    statuses = [_source_status(point, web_evidence_ids) for point in counted]
+    grounded = sum(1 for status in statuses if status == SOURCE_STATUS_MATERIAL)
+    web = sum(1 for status in statuses if status == SOURCE_STATUS_WEB)
     return {
         "knowledge_point_count": total,
         "material_grounded_count": grounded,
-        "course_generated_count": total - grounded,
+        # 联网单独一列。并入 material 会虚高落地率，并入 generated 又会把一条
+        # 可追溯的网页说成"没有任何来源"——两种都不如实。
+        "web_grounded_count": web,
+        "course_generated_count": total - grounded - web,
         "grounded_ratio": round(grounded / total, 4) if total else 0.0,
         "has_material_grounding": grounded > 0,
     }
