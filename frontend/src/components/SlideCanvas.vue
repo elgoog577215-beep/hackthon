@@ -608,9 +608,12 @@ const themeStyle = computed(() => {
   const key = aliases[props.theme] || props.theme
   const token = (themePack.themes as Record<string, Record<string, any>>)[key]
   if (!token) return {}
+  const visualAssets = token.visual_assets || {}
+  const textBoxStyles = token.text_box_styles || {}
   return {
     '--deck-bg': `#${token.surface}`,
     '--deck-paper': `#${token.surface}`,
+    '--deck-canvas': `#${token.canvas}`,
     '--deck-title': `#${token.title}`,
     '--deck-ink': `#${token.title}`,
     '--deck-body': `#${token.ink}`,
@@ -619,13 +622,61 @@ const themeStyle = computed(() => {
     '--deck-blue': `#${token.accent}`,
     '--deck-blue-soft': `#${token.accent_soft}`,
     '--deck-teal': `#${token.green}`,
+    '--deck-teal-soft': `#${token.green_soft}`,
     '--deck-amber': `#${token.amber}`,
+    '--deck-amber-soft': `#${token.amber_soft}`,
+    '--deck-red': `#${token.red}`,
+    '--deck-red-soft': `#${token.red_soft}`,
     '--deck-card': `#${token.surface}`,
     '--deck-line': `#${token.chart_bg}`,
     '--deck-message-bg': `#${token.accent_soft}`,
     '--deck-callout': `#${token.accent}`,
     '--deck-title-font': `"${token.title_font}","${token.title_east_asian_font}",sans-serif`,
     '--deck-body-font': `"${token.body_font}","${token.body_east_asian_font}",sans-serif`,
+    '--deck-card-radius': token.geometry?.card_radius_in
+      ? `${Number(token.geometry.card_radius_in) * 7.5}cqw`
+      : '1cqw',
+    '--deck-cover-image': visualAssets.cover?.web_path
+      ? `url("${visualAssets.cover.web_path}")`
+      : 'none',
+    '--deck-chapter-image': visualAssets.chapter?.web_path
+      ? `url("${visualAssets.chapter.web_path}")`
+      : 'none',
+    '--deck-recap-image': visualAssets.recap?.web_path
+      ? `url("${visualAssets.recap.web_path}")`
+      : 'none',
+    '--deck-content-image': visualAssets.interior_content?.web_path
+      ? `url("${visualAssets.interior_content.web_path}")`
+      : 'none',
+    '--deck-reasoning-image': visualAssets.interior_reasoning?.web_path
+      ? `url("${visualAssets.interior_reasoning.web_path}")`
+      : 'none',
+    '--deck-practice-image': visualAssets.interior_practice?.web_path
+      ? `url("${visualAssets.interior_practice.web_path}")`
+      : 'none',
+    '--deck-evidence-image': visualAssets.interior_evidence?.web_path
+      ? `url("${visualAssets.interior_evidence.web_path}")`
+      : 'none',
+    '--deck-box-standard': `#${textBoxStyles.standard?.fill || token.surface}`,
+    '--deck-box-standard-depth': `#${textBoxStyles.standard?.depth || textBoxStyles.standard?.border || token.chart_bg}`,
+    '--deck-box-message': `#${textBoxStyles.message?.fill || token.accent_soft}`,
+    '--deck-box-message-depth': `#${textBoxStyles.message?.depth || textBoxStyles.message?.border || token.chart_bg}`,
+    '--deck-box-definition': `#${textBoxStyles.definition?.fill || token.surface}`,
+    '--deck-box-definition-depth': `#${textBoxStyles.definition?.depth || textBoxStyles.definition?.border || token.chart_bg}`,
+    '--deck-box-boundary': `#${textBoxStyles.boundary?.fill || token.green_soft}`,
+    '--deck-box-boundary-depth': `#${textBoxStyles.boundary?.depth || textBoxStyles.boundary?.border || token.chart_bg}`,
+    '--deck-box-reasoning': `#${textBoxStyles.reasoning?.fill || token.accent_soft}`,
+    '--deck-box-reasoning-depth': `#${textBoxStyles.reasoning?.depth || textBoxStyles.reasoning?.border || token.chart_bg}`,
+    '--deck-box-practice': `#${textBoxStyles.practice?.fill || token.amber_soft}`,
+    '--deck-box-practice-depth': `#${textBoxStyles.practice?.depth || textBoxStyles.practice?.border || token.chart_bg}`,
+    '--deck-box-feedback': `#${textBoxStyles.feedback?.fill || token.green_soft}`,
+    '--deck-box-feedback-depth': `#${textBoxStyles.feedback?.depth || textBoxStyles.feedback?.border || token.chart_bg}`,
+    '--deck-box-misconception': `#${textBoxStyles.misconception?.fill || token.red_soft}`,
+    '--deck-box-misconception-depth': `#${textBoxStyles.misconception?.depth || textBoxStyles.misconception?.border || token.chart_bg}`,
+    '--deck-box-evidence': `#${textBoxStyles.evidence?.fill || token.title}`,
+    '--deck-box-evidence-depth': `#${textBoxStyles.evidence?.depth || textBoxStyles.evidence?.border || token.title}`,
+    '--deck-box-note': `#${textBoxStyles.note?.fill || token.surface}`,
+    '--deck-box-note-depth': `#${textBoxStyles.note?.depth || textBoxStyles.note?.border || token.chart_bg}`,
   }
 })
 
@@ -682,7 +733,11 @@ function layoutLabel(value: string) {
   --deck-blue:var(--deck-main);
   --deck-blue-soft:#EBF8FF;
   --deck-teal:#087f74;
+  --deck-teal-soft:#E2F7F0;
   --deck-amber:var(--deck-accent);
+  --deck-amber-soft:#FFF0D9;
+  --deck-red:#B54735;
+  --deck-red-soft:#FFF1EE;
   --deck-paper:var(--deck-bg);
   --deck-card:#fff;
   --deck-line:var(--deck-chart);
@@ -691,6 +746,34 @@ function layoutLabel(value: string) {
   --deck-title-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
   --deck-body-font:"Noto Sans SC","Microsoft YaHei","微软雅黑",sans-serif;
   --deck-cover-wash:linear-gradient(155deg,var(--deck-title),var(--deck-main) 58%,var(--deck-accent));
+  --deck-card-radius:1cqw;
+  --deck-cover-image:none;
+  --deck-chapter-image:none;
+  --deck-recap-image:none;
+  --deck-content-image:none;
+  --deck-reasoning-image:none;
+  --deck-practice-image:none;
+  --deck-evidence-image:none;
+  --deck-box-standard:var(--deck-card);
+  --deck-box-standard-depth:var(--deck-line);
+  --deck-box-message:var(--deck-blue-soft);
+  --deck-box-message-depth:var(--deck-line);
+  --deck-box-definition:var(--deck-card);
+  --deck-box-definition-depth:var(--deck-line);
+  --deck-box-boundary:var(--deck-teal-soft);
+  --deck-box-boundary-depth:var(--deck-line);
+  --deck-box-reasoning:var(--deck-blue-soft);
+  --deck-box-reasoning-depth:var(--deck-line);
+  --deck-box-practice:var(--deck-amber-soft);
+  --deck-box-practice-depth:var(--deck-line);
+  --deck-box-feedback:var(--deck-teal-soft);
+  --deck-box-feedback-depth:var(--deck-line);
+  --deck-box-misconception:var(--deck-red-soft);
+  --deck-box-misconception-depth:var(--deck-line);
+  --deck-box-evidence:var(--deck-title);
+  --deck-box-evidence-depth:var(--deck-title);
+  --deck-box-note:var(--deck-card);
+  --deck-box-note-depth:var(--deck-line);
   position:relative;
   width:min(100%, 980px);
   aspect-ratio:16/9;
@@ -738,6 +821,211 @@ function layoutLabel(value: string) {
   --deck-message-bg:#EAF1FF;
   --deck-callout:#2F6FE4;
   --deck-cover-wash:linear-gradient(145deg,#17365D,#2F6FE4 60%,#F29D38);
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="cover"],
+  [data-layout="cover-minimal"],
+  [data-layout="cover-editorial"]
+) {
+  background-color:var(--deck-paper);
+  background-image:var(--deck-cover-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="chapter"],
+  [data-layout="chapter-entry"]
+) {
+  background-color:var(--deck-paper);
+  background-image:var(--deck-chapter-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="recap"],
+  [data-layout="chapter-recap"],
+  [data-layout="course-synthesis"]
+) {
+  background-color:var(--deck-paper);
+  background-image:
+    linear-gradient(rgba(255,253,247,.76),rgba(255,253,247,.76)),
+    var(--deck-recap-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="roadmap"],
+  [data-layout="agenda-linear"],
+  [data-layout="objective"],
+  [data-layout="concept"],
+  [data-layout="hero-statement"],
+  [data-layout="hero-claim"],
+  [data-layout="editorial-body"],
+  [data-layout="balanced-two-column"],
+  [data-layout="two-column"],
+  [data-layout="classification-3"],
+  [data-layout="parallel-examples"],
+  [data-layout="case-study"],
+  [data-layout="comparison"]
+) {
+  background-color:var(--deck-paper);
+  background-image:var(--deck-content-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="process"],
+  [data-layout="process-sequence"],
+  [data-layout="worked-example"],
+  [data-layout="derivation-steps"],
+  [data-layout="method-flow"],
+  [data-layout="application-mapping"]
+) {
+  background-color:var(--deck-paper);
+  background-image:var(--deck-reasoning-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="practice"],
+  [data-layout="question"],
+  [data-layout="question-prompt"],
+  [data-layout="practice-feedback"],
+  [data-layout="misconception"],
+  [data-layout="misconception-repair"]
+) {
+  background-color:var(--deck-paper);
+  background-image:var(--deck-practice-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"]:is(
+  [data-layout="code"],
+  [data-layout="formula"],
+  [data-layout="formula-explanation"],
+  [data-layout="figure-text"],
+  [data-layout="diagram-full"],
+  [data-layout="table-evidence"],
+  [data-layout="code-focus"],
+  [data-layout="formula-focus"]
+) {
+  background-color:var(--deck-paper);
+  background-image:var(--deck-evidence-image);
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:cover;
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section {
+  position:relative;
+  border-radius:var(--deck-card-radius);
+  border-color:color-mix(in srgb,var(--deck-line) 88%,#fff);
+  background:color-mix(in srgb,var(--deck-box-standard) 96%,transparent);
+  box-shadow:
+    .32cqw .38cqw 0 var(--deck-box-standard-depth),
+    0 .9cqw 2.2cqw rgba(23,54,93,.075),
+    inset 0 .12cqw 0 rgba(255,255,255,.86);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section::before {
+  content:"";
+  position:absolute;
+  inset:0 auto 0 0;
+  width:.34cqw;
+  background:var(--deck-blue);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="comparison"] {
+  background:color-mix(in srgb,var(--deck-box-boundary) 96%,transparent);
+  box-shadow:.32cqw .38cqw 0 var(--deck-box-boundary-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="comparison"]::before,
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="process"]::before {
+  background:var(--deck-teal);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="process"] {
+  background:color-mix(in srgb,var(--deck-box-reasoning) 96%,transparent);
+  box-shadow:.32cqw .38cqw 0 var(--deck-box-reasoning-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="exercise"] {
+  background:color-mix(in srgb,var(--deck-box-practice) 97%,transparent);
+  box-shadow:.32cqw .38cqw 0 var(--deck-box-practice-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="exercise"]::before {
+  background:var(--deck-amber);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="misconception"] {
+  background:color-mix(in srgb,var(--deck-box-misconception) 97%,transparent);
+  box-shadow:.32cqw .38cqw 0 var(--deck-box-misconception-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="misconception"]::before {
+  background:var(--deck-red);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="callout"]::before,
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="code"]::before {
+  display:none;
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__message {
+  border:1px solid color-mix(in srgb,var(--deck-blue) 16%,var(--deck-line));
+  border-left:.42cqw solid var(--deck-blue);
+  border-radius:var(--deck-card-radius);
+  background:linear-gradient(90deg,var(--deck-box-message),rgba(255,255,255,.68));
+  box-shadow:.3cqw .34cqw 0 var(--deck-box-message-depth),0 .78cqw 1.9cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-question-prompt,
+.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim {
+  padding:2.1cqw 2.4cqw;
+  border:1px solid color-mix(in srgb,var(--deck-blue) 16%,var(--deck-line));
+  border-left:.42cqw solid var(--deck-blue);
+  border-radius:var(--deck-card-radius);
+  background:color-mix(in srgb,var(--deck-box-message) 88%,rgba(255,255,255,.76));
+  box-shadow:.34cqw .4cqw 0 var(--deck-box-message-depth),0 .95cqw 2.4cqw rgba(23,54,93,.075),inset 0 .12cqw 0 rgba(255,255,255,.84);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-parallel-examples article,
+.deck-canvas[data-theme="qizhi-classroom"] .deck-classification__item {
+  padding:1.25cqw 1.15cqw;
+  border:1px solid var(--deck-line);
+  border-top:.32cqw solid var(--deck-blue);
+  border-radius:var(--deck-card-radius);
+  background:color-mix(in srgb,var(--deck-box-definition) 94%,transparent);
+  box-shadow:.28cqw .34cqw 0 var(--deck-box-definition-depth),0 .75cqw 1.9cqw rgba(23,54,93,.06),inset 0 .12cqw 0 rgba(255,255,255,.82);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-worked-example article {
+  margin:.18cqw 0;
+  padding:.55cqw 1cqw;
+  border:1px solid color-mix(in srgb,var(--deck-line) 84%,#fff);
+  border-radius:var(--deck-card-radius);
+  background:color-mix(in srgb,var(--deck-box-reasoning) 90%,transparent);
+  box-shadow:.24cqw .28cqw 0 var(--deck-box-reasoning-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__pair section,
+.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__question {
+  padding:1.1cqw 1.25cqw;
+  border:1px solid color-mix(in srgb,var(--deck-blue) 15%,var(--deck-line));
+  border-left:.34cqw solid var(--deck-blue);
+  border-radius:var(--deck-card-radius);
+  background:color-mix(in srgb,var(--deck-box-message) 94%,transparent);
+  box-shadow:.26cqw .3cqw 0 var(--deck-box-message-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__pair aside,
+.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__evidence {
+  padding:1.1cqw 1.25cqw;
+  border:1px solid color-mix(in srgb,var(--deck-teal) 15%,var(--deck-line));
+  border-left:.34cqw solid var(--deck-teal);
+  border-radius:var(--deck-card-radius);
+  background:color-mix(in srgb,var(--deck-box-feedback) 94%,transparent);
+  box-shadow:.26cqw .3cqw 0 var(--deck-box-feedback-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
+}
+.deck-canvas[data-theme="qizhi-classroom"] .deck-editorial-body__group {
+  padding:1.05cqw 1.25cqw;
+  border:1px solid var(--deck-line);
+  border-left:.34cqw solid var(--deck-blue);
+  border-radius:var(--deck-card-radius);
+  background:color-mix(in srgb,var(--deck-box-note) 92%,transparent);
+  box-shadow:.26cqw .3cqw 0 var(--deck-box-note-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
 }
 .deck-canvas[data-theme="academic-editorial"] {
   --deck-bg:#FBFAF7;
@@ -1551,6 +1839,7 @@ function layoutLabel(value: string) {
   border:1px solid rgba(255,255,255,.28);
   transform:rotate(8deg);
 }
+.deck-canvas[data-theme="qizhi-classroom"] .deck-cover__wash { display:none; }
 .deck-cover__index {
   position:absolute;
   inset:8% auto auto 6%;
@@ -1596,6 +1885,9 @@ function layoutLabel(value: string) {
   display:flex;
   flex-direction:column;
   justify-content:center;
+}
+.deck-canvas[data-theme="qizhi-classroom"][data-layout="cover-minimal"] .deck-cover__content {
+  inset:18% 38% 16% 6%;
 }
 .deck-claim-only {
   position:absolute;
@@ -1675,6 +1967,7 @@ function layoutLabel(value: string) {
 }
 .deck-chapter__panel small { font-size:.9cqw; font-weight:800; letter-spacing:.28em; opacity:.75; }
 .deck-chapter__panel strong { margin-top:8%; font:800 7.8cqw/1 "Aptos Mono","SFMono-Regular",monospace; }
+.deck-canvas[data-theme="qizhi-classroom"] .deck-chapter__panel { background:transparent; }
 .deck-chapter__content { position:absolute; inset:21% 7% 15% 40%; }
 .deck-chapter__content small { color:var(--deck-teal); font-size:1.12cqw; font-weight:800; letter-spacing:.16em; }
 .deck-chapter__content h2 {

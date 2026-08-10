@@ -14,9 +14,9 @@ from typing import Any
 
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
-from slide_theme import load_slide_theme_pack
+from slide_theme import load_slide_theme_pack, slide_theme_asset_path
 
-THEMES: dict[str, dict[str, str]] = {
+THEMES: dict[str, dict[str, Any]] = {
     "qingfeng-classroom": {
         "surface": "F7FAFC",
         "canvas": "EBF4FF",
@@ -777,6 +777,17 @@ def _render_slide(
         or unit.quality.get("requested_layout")
         or unit.layout
     )
+    if resolved_layout not in {
+        "cover",
+        "cover-minimal",
+        "cover-editorial",
+        "chapter",
+        "chapter-entry",
+        "recap",
+        "chapter-recap",
+        "course-synthesis",
+    }:
+        _add_theme_page_background(slide, unit, theme, resolved_layout)
     if (
         _uses_visual_directed_renderer(unit, resolved_layout)
         and resolved_layout not in {
@@ -1599,7 +1610,181 @@ def _set_alt_text(shape: Any, value: str) -> None:
         return
 
 
+def _add_theme_visual_asset(
+    slide: Any,
+    theme: dict[str, Any],
+    asset_name: str,
+) -> bool:
+    """Place a bundled 16:9 theme visual behind editable slide objects."""
+    image_path = slide_theme_asset_path(theme, asset_name)
+    if image_path is None:
+        return False
+    from pptx.util import Inches
+
+    picture = slide.shapes.add_picture(
+        str(image_path),
+        Inches(0.01),
+        Inches(0.01),
+        width=Inches(13.30),
+        height=Inches(7.47),
+    )
+    asset = (theme.get("visual_assets") or {}).get(asset_name) or {}
+    _set_alt_text(picture, str(asset.get("alt") or "课程主题装饰背景"))
+    return True
+
+
+def _add_theme_page_background(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, Any],
+    resolved_layout: str,
+) -> bool:
+    """Select a low-distraction authored background for an interior slide."""
+    candidates = {
+        str(resolved_layout or "").strip(),
+        str(unit.layout or "").strip(),
+        str(unit.scene_kind or "").strip(),
+    }
+    for profile in (theme.get("background_profiles") or {}).values():
+        layouts = {str(value).strip() for value in profile.get("layouts") or []}
+        if candidates & layouts:
+            return _add_theme_visual_asset(slide, theme, str(profile.get("asset") or ""))
+    return False
+
+
+def _theme_text_box_style(
+    theme: dict[str, Any],
+    style_name: str,
+    *,
+    fill: str,
+    border: str,
+    accent: str,
+    text: str | None = None,
+) -> dict[str, str]:
+    """Resolve one semantic text-box token with safe renderer fallbacks."""
+    token = dict((theme.get("text_box_styles") or {}).get(style_name) or {})
+    return {
+        "fill": str(token.get("fill") or fill),
+        "border": str(token.get("border") or border),
+        "depth": str(token.get("depth") or token.get("border") or border),
+        "accent": str(token.get("accent") or accent),
+        "text": str(token.get("text") or text or theme["ink"]),
+    }
+
+
+def _semantic_panel(
+    slide: Any,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    style: dict[str, str],
+    *,
+    rail: bool = True,
+) -> Any:
+    """Build an editable paper-card panel with restrained depth and highlight."""
+    _shape(
+        slide,
+        x + 0.045,
+        y + 0.055,
+        width,
+        height,
+        style["depth"],
+        radius=True,
+    )
+    panel = _shape(
+        slide,
+        x,
+        y,
+        width,
+        height,
+        style["fill"],
+        radius=True,
+        line=style["border"],
+    )
+    _shape(
+        slide,
+        x + 0.10,
+        y + 0.025,
+        max(0.12, width - 0.20),
+        0.018,
+        "FFFFFF",
+        radius=False,
+    )
+    if rail:
+        _shape(slide, x, y, 0.07, height, style["accent"], radius=False)
+    return panel
+
+
+def _render_authored_cover(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, Any],
+    *,
+    minimal: bool = False,
+) -> bool:
+    """Render the authored Qizhi cover when the theme ships a cover visual."""
+    if not _add_theme_visual_asset(slide, theme, "cover"):
+        return False
+    _text(
+        slide,
+        unit.eyebrow or "课堂演示",
+        0.92,
+        0.72,
+        4.0,
+        0.38,
+        14,
+        theme["accent"],
+        bold=True,
+    )
+    title_size = 35 if len(unit.title) > 10 else 44 if len(unit.title) > 6 else 50
+    _text(
+        slide,
+        unit.title,
+        0.92,
+        1.32 if minimal else 1.22,
+        8.15,
+        2.45,
+        title_size,
+        theme["title"],
+        bold=True,
+        font=theme["title_font"],
+        east_asian_font=theme["title_east_asian_font"],
+    )
+    if unit.subtitle:
+        _text(
+            slide,
+            unit.subtitle,
+            0.94,
+            3.86,
+            6.85,
+            0.58,
+            17,
+            theme["muted"],
+        )
+    if not minimal:
+        message = unit.key_message or _block_content(unit.blocks, 0)
+        if message:
+            _shape(
+                slide,
+                0.92,
+                4.62,
+                6.88,
+                1.02,
+                theme["surface"],
+                radius=True,
+                line=theme["chart_bg"],
+            )
+            _shape(slide, 1.14, 4.84, 0.07, 0.58, theme["green"], radius=False)
+            _text(slide, message, 1.43, 4.76, 5.98, 0.68, 17, theme["ink"], bold=True)
+    _text(slide, "启智课堂", 11.10, 0.72, 1.32, 0.34, 13, "FFFFFF", bold=True, align="center")
+    _text(slide, "同源课程课件 · 可继续编辑", 0.94, 6.62, 4.8, 0.28, 10, theme["muted"])
+    return True
+
+
 def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    if _render_authored_cover(slide, unit, theme):
+        return
     _shape(slide, 0.58, 0.55, 0.12, 5.92, theme["accent"], radius=False)
     _shape(slide, 10.82, 0.0, 2.513, 7.5, theme["accent_soft"], radius=False)
     _shape(slide, 11.35, 0.72, 1.04, 1.04, theme["green"], radius=True)
@@ -1620,6 +1805,8 @@ def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 
 def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     """Render a restrained title page with one clear focal hierarchy."""
+    if _render_authored_cover(slide, unit, theme, minimal=True):
+        return
     _shape(slide, 0.82, 0.76, 0.12, 0.72, theme["accent"], radius=False)
     _text(
         slide,
@@ -1653,6 +1840,8 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
 
 def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     """Render a concise editorial cover with a balanced visual field."""
+    if _render_authored_cover(slide, unit, theme):
+        return
     _shape(slide, 9.25, 0.0, 4.083, 7.5, theme["accent_soft"], radius=False)
     _shape(slide, 0.88, 0.78, 0.12, 0.74, theme["accent"], radius=False)
     _text(
@@ -1759,6 +1948,34 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
 
 
 def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    if _add_theme_visual_asset(slide, theme, "chapter"):
+        chapter_number = _chapter_number(unit.title)
+        _text(slide, "CHAPTER", 0.64, 0.88, 2.5, 0.34, 12, "FFFFFF", bold=True)
+        _text(slide, chapter_number, 0.64, 1.48, 2.62, 1.35, 54, "FFFFFF", bold=True)
+        _text(slide, unit.eyebrow or "章节转场", 4.48, 1.02, 2.4, 0.32, 12, theme["green"], bold=True)
+        _text(
+            slide,
+            unit.title,
+            4.48,
+            1.58,
+            7.55,
+            1.42,
+            35,
+            theme["title"],
+            bold=True,
+            font=theme["title_font"],
+            east_asian_font=theme["title_east_asian_font"],
+        )
+        chapter_message = (
+            unit.key_message
+            or _block_content(unit.blocks, 0)
+            or unit.teaching_job
+            or unit.takeaway
+        )
+        _shape(slide, 4.48, 3.42, 0.08, 1.32, theme["accent"], radius=False)
+        _text(slide, "本章主线", 4.82, 3.47, 1.5, 0.30, 11, theme["accent"], bold=True)
+        _text(slide, chapter_message, 4.82, 3.92, 6.72, 0.95, 17, theme["ink"], bold=True)
+        return
     _shape(slide, 0.0, 0.0, 4.05, 7.5, theme["accent_soft"], radius=False)
     chapter_number = _chapter_number(unit.title)
     _text(slide, chapter_number, 0.72, 1.15, 2.5, 1.35, 54, theme["accent"], bold=True)
@@ -1784,33 +2001,65 @@ def _render_objective(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> Non
         return
     _heading(slide, unit, theme)
     question = _find_block(unit, "callout") or (unit.blocks[0] if unit.blocks else None)
-    _shape(slide, 0.76, 1.83, 5.0, 4.67, theme["accent_soft"], radius=True)
-    _text(slide, "要解决的问题", 1.08, 2.14, 2.0, 0.32, 12, theme["accent"], bold=True)
-    _text(slide, question.content if question else unit.key_message, 1.08, 2.72, 4.28, 2.1, 22, theme["ink"], bold=True)
+    question_style = _theme_text_box_style(
+        theme,
+        "message",
+        fill=theme["accent_soft"],
+        border=theme["chart_bg"],
+        accent=theme["accent"],
+    )
+    _semantic_panel(slide, 0.76, 1.83, 5.0, 4.67, question_style)
+    _text(slide, "要解决的问题", 1.08, 2.14, 2.0, 0.32, 12, question_style["accent"], bold=True)
+    _text(slide, question.content if question else unit.key_message, 1.08, 2.72, 4.28, 2.1, 22, question_style["text"], bold=True)
     right_blocks = [block for block in unit.blocks if block is not question]
     if not right_blocks:
         right_blocks = [SlideBlockSpec(block_id="objective", type="bullets", items=[unit.key_message])]
     for index, block in enumerate(right_blocks[:2]):
         y = 1.83 + index * 2.35
-        color = theme["green_soft"] if index == 0 else theme["amber_soft"]
-        accent = theme["green"] if index == 0 else theme["amber"]
-        _shape(slide, 6.05, y, 6.48, 2.12, color, radius=True)
-        _text(slide, block.title or ("知识坐标" if index == 0 else "完成后能够"), 6.38, y + 0.27, 2.3, 0.3, 11, accent, bold=True)
-        _bullets(slide, block.items or [block.content], 6.38, y + 0.72, 5.72, 1.12, 14, theme["ink"], accent)
+        style = _theme_text_box_style(
+            theme,
+            "feedback" if index == 0 else "practice",
+            fill=theme["green_soft"] if index == 0 else theme["amber_soft"],
+            border=theme["chart_bg"],
+            accent=theme["green"] if index == 0 else theme["amber"],
+        )
+        _semantic_panel(slide, 6.05, y, 6.48, 2.12, style)
+        _text(slide, block.title or ("知识坐标" if index == 0 else "完成后能够"), 6.38, y + 0.27, 2.3, 0.3, 11, style["accent"], bold=True)
+        _bullets(slide, block.items or [block.content], 6.38, y + 0.72, 5.72, 1.12, 14, style["text"], style["accent"])
 
 
 def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     if unit.key_message:
-        _shape(slide, 0.76, 1.72, 11.82, 0.86, theme["accent_soft"], radius=True)
-        _text(slide, unit.key_message, 1.05, 1.94, 11.22, 0.4, 16, theme["ink"], bold=True)
+        message_style = _theme_text_box_style(
+            theme,
+            "message",
+            fill=theme["accent_soft"],
+            border=theme["chart_bg"],
+            accent=theme["accent"],
+        )
+        _semantic_panel(slide, 0.76, 1.72, 11.82, 0.86, message_style)
+        _text(slide, unit.key_message, 1.05, 1.94, 11.22, 0.4, 16, message_style["text"], bold=True)
     blocks = unit.blocks
     width = 11.82 / max(1, len(blocks)) - 0.18
     for index, block in enumerate(blocks):
         x = 0.76 + index * (width + 0.27)
-        _shape(slide, x, 2.87, width, 3.52, theme["canvas"], radius=True, line=theme["chart_bg"])
-        accent = [theme["accent"], theme["green"], theme["amber"]][index % 3]
-        _shape(slide, x, 2.87, 0.08, 3.52, accent, radius=False)
+        style_name = {
+            "misconception": "misconception",
+            "exercise": "practice",
+            "callout": "message",
+            "code": "evidence",
+            "process": "reasoning",
+            "comparison": "boundary",
+        }.get(block.type, ("definition", "boundary", "practice")[index % 3])
+        style = _theme_text_box_style(
+            theme,
+            style_name,
+            fill=theme["canvas"],
+            border=theme["chart_bg"],
+            accent=[theme["accent"], theme["green"], theme["amber"]][index % 3],
+        )
+        _semantic_panel(slide, x, 2.87, width, 3.52, style)
         _text(
             slide,
             block.title or unit.eyebrow or f"要点 {index + 1}",
@@ -1819,12 +2068,12 @@ def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             width - 0.55,
             0.46,
             15,
-            accent,
+            style["accent"],
             bold=True,
         )
         if block.items:
             item_size = 19 if len(blocks) == 1 and len(block.items) <= 3 else 16
-            _bullets(slide, block.items, x + 0.3, 3.72, width - 0.58, 2.25, item_size, theme["ink"], accent)
+            _bullets(slide, block.items, x + 0.3, 3.72, width - 0.58, 2.25, item_size, style["text"], style["accent"])
         else:
             is_formula = bool(block.metadata.get("formula"))
             body_size = (
@@ -1842,7 +2091,7 @@ def _render_concept(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 width - 0.58,
                 2.18,
                 body_size,
-                theme["ink"],
+                style["text"],
                 font=theme["math_font"] if is_formula else theme["body_font"],
                 east_asian_font=theme["body_east_asian_font"],
             )
@@ -2075,16 +2324,28 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         )
         return
     labels = ("依据", "推论")
-    colors = (
-        (theme["accent_soft"], theme["accent"]),
-        (theme["green_soft"], theme["green"]),
+    styles = (
+        _theme_text_box_style(
+            theme,
+            "definition",
+            fill=theme["accent_soft"],
+            border=theme["chart_bg"],
+            accent=theme["accent"],
+        ),
+        _theme_text_box_style(
+            theme,
+            "boundary",
+            fill=theme["green_soft"],
+            border=theme["chart_bg"],
+            accent=theme["green"],
+        ),
     )
     for index, value in enumerate(values[:2]):
         x = 0.82 + index * 5.92
-        soft, accent = colors[index]
-        _shape(slide, x, 1.9, 5.58, 4.38, soft, radius=True)
-        _text(slide, labels[index], x + 0.34, 2.2, 1.2, 0.32, 12, accent, bold=True)
-        _text(slide, value, x + 0.34, 2.82, 4.9, 2.85, 17, theme["ink"])
+        style = styles[index]
+        _semantic_panel(slide, x, 1.9, 5.58, 4.38, style)
+        _text(slide, labels[index], x + 0.34, 2.2, 1.2, 0.32, 12, style["accent"], bold=True)
+        _text(slide, value, x + 0.34, 2.82, 4.9, 2.85, 17, style["text"])
 
 
 def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2281,12 +2542,22 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     items = _all_items(unit)[:5] or [block.content for block in unit.blocks if block.content][:5]
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
+    style = _theme_text_box_style(
+        theme,
+        "reasoning",
+        fill=theme["canvas"],
+        border=theme["chart_bg"],
+        accent=theme["accent"],
+    )
     for index, item in enumerate(items):
         x = 0.82 + index * (width + 0.24)
-        _shape(slide, x, 2.08, width, 3.72, theme["canvas"], radius=True, line=theme["chart_bg"])
-        _shape(slide, x + 0.22, 2.34, 0.58, 0.58, theme["accent"], radius=True)
+        step_accent = [style["accent"], theme["green"], theme["amber"]][index % 3]
+        step_style = {**style, "accent": step_accent}
+        _semantic_panel(slide, x, 2.08, width, 3.72, step_style, rail=False)
+        _shape(slide, x, 2.08, width, 0.07, step_accent, radius=False)
+        _shape(slide, x + 0.22, 2.34, 0.58, 0.58, step_accent, radius=True)
         _text(slide, str(index + 1), x + 0.22, 2.52, 0.58, 0.2, 12, "FFFFFF", bold=True, align="center")
-        _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 16, theme["ink"], bold=True)
+        _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 16, style["text"], bold=True)
         if index < len(items) - 1:
             _text(slide, "→", x + width + 0.01, 3.68, 0.22, 0.35, 17, theme["muted"], bold=True, align="center")
 
@@ -2303,15 +2574,30 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     ][:5]
     code_panel_width = 7.48 if items else 11.80
     code_text_width = 6.9 if items else 11.18
-    _shape(slide, 0.76, 1.75, code_panel_width, 4.72, theme["code"], radius=True)
+    evidence_style = _theme_text_box_style(
+        theme,
+        "evidence",
+        fill=theme["code"],
+        border=theme["code"],
+        accent="74B4FF",
+        text="F5F7FF",
+    )
+    _semantic_panel(slide, 0.76, 1.75, code_panel_width, 4.72, evidence_style, rail=False)
     language = str(code.metadata.get("language") or "code") if code else "code"
     _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(slide, code.content if code else "", 1.05, 2.48, code_text_width, 3.6, 16, "F5F7FF", font="Aptos Mono")
+    _text(slide, code.content if code else "", 1.05, 2.48, code_text_width, 3.6, 16, evidence_style["text"], font="Aptos Mono")
     if not items:
         return
-    _shape(slide, 8.52, 1.75, 4.04, 4.72, theme["canvas"], radius=True)
-    _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, theme["green"], bold=True)
-    _bullets(slide, items, 8.86, 2.65, 3.32, 3.1, 16, theme["ink"], theme["green"])
+    note_style = _theme_text_box_style(
+        theme,
+        "note",
+        fill=theme["canvas"],
+        border=theme["chart_bg"],
+        accent=theme["green"],
+    )
+    _semantic_panel(slide, 8.52, 1.75, 4.04, 4.72, note_style)
+    _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, note_style["accent"], bold=True)
+    _bullets(slide, items, 8.86, 2.65, 3.32, 3.1, 16, note_style["text"], note_style["accent"])
 
 
 def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2321,28 +2607,56 @@ def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
         for item in (block.items or [block.content]) if item
     ]
     correction = unit.key_message or "回到定义、条件和可验证证据进行判断。"
-    _shape(slide, 0.78, 1.93, 5.65, 4.28, theme["red_soft"], radius=True)
-    _text(slide, "容易这样想", 1.13, 2.25, 2.0, 0.34, 12, theme["red"], bold=True)
-    _bullets(slide, mistakes[:4] or ["忽略条件，只记结论"], 1.13, 2.88, 4.92, 2.62, 16, theme["ink"], theme["red"])
-    _shape(slide, 6.71, 1.93, 5.84, 4.28, theme["green_soft"], radius=True)
-    _text(slide, "应当这样判断", 7.06, 2.25, 2.2, 0.34, 12, theme["green"], bold=True)
-    _text(slide, correction, 7.06, 2.96, 5.08, 1.62, 21, theme["ink"], bold=True)
+    wrong_style = _theme_text_box_style(
+        theme,
+        "misconception",
+        fill=theme["red_soft"],
+        border=theme["red_soft"],
+        accent=theme["red"],
+    )
+    repair_style = _theme_text_box_style(
+        theme,
+        "feedback",
+        fill=theme["green_soft"],
+        border=theme["green_soft"],
+        accent=theme["green"],
+    )
+    _semantic_panel(slide, 0.78, 1.93, 5.65, 4.28, wrong_style)
+    _text(slide, "容易这样想", 1.13, 2.25, 2.0, 0.34, 12, wrong_style["accent"], bold=True)
+    _bullets(slide, mistakes[:4] or ["忽略条件，只记结论"], 1.13, 2.88, 4.92, 2.62, 16, wrong_style["text"], wrong_style["accent"])
+    _semantic_panel(slide, 6.71, 1.93, 5.84, 4.28, repair_style)
+    _text(slide, "应当这样判断", 7.06, 2.25, 2.2, 0.34, 12, repair_style["accent"], bold=True)
+    _text(slide, correction, 7.06, 2.96, 5.08, 1.62, 21, repair_style["text"], bold=True)
     _text(slide, "用反例、边界或独立作答确认理解。", 7.06, 5.08, 4.9, 0.38, 12, theme["muted"])
 
 
 def _render_practice(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     exercise = _find_block(unit, "exercise") or (unit.blocks[0] if unit.blocks else None)
-    _shape(slide, 0.78, 1.82, 7.52, 4.64, theme["canvas"], radius=True, line=theme["chart_bg"])
-    _text(slide, exercise.title if exercise and exercise.title else "先独立作答", 1.12, 2.13, 2.4, 0.35, 12, theme["accent"], bold=True)
+    question_style = _theme_text_box_style(
+        theme,
+        "standard",
+        fill=theme["canvas"],
+        border=theme["chart_bg"],
+        accent=theme["accent"],
+    )
+    check_style = _theme_text_box_style(
+        theme,
+        "practice",
+        fill=theme["amber_soft"],
+        border=theme["amber_soft"],
+        accent=theme["amber"],
+    )
+    _semantic_panel(slide, 0.78, 1.82, 7.52, 4.64, question_style)
+    _text(slide, exercise.title if exercise and exercise.title else "先独立作答", 1.12, 2.13, 2.4, 0.35, 12, question_style["accent"], bold=True)
     if exercise and exercise.items:
-        _bullets(slide, exercise.items, 1.12, 2.75, 6.78, 2.95, 15, theme["ink"], theme["accent"])
+        _bullets(slide, exercise.items, 1.12, 2.75, 6.78, 2.95, 15, question_style["text"], question_style["accent"])
     else:
-        _text(slide, exercise.content if exercise else unit.key_message, 1.12, 2.75, 6.78, 2.95, 17, theme["ink"], bold=True)
-    _shape(slide, 8.58, 1.82, 3.97, 4.64, theme["amber_soft"], radius=True)
-    _text(slide, "检查标准", 8.91, 2.13, 1.7, 0.34, 12, theme["amber"], bold=True)
+        _text(slide, exercise.content if exercise else unit.key_message, 1.12, 2.75, 6.78, 2.95, 17, question_style["text"], bold=True)
+    _semantic_panel(slide, 8.58, 1.82, 3.97, 4.64, check_style)
+    _text(slide, "检查标准", 8.91, 2.13, 1.7, 0.34, 12, check_style["accent"], bold=True)
     checks = [item for block in unit.blocks if block is not exercise for item in (block.items or [block.content]) if item]
-    _bullets(slide, checks[:4] or ["能说明理由", "能处理边界", "能独立完成"], 8.91, 2.82, 3.30, 2.82, 13, theme["ink"], theme["amber"])
+    _bullets(slide, checks[:4] or ["能说明理由", "能处理边界", "能独立完成"], 8.91, 2.82, 3.30, 2.82, 13, check_style["text"], check_style["accent"])
 
 
 def _render_practice_feedback(
@@ -2391,6 +2705,20 @@ def _render_practice_feedback(
         prompts = [unit.key_message or unit.takeaway]
     prompts = [value for value in prompts if value]
     feedback_mode = str((unit.quality or {}).get("feedback_mode") or "paired")
+    question_style = _theme_text_box_style(
+        theme,
+        "message",
+        fill=theme["accent_soft"],
+        border=theme["chart_bg"],
+        accent=theme["accent"],
+    )
+    answer_style = _theme_text_box_style(
+        theme,
+        "feedback",
+        fill=theme["green_soft"],
+        border=theme["chart_bg"],
+        accent=theme["green"],
+    )
     if feedback_mode == "shared_evidence":
         question_count = max(len(prompts), 1)
         question_gap = 0.34
@@ -2398,6 +2726,7 @@ def _render_practice_feedback(
         _shape(slide, 0.82, 1.9, 11.72, 0.018, theme["chart_bg"], radius=False)
         for index, prompt in enumerate(prompts):
             x = 1.05 + index * (question_width + question_gap)
+            _semantic_panel(slide, x - 0.18, 2.02, question_width + 0.1, 1.64, question_style)
             _text(
                 slide,
                 f"问题 {index + 1:02d}",
@@ -2406,7 +2735,7 @@ def _render_practice_feedback(
                 1.45,
                 0.28,
                 11,
-                theme["accent"],
+                question_style["accent"],
                 bold=True,
             )
             _text(
@@ -2417,10 +2746,10 @@ def _render_practice_feedback(
                 question_width - 0.12,
                 1.02,
                 17 if len(prompt) <= 80 else 16,
-                theme["ink"],
+                question_style["text"],
                 bold=True,
             )
-        _shape(slide, 0.82, 3.98, 11.72, 0.018, theme["chart_bg"], radius=False)
+        _semantic_panel(slide, 0.82, 4.04, 11.72, 2.16, answer_style)
         _text(
             slide,
             "判断依据",
@@ -2429,7 +2758,7 @@ def _render_practice_feedback(
             1.45,
             0.28,
             11,
-            theme["green"],
+            answer_style["accent"],
             bold=True,
         )
         evidence_count = max(len(checks), 1)
@@ -2445,7 +2774,7 @@ def _render_practice_feedback(
                 evidence_width - 0.12,
                 1.42,
                 16,
-                theme["ink"],
+                answer_style["text"],
             )
         return
     row_count = max(len(prompts), 1)
@@ -2457,15 +2786,8 @@ def _render_practice_feedback(
             answers_by_question.get(question_id, "")
             or (checks[index] if index < len(checks) else "")
         )
-        _shape(
-            slide,
-            0.82,
-            y,
-            11.72,
-            0.018,
-            theme["chart_bg"],
-            radius=False,
-        )
+        _semantic_panel(slide, 0.82, y + 0.06, 5.9, row_height - 0.12, question_style)
+        _semantic_panel(slide, 6.92, y + 0.06, 5.62, row_height - 0.12, answer_style)
         _text(
             slide,
             f"问题 {index + 1:02d}",
@@ -2474,7 +2796,7 @@ def _render_practice_feedback(
             1.45,
             0.28,
             11,
-            theme["accent"],
+            question_style["accent"],
             bold=True,
         )
         _text(
@@ -2485,7 +2807,7 @@ def _render_practice_feedback(
             2.0,
             0.28,
             11,
-            theme["green"],
+            answer_style["accent"],
             bold=True,
         )
         text_top = y + 0.72
@@ -2497,7 +2819,7 @@ def _render_practice_feedback(
             5.55,
             max(0.7, row_height - 1.0),
             17 if len(prompt) <= 80 else 16,
-            theme["ink"],
+            question_style["text"],
             bold=True,
         )
         if answer:
@@ -2509,11 +2831,12 @@ def _render_practice_feedback(
                 4.85,
                 max(0.7, row_height - 1.0),
                 16,
-                theme["ink"],
+                answer_style["text"],
             )
 
 
 def _render_recap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
+    _add_theme_visual_asset(slide, theme, "recap")
     visible_text = _visible_source_text(unit)
     if (
         (not visible_text and not unit.key_message)
@@ -2557,6 +2880,7 @@ def _render_chapter_recap(
     theme: dict[str, str],
 ) -> None:
     """Render a compact memory path instead of generic recap cards."""
+    _add_theme_visual_asset(slide, theme, "recap")
     _heading(slide, unit, theme)
     items = _all_items(unit)
     if not items:
@@ -2625,6 +2949,7 @@ def _render_course_synthesis(
     theme: dict[str, str],
 ) -> None:
     """Render the whole-course route as one connected synthesis."""
+    _add_theme_visual_asset(slide, theme, "recap")
     _heading(slide, unit, theme)
     items = _all_items(unit)
     if not items:

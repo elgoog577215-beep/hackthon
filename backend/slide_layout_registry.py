@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from slide_theme import slide_theme
 
 
 SlideSceneKind = Literal[
@@ -394,6 +395,7 @@ def select_layout_v2(
     """Hard-filter incompatible layouts, then apply the documented stable score."""
     evidence = {str(item) for item in evidence_kinds if str(item)}
     recent = list(recent_layout_families or [])
+    theme_weights = dict(slide_theme(theme).get("semantic_layout_weights") or {})
     candidates: list[tuple[float, LayoutDefinitionV2, dict[str, float]]] = []
     rhythm_fallbacks: list[
         tuple[float, LayoutDefinitionV2, dict[str, float]]
@@ -433,7 +435,7 @@ def select_layout_v2(
             if not recent or recent[-1] != layout.layout_family
             else 0.45
         )
-        theme_score = 1.0
+        theme_score = min(1.5, max(0.5, float(theme_weights.get(layout.layout_id, 1.0))))
         score = (
             scene_score * 0.35
             + slot_score * 0.25
@@ -480,6 +482,7 @@ def select_layout_v2(
         capacity_passed=True,
         reason=(
             f"scene={scene_kind}; evidence={','.join(sorted(evidence)) or 'text'}; "
-            f"capacity={character_count}/{selected.density_budget}; family={selected.layout_family}"
+            f"capacity={character_count}/{selected.density_budget}; family={selected.layout_family}; "
+            f"theme={theme}:{parts['theme']:.2f}"
         ),
     )

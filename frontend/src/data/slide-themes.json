@@ -1,6 +1,6 @@
 {
   "schema_version": "slide_theme_pack_v1",
-  "version": "2026.07.23.2",
+  "version": "2026.08.10.3",
   "themes": {
     "qizhi-classroom": {
       "label": "启智课堂",
@@ -25,8 +25,126 @@
       "body_east_asian_font": "Microsoft YaHei",
       "math_font": "Times New Roman",
       "image_treatment": "warm-natural",
-      "prompt_style": "bright editorial educational scene, warm daylight, clean geometric forms, subject-focused composition",
-      "layout_weights": {"figure-first": 1.2, "split-visual": 1.1, "diagram-full": 1.0}
+      "prompt_style": "bright premium educational editorial illustration, warm ivory paper texture, confident blue geometry, mint learning paths, small amber discovery accents, generous negative space, subject-focused composition",
+      "layout_weights": {"figure-first": 1.2, "split-visual": 1.1, "diagram-full": 1.0},
+      "template": {
+        "template_id": "qizhi-classroom-v2",
+        "template_version": "2026.08.10.3",
+        "aspect_ratio": "16:9",
+        "design_intent": "明亮、亲和、结构清楚的通用课堂演示",
+        "reference_deck": "/presentation-templates/qizhi-classroom-v2.pptx"
+      },
+      "typography": {
+        "deck_title_pt": 50,
+        "slide_title_pt": 35,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 20,
+        "caption_pt": 10,
+        "line_height": 1.45
+      },
+      "geometry": {
+        "page_margin_in": 0.78,
+        "content_gutter_in": 0.28,
+        "card_radius_in": 0.14,
+        "card_border": "DDE5EE",
+        "card_surface": "FFFFFF",
+        "card_shadow": "soft",
+        "accent_rule_in": 0.08
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": ["roadmap", "agenda-linear", "objective", "concept", "hero-statement", "hero-claim", "editorial-body", "balanced-two-column", "two-column", "classification-3", "parallel-examples", "case-study", "comparison"]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": ["process", "process-sequence", "worked-example", "derivation-steps", "method-flow", "application-mapping"]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": ["practice", "question", "question-prompt", "practice-feedback", "misconception", "misconception-repair"]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": ["code", "formula", "formula-explanation", "figure-text", "diagram-full", "table-evidence", "code-focus", "formula-focus"]
+        }
+      },
+      "text_box_styles": {
+        "standard": {"fill": "FFFFFF", "border": "DDE5EE", "depth": "D4DFEC", "accent": "2F6FE4", "text": "34465C"},
+        "message": {"fill": "EAF1FF", "border": "C9DBFA", "depth": "BFD2F2", "accent": "2F6FE4", "text": "17365D"},
+        "definition": {"fill": "FFFFFF", "border": "D7E4F5", "depth": "C8D8ED", "accent": "2F6FE4", "text": "17365D"},
+        "boundary": {"fill": "EAF8F3", "border": "C7E9DD", "depth": "B6DDD0", "accent": "16856B", "text": "34465C"},
+        "reasoning": {"fill": "F4F8FE", "border": "D7E4F5", "depth": "C6D8EF", "accent": "2F6FE4", "text": "34465C"},
+        "practice": {"fill": "FFF7E9", "border": "F2DDBA", "depth": "EBCF9D", "accent": "F29D38", "text": "34465C"},
+        "feedback": {"fill": "EAF8F3", "border": "C7E9DD", "depth": "B4DCCD", "accent": "16856B", "text": "34465C"},
+        "misconception": {"fill": "FDEDE9", "border": "F2CFC8", "depth": "E9BEB5", "accent": "C45443", "text": "34465C"},
+        "evidence": {"fill": "14243B", "border": "203A5B", "depth": "09182A", "accent": "74B4FF", "text": "F5F8FC"},
+        "note": {"fill": "F7F9FC", "border": "DDE5EE", "depth": "D0DAE6", "accent": "6D7D91", "text": "34465C"}
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.30,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.05,
+        "positive-negative": 1.10,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.05,
+        "method-flow": 1.15,
+        "decision-branch": 1.05,
+        "example-prompt": 1.15,
+        "example-strategy": 1.10,
+        "example-reveal": 1.10,
+        "result-validation": 1.05,
+        "practice-prompt": 1.18,
+        "feedback-mastery": 1.15,
+        "misconception-repair": 1.10,
+        "application-mapping": 1.18,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.25,
+        "formula-focus": 1.00,
+        "code-focus": 1.00,
+        "table-evidence": 1.00,
+        "figure-text": 1.20
+      },
+      "visual_assets": {
+        "cover": {
+          "web_path": "/presentation-assets/qizhi-classroom/cover-learning-journey.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/cover-learning-journey.jpg",
+          "alt": "抽象的知识旅程、书本与上升路径"
+        },
+        "chapter": {
+          "web_path": "/presentation-assets/qizhi-classroom/chapter-opening.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/chapter-opening.jpg",
+          "alt": "从层叠纸张中展开的新章节路径"
+        },
+        "recap": {
+          "web_path": "/presentation-assets/qizhi-classroom/recap-convergence.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/recap-convergence.jpg",
+          "alt": "多条学习路径汇聚为清晰结论"
+        },
+        "interior_content": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-content.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-content.jpg",
+          "alt": "层叠纸张与学习节点构成的通用内容页背景"
+        },
+        "interior_reasoning": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-reasoning.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-reasoning.jpg",
+          "alt": "沿底部展开的浅色推演路径背景"
+        },
+        "interior_practice": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-practice.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-practice.jpg",
+          "alt": "蓝绿与琥珀纸张弧线构成的练习页背景"
+        },
+        "interior_evidence": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-evidence.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-evidence.jpg",
+          "alt": "带有精确轨迹和纸张层次的证据页背景"
+        }
+      }
     },
     "academic-editorial": {
       "label": "学术编辑",
