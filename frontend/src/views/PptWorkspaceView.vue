@@ -4,9 +4,17 @@
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
       <h1>{{ courseTitle }}</h1>
-      <p>{{ store.building ? stageLabel : t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
-      <div class="ppt-workspace-state__progress"><i :style="{ width: `${store.buildProgress}%` }"></i></div>
-      <b>{{ store.building ? `${store.buildProgress}%` : '···' }}</b>
+      <p v-if="!store.building">{{ t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
+      <SlideDeckBuildProgress
+        v-if="store.building"
+        :progress="store.buildProgress"
+        :stage="store.buildStage"
+        :step-index="store.buildDisplayStep"
+        :detail="store.buildDetail"
+        :estimated-slide-count="store.buildEstimatedSlideCount"
+        variant="initial"
+      />
+      <b v-else>···</b>
       <div v-if="store.buildTaskId" class="ppt-workspace-state__task-actions">
         <button v-if="store.building" type="button" @click="pauseBuild">暂停</button>
         <button type="button" @click="cancelBuild">取消</button>
@@ -71,6 +79,9 @@
         :building="store.building"
         :progress="store.buildProgress"
         :stage="store.buildStage"
+        :build-step-index="store.buildDisplayStep"
+        :build-detail="store.buildDetail"
+        :estimated-slide-count="store.buildEstimatedSlideCount"
         :error="store.buildError"
         :build-failure="effectiveBuildFailure"
         :logic-upgrading="logicUpgrading"
@@ -142,6 +153,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
@@ -314,34 +326,6 @@ const buildErrorLabel = computed(() => (
       ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
       : store.buildError
 ))
-const stageLabel = computed(() => ({
-  fragmenting: '正在切分并校验课程原文',
-  planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
-  story_plan: '正在读取课程逻辑',
-  chapter_plan: '正在编排章节叙事',
-  episode_progress: '正在生成教学场景',
-  layout_plan: '正在匹配语义版式',
-  slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划整套页面'),
-  visual_plan: '正在规划课件视觉',
-  asset_compilation: '正在编译课件素材',
-  slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在逐页生成教学内容'),
-  reviewing: '正在审核页面分配',
-  quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
-  render_review: '正在渲染复核成品',
-  semantic_repair: '正在修复内容完整性与分页',
-  image_search: '正在检索并核验教学图片',
-  render_repair: '正在修复导出版式问题',
-  repair_progress: '正在定向修复问题页面',
-  quality_fallback: t('pptWorkspace.qualityFallbackStage', 'AI 草稿未通过检查，正在切换稳定生成方案'),
-  bundle_plan: '正在按章节拆分课件',
-  bundle_part_build: '正在逐册生成课件',
-  paused: '已暂停，可从保存点继续',
-  resuming: '正在从保存点继续',
-  build_blocked: '生成已停止',
-  cancelled: '生成已取消',
-  complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
-}[store.buildStage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
-
 async function loadWorkspace() {
   const id = courseId.value
   if (!id) return
@@ -663,8 +647,6 @@ onMounted(loadWorkspace)
 .ppt-workspace-state > small { color:#2556d8; font-size:11px; font-weight:800; letter-spacing:.16em; }
 .ppt-workspace-state h1 { max-width:760px; margin:12px 0 0; font-family:"Songti SC","STSong","Noto Serif CJK SC",serif; font-size:clamp(28px,4vw,52px); line-height:1.15; }
 .ppt-workspace-state p { max-width:620px; margin:16px 0 0; color:#667085; font-size:14px; line-height:1.7; }
-.ppt-workspace-state__progress { width:min(360px,70vw); height:5px; overflow:hidden; margin-top:26px; border-radius:99px; background:#dfe5ee; }
-.ppt-workspace-state__progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#2556d8,#087f74); transition:width .25s ease; }
 .ppt-workspace-state > b { margin-top:10px; color:#6f7c8d; font:700 11px/1 "Aptos Mono","SFMono-Regular",monospace; }
 .ppt-workspace-state__task-actions { display:flex; gap:8px; margin-top:14px; }
 .ppt-workspace-state__task-actions button { min-height:34px; padding:0 14px; border:1px solid #cbd5e1; border-radius:9px; color:#334155; background:#fff; cursor:pointer; }

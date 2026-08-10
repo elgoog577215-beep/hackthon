@@ -1,5 +1,9 @@
 import { defineStore } from 'pinia'
 import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
+import {
+  advanceSlideBuildStep,
+  isFinalV5CandidateReplay,
+} from '../utils/slide-build-progress'
 
 export type RepresentationType = 'outline' | 'lesson_plan' | 'handout' | 'practice_sheet' | 'slide_deck' | 'diagram'
 export type SlideDeckMode = 'full' | 'teaching' | 'concise'
@@ -110,6 +114,58 @@ export interface TeachingRepresentationBuildEvent {
   source_revision?: string
   chapter_id?: string
   page_id?: string
+  estimated_slide_count?: number
+  allocation_plan?: { pages?: Array<Record<string, any>> }
+  chapter?: Record<string, any>
+  title?: string
+  part_index?: number
+  part_count?: number
+  part_id?: string
+  repair_attempt?: number
+  repair_attempts?: number
+}
+
+export interface SlideDeckBuildDetail {
+  event: string
+  message?: string
+  completed: number
+  total: number
+  itemTitle?: string
+  itemId?: string
+  partIndex?: number
+  partCount?: number
+  repairAttempt?: number
+  candidateStage?: string
+}
+
+function compactBuildDetail(
+  event: TeachingRepresentationBuildEvent,
+  estimatedSlideCount: number,
+  completedUnitCount: number,
+): SlideDeckBuildDetail {
+  const eventCompleted = event.completed == null ? completedUnitCount : Number(event.completed)
+  const eventTotal = event.total == null ? estimatedSlideCount : Number(event.total)
+  const slide = event.slide || {}
+  const chapter = event.chapter || {}
+  return {
+    event: String(event.event || event.stage || 'building'),
+    message: String(event.message || ''),
+    completed: eventCompleted,
+    total: eventTotal,
+    itemTitle: String(slide.title || chapter.title || event.title || ''),
+    itemId: String(
+      slide.unit_id
+      || event.page_id
+      || event.asset_id
+      || event.part_id
+      || chapter.chapter_id
+      || '',
+    ),
+    partIndex: Number(event.part_index || 0),
+    partCount: Number(event.part_count || 0),
+    repairAttempt: Number(event.repair_attempt || event.repair_attempts || 0),
+    candidateStage: String(event.candidate_stage || ''),
+  }
 }
 
 export interface TeachingRepresentationBuildFailure {
@@ -324,10 +380,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     liveSlides: [] as Array<Record<string, any>>,
     buildProgress: 0,
     buildStage: '',
+    buildDisplayStep: 0,
+    buildDetail: null as SlideDeckBuildDetail | null,
+    buildEstimatedSlideCount: 0,
+    buildCompletedUnitCount: 0,
     buildError: '',
     buildFailure: null as TeachingRepresentationBuildFailure | null,
     buildTaskId: '',
     buildPaused: false,
+    buildStreamActive: false,
     loading: false,
     building: false,
     deferMissingSlideBuild: false,
@@ -369,10 +430,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.liveSlides = []
       this.buildProgress = 0
       this.buildStage = ''
+      this.buildDisplayStep = 0
+      this.buildDetail = null
+      this.buildEstimatedSlideCount = 0
+      this.buildCompletedUnitCount = 0
       this.buildError = ''
       this.buildFailure = null
       this.buildTaskId = ''
       this.buildPaused = false
+      this.buildStreamActive = false
       this.loading = false
       this.building = false
     },
@@ -445,6 +511,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.building = true
       this.buildProgress = 0
       this.buildStage = 'planning'
+      this.buildDisplayStep = 0
+      this.buildStreamActive = false
+      this.buildDetail = {
+        event: 'planning',
+        completed: 0,
+        total: 0,
+      }
+      this.buildEstimatedSlideCount = 0
+      this.buildCompletedUnitCount = 0
       this.buildError = ''
       this.buildFailure = null
       this.buildPaused = false
@@ -488,8 +563,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           },
         )
         const completedRef: { value?: TeachingRepresentationBuildEvent } = {}
+        this.buildStreamActive = true
         await consumeTeachingRepresentationStream(response, event => {
           if (!isCurrentAttempt()) return
+          const finalCandidateReplay = isFinalV5CandidateReplay(event)
           if (event.task_id) {
             this.buildTaskId = event.task_id
             if (!durableMonitorStarted) {
@@ -502,7 +579,19 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           if (event.candidate_status) {
             this.slideCandidateStatus = event.candidate_status as SlideDeckCandidateStatus
           }
-          if (event.stage) this.buildStage = event.stage
+          if (event.stage && !finalCandidateReplay) this.buildStage = event.stage
+          if (event.event === 'deck_plan') {
+            this.buildEstimatedSlideCount = Math.max(
+              this.buildEstimatedSlideCount,
+              Number(event.estimated_slide_count || 0),
+            )
+          }
+          if (event.event === 'layout_plan') {
+            this.buildEstimatedSlideCount = Math.max(
+              this.buildEstimatedSlideCount,
+              event.allocation_plan?.pages?.length || 0,
+            )
+          }
           if (event.event === 'story_plan') this.buildStage = 'story_plan'
           if (event.event === 'chapter_plan') this.buildStage = 'chapter_plan'
           if (event.event === 'episode_progress') this.buildStage = 'episode_progress'
@@ -514,12 +603,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           }
           if (
             event.event === 'slide_reset'
-            && event.engine_schema === 'slide_deck_v5'
-            && ['final_contract', 'render_verified'].includes(String(event.candidate_stage || ''))
+            && finalCandidateReplay
           ) {
             this.liveSlides = []
             this.slideCandidateSchema = 'slide_deck_v5'
-            this.buildStage = event.stage || 'v5_candidate'
           }
           if (event.event === 'slide_upsert' && event.slide) {
             const strictV5 = this.slideTargetSchema === 'slide_deck_v5'
@@ -529,7 +616,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             )
             if (strictV5 && !acceptedV5Candidate) return
             if (acceptedV5Candidate) this.slideCandidateSchema = 'slide_deck_v5'
-            this.buildStage = 'slide_build'
+            if (!finalCandidateReplay) this.buildStage = 'slide_build'
             if (this.slidePreviewSource !== 'draft') {
               this.slidePreviewSource = 'draft'
               this.slideQuality = this.draftSlideQuality
@@ -537,6 +624,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             const index = this.liveSlides.findIndex(slide => slide.unit_id === event.slide?.unit_id)
             if (index >= 0) this.liveSlides.splice(index, 1, event.slide)
             else this.liveSlides.push(event.slide)
+            this.buildCompletedUnitCount = this.liveSlides.length
           }
           if (event.event === 'slide_quality' && event.quality) {
             this.buildStage = 'quality'
@@ -611,7 +699,18 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
             this.buildError = failure.code
           }
           if (event.event === 'paused') this.buildPaused = true
+          this.buildDisplayStep = advanceSlideBuildStep(
+            this.buildDisplayStep,
+            this.buildStage,
+            this.buildProgress,
+          )
+          this.buildDetail = compactBuildDetail(
+            event,
+            this.buildEstimatedSlideCount,
+            this.buildCompletedUnitCount,
+          )
         })
+        if (isCurrentAttempt()) this.buildStreamActive = false
         if (!isCurrentAttempt()) return completedRef.value
         if (this.buildPaused) return completedRef.value
         if (this.buildError) throw new Error(this.buildError)
@@ -636,6 +735,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.slideQuality = this.publishedSlideQuality
         this.buildProgress = 100
         this.buildStage = 'complete'
+        this.buildDisplayStep = 9
         this.buildFailure = null
         const available = this.representations
         const requestedVariant = options ? `${options.mode}:${options.theme}` : ''
@@ -663,7 +763,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         }
         throw error
       } finally {
-        if (isCurrentAttempt()) this.building = false
+        if (isCurrentAttempt()) {
+          this.buildStreamActive = false
+          this.building = false
+        }
       }
     },
     monitorDurableBuild(
@@ -686,8 +789,16 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           const task = response.data || {}
           const status = String(task.status || '')
           this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
-          this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+          if (!this.buildStreamActive) {
+            this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+            this.buildDisplayStep = advanceSlideBuildStep(
+              this.buildDisplayStep,
+              this.buildStage,
+              this.buildProgress,
+            )
+          }
           if (['failed', 'completed', 'cancelled', 'paused'].includes(status)) {
+            this.buildStreamActive = false
             this.applyDurableBuildTask(task)
             this.buildAttemptToken += 1
             if (status === 'completed') {
@@ -696,6 +807,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
                 this.settleCompletedSlideBuild()
                 this.buildProgress = 100
                 this.buildStage = 'complete'
+                this.buildDisplayStep = 9
               }
             }
             return
@@ -751,6 +863,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.building = true
         this.buildPaused = false
       }
+      this.buildDisplayStep = advanceSlideBuildStep(
+        this.buildDisplayStep,
+        this.buildStage,
+        this.buildProgress,
+      )
     },
     async recoverDurableBuild(courseId: string) {
       this.switchCourse(courseId)
@@ -837,6 +954,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       await http.post(`/api/tasks/${this.buildTaskId}/pause`)
       this.buildPaused = true
       this.building = false
+      this.buildStreamActive = false
       this.buildStage = 'paused'
     },
     async resumeBuild() {
@@ -854,11 +972,17 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
           const task = response.data || {}
           this.buildProgress = Math.max(this.buildProgress, Number(task.progress || 0))
           this.buildStage = String(task.phase || task.current_phase || this.buildStage)
+          this.buildDisplayStep = advanceSlideBuildStep(
+            this.buildDisplayStep,
+            this.buildStage,
+            this.buildProgress,
+          )
           if (task.status === 'completed') {
             await this.load(courseId)
             this.settleCompletedSlideBuild()
             this.buildProgress = 100
             this.buildStage = 'complete'
+            this.buildDisplayStep = 9
             return task
           }
           if (task.status === 'failed') {
@@ -892,6 +1016,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildTaskId = ''
       this.buildPaused = false
       this.building = false
+      this.buildStreamActive = false
       this.buildStage = 'cancelled'
     },
     async ensure(courseId: string) {

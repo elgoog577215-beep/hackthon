@@ -37,6 +37,105 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
+  it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-1',
+        deckTitle: '数据结构',
+        slides,
+        staleUnitIds: [],
+        building: true,
+        progress: 46,
+        stage: 'slide_build',
+        buildStepIndex: 6,
+        error: '',
+        quality: null,
+        standalone: true,
+        buildDetail: {
+          event: 'slide_upsert',
+          itemTitle: '向量的定义',
+          completed: 2,
+          total: 12,
+        },
+        estimatedSlideCount: 12,
+      },
+    })
+
+    const panel = wrapper.find('[data-testid="slide-build-progress"]')
+    expect(panel.exists()).toBe(true)
+    expect(panel.attributes('aria-live')).toBe('polite')
+    expect(panel.text()).toContain('正在逐页生成教学内容')
+    expect(panel.text()).toContain('第 2 / 12 页')
+    expect(panel.text()).toContain('向量的定义')
+    expect(panel.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('46')
+    expect(panel.findAll('[data-build-step]')).toHaveLength(10)
+    expect(panel.findAll('[data-step-description]')).toHaveLength(10)
+    expect(panel.text()).toContain('设计教学主线')
+    expect(panel.text()).toContain('编排章节场景')
+    expect(panel.text()).toContain('规划页面结构')
+    expect(panel.text()).toContain('匹配语义版式')
+    expect(panel.text()).toContain('准备视觉素材')
+    expect(panel.text()).toContain('补图与语义修复')
+    expect(panel.text()).toContain('内容视觉质检')
+    expect(panel.text()).toContain('渲染与发布')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(6)
+    expect(panel.findAll('[data-build-step][data-state="active"]')).toHaveLength(1)
+    const taskList = panel.find('[data-testid="build-task-list"]')
+    expect(taskList.exists()).toBe(true)
+    expect(taskList.findAll('[data-build-task]')).toHaveLength(3)
+    expect(taskList.text()).toContain('读取当前页面计划')
+    expect(taskList.text()).toContain('生成页面内容与讲者备注')
+    expect(taskList.text()).toContain('写入并校验全部页面')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="pending"]')).toHaveLength(1)
+    expect(taskList.find('[data-current-activity]').text()).toContain('第 2 / 12 页 · 向量的定义')
+
+    await wrapper.setProps({
+      progress: 97,
+      stage: 'image_search',
+      buildStepIndex: 8,
+      buildDetail: {
+        event: 'image_search',
+        completed: 2,
+        total: 4,
+        itemTitle: '向量的几何意义',
+      },
+    })
+    expect(panel.text()).toContain('正在检索并核验教学图片')
+    expect(panel.text()).toContain('正在为「向量的几何意义」查找可用教学图片')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(8)
+    expect(taskList.text()).toContain('检查知识点与目标覆盖')
+    expect(taskList.text()).toContain('检查文字密度和可读性')
+    expect(taskList.text()).toContain('修复问题页并重新质检')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(2)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+    expect(taskList.find('[data-current-activity]').text()).toContain('向量的几何意义')
+
+    await wrapper.setProps({
+      progress: 99,
+      stage: 'render_repair',
+      buildStepIndex: 9,
+      buildDetail: {
+        event: 'render_repair',
+        completed: 12,
+        total: 12,
+        repairAttempt: 2,
+      },
+    })
+    expect(panel.text()).toContain('正在执行第 2 轮版式修复')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(9)
+    expect(taskList.text()).toContain('渲染全部页面')
+    expect(taskList.text()).toContain('修复溢出、遮挡与错位')
+    expect(taskList.text()).toContain('发布可下载课件')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+
+    await wrapper.setProps({ building: false })
+    expect(wrapper.find('[data-testid="slide-build-progress"]').exists()).toBe(false)
+  })
+
   it('keeps the toolbar focused on teaching materials and opens the material overview', async () => {
     const store = useTeachingRepresentationsStore()
     const build = vi.spyOn(store, 'buildProgressive')
