@@ -538,9 +538,17 @@ class CoursePromptComposer:
 全课知识身份已经冻结。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
 修改其他批次。只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
 
-## 课程与批次
+## 课程
 - 课程：{course_title}
 - 定位：{positioning}
+
+## 共享课程块目录（只出现一次）
+{json.dumps(module_catalog, ensure_ascii=False)}
+
+## 总体教案引领（与教师视图同源，只读）
+{json.dumps(overall_guidance, ensure_ascii=False)}
+
+## 当前批次
 - 批次：{json.dumps(batch_spec, ensure_ascii=False)}
 - 骨架修订：{skeleton_revision_id}
 
@@ -552,12 +560,6 @@ class CoursePromptComposer:
 
 ## 当前批次知识职责（只读）
 {json.dumps(section_identities, ensure_ascii=False)}
-
-## 共享课程块目录（只出现一次）
-{json.dumps(module_catalog, ensure_ascii=False)}
-
-## 总体教案引领（与教师视图同源，只读）
-{json.dumps(overall_guidance, ensure_ascii=False)}
 
 ## 约束
 1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
@@ -880,7 +882,7 @@ class CoursePromptComposer:
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
 9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
-10. 当前节点名称已经由页面显示，正文不得再次把“{node_name}”写成二级标题，也不得输出只有标题没有正文的空模块。
+10. 当前节点名称已经由页面显示，正文不得把本节标题重复写成二级标题，也不得输出只有标题没有正文的空模块。
 11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
 12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
@@ -896,14 +898,22 @@ class CoursePromptComposer:
 ## 课程块编排画像
 {format_composition_profile(composition_profile)}
 
+## 全课难度能力契约
+{format_difficulty_profile(difficulty_profile)}
+
+## 当前课程知识身份边界
+{knowledge_context}
+
+## 当前课程教学边界
+{teaching_context}
+
+内容必须通过学习任务、支架方式、独立性和验收证据展现难度；不得仅靠术语、篇幅、公式、代码量或题量展现难度。
+
 ## 总体教案对本节的引领
 {teaching_guidance}
 
 ## 本节学科课型
 {json.dumps(lesson_archetype, ensure_ascii=False)}
-
-## 全课难度能力契约
-{format_difficulty_profile(difficulty_profile)}
 
 ## 当前节点契约
 - 节点：{node_name}
@@ -914,12 +924,6 @@ class CoursePromptComposer:
 - 常见误区：{'；'.join(misconceptions)}
 - 验收标准：{'；'.join(assessment)}
 - 范围边界：{scope_boundary}
-
-## 当前课程知识身份边界
-{knowledge_context}
-
-## 当前课程教学边界
-{teaching_context}
 
 ## 当前课程知识库契约
 {course_knowledge_context}
@@ -935,8 +939,6 @@ class CoursePromptComposer:
 - 可选证据：{'；'.join(grounding_contract.get('optional_evidence_ids', [])) or '无'}
 - 允许的全部证据 ID：{'；'.join(allowed_evidence) or '无'}
 - 是否允许模型通用知识：{'是' if grounding_contract.get('allow_general_knowledge', True) else '否'}
-
-内容必须通过学习任务、支架方式、独立性和验收证据展现难度；不得仅靠术语、篇幅、公式、代码量或题量展现难度。
 
 ## 本节教学模块
 {module_contract or '- 使用通用本节任务、核心教学、学习者行动和反馈检查。'}

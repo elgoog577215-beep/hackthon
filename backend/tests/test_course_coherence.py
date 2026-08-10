@@ -356,3 +356,81 @@ async def test_coherence_repair_only_accepts_a_candidate_that_removes_blocking_i
     assert final_report["passed"] is True
     assert repaired["nodes"][1]["node_content"].endswith(duplicate)
     assert duplicate not in repaired["nodes"][3]["node_content"]
+
+
+def test_content_prompts_share_one_stable_course_prefix_across_nodes():
+    """同课程各节的 system prompt 必须共享一段稳定前缀，才能命中 prefix cache。
+
+    真正的不变量是顺序：全课共享内容必须整体排在任何节点专属内容之前。
+    只要顺序成立，前缀长度就随课程体量自然增长；这里的 fixture 很小，
+    所以只对长度取一个保守下限，主检查放在顺序与分叉点上。
+    """
+    course = _course()
+    course["course_coherence_contract"] = compile_course_coherence_contract(
+        course
+    )
+    composer = CoursePromptComposer()
+    sections = [
+        node for node in course["nodes"] if node.get("node_level") == 2
+    ]
+    prompts = [
+        composer.build_content_prompt(
+            course_data=course,
+            node=node,
+            context="",
+        )[1]
+        for node in sections
+    ]
+
+    def shared_prefix(left: str, right: str) -> int:
+        limit = min(len(left), len(right))
+        for index in range(limit):
+            if left[index] != right[index]:
+                return index
+        return limit
+
+    divergence = min(shared_prefix(prompts[0], other) for other in prompts[1:])
+    stable_prefix = prompts[0][:divergence]
+
+    assert divergence > 1200
+    # 全课共享块必须完整落在分叉点之前。
+    for heading in (
+        "## 输出契约",
+        "## 课程",
+        "## 课程块编排画像",
+        "## 全课难度能力契约",
+        "## 当前课程知识身份边界",
+        "## 当前课程教学边界",
+    ):
+        assert heading in stable_prefix
+    # 任何一节的节点名都不得出现在共享前缀里。
+    for node in sections:
+        assert node["node_name"] not in stable_prefix
+
+    # 顺序不变量：最后一个共享块也必须排在第一个节点专属块之前。
+    first_prompt = prompts[0]
+    last_shared = max(
+        first_prompt.index(heading)
+        for heading in (
+            "## 输出契约",
+            "## 课程块编排画像",
+            "## 全课难度能力契约",
+            "## 当前课程知识身份边界",
+            "## 当前课程教学边界",
+        )
+    )
+    first_node_specific = min(
+        first_prompt.index(heading)
+        for heading in (
+            "## 总体教案对本节的引领",
+            "## 本节学科课型",
+            "## 当前节点契约",
+            "## 当前课程知识库契约",
+            "## 全课总编契约",
+            "## 当前节点难度契约",
+            "## 当前节点证据契约",
+            "## 本节教学模块",
+            "## 持久化上下文",
+        )
+    )
+    assert last_shared < first_node_specific

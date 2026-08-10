@@ -615,3 +615,102 @@ def test_batch_requires_a_credible_misconception_for_each_owned_knowledge():
     assert "teaching_batch:missing_misconception" in {
         issue["code"] for issue in report["blocking_issues"]
     }
+
+
+def test_batch_prompts_share_one_stable_course_prefix_across_batches():
+    """同课程各批次的 prompt 必须共享稳定前缀：共享块排在批次专属块之前。"""
+    sections = [_section(index, f"chapter-{index}") for index in range(1, 5)]
+    planning_context = build_compact_planning_context(
+        sections,
+        composition_style="balanced",
+    )
+    identities = []
+    registry = []
+    for index, section in enumerate(sections, start=1):
+        key = f"K{index:03d}"
+        identities.append({
+            "node_id": section["node_id"],
+            "owned_knowledge_keys": [key],
+            "reused_knowledge_keys": [],
+        })
+        registry.append({
+            "knowledge_key": key,
+            "name": f"第{index}节知识",
+            "statement": f"第{index}节知识的稳定陈述",
+            "owner_node_id": section["node_id"],
+            "reused_in_node_ids": [],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        })
+    skeleton = {
+        "revision_id": "skeleton-prefix",
+        "knowledge_registry": registry,
+        "sections": identities,
+    }
+    budget = CoursePlanningBudget()
+    batches = build_teaching_plan_batches(
+        planning_context["sections"],
+        skeleton,
+        budget,
+    )
+    assert len(batches) > 1
+
+    composer = CoursePromptComposer()
+    compact_by_id = {
+        item["node_id"]: item for item in planning_context["sections"]
+    }
+    identity_by_id = {item["node_id"]: item for item in identities}
+    overall_guidance = {"positioning": "全课共享定位", "assessment_methods": ["解释题"]}
+    prompts = [
+        composer.build_teaching_plan_batch_v3_prompt(
+            course_title="前缀稳定性课程",
+            positioning="验证共享前缀",
+            batch_spec=spec,
+            batch_sections=[
+                compact_by_id[node_id] for node_id in spec["section_ids"]
+            ],
+            knowledge_registry=select_batch_knowledge_registry(
+                skeleton,
+                spec["section_ids"],
+            ),
+            section_identities=[
+                identity_by_id[node_id] for node_id in spec["section_ids"]
+            ],
+            module_catalog=planning_context["module_catalog"],
+            skeleton_revision_id="skeleton-prefix",
+            overall_guidance=overall_guidance,
+        )
+        for spec in batches
+    ]
+
+    first = prompts[0]
+    last_shared = max(
+        first.index(heading)
+        for heading in (
+            "## 共享课程块目录（只出现一次）",
+            "## 总体教案引领（与教师视图同源，只读）",
+        )
+    )
+    first_batch_specific = min(
+        first.index(heading)
+        for heading in (
+            "## 当前批次",
+            "## 当前小节（已去重）",
+            "## 当前批次知识与直接依赖闭包（只读）",
+            "## 当前批次知识职责（只读）",
+        )
+    )
+    assert last_shared < first_batch_specific
+
+    def shared_prefix(left, right):
+        limit = min(len(left), len(right))
+        for index in range(limit):
+            if left[index] != right[index]:
+                return index
+        return limit
+
+    divergence = min(shared_prefix(first, other) for other in prompts[1:])
+    # 精确不变量：分叉点不早于"## 当前批次"，即批次专属内容之前的一切都是共享的。
+    # 用位置而不是绝对长度，测试就不依赖 fixture 的体量。
+    assert divergence >= first.index("## 当前批次")
+    assert "## 共享课程块目录（只出现一次）" in first[:divergence]

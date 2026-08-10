@@ -259,23 +259,18 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
 
 
 def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
-    section_match = re.search(
-        r"## 当前小节（已去重）\n(\[.*?\])\n\n"
-        r"## 当前批次知识与直接依赖闭包",
-        system_prompt,
-        re.S,
-    )
-    registry_match = re.search(
-        r"## 当前批次知识与直接依赖闭包（只读）\n"
-        r"(\[.*?\])\n\n## 当前批次知识职责",
-        system_prompt,
-        re.S,
-    )
-    identity_match = re.search(
-        r"## 当前批次知识职责（只读）\n(\[.*?\])\n\n## 共享课程块目录",
-        system_prompt,
-        re.S,
-    )
+    # 只锚定各块自身的标题，不锚定它后面跟着哪一块，
+    # 这样 prompt 的分块顺序调整（稳定前缀优化）不会连累这些桩。
+    def _json_block(heading):
+        return re.search(
+            rf"## {heading}\n(\[.*?\])\n\n## ",
+            system_prompt,
+            re.S,
+        )
+
+    section_match = _json_block("当前小节（已去重）")
+    registry_match = _json_block("当前批次知识与直接依赖闭包（只读）")
+    identity_match = _json_block("当前批次知识职责（只读）")
     assert section_match and registry_match and identity_match, system_prompt
     sections = json.loads(section_match.group(1))
     registry = json.loads(registry_match.group(1))
