@@ -6,6 +6,7 @@ from pptx import Presentation
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import compile_course_presentation_graph
 from representation_compiler import export_slide_deck_pptx
+from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6 import (
     SlideStoryBatchV3,
     SlideStoryPageV3,
@@ -126,6 +127,37 @@ def test_v6_web_and_pptx_adapters_resolve_the_same_template_page(tmp_path: Path)
     assert document.document_revision in notes
     assert "The handler runs only after the event is emitted." in notes
     assert "A rejected value remains visible" in notes
+
+
+def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Path) -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-code"))
+    assert layout is not None
+    slots = {slot.slot_id: slot for slot in layout.slots}
+    code_slot = slots["code"]
+    annotation_slot = slots["annotation"]
+    code_line_width = max(1, code_slot.max_chars // code_slot.max_lines)
+    code_samples = {
+        "logical-lines": "\n".join(
+            f"stage_{index:02d}: " + "validate(input);".ljust(code_line_width - 10, " ")
+            for index in range(code_slot.max_lines)
+        )[: code_slot.max_chars],
+        "wide-literal": ("const label = \"" + "状态" * code_slot.max_chars)[: code_slot.max_chars],
+    }
+    for sample_name, code in code_samples.items():
+        _document, deck = _code_deck()
+        regions = {region.slot_id: region for region in deck.pages[0].regions}
+        regions["code"].content = code
+        regions["annotation"].content = "验证输入事件、保留结果并说明失败边界。" * 20
+        regions["annotation"].content = regions["annotation"].content[: annotation_slot.max_chars]
+
+        output = export_slide_deck_v6_pptx(
+            deck,
+            tmp_path / f"v6-code-capacity-{sample_name}.pptx",
+        )
+        report = audit_exported_pptx(output, expected_slide_count=1)
+
+        assert report["passed"], report["blockers"]
 
 
 def test_official_representation_export_dispatches_v6_without_legacy_schema_coercion(

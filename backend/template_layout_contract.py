@@ -181,7 +181,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "evidence-code": {
         "intents": ["artifact_explanation", "worked_example", "mechanism"],
         "artifact_kinds": ["code"],
-        "slots": [_TITLE, _slot("code", "code", lines=28, chars=1800), _slot("annotation", "body", chars=220), _NOTES],
+        "slots": [_TITLE, _slot("code", "code", lines=13, chars=400), _slot("annotation", "body", chars=160), _NOTES],
         "continuations": ["evidence-code"],
     },
     "evidence-formula": {
