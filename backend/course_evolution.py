@@ -37,6 +37,7 @@ COURSE_COMMAND_GROUP_SCHEMA = "course_evolution_command_group_v1"
 COURSE_EVOLUTION_REPRESENTATION_IMPACT_SCHEMA = (
     "course_evolution_representation_impact_v1"
 )
+COURSE_REVERIFICATION_WINDOW_SCHEMA = "course_evolution_reverification_window_v1"
 HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
@@ -66,6 +67,11 @@ CANONICAL_OPERATION_TYPES = frozenset({
 # proposals. Long enough that "I said no" is respected across a study session,
 # short enough that a later, genuinely different course state can offer it again.
 DECLINED_OPERATION_COOLDOWN_DAYS = 7
+# How long an applied adaptation waits for an independent new task before the
+# wait itself is worth surfacing. Expiry means "a human should look", never
+# "the change failed": with no sample there is no evidence in either direction,
+# so the verdict stays unproven and no improvement or rollback is inferred.
+REVERIFICATION_WINDOW_DAYS = 14
 
 
 class EvidenceAnchor(BaseModel):
@@ -2436,6 +2442,10 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
             "status": status,
             "verification_level": verification_level,
             "growth_direction": change_set.growth_direction,
+            "reverification_window": _reverification_window(
+                change_set,
+                independent_attempts=later_attempts,
+            ),
             "feedback_event_ids": [item.get("event_id") for item in feedback],
             "interaction_event_ids": [item.get("event_id") for item in interactions],
             "attempt_ids": [item.get("attempt_id") for item in later_attempts],
@@ -2525,6 +2535,74 @@ def _evaluate_applied_effects(state: CourseEvolutionState, *, user_id: str) -> N
         if status in {"effective", "ineffective", "harmful"}:
             hypothesis.status = status
             hypothesis.updated_at = _now()
+
+
+def _reverification_window(
+    change_set: CourseEvolutionPlan,
+    *,
+    independent_attempts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Describe the wait for independent evidence without inventing a verdict.
+
+    Only attempts that ``_attempt_matches_change_set`` already accepted count,
+    which excludes a retake of the very task that triggered the change — a
+    retest must never be promoted into fresh proof. When the window elapses with
+    no sample the result says exactly that; it does not become "ineffective",
+    because silence is not evidence of failure.
+    """
+    started_at = str(change_set.accepted_at or "")
+    if not started_at:
+        return {
+            "schema_version": COURSE_REVERIFICATION_WINDOW_SCHEMA,
+            "status": "not_started",
+            "window_days": REVERIFICATION_WINDOW_DAYS,
+            "independent_sample_count": 0,
+            "conclusion": "awaiting_independent_sample",
+            "interpretation": "调整尚未生效，复验窗口还没有开始。",
+        }
+
+    started = datetime.fromisoformat(started_at)
+    deadline = started + timedelta(days=REVERIFICATION_WINDOW_DAYS)
+    now = datetime.fromisoformat(_now())
+    elapsed_days = max(0, (now - started).days)
+    sample_count = len(independent_attempts)
+
+    if sample_count:
+        status = "satisfied"
+        conclusion = "independent_sample_collected"
+        interpretation = (
+            f"窗口内已收到 {sample_count} 条独立新题作答，效果结论以这些样本为准。"
+        )
+    elif now >= deadline:
+        status = "expired"
+        conclusion = "no_independent_sample"
+        interpretation = (
+            f"已等待 {elapsed_days} 天，仍无独立样本，无法判定效果；"
+            "这需要人工判断，不能据此认为调整已经生效或应当回退。"
+        )
+    else:
+        status = "open"
+        conclusion = "awaiting_independent_sample"
+        interpretation = (
+            f"已等待 {elapsed_days} 天，仍在复验窗口内，等待独立新题作答。"
+        )
+
+    return {
+        "schema_version": COURSE_REVERIFICATION_WINDOW_SCHEMA,
+        "status": status,
+        "window_days": REVERIFICATION_WINDOW_DAYS,
+        "started_at": started_at,
+        "deadline": deadline.isoformat(),
+        "elapsed_days": elapsed_days,
+        "independent_sample_count": sample_count,
+        "independent_attempt_ids": [
+            str(item.get("attempt_id") or "") for item in independent_attempts
+        ],
+        "conclusion": conclusion,
+        "interpretation": interpretation,
+        # Explicit so no consumer has to infer it from an empty sample list.
+        "requires_human_review": status == "expired",
+    }
 
 
 def _attempt_matches_change_set(

@@ -2348,6 +2348,198 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
         assert result.effect_evaluation["follow_up_candidate"]["candidate_type"] == "rollback_course_evolution"
 
 
+def _accepted_plan_for_effect(tmp_path, monkeypatch, course, document):
+    """Accept the evidence-driven plan so its effect can be evaluated later."""
+    repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
+    initial = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    plan = initial.change_sets[0]
+    accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current_and_next",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    return repository, plan
+
+
+def test_reverification_window_expiry_reports_no_sample_not_a_verdict(
+    tmp_path,
+    monkeypatch,
+):
+    """An expired window means "needs a human look", never "it did not work".
+
+    With no independent attempt there is no evidence in either direction, so the
+    status must stay unverified, the sample count must read zero, and the
+    recommended action must not become adjust or rollback. Fabricating a verdict
+    from silence is exactly what the effect contract forbids.
+    """
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    repository, plan = _accepted_plan_for_effect(
+        tmp_path, monkeypatch, course, document,
+    )
+    # No attempt after acceptance at all: the learner simply never came back.
+    monkeypatch.setattr(
+        course_evolution.practice_attempt_repository,
+        "list",
+        lambda *_args: [{
+            "attempt_id": "attempt-before",
+            "status": "graded",
+            "node_id": "section-1",
+            "result": {"passed": False, "grading_confidence": 0.94},
+            "graded_at": "2026-07-16T09:04:00+00:00",
+        }],
+    )
+    # Far enough past acceptance that the window has certainly elapsed.
+    monkeypatch.setattr(course_evolution, "_now", lambda: "2099-01-01T00:00:00+00:00")
+
+    evaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    result = next(
+        item for item in evaluated.change_sets
+        if item.change_set_id == plan.change_set_id
+    )
+    evaluation = result.effect_evaluation
+    window = evaluation["reverification_window"]
+
+    assert window["status"] == "expired"
+    assert window["window_days"] == course_evolution.REVERIFICATION_WINDOW_DAYS
+    assert window["independent_sample_count"] == 0
+    assert window["elapsed_days"] >= window["window_days"]
+    assert window["conclusion"] == "no_independent_sample"
+    # The verdict itself stays unproven in both directions.
+    assert evaluation["status"] == "insufficient_evidence"
+    assert evaluation["verification_level"] == "not_verified"
+    assert evaluation["recommended_action"] == "collect_more_evidence"
+    assert evaluation["follow_up_candidate"] == {}
+    # An expired window must never be dressed up as improvement or regression.
+    assert "改善" not in window["interpretation"]
+    assert "无效" not in window["interpretation"]
+    assert "无独立样本" in window["interpretation"]
+    # The learner model must not be told this adaptation failed.
+    hypothesis = next(
+        item for item in evaluated.hypotheses
+        if item.hypothesis_id == plan.hypothesis_id
+    )
+    assert hypothesis.status == "evaluating"
+
+
+def test_reverification_window_is_open_before_it_elapses(tmp_path, monkeypatch):
+    """Inside the window the plan is simply still waiting."""
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    repository, plan = _accepted_plan_for_effect(
+        tmp_path, monkeypatch, course, document,
+    )
+    monkeypatch.setattr(
+        course_evolution.practice_attempt_repository,
+        "list",
+        lambda *_args: [],
+    )
+
+    evaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    window = next(
+        item for item in evaluated.change_sets
+        if item.change_set_id == plan.change_set_id
+    ).effect_evaluation["reverification_window"]
+
+    assert window["status"] == "open"
+    assert window["independent_sample_count"] == 0
+    assert window["conclusion"] == "awaiting_independent_sample"
+    assert window["deadline"] > window["started_at"]
+
+
+def test_reverification_window_ignores_a_retake_of_the_original_task(
+    tmp_path,
+    monkeypatch,
+):
+    """Re-answering the failed task is not an independent sample.
+
+    Counting the original task would let a retest masquerade as fresh evidence,
+    so the window must stay hungry even though a graded attempt exists.
+    """
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {
+            "assets": {
+                "questions": [{
+                    "asset_id": "question-targeted",
+                    "revision_id": "question-revision-targeted",
+                    "node_id": "section-1",
+                    "status": "active",
+                    "prompt": "解释矩阵复合顺序。",
+                }],
+            },
+        },
+    )
+    repository, plan = _accepted_plan_for_effect(
+        tmp_path, monkeypatch, course, document,
+    )
+    source_task_ids = plan.impact_summary.get("source_practice_task_ids") or []
+    retake_task_id = source_task_ids[0] if source_task_ids else "task-original"
+
+    monkeypatch.setattr(
+        course_evolution.practice_attempt_repository,
+        "list",
+        lambda *_args: [
+            {
+                "attempt_id": "attempt-before",
+                "status": "graded",
+                "node_id": "section-1",
+                "task_revision_id": retake_task_id,
+                "result": {"passed": False, "grading_confidence": 0.94},
+                "graded_at": "2026-07-16T09:04:00+00:00",
+            },
+            {
+                # Same task as the original failure, answered again after the change.
+                "attempt_id": "attempt-retake",
+                "status": "graded",
+                "node_id": "section-1",
+                "task_revision_id": retake_task_id,
+                "result": {"passed": True, "grading_confidence": 0.94},
+                "graded_at": "2099-01-01T00:00:00+00:00",
+            },
+        ],
+    )
+    monkeypatch.setattr(course_evolution, "_now", lambda: "2099-02-01T00:00:00+00:00")
+
+    evaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    evaluation = next(
+        item for item in evaluated.change_sets
+        if item.change_set_id == plan.change_set_id
+    ).effect_evaluation
+
+    assert evaluation["reverification_window"]["independent_sample_count"] == 0
+    assert evaluation["reverification_window"]["conclusion"] == "no_independent_sample"
+    # A retest must not be promoted into an improvement verdict.
+    assert evaluation["status"] != "effective"
+    assert evaluation["verification_level"] == "not_verified"
+
+
 def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(
     tmp_path,
     monkeypatch,

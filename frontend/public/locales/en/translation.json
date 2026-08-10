@@ -658,6 +658,17 @@
     "reject": "Not now",
     "applied": "A new course version is active",
     "applying": "Writing to the course…",
+    "reverification": {
+      "title": "Independent re-verification",
+      "open": "Re-verification window open",
+      "openDetail": "Waited {days} days, still inside the {window}-day window, awaiting an independent new task.",
+      "expired": "No sample — no verdict possible",
+      "expiredDetail": "Waited {days} days with no independent sample. This needs a human decision; it does not mean the change worked or should be rolled back.",
+      "satisfied": "Independent sample collected",
+      "satisfiedDetail": "{count} independent new-task attempts arrived in the window; the effect verdict rests on those samples.",
+      "noSample": "No sample",
+      "retakeExcluded": "Retaking the original task does not count as a re-verification sample"
+    },
     "applyingDetail": "Confirmed and committing the course revision; it will not be proposed again until this finishes.",
     "declined": "Adjustments you excluded",
     "declinedDetail": "You excluded these items during review, so they will not be proposed again for now.",

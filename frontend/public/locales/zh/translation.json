@@ -658,6 +658,17 @@
     "reject": "暂不调整",
     "applied": "课程新版本已应用",
     "applying": "正在写入课程…",
+    "reverification": {
+      "title": "独立复验",
+      "open": "复验窗口进行中",
+      "openDetail": "已等待 {days} 天，还在 {window} 天窗口内，等待独立新题作答。",
+      "expired": "无样本，无法判定",
+      "expiredDetail": "已等待 {days} 天，仍无独立样本。这需要人工判断，不能据此认为调整已生效或应当回退。",
+      "satisfied": "已有独立样本",
+      "satisfiedDetail": "窗口内已收到 {count} 条独立新题作答，效果结论以这些样本为准。",
+      "noSample": "无样本",
+      "retakeExcluded": "原题重测不计入复验样本"
+    },
     "applyingDetail": "已确认，正在提交课程修订；完成前不会重复提议。",
     "declined": "你已排除的调整",
     "declinedDetail": "这些条目在本次审阅中被你排除，短期内不会再次提议。",

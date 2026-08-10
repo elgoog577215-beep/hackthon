@@ -369,6 +369,13 @@
         <p v-if="verificationFor(plan)?.interpretation" class="verification-interpretation">
           <ScanSearch :size="12" />{{ verificationFor(plan).interpretation }}
         </p>
+        <p
+          v-if="reverificationFor(plan)"
+          class="reverification-window"
+          :data-window="reverificationFor(plan).status"
+        >
+          <Hourglass :size="12" />{{ reverificationLabel(plan) }}
+        </p>
       </template>
     </article>
   </section>
@@ -389,7 +396,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, History, Layers3, LoaderCircle, LocateFixed, MapPinned, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
+import { ArrowRight, BadgeCheck, BookOpenText, BrainCircuit, Check, CheckCircle2, ChevronDown, ChevronUp, CircleDot, FileQuestion, GitBranchPlus, History, Hourglass, Layers3, LoaderCircle, LocateFixed, MapPinned, Network, NotebookTabs, RefreshCw, ScanSearch, Sparkles, TriangleAlert, Undo2, X, ShieldCheck } from 'lucide-vue-next'
 import CourseEvolutionReviewOverlay from './CourseEvolutionReviewOverlay.vue'
 import {
   useCourseEvolutionStore,
@@ -764,6 +771,21 @@ function effectTitle(plan: CourseEvolutionPlan) {
 }
 function effectLabel(plan: CourseEvolutionPlan) { return ({ effective: t('courseEvolution.effects.effective', '原判断获得新证据支持，继续观察后续迁移'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待独立复验：后续同能力正式题') } as Record<string, string>)[plan.effect_evaluation?.status || ''] || t('courseEvolution.effects.insufficient', '等待独立复验：后续同能力正式题') }
 function verificationFor(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.verification_summary || null }
+function reverificationFor(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.reverification_window || null }
+// 窗口到期只说明"需要人工判断"，绝不等于调整无效；无样本时如实写无样本。
+function reverificationLabel(plan: CourseEvolutionPlan) {
+  const window = reverificationFor(plan)
+  if (!window) return ''
+  const days = String(window.elapsed_days ?? 0)
+  const windowDays = String(window.window_days ?? 0)
+  if (window.status === 'expired') {
+    return t('courseEvolution.reverification.expiredDetail', '已等待 {days} 天，仍无独立样本。这需要人工判断，不能据此认为调整已生效或应当回退。').replace('{days}', days)
+  }
+  if (window.status === 'satisfied') {
+    return t('courseEvolution.reverification.satisfiedDetail', '窗口内已收到 {count} 条独立新题作答，效果结论以这些样本为准。').replace('{count}', String(window.independent_sample_count ?? 0))
+  }
+  return t('courseEvolution.reverification.openDetail', '已等待 {days} 天，还在 {window} 天窗口内，等待独立新题作答。').replace('{days}', days).replace('{window}', windowDays)
+}
 function attemptResultLabel(value: Record<string, any> | undefined) {
   if (!value || value.attempt_count === 0) return t('courseEvolution.verification.noEvidence', '暂无')
   if (typeof value.score === 'number') return `${Math.round(value.score)} ${t('courseEvolution.verification.points', '分')}`
@@ -1318,6 +1340,11 @@ article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"
 .verification-flow > svg { color:#94a3b8; }
 .verification-interpretation { display:flex; align-items:flex-start; gap:5px; margin:7px 0 0 27px; color:#475569; font-size:8px; line-height:1.5; }
 .verification-interpretation svg { flex:0 0 auto; margin-top:1px; color:#2563eb; }
+.reverification-window { display:flex; align-items:flex-start; gap:5px; margin:5px 0 0 27px; color:#475569; font-size:8px; line-height:1.5; }
+.reverification-window svg { flex:0 0 auto; margin-top:1px; color:#64748b; }
+/* 到期是"需要人工判断"，用中性提醒色，不用表示失败的红色 */
+.reverification-window[data-window="expired"] { color:#a16207; }
+.reverification-window[data-window="expired"] svg { color:#ca8a04; }
 .spinning { animation:evolution-spin .8s linear infinite; }
 @keyframes evolution-spin { to { transform:rotate(360deg); } }
 </style>
