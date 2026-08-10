@@ -423,6 +423,25 @@ def _validate_story_batch_candidate(
     request: dict[str, Any],
     batch: SlideStoryBatchV3,
 ) -> None:
+    reserved_titles = {
+        re.sub(r"\s+", "", str(title)).casefold()
+        for title in request.get("constraints", {}).get("forbidden_titles") or []
+        if str(title).strip()
+    }
+    reused = next(
+        (
+            page for page in batch.pages
+            if re.sub(r"\s+", "", page.title).casefold() in reserved_titles
+        ),
+        None,
+    )
+    if reused is not None:
+        raise V6BuildError(
+            stage="story",
+            code="duplicate_slide_title",
+            message="Each V6 page must have a distinct teaching title",
+            page_id=reused.page_id,
+        )
     requested_unit_ids = {
         str(unit.get("teaching_unit_id") or "")
         for unit in request.get("teaching_units") or []
@@ -480,6 +499,43 @@ def _story_repair_targets(
         duplicate_page_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         unit_id = str(unit.get("teaching_unit_id") or "")
+        current_page = next(
+            (
+                page for page in pages
+                if isinstance(page, dict)
+                and str(page.get("page_id") or "") == page_id
+            ),
+            None,
+        )
+        current_title = str((current_page or {}).get("title") or "")
+        normalized_current_title = re.sub(r"\s+", "", current_title).casefold()
+        conflicting_page_ids = [
+            str(page.get("page_id") or "")
+            for page in pages
+            if isinstance(page, dict)
+            and str(page.get("page_id") or "") != page_id
+            and re.sub(r"\s+", "", str(page.get("title") or "")).casefold()
+            == normalized_current_title
+        ] if normalized_current_title else []
+        forbidden_titles = list(dict.fromkeys([
+            *(
+                str(title)
+                for title in request.get("constraints", {}).get("forbidden_titles") or []
+                if str(title).strip()
+            ),
+            *(
+                str(page.get("title") or "")
+                for page in pages
+                if isinstance(page, dict)
+                and str(page.get("page_id") or "") != page_id
+                and str(page.get("title") or "").strip()
+            ),
+        ]))
+        normalized_forbidden_titles = {
+            re.sub(r"\s+", "", title).casefold()
+            for title in forbidden_titles
+        }
+        allowed_title_candidates = list(unit.get("title_candidates") or [])
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -498,7 +554,16 @@ def _story_repair_targets(
             "missing_source_block_ids": list(missing_source_block_ids or []),
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
             "duplicate_page_ids": list(duplicate_page_ids or []),
-            "allowed_title_candidates": list(unit.get("title_candidates") or []),
+            "allowed_title_candidates": allowed_title_candidates,
+            "available_title_candidates": [
+                title
+                for title in allowed_title_candidates
+                if re.sub(r"\s+", "", str(title)).casefold()
+                not in normalized_forbidden_titles
+            ],
+            "duplicate_title": current_title if conflicting_page_ids else "",
+            "conflicting_page_ids": conflicting_page_ids,
+            "forbidden_titles": forbidden_titles,
         }
 
     failed_page_id = str(error.failure.page_id or "")
@@ -578,6 +643,17 @@ async def plan_slide_story_v3(
     }
     page_ordinal = 0
     for batch_index, request in enumerate(_story_requests(graph, template)):
+        request = {
+            **request,
+            "constraints": {
+                **request["constraints"],
+                "forbidden_titles": [
+                    page.title
+                    for accepted_batch in batches
+                    for page in accepted_batch.pages
+                ],
+            },
+        }
         batch_id = f"story-{batch_index + 1}"
         resumed = resumed_by_chapter.get(str(request["chapter_id"]))
         if resumed is not None:
