@@ -86,6 +86,7 @@ def compile_course_knowledge_base(
     invalid_relation_candidates: list[dict[str, Any]] = []
     unresolved_relation_candidates: list[dict[str, Any]] = []
     unresolved_reuse_candidates: list[dict[str, Any]] = []
+    waiting_review_entries: list[dict[str, Any]] = []
 
     point_by_name: dict[str, dict[str, Any]] = {}
     section_point_ids: dict[str, list[str]] = {}
@@ -192,7 +193,10 @@ def compile_course_knowledge_base(
                 group_point_ids[group_id].append(point_id)
                 section_ids.append(point_id)
 
-                point_skills = _compile_skills(course_id, point, raw_point, section_id, source_refs)
+                point_skills = _compile_skills(
+                    course_id, point, raw_point, section_id, source_refs,
+                    waiting_review_entries,
+                )
                 skill_units.extend(point_skills)
                 point_skill_ids = [str(item["skill_id"]) for item in point_skills]
                 misconceptions.extend(
@@ -203,6 +207,7 @@ def compile_course_knowledge_base(
                         point_skill_ids,
                         section_id,
                         source_refs,
+                        waiting_review_entries,
                     )
                 )
                 mastery_criteria.extend(
@@ -213,6 +218,7 @@ def compile_course_knowledge_base(
                         point_skill_ids,
                         section_id,
                         source_refs,
+                        waiting_review_entries,
                     )
                 )
                 _append_binding(
@@ -377,6 +383,7 @@ def compile_course_knowledge_base(
             "unresolved_relation_candidates": unresolved_relation_candidates,
             "unresolved_reuse_candidates": unresolved_reuse_candidates,
             "invalid_block_ref_candidates": invalid_block_ref_candidates,
+            "waiting_review_entries": waiting_review_entries,
             "title_fallback_used": False,
             "legacy_outline_sections": [
                 section_id
@@ -389,6 +396,7 @@ def compile_course_knowledge_base(
         "source_course_fingerprint": course_knowledge_source_fingerprint(course_data),
     }
     _attach_compatibility_projection(payload, section_point_ids, group_point_ids)
+    payload["capability_coverage_report"] = compile_capability_coverage_report(payload)
     payload["revision_id"] = _revision_id(payload, "ckbr_")
     quality = validate_course_knowledge_base(payload, course_data=course_data, library={})
     payload["quality_report"] = quality
@@ -403,6 +411,109 @@ def compile_course_knowledge_base(
             relation["revision_id"] = _revision_id(relation, "ckrelr_")
     payload["revision_id"] = _revision_id(payload, "ckbr_")
     return payload
+
+
+def compile_capability_coverage_report(payload: dict[str, Any]) -> dict[str, Any]:
+    """Report, per knowledge point, which of the three capability kinds landed.
+
+    The compiler already produced counts of what exists. What it never said is
+    what is *missing*: a knowledge point with no mastery criterion cannot be
+    assessed, and one with no misconception gives diagnosis nothing to match
+    against. Both compile cleanly and look fine in a total count, so the gap is
+    only visible if something computes it deliberately.
+
+    Combined with `generation_audit.waiting_review_entries`, this separates the
+    two causes a teacher would act on differently: `missing` means nothing was
+    generated, `waiting_review` means something was generated and rejected.
+    """
+    points = [item for item in payload.get("knowledge_points") or [] if isinstance(item, dict)]
+    # Each kind links back to its knowledge point differently: skills and
+    # misconceptions carry one primary id plus a secondary list, mastery
+    # criteria carry only a list. Reading the wrong field yields a report that
+    # says "0% covered" on a healthy course, so these names are load-bearing.
+    kinds = (
+        ("skill_units", "skill_unit", ("primary_knowledge_id", "supporting_knowledge_ids")),
+        ("misconceptions", "misconception", ("primary_knowledge_id", "related_knowledge_ids")),
+        ("mastery_criteria", "mastery_criterion", ("knowledge_ids",)),
+    )
+    owners: dict[str, set[str]] = {name: set() for name, _, _ in kinds}
+    for collection, _label, link_fields in kinds:
+        for entry in payload.get(collection) or []:
+            if not isinstance(entry, dict):
+                continue
+            for field in link_fields:
+                value = entry.get(field)
+                if isinstance(value, str):
+                    owners[collection].add(value)
+                else:
+                    for knowledge_id in value or []:
+                        owners[collection].add(str(knowledge_id))
+
+    waiting_by_point: dict[str, list[str]] = {}
+    for entry in (payload.get("generation_audit") or {}).get("waiting_review_entries") or []:
+        if isinstance(entry, dict):
+            waiting_by_point.setdefault(str(entry.get("knowledge_id") or ""), []).append(
+                str(entry.get("entry_type") or ""),
+            )
+
+    per_point: list[dict[str, Any]] = []
+    totals = {name: 0 for name, _, _ in kinds}
+    for point in points:
+        knowledge_id = str(point.get("knowledge_id") or "")
+        missing = [
+            label for name, label, _ in kinds if knowledge_id not in owners[name]
+        ]
+        for name, _, _ in kinds:
+            if knowledge_id in owners[name]:
+                totals[name] += 1
+        per_point.append({
+            "knowledge_id": knowledge_id,
+            "name": str(point.get("name") or ""),
+            "section_refs": list(point.get("section_refs") or []),
+            "has_skill_unit": knowledge_id in owners["skill_units"],
+            "has_misconception": knowledge_id in owners["misconceptions"],
+            "has_mastery_criterion": knowledge_id in owners["mastery_criteria"],
+            "missing_kinds": missing,
+            "waiting_review_kinds": sorted(set(waiting_by_point.get(knowledge_id) or [])),
+        })
+
+    total = len(points)
+    # Only a missing mastery criterion blocks the content stage. Without one
+    # there is no way to decide whether the point was learned, so generating
+    # content against it produces material nobody can assess. A missing skill
+    # unit or misconception degrades quality but still leaves a teachable,
+    # assessable point — blocking on all three would stop essentially every
+    # real course and the gate would get switched off. Entries sitting in
+    # `waiting_review` never block: something was generated, and a teacher
+    # reviewing it is a parallel activity, not a prerequisite.
+    blocking = sorted({
+        f"missing_{label}"
+        for item in per_point
+        for label in item["missing_kinds"]
+        if label == "mastery_criterion"
+    })
+    return {
+        "total_knowledge_points": total,
+        "covered": {
+            "skill_unit": totals["skill_units"],
+            "misconception": totals["misconceptions"],
+            "mastery_criterion": totals["mastery_criteria"],
+        },
+        "coverage_rate": {
+            "skill_unit": round(totals["skill_units"] / total, 4) if total else 0.0,
+            "misconception": round(totals["misconceptions"] / total, 4) if total else 0.0,
+            "mastery_criterion": round(totals["mastery_criteria"] / total, 4) if total else 0.0,
+        },
+        "points_missing_any": [
+            item["knowledge_id"] for item in per_point if item["missing_kinds"]
+        ],
+        "waiting_review_count": len(
+            (payload.get("generation_audit") or {}).get("waiting_review_entries") or []
+        ),
+        "ready_for_content": not blocking,
+        "blocking_reasons": blocking,
+        "per_point": per_point,
+    }
 
 
 def course_knowledge_source_fingerprint(course_data: dict[str, Any]) -> str:
@@ -768,6 +879,20 @@ def validate_course_knowledge_base(
 
     if (knowledge_base.get("generation_audit") or {}).get("invalid_relation_candidates"):
         issues.append(_issue("invalid_relation_candidates", "relations", "major", "已忽略六类白名单之外的知识关系候选"))
+    waiting = (knowledge_base.get("generation_audit") or {}).get("waiting_review_entries") or []
+    if waiting:
+        # `minor`: the rejected entries are genuinely out of the active set, so
+        # nothing downstream is wrong. What was wrong before was that they were
+        # invisible — a teacher could not tell "the model produced four bad
+        # misconceptions" from "the model produced none", though the two call
+        # for opposite fixes.
+        kinds = sorted({str(item.get("entry_type") or "") for item in waiting if isinstance(item, dict)})
+        issues.append(_issue(
+            "knowledge_entries_waiting_review",
+            "capability_coverage",
+            "minor",
+            f"{len(waiting)} 条能力包记录字段不全待复核（{'、'.join(kinds)}）",
+        ))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_relation_candidates"):
         issues.append(_issue("unresolved_relation_endpoints", "relations", "major", "已忽略端点无法解析的知识关系候选"))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_reuse_candidates"):
@@ -1288,12 +1413,58 @@ def _public_quality_summary(quality: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _record_waiting_review(
+    waiting_review: list[dict[str, Any]] | None,
+    *,
+    entry_type: str,
+    point: dict[str, Any],
+    section_id: str,
+    order: int,
+    standard: dict[str, Any],
+    raw_value: Any,
+    required: tuple[str, ...],
+) -> None:
+    """Record one entry that failed its completeness gate.
+
+    The gate itself stays — a misconception without a repair strategy cannot
+    drive remediation, so letting it through would be worse than dropping it.
+    What changes is that the drop is no longer invisible: the entry keeps its
+    原文, its owning knowledge point, and the exact fields it was missing, so a
+    teacher can tell "生成了但不合格" from "根本没生成". Those two situations
+    look identical in a filtered count and call for opposite responses.
+
+    `a|b` in `required` means "either field satisfies this requirement" —
+    misconceptions accept `observable_error_pattern` or `description`, and
+    mastery criteria fall back from `name` to `observable_performance`.
+    """
+    if waiting_review is None:
+        return
+    missing = [
+        requirement
+        for requirement in required
+        if not any(standard.get(field) for field in requirement.split("|"))
+    ]
+    name = str(standard.get("name") or "").strip()
+    waiting_review.append({
+        "entry_type": entry_type,
+        "knowledge_id": str(point.get("knowledge_id") or ""),
+        "knowledge_name": str(point.get("name") or ""),
+        "section_ref": section_id,
+        "order": order,
+        "name": name,
+        "missing_fields": missing,
+        "status": "waiting_review",
+        "payload": deepcopy(raw_value) if isinstance(raw_value, dict) else {"value": raw_value},
+    })
+
+
 def _compile_skills(
     course_id: str,
     point: dict[str, Any],
     raw_point: dict[str, Any],
     section_id: str,
     source_refs: list[str],
+    waiting_review: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     values = raw_point.get("capability_points") or []
     if not values and raw_point.get("capability"):
@@ -1306,6 +1477,16 @@ def _compile_skills(
         standard = _standard(value)
         name = standard["name"]
         if not name or not standard["observable_behavior"]:
+            _record_waiting_review(
+                waiting_review,
+                entry_type="skill_unit",
+                point=point,
+                section_id=section_id,
+                order=order,
+                standard=standard,
+                raw_value=value,
+                required=("name", "observable_behavior"),
+            )
             continue
         item = {
             "skill_id": _local_id(course_id, str(point["knowledge_id"]), "skill", name, "cks_"),
@@ -1332,6 +1513,7 @@ def _compile_misconceptions(
     point_skill_ids: list[str],
     section_id: str,
     source_refs: list[str],
+    waiting_review: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     result = []
     for order, value in enumerate(raw_point.get("misconceptions") or []):
@@ -1342,6 +1524,21 @@ def _compile_misconceptions(
             or not standard["discrimination"]
             or not standard["repair_strategy"]
         ):
+            _record_waiting_review(
+                waiting_review,
+                entry_type="misconception",
+                point=point,
+                section_id=section_id,
+                order=order,
+                standard=standard,
+                raw_value=value,
+                required=(
+                    "name",
+                    "observable_error_pattern|description",
+                    "discrimination",
+                    "repair_strategy",
+                ),
+            )
             continue
         item = {
             "misconception_id": _local_id(course_id, str(point["knowledge_id"]), "misconception", standard["name"], "ckm_"),
@@ -1371,6 +1568,7 @@ def _compile_mastery_criteria(
     point_skill_ids: list[str],
     section_id: str,
     source_refs: list[str],
+    waiting_review: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     result = []
     for order, value in enumerate(raw_point.get("mastery_criteria") or []):
@@ -1381,6 +1579,20 @@ def _compile_mastery_criteria(
             or not standard["observable_performance"]
             or not standard["verification_method"]
         ):
+            _record_waiting_review(
+                waiting_review,
+                entry_type="mastery_criterion",
+                point=point,
+                section_id=section_id,
+                order=order,
+                standard=standard,
+                raw_value=value,
+                required=(
+                    "name|observable_performance",
+                    "observable_performance",
+                    "verification_method",
+                ),
+            )
             continue
         item = {
             "criterion_id": _local_id(course_id, str(point["knowledge_id"]), "mastery", name, "ckmc_"),
