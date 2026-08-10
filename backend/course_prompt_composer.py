@@ -650,6 +650,12 @@ class CoursePromptComposer:
       }}, {{
         "source_key": "K002", "target_key": "K005",
         "relation_type": "applies_to", "reason": "K002 是解 K005 这类问题的方法"
+      }}, {{
+        "source_key": "K005", "target_key": "K006",
+        "relation_type": "equivalent_to", "reason": "同一结论的两种表述，给定条件下可互相推出（对称）"
+      }}, {{
+        "source_key": "K006", "target_key": "K001",
+        "relation_type": "generalizes", "reason": "K006 是一般情形，K001 是它在参数取特定值时的特例"
       }}],
       "teaching_modules": [{{
         "module_id": "core_explanation",

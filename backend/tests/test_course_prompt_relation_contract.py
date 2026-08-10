@@ -82,14 +82,27 @@ def test_constraints_state_the_two_required_fields() -> None:
     assert "丢弃" in constraints, "必须让模型知道缺字段会导致整条关系被丢弃"
 
 
-def test_example_covers_more_than_prerequisite() -> None:
-    """样例必须给出多种类型，否则模型只会照抄 prerequisite。"""
+def test_example_covers_all_six_relation_types() -> None:
+    """JSON 样例必须覆盖全部六类——这是实验结论，不是设计偏好。
+
+    lz-web-search 做了六次真实生成对照，同主题同规模下唯一变量是样例覆盖的
+    类数，产出类数随之变化：
+
+        样例 1 类 -> 产出 1 类（修复前）
+        样例 4 类 -> 产出 3 类（74b83906，FAIL）
+        样例 6 类 -> 产出 4 类（PASS，验收线 >= 4）
+
+    也就是说**模型跟 JSON 样例走，不跟散文枚举走**：`74b83906` 已经在约束里
+    点名了六类，但样例只给四类，样例外的两类在四次运行中一次都没出现过。
+    `generalizes` 尤其明显——不在样例时 0/4，补进样例后立刻出现。
+
+    所以这条断言锁的是"六类都在样例里"，比 `>= 4` 更严：退回 4 类会让真实
+    产出掉回 3 类，而验收线是 4。
+    """
     types = {item.get("relation_type") for item in _example_relations(_batch_prompt())}
 
-    assert "prerequisite" in types
-    assert "derives" in types
-    assert "contrasts_with" in types
-    assert len(types) >= 4, f"样例类型过少：{sorted(types)}"
+    missing = sorted(RELATION_TYPES - types)
+    assert missing == [], f"样例缺这些类型，实测会导致模型不产出它们：{missing}"
     assert types <= RELATION_TYPES, f"样例用了不存在的类型：{sorted(types - RELATION_TYPES)}"
 
 
