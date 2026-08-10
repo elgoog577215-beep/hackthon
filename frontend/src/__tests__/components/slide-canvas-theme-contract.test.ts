@@ -63,6 +63,34 @@ describe('SlideCanvas renderer theme contract', () => {
     expect(source).toContain('inset 0 .12cqw 0')
   })
 
+  it('ships complete authored assets and editable text-box styles for all five themes', () => {
+    const names = [
+      'qizhi-classroom',
+      'academic-editorial',
+      'grid-notebook',
+      'modern-geometric',
+      'dark-tech',
+    ] as const
+
+    for (const name of names) {
+      const theme = themePack.themes[name] as any
+      expect(Object.keys(theme.visual_assets)).toEqual(expect.arrayContaining([
+        'cover',
+        'chapter',
+        'recap',
+        'interior_content',
+        'interior_reasoning',
+        'interior_practice',
+        'interior_evidence',
+      ]))
+      expect(Object.keys(theme.text_box_styles)).toHaveLength(10)
+      expect(Object.keys(theme.semantic_layout_weights).length).toBeGreaterThanOrEqual(18)
+      expect(theme.template.reference_deck).toMatch(/\.pptx$/)
+    }
+    expect(source).toContain('data-template-rich')
+    expect(source).not.toContain('.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section')
+  })
+
   it('renders the Qizhi hero claim card with one accent rail', () => {
     const heroCardCss = cssVariables(
       '.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim',
