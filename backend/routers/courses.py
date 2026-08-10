@@ -271,9 +271,12 @@ async def retry_node(
     tm: TaskManager = Depends(require_task_manager),
 ):
     """Retry a failed or completed node."""
-    task_id = tm._find_active_task(course_id)
+    task_id = tm._find_retryable_task(course_id)
     if not task_id:
-        raise HTTPException(status_code=404, detail="No active task for this course")
+        raise HTTPException(
+            status_code=404,
+            detail="No retryable generation task for this course",
+        )
     await tm.retry_node(task_id, node_id)
     return {"status": "retry_scheduled"}
 

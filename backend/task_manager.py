@@ -236,7 +236,7 @@ LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
 DEFAULT_MAX_CONCURRENCY = 4
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
-QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.2"
+QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.3"
 
 # 内容完整性阈值（字符数）
 CONTENT_COMPLETE_THRESHOLD = 600
@@ -680,14 +680,50 @@ def fix_latex_content(content: str) -> str:
         inner = re.sub(r'\\\$', r'\\', inner)
         inner = re.sub(r'\\\s*$', r'\\', inner, flags=re.MULTILINE)
         inner = re.sub(r'\\\s*\n', r'\\\n', inner)
+        inner = inner.strip()
         
         return f'$$\n\\begin{{{env_name}}}\n{inner}\n\\end{{{env_name}}}\n$$'
     
+    display_envs = (
+        r'aligned|matrix|pmatrix|bmatrix|vmatrix|cases|'
+        r'eqnarray|gather|split'
+    )
     content = re.sub(
-        r'\\begin\{(aligned|matrix|pmatrix|bmatrix|vmatrix|cases|eqnarray|gather|split)\}(.*?)(?:\\end\{\1\}|$)',
+        rf'(?:(?m:^[ \t]*\$\$[ \t]*\r?\n))?'
+        rf'[ \t]*\\begin\{{({display_envs})\}}(.*?)'
+        rf'(?:\\end\{{\1\}}|$)'
+        rf'(?:[ \t]*\r?\n(?m:^[ \t]*\$\$[ \t]*$))?',
         fix_aligned_env,
         content,
         flags=re.DOTALL
+    )
+
+    # A numbered exercise sometimes opens display math on the same line and
+    # then places a cases/matrix environment inside it. Environment cleanup
+    # must merge those shells instead of producing three alternating fences.
+    list_wrapped_env = re.compile(
+        rf'(?ms)^([ \t]*(?:\d+[.)]|[-*+]))[ \t]+\$\$[ \t]*\r?\n'
+        rf'((?:(?!^[ \t]*\$\$[ \t]*$).)*?)'
+        rf'^[ \t]*\$\$[ \t]*\r?\n'
+        rf'[ \t]*(\\begin\{{(?:{display_envs})\}}.*?'
+        rf'\\end\{{(?:{display_envs})\}})[ \t]*\r?\n'
+        rf'^[ \t]*\$\$[ \t]*$',
+    )
+
+    def merge_list_wrapped_env(match: re.Match[str]) -> str:
+        marker = match.group(1)
+        prefix = match.group(2).strip()
+        environment = match.group(3).strip()
+        return f'{marker}\n\n   $$\n{prefix}\n{environment}\n   $$'
+
+    content = list_wrapped_env.sub(merge_list_wrapped_env, content)
+
+    # Keep display delimiters on their own lines inside list items so Markdown
+    # renderers do not interpret ``1. $$`` as literal prose.
+    content = re.sub(
+        r'(?m)^([ \t]*(?:\d+[.)]|[-*+]))[ \t]+\$\$[ \t]*$',
+        lambda match: f'{match.group(1)}\n\n   $$',
+        content,
     )
     
     content = re.sub(r'\\\[(.+?)\\\]', r'\n$$\n\1\n$$\n', content, flags=re.DOTALL)
@@ -698,6 +734,89 @@ def fix_latex_content(content: str) -> str:
         lambda match: f'${match.group(1).strip()}$',
         content,
     )
+
+    content = re.sub(
+        r'(?m)^[ \t]*\$\$[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*\$\$[ \t]*(?:\r?\n|$)',
+        '',
+        content,
+    )
+
+    # A common streamed shape is a display prefix followed by a cases block:
+    #
+    #   $$
+    #   f(x)=
+    #   $$
+    #   \begin{cases} ... \end{cases}
+    #   $$
+    #
+    # Fence parity alone cannot detect this: another malformed formula later
+    # in the document can make the total number of fences even.  Join the
+    # prefix and environment into one display before counting boundaries.
+    split_display_env = re.compile(
+        rf'(?ms)^([ \t]*\$\$[ \t]*\r?\n)'
+        rf'((?:(?!^[ \t]*\$\$[ \t]*$|\r?\n[ \t]*\r?\n).)+?)'
+        rf'^[ \t]*\$\$[ \t]*\r?\n'
+        rf'[ \t]*(\\begin\{{({display_envs})\}}.*?\\end\{{\4\}})'
+        rf'[ \t]*\r?\n^[ \t]*\$\$[ \t]*$',
+    )
+
+    def merge_split_display_env(match: re.Match[str]) -> str:
+        opener = match.group(1).rstrip()
+        prefix = match.group(2).strip()
+        environment = match.group(3).strip()
+        # If the text between the fences is ordinary prose, the first fence is
+        # the previous formula's closer and the second one is the environment's
+        # opener.  Leave that valid boundary intact.  Actual equation prefixes
+        # such as ``f(x)=`` and ``\lim_{x\to0}`` contain no prose/list markers.
+        if (
+            re.search(r'[\u3400-\u9fff]', prefix)
+            or re.search(r'(?m)^[ \t]*(?:[-*+]|\d+[.)、])[ \t]+', prefix)
+            or re.search(r'(?<!\$)\$(?!\$)', prefix)
+        ):
+            return match.group(0)
+        return f'{opener}\n{prefix}\n{environment}\n$$'
+
+    content = split_display_env.sub(merge_split_display_env, content)
+
+    # Empty-shell cleanup can expose an environment that originally had two
+    # contradictory fence pairs around it.  Perform one structural pass over
+    # the remaining environments and wrap only those that are genuinely
+    # outside display math.  Code fences are excluded and outer environments
+    # are matched as one block, so nested LaTeX is not double-wrapped.
+    code_spans = [
+        match.span()
+        for match in re.finditer(r'(?ms)^\s*```.*?^\s*```[^\n]*$', content)
+    ]
+
+    def position_in_code_fence(position: int) -> bool:
+        return any(start <= position < end for start, end in code_spans)
+
+    env_block = re.compile(
+        rf'\\begin\{{({display_envs})\}}.*?\\end\{{\1\}}',
+        flags=re.DOTALL,
+    )
+    unwrapped_envs: list[tuple[int, int, str]] = []
+    for match in env_block.finditer(content):
+        if position_in_code_fence(match.start()):
+            continue
+        preceding_fences = sum(
+            1
+            for fence in re.finditer(r'(?<!\\)\$\$', content[:match.start()])
+            if not position_in_code_fence(fence.start())
+        )
+        if preceding_fences % 2:
+            continue
+        end = match.end()
+        trailing_fence = re.match(
+            r'[ \t]*\r?\n[ \t]*\$\$[ \t]*(?=\r?\n|$)',
+            content[end:],
+        )
+        if trailing_fence:
+            end += trailing_fence.end()
+        replacement = f'$$\n{match.group(0).strip()}\n$$'
+        unwrapped_envs.append((match.start(), end, replacement))
+    for start, end, replacement in reversed(unwrapped_envs):
+        content = f'{content[:start]}{replacement}{content[end:]}'
 
     # A streamed model can stop after opening a display formula. Repair the
     # smallest deterministic boundary here, before the node is marked complete,
@@ -726,8 +845,64 @@ def fix_latex_content(content: str) -> str:
     content = "\n".join(lines)
     if display_fence_count % 2:
         content = f"{content.rstrip()}\n$$\n"
-    
-    return content
+
+    # A stray terminal fence followed by the deterministic closing fence can
+    # form an empty display pair. Remove it in the same pass so a second call
+    # cannot change already-persisted content.
+    content = re.sub(
+        r'(?m)^[ \t]*\$\$[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*\$\$[ \t]*(?:\r?\n|$)',
+        '',
+        content,
+    )
+    return content.rstrip()
+
+
+def generated_node_requires_manual_review(
+    node: dict[str, Any],
+    quality: dict[str, Any],
+) -> bool:
+    """Derive review state from the final attempt instead of stale retries."""
+    runtime = node.get("generation_runtime") or {}
+    generation_source = str(runtime.get("generation_source") or "")
+    if not generation_source:
+        return bool(node.get("needs_manual_review"))
+    has_critical_issue = any(
+        str(issue.get("severity") or "") == "critical"
+        for issue in quality.get("issues") or []
+        if isinstance(issue, dict)
+    )
+    return bool(
+        generation_source != "model"
+        or node.get("citation_invalid_refs")
+        or node.get("grounding_invalid_refs")
+        or has_critical_issue
+        or not quality.get("passed", False)
+    )
+
+
+def normalize_generated_course_syntax(
+    course_data: dict[str, Any],
+) -> list[str]:
+    """Apply deterministic Markdown/LaTeX repair to completed L2 sections."""
+    normalized_node_ids: list[str] = []
+    for node in course_data.get("nodes") or []:
+        if int(node.get("node_level") or 1) != 2:
+            continue
+        original_content = str(node.get("node_content") or "")
+        if not original_content.strip():
+            continue
+        fixed_content = fix_latex_content(original_content)
+        if fixed_content == original_content:
+            continue
+        node.pop("content_blocks", None)
+        set_node_content_blocks(node, fixed_content)
+        node["generated_chars"] = len(str(node.get("node_content") or ""))
+        node["generation_quality"] = evaluate_node_content(
+            str(node.get("node_content") or ""),
+            node,
+        )
+        normalized_node_ids.append(str(node.get("node_id") or ""))
+    return [node_id for node_id in normalized_node_ids if node_id]
 
 
 class TaskManager:
@@ -1934,6 +2109,29 @@ class TaskManager:
             task["blueprint_revision_id"] = revision
         else:
             if step == "release":
+                normalized_node_ids = normalize_generated_course_syntax(
+                    course_data
+                )
+                if normalized_node_ids:
+                    content_state = guided_step_state(workflow, "content")
+                    content_state["artifact_revision"] = guided_artifact_revision(
+                        "content",
+                        course_data,
+                        request=task.get("request_snapshot") or {},
+                    )
+                    content_state["confirmed_at"] = datetime.now().isoformat()
+                    release_state = guided_step_state(workflow, "release")
+                    release_state["input_revisions"] = (
+                        guided_expected_input_revisions(workflow, "release")
+                    )
+                    course_data.setdefault(
+                        "generation_stage_artifacts",
+                        {},
+                    )["release_syntax_normalization"] = {
+                        "status": "completed",
+                        "normalized_node_ids": normalized_node_ids,
+                        "normalized_node_count": len(normalized_node_ids),
+                    }
                 # The publish gate is a decision made NOW: recompute the
                 # source-chain report at confirm time instead of trusting a
                 # snapshot stored by an earlier (possibly older) run.
@@ -3259,6 +3457,17 @@ class TaskManager:
         blockers: list[dict[str, Any]] = []
         scopes: set[str] = set()
         supported = bool(issues)
+        content_nodes = [
+            node
+            for node in course_data.get("nodes") or []
+            if int(node.get("node_level") or 1) == 2
+        ]
+        content_checkpoint_complete = bool(content_nodes) and all(
+            str(node.get("generation_status") or "")
+            in {NodeStatus.COMPLETED.value, NodeStatus.SKIPPED.value}
+            and bool(str(node.get("node_content") or "").strip())
+            for node in content_nodes
+        )
         for issue in issues:
             code = str(issue.get("code") or issue.get("issue_id") or "quality:unknown")
             target_id = str(
@@ -3275,6 +3484,8 @@ class TaskManager:
                 and course_data.get("course_outline_revision_id")
             ):
                 scopes.add("confirmed_outline_snapshot")
+            elif code == "content_revision_mismatch" and content_checkpoint_complete:
+                scopes.add("content_candidate")
             elif is_asset and str(issue.get("asset_type") or "questions") == "questions":
                 scopes.add("learning_assets")
             else:
@@ -3321,6 +3532,7 @@ class TaskManager:
         order = [
             "difficulty_contract",
             "confirmed_outline_snapshot",
+            "content_candidate",
             "learning_assets",
             "manual_review",
         ]
@@ -4510,6 +4722,18 @@ class TaskManager:
             if node.get("node_id") == node_id:
                 node["generation_status"] = NodeStatus.PENDING.value
                 node["error_summary"] = None
+                node["node_content"] = ""
+                node.pop("node_content_draft", None)
+                node.pop("content_blocks", None)
+                node.pop("generated_chars", None)
+                node.pop("generation_runtime", None)
+                node.pop("generation_quality", None)
+                node.pop("needs_manual_review", None)
+                node.pop("grounding_annotations", None)
+                node.pop("grounding_invalid_refs", None)
+                node.pop("citation_map", None)
+                node.pop("source_cards", None)
+                node.pop("citation_invalid_refs", None)
                 target_node = node
                 break
 
@@ -4546,6 +4770,21 @@ class TaskManager:
             # for the initial generation run.
             fresh_course = self._load_task_course(task_id)
             if fresh_course is not None:
+                # The node changed after the content candidate and its guided
+                # revision were frozen. Force the candidate/asset projection to
+                # be rebuilt and refresh the confirmed content revision before
+                # source-chain validation; otherwise a successful terminal
+                # retry is guaranteed to fail with content_revision_mismatch.
+                current_task = self.tasks.get(task_id) or {}
+                current_task["quality_repair_requested"] = True
+                current_task["quality_repair_scopes"] = ["content_retry"]
+                content_candidate = (
+                    fresh_course.setdefault("generation_stage_artifacts", {})
+                    .setdefault("content_candidate", {})
+                )
+                content_candidate["status"] = "stale_after_node_retry"
+                content_candidate["stale_node_ids"] = [node_id]
+                await self._save_task_course(task_id, fresh_course)
                 await self._complete_task(task_id, fresh_course)
 
         node_task = asyncio.create_task(_run_and_finalize())
@@ -6258,6 +6497,35 @@ class TaskManager:
                 for node in fresh_course.get("nodes") or []
                 if int(node.get("node_level") or 1) == 2
             ]
+            normalized_section_count = 0
+            content_cleaner = getattr(
+                self.course_service,
+                "clean_response_text",
+                None,
+            )
+            for node in generated_nodes:
+                if (
+                    not self._is_content_complete(node)
+                    or not callable(content_cleaner)
+                ):
+                    continue
+                original_content = str(node.get("node_content") or "")
+                normalized_content = content_cleaner(original_content)
+                if normalized_content == original_content:
+                    continue
+                # Re-normalize every completed section after the scheduler has
+                # settled so resumed sections generated by an older worker get
+                # the same deterministic syntax repair as newly generated ones.
+                node.pop("content_blocks", None)
+                set_node_content_blocks(node, normalized_content)
+                node["generated_chars"] = len(
+                    str(node.get("node_content") or "")
+                )
+                node["generation_quality"] = evaluate_node_content(
+                    str(node.get("node_content") or ""),
+                    node,
+                )
+                normalized_section_count += 1
             runtimes = [
                 node.get("generation_runtime") or {}
                 for node in generated_nodes
@@ -6302,6 +6570,9 @@ class TaskManager:
                 "total_prompt_tokens": sum(
                     int(item.get("estimated_input_tokens") or 0)
                     for item in runtimes
+                ),
+                "post_generation_normalized_section_count": (
+                    normalized_section_count
                 ),
             })
             await self._save_task_course(task_id, fresh_course)
@@ -7810,6 +8081,7 @@ class TaskManager:
                     },
                 )
 
+        normalize_generated_course_syntax(fresh_course)
         for node in fresh_course.get("nodes") or []:
             if (
                 int(node.get("node_level") or 1) == 2
@@ -7817,6 +8089,21 @@ class TaskManager:
                 and not node.get("content_blocks")
             ):
                 set_node_content_blocks(node, str(node.get("node_content") or ""))
+            runtime = node.get("generation_runtime") or {}
+            generation_source = str(runtime.get("generation_source") or "")
+            if int(node.get("node_level") or 1) != 2 or not generation_source:
+                continue
+            quality = node.get("generation_quality") or evaluate_node_content(
+                str(node.get("node_content") or ""),
+                node,
+            )
+            node["generation_quality"] = quality
+            # A prior failed/fallback attempt must not leave a stale manual
+            # review flag after a later model retry has produced a clean node.
+            node["needs_manual_review"] = generated_node_requires_manual_review(
+                node,
+                quality,
+            )
 
         coherence_report = evaluate_course_coherence(fresh_course)
         fresh_course["course_coherence_contract"] = compile_course_coherence_contract(
@@ -8564,6 +8851,33 @@ class TaskManager:
             candidates.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
             return candidates[0]["id"]
         return None
+
+    def _find_retryable_task(self, course_id: str) -> str | None:
+        """Find the active or latest durable generation task for node retry."""
+        active_task_id = self._find_active_task(course_id)
+        if active_task_id:
+            return active_task_id
+        candidates = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id
+            and task.get("type") == "course_generation"
+            and task.get("status")
+            in {"completed", "completed_with_warnings", "failed", "error"}
+            and task.get("workspace_id")
+        ]
+        if not candidates:
+            return None
+        candidates.sort(
+            key=lambda item: str(item.get("updated_at") or ""),
+            reverse=True,
+        )
+        task_id = str(
+            candidates[0].get("id")
+            or candidates[0].get("task_id")
+            or ""
+        )
+        return task_id or None
 
     @staticmethod
     def _find_node_name(course_data: dict, node_id: str) -> str:

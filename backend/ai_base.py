@@ -46,6 +46,10 @@ from ai_provider_route import (
     record_fallback_switch,
     record_primary_recovered,
 )
+from codex_local_provider import (
+    CodexLocalProvider,
+    CodexLocalProviderError,
+)
 
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
@@ -64,10 +68,15 @@ logger = logging.getLogger(__name__)
 # API密钥存在性检查（不记录密钥内容）
 _api_key_present = bool(os.getenv("AI_API_KEY"))
 _modelscope_fallback_key_present = bool(os.getenv("MODELSCOPE_API_KEY"))
+_codex_local_enabled_present = str(
+    os.getenv("AI_CODEX_LOCAL_ENABLED") or ""
+).strip().casefold() in {"1", "true", "yes", "on"}
 if _api_key_present:
     logger.info("AI_API_KEY loaded successfully")
 elif _modelscope_fallback_key_present:
     logger.info("Primary AI key is absent; ModelScope fallback is configured")
+elif _codex_local_enabled_present:
+    logger.info("Development-only local Codex provider is enabled")
 else:
     logger.error("No AI provider credentials found in environment variables")
 
@@ -131,6 +140,7 @@ class AIBase:
 
     def __init__(self):
         # 通过环境变量配置 API 密钥
+        self.codex_local = CodexLocalProvider.from_environment()
         self.api_key = os.getenv("AI_API_KEY")
         self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
         self.modelscope_fallback_api_key = os.getenv("MODELSCOPE_API_KEY")
@@ -217,9 +227,10 @@ class AIBase:
             )
         else:
             self.client = None
-            logger.warning(
-                "Primary AI_API_KEY is not configured; primary route disabled"
-            )
+            if not self.codex_local.configured:
+                logger.warning(
+                    "Primary AI_API_KEY is not configured; primary route disabled"
+                )
 
         if self.modelscope_fallback_api_key:
             self.modelscope_fallback_client = AsyncOpenAI(
@@ -517,7 +528,98 @@ class AIBase:
         return "transient"
 
     def provider_capacity_snapshot(self) -> dict:
-        return get_provider_capacity_controller(self.api_base).snapshot()
+        endpoint = (
+            "codex-local://account"
+            if self.codex_local.enabled
+            else self.api_base
+        )
+        return get_provider_capacity_controller(endpoint).snapshot()
+
+    async def _codex_local_provider_preflight(
+        self,
+        *,
+        live_probe: bool,
+    ) -> dict:
+        started = time.monotonic()
+        route = self.codex_local.route_projection()
+        issues = [{
+            "code": "codex_local_development_only",
+            "severity": "warning",
+            "scope": "provider",
+            "message": "当前使用本机 Codex 登录态，仅用于研发和完整课程验收。",
+            "action": "可以继续测试，但不能把它视为正式生产模型凭据。",
+            "item_id": "",
+        }]
+        if not self.codex_local.configured:
+            issues.append({
+                "code": "codex_local_not_configured",
+                "severity": "blocking",
+                "scope": "provider",
+                "message": "本机 Codex 生成通道没有找到可执行程序或登录态。",
+                "action": "确认 Codex 已安装并完成登录后重试。",
+                "item_id": "",
+            })
+
+        ttl = max(5.0, float(os.getenv("AI_PREFLIGHT_CACHE_SECONDS", "60")))
+        if live_probe and self._generation_preflight_cache:
+            expires_at, cached = self._generation_preflight_cache
+            if expires_at > time.monotonic():
+                result = deepcopy(cached)
+                result["duration_ms"] = round(
+                    (time.monotonic() - started) * 1000
+                )
+                return result
+
+        probe_status = "configuration_only"
+        if live_probe and self.codex_local.configured:
+            try:
+                response, _telemetry = await self.codex_local.complete(
+                    "Reply with OK only.",
+                    "This is a provider health probe.",
+                    use_fast_model=True,
+                    json_mode=False,
+                    max_tokens=8,
+                    max_attempts=1,
+                )
+                if not str(response or "").strip():
+                    raise CodexLocalProviderError(
+                        "codex_local_empty_preflight_response"
+                    )
+                probe_status = "passed"
+                route["health"] = "ready"
+            except Exception as exc:
+                probe_status = "failed"
+                route["health"] = "failed"
+                issues.append({
+                    "code": "codex_local_probe_failed",
+                    "severity": "blocking",
+                    "scope": "provider",
+                    "message": "本机 Codex 没有通过最小生成探测。",
+                    "action": (
+                        "检查登录态和本机运行状态后重试"
+                        f"（{type(exc).__name__}）。"
+                    ),
+                    "item_id": "",
+                })
+        result = {
+            "status": (
+                "blocked"
+                if any(item.get("severity") == "blocking" for item in issues)
+                else "degraded"
+            ),
+            "probe_status": probe_status,
+            "active_route": "codex_local",
+            "duration_ms": round((time.monotonic() - started) * 1000),
+            "routes": [route],
+            "capacity": self.provider_capacity_snapshot(),
+            "issues": issues,
+        }
+        if live_probe and probe_status == "passed":
+            self._generation_preflight_cache = (
+                time.monotonic() + ttl,
+                deepcopy(result),
+            )
+        return result
 
     async def generation_provider_preflight(
         self,
@@ -525,6 +627,11 @@ class AIBase:
         live_probe: bool = True,
     ) -> dict:
         """Validate the provider route before a durable course job exists."""
+
+        if self.codex_local.enabled:
+            return await self._codex_local_provider_preflight(
+                live_probe=live_probe
+            )
 
         started = time.monotonic()
         routes = [
@@ -1050,6 +1157,16 @@ class AIBase:
         
         # 2. 转换行内公式标记
         text = re.sub(r'\\\((.*?)\\\)', r'$\1$', text, flags=re.DOTALL)
+
+        # A model can emit an empty display shell immediately around a real
+        # display environment, for example ``$$\n$$\n\\begin{cases}``.  Remove
+        # only whitespace-only display pairs; adjacent non-empty equations are
+        # intentionally left untouched.
+        text = re.sub(
+            r'(?m)^[ \t]*\$\$[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*\$\$[ \t]*(?:\r?\n|$)',
+            '',
+            text,
+        )
         
         # 3. 确保复杂环境被 $$ 包裹
         envs = r"matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|equation|equation\*|cases|gather|gather\*|alignat|alignat\*"
@@ -1502,6 +1619,128 @@ class AIBase:
             raise AIProviderRequestError(str(last_error)) from last_error
         raise AIProviderRequestError("ModelScope fallback has no available model")
 
+    async def _call_codex_local(
+        self,
+        prompt: str,
+        system_prompt: str,
+        *,
+        use_fast_model: bool,
+        json_mode: bool,
+        max_tokens: int | None,
+        max_attempts: int | None,
+        on_stream_activity: Callable[[], None] | None,
+        telemetry_sink: Callable[[dict], None] | None,
+    ) -> str:
+        started = time.perf_counter()
+        endpoint = "codex-local://account"
+        model_id = self.codex_local.model_label
+        capacity = get_provider_capacity_controller(endpoint)
+        queue_started = time.perf_counter()
+        lease = await capacity.acquire(
+            model_id,
+            on_wait_activity=on_stream_activity,
+        )
+        queue_wait_ms = int(round(
+            (time.perf_counter() - queue_started) * 1000
+        ))
+        liveness_task: asyncio.Task | None = None
+
+        async def _report_process_liveness() -> None:
+            # `codex exec` only exposes the final assistant message, so the
+            # normal token-stream callback cannot fire while the local process
+            # is reasoning. Keep the workflow's inactivity watchdog informed
+            # that the bounded child process is still alive; the provider's
+            # own wall-clock timeout remains the hard stop.
+            interval = max(
+                1.0,
+                min(
+                    15.0,
+                    self.codex_local.timeout_seconds / 4,
+                ),
+            )
+            while True:
+                await asyncio.sleep(interval)
+                if on_stream_activity:
+                    on_stream_activity()
+
+        try:
+            if on_stream_activity:
+                on_stream_activity()
+                liveness_task = asyncio.create_task(
+                    _report_process_liveness()
+                )
+            output, provider_telemetry = await self.codex_local.complete(
+                prompt,
+                system_prompt,
+                use_fast_model=use_fast_model,
+                json_mode=json_mode,
+                max_tokens=max_tokens or self.max_tokens,
+                max_attempts=max_attempts,
+            )
+            await capacity.report_success(model_id)
+            if on_stream_activity:
+                on_stream_activity()
+            if telemetry_sink is not None:
+                telemetry_sink({
+                    "model_id": model_id,
+                    "model_role": "codex_local",
+                    "provider_attempt": int(
+                        provider_telemetry.get("attempts") or 1
+                    ),
+                    "physical_request_count": int(
+                        provider_telemetry.get("attempts") or 1
+                    ),
+                    "status": "completed",
+                    "error_code": "",
+                    "queue_wait_ms": queue_wait_ms,
+                    "duration_ms": int(round(
+                        (time.perf_counter() - started) * 1000
+                    )),
+                    "estimated_input_tokens": self.estimate_request_tokens(
+                        prompt,
+                        system_prompt,
+                    ),
+                    "estimated_output_tokens": self.estimate_request_tokens(
+                        output,
+                        "",
+                    ),
+                })
+            return output
+        except Exception as exc:
+            await capacity.report_failure(
+                model_id,
+                failure_kind="transient",
+            )
+            if telemetry_sink is not None:
+                telemetry_sink({
+                    "model_id": model_id,
+                    "model_role": "codex_local",
+                    "provider_attempt": 1,
+                    "physical_request_count": 1,
+                    "status": "failed",
+                    "error_code": type(exc).__name__,
+                    "queue_wait_ms": queue_wait_ms,
+                    "duration_ms": int(round(
+                        (time.perf_counter() - started) * 1000
+                    )),
+                    "estimated_input_tokens": self.estimate_request_tokens(
+                        prompt,
+                        system_prompt,
+                    ),
+                    "estimated_output_tokens": 0,
+                })
+            if isinstance(exc, AIProviderRequestError):
+                raise
+            raise AIProviderRequestError(str(exc)) from exc
+        finally:
+            if liveness_task is not None:
+                liveness_task.cancel()
+                try:
+                    await liveness_task
+                except asyncio.CancelledError:
+                    pass
+            await lease.release()
+
     async def _call_llm(
         self,
         prompt: str,
@@ -1553,6 +1792,26 @@ class AIBase:
             max_input_tokens,
             max_input_chars,
         )
+        if self.codex_local.enabled:
+            try:
+                return await self._call_codex_local(
+                    prompt,
+                    system_prompt,
+                    use_fast_model=use_fast_model,
+                    json_mode=json_mode,
+                    max_tokens=max_tokens,
+                    max_attempts=(
+                        min(retry_count, max_attempts)
+                        if max_attempts is not None
+                        else retry_count
+                    ),
+                    on_stream_activity=on_stream_activity,
+                    telemetry_sink=telemetry_sink,
+                )
+            except Exception:
+                if raise_on_failure:
+                    raise
+                return None
         if not self.api_key and not self.modelscope_fallback_api_key:
             if raise_on_failure:
                 raise AIProviderUnavailable("not_configured")
@@ -1864,6 +2123,19 @@ class AIBase:
             max_input_tokens,
             max_input_chars,
         )
+        if self.codex_local.enabled:
+            output = await self._call_codex_local(
+                prompt,
+                system_prompt,
+                use_fast_model=use_fast_model,
+                json_mode=False,
+                max_tokens=max_tokens,
+                max_attempts=max_attempts or 1,
+                on_stream_activity=on_stream_activity,
+                telemetry_sink=None,
+            )
+            yield output
+            return
         if not self.api_key and not self.modelscope_fallback_api_key:
             raise AIProviderUnavailable("not_configured")
         if (

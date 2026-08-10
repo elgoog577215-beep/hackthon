@@ -344,6 +344,77 @@ def compile_course_knowledge_graph_draft(
     return draft
 
 
+def restore_teaching_plan_skeleton_from_graph_draft(
+    graph_draft: dict[str, Any],
+    *,
+    outline_revision_id: str,
+) -> dict[str, Any]:
+    """Recover the exact frozen skeleton from its durable graph projection.
+
+    A process interruption can leave the mutable teaching-stage skeleton at a
+    partial shard while the already frozen knowledge graph and accepted model
+    batches are still intact. The graph projection preserves every identity,
+    owner, reuse binding, module binding and prerequisite edge needed to
+    reconstruct the skeleton. Only return it when the deterministic revision
+    matches the graph's recorded source revision; otherwise callers must
+    regenerate instead of guessing identities.
+    """
+    if not isinstance(graph_draft, dict):
+        return {}
+    if (
+        graph_draft.get("schema_version")
+        != "course_knowledge_graph_draft_v1"
+        or graph_draft.get("status") != "identity_frozen"
+        or graph_draft.get("source_outline_revision_id")
+        != outline_revision_id
+    ):
+        return {}
+    source_revision = str(
+        graph_draft.get("source_skeleton_revision_id") or ""
+    )
+    if not source_revision:
+        return {}
+
+    prerequisite_keys: dict[str, list[str]] = {}
+    for edge in graph_draft.get("edges") or []:
+        if not isinstance(edge, dict):
+            continue
+        if (
+            edge.get("relation_type") != "prerequisite"
+            or edge.get("direction") != "source_before_target"
+        ):
+            continue
+        source = str(edge.get("source_knowledge_key") or "")
+        target = str(edge.get("target_knowledge_key") or "")
+        if source and target:
+            prerequisite_keys.setdefault(target, []).append(source)
+
+    restored = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [{
+            "knowledge_key": str(node.get("knowledge_key") or ""),
+            "name": str(node.get("name") or ""),
+            "statement": str(node.get("statement") or ""),
+            "owner_node_id": str(node.get("owner_node_id") or ""),
+            "reused_in_node_ids": list(
+                node.get("reused_in_node_ids") or []
+            ),
+            "prerequisite_keys": prerequisite_keys.get(
+                str(node.get("knowledge_key") or ""),
+                [],
+            ),
+            "module_ids": list(node.get("module_ids") or []),
+        } for node in graph_draft.get("nodes") or [] if isinstance(node, dict)],
+        "sections": [
+            binding
+            for binding in graph_draft.get("section_bindings") or []
+            if isinstance(binding, dict)
+        ],
+    }, outline_revision_id=outline_revision_id)
+    if restored.get("revision_id") != source_revision:
+        return {}
+    return restored
+
+
 def _knowledge_graph_topology(
     knowledge_keys: list[str],
     edges: list[dict[str, Any]],

@@ -81,6 +81,33 @@
       }
     },
     {
+      "id": "calculus_4x8",
+      "discipline": "mathematics",
+      "expected_chapters": 4,
+      "expected_sections": 8,
+      "material_files": [],
+      "request": {
+        "subject": "一元微积分：从极限、导数到积分基本定理与应用",
+        "course_type": "systematic",
+        "difficulty": "intermediate",
+        "pedagogy_mode": "math_formal",
+        "assessment_generation_profile": "fast",
+        "requirements": "面向大学一年级完整覆盖函数与极限、连续性、导数定义与运算、导数应用、黎曼和、定积分、微积分基本定理及积分应用。每节必须包含定义条件、几何与变化率解释、至少一个完整例题、一个常见易错点及可观察形成性评价；禁止把导数仅写成公式、把定积分等同于无条件正面积，必须说明定理适用条件。",
+        "target_audience": "已掌握高中代数、函数与三角函数的大学一年级学生",
+        "teacher_course_brief": {
+          "schema_version": "teacher_course_brief_v1",
+          "target_audience": "大学一年级学生",
+          "academic_term": "大一上学期",
+          "total_class_hours": 8,
+          "lesson_duration_minutes": 45,
+          "teaching_context": "classroom",
+          "chapter_count": 4,
+          "section_count": 8
+        },
+        "retrieval": {"enabled": false}
+      }
+    },
+    {
       "id": "science_material_4x12",
       "discipline": "natural_science",
       "expected_chapters": 4,

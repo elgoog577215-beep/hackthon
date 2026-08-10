@@ -448,7 +448,7 @@ async def test_repair_policy_upgrade_allows_one_retry_of_legacy_quality_failure(
     assert recovery["quality_failure"]["repeat_count"] == 1
     assert (
         recovery["quality_failure"]["repair_policy_version"]
-        == "quality_repair_v2.2"
+        == "quality_repair_v2.3"
     )
 
 
@@ -476,6 +476,36 @@ def test_quality_failure_summary_includes_source_chain_blockers():
     assert summary["repair_scopes"] == ["manual_review"]
     assert summary["supported"] is False
     assert summary["blockers"][0]["code"] == "requirements_revision_mismatch"
+
+
+def test_completed_content_revision_mismatch_uses_candidate_repair_scope():
+    summary = TaskManager._quality_failure_summary({
+        "nodes": [{
+            "node_id": "L2-1-1",
+            "node_level": 2,
+            "node_content": "已完成且需要重新冻结修订的正文",
+            "generation_status": "completed",
+        }],
+        "generation_quality_report": {
+            "final_status": "completed_with_warnings",
+            "blocking_issues": [],
+        },
+        "asset_quality_report": {
+            "passed": True,
+            "blocking_issues": [],
+        },
+        "generation_source_chain_report": {
+            "can_publish": False,
+            "issues": [{
+                "code": "content_revision_mismatch",
+                "step": "content",
+                "message": "content no longer matches its confirmed revision",
+            }],
+        },
+    })
+
+    assert summary["supported"] is True
+    assert summary["repair_scopes"] == ["content_candidate"]
 
 
 def test_missing_practice_slots_are_included_in_targeted_repair():

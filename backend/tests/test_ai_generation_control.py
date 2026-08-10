@@ -12,7 +12,12 @@ from generation_workspace import GenerationWorkspaceNotFound, GenerationWorkspac
 from learning_asset_storage import LearningAssetRepository
 from material_storage import MaterialRepository
 from course_generation_budget import CourseGenerationDeadlineExceeded
-from task_manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
+from task_manager import (
+    DEFAULT_MAX_CONCURRENCY,
+    TaskManager,
+    TaskStateConflict,
+    generated_node_requires_manual_review,
+)
 from websocket_service import WebSocketService
 
 
@@ -115,6 +120,27 @@ def test_task_manager_uses_provider_safe_default_concurrency():
     assert manager.max_concurrency == 4
 
 
+def test_model_retry_clears_stale_manual_review_state():
+    node = {
+        "needs_manual_review": True,
+        "generation_runtime": {"generation_source": "model"},
+        "citation_invalid_refs": [],
+        "grounding_invalid_refs": [],
+    }
+
+    assert generated_node_requires_manual_review(
+        node,
+        {"passed": True, "issues": []},
+    ) is False
+    node["generation_runtime"]["generation_source"] = (
+        "deterministic_local_fallback"
+    )
+    assert generated_node_requires_manual_review(
+        node,
+        {"passed": True, "issues": []},
+    ) is True
+
+
 @pytest.mark.asyncio
 async def test_course_jobs_respect_global_course_concurrency():
     manager = TaskManager(
@@ -172,6 +198,66 @@ async def test_pause_rejects_missing_and_terminal_tasks():
     assert exc_info.value.status == "completed"
 
 
+@pytest.mark.asyncio
+async def test_retry_completed_node_discards_stale_content_blocks(
+    tmp_path,
+    monkeypatch,
+):
+    manager = await _durable_generation_manager(
+        tmp_path,
+        monkeypatch,
+        status="completed_with_warnings",
+    )
+    course = manager._load_task_course("t1")
+    course["nodes"][0].update({
+        "generation_status": "completed",
+        "node_content": "旧正文",
+        "node_content_draft": "旧草稿",
+        "content_blocks": [{"block_id": "old-block", "content": "旧正文"}],
+        "generated_chars": 3,
+        "generation_runtime": {"generation_source": "deterministic_local_fallback"},
+        "generation_quality": {"passed": True},
+        "needs_manual_review": True,
+        "citation_map": {"S1": "old-source"},
+    })
+    await manager._save_task_course("t1", course)
+    processed = asyncio.Event()
+    captured = {}
+
+    async def fake_process_node(_task_id, node):
+        captured.update(node)
+        processed.set()
+
+    async def fake_complete(_task_id, _course):
+        assert manager.tasks["t1"]["quality_repair_requested"] is True
+        assert manager.tasks["t1"]["quality_repair_scopes"] == [
+            "content_retry"
+        ]
+        return None
+
+    monkeypatch.setattr(manager, "_process_node", fake_process_node)
+    monkeypatch.setattr(manager, "_complete_task", fake_complete)
+
+    await manager.retry_node("t1", "n1")
+    retry_task = manager._running_node_tasks["t1"]["n1"]
+    await asyncio.wait_for(processed.wait(), timeout=1)
+    await retry_task
+
+    assert captured["generation_status"] == "pending"
+    assert captured["node_content"] == ""
+    assert "node_content_draft" not in captured
+    assert "content_blocks" not in captured
+    assert "generation_runtime" not in captured
+    assert "generation_quality" not in captured
+    assert "needs_manual_review" not in captured
+    assert "citation_map" not in captured
+    refreshed = manager._load_task_course("t1")
+    assert refreshed["generation_stage_artifacts"]["content_candidate"] == {
+        "status": "stale_after_node_retry",
+        "stale_node_ids": ["n1"],
+    }
+
+
 def test_find_active_task_never_falls_back_to_terminal_history():
     manager = TaskManager(storage=None, course_service=None, ws_service=None)
     manager.tasks = {}
@@ -183,6 +269,31 @@ def test_find_active_task_never_falls_back_to_terminal_history():
     }
 
     assert manager._find_active_task("course-1") is None
+
+
+def test_find_retryable_task_uses_latest_durable_terminal_job():
+    manager = TaskManager(storage=None, course_service=None, ws_service=None)
+    manager.tasks = {
+        "older": {
+            "id": "older",
+            "type": "course_generation",
+            "course_id": "course-1",
+            "status": "completed_with_warnings",
+            "workspace_id": "older",
+            "updated_at": "2026-08-09T00:00:00",
+        },
+        "latest": {
+            "id": "latest",
+            "type": "course_generation",
+            "course_id": "course-1",
+            "status": "completed_with_warnings",
+            "workspace_id": "latest",
+            "updated_at": "2026-08-10T00:00:00",
+        },
+    }
+
+    assert manager._find_active_task("course-1") is None
+    assert manager._find_retryable_task("course-1") == "latest"
 
 
 @pytest.mark.asyncio

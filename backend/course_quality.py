@@ -146,6 +146,35 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             "闭合 Markdown 块级公式分隔符",
             node_id,
         ))
+    display_envs = (
+        r"aligned|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|"
+        r"equation|equation\*|cases|gather|gather\*|alignat|alignat\*|eqnarray|split"
+    )
+    in_code_fence = False
+    in_display_math = False
+    unwrapped_display_env = False
+    for line in text.splitlines():
+        if re.match(r"^\s*```", line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        for token in re.finditer(rf"(?<!\\)\$\$|\\begin\{{(?:{display_envs})\}}", line):
+            if token.group(0) == "$$":
+                in_display_math = not in_display_math
+            elif not in_display_math:
+                unwrapped_display_env = True
+                break
+        if unwrapped_display_env:
+            break
+    if unwrapped_display_env:
+        issues.append(_issue(
+            "unwrapped_display_environment",
+            "critical",
+            "cases、aligned 或矩阵等块级公式环境位于 $$ 分隔符之外",
+            "把公式前缀与块级环境合并到同一组 $$...$$ 中",
+            node_id,
+        ))
     if "生成中..." in text or "[待补充" in text:
         issues.append(_issue("placeholder_content", "critical", "正文包含兜底或待补充占位符", "生成完整正文", node_id))
     if re.search(

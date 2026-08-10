@@ -151,6 +151,7 @@ from course_teaching_plan_v3 import (
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
+    restore_teaching_plan_skeleton_from_graph_draft,
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
@@ -957,6 +958,10 @@ class CourseService(AIBase):
         # The template, difficulty and composition systems define the hard
         # section skeleton before the model gets its intentionally small
         # teaching-design freedom.
+        plan = self._apply_frozen_graph_module_suggestions(
+            plan,
+            course_data,
+        )
         plan = attach_generation_artifacts_to_plan(plan, artifacts)
         plan = attach_module_plans_to_plan(plan, profile)
         difficulty_curve = attach_difficulty_contracts_to_plan(
@@ -1977,6 +1982,40 @@ class CourseService(AIBase):
                 if isinstance(item, dict)
             )
         )
+        if not skeleton_is_current:
+            restored_skeleton = (
+                restore_teaching_plan_skeleton_from_graph_draft(
+                    course_data.get("course_knowledge_graph_draft") or {},
+                    outline_revision_id=outline_revision_id,
+                )
+            )
+            restored_report = validate_teaching_plan_skeleton_v3(
+                restored_skeleton,
+                sections=planning_sections,
+            )
+            if restored_skeleton and restored_report.get("passed"):
+                skeleton = restored_skeleton
+                skeleton_report = restored_report
+                skeleton_is_current = True
+                restored_chunk_count = (
+                    len(planning_sections)
+                    + self._teaching_plan_budget.skeleton_max_sections
+                    - 1
+                ) // self._teaching_plan_budget.skeleton_max_sections
+                teaching_stage.update({
+                    "skeleton": deepcopy(skeleton),
+                    "skeleton_revision_id": skeleton.get("revision_id"),
+                    "skeleton_chunk_count": restored_chunk_count,
+                    "completed_skeleton_chunk_count": restored_chunk_count,
+                    "completed_skeleton_section_count": len(
+                        planning_sections
+                    ),
+                    "resumed_skeleton_chunk_count": restored_chunk_count,
+                    "skeleton_strategy": "restored_from_graph_draft",
+                })
+                course_data["course_teaching_plan_skeleton"] = deepcopy(
+                    skeleton
+                )
         if not skeleton_is_current:
             (
                 skeleton,
@@ -3011,6 +3050,73 @@ class CourseService(AIBase):
                 section.pop("knowledge_relations", None)
                 section.pop("knowledge_package_status", None)
         return outline
+
+    @staticmethod
+    def _apply_frozen_graph_module_suggestions(
+        plan: dict[str, Any],
+        course_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Keep frozen teaching-module choices stable across recovery.
+
+        Once the upstream knowledge graph is frozen, its knowledge-to-module
+        bindings are part of the accepted teaching contract. Rebuilding lesson
+        archetypes from enriched checkpoint nodes can otherwise select a
+        different module recipe, invalidate the exact skeleton revision and
+        force every successful teaching batch to run again.
+        """
+        graph = course_data.get("course_knowledge_graph_draft") or {}
+        scope = course_data.get("course_knowledge_scope_contract") or {}
+        if (
+            not isinstance(graph, dict)
+            or graph.get("status") != "identity_frozen"
+            or graph.get("source_outline_revision_id")
+            != scope.get("revision_id")
+        ):
+            return plan
+        section_ids = {
+            str(section.get("node_id") or "")
+            for chapter in plan.get("chapters") or []
+            if isinstance(chapter, dict)
+            for section in chapter.get("sections") or []
+            if isinstance(section, dict)
+        }
+        binding_ids = {
+            str(binding.get("node_id") or "")
+            for binding in graph.get("section_bindings") or []
+            if isinstance(binding, dict)
+        }
+        if not section_ids or binding_ids != section_ids:
+            return plan
+        modules_by_owner: dict[str, list[str]] = {}
+        for node in graph.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            owner = str(node.get("owner_node_id") or "")
+            if not owner:
+                continue
+            bucket = modules_by_owner.setdefault(owner, [])
+            for module_id in node.get("module_ids") or []:
+                normalized = str(module_id or "")
+                if normalized and normalized not in bucket:
+                    bucket.append(normalized)
+        for chapter in plan.get("chapters") or []:
+            if not isinstance(chapter, dict):
+                continue
+            for section in chapter.get("sections") or []:
+                if not isinstance(section, dict):
+                    continue
+                node_id = str(section.get("node_id") or "")
+                suggestions = [
+                    str(item or "")
+                    for item in section.get("suggested_module_ids") or []
+                    if str(item or "")
+                ]
+                for module_id in modules_by_owner.get(node_id, []):
+                    if module_id not in suggestions:
+                        suggestions.append(module_id)
+                if suggestions:
+                    section["suggested_module_ids"] = suggestions
+        return plan
 
     @staticmethod
     def _merge_outline_node_edits(

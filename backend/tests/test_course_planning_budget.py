@@ -1,5 +1,6 @@
 import json
 import math
+from copy import deepcopy
 
 from ai_base import AIBase
 from course_generation_adaptive import merge_teaching_skeleton_part
@@ -10,11 +11,13 @@ from course_planning_budget import (
     select_batch_knowledge_registry,
 )
 from course_prompt_composer import CoursePromptComposer
+from course_service import CourseService
 from course_teaching_plan_v3 import (
     compile_course_knowledge_graph_draft,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
+    restore_teaching_plan_skeleton_from_graph_draft,
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
@@ -207,6 +210,78 @@ def test_reconciled_skeleton_projects_an_upstream_knowledge_graph_draft():
     assert draft["edges"][0]["target_knowledge_key"] == "K002"
     assert draft["edges"][0]["direction"] == "source_before_target"
     assert draft["section_bindings"][1]["reused_knowledge_keys"] == ["K001"]
+
+    restored = restore_teaching_plan_skeleton_from_graph_draft(
+        draft,
+        outline_revision_id="outline-1",
+    )
+
+    assert restored == skeleton
+
+
+def test_graph_draft_cannot_restore_a_tampered_skeleton_revision():
+    skeleton = normalize_teaching_plan_skeleton_v3({
+        "knowledge_registry": [{
+            "knowledge_key": "K001",
+            "name": "基础条件",
+            "statement": "先判断条件是否成立",
+            "owner_node_id": "L2-1-1",
+            "reused_in_node_ids": [],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001"],
+            "reused_knowledge_keys": [],
+        }],
+    }, outline_revision_id="outline-1")
+    draft = compile_course_knowledge_graph_draft(skeleton)
+    draft["source_skeleton_revision_id"] = "teaching_skeleton_tampered"
+
+    assert restore_teaching_plan_skeleton_from_graph_draft(
+        draft,
+        outline_revision_id="outline-1",
+    ) == {}
+
+
+def test_frozen_graph_restores_module_suggestions_before_recipe_rebuild():
+    plan = {
+        "chapters": [{
+            "sections": [{
+                "node_id": "L2-1-1",
+                "suggested_module_ids": ["core_explanation"],
+            }],
+        }],
+    }
+    course_data = {
+        "course_knowledge_scope_contract": {
+            "revision_id": "outline-1",
+        },
+        "course_knowledge_graph_draft": {
+            "status": "identity_frozen",
+            "source_outline_revision_id": "outline-1",
+            "nodes": [{
+                "owner_node_id": "L2-1-1",
+                "module_ids": [
+                    "math_intuition",
+                    "core_explanation",
+                ],
+            }],
+            "section_bindings": [{
+                "node_id": "L2-1-1",
+            }],
+        },
+    }
+
+    restored = CourseService._apply_frozen_graph_module_suggestions(
+        deepcopy(plan),
+        course_data,
+    )
+
+    assert restored["chapters"][0]["sections"][0][
+        "suggested_module_ids"
+    ] == ["core_explanation", "math_intuition"]
 
 
 def test_knowledge_graph_draft_never_labels_a_cycle_as_a_dag():

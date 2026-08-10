@@ -2011,6 +2011,21 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
         "deterministic_local_fallback"
     )
     first_batch_revision = stage["batches"]["TP-B01"]["revision_id"]
+    # Simulate a restart checkpoint race: the mutable skeleton shard was
+    # overwritten, but the previously frozen graph and accepted AI batches
+    # remain durable. Recovery must reconstruct the exact skeleton revision
+    # from that graph instead of regenerating every shard and invalidating the
+    # successful batches.
+    assert course_data["course_knowledge_graph_draft"][
+        "source_skeleton_revision_id"
+    ] == stage["skeleton_revision_id"]
+    stage["skeleton"] = {}
+    course_data["course_teaching_plan_skeleton"] = {}
+    stage["fallback_units"].append({
+        "unit": "skeleton_chunk_1",
+        "reason": "interrupted_checkpoint_write",
+        "section_ids": ["L2-1-1"],
+    })
     fail_second_batch = False
     calls_before_resume = len(calls)
     resumed = await service._prepare_course_teaching_plan(
@@ -2026,6 +2041,7 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
         "生成详细小节教案批次 TP-B02，只输出 JSON。"
     ]
     assert stage["batches"]["TP-B01"]["revision_id"] == first_batch_revision
+    assert stage["skeleton_strategy"] == "restored_from_graph_draft"
     assert stage["status"] == "completed"
     assert stage["semantic_status"] == "ai_complete"
     assert stage["completed_batch_count"] == 6

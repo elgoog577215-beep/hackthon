@@ -663,8 +663,34 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
             },
         },
     )
+    manager._generation_workspace_repository.update_course(
+        job["job_id"],
+        lambda course: {
+            **course,
+            "nodes": [
+                {
+                    **node,
+                    "node_content": (
+                        str(node.get("node_content") or "")
+                        + "\n\n$$\n$$\n\\begin{aligned}"
+                        + "x&=1\\\\y&=2\\end{aligned}\n$$\n$$"
+                    ),
+                }
+                if index == 0
+                else node
+                for index, node in enumerate(course.get("nodes") or [])
+            ],
+        },
+    )
 
     await manager.confirm_generation_step(job["course_id"], "release")
+    normalized_course = manager.get_generation_workspace_course(
+        job["course_id"]
+    )
+    assert "$$\n$$" not in normalized_course["nodes"][0]["node_content"]
+    assert normalized_course["generation_stage_artifacts"][
+        "release_syntax_normalization"
+    ]["normalized_node_ids"] == [normalized_course["nodes"][0]["node_id"]]
     assert await manager._task_queue.get() == job["job_id"]
     await manager._process_task(job["job_id"])
     assert manager.tasks[job["job_id"]]["status"] in {"completed", "completed_with_warnings"}

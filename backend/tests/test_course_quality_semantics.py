@@ -1,5 +1,5 @@
 from course_quality import evaluate_node_content
-from task_manager import fix_latex_content
+from task_manager import fix_latex_content, normalize_generated_course_syntax
 
 
 def _node() -> dict:
@@ -111,6 +111,114 @@ def test_stream_finalizer_normalizes_legacy_display_math_delimiters():
         item["code"] == "legacy_math_delimiter"
         for item in report["issues"]
     )
+
+
+def test_stream_finalizer_is_idempotent_for_wrapped_aligned_environment():
+    content = _content(
+        "\n\n$$\n\\begin{aligned}\n"
+        "x&=1 \\\\ y&=2\n"
+        "\\end{aligned}\n$$"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert cleaned == fix_latex_content(cleaned)
+    assert "$$\n$$" not in cleaned
+    assert cleaned.count("$$") % 2 == 0
+
+
+def test_stream_finalizer_merges_list_display_with_cases_environment():
+    content = _content(
+        "\n\n1. $$\n"
+        "   \\lim_{x\\to0}\n"
+        "$$\n\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n$$"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert "1. $$" not in cleaned
+    assert cleaned.count("$$") % 2 == 0
+    assert "\\lim_{x\\to0}\n\\begin{cases}" in cleaned
+
+
+def test_stream_finalizer_merges_display_prefix_with_cases_environment():
+    content = _content(
+        "\n\n$$\nf(x)=\n$$\n"
+        "\\begin{cases}\n"
+        "x,&x<0\\\\\n2x,&x\\ge0\n"
+        "\\end{cases}\n$$"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert "$$\nf(x)=\n\\begin{cases}" in cleaned
+    assert "\\end{cases}\n$$" in cleaned
+    assert cleaned == fix_latex_content(cleaned)
+    assert evaluate_node_content(cleaned, _node())["passed"] is True
+
+
+def test_stream_finalizer_preserves_prose_between_separate_display_formulas():
+    content = _content(
+        "\n\n$$\nx=1\n$$\n"
+        "在闭区间上比较端点与临界点。\n"
+        "$$\n\\begin{aligned}\n"
+        "f(0)&=0\\\\\nf(1)&=1\n"
+        "\\end{aligned}\n$$"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert (
+        "$$\nx=1\n$$\n在闭区间上比较端点与临界点。\n"
+        "$$\n\\begin{aligned}"
+    ) in cleaned
+    assert cleaned == fix_latex_content(cleaned)
+    assert evaluate_node_content(cleaned, _node())["passed"] is True
+
+
+def test_unwrapped_display_environment_blocks_release_even_with_even_fence_count():
+    content = _content(
+        "\n\n$$\nf(x)=\n$$\n"
+        "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
+        "$$\ny=1\n$$"
+    )
+
+    report = evaluate_node_content(content, _node())
+
+    assert any(
+        item["code"] == "unwrapped_display_environment"
+        for item in report["issues"]
+    )
+    assert report["passed"] is False
+
+
+def test_course_syntax_normalizer_rebuilds_stale_content_blocks():
+    course = {
+        "nodes": [{
+            **_node(),
+            "node_level": 2,
+            "node_content": (
+                _content("\n\n$$\n$$\n\\begin{cases}"
+                         "x,&x<0\\\\2x,&x\\ge0"
+                         "\\end{cases}\n$$\n$$")
+            ),
+            "content_blocks": [{
+                "block_id": "stale",
+                "type": "custom",
+                "title": "旧内容",
+                "content": "旧内容",
+                "order": 0,
+            }],
+        }],
+    }
+
+    normalized = normalize_generated_course_syntax(course)
+    content = course["nodes"][0]["node_content"]
+
+    assert normalized == ["L2-1-1"]
+    assert "$$\n$$" not in content
+    assert "旧内容" not in content
+    assert course["nodes"][0]["generation_quality"]["passed"] is True
 
 
 def test_unclosed_display_math_fence_blocks_release():

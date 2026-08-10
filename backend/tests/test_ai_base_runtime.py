@@ -172,6 +172,22 @@ def test_latex_cleanup_uses_standard_display_delimiters(monkeypatch):
     assert not re.search(r"(?m)^[ \t]*\$[ \t]*$", cleaned)
 
 
+def test_latex_cleanup_removes_empty_display_shell_around_cases(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    service = AIBase()
+
+    cleaned = service._clean_latex_syntax(
+        "g(x)=\n$$\n$$\n"
+        "\\begin{cases}x, & x<0 \\\\ x^2, & x\\ge 0\\end{cases}\n"
+        "$$\n$$\nafter"
+    )
+
+    assert "$$\n$$" not in cleaned
+    assert cleaned.count("$$") == 2
+    assert "\n$$\n\\begin{cases}" in cleaned
+    assert "\\end{cases}\n$$\n" in cleaned
+
+
 def test_official_deepseek_base_uses_official_model_defaults(monkeypatch):
     _clear_model_environment(monkeypatch)
     monkeypatch.setenv("AI_API_KEY", "test-key")
