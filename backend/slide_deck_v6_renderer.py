@@ -206,9 +206,27 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
             "render_contract": "template_layout_contract_v1",
             "v6_template_layout_id": resolved_page.resolved_layout,
             "v6_layout_slug": slug,
+            "v6_title_max_lines": resolved_page.title_max_lines,
             "resolved_layout": renderer_layout,
         },
     )
+
+
+def _mark_v6_title_shape(slide: Any, unit: SlideSpec) -> None:
+    normalized_title = re.sub(r"\s+", "", str(unit.title or ""))
+    if not normalized_title:
+        return
+    max_lines = max(1, int(unit.quality.get("v6_title_max_lines") or 1))
+    matches = [
+        shape
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+        and re.sub(r"\s+", "", str(shape.text or "")) == normalized_title
+    ]
+    if not matches:
+        return
+    title_shape = max(matches, key=lambda shape: int(shape.height) * int(shape.width))
+    title_shape.name = f"{title_shape.name} [v6-title-max-lines={max_lines}]"
 
 
 def _validate_deck_for_export(deck: SlideDeckV6) -> None:
@@ -258,6 +276,7 @@ def export_slide_deck_v6_pptx(
     for index, unit in enumerate(slides):
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
         _render_slide(slide, unit, index + 1, len(slides), theme, assets)
+        _mark_v6_title_shape(slide, unit)
         slide.notes_slide.notes_text_frame.text = unit.speaker_notes
 
     path = Path(output_path)

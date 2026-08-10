@@ -183,6 +183,7 @@ class SlidePageV6(_StrictModel):
     page_ordinal: int = Field(ge=0)
     teaching_unit_id: str
     title: str
+    title_max_lines: int = Field(default=1, ge=1, le=3)
     resolved_layout: str
     web_renderer_adapter: str
     pptx_renderer_adapter: str
@@ -1251,6 +1252,9 @@ def compile_slide_deck_v6(
                     page_ordinal=len(pages),
                     teaching_unit_id=story_page.teaching_unit_id,
                     title=title,
+                    title_max_lines=int(
+                        getattr(title_slot, "max_lines", 0) or 1
+                    ),
                     resolved_layout=layout.template_layout_id,
                     web_renderer_adapter=layout.web_renderer_adapter,
                     pptx_renderer_adapter=layout.pptx_renderer_adapter,

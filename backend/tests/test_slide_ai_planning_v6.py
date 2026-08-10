@@ -7,7 +7,11 @@ from course_presentation_graph import (
     compile_course_presentation_graph,
     teaching_intent_for_roles,
 )
-from slide_ai_planning_v6 import plan_slide_story_v3, plan_slide_visuals_v2
+from slide_ai_planning_v6 import (
+    _grounded_title_candidates,
+    plan_slide_story_v3,
+    plan_slide_visuals_v2,
+)
 from slide_deck_v6 import V6BuildError, validate_slide_story_plan_v3
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
@@ -64,6 +68,15 @@ def _layout_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
     }
     intent = teaching_intent_for_roles(roles, artifacts)
     return unit["allowed_template_layout_ids_by_page_intent"][intent][0]
+
+
+def test_long_source_heading_offers_semantic_fragments_within_template_capacity() -> None:
+    source = "## Field protocol: Observe habitat signals and record the evidence"
+
+    candidates = _grounded_title_candidates(source, max_chars=28)
+
+    assert "Observe habitat signals" in candidates
+    assert all(candidate in source and len(candidate) <= 28 for candidate in candidates)
 
 
 @pytest.mark.asyncio
@@ -340,7 +353,27 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
 
 @pytest.mark.asyncio
 async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -> None:
-    document = _document()
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-title-capacity",
+        title="Field observation",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Observation protocol",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="objective",
+            section_id="chapter-a",
+            position=0,
+            role="objective",
+            payload={
+                "markdown": (
+                    "A source-grounded operational heading that deliberately exceeds "
+                    "the declared template title capacity."
+                ),
+            },
+        )],
+    ))
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     calls = []
@@ -349,17 +382,26 @@ async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -
         calls.append(request)
         unit = request["teaching_units"][0]
         if len(calls) == 1:
-            title = unit["source_text"][: unit["title_max_chars"] + 1]
+            title = unit["source_text"][: min(72, unit["title_max_chars"] + 1)]
         else:
             repair_target = request["repair_feedback"]["repair_targets"][0]
             title = repair_target["available_title_candidates"][0]
+        selected_layout = next(
+            layout["template_layout_id"]
+            for layout in unit["allowed_template_layouts"]
+            if any(
+                slot["slot_kind"] == "title"
+                and slot["max_chars"] == unit["title_max_chars"]
+                for slot in layout["slots"]
+            )
+        )
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
             "pages": [{
                 "page_id": "generic-capacity-page",
                 "teaching_unit_id": unit["teaching_unit_id"],
-                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "template_layout_id": selected_layout,
                 "title": title,
                 "summary": "",
                 "source_block_ids": unit["primary_block_ids"],

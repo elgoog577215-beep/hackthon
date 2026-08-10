@@ -586,12 +586,26 @@ def audit_exported_pptx(
                         "shape_name": str(shape.name or ""),
                         **text_audit,
                     })
-                if is_title and text_audit["maximum_wrapped_lines"] > 1:
+                title_line_match = re.search(
+                    r"\[v6-title-max-lines=(\d+)\]",
+                    str(shape.name or ""),
+                )
+                title_line_limit = (
+                    max(1, int(title_line_match.group(1)))
+                    if title_line_match
+                    else 1
+                )
+                if (
+                    is_title
+                    and text_audit["maximum_wrapped_lines"] > title_line_limit
+                ):
                     issues.append({
                         "severity": "critical",
                         "code": "exported_title_unexpected_wrap",
                         "page": slide_index,
                         "shape_name": str(shape.name or ""),
+                        "maximum_wrapped_lines": text_audit["maximum_wrapped_lines"],
+                        "allowed_wrapped_lines": title_line_limit,
                     })
                 if (
                     not is_footer

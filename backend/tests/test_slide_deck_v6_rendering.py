@@ -160,6 +160,34 @@ def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Pat
         assert report["passed"], report["blockers"]
 
 
+def test_chapter_entry_title_contract_allows_only_declared_safe_wrapping(
+    tmp_path: Path,
+) -> None:
+    _document, deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("chapter-entry"))
+    assert layout is not None
+    title_slot = next(slot for slot in layout.slots if slot.slot_kind == "title")
+    page = deck.pages[0]
+    page.title = ("教学单元逻辑顺序与来源证据" * 4)[: title_slot.max_chars]
+    page.title_max_lines = title_slot.max_lines
+    page.resolved_layout = layout.template_layout_id
+    page.visual_decision.resolved_template_layout_id = layout.template_layout_id
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "v6-chapter-title.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+    title_shapes = [
+        shape
+        for shape in Presentation(output).slides[0].shapes
+        if getattr(shape, "has_text_frame", False)
+        and str(shape.text or "").strip() == page.title
+    ]
+    assert len(title_shapes) == 1
+    assert f"[v6-title-max-lines={title_slot.max_lines}]" in title_shapes[0].name
+
+
 def test_official_representation_export_dispatches_v6_without_legacy_schema_coercion(
     tmp_path: Path,
 ) -> None:

@@ -23,6 +23,7 @@ interface V6Page {
   page_id: string
   page_ordinal: number
   title: string
+  title_max_lines?: number
   resolved_layout: string
   source_block_ids: string[]
   regions: V6Region[]
@@ -178,6 +179,7 @@ function adaptPage(
       render_contract: 'template_layout_contract_v1',
       v6_template_layout_id: page.resolved_layout,
       v6_layout_slug: slug,
+      v6_title_max_lines: Math.max(1, Number(page.title_max_lines || 1)),
       resolved_layout: adapter.renderer_layout,
       template_theme_overrides: { ...templateThemeOverrides },
     },

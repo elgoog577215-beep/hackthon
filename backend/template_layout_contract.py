@@ -115,7 +115,9 @@ def _slot(
     }
 
 
-_TITLE = _slot("title", "title", chars=42)
+_TITLE = _slot("title", "title", chars=42, lines=2)
+_COVER_TITLE = _slot("title", "title", chars=42, lines=3)
+_CHAPTER_TITLE = _slot("title", "title", chars=28, lines=2)
 _EYEBROW = _slot("eyebrow", "eyebrow", required=False, chars=24)
 _NOTES = _slot("source_notes", "notes", chars=0)
 
@@ -123,12 +125,12 @@ _NOTES = _slot("source_notes", "notes", chars=0)
 _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "cover-minimal": {
         "intents": ["orientation"],
-        "slots": [_TITLE, _slot("subtitle", "body", required=False, chars=90), _NOTES],
+        "slots": [_COVER_TITLE, _slot("subtitle", "body", required=False, chars=90), _NOTES],
         "continuations": [],
     },
     "chapter-entry": {
         "intents": ["orientation", "concept_explanation"],
-        "slots": [_EYEBROW, _TITLE, _slot("driving_question", "body", chars=120), _NOTES],
+        "slots": [_EYEBROW, _CHAPTER_TITLE, _slot("driving_question", "body", chars=120), _NOTES],
         "continuations": ["content-stack"],
     },
     "agenda-path": {

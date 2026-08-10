@@ -483,6 +483,22 @@ def _grounded_title_candidates(
     capacity = max(4, max_chars)
     candidates: list[str] = []
     for match in _MARKDOWN_TITLE_RE.finditer(source_text):
+        full_title = str(match.group(1) or match.group(2) or "").strip()
+        if len(full_title) <= capacity:
+            continue
+        for fragment in re.split(
+            r"(?:[：:；;｜|]|\s+[—–-]\s+|与|及|和|\s+(?:and|or|versus|vs\.?)\s+)",
+            full_title,
+            flags=re.IGNORECASE,
+        ):
+            candidate = fragment.strip().strip("#*` ")
+            if (
+                4 <= len(candidate) <= capacity
+                and candidate in source_text
+                and candidate not in candidates
+            ):
+                candidates.append(candidate)
+    for match in _MARKDOWN_TITLE_RE.finditer(source_text):
         candidate = str(match.group(1) or match.group(2) or "").strip()
         if len(candidate) > capacity:
             candidate = candidate[:capacity].rstrip("，。！？,;: ")
