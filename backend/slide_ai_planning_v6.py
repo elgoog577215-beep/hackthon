@@ -168,6 +168,102 @@ def _normalize_story_batch_response(
         for title in request.get("constraints", {}).get("forbidden_titles") or []
         if str(title).strip()
     }
+    repair_targets = [
+        target
+        for target in (request.get("repair_feedback") or {}).get("repair_targets") or []
+        if isinstance(target, dict)
+    ]
+    repair_targets_by_page = {
+        str(target.get("page_id") or ""): target
+        for target in repair_targets
+        if str(target.get("page_id") or "")
+    }
+
+    def repair_target_for(page: dict[str, Any]) -> dict[str, Any] | None:
+        exact = repair_targets_by_page.get(str(page.get("page_id") or ""))
+        if exact is not None:
+            return exact
+        unit_id = str(page.get("teaching_unit_id") or "")
+        source_ids = {
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        }
+        matching = [
+            target
+            for target in repair_targets
+            if str(target.get("teaching_unit_id") or "") == unit_id
+            and {
+                str(block_id)
+                for block_id in target.get("current_source_block_ids") or []
+            }
+            == source_ids
+        ]
+        return matching[0] if len(matching) == 1 else None
+
+    def allowed_layout_ids_for_page(
+        unit: dict[str, Any],
+        page: dict[str, Any],
+    ) -> list[str]:
+        block_metadata = {
+            str(block.get("block_id") or ""): block
+            for block in unit.get("primary_blocks") or []
+            if isinstance(block, dict)
+        }
+        source_ids = [
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        ]
+        roles = [
+            str(block_metadata.get(block_id, {}).get("role") or "")
+            for block_id in source_ids
+            if str(block_metadata.get(block_id, {}).get("role") or "")
+        ]
+        artifacts = {
+            str(artifact)
+            for block_id in source_ids
+            for artifact in block_metadata.get(block_id, {}).get("artifact_kinds") or []
+            if str(artifact)
+        }
+        page_intent = (
+            teaching_intent_for_roles(roles, artifacts)
+            if roles or artifacts
+            else str(unit.get("teaching_intent") or "")
+        )
+        result: list[str] = []
+        for layout in unit.get("allowed_template_layouts") or []:
+            if not isinstance(layout, dict):
+                continue
+            layout_id = str(layout.get("template_layout_id") or "")
+            if not layout_id or page_intent not in (layout.get("teaching_intents") or []):
+                continue
+            if artifacts and not artifacts.intersection(layout.get("artifact_kinds") or []):
+                continue
+            if roles and not artifacts:
+                remaining_roles = list(roles)
+                required_text_slots = [
+                    slot
+                    for slot in layout.get("slots") or []
+                    if isinstance(slot, dict)
+                    and bool(slot.get("required"))
+                    and slot.get("slot_kind") in {"body", "items"}
+                ]
+                satisfiable = True
+                for slot in required_text_slots:
+                    source_roles = set(slot.get("source_roles") or [])
+                    matching_index = next(
+                        (
+                            index
+                            for index, role in enumerate(remaining_roles)
+                            if not source_roles or role in source_roles
+                        ),
+                        None,
+                    )
+                    if matching_index is None:
+                        satisfiable = False
+                        break
+                    remaining_roles.pop(matching_index)
+                if not satisfiable:
+                    continue
+            result.append(layout_id)
+        return result
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -197,6 +293,26 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
+        if unit is not None:
+            selected_layout_id = str(page.get("template_layout_id") or "")
+            unit_layout_ids = set(unit.get("allowed_template_layout_ids") or [])
+            page_layout_ids = allowed_layout_ids_for_page(unit, page)
+            if (
+                selected_layout_id in unit_layout_ids
+                and selected_layout_id not in page_layout_ids
+                and page_layout_ids
+            ):
+                page["template_layout_id"] = page_layout_ids[0]
+        repair_target = repair_target_for(page)
+        if repair_target is not None:
+            required_title = str(repair_target.get("required_title") or "").strip()
+            required_layout_id = str(
+                repair_target.get("required_template_layout_id") or ""
+            ).strip()
+            if required_title:
+                page["title"] = required_title
+            if required_layout_id:
+                page["template_layout_id"] = required_layout_id
         normalized_title = re.sub(
             r"\s+",
             "",
@@ -447,6 +563,7 @@ def _story_unit_request(
         "prerequisite_unit_ids": unit.prerequisite_unit_ids,
         "source_text": unit.source_text,
         "title_max_chars": title_max_chars,
+        "title_policy": "copy_verbatim_from_title_candidates",
         "title_candidates": _grounded_title_candidates(
             unit.source_text,
             max_chars=title_max_chars,
@@ -664,6 +781,22 @@ def _story_repair_targets(
                 unit.get("allowed_template_layout_ids") or [],
             )
         )
+        available_title_candidates = [
+            title
+            for title in allowed_title_candidates
+            if (not title_max_chars or len(str(title)) <= title_max_chars)
+            and re.sub(r"\s+", "", str(title)).casefold()
+            not in normalized_forbidden_titles
+        ]
+        title_repair_required = error.failure.code in {
+            "duplicate_slide_title",
+            "story_title_capacity_exceeded",
+            "story_unsupported_title",
+        }
+        layout_repair_required = error.failure.code in {
+            "template_layout_artifact_mismatch",
+            "template_layout_intent_mismatch",
+        }
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -677,18 +810,23 @@ def _story_repair_targets(
             ],
             "page_intent": page_intent,
             "allowed_template_layout_ids": page_allowed_layout_ids,
+            "required_template_layout_id": (
+                str(page_allowed_layout_ids[0])
+                if layout_repair_required and page_allowed_layout_ids
+                else ""
+            ),
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
+            "current_source_block_ids": current_source_block_ids,
             "missing_source_block_ids": list(missing_source_block_ids or []),
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
             "duplicate_page_ids": list(duplicate_page_ids or []),
             "allowed_title_candidates": allowed_title_candidates,
-            "available_title_candidates": [
-                title
-                for title in allowed_title_candidates
-                if (not title_max_chars or len(str(title)) <= title_max_chars)
-                and re.sub(r"\s+", "", str(title)).casefold()
-                not in normalized_forbidden_titles
-            ],
+            "available_title_candidates": available_title_candidates,
+            "required_title": (
+                str(available_title_candidates[0])
+                if title_repair_required and available_title_candidates
+                else ""
+            ),
             "title_max_chars": title_max_chars,
             "current_title": current_title,
             "duplicate_title": current_title if conflicting_page_ids else "",
@@ -846,6 +984,9 @@ async def plan_slide_story_v3(
                                 "block. Full source remains available in speaker notes downstream. "
                                 "Copy each title verbatim from that unit's title_candidates and keep "
                                 "it within that unit's title_max_chars. Set "
+                                "a repair target's title exactly to required_title when provided. Set "
+                                "its template_layout_id exactly to required_template_layout_id when "
+                                "provided. Set "
                                 "summary to empty unless its complete wording is directly supported "
                                 "by that unit's source_text; never add identifiers or facts."
                             ),
@@ -864,7 +1005,7 @@ async def plan_slide_story_v3(
                     raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
                     previous_response_payload = _normalize_story_batch_response(
                         raw,
-                        request,
+                        attempt_request,
                     )
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload

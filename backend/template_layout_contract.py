@@ -36,6 +36,7 @@ class TemplateSlotContractV1(_StrictModel):
     max_items: int = Field(default=0, ge=0)
     max_lines: int = Field(default=0, ge=0)
     max_rows: int = Field(default=0, ge=0)
+    source_roles: list[str] = Field(default_factory=list)
 
 
 class TemplateLayoutContractV1(_StrictModel):
@@ -74,6 +75,24 @@ class TemplateLayoutPackContractV1(_StrictModel):
         return next((item for item in self.layouts if item.template_layout_id == layout_id), None)
 
 
+_SLOT_SOURCE_ROLES: dict[str, set[str]] = {
+    "driving_question": {"orientation", "objective", "checkpoint", "activity"},
+    "task": {"activity", "checkpoint", "orientation"},
+    "prompt": {"activity", "checkpoint", "orientation", "example"},
+    "criteria": {"feedback", "summary", "objective"},
+    "feedback": {"feedback", "answer", "remediation"},
+    "annotation": {"concept", "reasoning", "feedback", "remediation"},
+    "derivation": {"reasoning", "example"},
+    "reasoning": {"reasoning", "example"},
+    "interpretation": {"reasoning", "feedback", "summary"},
+    "explanation": {"concept", "reasoning", "feedback"},
+    "symptom": {"misconception", "counterexample"},
+    "cause": {"reasoning", "misconception"},
+    "repair": {"remediation", "feedback"},
+    "next_action": {"transfer", "application", "activity"},
+}
+
+
 def _slot(
     slot_id: str,
     kind: str,
@@ -92,6 +111,7 @@ def _slot(
         "max_items": items,
         "max_lines": lines,
         "max_rows": rows,
+        "source_roles": sorted(_SLOT_SOURCE_ROLES.get(slot_id, set())),
     }
 
 
@@ -117,7 +137,13 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "continuations": [],
     },
     "content-stack": {
-        "intents": ["concept_explanation", "mechanism", "recap", "worked_example"],
+        "intents": [
+            "concept_explanation",
+            "mechanism",
+            "practice_feedback",
+            "recap",
+            "worked_example",
+        ],
         "slots": [_EYEBROW, _TITLE, _slot("body", "body", chars=520), _NOTES],
         "continuations": ["content-stack"],
     },
