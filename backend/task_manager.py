@@ -1291,8 +1291,17 @@ class TaskManager:
         cls,
         course_data: dict[str, Any],
         step: str,
+        impact: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Discard stale downstream data when an approved upstream step changes."""
+        """Discard stale downstream data when an approved upstream step changes.
+
+        With an ``impact`` analysis the node-level discard is scoped to the
+        sections the edit actually reaches.  Sections the analysis proves
+        untouched keep their generated body, so retitling one section no
+        longer forces every section to be written again.  Course-level
+        derived artifacts are still dropped: they are recompiled locally
+        without model calls, so keeping them would risk staleness for no gain.
+        """
         working = deepcopy(course_data)
         if step != "outline":
             return working
@@ -1349,10 +1358,33 @@ class TaskManager:
             "objective_id",
             "objective_revision_id",
         )
+        preserved_node_ids: set[str] = set()
+        if isinstance(impact, dict) and not (impact.get("global_changes") or []):
+            preserved_node_ids = {
+                str(node_id)
+                for node_id in (
+                    list(impact.get("unchanged_node_ids") or [])
+                    + list(impact.get("display_only_node_ids") or [])
+                )
+                if node_id
+            } - {
+                str(node_id)
+                for node_id in (
+                    list(impact.get("affected_node_ids") or [])
+                    + list(impact.get("added_node_ids") or [])
+                    + list(impact.get("removed_node_ids") or [])
+                )
+                if node_id
+            }
         for node in working.get("nodes") or []:
+            if str(node.get("node_id") or "") in preserved_node_ids:
+                continue
             for field in downstream_node_fields:
                 node.pop(field, None)
             node["generation_status"] = "pending"
+        working["outline_change_preserved_node_ids"] = sorted(
+            preserved_node_ids
+        )
 
         blueprint = deepcopy(working.get("course_blueprint") or {})
         for field in (
@@ -1818,6 +1850,7 @@ class TaskManager:
                 confirmed = self._discard_generation_artifacts_after(
                     confirmed,
                     "outline",
+                    impact,
                 )
             confirmed = self._accept_outline_research(confirmed)
             confirmed["generation_status"] = "outline_confirmed"
