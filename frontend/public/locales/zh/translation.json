@@ -2544,7 +2544,13 @@
       "guidanceScreened": "这一轮引导没有通过安全检查，已换成一个不泄露答案的问题，本轮不计入求助。",
       "guidanceUnavailable": "AI 老师暂时不可用，本轮不计入求助。",
       "guidanceDegraded": "这一轮没能生成有效引导，本轮不计入求助。",
-      "aiSupportSummary": "在正式练习中打开 AI 老师"
+      "aiSupportSummary": "在正式练习中打开 AI 老师",
+      "stepwiseResultTitle": "逐步判定",
+      "stepwiseFirstFlawed": "推导从第 {index} 步开始出问题",
+      "stepwiseNoFlaw": "没有发现出错的步骤",
+      "stepCorrect": "这一步成立",
+      "stepFlawed": "这一步有问题",
+      "stepUnclear": "这一步看不出依据"
     },
     "practiceAnalysis": {
       "title": "题目解析与本次判断",

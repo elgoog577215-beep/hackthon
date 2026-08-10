@@ -234,3 +234,91 @@ describe('PracticeWorkspace 多轮苏格拉底引导 (K2)', () => {
     expect(wrapper.emitted('askTeacher')).toBeTruthy()
   })
 })
+
+describe('PracticeWorkspace 逐步判定展示 (J3)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    sessionStorage.clear()
+    httpMock.get.mockReset()
+    httpMock.post.mockReset()
+    httpMock.patch.mockReset()
+    httpMock.post.mockResolvedValue({ data: { status: 'recorded', attempt: attemptWith() } })
+  })
+
+  function gradedResult(stepwise: any) {
+    return {
+      status: 'graded',
+      score: 80,
+      passed: true,
+      feedback: '推导基本成立。',
+      rubric_results: [],
+      evidence_strength: 'independent',
+      ...(stepwise ? { stepwise } : {}),
+    }
+  }
+
+  // 走真实路径：学生提交后由 submit 响应带回结果，而不是伪造一个已判定的
+  // "进行中"作答——那种状态在真实系统里不存在。
+  async function submitAndGetWrapper(stepwise: any) {
+    mockPractice(attemptWith())
+    const result = gradedResult(stepwise)
+    httpMock.post.mockImplementation((url: string) => {
+      if (url.endsWith('/submit')) {
+        return Promise.resolve({
+          data: {
+            status: 'graded',
+            attempt: attemptWith([], { status: 'graded', result }),
+            result,
+            workflow: { phase: 'practice' },
+          },
+        })
+      }
+      return Promise.resolve({ data: { status: 'recorded', attempt: attemptWith() } })
+    })
+    const wrapper = await mountWorkspace()
+    await wrapper.get('.answer-editor').setValue('先配方，再读顶点')
+    await flushPromises()
+    await wrapper.get('.primary-command').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('分步提交后展示逐步判定，并指出推导从第几步断的', async () => {
+    const wrapper = await submitAndGetWrapper({
+      submitted_step_count: 3,
+      judged_step_count: 3,
+      first_flawed_step_index: 2,
+      steps: [
+        { step_index: 1, verdict: 'correct', comment: '配方正确' },
+        { step_index: 2, verdict: 'flawed', comment: '顶点符号错了' },
+        { step_index: 3, verdict: 'unclear', comment: '没写依据' },
+      ],
+    })
+
+    const panel = wrapper.get('[data-testid="stepwise-judgement"]')
+    // 过程评价的核心结论：断在第几步。
+    expect(panel.text()).toContain('第 2 步')
+    expect(panel.text()).toContain('这一步有问题')
+    expect(panel.text()).toContain('顶点符号错了')
+    // unclear 是一种如实回答，必须单独显示而不是被藏起来或算作通过。
+    expect(panel.text()).toContain('这一步看不出依据')
+  })
+
+  it('没有出错步骤时明确说没有，而不是留空', async () => {
+    const wrapper = await submitAndGetWrapper({
+      submitted_step_count: 1,
+      judged_step_count: 1,
+      first_flawed_step_index: null,
+      steps: [{ step_index: 1, verdict: 'correct', comment: '正确' }],
+    })
+
+    expect(wrapper.get('[data-testid="stepwise-judgement"]').text()).toContain('没有发现出错的步骤')
+  })
+
+  it('整体作答（未分步）不显示逐步判定区', async () => {
+    const wrapper = await submitAndGetWrapper(undefined)
+
+    expect(wrapper.find('[data-testid="stepwise-judgement"]').exists()).toBe(false)
+  })
+})

@@ -317,6 +317,34 @@
                 <small>{{ item.feedback }}</small>
               </div>
             </div>
+            <section
+              v-if="stepwiseJudgement?.steps?.length"
+              class="stepwise-judgement"
+              data-testid="stepwise-judgement"
+            >
+              <header>
+                <strong>{{ t('courseWorkspace.practice.stepwiseResultTitle', '逐步判定') }}</strong>
+                <span v-if="stepwiseJudgement.first_flawed_step_index">
+                  {{ t('courseWorkspace.practice.stepwiseFirstFlawed', '推导从第 {index} 步开始出问题')
+                    .replace('{index}', String(stepwiseJudgement.first_flawed_step_index)) }}
+                </span>
+                <span v-else>
+                  {{ t('courseWorkspace.practice.stepwiseNoFlaw', '没有发现出错的步骤') }}
+                </span>
+              </header>
+              <div
+                v-for="step in stepwiseJudgement.steps"
+                :key="`judged-${step.step_index}`"
+                class="stepwise-verdict"
+                :data-verdict="step.verdict"
+              >
+                <span class="verdict-index">
+                  {{ t('courseWorkspace.practice.stepLabel', '第 {index} 步').replace('{index}', String(step.step_index)) }}
+                </span>
+                <span class="verdict-tag">{{ stepVerdictLabel(step.verdict) }}</span>
+                <small v-if="step.comment">{{ step.comment }}</small>
+              </div>
+            </section>
             <section v-if="answerDiagnosis" class="answer-diagnosis">
               <header>
                 <strong>{{ t('courseWorkspace.practiceAnalysis.title', '题目解析与本次判断') }}</strong>
@@ -714,6 +742,18 @@ const evidenceLabel = computed(() => t(
   `courseWorkspace.practice.evidence.${workspace.practiceResult?.evidence_strength || 'invalid'}`,
   `证据强度：${workspace.practiceResult?.evidence_strength || '待确认'}`,
 ))
+
+// Per-step verdicts (J3). The grader only attaches this when the student
+// actually submitted steps, so its absence is the whole-answer path, not an error.
+const stepwiseJudgement = computed(() => (workspace.practiceResult as any)?.stepwise || null)
+
+function stepVerdictLabel(verdict: string): string {
+  if (verdict === 'correct') return t('courseWorkspace.practice.stepCorrect', '这一步成立')
+  if (verdict === 'flawed') return t('courseWorkspace.practice.stepFlawed', '这一步有问题')
+  // "unclear" is a real answer, not a failure: the model must say so rather than
+  // guess, so it has to be shown as its own state instead of being hidden.
+  return t('courseWorkspace.practice.stepUnclear', '这一步看不出依据')
+}
 
 watch(
   () => [props.courseId, props.nodeId, props.scope],
@@ -1131,6 +1171,7 @@ function formatSolutionValue(value: unknown) {
 .answer-editor { width:100%; min-height:clamp(360px,54vh,680px); padding:16px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; resize:vertical; font:inherit; line-height:1.7; outline:none; }.answer-editor:focus { border-color:#0f766e; box-shadow:0 0 0 3px rgba(15,118,110,.1); }.answer-editor:disabled { background:#f1f5f9; }
 .choice-list { display:grid; gap:10px; }.choice-list label { display:grid; grid-template-columns:auto 24px minmax(0,1fr); gap:10px; align-items:flex-start; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; }.choice-list label:has(input:checked) { border-color:#0f766e; background:#f0fdfa; }.choice-list input { margin-top:3px; }.choice-list strong { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:999px; background:#f1f5f9; color:#475569; font-size:12px; }.choice-list span { padding-top:2px; line-height:1.55; }.choice-list label:has(input:checked) strong { background:#0f766e; color:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
+.stepwise-judgement { margin-top:14px; display:grid; gap:8px; }.stepwise-judgement header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }.stepwise-judgement header strong { color:#0f766e; }.stepwise-judgement header span { color:#b45309; font-size:12px; }.stepwise-verdict { display:grid; grid-template-columns:78px auto 1fr; gap:10px; align-items:baseline; }.verdict-index { color:#64748b; font-size:12px; font-weight:700; }.verdict-tag { font-size:12px; font-weight:700; }.stepwise-verdict[data-verdict="correct"] .verdict-tag { color:#0f766e; }.stepwise-verdict[data-verdict="flawed"] .verdict-tag { color:#b91c1c; }.stepwise-verdict[data-verdict="unclear"] .verdict-tag { color:#b45309; }.stepwise-verdict small { color:#475569; line-height:1.5; }@media (max-width:700px){ .stepwise-verdict { grid-template-columns:1fr; gap:2px; } }
 .guidance-panel { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; display:grid; gap:10px; }.guidance-heading { display:flex; align-items:center; gap:8px; flex-wrap:wrap; color:#0f766e; }.guidance-heading small { flex-basis:100%; color:#64748b; font-weight:400; line-height:1.5; }.guidance-turn { display:grid; grid-template-columns:78px 1fr; gap:12px; align-items:start; }.guidance-role { color:#64748b; font-size:12px; font-weight:700; }.guidance-turn.assistant .guidance-role { color:#0f766e; }.guidance-turn p { margin:0; line-height:1.6; }.guidance-turn small { grid-column:2; }.guidance-degraded { color:#b45309; line-height:1.5; }.guidance-compose { display:grid; gap:8px; }.guidance-input { width:100%; box-sizing:border-box; min-height:76px; border:1px solid #cbd5e1; border-radius:8px; padding:10px 12px; font:inherit; line-height:1.6; resize:vertical; }.guidance-compose button { justify-self:start; }@media (max-width:700px){ .guidance-turn { grid-template-columns:1fr; gap:4px; } .guidance-turn small { grid-column:1; } .guidance-compose button { justify-self:stretch; } }
 .hint-results,.practice-feedback,.solution-result { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; }.hint-result { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:8px 0; }.hint-result span { color:#a16207; font-size:12px; font-weight:700; }.hint-result p { margin:0; line-height:1.6; }.hint-result.loading p { display:flex; align-items:center; gap:8px; color:#64748b; }.hint-loading-icon { flex:0 0 auto; color:#0f766e; }
 .solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul,.solution-result ol { padding-left:20px; }.solution-result h4 { margin:14px 0 7px; font-size:13px; color:#172033; }.solution-result pre { margin:0; padding:12px 14px; max-height:420px; overflow:auto; border:1px solid #dbe3ed; border-radius:6px; background:#f1f5f9; color:#0f172a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.solution-steps ol,.solution-checks ul { margin:6px 0; }
