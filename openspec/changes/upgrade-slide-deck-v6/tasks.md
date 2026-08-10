@@ -2,14 +2,14 @@
 
 - [x] 1.1 Finish the current template-pack implementation on a clean commit and verify backend, frontend contract tests and production build.
 - [x] 1.2 Create the V6 branch from the template baseline and merge the latest deployed progress work without overwriting other changes.
-- [ ] 1.3 Add failing contract tests for source freeze, course graph coverage/order, template layout closure, story validation, visual degradation and final V6 states.
-- [ ] 1.4 Add a non-math/non-programming synthetic course fixture and hardcoding guard.
+- [x] 1.3 Add failing contract tests for source freeze, course graph coverage/order, template layout closure, story validation, visual degradation and final V6 states.
+- [x] 1.4 Add a non-math/non-programming synthetic course fixture and hardcoding guard.
 
 ## 2. Course presentation graph and template registry
 
-- [ ] 2.1 Implement `ppt_source_contract_v2` and immutable digest checks.
-- [ ] 2.2 Implement `course_presentation_graph_v1` from canonical ordered course blocks and formal teaching roles without character-based story splitting.
-- [ ] 2.3 Implement `template_layout_contract_v1` with slots, capacities, intentions, artifact kinds, safe continuations and renderer adapters.
+- [x] 2.1 Implement `ppt_source_contract_v2` and immutable digest checks.
+- [x] 2.2 Implement `course_presentation_graph_v1` from canonical ordered course blocks and formal teaching roles without character-based story splitting.
+- [x] 2.3 Implement `template_layout_contract_v1` with slots, capacities, intentions, artifact kinds, safe continuations and renderer adapters.
 - [ ] 2.4 Reject unknown, legacy or unmapped layouts and validate personal-template V6 publication coverage.
 
 ## 3. AI story and visual planning
