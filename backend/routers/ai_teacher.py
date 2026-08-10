@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from ai_teacher_actions import (
     ActionForbidden,
-    ProposalStale,
     build_trigger_candidate,
     execute_proposal,
     propose_action,
@@ -316,6 +315,13 @@ async def confirm_proposal(
     payload: ProposalConfirm,
     request: Request,
 ):
+    """Return the persisted receipt for every outcome except a missing proposal.
+
+    Expired, rejected, stale-runtime and executor failures are real terminal
+    outcomes of a confirm, not transport errors: each one already produced an
+    `ActionReceipt` carrying a `result_code`, so returning 200 with that receipt
+    keeps one auditable, idempotent row per confirm attempt on every entrypoint.
+    """
     course = await get_course_or_404(payload.course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
@@ -330,8 +336,6 @@ async def confirm_proposal(
         raise HTTPException(status_code=404, detail="AI proposal not found") from exc
     except ActionForbidden as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ProposalStale as exc:
-        raise HTTPException(status_code=409, detail={"code": "proposal_stale", "message": str(exc)}) from exc
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -360,6 +364,7 @@ async def undo_action_receipt(
     payload: ReceiptUndo,
     request: Request,
 ):
+    """Mirror the confirm contract: an undo that is refused still returns a receipt."""
     course = await get_course_or_404(payload.course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
@@ -371,11 +376,9 @@ async def undo_action_receipt(
             idempotency_key=payload.idempotency_key,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="AI receipt or affected object not found") from exc
+        raise HTTPException(status_code=404, detail="AI receipt not found") from exc
     except ActionForbidden as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ProposalStale as exc:
-        raise HTTPException(status_code=409, detail={"code": "undo_stale", "message": str(exc)}) from exc
 
 
 @router.get("/trigger")

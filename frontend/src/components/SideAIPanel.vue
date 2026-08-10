@@ -558,7 +558,7 @@
               <div v-if="message.receipt" :class="['action-receipt', `is-${message.receipt.status}`]">
                 <CheckCircle2 v-if="message.receipt.status === 'succeeded'" :size="16" />
                 <AlertCircle v-else :size="16" />
-                <span>{{ message.receipt.summary }}</span>
+                <span>{{ receiptLabel(message.receipt) }}</span>
                 <button
                   v-if="message.receipt.status === 'succeeded' && message.receipt.undo_capability === 'archive_record'"
                   type="button"
@@ -657,7 +657,7 @@ import {
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
-import { useAITeacherStore, type AIMessage } from '../stores/aiTeacher'
+import { useAITeacherStore, type AIActionReceipt, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import {
@@ -1436,6 +1436,31 @@ function retrievalStatusLabel(status: AIMessage['retrieval_status'], message?: A
   const key = retrievalErrorTranslationKey(message)
   const detail = key ? t(key, '') : ''
   return detail ? `${detail} · ${fallback}` : fallback
+}
+
+// The backend returns one receipt for every confirm/undo outcome and carries the
+// meaning in `result_code`. Translate from that code so both languages describe
+// the same outcome; `summary` is only the server-side Chinese audit line.
+const RECEIPT_RESULT_COPY: Record<string, [string, string]> = {
+  note_created: ['courseWorkspace.aiTeacher.receipt.noteCreated', '已保存为笔记'],
+  issue_created: ['courseWorkspace.aiTeacher.receipt.issueCreated', '已标记为待解决问题'],
+  review_task_created: ['courseWorkspace.aiTeacher.receipt.reviewTaskCreated', '已创建复习任务'],
+  bookmark_created: ['courseWorkspace.aiTeacher.receipt.bookmarkCreated', '已创建书签'],
+  runtime_action_opened: ['courseWorkspace.aiTeacher.receipt.runtimeActionOpened', '已准备打开当前学习任务'],
+  record_archived: ['courseWorkspace.aiTeacher.receipt.recordArchived', '已撤销并归档学习记录'],
+  proposal_expired: ['courseWorkspace.aiTeacher.receipt.proposalExpired', '这条建议已过期，请重新发起'],
+  runtime_changed: ['courseWorkspace.aiTeacher.receipt.runtimeChanged', '学习状态已变化，请重新计算建议'],
+  undo_target_changed: ['courseWorkspace.aiTeacher.receipt.undoTargetChanged', '这条记录创建后被改动过，已保留你的修改'],
+  proposal_rejected: ['courseWorkspace.aiTeacher.receipt.proposalRejected', '这条建议已被拒绝，不会执行'],
+  action_failed: ['courseWorkspace.aiTeacher.receipt.actionFailed', '这次动作没有完成，学习状态未改变'],
+  undo_not_supported: ['courseWorkspace.aiTeacher.receipt.undoNotSupported', '这个动作没有可撤销的对象'],
+  undo_target_missing: ['courseWorkspace.aiTeacher.receipt.undoTargetMissing', '原学习记录已不存在，无需撤销'],
+}
+
+function receiptLabel(receipt: AIActionReceipt) {
+  const copy = receipt.result_code ? RECEIPT_RESULT_COPY[receipt.result_code] : undefined
+  if (copy) return t(copy[0], copy[1])
+  return receipt.summary || t('courseWorkspace.aiTeacher.receipt.unknown', '动作已处理')
 }
 
 function handleKeydown(event: KeyboardEvent) {

@@ -27,16 +27,35 @@ export interface AIActionProposal {
   undo_capability?: string
 }
 
+export type AIReceiptResultCode =
+  | 'note_created'
+  | 'issue_created'
+  | 'review_task_created'
+  | 'bookmark_created'
+  | 'runtime_action_opened'
+  | 'record_archived'
+  | 'proposal_expired'
+  | 'runtime_changed'
+  | 'undo_target_changed'
+  | 'proposal_rejected'
+  | 'action_failed'
+  | 'undo_not_supported'
+  | 'undo_target_missing'
+
 export interface AIActionReceipt {
   receipt_id: string
   proposal_id: string
-  status: string
+  status: 'succeeded' | 'failed' | 'stale'
+  /** Machine-readable outcome; the localized copy is derived from this, not from `summary`. */
+  result_code?: AIReceiptResultCode
+  schema_version?: string
   action_type: string
   affected_refs: Array<Record<string, any>>
   summary: string
   failure_reason?: string
   undo_capability: string
   runtime_revision_after?: string
+  undo_of_receipt_id?: string
 }
 
 export interface AIMessage {
@@ -448,12 +467,18 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       idempotency_key: `web:${target.proposal_id}`,
     })
-    message.receipt = response.data
-    message.receipt_id = response.data.receipt_id
-    target.status = response.data.status === 'succeeded' ? 'succeeded' : response.data.status
-    await useLearningProgressStore().loadRuntime(courseId.value, target.target_ref?.node_id)
+    const receipt = response.data as AIActionReceipt
+    message.receipt = receipt
+    message.receipt_id = receipt.receipt_id
+    // A refused confirm (expired, rejected, runtime moved) still returns a
+    // receipt. Reflect its real status so the proposal card stops offering
+    // "confirm" on an action the server has already declined to run.
+    target.status = receipt.status === 'succeeded' ? 'succeeded' : receipt.status
+    if (receipt.status === 'succeeded') {
+      await useLearningProgressStore().loadRuntime(courseId.value, target.target_ref?.node_id)
+    }
     persistCache()
-    return response.data as AIActionReceipt
+    return receipt
   }
 
   async function submitAnswerFeedback(
@@ -491,10 +516,16 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       idempotency_key: `web:undo:${message.receipt.receipt_id}`,
     })
-    message.receipt = response.data
-    await useLearningProgressStore().loadRuntime(courseId.value, message.context_ref?.node_id)
+    const receipt = response.data as AIActionReceipt
+    message.receipt = receipt
+    message.receipt_id = receipt.receipt_id
+    // A refused undo leaves the original record untouched, so only a real
+    // archive needs the runtime reloaded.
+    if (receipt.status === 'succeeded') {
+      await useLearningProgressStore().loadRuntime(courseId.value, message.context_ref?.node_id)
+    }
     persistCache()
-    return response.data as AIActionReceipt
+    return receipt
   }
 
   return {
