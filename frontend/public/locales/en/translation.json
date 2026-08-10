@@ -2532,7 +2532,19 @@
       "fieldDiagnosis": "Problem location",
       "fieldResultCheck": "Result check",
       "fieldAnswer": "Answer",
-      "fieldEvidence": "Evidence"
+      "fieldEvidence": "Evidence",
+      "guidanceTitle": "AI tutor guidance",
+      "guidanceEvidenceNote": "Guidance only asks questions, it never gives the answer. The more you use it, the weaker this attempt counts as evidence of independent mastery.",
+      "guidanceYou": "You",
+      "guidanceTeacher": "AI tutor",
+      "guidancePlaceholder": "Tell the tutor which step you are stuck on, and what conditions you used",
+      "guidanceSend": "Ask a follow-up",
+      "guidanceSending": "Thinking…",
+      "guidanceExhausted": "No guidance rounds left on this question. Try writing the next step yourself first.",
+      "guidanceScreened": "This round did not pass the safety check, so it was replaced with a question that does not reveal the answer. It does not count against you.",
+      "guidanceUnavailable": "The AI tutor is unavailable right now. This round does not count against you.",
+      "guidanceDegraded": "No usable guidance came back this round. It does not count against you.",
+      "aiSupportSummary": "Opened the AI tutor during formal practice"
     },
     "practiceAnalysis": {
       "title": "Question analysis and this judgment",

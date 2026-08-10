@@ -2532,7 +2532,19 @@
       "fieldDiagnosis": "问题定位",
       "fieldResultCheck": "结果检查",
       "fieldAnswer": "作答",
-      "fieldEvidence": "依据"
+      "fieldEvidence": "依据",
+      "guidanceTitle": "AI 老师引导",
+      "guidanceEvidenceNote": "引导只提问、不给答案；用得越多，本次作答作为独立掌握证据越弱。",
+      "guidanceYou": "你",
+      "guidanceTeacher": "AI 老师",
+      "guidancePlaceholder": "说说你现在卡在哪一步，以及你用了什么条件",
+      "guidanceSend": "继续追问",
+      "guidanceSending": "正在思考…",
+      "guidanceExhausted": "本题引导轮次已用完，请先自己往下写一步。",
+      "guidanceScreened": "这一轮引导没有通过安全检查，已换成一个不泄露答案的问题，本轮不计入求助。",
+      "guidanceUnavailable": "AI 老师暂时不可用，本轮不计入求助。",
+      "guidanceDegraded": "这一轮没能生成有效引导，本轮不计入求助。",
+      "aiSupportSummary": "在正式练习中打开 AI 老师"
     },
     "practiceAnalysis": {
       "title": "题目解析与本次判断",
