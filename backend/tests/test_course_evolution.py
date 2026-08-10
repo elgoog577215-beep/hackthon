@@ -813,6 +813,145 @@ def test_personal_path_fold_and_reorder_are_reviewed_course_operations_and_undoa
     ]
 
 
+def _mixed_family_plan(course: dict, *, change_set_id: str = "plan-mixed-family"):
+    """One reviewed plan that mixes a teaching-scaffold and a canonical operation."""
+    document = CourseDocument.model_validate(course["course_document"])
+    anchor = next(block for block in document.blocks if block.section_id == "section-1")
+    mastered = anchor.model_copy(update={
+        "block_id": "block-mastered-basics",
+        "position": 1,
+        "role": "example",
+        "payload": {"title": "已掌握的基础算例", "markdown": "学生已经稳定通过这段基础算例。"},
+    })
+    document.blocks.append(mastered)
+    document = refresh_document_revision(document)
+    course["course_document"] = document.model_dump(mode="json")
+    course["course_document_revision"] = document.document_revision
+    course["current_course_version_id"] = document.document_revision
+
+    now = "2026-08-10T10:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-mixed-family",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="conceptual_gap",
+        claim="需要补一段解释，同时折叠已经掌握的基础算例。",
+        target_block_id=anchor.block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="当前证据指向概念原因与计算步骤之间的断裂。",
+            payload={
+                "body": "先说明为什么需要这一步，再说明每一步改变了什么。",
+                "objective": "能够解释步骤背后的原因。",
+            },
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-fold",
+            operation_type="FOLD_COURSE_BLOCK",
+            target_block_id=mastered.block_id,
+            target_section_id=mastered.section_id,
+            reason="这段基础支架已经稳定通过，可从默认路径折叠。",
+            payload={
+                "action": "FOLD",
+                "before_preview": mastered.payload["markdown"],
+                "after_preview": "折叠为已掌握节点。",
+            },
+        ),
+    ]
+    plan = CourseEvolutionPlan(
+        change_set_id=change_set_id,
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id=anchor.section_id,
+        base_revision_vector={
+            key: value
+            for key, value in revision_vector_for_document(document).revisions.items()
+            if key in {
+                f"section:{anchor.section_id}",
+                f"block:{anchor.block_id}",
+                f"block:{mastered.block_id}",
+            }
+        },
+        operations=operations,
+        allowed_scopes=["current"],
+        expected_effect="补充概念解释，同时移除已掌握的基础算例。",
+        created_at=now,
+        updated_at=now,
+    )
+    state = CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    )
+    return state, anchor, mastered
+
+
+def test_scaffold_and_canonical_operations_apply_as_one_group(tmp_path):
+    """A plan may mix a teaching scaffold with a canonical course operation.
+
+    Both families must compile into the same single document commit. Rejecting
+    the plan because one family cannot parse the other's payload would make
+    "one adjustment, many operations" impossible for any real mixed plan.
+    """
+    course = _course()
+    state, anchor, mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    by_id = {block.block_id: block for block in applied_document.blocks}
+    plan = applied.change_sets[0]
+    receipt = plan.application_receipt
+
+    # The scaffold operation inserted its support block.
+    assert len(receipt["inserted_block_ids"]) == 1
+    inserted = by_id[receipt["inserted_block_ids"][0]]
+    assert inserted.section_id == anchor.section_id
+    assert inserted.kind == "callout"
+    assert inserted.payload["course_evolution"]["operation_id"] == "operation-support"
+    # The canonical operation retired the mastered block in the same commit.
+    assert receipt["folded_block_ids"] == [mastered.block_id]
+    assert by_id[mastered.block_id].status == "retired"
+    # One commit, not two.
+    assert receipt["document_revision"] == applied_document.document_revision
+    assert receipt["previous_revision"] == before_document.document_revision
+
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    restored_document, _ = document_repository.load_document(course["course_id"])
+    restored = {block.block_id: block for block in restored_document.blocks}
+    assert restored[mastered.block_id].status == "final"
+    assert restored[receipt["inserted_block_ids"][0]].status == "retired"
+
+
 def test_demo_mode_relaxes_strong_contract(monkeypatch):
     weak = "不理解为什么复合变换要先右后左，请用动画解释一下。"
     contract = course_evolution._strong_self_report_contract(weak)

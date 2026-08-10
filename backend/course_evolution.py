@@ -38,6 +38,25 @@ HypothesisStatus = Literal[
 ]
 ChangeSetStatus = Literal["pending", "accepted", "rejected", "applied", "stale", "undone"]
 
+# One course adjustment may carry operations from both families. They compile
+# differently — scaffolds append a new support block, canonical operations edit
+# the existing course path — but both must reach the document in one commit.
+SCAFFOLD_OPERATION_TYPES = frozenset({
+    "INSERT_COURSE_SUPPORT",
+    "INSERT_PERSONAL_SUPPORT",
+    "ADD_TRANSITION_SUPPORT",
+    "ADD_CHECKPOINT",
+    "ADD_TARGETED_PRACTICE",
+    "ADD_ANIMATION",
+})
+CANONICAL_OPERATION_TYPES = frozenset({
+    "REPLACE_COURSE_BLOCK",
+    "INSERT_COURSE_BLOCK",
+    "FOLD_COURSE_BLOCK",
+    "REORDER_COURSE_BLOCK",
+    "ADJUST_COURSE_DIFFICULTY",
+})
+
 
 class EvidenceAnchor(BaseModel):
     section_id: str = ""
@@ -2712,7 +2731,13 @@ def _course_block_insertions(
     *,
     selected_scope: Literal["current", "current_and_next"],
     selected_operation_ids: set[str] | None = None,
+    allow_empty: bool = False,
 ) -> list[dict[str, Any]]:
+    """Compile the teaching-scaffold operations of a plan into block insertions.
+
+    Non-scaffold operations are skipped here; ``_course_block_mutations`` routes
+    them to the canonical compiler so one plan can carry both families.
+    """
     if change_set.course_id != document.course_id:
         raise ValueError("Course evolution plan belongs to another course")
     blocks = {block.block_id: block for block in document.blocks}
@@ -2742,6 +2767,8 @@ def _course_block_insertions(
     }
     insertions: list[dict[str, Any]] = []
     for operation in change_set.operations:
+        if operation.operation_type not in SCAFFOLD_OPERATION_TYPES:
+            continue
         if selected_scope == "current" and operation.scope == "next":
             continue
         if (
@@ -2804,7 +2831,7 @@ def _course_block_insertions(
                 status="final",
             ),
         })
-    if not insertions:
+    if not insertions and not allow_empty:
         raise ValueError("Course evolution plan contains no operations in the selected scope")
     return insertions
 
@@ -2821,18 +2848,15 @@ def _course_block_mutations(
     list[str],
     list[dict[str, str]],
 ]:
-    """Compile reviewed section edits and legacy growth blocks into one commit."""
+    """Compile every reviewed operation of one plan into a single commit.
+
+    Teaching scaffolds and canonical course operations are compiled by their own
+    routine and merged here, so a plan that mixes both families still reaches the
+    course document as one atomic operation group.
+    """
     replacements: list[dict[str, Any]] = []
-    insertions: list[dict[str, Any]] = []
-    canonical_operations = {
-        "REPLACE_COURSE_BLOCK",
-        "INSERT_COURSE_BLOCK",
-        "FOLD_COURSE_BLOCK",
-        "REORDER_COURSE_BLOCK",
-        "ADJUST_COURSE_DIFFICULTY",
-    }
     has_canonical_operations = any(
-        operation.operation_type in canonical_operations
+        operation.operation_type in CANONICAL_OPERATION_TYPES
         for operation in change_set.operations
     )
     if not has_canonical_operations:
@@ -2850,11 +2874,22 @@ def _course_block_mutations(
 
     if change_set.course_id != document.course_id:
         raise ValueError("Course evolution plan belongs to another course")
+    # Scaffold operations keep their own compiler; an empty result is legitimate
+    # here because the canonical operations below may carry the whole change.
+    insertions: list[dict[str, Any]] = _course_block_insertions(
+        change_set,
+        document,
+        selected_scope=selected_scope,
+        selected_operation_ids=selected_operation_ids,
+        allow_empty=True,
+    )
     blocks = {block.block_id: block for block in document.blocks}
     section_ids = {section.section_id for section in document.sections}
     retire_block_ids: list[str] = []
     reorderings: list[dict[str, str]] = []
     for operation in change_set.operations:
+        if operation.operation_type in SCAFFOLD_OPERATION_TYPES:
+            continue
         if selected_scope == "current" and operation.scope == "next":
             continue
         if operation.operation_type == "ADJUST_COURSE_DIFFICULTY":
