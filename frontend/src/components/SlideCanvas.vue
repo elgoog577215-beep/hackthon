@@ -8,6 +8,7 @@
     :data-task-prompt-mode="slide.quality?.task_prompt_mode || undefined"
     :data-task-prompt-phase="slide.quality?.task_prompt_phase || undefined"
     :data-theme="theme"
+    :data-template-rich="richTemplate ? 'true' : undefined"
     :style="themeStyle"
     :aria-label="`${pageNumber} / ${pageCount} · ${slide.title}`"
   >
@@ -605,6 +606,15 @@ const navigationPrefix = computed(() => {
     : '本节学习问题'
 })
 const navigationDetail = computed(() => navigationText.value)
+const richTemplate = computed(() => {
+  const aliases: Record<string, string> = {
+    'qingfeng-classroom': 'qizhi-classroom',
+    'academic-bluegray': 'academic-editorial',
+  }
+  const key = aliases[props.theme] || props.theme
+  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
+  return Boolean(token?.template?.template_id && token?.visual_assets)
+})
 const themeStyle = computed(() => {
   const aliases: Record<string, string> = {
     'qingfeng-classroom': 'qizhi-classroom',
@@ -828,7 +838,7 @@ function layoutLabel(value: string) {
   --deck-callout:#2F6FE4;
   --deck-cover-wash:linear-gradient(145deg,#17365D,#2F6FE4 60%,#F29D38);
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="cover"],
   [data-layout="cover-minimal"],
   [data-layout="cover-editorial"]
@@ -839,7 +849,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="chapter"],
   [data-layout="chapter-entry"]
 ) {
@@ -849,7 +859,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="recap"],
   [data-layout="chapter-recap"],
   [data-layout="course-synthesis"]
@@ -862,7 +872,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="roadmap"],
   [data-layout="agenda-linear"],
   [data-layout="objective"],
@@ -883,7 +893,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="process"],
   [data-layout="process-sequence"],
   [data-layout="worked-example"],
@@ -897,7 +907,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="practice"],
   [data-layout="question"],
   [data-layout="question-prompt"],
@@ -911,7 +921,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"]:is(
+.deck-canvas[data-template-rich="true"]:is(
   [data-layout="code"],
   [data-layout="formula"],
   [data-layout="formula-explanation"],
@@ -927,7 +937,7 @@ function layoutLabel(value: string) {
   background-position:center;
   background-size:cover;
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section {
   position:relative;
   border-radius:var(--deck-card-radius);
   border-color:color-mix(in srgb,var(--deck-line) 88%,#fff);
@@ -937,44 +947,44 @@ function layoutLabel(value: string) {
     0 .9cqw 2.2cqw rgba(23,54,93,.075),
     inset 0 .12cqw 0 rgba(255,255,255,.86);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section::before {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section::before {
   content:"";
   position:absolute;
   inset:0 auto 0 0;
   width:.34cqw;
   background:var(--deck-blue);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="comparison"] {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="comparison"] {
   background:color-mix(in srgb,var(--deck-box-boundary) 96%,transparent);
   box-shadow:.32cqw .38cqw 0 var(--deck-box-boundary-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="comparison"]::before,
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="process"]::before {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="comparison"]::before,
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="process"]::before {
   background:var(--deck-teal);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="process"] {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="process"] {
   background:color-mix(in srgb,var(--deck-box-reasoning) 96%,transparent);
   box-shadow:.32cqw .38cqw 0 var(--deck-box-reasoning-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="exercise"] {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="exercise"] {
   background:color-mix(in srgb,var(--deck-box-practice) 97%,transparent);
   box-shadow:.32cqw .38cqw 0 var(--deck-box-practice-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="exercise"]::before {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="exercise"]::before {
   background:var(--deck-amber);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="misconception"] {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="misconception"] {
   background:color-mix(in srgb,var(--deck-box-misconception) 97%,transparent);
   box-shadow:.32cqw .38cqw 0 var(--deck-box-misconception-depth),0 .9cqw 2.2cqw rgba(23,54,93,.07),inset 0 .12cqw 0 rgba(255,255,255,.82);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="misconception"]::before {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="misconception"]::before {
   background:var(--deck-red);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="callout"]::before,
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section[data-type="code"]::before {
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="callout"]::before,
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="code"]::before {
   display:none;
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__message {
+.deck-canvas[data-template-rich="true"] .deck-canvas__message {
   border:1px solid color-mix(in srgb,var(--deck-blue) 16%,var(--deck-line));
   border-left:.42cqw solid var(--deck-blue);
   border-radius:var(--deck-card-radius);
@@ -987,8 +997,11 @@ function layoutLabel(value: string) {
 .deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim > i {
   display:none;
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-question-prompt,
-.deck-canvas[data-theme="qizhi-classroom"] .deck-hero-claim {
+.deck-canvas[data-template-rich="true"] .deck-hero-claim > i {
+  display:none;
+}
+.deck-canvas[data-template-rich="true"] .deck-question-prompt,
+.deck-canvas[data-template-rich="true"] .deck-hero-claim {
   padding:2.1cqw 2.4cqw;
   border:1px solid color-mix(in srgb,var(--deck-blue) 16%,var(--deck-line));
   border-left:.42cqw solid var(--deck-blue);
@@ -996,8 +1009,8 @@ function layoutLabel(value: string) {
   background:color-mix(in srgb,var(--deck-box-message) 88%,rgba(255,255,255,.76));
   box-shadow:.34cqw .4cqw 0 var(--deck-box-message-depth),0 .95cqw 2.4cqw rgba(23,54,93,.075),inset 0 .12cqw 0 rgba(255,255,255,.84);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-parallel-examples article,
-.deck-canvas[data-theme="qizhi-classroom"] .deck-classification__item {
+.deck-canvas[data-template-rich="true"] .deck-parallel-examples article,
+.deck-canvas[data-template-rich="true"] .deck-classification__item {
   padding:1.25cqw 1.15cqw;
   border:1px solid var(--deck-line);
   border-top:.32cqw solid var(--deck-blue);
@@ -1005,7 +1018,7 @@ function layoutLabel(value: string) {
   background:color-mix(in srgb,var(--deck-box-definition) 94%,transparent);
   box-shadow:.28cqw .34cqw 0 var(--deck-box-definition-depth),0 .75cqw 1.9cqw rgba(23,54,93,.06),inset 0 .12cqw 0 rgba(255,255,255,.82);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-worked-example article {
+.deck-canvas[data-template-rich="true"] .deck-worked-example article {
   margin:.18cqw 0;
   padding:.55cqw 1cqw;
   border:1px solid color-mix(in srgb,var(--deck-line) 84%,#fff);
@@ -1013,8 +1026,8 @@ function layoutLabel(value: string) {
   background:color-mix(in srgb,var(--deck-box-reasoning) 90%,transparent);
   box-shadow:.24cqw .28cqw 0 var(--deck-box-reasoning-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__pair section,
-.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__question {
+.deck-canvas[data-template-rich="true"] .deck-practice-feedback__pair section,
+.deck-canvas[data-template-rich="true"] .deck-practice-feedback__question {
   padding:1.1cqw 1.25cqw;
   border:1px solid color-mix(in srgb,var(--deck-blue) 15%,var(--deck-line));
   border-left:.34cqw solid var(--deck-blue);
@@ -1022,8 +1035,8 @@ function layoutLabel(value: string) {
   background:color-mix(in srgb,var(--deck-box-message) 94%,transparent);
   box-shadow:.26cqw .3cqw 0 var(--deck-box-message-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__pair aside,
-.deck-canvas[data-theme="qizhi-classroom"] .deck-practice-feedback__evidence {
+.deck-canvas[data-template-rich="true"] .deck-practice-feedback__pair aside,
+.deck-canvas[data-template-rich="true"] .deck-practice-feedback__evidence {
   padding:1.1cqw 1.25cqw;
   border:1px solid color-mix(in srgb,var(--deck-teal) 15%,var(--deck-line));
   border-left:.34cqw solid var(--deck-teal);
@@ -1031,7 +1044,7 @@ function layoutLabel(value: string) {
   background:color-mix(in srgb,var(--deck-box-feedback) 94%,transparent);
   box-shadow:.26cqw .3cqw 0 var(--deck-box-feedback-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
 }
-.deck-canvas[data-theme="qizhi-classroom"] .deck-editorial-body__group {
+.deck-canvas[data-template-rich="true"] .deck-editorial-body__group {
   padding:1.05cqw 1.25cqw;
   border:1px solid var(--deck-line);
   border-left:.34cqw solid var(--deck-blue);

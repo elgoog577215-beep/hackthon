@@ -1,0 +1,403 @@
+{"kind":"deck","id":"pr/sl7au8","name":"Deck"}
+{"kind":"layout","layoutId":"8f19dc19-85f1-4cd5-987a-e4fa52fbaea3","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"127082c2-0798-4437-9e79-1e6c8ee73fd8","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/rurv45","slide":1,"title":"学术编辑","textShapes":5}
+{"kind":"textbox","id":"sh/nu9kjeh8","slide":1,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[210,148,440,34]}
+{"kind":"textbox","id":"sh/2tgja9gn","slide":1,"text":"课程主题：从问题到证据","textPreview":"课程主题：从问题到证据","textChars":11,"textLines":1,"bbox":[210,198,690,160]}
+{"kind":"textbox","id":"sh/1s72h4z2","slide":1,"text":"用统一视觉语言承载可编辑的教学内容","textPreview":"用统一视觉语言承载可编辑的教学内容","textChars":17,"textLines":1,"bbox":[210,386,680,70]}
+{"kind":"textbox","id":"sh/0ry18zyh","slide":1,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/fqpkfuhw","slide":1,"text":"1 / 18","textPreview":"1 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/9ovih0nm","slide":1,"name":"","alt":"学术编辑cover背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/rurv45","slide":1,"text":"内容摘要：课程主题：从问题到证据。用统一视觉语言承载可编辑的教学内容\n版式说明：学术编辑主题的cover语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/n6b0nd","slide":2,"title":"学术编辑","textShapes":21}
+{"kind":"textbox","id":"sh/5ozalsfm","slide":2,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/knq9sne1","slide":2,"text":"课程路线","textPreview":"课程路线","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/vyxsfixk","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/axormdwz","slide":2,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/xkfah8fq","slide":2,"text":"目标 · 概念 · 推演 · 练习 · 复盘","textPreview":"目标 · 概念 · 推演 · 练习 · 复盘","textChars":22,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/wj69one5","slide":2,"bbox":[92,259,196,250]}
+{"kind":"shape","id":"sh/fu1sr2xo","slide":2,"bbox":[84,250,196,250]}
+{"kind":"shape","id":"sh/ut8byxwj","slide":2,"bbox":[84,262,6,226]}
+{"kind":"textbox","id":"sh/cjuh87ml","slide":2,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[108,268,44,28]}
+{"kind":"textbox","id":"sh/dk3yhcn6","slide":2,"text":"阶段 1","textPreview":"阶段 1","textChars":4,"textLines":1,"bbox":[110,272,144,34]}
+{"kind":"textbox","id":"sh/qhcz6x4f","slide":2,"text":"目标","textPreview":"目标","textChars":2,"textLines":1,"bbox":[110,314,144,168]}
+{"kind":"shape","id":"sh/rilgf250","slide":2,"bbox":[314,259,196,250]}
+{"kind":"shape","id":"sh/4fuh4nm9","slide":2,"bbox":[306,250,196,250]}
+{"kind":"shape","id":"sh/pg3ydsnu","slide":2,"bbox":[306,262,6,226]}
+{"kind":"textbox","id":"sh/idcz2d4j","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[330,268,44,28]}
+{"kind":"textbox","id":"sh/3elgbi5o","slide":2,"text":"阶段 2","textPreview":"阶段 2","textChars":4,"textLines":1,"bbox":[332,272,144,34]}
+{"kind":"textbox","id":"sh/gbah0nmd","slide":2,"text":"概念","textPreview":"概念","textChars":2,"textLines":1,"bbox":[332,314,144,168]}
+{"kind":"shape","id":"sh/hcjy98ny","slide":2,"bbox":[536,259,196,250]}
+{"kind":"shape","id":"sh/xwb6hkba","slide":2,"bbox":[528,250,196,250]}
+{"kind":"shape","id":"sh/wvi5ofup","slide":2,"bbox":[528,262,6,226]}
+{"kind":"textbox","id":"sh/bu9ofatk","slide":2,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[552,268,44,28]}
+{"kind":"textbox","id":"sh/at0nm5cz","slide":2,"text":"阶段 3","textPreview":"阶段 3","textChars":4,"textLines":1,"bbox":[554,272,144,34]}
+{"kind":"textbox","id":"sh/98r6d0be","slide":2,"text":"推演","textPreview":"推演","textChars":2,"textLines":1,"bbox":[554,314,144,168]}
+{"kind":"shape","id":"sh/o7i5kvut","slide":2,"bbox":[758,259,196,250]}
+{"kind":"shape","id":"sh/n69obqt8","slide":2,"bbox":[750,250,196,250]}
+{"kind":"shape","id":"sh/m50ni5cn","slide":2,"bbox":[750,262,6,226]}
+{"kind":"textbox","id":"sh/t4v6p4bi","slide":2,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[774,268,44,28]}
+{"kind":"textbox","id":"sh/8325wzax","slide":2,"text":"阶段 4","textPreview":"阶段 4","textChars":4,"textLines":1,"bbox":[776,272,144,34]}
+{"kind":"textbox","id":"sh/q9w3q1sf","slide":2,"text":"练习","textPreview":"练习","textChars":2,"textLines":1,"bbox":[776,314,144,168]}
+{"kind":"shape","id":"sh/ra5kj690","slide":2,"bbox":[980,259,196,250]}
+{"kind":"shape","id":"sh/cbelsral","slide":2,"bbox":[972,250,196,250]}
+{"kind":"shape","id":"sh/dcn2lwr6","slide":2,"bbox":[972,262,6,226]}
+{"kind":"textbox","id":"sh/25c3mhsj","slide":2,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[996,268,44,28]}
+{"kind":"textbox","id":"sh/365kfm94","slide":2,"text":"阶段 5","textPreview":"阶段 5","textChars":4,"textLines":1,"bbox":[998,272,144,34]}
+{"kind":"textbox","id":"sh/47elorap","slide":2,"text":"复盘","textPreview":"复盘","textChars":2,"textLines":1,"bbox":[998,314,144,168]}
+{"kind":"textbox","id":"sh/p8n2hwru","slide":2,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/m1g3yl8n","slide":2,"text":"2 / 18","textPreview":"2 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/b2tkr214","slide":2,"name":"","alt":"学术编辑content背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/n6b0nd","slide":2,"text":"内容摘要：课程路线。目标 · 概念 · 推演 · 练习 · 复盘\n版式说明：学术编辑主题的content语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/1ty0pa","slide":3,"title":"CHAPTER 01","textShapes":5}
+{"kind":"textbox","id":"sh/svatojuh","slide":3,"text":"CHAPTER 01","textPreview":"CHAPTER 01","textChars":10,"textLines":1,"bbox":[154,182,400,38]}
+{"kind":"textbox","id":"sh/twjuxov2","slide":3,"text":"第一章｜建立问题框架","textPreview":"第一章｜建立问题框架","textChars":10,"textLines":1,"bbox":[150,236,820,100]}
+{"kind":"textbox","id":"sh/exsbqtcn","slide":3,"text":"先明确边界，再选择方法","textPreview":"先明确边界，再选择方法","textChars":11,"textLines":1,"bbox":[154,374,720,64]}
+{"kind":"textbox","id":"sh/fylczyd8","slide":3,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/gzuts3ut","slide":3,"text":"3 / 18","textPreview":"3 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/mhojapoj","slide":3,"name":"","alt":"学术编辑chapter背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/1ty0pa","slide":3,"text":"内容摘要：第一章｜建立问题框架。先明确边界，再选择方法\n版式说明：学术编辑主题的chapter语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/p2nlt1","slide":4,"title":"学术编辑","textShapes":15}
+{"kind":"textbox","id":"sh/s3apwja5","slide":4,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/d43qpobq","slide":4,"text":"学习目标","textPreview":"学习目标","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/ids7q9s3","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/3y1ojet8","slide":4,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/4zapsjat","slide":4,"text":"完成本章后，你能够解释、应用并检验核心方法","textPreview":"完成本章后，你能够解释、应用并检验核心方法","textChars":21,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/50jqlobe","slide":4,"bbox":[92,255,348,310]}
+{"kind":"shape","id":"sh/u987m9sr","slide":4,"bbox":[84,246,348,310]}
+{"kind":"shape","id":"sh/vahofutc","slide":4,"bbox":[84,258,6,286]}
+{"kind":"textbox","id":"sh/f69sruxk","slide":4,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[108,264,44,28]}
+{"kind":"textbox","id":"sh/elgripgz","slide":4,"text":"解释","textPreview":"解释","textChars":2,"textLines":1,"bbox":[110,268,296,34]}
+{"kind":"textbox","id":"sh/18ratkfa","slide":4,"text":"用自己的语言说明核心概念","textPreview":"用自己的语言说明核心概念","textChars":12,"textLines":1,"bbox":[110,310,296,228]}
+{"kind":"shape","id":"sh/g7i9kfyp","slide":4,"bbox":[468,255,348,310]}
+{"kind":"shape","id":"sh/na9svuxg","slide":4,"bbox":[460,246,348,310]}
+{"kind":"shape","id":"sh/290rmpgv","slide":4,"bbox":[460,258,6,286]}
+{"kind":"textbox","id":"sh/pcrax4fm","slide":4,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[484,264,44,28]}
+{"kind":"textbox","id":"sh/obi9ozy1","slide":4,"text":"应用","textPreview":"应用","textChars":2,"textLines":1,"bbox":[486,268,296,34]}
+{"kind":"textbox","id":"sh/jepsjaxc","slide":4,"text":"在新情境中选择合适的方法","textPreview":"在新情境中选择合适的方法","textChars":12,"textLines":1,"bbox":[486,310,296,228]}
+{"kind":"shape","id":"sh/idwra5gr","slide":4,"bbox":[844,255,348,310]}
+{"kind":"shape","id":"sh/6lo3ex4b","slide":4,"bbox":[836,246,348,310]}
+{"kind":"shape","id":"sh/7mx472lw","slide":4,"bbox":[836,258,6,286]}
+{"kind":"textbox","id":"sh/876lg7mh","slide":4,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[860,264,44,28]}
+{"kind":"textbox","id":"sh/t8fm9c32","slide":4,"text":"检验","textPreview":"检验","textChars":2,"textLines":1,"bbox":[862,268,296,34]}
+{"kind":"textbox","id":"sh/yh43ax4f","slide":4,"text":"用证据核对结果与边界","textPreview":"用证据核对结果与边界","textChars":10,"textLines":1,"bbox":[862,310,296,228]}
+{"kind":"textbox","id":"sh/jix43il0","slide":4,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/kj6lcnml","slide":4,"text":"4 / 18","textPreview":"4 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/69wzux4n","slide":4,"name":"","alt":"学术编辑content背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/p2nlt1","slide":4,"text":"内容摘要：学习目标。完成本章后，你能够解释、应用并检验核心方法\n版式说明：学术编辑主题的content语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/2bl30d","slide":5,"title":"学术编辑","textShapes":15}
+{"kind":"textbox","id":"sh/u50vixg3","slide":5,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/f69wb2xo","slide":5,"text":"先备知识","textPreview":"先备知识","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/ov2xory5","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/pwbehwfq","slide":5,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/2tkfmhgz","slide":5,"text":"从三个已知条件出发，连接到本章的新问题","textPreview":"从三个已知条件出发，连接到本章的新问题","textChars":19,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/3utwfmxk","slide":5,"bbox":[92,255,348,310]}
+{"kind":"shape","id":"sh/kzidcny1","slide":5,"bbox":[84,246,348,310]}
+{"kind":"shape","id":"sh/50re5sz6","slide":5,"bbox":[84,258,6,286]}
+{"kind":"textbox","id":"sh/tkrypgbi","slide":5,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[108,264,44,28]}
+{"kind":"textbox","id":"sh/8zixgbax","slide":5,"text":"已知条件","textPreview":"已知条件","textChars":4,"textLines":1,"bbox":[110,268,296,34]}
+{"kind":"textbox","id":"sh/7y9gnqtc","slide":5,"text":"识别任务中的稳定信息","textPreview":"识别任务中的稳定信息","textChars":10,"textLines":1,"bbox":[110,310,296,228]}
+{"kind":"shape","id":"sh/6x0felsr","slide":5,"bbox":[468,255,348,310]}
+{"kind":"shape","id":"sh/hobyt0be","slide":5,"bbox":[460,246,348,310]}
+{"kind":"shape","id":"sh/gn2xkvat","slide":5,"bbox":[460,258,6,286]}
+{"kind":"textbox","id":"sh/vmtgrqto","slide":5,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[484,264,44,28]}
+{"kind":"textbox","id":"sh/ulkfils3","slide":5,"text":"已有方法","textPreview":"已有方法","textChars":4,"textLines":1,"bbox":[486,268,296,34]}
+{"kind":"textbox","id":"sh/5svyx0bq","slide":5,"text":"回忆可以复用的判断工具","textPreview":"回忆可以复用的判断工具","textChars":11,"textLines":1,"bbox":[486,310,296,228]}
+{"kind":"shape","id":"sh/4r2xova5","slide":5,"bbox":[844,255,348,310]}
+{"kind":"shape","id":"sh/ovahkjih","slide":5,"bbox":[836,246,348,310]}
+{"kind":"shape","id":"sh/pw3itozm","slide":5,"bbox":[836,258,6,286]}
+{"kind":"textbox","id":"sh/2tszi90b","slide":5,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[860,264,44,28]}
+{"kind":"textbox","id":"sh/nu10rehw","slide":5,"text":"新问题","textPreview":"新问题","textChars":3,"textLines":1,"bbox":[862,268,296,34]}
+{"kind":"textbox","id":"sh/czuhojid","slide":5,"text":"找出这次学习真正新增的挑战","textPreview":"找出这次学习真正新增的挑战","textChars":13,"textLines":1,"bbox":[862,310,296,228]}
+{"kind":"textbox","id":"sh/x03ixozy","slide":5,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/axczm907","slide":5,"text":"5 / 18","textPreview":"5 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/wryd0bel","slide":5,"name":"","alt":"学术编辑content背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/2bl30d","slide":5,"text":"内容摘要：先备知识。从三个已知条件出发，连接到本章的新问题\n版式说明：学术编辑主题的content语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/xptxaj","slide":6,"title":"学术编辑","textShapes":12}
+{"kind":"textbox","id":"sh/0vi14ruh","slide":6,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/1wr2xcb2","slide":6,"text":"核心定义","textPreview":"核心定义","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/mh0j6hcn","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/ni9kzmt8","slide":6,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/8ji18rut","slide":6,"text":"定义不是一句话，而是一组条件、边界与反例","textPreview":"定义不是一句话，而是一组条件、边界与反例","textChars":20,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/9kr21wbe","slide":6,"bbox":[92,241,710,356]}
+{"kind":"shape","id":"sh/2lwjuxcj","slide":6,"bbox":[84,232,710,356]}
+{"kind":"shape","id":"sh/3mp0n2t4","slide":6,"bbox":[84,244,6,332]}
+{"kind":"textbox","id":"sh/buh4ny1k","slide":6,"text":"定义","textPreview":"定义","textChars":2,"textLines":1,"bbox":[110,254,658,34]}
+{"kind":"textbox","id":"sh/ato3utkf","slide":6,"text":"一个可使用的定义，需要同时说明对象、条件、关系与判断标准。","textPreview":"一个可使用的定义，需要同时说明对象、条件、关系与判断标准。","textChars":29,"textLines":1,"bbox":[110,296,658,274]}
+{"kind":"shape","id":"sh/xwzmp8jq","slide":6,"bbox":[838,241,364,164]}
+{"kind":"shape","id":"sh/wvqlw3i5","slide":6,"bbox":[830,232,364,164]}
+{"kind":"shape","id":"sh/nqxkjy1o","slide":6,"bbox":[830,244,6,140]}
+{"kind":"textbox","id":"sh/mpo3qtk3","slide":6,"text":"必要条件","textPreview":"必要条件","textChars":4,"textLines":1,"bbox":[856,254,312,34]}
+{"kind":"textbox","id":"sh/9sfml8ju","slide":6,"text":"缺少任一条件时，不直接套用结论。","textPreview":"缺少任一条件时，不直接套用结论。","textChars":16,"textLines":1,"bbox":[856,296,312,82]}
+{"kind":"shape","id":"sh/or6ls329","slide":6,"bbox":[838,433,364,164]}
+{"kind":"shape","id":"sh/z2dkfe1c","slide":6,"bbox":[830,424,364,164]}
+{"kind":"shape","id":"sh/e143m9k7","slide":6,"bbox":[830,436,6,140]}
+{"kind":"textbox","id":"sh/2x43y94z","slide":6,"text":"反例","textPreview":"反例","textChars":2,"textLines":1,"bbox":[856,446,312,34]}
+{"kind":"textbox","id":"sh/3yd47elk","slide":6,"text":"用最小反例暴露定义边界。","textPreview":"用最小反例暴露定义边界。","textChars":12,"textLines":1,"bbox":[856,488,312,82]}
+{"kind":"textbox","id":"sh/4zm50jm5","slide":6,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/p0vm9o3a","slide":6,"text":"6 / 18","textPreview":"6 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/a9c7ap83","slide":6,"name":"","alt":"学术编辑content背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/xptxaj","slide":6,"text":"内容摘要：核心定义。定义不是一句话，而是一组条件、边界与反例\n版式说明：学术编辑主题的content语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/25y5q0","slide":7,"title":"学术编辑","textShapes":10}
+{"kind":"textbox","id":"sh/zexgjyt4","slide":7,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/edofqtcj","slide":7,"text":"适用边界","textPreview":"适用边界","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/9kzyp8b6","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/ojqxw3ul","slide":7,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/nihgnyt0","slide":7,"text":"何时成立？何时必须切换判断标准？","textPreview":"何时成立？何时必须切换判断标准？","textChars":16,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/mh8futcf","slide":7,"bbox":[92,247,535,330]}
+{"kind":"shape","id":"sh/x8jyt8b2","slide":7,"bbox":[84,238,535,330]}
+{"kind":"shape","id":"sh/w7ah03uh","slide":7,"bbox":[84,250,6,306]}
+{"kind":"textbox","id":"sh/mtsrmx87","slide":7,"text":"适用","textPreview":"适用","textChars":2,"textLines":1,"bbox":[110,260,483,34]}
+{"kind":"textbox","id":"sh/nu1sf29s","slide":7,"text":"条件完整、证据可核验、任务目标与方法一致。","textPreview":"条件完整、证据可核验、任务目标与方法一致。","textChars":21,"textLines":1,"bbox":[110,302,483,248]}
+{"kind":"shape","id":"sh/ova9o7qx","slide":7,"bbox":[667,247,535,330]}
+{"kind":"shape","id":"sh/9gjahcri","slide":7,"bbox":[659,238,535,330]}
+{"kind":"shape","id":"sh/ahsbqx83","slide":7,"bbox":[659,250,6,306]}
+{"kind":"textbox","id":"sh/bi1sj29o","slide":7,"text":"不适用","textPreview":"不适用","textChars":3,"textLines":1,"bbox":[685,260,483,34]}
+{"kind":"textbox","id":"sh/wjats7q9","slide":7,"text":"条件缺失、证据不足或评价标准已经改变。","textPreview":"条件缺失、证据不足或评价标准已经改变。","textChars":19,"textLines":1,"bbox":[685,302,483,248]}
+{"kind":"textbox","id":"sh/xk3alcru","slide":7,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/qlored8z","slide":7,"text":"7 / 18","textPreview":"7 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/dg7ytgbq","slide":7,"name":"","alt":"学术编辑content背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/25y5q0","slide":7,"text":"内容摘要：适用边界。何时成立？何时必须切换判断标准？\n版式说明：学术编辑主题的content语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/ja87t3","slide":8,"title":"学术编辑","textShapes":18}
+{"kind":"textbox","id":"sh/ahw36xwn","slide":8,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/bi54zix8","slide":8,"text":"推演路径","textPreview":"推演路径","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/knelc7ep","slide":8,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/lo7m5cfa","slide":8,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/ylw3axwj","slide":8,"text":"把复杂任务拆成可检查的连续步骤","textPreview":"把复杂任务拆成可检查的连续步骤","textChars":15,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/zm5432x4","slide":8,"bbox":[92,257,254,270]}
+{"kind":"shape","id":"sh/8bylg7el","slide":8,"bbox":[84,248,254,270]}
+{"kind":"shape","id":"sh/tc7m9cf6","slide":8,"bbox":[84,260,6,246]}
+{"kind":"textbox","id":"sh/9gnuxs3u","slide":8,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[108,266,44,28]}
+{"kind":"textbox","id":"sh/8fut4nm9","slide":8,"text":"识别","textPreview":"识别","textChars":2,"textLines":1,"bbox":[110,270,202,34]}
+{"kind":"textbox","id":"sh/nelcvilo","slide":8,"text":"标记任务对象与限制","textPreview":"标记任务对象与限制","textChars":9,"textLines":1,"bbox":[110,312,202,188]}
+{"kind":"shape","id":"sh/mdcb2d43","slide":8,"bbox":[374,293,254,270]}
+{"kind":"shape","id":"sh/x4nu1c3q","slide":8,"bbox":[366,284,254,270]}
+{"kind":"shape","id":"sh/w3ed87m5","slide":8,"bbox":[366,296,6,246]}
+{"kind":"textbox","id":"sh/v25cz2lk","slide":8,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[390,302,44,28]}
+{"kind":"textbox","id":"sh/a1wv6x4z","slide":8,"text":"选择","textPreview":"选择","textChars":2,"textLines":1,"bbox":[392,306,202,34]}
+{"kind":"textbox","id":"sh/d8jup83m","slide":8,"text":"匹配可解释的方法","textPreview":"匹配可解释的方法","textChars":8,"textLines":1,"bbox":[392,348,202,188]}
+{"kind":"shape","id":"sh/c7atw3m1","slide":8,"bbox":[656,257,254,270]}
+{"kind":"shape","id":"sh/o3yls7yt","slide":8,"bbox":[648,248,254,270]}
+{"kind":"shape","id":"sh/p47m1cfe","slide":8,"bbox":[648,260,6,246]}
+{"kind":"textbox","id":"sh/21g3qxg3","slide":8,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[672,266,44,28]}
+{"kind":"textbox","id":"sh/32pkz2xo","slide":8,"text":"执行","textPreview":"执行","textChars":2,"textLines":1,"bbox":[674,270,202,34]}
+{"kind":"textbox","id":"sh/c7ilw7y5","slide":8,"text":"逐步记录中间结果","textPreview":"逐步记录中间结果","textChars":8,"textLines":1,"bbox":[674,312,202,188]}
+{"kind":"shape","id":"sh/dsrm5cfq","slide":8,"bbox":[938,293,254,270]}
+{"kind":"shape","id":"sh/q5g3uhgz","slide":8,"bbox":[930,284,254,270]}
+{"kind":"shape","id":"sh/b6p43mxk","slide":8,"bbox":[930,296,6,246]}
+{"kind":"textbox","id":"sh/0vil0ry1","slide":8,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[954,302,44,28]}
+{"kind":"textbox","id":"sh/lwrm9wfm","slide":8,"text":"检验","textPreview":"检验","textChars":2,"textLines":1,"bbox":[956,306,202,34]}
+{"kind":"textbox","id":"sh/vqtozqho","slide":8,"text":"回到证据与边界","textPreview":"回到证据与边界","textChars":7,"textLines":1,"bbox":[956,348,202,188]}
+{"kind":"textbox","id":"sh/apknql0j","slide":8,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/xsv610zu","slide":8,"text":"8 / 18","textPreview":"8 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/03ml43u9","slide":8,"name":"","alt":"学术编辑reasoning背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/ja87t3","slide":8,"text":"内容摘要：推演路径。把复杂任务拆成可检查的连续步骤\n版式说明：学术编辑主题的reasoning语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/37deky","slide":9,"title":"学术编辑","textShapes":12}
+{"kind":"textbox","id":"sh/q983qtcr","slide":9,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/rahkzytc","slide":9,"text":"例题拆解","textPreview":"例题拆解","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/47qlo3ul","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/p8z2xob6","slide":9,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/25o3mtcv","slide":9,"text":"先识别结构，再执行步骤，最后回到证据","textPreview":"先识别结构，再执行步骤，最后回到证据","textChars":18,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/36xkvytg","slide":9,"bbox":[92,237,330,360]}
+{"kind":"shape","id":"sh/g36lkjup","slide":9,"bbox":[84,228,330,360]}
+{"kind":"shape","id":"sh/h4f2toba","slide":9,"bbox":[84,240,6,336]}
+{"kind":"textbox","id":"sh/tonelojy","slide":9,"text":"题目","textPreview":"题目","textChars":2,"textLines":1,"bbox":[110,250,278,34]}
+{"kind":"textbox","id":"sh/8neds32t","slide":9,"text":"给定条件后，先判断真正需要求解的对象。","textPreview":"给定条件后，先判断真正需要求解的对象。","textChars":19,"textLines":1,"bbox":[110,292,278,278]}
+{"kind":"shape","id":"sh/7m5wjy18","slide":9,"bbox":[457,237,330,360]}
+{"kind":"shape","id":"sh/6lwvqtkn","slide":9,"bbox":[449,228,330,360]}
+{"kind":"shape","id":"sh/lknuhoj2","slide":9,"bbox":[449,240,6,336]}
+{"kind":"textbox","id":"sh/kjedoj2h","slide":9,"text":"策略","textPreview":"策略","textChars":2,"textLines":1,"bbox":[475,250,278,34]}
+{"kind":"textbox","id":"sh/ji5cfe1w","slide":9,"text":"把条件转换为可以逐步核验的结构。","textPreview":"把条件转换为可以逐步核验的结构。","textChars":16,"textLines":1,"bbox":[475,292,278,278]}
+{"kind":"shape","id":"sh/yhcvm9kb","slide":9,"bbox":[822,237,380,360]}
+{"kind":"shape","id":"sh/xg3ud436","slide":9,"bbox":[814,228,380,360]}
+{"kind":"shape","id":"sh/wfudkj2l","slide":9,"bbox":[814,240,6,336]}
+{"kind":"textbox","id":"sh/ozyd0jah","slide":9,"text":"验证","textPreview":"验证","textChars":2,"textLines":1,"bbox":[840,250,328,34]}
+{"kind":"textbox","id":"sh/p07etobm","slide":9,"text":"检查结果是否满足原条件，并说明适用边界。","textPreview":"检查结果是否满足原条件，并说明适用边界。","textChars":20,"textLines":1,"bbox":[840,292,328,278]}
+{"kind":"textbox","id":"sh/2xgvy9sb","slide":9,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/3ypwretw","slide":9,"text":"9 / 18","textPreview":"9 / 18","textChars":6,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/g3excj2x","slide":9,"name":"","alt":"学术编辑reasoning背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/37deky","slide":9,"text":"内容摘要：例题拆解。先识别结构，再执行步骤，最后回到证据\n版式说明：学术编辑主题的reasoning语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/jt7i5e","slide":10,"title":"学术编辑","textShapes":10}
+{"kind":"textbox","id":"sh/1g7id0bi","slide":10,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/0vyhkvax","slide":10,"text":"方法对比","textPreview":"方法对比","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/rq5g7qtg","slide":10,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/qpwzelsv","slide":10,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/dsny90bm","slide":10,"text":"同一问题可以有多条路径，但评价标准保持一致","textPreview":"同一问题可以有多条路径，但评价标准保持一致","textChars":21,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/srehgva1","slide":10,"bbox":[92,241,535,350]}
+{"kind":"shape","id":"sh/bm90jutk","slide":10,"bbox":[84,232,535,350]}
+{"kind":"shape","id":"sh/al0zqpsf","slide":10,"bbox":[84,244,6,326]}
+{"kind":"textbox","id":"sh/s3alg3up","slide":10,"text":"路径 A｜直接判断","textPreview":"路径 A｜直接判断","textChars":9,"textLines":1,"bbox":[110,254,483,34]}
+{"kind":"textbox","id":"sh/tojmp8va","slide":10,"text":"步骤更少，适合条件清晰、证据完整的任务。","textPreview":"步骤更少，适合条件清晰、证据完整的任务。","textChars":20,"textLines":1,"bbox":[110,296,483,268]}
+{"kind":"shape","id":"sh/61s3etcz","slide":10,"bbox":[667,241,535,350]}
+{"kind":"shape","id":"sh/r214nyd4","slide":10,"bbox":[659,232,535,350]}
+{"kind":"shape","id":"sh/4zqlcjut","slide":10,"bbox":[659,244,6,326]}
+{"kind":"textbox","id":"sh/50jmlove","slide":10,"text":"路径 B｜逐层验证","textPreview":"路径 B｜逐层验证","textChars":9,"textLines":1,"bbox":[685,254,483,34]}
+{"kind":"textbox","id":"sh/ix83atcn","slide":10,"text":"检查更细，适合边界模糊或需要追溯依据的任务。","textPreview":"检查更细，适合边界模糊或需要追溯依据的任务。","textChars":22,"textLines":1,"bbox":[685,296,483,268]}
+{"kind":"textbox","id":"sh/jyh4jyd8","slide":10,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/wvql8juh","slide":10,"text":"10 / 18","textPreview":"10 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/vu1k7ipw","slide":10,"name":"","alt":"学术编辑content背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/jt7i5e","slide":10,"text":"内容摘要：方法对比。同一问题可以有多条路径，但评价标准保持一致\n版式说明：学术编辑主题的content语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/42crnq","slide":11,"title":"学术编辑","textShapes":8}
+{"kind":"textbox","id":"sh/7qtozaxo","slide":11,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/6pk7q5w3","slide":11,"text":"代码与实现","textPreview":"代码与实现","textChars":5,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/5ob6x0fi","slide":11,"text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/kn2povex","slide":11,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/jmtovqxc","slide":11,"text":"证据页优先保证代码、公式和表格的可读性","textPreview":"证据页优先保证代码、公式和表格的可读性","textChars":19,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/ilk7mlwr","slide":11,"bbox":[92,229,1110,390]}
+{"kind":"shape","id":"sh/pkfq94fm","slide":11,"bbox":[84,220,1110,390]}
+{"kind":"shape","id":"sh/4j6p0ze1","slide":11,"bbox":[84,232,6,366]}
+{"kind":"textbox","id":"sh/21kf210z","slide":11,"text":"可编辑代码","textPreview":"可编辑代码","textChars":5,"textLines":1,"bbox":[110,242,1058,34]}
+{"kind":"textbox","id":"sh/n2tgb6hk","slide":11,"text":"function verify(input) {\n  const evidence = collect(input);\n  return evidence.every(item => item.valid);\n}","textPreview":"function verify(input) { |   const evidence = collect(input); |   return evidence.every(item => item.valid); | }","textChars":106,"textLines":4,"bbox":[110,284,1058,308]}
+{"kind":"textbox","id":"sh/on2x4bi5","slide":11,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/pobydgza","slide":11,"text":"11 / 18","textPreview":"11 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/hkbalwj2","slide":11,"name":"","alt":"学术编辑evidence背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/42crnq","slide":11,"text":"内容摘要：代码与实现。证据页优先保证代码、公式和表格的可读性\n版式说明：学术编辑主题的evidence语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/01ed8d","slide":12,"title":"学术编辑","textShapes":12}
+{"kind":"textbox","id":"sh/zed0nqd8","slide":12,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/ed4zelwn","slide":12,"text":"证据核对表","textPreview":"证据核对表","textChars":5,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/9kfit0va","slide":12,"text":"12","textPreview":"12","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/oj61kfep","slide":12,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/nix0rad4","slide":12,"text":"把结论、证据与限制条件放到同一张表中","textPreview":"把结论、证据与限制条件放到同一张表中","textChars":18,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/mhozi5wj","slide":12,"bbox":[92,239,348,350]}
+{"kind":"shape","id":"sh/pobihgfq","slide":12,"bbox":[84,230,348,350]}
+{"kind":"shape","id":"sh/4n2h8bel","slide":12,"bbox":[84,242,6,326]}
+{"kind":"textbox","id":"sh/upkzupkj","slide":12,"text":"结论","textPreview":"结论","textChars":2,"textLines":1,"bbox":[110,252,296,34]}
+{"kind":"textbox","id":"sh/fqt03u14","slide":12,"text":"当前判断可成立","textPreview":"当前判断可成立","textChars":7,"textLines":1,"bbox":[110,294,296,268]}
+{"kind":"shape","id":"sh/gr2hwz2p","slide":12,"bbox":[468,239,348,350]}
+{"kind":"shape","id":"sh/hsvi54ja","slide":12,"bbox":[460,230,348,350]}
+{"kind":"shape","id":"sh/2t4zypkf","slide":12,"bbox":[460,242,6,326]}
+{"kind":"textbox","id":"sh/3ed07u10","slide":12,"text":"证据","textPreview":"证据","textChars":2,"textLines":1,"bbox":[486,252,296,34]}
+{"kind":"textbox","id":"sh/4fmh0z2l","slide":12,"text":"数据、过程与来源相互支持","textPreview":"数据、过程与来源相互支持","textChars":12,"textLines":1,"bbox":[486,294,296,268]}
+{"kind":"shape","id":"sh/pgvi94j6","slide":12,"bbox":[844,239,348,350]}
+{"kind":"shape","id":"sh/qh4j29kr","slide":12,"bbox":[836,230,348,350]}
+{"kind":"shape","id":"sh/rid0be1c","slide":12,"bbox":[836,242,6,326]}
+{"kind":"textbox","id":"sh/nmxgjehk","slide":12,"text":"限制条件","textPreview":"限制条件","textChars":4,"textLines":1,"bbox":[862,252,296,34]}
+{"kind":"textbox","id":"sh/mlozq9gz","slide":12,"text":"仅适用于已声明的条件范围","textPreview":"仅适用于已声明的条件范围","textChars":12,"textLines":1,"bbox":[862,294,296,268]}
+{"kind":"textbox","id":"sh/9ofyloza","slide":12,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/8n6hsjyp","slide":12,"text":"12 / 18","textPreview":"12 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/lg365kzm","slide":12,"name":"","alt":"学术编辑evidence背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/01ed8d","slide":12,"text":"内容摘要：证据核对表。把结论、证据与限制条件放到同一张表中\n版式说明：学术编辑主题的evidence语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/x7epx0","slide":13,"title":"学术编辑","textShapes":8}
+{"kind":"textbox","id":"sh/xwryxk3m","slide":13,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/wvih4fm1","slide":13,"text":"理解检查","textPreview":"理解检查","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/jy9gzulc","slide":13,"text":"13","textPreview":"13","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/ix0z6p4r","slide":13,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/50ry143i","slide":13,"text":"先独立作答，再展开判断依据","textPreview":"先独立作答，再展开判断依据","textChars":13,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/kzih8zmx","slide":13,"bbox":[92,235,1110,360]}
+{"kind":"shape","id":"sh/z25gnq58","slide":13,"bbox":[84,226,1110,360]}
+{"kind":"shape","id":"sh/y1wfu54n","slide":13,"bbox":[84,238,6,336]}
+{"kind":"textbox","id":"sh/4zapsr6t","slide":13,"text":"问题 01","textPreview":"问题 01","textChars":5,"textLines":1,"bbox":[110,248,1058,34]}
+{"kind":"textbox","id":"sh/p0j61wne","slide":13,"text":"请判断给定方案是否满足定义，并写出两条可核验的判断依据。","textPreview":"请判断给定方案是否满足定义，并写出两条可核验的判断依据。","textChars":28,"textLines":1,"bbox":[110,290,1058,278]}
+{"kind":"textbox","id":"sh/2xsnqhon","slide":13,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/3y1ozm58","slide":13,"text":"13 / 18","textPreview":"13 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/nqp8zu18","slide":13,"name":"","alt":"学术编辑practice背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/x7epx0","slide":13,"text":"内容摘要：理解检查。先独立作答，再展开判断依据\n版式说明：学术编辑主题的practice语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/xwt87g","slide":14,"title":"学术编辑","textShapes":10}
+{"kind":"textbox","id":"sh/4n29gjit","slide":14,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/5obapoje","slide":14,"text":"反馈与订正","textPreview":"反馈与订正","textChars":5,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/6pkrit0j","slide":14,"text":"14","textPreview":"14","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/rqdsry14","slide":14,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/sbm9k3ip","slide":14,"text":"反馈指出差距，也给出下一步行动","textPreview":"反馈指出差距，也给出下一步行动","textChars":15,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/tcvat8ja","slide":14,"bbox":[92,235,535,360]}
+{"kind":"shape","id":"sh/mt0r690f","slide":14,"bbox":[84,226,535,360]}
+{"kind":"shape","id":"sh/nu98fe10","slide":14,"bbox":[84,238,6,336]}
+{"kind":"textbox","id":"sh/r21c7yd0","slide":14,"text":"你的回答","textPreview":"你的回答","textChars":4,"textLines":1,"bbox":[110,248,483,34]}
+{"kind":"textbox","id":"sh/6hsbetcf","slide":14,"text":"先保留学习者的原始判断与理由。","textPreview":"先保留学习者的原始判断与理由。","textChars":15,"textLines":1,"bbox":[110,290,483,278]}
+{"kind":"shape","id":"sh/t43u98v6","slide":14,"bbox":[667,235,535,360]}
+{"kind":"shape","id":"sh/s3atg3ul","slide":14,"bbox":[659,226,535,360]}
+{"kind":"shape","id":"sh/je1s3yd4","slide":14,"bbox":[659,238,6,336]}
+{"kind":"textbox","id":"sh/idsbatcj","slide":14,"text":"反馈依据","textPreview":"反馈依据","textChars":4,"textLines":1,"bbox":[685,248,483,34]}
+{"kind":"textbox","id":"sh/5gju5ovu","slide":14,"text":"指出已掌握部分、证据缺口和下一步行动。","textPreview":"指出已掌握部分、证据缺口和下一步行动。","textChars":19,"textLines":1,"bbox":[685,290,483,278]}
+{"kind":"textbox","id":"sh/4fatcju9","slide":14,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/vahszeds","slide":14,"text":"14 / 18","textPreview":"14 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/a5gnqdgb","slide":14,"name":"","alt":"学术编辑practice背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/xwt87g","slide":14,"text":"内容摘要：反馈与订正。反馈指出差距，也给出下一步行动\n版式说明：学术编辑主题的practice语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/vp01br","slide":15,"title":"学术编辑","textShapes":10}
+{"kind":"textbox","id":"sh/29gvq5c7","slide":15,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/napcjats","slide":15,"text":"易错辨析","textPreview":"易错辨析","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/07ydovu1","slide":15,"text":"15","textPreview":"15","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/187uh0bm","slide":15,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/e5wvmlcb","slide":15,"text":"错误答案通常来自边界混淆，而不是记忆不足","textPreview":"错误答案通常来自边界混淆，而不是记忆不足","textChars":20,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/f6pcfqtg","slide":15,"bbox":[92,235,535,360]}
+{"kind":"shape","id":"sh/k3id0ful","slide":15,"bbox":[84,226,535,360]}
+{"kind":"shape","id":"sh/l4retkb6","slide":15,"bbox":[84,238,6,336]}
+{"kind":"textbox","id":"sh/xczalc7q","slide":15,"text":"常见误区","textPreview":"常见误区","textChars":4,"textLines":1,"bbox":[110,248,483,34]}
+{"kind":"textbox","id":"sh/wbqts765","slide":15,"text":"只记住结论，却忽略结论成立的条件。","textPreview":"只记住结论，却忽略结论成立的条件。","textChars":17,"textLines":1,"bbox":[110,290,483,278]}
+{"kind":"shape","id":"sh/vahsj2p0","slide":15,"bbox":[667,235,535,360]}
+{"kind":"shape","id":"sh/a98bqhof","slide":15,"bbox":[659,226,535,360]}
+{"kind":"shape","id":"sh/98fahc7u","slide":15,"bbox":[659,238,6,336]}
+{"kind":"textbox","id":"sh/876to7q9","slide":15,"text":"修正策略","textPreview":"修正策略","textChars":4,"textLines":1,"bbox":[685,248,483,34]}
+{"kind":"textbox","id":"sh/n6xsf2po","slide":15,"text":"把条件、证据和边界重新连接起来。","textPreview":"把条件、证据和边界重新连接起来。","textChars":16,"textLines":1,"bbox":[685,290,483,278]}
+{"kind":"textbox","id":"sh/m5obmx83","slide":15,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/t4jutw7y","slide":15,"text":"15 / 18","textPreview":"15 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/kbeh07ep","slide":15,"name":"","alt":"学术编辑practice背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/vp01br","slide":15,"text":"内容摘要：易错辨析。错误答案通常来自边界混淆，而不是记忆不足\n版式说明：学术编辑主题的practice语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/aom4xx","slide":16,"title":"学术编辑","textShapes":10}
+{"kind":"textbox","id":"sh/u9ofy98b","slide":16,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/vaxwrepw","slide":16,"text":"迁移应用","textPreview":"迁移应用","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/4fqx4j6d","slide":16,"text":"16","textPreview":"16","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/5gzyxo7y","slide":16,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/id8f2to7","slide":16,"text":"把方法映射到新的任务情境","textPreview":"把方法映射到新的任务情境","textChars":12,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/3ehwvyps","slide":16,"bbox":[92,243,520,350]}
+{"kind":"shape","id":"sh/kjmxszq9","slide":16,"bbox":[84,234,520,350]}
+{"kind":"shape","id":"sh/lkfel47e","slide":16,"bbox":[84,246,6,326]}
+{"kind":"textbox","id":"sh/1szu9gjy","slide":16,"text":"原任务结构","textPreview":"原任务结构","textChars":5,"textLines":1,"bbox":[110,256,468,34]}
+{"kind":"textbox","id":"sh/0rqd0b2d","slide":16,"text":"对象 → 条件 → 方法 → 证据","textPreview":"对象 → 条件 → 方法 → 证据","textChars":17,"textLines":1,"bbox":[110,298,468,268]}
+{"kind":"shape","id":"sh/z6hc761s","slide":16,"bbox":[682,243,520,350]}
+{"kind":"shape","id":"sh/e58by1k7","slide":16,"bbox":[674,234,520,350]}
+{"kind":"shape","id":"sh/9wjudgju","slide":16,"bbox":[674,246,6,326]}
+{"kind":"textbox","id":"sh/ovqd4b29","slide":16,"text":"新情境映射","textPreview":"新情境映射","textChars":5,"textLines":1,"bbox":[700,256,468,34]}
+{"kind":"textbox","id":"sh/nuhcbq1o","slide":16,"text":"保留结构，替换对象与限制条件。","textPreview":"保留结构，替换对象与限制条件。","textChars":15,"textLines":1,"bbox":[700,298,468,268]}
+{"kind":"textbox","id":"sh/mt8v2lk3","slide":16,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/x0juh0j6","slide":16,"text":"16 / 18","textPreview":"16 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/kb6ls3q5","slide":16,"name":"","alt":"学术编辑reasoning背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/aom4xx","slide":16,"text":"内容摘要：迁移应用。把方法映射到新的任务情境\n版式说明：学术编辑主题的reasoning语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/ti0oxw","slide":17,"title":"学术编辑","textShapes":18}
+{"kind":"textbox","id":"sh/snqtofa9","slide":17,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/tozax0ru","slide":17,"text":"本章回顾","textPreview":"本章回顾","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/upsbq5sf","slide":17,"text":"17","textPreview":"17","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/fq1cza9k","slide":17,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/gratsfa5","slide":17,"text":"让定义、方法、证据和边界重新汇聚","textPreview":"让定义、方法、证据和边界重新汇聚","textChars":16,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/hsju1krq","slide":17,"bbox":[92,267,254,250]}
+{"kind":"shape","id":"sh/2tsbupsb","slide":17,"bbox":[84,258,254,250]}
+{"kind":"shape","id":"sh/3u1c3u9w","slide":17,"bbox":[84,270,6,226]}
+{"kind":"textbox","id":"sh/f650rahs","slide":17,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[108,276,44,28]}
+{"kind":"textbox","id":"sh/e5cji507","slide":17,"text":"定义","textPreview":"定义","textChars":2,"textLines":1,"bbox":[110,280,202,34]}
+{"kind":"textbox","id":"sh/18n2tkzy","slide":17,"text":"说清对象和条件","textPreview":"说清对象和条件","textChars":7,"textLines":1,"bbox":[110,322,202,168]}
+{"kind":"shape","id":"sh/07e1kfid","slide":17,"bbox":[374,267,254,250]}
+{"kind":"shape","id":"sh/r2l0nq1g","slide":17,"bbox":[366,258,254,250]}
+{"kind":"shape","id":"sh/q1cjel0b","slide":17,"bbox":[366,270,6,226]}
+{"kind":"textbox","id":"sh/d43ip0zm","slide":17,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[390,276,44,28]}
+{"kind":"textbox","id":"sh/s3u1gvi1","slide":17,"text":"方法","textPreview":"方法","textChars":2,"textLines":1,"bbox":[392,280,202,34]}
+{"kind":"textbox","id":"sh/bypkzuh0","slide":17,"text":"拆成可检查步骤","textPreview":"拆成可检查步骤","textChars":7,"textLines":1,"bbox":[392,322,202,168]}
+{"kind":"shape","id":"sh/axwjqp0f","slide":17,"bbox":[656,267,254,250]}
+{"kind":"shape","id":"sh/mt03itkn","slide":17,"bbox":[648,258,254,250]}
+{"kind":"shape","id":"sh/7u94ry18","slide":17,"bbox":[648,270,6,226]}
+{"kind":"textbox","id":"sh/8vi5k32t","slide":17,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[672,276,44,28]}
+{"kind":"textbox","id":"sh/9wrmt8jy","slide":17,"text":"证据","textPreview":"证据","textChars":2,"textLines":1,"bbox":[674,280,202,34]}
+{"kind":"textbox","id":"sh/uxknmtkj","slide":17,"text":"核验来源与过程","textPreview":"核验来源与过程","textChars":7,"textLines":1,"bbox":[674,322,202,168]}
+{"kind":"shape","id":"sh/vyt4vy14","slide":17,"bbox":[938,267,254,250]}
+{"kind":"shape","id":"sh/wz25o32p","slide":17,"bbox":[930,258,254,250]}
+{"kind":"shape","id":"sh/h0bmx8ja","slide":17,"bbox":[930,270,6,226]}
+{"kind":"textbox","id":"sh/a1g3a9kf","slide":17,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[954,276,44,28]}
+{"kind":"textbox","id":"sh/b2p4je10","slide":17,"text":"边界","textPreview":"边界","textChars":2,"textLines":1,"bbox":[956,280,202,34]}
+{"kind":"textbox","id":"sh/dgf6pc3i","slide":17,"text":"说明何时不适用","textPreview":"说明何时不适用","textChars":7,"textLines":1,"bbox":[956,322,202,168]}
+{"kind":"textbox","id":"sh/sfmpg7mx","slide":17,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/rudon2lc","slide":17,"text":"17 / 18","textPreview":"17 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/2xcvuxwj","slide":17,"name":"","alt":"学术编辑recap背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/ti0oxw","slide":17,"text":"内容摘要：本章回顾。让定义、方法、证据和边界重新汇聚\n版式说明：学术编辑主题的recap语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}
+{"kind":"slide","id":"sl/da54kg","slide":18,"title":"学术编辑","textShapes":8}
+{"kind":"textbox","id":"sh/9oradkzq","slide":18,"text":"学术编辑","textPreview":"学术编辑","textChars":4,"textLines":1,"bbox":[86,48,360,26]}
+{"kind":"textbox","id":"sh/8ny9kfy5","slide":18,"text":"课程收束","textPreview":"课程收束","textChars":4,"textLines":1,"bbox":[82,76,910,72]}
+{"kind":"textbox","id":"sh/vq9sfuhw","slide":18,"text":"18","textPreview":"18","textChars":2,"textLines":1,"bbox":[1146,46,52,24]}
+{"kind":"shape","id":"sh/up0bmpgb","slide":18,"bbox":[84,156,1110,1]}
+{"kind":"textbox","id":"sh/hsrah4zm","slide":18,"text":"带着一个可执行的问题离开课堂","textPreview":"带着一个可执行的问题离开课堂","textChars":14,"textLines":1,"bbox":[86,166,1030,36]}
+{"kind":"shape","id":"sh/writozy1","slide":18,"bbox":[188,259,920,250]}
+{"kind":"shape","id":"sh/bu5s3qhc","slide":18,"bbox":[180,250,920,250]}
+{"kind":"shape","id":"sh/atwralgr","slide":18,"bbox":[180,262,6,226]}
+{"kind":"textbox","id":"sh/432xsbq9","slide":18,"text":"离堂问题","textPreview":"离堂问题","textChars":4,"textLines":1,"bbox":[206,272,868,34]}
+{"kind":"textbox","id":"sh/54belg7e","slide":18,"text":"你准备把今天的方法用于哪个真实任务？下一步要收集什么证据？","textPreview":"你准备把今天的方法用于哪个真实任务？下一步要收集什么证据？","textChars":29,"textLines":1,"bbox":[206,314,868,168]}
+{"kind":"textbox","id":"sh/i10fq183","slide":18,"text":"V5 TEMPLATE REFERENCE","textPreview":"V5 TEMPLATE REFERENCE","textChars":21,"textLines":1,"bbox":[82,684,300,20]}
+{"kind":"textbox","id":"sh/j2twj6po","slide":18,"text":"18 / 18","textPreview":"18 / 18","textChars":7,"textLines":1,"bbox":[1100,684,98,20]}
+{"kind":"image","id":"im/zexcfuhw","slide":18,"name":"","alt":"学术编辑recap背景，无文字装饰素材","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/da54kg","slide":18,"text":"内容摘要：课程收束。带着一个可执行的问题离开课堂\n版式说明：学术编辑主题的recap语义页面；背景为无文字图片，文本框、强调线和全部教学文字保持可编辑。\n素材来源：OpenAI image generation（本仓库专用生成素材，2026-08-10）；具体提示词与生成记录见 presentation-assets/ASSET_SOURCES.md。"}

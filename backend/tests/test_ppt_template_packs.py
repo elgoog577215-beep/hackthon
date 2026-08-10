@@ -63,6 +63,8 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert draft["extracted_style"]["title_font"] == "Noto Serif SC"
     assert len(draft["representative_pages"]) == 6
     assert len(draft["preview_slides"]) == 8
+    assert len(draft["text_box_styles"]) == 10
+    assert draft["text_box_styles"]["evidence"]["text"] == "F4F6F7"
 
     published_v1 = repository.publish(draft["pack_id"], "teacher-a")
     assert published_v1["version"] == 1
