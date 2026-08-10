@@ -6,12 +6,13 @@ import re
 from collections import Counter
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_presentation_graph import (
     CoursePresentationGraphV1,
     CoursePresentationUnitV1,
+    block_artifact_kinds,
     block_source_text,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
@@ -191,11 +192,27 @@ class SlideDeckV6Quality(_StrictModel):
     subject_artifacts_passed: bool
     web_pptx_contract_shared: bool
     blockers: list[V6Failure] = Field(default_factory=list)
+    passed: bool = True
+
+    @model_validator(mode="after")
+    def derive_passed(self) -> "SlideDeckV6Quality":
+        self.passed = bool(
+            self.formal_block_visible_coverage == 1.0
+            and self.full_text_note_binding == 1.0
+            and self.source_order_preserved
+            and self.template_contract_passed
+            and self.subject_artifacts_passed
+            and self.web_pptx_contract_shared
+            and not self.blockers
+        )
+        return self
 
 
 class SlideDeckV6(_StrictModel):
     schema_version: Literal["slide_deck_v6"] = "slide_deck_v6"
     course_id: str
+    title: str
+    theme: str
     source_document_revision: str
     template_id: str
     template_version: str
@@ -406,6 +423,188 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
     return result or normalized[:capacity].rstrip("，、;；:：") + "…"
 
 
+_SLOT_ROLE_PREFERENCES: dict[str, set[str]] = {
+    "driving_question": {"orientation", "objective", "checkpoint", "activity"},
+    "task": {"activity", "checkpoint", "orientation"},
+    "prompt": {"activity", "checkpoint", "orientation", "example"},
+    "criteria": {"feedback", "summary", "objective"},
+    "feedback": {"feedback", "answer", "remediation"},
+    "annotation": {"concept", "reasoning", "feedback", "remediation"},
+    "derivation": {"reasoning", "example"},
+    "reasoning": {"reasoning", "example"},
+    "interpretation": {"reasoning", "feedback", "summary"},
+    "explanation": {"concept", "reasoning", "feedback"},
+    "symptom": {"misconception", "counterexample"},
+    "cause": {"reasoning", "misconception"},
+    "repair": {"remediation", "feedback"},
+    "next_action": {"transfer", "application", "activity"},
+}
+
+
+def _slot_artifact_kind(slot_kind: str) -> str:
+    return {
+        "code": "code",
+        "formula": "formula",
+        "table": "table",
+        "visual": "visual",
+    }.get(slot_kind, "")
+
+
+def _block_matches_slot(block: CourseBlock, slot_kind: str) -> bool:
+    artifact = _slot_artifact_kind(slot_kind)
+    kinds = set(block_artifact_kinds(block))
+    if artifact == "visual":
+        return bool(
+            kinds.intersection(
+                {"diagram", "image", "data", "experiment", "source_excerpt"}
+            )
+        )
+    return bool(artifact and artifact in kinds)
+
+
+def _bounded_slot_content(
+    blocks: list[CourseBlock],
+    *,
+    slot_kind: str,
+    max_chars: int,
+    max_items: int,
+    max_lines: int,
+    max_rows: int,
+) -> str:
+    texts = [
+        block_source_text(block)
+        for block in blocks
+        if block_source_text(block)
+    ]
+    if not texts:
+        return ""
+    capacity = max_chars or 520
+    if slot_kind == "code":
+        lines = "\n\n".join(texts).splitlines()
+        if max_lines:
+            lines = lines[:max_lines]
+        return "\n".join(lines)[:capacity].rstrip()
+    if slot_kind == "table":
+        lines = "\n".join(texts).splitlines()
+        if max_rows:
+            lines = lines[: max_rows + 2]
+        return "\n".join(lines)[:capacity].rstrip()
+    if slot_kind == "items":
+        items: list[str] = []
+        for text in texts:
+            candidates = [
+                re.sub(r"^\s*(?:[-*+] |\d+[.)]\s*)", "", line).strip()
+                for line in text.splitlines()
+                if line.strip()
+            ]
+            items.extend(candidates or [text])
+        if max_items:
+            items = items[:max_items]
+        return "\n".join(items)[:capacity].rstrip()
+    return _complete_sentence_excerpt("\n\n".join(texts), capacity)
+
+
+def _materialize_template_regions(
+    *,
+    page_id: str,
+    title: str,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> list[SlideRegionV6]:
+    title_slot = next(
+        (slot for slot in layout.slots if slot.slot_kind == "title"),
+        None,
+    )
+    if title_slot and title_slot.max_chars and len(title) > title_slot.max_chars:
+        raise V6BuildError(
+            stage="template",
+            code="template_title_capacity_exceeded",
+            message=f"Page title exceeds the {title_slot.slot_id} slot capacity",
+            page_id=page_id,
+        )
+    content_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind not in {"title", "eyebrow", "notes"}
+    ]
+    remaining = list(source_blocks)
+    assigned: dict[str, list[CourseBlock]] = {}
+    for slot in content_slots:
+        if slot.slot_kind not in {"code", "formula", "table", "visual"}:
+            continue
+        matches = [
+            block for block in remaining if _block_matches_slot(block, slot.slot_kind)
+        ]
+        if matches:
+            assigned[slot.slot_id] = matches
+            remaining = [block for block in remaining if block not in matches]
+
+    text_slots = [slot for slot in content_slots if slot.slot_id not in assigned]
+    for index, slot in enumerate(text_slots):
+        if not remaining:
+            break
+        preferred_roles = _SLOT_ROLE_PREFERENCES.get(slot.slot_id, set())
+        preferred = [block for block in remaining if block.role in preferred_roles]
+        is_last_text_slot = index == len(text_slots) - 1
+        if preferred:
+            selected = preferred if is_last_text_slot else [preferred[0]]
+        elif is_last_text_slot:
+            selected = list(remaining)
+        else:
+            selected = [remaining[0]]
+        assigned[slot.slot_id] = selected
+        remaining = [block for block in remaining if block not in selected]
+    if remaining and text_slots:
+        assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
+        remaining = []
+
+    regions: list[SlideRegionV6] = []
+    for slot in content_slots:
+        slot_blocks = assigned.get(slot.slot_id, [])
+        content = _bounded_slot_content(
+            slot_blocks,
+            slot_kind=slot.slot_kind,
+            max_chars=slot.max_chars,
+            max_items=slot.max_items,
+            max_lines=slot.max_lines,
+            max_rows=slot.max_rows,
+        )
+        if slot.required and not content:
+            raise V6BuildError(
+                stage="template",
+                code="template_required_slot_unfilled",
+                message=f"Required template slot {slot.slot_id} has no source-backed content",
+                page_id=page_id,
+            )
+        if not content:
+            continue
+        regions.append(
+            SlideRegionV6(
+                region_id=f"{page_id}:{slot.slot_id}",
+                slot_id=slot.slot_id,
+                content_kind=slot.slot_kind,
+                content=content,
+                source_block_ids=[block.block_id for block in slot_blocks],
+            )
+        )
+    visible_blocks = {
+        block_id for region in regions for block_id in region.source_block_ids
+    }
+    missing = [
+        block.block_id
+        for block in source_blocks
+        if block.block_id not in visible_blocks
+    ]
+    if missing:
+        raise V6BuildError(
+            stage="template",
+            code="template_source_slot_coverage_incomplete",
+            message=f"Template slots did not visibly bind source blocks: {', '.join(missing)}",
+            page_id=page_id,
+        )
+    return regions
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -425,11 +624,11 @@ def compile_slide_deck_v6(
             raise V6BuildError(stage="template", code="template_layout_unavailable", message="Resolved layout disappeared during final compilation", page_id=story_page.page_id)
         unit = units[story_page.teaching_unit_id]
         source_blocks = [blocks[block_id] for block_id in story_page.source_block_ids]
-        body_slot = next((slot for slot in layout.slots if slot.slot_kind in {"body", "items", "code", "formula", "table"} and slot.required), None)
-        body_capacity = (body_slot.max_chars if body_slot else 0) or 520
-        body = story_page.summary or _complete_sentence_excerpt(
-            "\n\n".join(block_source_text(block) for block in source_blocks),
-            body_capacity,
+        regions = _materialize_template_regions(
+            page_id=story_page.page_id,
+            title=story_page.title,
+            layout=layout,
+            source_blocks=source_blocks,
         )
         pages.append(
             SlidePageV6(
@@ -440,15 +639,7 @@ def compile_slide_deck_v6(
                 resolved_layout=layout.template_layout_id,
                 web_renderer_adapter=layout.web_renderer_adapter,
                 pptx_renderer_adapter=layout.pptx_renderer_adapter,
-                regions=[
-                    SlideRegionV6(
-                        region_id=f"{story_page.page_id}:body",
-                        slot_id=body_slot.slot_id if body_slot else "body",
-                        content_kind=visual_by_page[story_page.page_id].decision,
-                        content=body,
-                        source_block_ids=story_page.source_block_ids,
-                    )
-                ],
+                regions=regions,
                 source_block_ids=story_page.source_block_ids,
                 artifact_kinds=unit.artifact_kinds,
                 visual_decision=visual_by_page[story_page.page_id],
@@ -467,7 +658,12 @@ def compile_slide_deck_v6(
             )
         )
     formal_ids = graph.formal_block_ids
-    visible = {block_id for page in pages for block_id in page.source_block_ids}
+    visible = {
+        block_id
+        for page in pages
+        for region in page.regions
+        for block_id in region.source_block_ids
+    }
     noted = {item.block_id for page in pages for item in page.speaker_notes.source_blocks if item.full_text}
     denominator = max(1, len(formal_ids))
     quality = SlideDeckV6Quality(
@@ -482,6 +678,8 @@ def compile_slide_deck_v6(
         raise V6BuildError(stage="quality", code="course_block_coverage_incomplete", message="Final deck does not bind every formal block visibly and in notes")
     return SlideDeckV6(
         course_id=document.course_id,
+        title=document.title,
+        theme=template.theme_id,
         source_document_revision=document.document_revision,
         template_id=template.template_id,
         template_version=template.template_version,

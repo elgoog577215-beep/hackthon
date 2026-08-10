@@ -50,6 +50,7 @@ from slide_deck_v5 import (
     slide_deck_v5_enabled,
     validate_slide_deck_v5,
 )
+from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from slide_quality_v5 import repair_render_slides_v5
 from slide_story_plan import SlideStoryPlanV2
 from slide_theme import slide_theme_version
@@ -485,6 +486,8 @@ def export_slide_deck_pptx(
     if spec.representation_type != "slide_deck":
         raise ValueError("Only slide deck specs can be exported to pptx")
     content = spec.payload.get("content") or {}
+    if content.get("schema_version") == "slide_deck_v6":
+        return export_slide_deck_v6_pptx(content, output_path)
     resolved_theme = theme or str(content.get("theme") or "qingfeng-classroom")
     return export_structured_slide_deck(content, output_path, theme=resolved_theme)
 

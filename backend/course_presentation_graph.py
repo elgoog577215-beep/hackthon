@@ -104,6 +104,12 @@ def _artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
     return list(dict.fromkeys(kinds))
 
 
+def block_artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
+    """Return source-backed characteristic artifacts for one canonical block."""
+
+    return _artifact_kinds(block)
+
+
 def _teaching_intent(blocks: list[CourseBlock]) -> str:
     roles = [block.role for block in blocks]
     artifacts = {kind for block in blocks for kind in _artifact_kinds(block)}
@@ -246,6 +252,7 @@ __all__ = [
     "ArtifactKind",
     "CoursePresentationGraphV1",
     "CoursePresentationUnitV1",
+    "block_artifact_kinds",
     "block_source_text",
     "compile_course_presentation_graph",
 ]

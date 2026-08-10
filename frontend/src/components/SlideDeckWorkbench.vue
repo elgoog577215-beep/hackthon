@@ -504,7 +504,7 @@ const props = withDefaults(defineProps<{
   variants?: TeachingRepresentation[]
   bundleParts?: Array<{ representationId: string; label: string }>
   activeBundlePartId?: string
-  engineStatus?: 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  engineStatus?: 'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
   targetSchema?: string
   candidateSchema?: string
   publishedSchema?: string
@@ -596,6 +596,7 @@ const currentRepresentation = computed(() => (
   props.variants.find(item => item.representation_id === props.representationId) || null
 ))
 const engineStatusLabel = computed(() => ({
+  slide_deck_v6: '课程忠实演示 V6',
   slide_deck_v5: '课程叙事 V5',
   slide_deck_v4: '课程逻辑 V4',
   slide_deck_v3: '兼容模式 V3',
@@ -604,6 +605,7 @@ const engineStatusLabel = computed(() => ({
 }[props.engineStatus]))
 const schemaLabel = (value: string) => {
   const normalized = String(value || '')
+  if (normalized === 'slide_deck_v6') return 'V6'
   if (normalized === 'slide_deck_v5') return 'V5'
   if (normalized === 'slide_deck_v4') return 'V4'
   if (normalized === 'slide_deck_v3') return 'V3'

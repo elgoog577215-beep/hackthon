@@ -171,6 +171,7 @@ import type {
 } from '../stores/teachingRepresentations'
 import type { CourseDocumentEnvelope } from '../stores/types'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
+import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
 import http from '../utils/http'
 
 const route = useRoute()
@@ -242,15 +243,16 @@ const slideRepresentation = computed(() => (
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const slideEngineStatus = computed<
-  'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
 >(() => {
   const target = String(store.registry?.slide_deck_target_schema || '')
-  if (['slide_deck_v5', 'slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
-    return target as 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
+  if (['slide_deck_v6', 'slide_deck_v5', 'slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
+    return target as 'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
   }
   const publishedSchema = String(content.value?.schema_version || '')
   if (
-    publishedSchema === 'slide_deck_v5'
+    publishedSchema === 'slide_deck_v6'
+    || publishedSchema === 'slide_deck_v5'
     || publishedSchema === 'slide_deck_v4'
     || publishedSchema === 'slide_deck_v3'
   ) {
@@ -259,6 +261,7 @@ const slideEngineStatus = computed<
   return 'unknown'
 })
 const slideEngineStatusLabel = computed(() => ({
+  slide_deck_v6: '将使用课程忠实型故事、视觉与最新模板合同 V6 生成',
   slide_deck_v5: '将使用课程叙事与语义版式 V5 生成',
   slide_deck_v4: '将使用新版课程逻辑 V4 生成',
   slide_deck_v3: '当前使用兼容模式 V3',
@@ -269,7 +272,8 @@ const slideEngineStatusLabel = computed(() => ({
 function representationMatchesTargetEngine(item: TeachingRepresentation) {
   const target = String(store.registry?.slide_deck_target_schema || '')
   if (
-    target !== 'slide_deck_v5'
+    target !== 'slide_deck_v6'
+    && target !== 'slide_deck_v5'
     && target !== 'slide_deck_v4'
     && target !== 'slide_deck_v3'
   ) return true
@@ -291,7 +295,9 @@ function representationMatchesTargetEngine(item: TeachingRepresentation) {
 const displaySlides = computed(() => (
   store.liveSlides.length && store.slidePreviewSource === 'draft'
     ? store.liveSlides
-    : (content.value?.slides || [])
+    : content.value?.schema_version === 'slide_deck_v6'
+      ? adaptSlideDeckV6ForWeb(content.value)
+      : (content.value?.slides || [])
 ))
 const estimatedFragmentCount = computed(() => (
   Number(content.value?.fragment_manifest?.length)
@@ -445,7 +451,7 @@ async function upgradeCourseLogic() {
     const targetSchema = String(
       store.registry?.slide_deck_target_schema || '',
     )
-    if (targetSchema === 'slide_deck_v5' || targetSchema === 'slide_deck_v4') {
+    if (['slide_deck_v6', 'slide_deck_v5', 'slide_deck_v4'].includes(targetSchema)) {
       generatorOpen.value = true
       return
     }

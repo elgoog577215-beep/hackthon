@@ -229,7 +229,9 @@ def _reconciled_registry(course_id: str) -> dict:
         candidate_content.get("schema_version") or ""
     )
     payload["slide_deck_candidate_status"] = str(
-        candidate_content.get("candidate_status") or ""
+        candidate_content.get("candidate_status")
+        or candidate_content.get("status")
+        or ""
     )
     for representation in payload.get("representations") or []:
         if representation.get("representation_type") != "slide_deck":

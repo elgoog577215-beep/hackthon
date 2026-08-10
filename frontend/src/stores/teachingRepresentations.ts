@@ -16,11 +16,19 @@ export type SlideDeckTheme =
   | 'qingfeng-classroom'
   | 'academic-bluegray'
 export type SlideDeckPreviewSource = 'draft' | 'published'
-export type SlideDeckCandidateStatus = '' | 'v5_ready' | 'v5_needs_manual_edit' | 'v5_failed'
+export type SlideDeckCandidateStatus =
+  | ''
+  | 'v5_ready'
+  | 'v5_needs_manual_edit'
+  | 'v5_failed'
+  | 'v6_ready'
+  | 'v6_needs_manual_edit'
+  | 'v6_failed'
 
 export interface SlideDeckBuildOptions {
   mode: SlideDeckMode
   theme: Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
+  engineVersion?: 'v5' | 'v6'
   forceRebuild?: boolean
   webImageRetrieval?: {
     enabled: boolean
@@ -69,7 +77,7 @@ export function preferredRepresentationForType(
   if (type === 'slide_deck') {
     const targetSchema = String(registry?.slide_deck_target_schema || '')
     if (targetSchema === 'blocked') return undefined
-    if (['slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(targetSchema)) {
+    if (['slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5', 'slide_deck_v6'].includes(targetSchema)) {
       const specsById = new Map<string, TeachingRepresentationSpec>(
         (registry?.specs || []).map((spec: TeachingRepresentationSpec) => [spec.spec_id, spec]),
       )
@@ -548,6 +556,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
               body: JSON.stringify({
                 mode: options.mode,
                 theme: options.theme,
+                ...(options.engineVersion ? { engine_version: options.engineVersion } : {}),
                 force_rebuild: options.forceRebuild === true,
                 ...(options.webImageRetrieval ? {
                   web_image_retrieval: {
@@ -910,6 +919,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const publishedQuality = (
         quality
         || publishedContent?.quality_summary
+        || (publishedContent?.schema_version === 'slide_deck_v6' ? publishedContent?.quality : null)
         || this.publishedSlideQuality
         || null
       )
@@ -920,7 +930,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.slideQuality = publishedQuality
       this.slidePublishedSchema = String(publishedContent?.schema_version || '')
       this.slideCandidateStatus = String(
-        publishedContent?.candidate_status || this.slideCandidateStatus || '',
+        publishedContent?.candidate_status
+        || publishedContent?.status
+        || this.slideCandidateStatus
+        || '',
       ) as SlideDeckCandidateStatus
       if (quality) this.quality = quality
     },
@@ -929,7 +942,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const publishedContent = this.selectedSpec?.payload?.content
       const hasPublishedDeck = (
         this.selectedRepresentation?.status === 'ready'
-        && ['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(publishedContent?.schema_version)
+        && ['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5', 'slide_deck_v6'].includes(publishedContent?.schema_version)
       )
       if (hasPublishedDeck) {
         this.liveSlides = []
@@ -1038,7 +1051,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       if (
         !this.deferMissingSlideBuild
         && slideRepresentation
-        && !['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(content?.schema_version)
+        && !['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5', 'slide_deck_v6'].includes(content?.schema_version)
       ) {
         await this.buildProgressive(courseId)
       }
@@ -1062,12 +1075,20 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       ) return null
       const spec = (response.data.spec || null) as TeachingRepresentationSpec | null
       this.selectedSpec = spec
-      if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5'].includes(spec?.payload?.content?.schema_version)) {
+      if (['slide_deck_v2', 'slide_deck_v3', 'slide_deck_v4', 'slide_deck_v5', 'slide_deck_v6'].includes(spec?.payload?.content?.schema_version)) {
         this.slidePublishedSchema = String(spec?.payload?.content?.schema_version || '')
         this.slideCandidateStatus = String(
-          spec?.payload?.content?.candidate_status || this.slideCandidateStatus || '',
+          spec?.payload?.content?.candidate_status
+          || spec?.payload?.content?.status
+          || this.slideCandidateStatus
+          || '',
         ) as SlideDeckCandidateStatus
-        const summary = spec?.payload.content.quality_summary
+        const summary = (
+          spec?.payload.content.quality_summary
+          || (spec?.payload.content.schema_version === 'slide_deck_v6'
+            ? spec?.payload.content.quality
+            : null)
+        )
         if (summary) {
           this.publishedSlideQuality = summary
           if (this.slidePreviewSource === 'published') this.slideQuality = summary

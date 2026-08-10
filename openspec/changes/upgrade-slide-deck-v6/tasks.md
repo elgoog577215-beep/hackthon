@@ -21,8 +21,8 @@
 
 ## 4. Final compiler and orchestration
 
-- [ ] 4.1 Implement `slide_deck_v6`, 1～3 page unit allocation, typed slot materialization and full-source speaker notes.
-- [ ] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
+- [x] 4.1 Implement `slide_deck_v6`, 1～3 page unit allocation, typed slot materialization and full-source speaker notes.
+- [x] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
 - [ ] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
 - [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
 
