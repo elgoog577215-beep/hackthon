@@ -370,3 +370,44 @@ def test_all_blank_steps_do_not_pass_the_empty_answer_guard():
     # 未分步的整体作答不受影响。
     assert practice_router._has_answer({"text": "最小值 -1"}) is True
     assert practice_router._has_answer({"text": ""}) is False
+
+
+# --- J4：证据强度口径对齐（不重复建模） --------------------------------------
+
+
+def test_the_two_support_level_copies_stay_in_agreement():
+    """`_support_level` 目前在评分与路由两处各有一份**逐字相同**的实现。
+
+    J4 要求复用同一套证据强度口径、不要重复建模。这两份副本一旦漂移，
+    同一次作答就会在"判定用的支持等级"和"上报用的支持等级"上给出不同答案，
+    而且不会有任何测试报警。本条把它们钉在一起。
+    """
+    from practice_grading import _support_level as grading_support_level
+    from routers.practice import _support_level as router_support_level
+
+    cases = [
+        {},
+        {"ai_support_level": 2},
+        {"revealed_hint_levels": [1, 3]},
+        {"solution_revealed": True},
+        {"ai_support_level": 1, "revealed_hint_levels": [2], "solution_revealed": False},
+        {"ai_support_level": 0, "revealed_hint_levels": [], "solution_revealed": True},
+    ]
+    for attempt in cases:
+        assert grading_support_level(attempt) == router_support_level(attempt), attempt
+
+
+def test_support_level_and_evidence_strength_agree_on_every_support_source():
+    """三个支持入口（提示 / AI 求助 / 看答案）都必须同时影响两套口径。"""
+    from practice_grading import _support_level
+
+    # 提示与 AI 求助按等级折算。
+    assert _support_level({"revealed_hint_levels": [2]}) == 2
+    assert evidence_strength({"revealed_hint_levels": [2]}) == "supported"
+    assert _support_level({"ai_support_level": 3}) == 3
+    assert evidence_strength({"ai_support_level": 3}) == "scaffolded"
+    # 看过答案一律降到最低档。
+    assert _support_level({"solution_revealed": True}) == 3
+    assert evidence_strength({"solution_revealed": True}) == "scaffolded"
+    # 作废的作答不产生任何证据。
+    assert evidence_strength({"status": "invalidated"}) == "invalid"
