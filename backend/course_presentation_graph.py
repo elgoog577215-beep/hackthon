@@ -109,7 +109,7 @@ def _teaching_intent(blocks: list[CourseBlock]) -> str:
     artifacts = {kind for block in blocks for kind in _artifact_kinds(block)}
     if artifacts:
         return "artifact_explanation"
-    if any(role in {"activity", "checkpoint"} for role in roles):
+    if any(role in {"activity", "checkpoint", "feedback"} for role in roles):
         return "practice_feedback"
     if any(role in {"misconception", "remediation", "counterexample"} for role in roles):
         return "misconception_repair"

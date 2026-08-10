@@ -14,6 +14,10 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class TemplateLayoutContractError(ValueError):
+    """Raised when a template cannot satisfy the closed V6 layout registry."""
+
+
 class TemplateSlotContractV1(_StrictModel):
     slot_id: str
     slot_kind: Literal[
@@ -232,9 +236,79 @@ def compile_builtin_template_layout_contract_v1(theme_id: str) -> TemplateLayout
     )
 
 
+def compile_personal_template_layout_contract_v1(
+    manifest: dict[str, Any],
+) -> TemplateLayoutPackContractV1:
+    """Bind a confirmed personal template version to an explicit base contract."""
+
+    pack_id = str(manifest.get("pack_id") or "").strip()
+    version = int(manifest.get("version") or 0)
+    if not pack_id or version < 1:
+        raise TemplateLayoutContractError("personal_template_version_missing")
+    representative_pages = manifest.get("representative_pages") or []
+    by_role = {
+        str(item.get("role") or ""): item
+        for item in representative_pages
+        if isinstance(item, dict)
+    }
+    required_roles = {"cover", "chapter", "content", "practice", "evidence", "recap"}
+    if set(by_role) != required_roles or not all(
+        bool(by_role[role].get("confirmed")) for role in required_roles
+    ):
+        raise TemplateLayoutContractError("representative_page_mapping_incomplete")
+    extracted = manifest.get("extracted_style") or {}
+    if str(extracted.get("aspect_ratio") or "") != "16:9" or bool(
+        extracted.get("requires_widescreen_confirmation")
+    ):
+        raise TemplateLayoutContractError("template_aspect_ratio_unconfirmed")
+    if len(manifest.get("text_box_styles") or {}) < 10:
+        raise TemplateLayoutContractError("template_text_box_contract_incomplete")
+    if len(manifest.get("semantic_page_mappings") or {}) < 18:
+        raise TemplateLayoutContractError("template_required_layout_coverage_incomplete")
+    base_theme = str(manifest.get("base_theme") or "")
+    try:
+        base = compile_builtin_template_layout_contract_v1(base_theme)
+    except KeyError as exc:
+        raise TemplateLayoutContractError("template_base_theme_unavailable") from exc
+    prefix = f"{pack_id}@{version}"
+    layouts = [
+        layout.model_copy(
+            update={
+                "template_layout_id": f"{prefix}/{layout.layout_slug}",
+                "base_layout_id": layout.template_layout_id,
+            },
+            deep=True,
+        )
+        for layout in base.layouts
+    ]
+    digest_payload = {
+        "pack_id": pack_id,
+        "version": version,
+        "base_digest": base.template_digest,
+        "representative_pages": representative_pages,
+        "extracted_style": extracted,
+        "text_box_styles": manifest.get("text_box_styles") or {},
+        "semantic_page_mappings": manifest.get("semantic_page_mappings") or {},
+        "asset_digests": [
+            str(item.get("sha256") or "")
+            for item in manifest.get("assets") or []
+            if isinstance(item, dict)
+        ],
+    }
+    return TemplateLayoutPackContractV1(
+        template_id=pack_id,
+        template_version=str(version),
+        template_digest=stable_hash(digest_payload, prefix="tmpl_"),
+        theme_id=base_theme,
+        layouts=layouts,
+    )
+
+
 __all__ = [
     "TemplateLayoutContractV1",
+    "TemplateLayoutContractError",
     "TemplateLayoutPackContractV1",
     "TemplateSlotContractV1",
     "compile_builtin_template_layout_contract_v1",
+    "compile_personal_template_layout_contract_v1",
 ]

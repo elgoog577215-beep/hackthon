@@ -23,6 +23,11 @@ from xml.etree import ElementTree
 
 from slide_theme import load_slide_theme_pack
 from storage import DATA_DIR
+from template_layout_contract import (
+    TemplateLayoutContractError,
+    TemplateLayoutPackContractV1,
+    compile_personal_template_layout_contract_v1,
+)
 
 
 MAX_REFERENCE_BYTES = 25 * 1024 * 1024
@@ -365,6 +370,13 @@ class PptTemplatePackRepository:
         snapshot["published_at"] = _utc_now()
         snapshot.pop("latest_version", None)
         snapshot.pop("hidden", None)
+        try:
+            compile_personal_template_layout_contract_v1(snapshot)
+            snapshot["v6_eligible"] = True
+            snapshot["v6_validation_errors"] = []
+        except TemplateLayoutContractError as exc:
+            snapshot["v6_eligible"] = False
+            snapshot["v6_validation_errors"] = [str(exc)]
         snapshot["manifest_digest"] = _canonical_digest(
             {key: value for key, value in snapshot.items() if key != "manifest_digest"}
         )
@@ -375,6 +387,30 @@ class PptTemplatePackRepository:
         manifest["manifest_digest"] = snapshot["manifest_digest"]
         _atomic_json(self._manifest_path(pack_id), manifest)
         return self._public(snapshot)
+
+    def resolve_v6_layout_contract(
+        self,
+        pack_id: str,
+        version: int | str | None,
+        owner_id: str,
+    ) -> TemplateLayoutPackContractV1:
+        manifest = self.load_owned(pack_id, owner_id)
+        resolved_version = int(version or manifest.get("latest_version") or 0)
+        if resolved_version < 1:
+            raise FileNotFoundError(f"{pack_id}@{resolved_version}")
+        path = self._pack_dir(pack_id) / "versions" / str(resolved_version) / "manifest.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"{pack_id}@{resolved_version}")
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+        if snapshot.get("owner_id") != owner_id:
+            raise FileNotFoundError(pack_id)
+        errors = list(snapshot.get("v6_validation_errors") or [])
+        if errors:
+            raise TemplatePackError(", ".join(str(item) for item in errors))
+        try:
+            return compile_personal_template_layout_contract_v1(snapshot)
+        except TemplateLayoutContractError as exc:
+            raise TemplatePackError(str(exc)) from exc
 
     def resolve_version(
         self,

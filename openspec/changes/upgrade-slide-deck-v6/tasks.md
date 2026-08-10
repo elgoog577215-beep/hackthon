@@ -10,14 +10,14 @@
 - [x] 2.1 Implement `ppt_source_contract_v2` and immutable digest checks.
 - [x] 2.2 Implement `course_presentation_graph_v1` from canonical ordered course blocks and formal teaching roles without character-based story splitting.
 - [x] 2.3 Implement `template_layout_contract_v1` with slots, capacities, intentions, artifact kinds, safe continuations and renderer adapters.
-- [ ] 2.4 Reject unknown, legacy or unmapped layouts and validate personal-template V6 publication coverage.
+- [x] 2.4 Reject unknown, legacy or unmapped layouts and validate personal-template V6 publication coverage.
 
 ## 3. AI story and visual planning
 
 - [ ] 3.1 Implement `slide_story_plan_v3` schemas, chapter batching, AIBase invocation and persisted diagnostics.
-- [ ] 3.2 Enforce 100% primary-block coverage, order/dependency preservation, known IDs and grounded factual tokens; fail the whole candidate on any story-batch failure.
-- [ ] 3.3 Implement `slide_visual_plan_v2` schemas, bounded concurrency, source-backed decisions and page-level degradations.
-- [ ] 3.4 Mark allowed degradations `v6_needs_manual_edit`; hard-fail subject, source, capacity and template loss.
+- [x] 3.2 Enforce 100% primary-block coverage, order/dependency preservation, known IDs and grounded factual tokens; fail the whole candidate on any story-batch failure.
+- [x] 3.3 Implement `slide_visual_plan_v2` schemas, bounded concurrency, source-backed decisions and page-level degradations.
+- [x] 3.4 Mark allowed degradations `v6_needs_manual_edit`; hard-fail subject, source, capacity and template loss.
 
 ## 4. Final compiler and orchestration
 

@@ -175,3 +175,38 @@ def test_template_pack_api_flow_and_asset_ownership(tmp_path: Path, monkeypatch:
         f"/api/ppt-template-packs/{draft['pack_id']}/assets/{logo_id}",
         headers={"X-User-Id": "teacher-b"},
     ).status_code == 404
+
+
+def test_personal_template_requires_confirmed_mapping_before_v6_use(tmp_path: Path) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="通用机构模板",
+        base_theme="academic-editorial",
+        reference_pptx=reference_pptx_bytes(),
+        reference_filename="reference.pptx",
+        brand={},
+    )
+
+    published_v1 = repository.publish(draft["pack_id"], "teacher-a")
+    assert published_v1["v6_eligible"] is False
+    assert "representative_page_mapping_incomplete" in published_v1["v6_validation_errors"]
+    with pytest.raises(TemplatePackError, match="representative_page_mapping_incomplete"):
+        repository.resolve_v6_layout_contract(draft["pack_id"], 1, "teacher-a")
+
+    confirmed = [
+        {**item, "confirmed": True}
+        for item in draft["representative_pages"]
+    ]
+    repository.update_draft(
+        draft["pack_id"],
+        "teacher-a",
+        {"representative_pages": confirmed},
+    )
+    published_v2 = repository.publish(draft["pack_id"], "teacher-a")
+    contract = repository.resolve_v6_layout_contract(draft["pack_id"], 2, "teacher-a")
+
+    assert published_v2["v6_eligible"] is True
+    assert len(contract.layouts) >= 18
+    assert all(layout.template_layout_id.startswith(f"{draft['pack_id']}@2/") for layout in contract.layouts)
+    assert all(layout.base_layout_id for layout in contract.layouts)
