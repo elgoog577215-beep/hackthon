@@ -443,3 +443,41 @@ async def test_command_without_id_is_refused() -> None:
 
     assert error.value.code == "knowledge_command_missing_id"
     assert storage.save_count == 0
+
+
+async def test_confirmed_revision_survives_a_later_recompile() -> None:
+    """确认后的知识修订必须挺过下一次知识视图重编译。
+
+    apply_persisted_course_knowledge_base 会在指纹失配时拒绝存量知识库并按
+    蓝图重编译。实测仓库里全部真实课程的指纹都是失配的，所以若确认写回时不
+    重新盖章，教师确认的修订会被"提交成功 -> 日志有记录 -> 下次重编译静默丢弃"
+    ——改动看得见、然后消失，比直接失败更难排查。
+    """
+    from copy import deepcopy
+
+    from course_knowledge_base import (
+        apply_persisted_course_knowledge_base,
+        course_knowledge_source_fingerprint,
+    )
+
+    course = _canonical_course()
+    service, storage = _service(course)
+    candidate = _candidate(course)
+
+    await service.confirm_knowledge_candidate(
+        "course-1", command_id="cmd-1",
+        candidate=candidate,
+        proposed_knowledge_base=_revised_knowledge_base(course),
+    )
+
+    saved = storage.course
+    view = service.repository.load_course_view("course-1")
+    stored = saved["course_knowledge_base"]
+    # 盖章必须对得上当前课程，否则存量库会被拒绝。
+    assert stored["source_course_fingerprint"] == course_knowledge_source_fingerprint(view)
+    # 真正的判据：存量库能被接受，且修订内容还在。
+    assert apply_persisted_course_knowledge_base(deepcopy(view), stored) is True
+    revised = next(
+        item for item in stored["knowledge_points"] if item["name"] == "容量耗尽判定"
+    )
+    assert revised["statement"].startswith("长度等于容量时")
