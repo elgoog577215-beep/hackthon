@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from copy import deepcopy
 from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
@@ -195,7 +196,7 @@ def export_structured_slide_deck(
     output_path: str | Path,
     *,
     require_quality: bool = True,
-    theme: str = "qingfeng-classroom",
+    theme: str | dict[str, Any] = "qingfeng-classroom",
     asset_repository: SlideAssetRepository | None = None,
     course_data: dict[str, Any] | None = None,
 ) -> Path:
@@ -713,7 +714,16 @@ def audit_exported_pptx(
     }
 
 
-def validate_theme(theme: str) -> dict[str, str]:
+def validate_theme(theme: str | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(theme, dict):
+        required = {"surface", "title", "body_font", "title_font"}
+        missing = sorted(required.difference(theme))
+        if missing:
+            raise ValueError(
+                "Compiled slide theme is missing required tokens: "
+                + ", ".join(missing)
+            )
+        return deepcopy(theme)
     try:
         return THEMES[theme]
     except KeyError as exc:
@@ -1644,7 +1654,7 @@ def _add_theme_page_background(
     candidates = {
         str(resolved_layout or "").strip(),
         str(unit.layout or "").strip(),
-        str(unit.scene_kind or "").strip(),
+        str(getattr(unit, "scene_kind", "") or "").strip(),
     }
     for profile in (theme.get("background_profiles") or {}).values():
         layouts = {str(value).strip() for value in profile.get("layouts") or []}
@@ -1778,7 +1788,18 @@ def _render_authored_cover(
             )
             _shape(slide, 1.14, 4.84, 0.07, 0.58, theme["green"], radius=False)
             _text(slide, message, 1.43, 4.76, 5.98, 0.68, 17, theme["ink"], bold=True)
-    _text(slide, "启智课堂", 11.10, 0.72, 1.32, 0.34, 13, "FFFFFF", bold=True, align="center")
+    _text(
+        slide,
+        str(theme.get("label") or "启智课堂"),
+        11.10,
+        0.72,
+        1.32,
+        0.34,
+        13,
+        "FFFFFF",
+        bold=True,
+        align="center",
+    )
     _text(slide, "同源课程课件 · 可继续编辑", 0.94, 6.62, 4.8, 0.28, 10, theme["muted"])
     return True
 

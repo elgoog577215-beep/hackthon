@@ -5,6 +5,8 @@ from slide_theme import (
     slide_theme,
     slide_theme_asset_path,
 )
+from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 
 COMPLETE_THEME_NAMES = (
@@ -92,9 +94,23 @@ def test_every_selectable_theme_is_a_complete_template_pack() -> None:
 
 
 def test_every_complete_theme_reference_deck_is_bundled() -> None:
+    total_pages = 0
     for theme_name in COMPLETE_THEME_NAMES:
         theme = slide_theme(theme_name)
         reference = str(theme["template"]["reference_deck"]).lstrip("/")
         path = REPOSITORY_ROOT / "frontend" / "public" / reference
         assert path.is_file(), f"missing reference deck for {theme_name}"
         assert path.read_bytes().startswith(b"PK")
+        deck = Presentation(path)
+        assert len(deck.slides) == 18
+        assert round(deck.slide_width / deck.slide_height, 4) == 1.7778
+        total_pages += len(deck.slides)
+        empty_text_boxes = [
+            shape
+            for slide in deck.slides
+            for shape in slide.shapes
+            if shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX
+            and not shape.text.strip()
+        ]
+        assert not empty_text_boxes, f"empty text boxes in {theme_name}"
+    assert total_pages == 90

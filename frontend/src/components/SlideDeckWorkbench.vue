@@ -126,6 +126,7 @@
           :page-count="slides.length"
           :deck-title="deckTitle"
           :theme="previewTheme"
+          :template-pack="templatePack"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -374,6 +375,7 @@
             :page-count="slides.length"
             :deck-title="deckTitle"
             :theme="previewTheme"
+            :template-pack="templatePack"
             :course-id="courseId"
             :representation-id="representationId"
             presenting
@@ -497,6 +499,7 @@ const props = withDefaults(defineProps<{
   candidateSchema?: string
   publishedSchema?: string
   candidateStatus?: string
+  templatePack?: Record<string, any> | null
 }>(), {
   standalone: false,
   mode: 'teaching',
@@ -509,6 +512,7 @@ const props = withDefaults(defineProps<{
   candidateSchema: '',
   publishedSchema: '',
   candidateStatus: '',
+  templatePack: null,
   buildFailure: null,
   logicUpgrading: false,
   logicUpgradeError: '',

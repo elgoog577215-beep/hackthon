@@ -72,8 +72,158 @@ def _safe_identifier(value: str, *, field: str) -> str:
     return normalized
 
 
+def _normalize_brand(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise TemplatePackError("Brand fields must be an object")
+    allowed = {
+        "primary_color",
+        "secondary_color",
+        "accent_color",
+        "title_font",
+        "body_font",
+        "font_name",
+        "header_text",
+        "footer_text",
+        "copyright_text",
+        "organization_name",
+        "logo_position",
+    }
+    unknown = set(value) - allowed
+    if unknown:
+        raise TemplatePackError(f"Unsupported brand fields: {', '.join(sorted(unknown))}")
+    normalized: dict[str, str] = {}
+    for key, raw_value in value.items():
+        if not isinstance(raw_value, str):
+            raise TemplatePackError(f"Brand field {key} must be text")
+        text = raw_value.strip()
+        if len(text) > 500:
+            raise TemplatePackError(f"Brand field {key} is too long")
+        if key.endswith("_color") and text:
+            color = text.lstrip("#")
+            if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+                raise TemplatePackError(f"Brand field {key} must be a six-digit color")
+            text = f"#{color.upper()}"
+        normalized[key] = text
+    return normalized
+
+
+def _updated_extracted_style(current: dict[str, Any], value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TemplatePackError("Extracted style changes must be an object")
+    allowed = {"colors", "title_font", "body_font"}
+    unknown = set(value) - allowed
+    if unknown:
+        raise TemplatePackError(f"Unsupported extracted style fields: {', '.join(sorted(unknown))}")
+    updated = deepcopy(current)
+    if "colors" in value:
+        if not isinstance(value["colors"], dict):
+            raise TemplatePackError("Extracted colors must be an object")
+        colors: dict[str, str] = {}
+        for key, raw_color in value["colors"].items():
+            color = str(raw_color or "").strip().lstrip("#")
+            if not re.fullmatch(r"[0-9A-Fa-f]{6}", color):
+                raise TemplatePackError("Extracted colors must use six-digit hex values")
+            colors[str(key)[:40]] = color.upper()
+        updated["colors"] = colors
+    for key in ("title_font", "body_font"):
+        if key not in value:
+            continue
+        font = str(value[key] or "").strip()
+        if len(font) > 160:
+            raise TemplatePackError(f"{key} is too long")
+        updated[key] = font
+    return updated
+
+
+def _validated_representative_pages(value: Any, slide_count: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) != len(REPRESENTATIVE_ROLES):
+        raise TemplatePackError("Representative pages must contain all six semantic roles")
+    maximum = max(1, int(slide_count or 0))
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            raise TemplatePackError("Representative page entries must be objects")
+        role = str(item.get("role") or "")
+        if role not in REPRESENTATIVE_ROLES or role in seen:
+            raise TemplatePackError("Representative page roles are invalid or duplicated")
+        try:
+            slide_number = int(item.get("slide_number"))
+        except (TypeError, ValueError) as exc:
+            raise TemplatePackError("Representative slide numbers must be integers") from exc
+        if slide_number < 1 or slide_number > maximum:
+            raise TemplatePackError("Representative slide number is out of range")
+        seen.add(role)
+        normalized.append({
+            "role": role,
+            "slide_number": slide_number,
+            "confirmed": bool(item.get("confirmed")),
+        })
+    return sorted(normalized, key=lambda item: REPRESENTATIVE_ROLES.index(item["role"]))
+
+
 def _asset_id(role: str) -> str:
     return f"asset-{role}-{uuid.uuid4().hex[:12]}"
+
+
+def template_pack_variant_key(
+    mode: str,
+    theme: str,
+    pack_id: str,
+    version: int | str,
+) -> str:
+    """Create the cache/representation key for an immutable pack snapshot."""
+    safe_pack_id = _safe_identifier(pack_id, field="pack id")
+    resolved_version = int(version)
+    if resolved_version < 1:
+        raise TemplatePackError("Template pack version must be positive")
+    return f"{mode}:{theme}:template:{safe_pack_id}@{resolved_version}"
+
+
+def _compiled_theme(
+    base_theme: str,
+    extracted_style: dict[str, Any],
+    brand: dict[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    theme = deepcopy((load_slide_theme_pack().get("themes") or {})[base_theme])
+    theme["label"] = _safe_name(label, field="name")
+    colors = dict(extracted_style.get("colors") or {})
+    primary = str(brand.get("primary_color") or "").strip().lstrip("#")
+    if re.fullmatch(r"[0-9A-Fa-f]{6}", primary):
+        colors["accent1"] = primary.upper()
+    overrides = {
+        "title": colors.get("dk1"),
+        "accent": colors.get("accent1"),
+        "green": colors.get("accent2"),
+        "amber": colors.get("accent3"),
+    }
+    for key, value in overrides.items():
+        if value and re.fullmatch(r"[0-9A-Fa-f]{6}", value):
+            theme[key] = value.upper()
+    title_font = str(
+        brand.get("title_font")
+        or brand.get("font_name")
+        or extracted_style.get("title_font")
+        or ""
+    ).strip()
+    body_font = str(
+        brand.get("body_font")
+        or brand.get("font_name")
+        or extracted_style.get("body_font")
+        or ""
+    ).strip()
+    if title_font:
+        theme["title_font"] = title_font
+    if body_font:
+        theme["body_font"] = body_font
+    theme["template"] = {
+        **(theme.get("template") or {}),
+        "base_theme": base_theme,
+        "customized": True,
+        "accent_rail_owner": "card-shell",
+    }
+    return theme
 
 
 def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
@@ -141,6 +291,97 @@ def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
             except ElementTree.ParseError:
                 pass
 
+        slide_names = [
+            item.filename
+            for item in entries
+            if re.fullmatch(r"ppt/slides/slide\d+\.xml", item.filename.lower())
+            and item.file_size <= 2 * 1024 * 1024
+        ]
+        slide_names.sort(
+            key=lambda value: int(re.search(r"slide(\d+)\.xml$", value.lower()).group(1))
+        )
+        slide_profiles: list[dict[str, Any]] = []
+        background_candidates: list[dict[str, Any]] = []
+        text_box_total = 0
+        text_box_max = 0
+        for slide_number, slide_name in enumerate(slide_names[:200], start=1):
+            try:
+                slide_root = ElementTree.fromstring(archive.read(slide_name))
+            except (ElementTree.ParseError, KeyError):
+                continue
+            text_shapes = [
+                shape
+                for shape in slide_root.findall(f".//{{{PRESENTATION_NS}}}sp")
+                if shape.find(f"{{{PRESENTATION_NS}}}txBody") is not None
+            ]
+            pictures = slide_root.findall(f".//{{{PRESENTATION_NS}}}pic")
+            tables = slide_root.findall(f".//{{{DRAWING_NS}}}tbl")
+            shape_frames: list[dict[str, float]] = []
+            for shape in text_shapes[:12]:
+                transform = shape.find(f".//{{{DRAWING_NS}}}xfrm")
+                offset = (
+                    transform.find(f"{{{DRAWING_NS}}}off")
+                    if transform is not None
+                    else None
+                )
+                extent = (
+                    transform.find(f"{{{DRAWING_NS}}}ext")
+                    if transform is not None
+                    else None
+                )
+                if offset is None or extent is None:
+                    continue
+                shape_frames.append({
+                    "x": round(int(offset.get("x", "0")) / max(width, 1), 4),
+                    "y": round(int(offset.get("y", "0")) / max(height, 1), 4),
+                    "width": round(int(extent.get("cx", "0")) / max(width, 1), 4),
+                    "height": round(int(extent.get("cy", "0")) / max(height, 1), 4),
+                })
+            text_box_count = len(text_shapes)
+            text_box_total += text_box_count
+            text_box_max = max(text_box_max, text_box_count)
+            layout_hint = (
+                "visual-led"
+                if pictures
+                else "multi-card"
+                if text_box_count >= 3
+                else "editorial-body"
+            )
+            slide_profiles.append({
+                "slide_number": slide_number,
+                "text_box_count": text_box_count,
+                "picture_count": len(pictures),
+                "table_count": len(tables),
+                "layout_hint": layout_hint,
+                "text_box_frames": shape_frames,
+            })
+            background = slide_root.find(f".//{{{PRESENTATION_NS}}}bg")
+            if background is not None:
+                solid = background.find(f".//{{{DRAWING_NS}}}srgbClr")
+                scheme = background.find(f".//{{{DRAWING_NS}}}schemeClr")
+                color = (
+                    str(solid.get("val") or "").upper()
+                    if solid is not None
+                    else ""
+                )
+                scheme_name = str(scheme.get("val") or "") if scheme is not None else ""
+                if color or scheme_name:
+                    background_candidates.append({
+                        "slide_number": slide_number,
+                        "color": color,
+                        "scheme": scheme_name,
+                    })
+        media_inventory = [
+            {
+                "filename": Path(item.filename).name,
+                "mime_type": mimetypes.guess_type(item.filename)[0] or "application/octet-stream",
+                "size": item.file_size,
+            }
+            for item in entries
+            if item.filename.lower().startswith("ppt/media/")
+            and not item.is_dir()
+        ][:100]
+
     return {
         "aspect_ratio": aspect_ratio,
         "source_aspect_ratio": round(ratio, 4),
@@ -148,6 +389,14 @@ def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
         "colors": colors,
         "title_font": title_font,
         "body_font": body_font,
+        "background_candidates": background_candidates,
+        "slide_profiles": slide_profiles,
+        "media_inventory": media_inventory,
+        "text_box_structure": {
+            "total": text_box_total,
+            "maximum_per_slide": text_box_max,
+            "profiled_slides": len(slide_profiles),
+        },
         "requires_widescreen_confirmation": aspect_ratio == "4:3",
     }
 
@@ -169,6 +418,14 @@ def _default_extracted_style(brand: dict[str, Any]) -> dict[str, Any]:
         "colors": colors,
         "title_font": str(brand.get("title_font") or brand.get("font_name") or ""),
         "body_font": str(brand.get("body_font") or brand.get("font_name") or ""),
+        "background_candidates": [],
+        "slide_profiles": [],
+        "media_inventory": [],
+        "text_box_structure": {
+            "total": 0,
+            "maximum_per_slide": 0,
+            "profiled_slides": 0,
+        },
         "requires_widescreen_confirmation": False,
     }
 
@@ -253,7 +510,7 @@ class PptTemplatePackRepository:
         themes = load_slide_theme_pack().get("themes") or {}
         if base_theme not in themes:
             raise TemplatePackError("Unknown base theme")
-        normalized_brand = dict(brand or {})
+        normalized_brand = _normalize_brand(brand or {})
         extracted = (
             _extract_reference_style(reference_pptx, reference_filename)
             if reference_pptx is not None
@@ -312,6 +569,12 @@ class PptTemplatePackRepository:
             "base_theme": base_theme,
             "brand": normalized_brand,
             "extracted_style": extracted,
+            "compiled_theme": _compiled_theme(
+                base_theme,
+                extracted,
+                normalized_brand,
+                display_name,
+            ),
             "representative_pages": _representative_pages(extracted["slide_count"]),
             "preview_slides": _preview_slides(),
             "semantic_page_mappings": deepcopy(themes[base_theme].get("semantic_layout_weights") or {}),
@@ -339,9 +602,25 @@ class PptTemplatePackRepository:
             raise TemplatePackError(f"Unsupported draft fields: {', '.join(sorted(unknown))}")
         if "name" in changes:
             manifest["name"] = _safe_name(str(changes["name"]), field="name")
-        for key in allowed - {"name"}:
-            if key in changes:
-                manifest[key] = deepcopy(changes[key])
+        if "brand" in changes:
+            manifest["brand"] = _normalize_brand(changes["brand"])
+        if "extracted_style" in changes:
+            manifest["extracted_style"] = _updated_extracted_style(
+                dict(manifest.get("extracted_style") or {}),
+                changes["extracted_style"],
+            )
+        if "representative_pages" in changes:
+            manifest["representative_pages"] = _validated_representative_pages(
+                changes["representative_pages"],
+                int((manifest.get("extracted_style") or {}).get("slide_count") or 0),
+            )
+        if {"name", "brand", "extracted_style"}.intersection(changes):
+            manifest["compiled_theme"] = _compiled_theme(
+                str(manifest["base_theme"]),
+                dict(manifest.get("extracted_style") or {}),
+                dict(manifest.get("brand") or {}),
+                str(manifest["name"]),
+            )
         manifest["updated_at"] = _utc_now()
         _atomic_json(self._manifest_path(pack_id), manifest)
         return self._public(manifest)
@@ -411,7 +690,7 @@ class PptTemplatePackRepository:
         return [
             {
                 "pack_id": theme_id,
-                "name": theme.get("name") or theme_id,
+                "name": theme.get("label") or theme.get("name") or theme_id,
                 "status": "builtin",
                 "version": version,
                 "base_theme": theme_id,
@@ -476,5 +755,6 @@ ppt_template_pack_repository = PptTemplatePackRepository()
 __all__ = [
     "PptTemplatePackRepository",
     "TemplatePackError",
+    "template_pack_variant_key",
     "ppt_template_pack_repository",
 ]

@@ -282,7 +282,7 @@
         "template_id": "academic-editorial-v2",
         "template_version": "2026.08.10.4",
         "aspect_ratio": "16:9",
-        "design_intent": "????????????????????",
+        "design_intent": "米白出版纸张、低饱和蓝灰与细规则线",
         "reference_deck": "/presentation-templates/academic-editorial-v2.pptx",
         "preview_path": "/presentation-assets/academic-editorial/cover-editorial.jpg",
         "accent_rail_owner": "card-shell"
@@ -462,59 +462,59 @@
         "cover": {
           "web_path": "/presentation-assets/academic-editorial/cover-editorial.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/cover-editorial.jpg",
-          "alt": "?????????????????"
+          "alt": "米白书刊纸张与编辑网格构成的封面背景"
         },
         "chapter": {
           "web_path": "/presentation-assets/academic-editorial/chapter-editorial.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/chapter-editorial.jpg",
-          "alt": "????????????????"
+          "alt": "带有书脊页签与细规则线的章节背景"
         },
         "recap": {
           "web_path": "/presentation-assets/academic-editorial/recap-editorial.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/recap-editorial.jpg",
-          "alt": "??????????????"
+          "alt": "书刊页线条重新汇聚的复盘背景"
         },
         "interior_content": {
           "web_path": "/presentation-assets/academic-editorial/interior-content.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/interior-content.jpg",
-          "alt": "???????????????????????????"
+          "alt": "米白纸张、低饱和蓝灰网格与大面积留白的内容背景"
         },
         "interior_reasoning": {
           "web_path": "/presentation-assets/academic-editorial/interior-reasoning.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/interior-reasoning.jpg",
-          "alt": "?????????????????????????"
+          "alt": "沿细规则线展开的学术推演页背景"
         },
         "interior_practice": {
           "web_path": "/presentation-assets/academic-editorial/interior-practice.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/interior-practice.jpg",
-          "alt": "?????????????????????????"
+          "alt": "带轻量批注标记的学术练习页背景"
         },
         "interior_evidence": {
           "web_path": "/presentation-assets/academic-editorial/interior-evidence.jpg",
           "source_path": "frontend/public/presentation-assets/academic-editorial/interior-evidence.jpg",
-          "alt": "?????????????????????????"
+          "alt": "适合表格、代码和引用的证据页背景"
         }
       },
       "decorative_assets": {
         "card_depth": {
           "web_path": "/presentation-assets/academic-editorial/card-depth.png",
           "source_path": "frontend/public/presentation-assets/academic-editorial/card-depth.png",
-          "alt": "???????"
+          "alt": "文献纸卡错位底板"
         },
         "section_tab": {
           "web_path": "/presentation-assets/academic-editorial/section-tab.png",
           "source_path": "frontend/public/presentation-assets/academic-editorial/section-tab.png",
-          "alt": "????"
+          "alt": "页签式强调装饰"
         },
         "corner_accent": {
           "web_path": "/presentation-assets/academic-editorial/corner-accent.png",
           "source_path": "frontend/public/presentation-assets/academic-editorial/corner-accent.png",
-          "alt": "??????"
+          "alt": "出版规则线角标"
         },
         "motif_cluster": {
           "web_path": "/presentation-assets/academic-editorial/motif-cluster.png",
           "source_path": "frontend/public/presentation-assets/academic-editorial/motif-cluster.png",
-          "alt": "??????"
+          "alt": "学术网格装饰簇"
         }
       }
     },
@@ -551,7 +551,7 @@
         "template_id": "grid-notebook-v2",
         "template_version": "2026.08.10.4",
         "aspect_ratio": "16:9",
-        "design_intent": "?????????????????????",
+        "design_intent": "浅色网格纸、便签、胶带与手绘学习轨迹",
         "reference_deck": "/presentation-templates/grid-notebook-v2.pptx",
         "preview_path": "/presentation-assets/grid-notebook/cover-notebook.jpg",
         "accent_rail_owner": "card-shell"
@@ -731,59 +731,59 @@
         "cover": {
           "web_path": "/presentation-assets/grid-notebook/cover-notebook.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/cover-notebook.jpg",
-          "alt": "grid notebook cover background"
+          "alt": "网格纸、便签与学习轨迹构成的封面背景"
         },
         "chapter": {
           "web_path": "/presentation-assets/grid-notebook/chapter-notebook.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/chapter-notebook.jpg",
-          "alt": "????????????????"
+          "alt": "便签页与手绘路径构成的章节背景"
         },
         "recap": {
           "web_path": "/presentation-assets/grid-notebook/recap-notebook.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/recap-notebook.jpg",
-          "alt": "????????????????"
+          "alt": "多条笔记轨迹收束为结论的复盘背景"
         },
         "interior_content": {
           "web_path": "/presentation-assets/grid-notebook/interior-content.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/interior-content.jpg",
-          "alt": "????????????????????????????"
+          "alt": "浅色网格纸与轻量胶带装饰构成的内容背景"
         },
         "interior_reasoning": {
           "web_path": "/presentation-assets/grid-notebook/interior-reasoning.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/interior-reasoning.jpg",
-          "alt": "??????????????????????????"
+          "alt": "适合步骤拆解的手绘推演页背景"
         },
         "interior_practice": {
           "web_path": "/presentation-assets/grid-notebook/interior-practice.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/interior-practice.jpg",
-          "alt": "??????????????????????????"
+          "alt": "带绿色和琥珀批注色的练习页背景"
         },
         "interior_evidence": {
           "web_path": "/presentation-assets/grid-notebook/interior-evidence.jpg",
           "source_path": "frontend/public/presentation-assets/grid-notebook/interior-evidence.jpg",
-          "alt": "??????????????????????????"
+          "alt": "适合核对清单与表格的证据页背景"
         }
       },
       "decorative_assets": {
         "card_depth": {
           "web_path": "/presentation-assets/grid-notebook/card-depth.png",
           "source_path": "frontend/public/presentation-assets/grid-notebook/card-depth.png",
-          "alt": "???????"
+          "alt": "便签纸错位底板"
         },
         "section_tab": {
           "web_path": "/presentation-assets/grid-notebook/section-tab.png",
           "source_path": "frontend/public/presentation-assets/grid-notebook/section-tab.png",
-          "alt": "????"
+          "alt": "胶带式章节标签"
         },
         "corner_accent": {
           "web_path": "/presentation-assets/grid-notebook/corner-accent.png",
           "source_path": "frontend/public/presentation-assets/grid-notebook/corner-accent.png",
-          "alt": "??????"
+          "alt": "手绘折角装饰"
         },
         "motif_cluster": {
           "web_path": "/presentation-assets/grid-notebook/motif-cluster.png",
           "source_path": "frontend/public/presentation-assets/grid-notebook/motif-cluster.png",
-          "alt": "??????"
+          "alt": "笔记轨迹装饰簇"
         }
       }
     },
@@ -820,7 +820,7 @@
         "template_id": "modern-geometric-v2",
         "template_version": "2026.08.10.4",
         "aspect_ratio": "16:9",
-        "design_intent": "?????????????????????",
+        "design_intent": "紫蓝、青绿与橙色几何切片和大面积留白",
         "reference_deck": "/presentation-templates/modern-geometric-v2.pptx",
         "preview_path": "/presentation-assets/modern-geometric/cover-geometric.jpg",
         "accent_rail_owner": "card-shell"
@@ -1001,59 +1001,59 @@
         "cover": {
           "web_path": "/presentation-assets/modern-geometric/cover-geometric.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/cover-geometric.jpg",
-          "alt": "?????????????????"
+          "alt": "彩色几何切片与留白构成的封面背景"
         },
         "chapter": {
           "web_path": "/presentation-assets/modern-geometric/chapter-geometric.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/chapter-geometric.jpg",
-          "alt": "??????????????"
+          "alt": "几何层面展开的章节背景"
         },
         "recap": {
           "web_path": "/presentation-assets/modern-geometric/recap-geometric.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/recap-geometric.jpg",
-          "alt": "????????????????"
+          "alt": "几何切片重新汇聚的复盘背景"
         },
         "interior_content": {
           "web_path": "/presentation-assets/modern-geometric/interior-content.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/interior-content.jpg",
-          "alt": "????????????????????????????"
+          "alt": "紫蓝与青绿切片点缀大面积留白的内容背景"
         },
         "interior_reasoning": {
           "web_path": "/presentation-assets/modern-geometric/interior-reasoning.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/interior-reasoning.jpg",
-          "alt": "??????????????????????????"
+          "alt": "沿几何轨迹展开的推演页背景"
         },
         "interior_practice": {
           "web_path": "/presentation-assets/modern-geometric/interior-practice.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/interior-practice.jpg",
-          "alt": "??????????????????????????"
+          "alt": "带橙色强调切片的练习页背景"
         },
         "interior_evidence": {
           "web_path": "/presentation-assets/modern-geometric/interior-evidence.jpg",
           "source_path": "frontend/public/presentation-assets/modern-geometric/interior-evidence.jpg",
-          "alt": "??????????????????????????"
+          "alt": "适合图表和证据核对的几何背景"
         }
       },
       "decorative_assets": {
         "card_depth": {
           "web_path": "/presentation-assets/modern-geometric/card-depth.png",
           "source_path": "frontend/public/presentation-assets/modern-geometric/card-depth.png",
-          "alt": "???????"
+          "alt": "悬浮色块错位底板"
         },
         "section_tab": {
           "web_path": "/presentation-assets/modern-geometric/section-tab.png",
           "source_path": "frontend/public/presentation-assets/modern-geometric/section-tab.png",
-          "alt": "????"
+          "alt": "几何章节标签"
         },
         "corner_accent": {
           "web_path": "/presentation-assets/modern-geometric/corner-accent.png",
           "source_path": "frontend/public/presentation-assets/modern-geometric/corner-accent.png",
-          "alt": "??????"
+          "alt": "彩色切片角标"
         },
         "motif_cluster": {
           "web_path": "/presentation-assets/modern-geometric/motif-cluster.png",
           "source_path": "frontend/public/presentation-assets/modern-geometric/motif-cluster.png",
-          "alt": "??????"
+          "alt": "几何节点装饰簇"
         }
       }
     },
@@ -1090,7 +1090,7 @@
         "template_id": "dark-tech-v2",
         "template_version": "2026.08.10.4",
         "aspect_ratio": "16:9",
-        "design_intent": "???????????????????????",
+        "design_intent": "深蓝技术网格、发光节点与克制的数据轨迹",
         "reference_deck": "/presentation-templates/dark-tech-v2.pptx",
         "preview_path": "/presentation-assets/dark-tech/cover-tech.jpg",
         "accent_rail_owner": "card-shell"
@@ -1271,59 +1271,59 @@
         "cover": {
           "web_path": "/presentation-assets/dark-tech/cover-tech.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/cover-tech.jpg",
-          "alt": "?????????????????????"
+          "alt": "深蓝网格与发光数据节点构成的封面背景"
         },
         "chapter": {
           "web_path": "/presentation-assets/dark-tech/chapter-tech.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/chapter-tech.jpg",
-          "alt": "??????????????"
+          "alt": "技术轨迹展开的章节背景"
         },
         "recap": {
           "web_path": "/presentation-assets/dark-tech/recap-tech.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/recap-tech.jpg",
-          "alt": "????????????????"
+          "alt": "发光节点重新收束的复盘背景"
         },
         "interior_content": {
           "web_path": "/presentation-assets/dark-tech/interior-content.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/interior-content.jpg",
-          "alt": "??????????????????????????????"
+          "alt": "深蓝技术网格与柔和数据轨迹构成的内容背景"
         },
         "interior_reasoning": {
           "web_path": "/presentation-assets/dark-tech/interior-reasoning.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/interior-reasoning.jpg",
-          "alt": "????????????????????????????"
+          "alt": "沿发光节点展开的深色推演页背景"
         },
         "interior_practice": {
           "web_path": "/presentation-assets/dark-tech/interior-practice.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/interior-practice.jpg",
-          "alt": "????????????????????????????"
+          "alt": "带青蓝提示边框的深色练习页背景"
         },
         "interior_evidence": {
           "web_path": "/presentation-assets/dark-tech/interior-evidence.jpg",
           "source_path": "frontend/public/presentation-assets/dark-tech/interior-evidence.jpg",
-          "alt": "????????????????????????????"
+          "alt": "适合代码、表格与数据核对的证据页背景"
         }
       },
       "decorative_assets": {
         "card_depth": {
           "web_path": "/presentation-assets/dark-tech/card-depth.png",
           "source_path": "frontend/public/presentation-assets/dark-tech/card-depth.png",
-          "alt": "???????"
+          "alt": "深色玻璃错位底板"
         },
         "section_tab": {
           "web_path": "/presentation-assets/dark-tech/section-tab.png",
           "source_path": "frontend/public/presentation-assets/dark-tech/section-tab.png",
-          "alt": "????"
+          "alt": "发光章节标签"
         },
         "corner_accent": {
           "web_path": "/presentation-assets/dark-tech/corner-accent.png",
           "source_path": "frontend/public/presentation-assets/dark-tech/corner-accent.png",
-          "alt": "??????"
+          "alt": "技术网格角标"
         },
         "motif_cluster": {
           "web_path": "/presentation-assets/dark-tech/motif-cluster.png",
           "source_path": "frontend/public/presentation-assets/dark-tech/motif-cluster.png",
-          "alt": "??????"
+          "alt": "发光节点装饰簇"
         }
       }
     }

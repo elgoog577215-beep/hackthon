@@ -15,7 +15,14 @@
     <template v-if="slide.layout === 'cover'">
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__wash"></div>
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
-      <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '启智') }}</div>
+      <div
+        v-if="templateLogoUrl || visualLayout !== 'cover-minimal'"
+        class="deck-cover__brand"
+        :aria-label="themeLabel"
+      >
+        <img v-if="templateLogoUrl" :src="templateLogoUrl" alt="" />
+        <template v-else>{{ themeLabel }}</template>
+      </div>
       <div class="deck-cover__content">
         <small>{{ slide.eyebrow || t('teachingRepresentations.slides.courseDeck', '课堂演示') }}</small>
         <h2>{{ slide.title }}</h2>
@@ -64,7 +71,7 @@
         :data-has-message="showsStandaloneMessage"
       >
         <SlideVisualRenderer
-          :visuals="slide.visuals ?? []"
+          :visuals="renderableVisuals"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -332,6 +339,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import themePack from '../data/slide-themes.json'
 import layoutContract from '../../../shared/slide-layout-contract-v5.json'
 import type { SlideVisual } from '../types/slideVisual'
+import { isRenderableSlideVisual } from '../utils/slideVisual'
 import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 
 interface SlideBlock {
@@ -388,11 +396,13 @@ const props = withDefaults(defineProps<{
   presenting?: boolean
   courseId?: string
   representationId?: string
+  templatePack?: Record<string, any> | null
 }>(), {
   theme: 'qingfeng-classroom',
   presenting: false,
   courseId: '',
   representationId: '',
+  templatePack: null,
 })
 
 const visualLayout = computed(() => {
@@ -436,6 +446,9 @@ const sourceBlocks = computed(() => {
     block => block.type !== 'formula' && !block.metadata?.formula,
   )
 })
+const renderableVisuals = computed(() => (
+  (props.slide.visuals || []).filter(isRenderableSlideVisual)
+))
 const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
   (total, block) => total
     + String(block.title || '').length
@@ -472,7 +485,7 @@ const visualDirectedLayouts = new Set([
   'formula-explanation',
 ])
 const showsVisualStory = computed(() => Boolean(
-  props.slide.visuals?.length
+  renderableVisuals.value.length
   && (
     visualDirectedLayouts.has(visualLayout.value)
     || !v5LayoutNames.has(visualLayout.value)
@@ -606,22 +619,26 @@ const navigationPrefix = computed(() => {
     : '本节学习问题'
 })
 const navigationDetail = computed(() => navigationText.value)
-const richTemplate = computed(() => {
+const themeToken = computed(() => {
   const aliases: Record<string, string> = {
     'qingfeng-classroom': 'qizhi-classroom',
     'academic-bluegray': 'academic-editorial',
   }
   const key = aliases[props.theme] || props.theme
-  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
+  return props.templatePack?.compiled_theme
+    || (themePack.themes as Record<string, Record<string, any>>)[key]
+})
+const richTemplate = computed(() => {
+  const token = themeToken.value
   return Boolean(token?.template?.template_id && token?.visual_assets)
 })
+const templateLogoUrl = computed(() => String(props.templatePack?.asset_urls?.logo || ''))
+const themeLabel = computed(() => String(
+  themeToken.value?.label
+  || t('teachingRepresentations.slides.brand', '启智'),
+))
 const themeStyle = computed(() => {
-  const aliases: Record<string, string> = {
-    'qingfeng-classroom': 'qizhi-classroom',
-    'academic-bluegray': 'academic-editorial',
-  }
-  const key = aliases[props.theme] || props.theme
-  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
+  const token = themeToken.value
   if (!token) return {}
   const visualAssets = token.visual_assets || {}
   const textBoxStyles = token.text_box_styles || {}
@@ -1906,6 +1923,7 @@ function layoutLabel(value: string) {
   font-weight:800;
   letter-spacing:.16em;
 }
+.deck-cover__brand img { width:100%; height:100%; object-fit:contain; }
 .deck-cover__content { position:absolute; inset:17% 35% 13% 6%; }
 .deck-cover__content small {
   color:var(--deck-blue);

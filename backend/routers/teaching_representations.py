@@ -31,6 +31,11 @@ from dependencies import (
     get_task_manager_optional,
 )
 from learner_context import require_user_id
+from ppt_template_packs import (
+    TemplatePackError,
+    ppt_template_pack_repository,
+    template_pack_variant_key,
+)
 from product_runtime_policy import demo_overrides_enabled
 from representation_compiler import (
     export_slide_deck_pptx,
@@ -143,6 +148,8 @@ class SlideDeckVariantBuildRequest(BaseModel):
 
     mode: SlideDeckMode = "teaching"
     theme: SlideDeckTheme = "qizhi-classroom"
+    template_pack_id: str | None = None
+    template_pack_version: int | None = Field(default=None, ge=1)
     force_rebuild: bool = False
     web_image_retrieval: WebImageRetrievalConfig = Field(
         default_factory=WebImageRetrievalConfig
@@ -380,6 +387,8 @@ def _compile_slide_variant_registry(
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Any | None = None,
     web_image_retrieval: dict[str, Any] | None = None,
+    template_pack: dict[str, Any] | None = None,
+    variant_key_override: str | None = None,
     requested_schema: str | None = None,
 ) -> dict[str, Any]:
     course_repository = get_course_document_repository()
@@ -396,6 +405,7 @@ def _compile_slide_variant_registry(
     course_view["generation_request"] = {
         **(course_view.get("generation_request") or {}),
         "web_image_retrieval": deepcopy(web_image_retrieval or {}),
+        "template_pack": deepcopy(template_pack or {}),
     }
     build = rebuild_slide_deck_variant_safely(
         document,
@@ -410,6 +420,7 @@ def _compile_slide_variant_registry(
         source_revision_provider=lambda: str(
             course_repository.load_document(course_id)[0].document_revision or ""
         ),
+        variant_key_override=variant_key_override,
     )
     registry = repository.reconcile_course_operation_log(
         course_id,
@@ -419,7 +430,7 @@ def _compile_slide_variant_registry(
         "build": build,
         "quality": build.get("quality") or {},
         "registry": registry.model_dump(mode="json"),
-        "variant_key": slide_deck_variant_key(mode, theme),
+        "variant_key": variant_key_override or slide_deck_variant_key(mode, theme),
     }
 
 
@@ -677,15 +688,40 @@ async def stream_slide_deck_variant_build(
     request: Request,
 ) -> StreamingResponse:
     """Build one mode/theme PPT variant and stream page-level progress."""
-    require_user_id(request.headers.get("X-User-Id"))
+    owner_id = require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
     theme = normalize_slide_deck_theme(body.theme)
-    variant_key = slide_deck_variant_key(body.mode, theme)
+    if body.template_pack_version is not None and not body.template_pack_id:
+        raise HTTPException(
+            status_code=422,
+            detail="template_pack_version requires template_pack_id",
+        )
+    template_pack: dict[str, Any] = {}
+    if body.template_pack_id:
+        try:
+            template_pack = ppt_template_pack_repository.resolve_version(
+                body.template_pack_id,
+                body.template_pack_version,
+                owner_id,
+            )
+        except (FileNotFoundError, TemplatePackError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Template pack not found") from exc
+    variant_key = (
+        template_pack_variant_key(
+            body.mode,
+            theme,
+            str(template_pack["pack_id"]),
+            int(template_pack["version"]),
+        )
+        if template_pack
+        else slide_deck_variant_key(body.mode, theme)
+    )
     document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
     course_view = deepcopy(course_view)
     course_view["generation_request"] = {
         **(course_view.get("generation_request") or {}),
         "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
+        "template_pack": deepcopy(template_pack),
     }
     try:
         target_schema = resolve_slide_deck_schema(
@@ -825,6 +861,7 @@ async def stream_slide_deck_variant_build(
                 "target_schema": target_schema,
                 "force_rebuild": body.force_rebuild,
                 "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
+                "template_pack": deepcopy(template_pack),
             },
             base_document_revision=str(document.document_revision or ""),
         )
@@ -959,6 +996,8 @@ async def stream_slide_deck_variant_build(
                     story_plan=story_plan,
                     progress_callback=publish,
                     web_image_retrieval=body.web_image_retrieval.model_dump(mode="json"),
+                    template_pack=template_pack,
+                    variant_key_override=variant_key,
                     requested_schema=target_schema,
                 )
                 blocked = (
@@ -1373,7 +1412,16 @@ async def export_teaching_slide_deck(
 
     spec = TeachingRepresentationSpec.model_validate(payload["spec"])
     content = spec.payload.get("content") or {}
-    resolved_theme = (
+    template_pack = (
+        content.get("template_pack")
+        if isinstance(content.get("template_pack"), dict)
+        else {}
+    )
+    compiled_theme = template_pack.get("compiled_theme")
+    resolved_theme: str | dict[str, Any] = (
+        compiled_theme
+        if isinstance(compiled_theme, dict)
+        else
         str(content.get("theme") or "qizhi-classroom")
         if content.get("schema_version") in {
             "slide_deck_v3",
@@ -1389,7 +1437,14 @@ async def export_teaching_slide_deck(
             "code": "invalid_slide_theme",
             "message": str(exc),
         }) from exc
-    output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}-{resolved_theme}.pptx"
+    theme_cache_key = (
+        f"{template_pack.get('pack_id')}@{template_pack.get('version')}"
+        if isinstance(compiled_theme, dict)
+        else str(resolved_theme)
+    )
+    output_path = Path(DATA_DIR) / "teaching_exports" / (
+        f"{representation_id}-{spec.revision}-{theme_cache_key}.pptx"
+    )
     try:
         await run_in_threadpool(export_slide_deck_pptx, spec, output_path, theme=resolved_theme)
     except SlideDeckQualityError as exc:

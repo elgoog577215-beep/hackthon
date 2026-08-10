@@ -466,6 +466,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
     ),
     resume_slides: list[dict[str, Any]],
     source_revision_provider: Callable[[], str] | None = None,
+    variant_key_override: str | None = None,
 ) -> dict[str, Any]:
     """Retry a rejected V5 draft with the strict source-only plan.
 
@@ -533,6 +534,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
         resume_slides=resume_slides,
         requested_schema=slide_schema,
         source_revision_provider=source_revision_provider,
+        variant_key_override=variant_key_override,
     )
     initial_quality = build.get("quality") or {}
     if initial_quality.get("passed") or not fallback_allowed:
@@ -602,6 +604,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
         resume_slides=[],
         requested_schema=slide_schema,
         source_revision_provider=source_revision_provider,
+        variant_key_override=variant_key_override,
     )
     return {
         "build": fallback_build,
@@ -4749,7 +4752,9 @@ class TaskManager:
         course_id = str(task["course_id"])
         mode = str(request.get("mode") or "teaching")
         theme = normalize_slide_deck_theme(str(request.get("theme") or "qizhi-classroom"))
-        variant_key = slide_deck_variant_key(mode, theme)
+        variant_key = str(
+            request.get("variant_key") or slide_deck_variant_key(mode, theme)
+        )
         await self._update_task_status(
             task_id,
             "running",
@@ -4769,6 +4774,7 @@ class TaskManager:
             "web_image_retrieval": deepcopy(
                 request.get("web_image_retrieval") or {}
             ),
+            "template_pack": deepcopy(request.get("template_pack") or {}),
         }
         story_engine_enabled = os.getenv(
             "SLIDE_STORY_ENGINE_V2_ENABLED",
@@ -5122,6 +5128,7 @@ class TaskManager:
                 self._course_document_repository.load_document(course_id)[0].document_revision
                 or ""
             ),
+            variant_key_override=variant_key,
         )
         build = build_attempt["build"]
         allocation_plan = build_attempt["allocation_plan"]

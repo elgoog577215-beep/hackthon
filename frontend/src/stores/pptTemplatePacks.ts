@@ -25,6 +25,9 @@ export interface PersonalPptTemplatePack {
   representative_pages?: Array<Record<string, any>>
   preview_slides?: Array<Record<string, any>>
   brand?: Record<string, any>
+  compiled_theme?: Record<string, any>
+  text_box_styles?: Record<string, any>
+  semantic_page_mappings?: Record<string, number>
   assets?: PptTemplateAsset[]
   compile?: { status: string; progress: number; errors: string[] }
 }
@@ -43,6 +46,7 @@ export interface CreatePptTemplateDraftInput {
   baseTheme: BuiltinPptTheme
   referencePptx?: File | null
   logo?: File | null
+  referenceImages?: File[]
   brand?: Record<string, unknown>
 }
 
@@ -81,6 +85,7 @@ export const usePptTemplatePacksStore = defineStore('pptTemplatePacks', {
         form.append('brand_json', JSON.stringify(input.brand || {}))
         if (input.referencePptx) form.append('reference_pptx', input.referencePptx)
         if (input.logo) form.append('logo', input.logo)
+        for (const image of input.referenceImages || []) form.append('reference_images', image)
         const { data } = await http.post('/api/ppt-template-packs/import', form)
         this.personal = [data, ...this.personal.filter(item => item.pack_id !== data.pack_id)]
         return data as PersonalPptTemplatePack

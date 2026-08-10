@@ -391,6 +391,11 @@ describe('SlideCanvas V5 final page contract', () => {
             kind: 'relational_diagram',
             purpose: 'explain',
             alt_text: '过程量比较示意图',
+            nodes: [
+              { node_id: 'fast', label: '快速冷却' },
+              { node_id: 'slow', label: '缓慢降温' },
+            ],
+            edges: [{ source: 'fast', target: 'slow' }],
           }],
           quality: {
             requested_layout: 'figure-text',

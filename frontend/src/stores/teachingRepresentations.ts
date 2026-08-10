@@ -23,6 +23,8 @@ export interface SlideDeckBuildOptions {
     mode?: 'wide_safe'
     targetCount?: number
   }
+  templatePackId?: string
+  templatePackVersion?: number
 }
 
 export interface TeachingRepresentation {
@@ -474,6 +476,10 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
                 mode: options.mode,
                 theme: options.theme,
                 force_rebuild: options.forceRebuild === true,
+                ...(options.templatePackId ? {
+                  template_pack_id: options.templatePackId,
+                  template_pack_version: options.templatePackVersion,
+                } : {}),
                 ...(options.webImageRetrieval ? {
                   web_image_retrieval: {
                     enabled: options.webImageRetrieval.enabled,
