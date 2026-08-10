@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import os
 import re
+import time
 from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -24,6 +26,10 @@ from teaching_storyboard import (
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
 SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v7"
+DEFAULT_AI_VISUAL_PLAN_CONCURRENCY = 3
+MAX_AI_VISUAL_PLAN_CONCURRENCY = 6
+
+logger = logging.getLogger(__name__)
 
 VisualKind = Literal[
     "source_image",
@@ -730,6 +736,20 @@ def _visual_plan_batches(
     return batches
 
 
+def _visual_plan_concurrency(batch_count: int) -> int:
+    try:
+        configured = int(os.getenv(
+            "AI_VISUAL_PLAN_CONCURRENCY",
+            str(DEFAULT_AI_VISUAL_PLAN_CONCURRENCY),
+        ))
+    except (TypeError, ValueError):
+        configured = DEFAULT_AI_VISUAL_PLAN_CONCURRENCY
+    return min(
+        max(1, batch_count),
+        max(1, min(MAX_AI_VISUAL_PLAN_CONCURRENCY, configured)),
+    )
+
+
 def _visual_plan_request(
     document: CourseDocument,
     allocation_plan: Any,
@@ -1036,6 +1056,17 @@ async def plan_slide_visuals(
     if not raster_generation_enabled:
         allowed_visual_kinds.discard("generated_illustration")
     batches = _visual_plan_batches(allocation_plan, long_deck_page_limit)
+    batch_concurrency = _visual_plan_concurrency(len(batches))
+    semaphore = asyncio.Semaphore(batch_concurrency)
+    planning_started = time.monotonic()
+    active_batches = 0
+    peak_concurrency = 0
+    logger.info(
+        "V5 visual planning started batches=%s pages=%s concurrency=%s",
+        len(batches),
+        len(allocation_plan.pages),
+        batch_concurrency,
+    )
     resolved_by_page = {
         page.page_id: page.model_copy(update={
             "planner": "deterministic_fallback",
@@ -1047,7 +1078,12 @@ async def plan_slide_visuals(
     failed_batches: list[dict[str, Any]] = []
     partial_batches: list[dict[str, Any]] = []
     accepted_page_count = 0
-    for batch_index, batch_pages in enumerate(batches):
+
+    async def plan_batch(
+        batch_index: int,
+        batch_pages: list[Any],
+    ) -> dict[str, Any]:
+        nonlocal active_batches, peak_concurrency
         batch_allocation = allocation_plan.model_copy(update={
             "pages": list(batch_pages),
         })
@@ -1060,18 +1096,32 @@ async def plan_slide_visuals(
             batch_index=batch_index,
             batch_count=len(batches),
         )
+        batch_started = time.monotonic()
         try:
-            if inspect.iscoroutinefunction(ai_planner):
-                raw = await asyncio.wait_for(
-                    ai_planner(request),
-                    timeout=timeout_seconds,
-                )
-            else:
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(ai_planner, request),
-                    timeout=timeout_seconds,
-                )
-                raw = await result if inspect.isawaitable(result) else result
+            async with semaphore:
+                active_batches += 1
+                peak_concurrency = max(peak_concurrency, active_batches)
+                try:
+                    if inspect.iscoroutinefunction(ai_planner):
+                        raw = await asyncio.wait_for(
+                            ai_planner(request),
+                            timeout=timeout_seconds,
+                        )
+                    else:
+                        result = await asyncio.wait_for(
+                            asyncio.to_thread(ai_planner, request),
+                            timeout=timeout_seconds,
+                        )
+                        raw = (
+                            await asyncio.wait_for(
+                                result,
+                                timeout=timeout_seconds,
+                            )
+                            if inspect.isawaitable(result)
+                            else result
+                        )
+                finally:
+                    active_batches -= 1
             candidate = SlideVisualPlanV1.model_validate(
                 _normalize_visual_plan_batch_payload(
                     raw,
@@ -1128,20 +1178,29 @@ async def plan_slide_visuals(
                 for page in batch_allocation.pages
                 if page.page_id not in accepted_ids
             ]
-            for page in accepted_pages:
-                resolved_by_page[page.page_id] = page.model_copy(update={
-                    "planner": "ai",
-                    "fallback_reason": "",
-                })
-            accepted_page_count += len(accepted_pages)
+            partial = None
             if missing_ids or rejected_pages:
-                partial_batches.append({
+                partial = {
                     "batch_index": batch_index,
                     "accepted_page_ids": sorted(accepted_ids),
                     "fallback_page_ids": missing_ids,
                     "rejected_pages": rejected_pages,
-                })
-            successful_batches.append(batch_index)
+                }
+            return {
+                "batch_index": batch_index,
+                "accepted_pages": accepted_pages,
+                "partial": partial,
+                "failure": None,
+                "timing": {
+                    "batch_index": batch_index,
+                    "page_count": len(batch_pages),
+                    "duration_ms": max(
+                        0,
+                        int((time.monotonic() - batch_started) * 1000),
+                    ),
+                    "status": "partial" if partial else "accepted",
+                },
+            }
         except Exception as exc:
             failure: dict[str, Any] = {
                 "batch_index": batch_index,
@@ -1162,7 +1221,58 @@ async def plan_slide_visuals(
                 ]
             elif str(exc).strip():
                 failure["message"] = str(exc).strip()[:300]
+            return {
+                "batch_index": batch_index,
+                "accepted_pages": [],
+                "partial": None,
+                "failure": failure,
+                "timing": {
+                    "batch_index": batch_index,
+                    "page_count": len(batch_pages),
+                    "duration_ms": max(
+                        0,
+                        int((time.monotonic() - batch_started) * 1000),
+                    ),
+                    "status": "fallback",
+                },
+            }
+
+    batch_results = await asyncio.gather(*(
+        plan_batch(batch_index, batch_pages)
+        for batch_index, batch_pages in enumerate(batches)
+    ))
+    batch_timings: list[dict[str, Any]] = []
+    for result in batch_results:
+        batch_timings.append(result["timing"])
+        failure = result["failure"]
+        if failure is not None:
             failed_batches.append(failure)
+            continue
+        accepted_pages = result["accepted_pages"]
+        for page in accepted_pages:
+            resolved_by_page[page.page_id] = page.model_copy(update={
+                "planner": "ai",
+                "fallback_reason": "",
+            })
+        accepted_page_count += len(accepted_pages)
+        if result["partial"] is not None:
+            partial_batches.append(result["partial"])
+        successful_batches.append(result["batch_index"])
+
+    planning_duration_ms = max(
+        0,
+        int((time.monotonic() - planning_started) * 1000),
+    )
+    logger.info(
+        "V5 visual planning completed batches=%s successful=%s failed=%s "
+        "accepted_pages=%s duration_ms=%s peak_concurrency=%s",
+        len(batches),
+        len(successful_batches),
+        len(failed_batches),
+        accepted_page_count,
+        planning_duration_ms,
+        peak_concurrency,
+    )
 
     fallback.pages = [
         resolved_by_page[page.page_id]
@@ -1180,6 +1290,10 @@ async def plan_slide_visuals(
         "ai_visual_pages_fallback": (
             len(allocation_plan.pages) - accepted_page_count
         ),
+        "ai_visual_batch_concurrency": batch_concurrency,
+        "ai_visual_peak_concurrency": peak_concurrency,
+        "ai_visual_planning_duration_ms": planning_duration_ms,
+        "ai_visual_batch_timings": batch_timings,
     })
     if (
         accepted_page_count == len(allocation_plan.pages)
