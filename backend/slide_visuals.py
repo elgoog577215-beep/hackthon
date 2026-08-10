@@ -26,8 +26,8 @@ from teaching_storyboard import (
 
 SLIDE_VISUAL_PLAN_SCHEMA = "slide_visual_plan_v1"
 SLIDE_VISUAL_POLICY_VERSION = "visual_director_v5_semantic_integrity_v7"
-DEFAULT_AI_VISUAL_PLAN_CONCURRENCY = 3
-MAX_AI_VISUAL_PLAN_CONCURRENCY = 6
+DEFAULT_AI_VISUAL_PLAN_CONCURRENCY = 2
+MAX_AI_VISUAL_PLAN_CONCURRENCY = 4
 
 logger = logging.getLogger(__name__)
 
