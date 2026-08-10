@@ -40,6 +40,7 @@ from question_generation import (
     generate_question_contract,
     validate_question_spec,
 )
+from question_knowledge_binding import resolve_node_knowledge_binding
 from storage import DATA_DIR
 
 QUESTION_BANK_SCHEMA = "question_bank_bundle_v1"
@@ -1774,9 +1775,9 @@ def _imported_item(
         "assessment_role": "imported_practice",
         "course_objective_refs": [_objective_ref(course_data, node)] if node_id else [],
         "course_knowledge_refs": knowledge_refs,
-        "course_skill_refs": _node_refs(node, "course_skill_refs"),
-        "course_misconception_refs": _node_refs(node, "course_misconception_refs"),
-        "course_mastery_refs": _node_refs(node, "course_mastery_refs"),
+        "course_skill_refs": _node_skill_refs(course_data, node),
+        "course_misconception_refs": _node_misconception_refs(course_data, node),
+        "course_mastery_refs": _node_mastery_refs(course_data, node),
         "source_type": "imported",
         "source_records": [source_record],
         "parse_confidence": confidence,
@@ -1954,9 +1955,9 @@ def _generated_course_items(
                 ),
                 "objective_id": objective.get("objective_id"),
                 "course_knowledge_refs": _node_knowledge_refs(course_data, node),
-                "course_skill_refs": _node_refs(node, "course_skill_refs"),
-                "course_misconception_refs": _node_refs(node, "course_misconception_refs"),
-                "course_mastery_refs": _node_refs(node, "course_mastery_refs"),
+                "course_skill_refs": _node_skill_refs(course_data, node),
+                "course_misconception_refs": _node_misconception_refs(course_data, node),
+                "course_mastery_refs": _node_mastery_refs(course_data, node),
                 "source_type": source_type,
                 "source_records": source_records,
                 "parse_confidence": "high",
@@ -4056,6 +4057,18 @@ def _best_node_for_evidence(
 
 
 def _node_knowledge_refs(course_data: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    # G4：先问课程知识库要真实的知识点 ID。
+    #
+    # 下面那条 stable_hash(..., prefix="ck_") 的兜底会**自己造一个 ID**，而知识库
+    # 里知识点的正式 ID 是 `ckp_…`。两者不是一个命名空间，于是题目记着的
+    # "知识点 ID" 在知识库里查不到实体——绑定不是间接，是悬空。回答不了"这道题
+    # 考哪个知识点"，也做不了知识点级覆盖率。所以真实 ID 优先。
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("knowledge_ids"):
+        return list(resolved["knowledge_ids"])
     direct = _node_refs(node, "course_knowledge_refs") or _node_refs(node, "concept_ids")
     if direct:
         return direct
@@ -4068,6 +4081,49 @@ def _node_knowledge_refs(course_data: dict[str, Any], node: dict[str, Any]) -> l
         )
         for name in _node_key_points(node)
     ] or [stable_hash({"course": course_id, "node": node_id}, prefix="ck_")]
+
+
+def _node_skill_refs(course_data: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    """能力点 ID，同样优先取知识库里真实的 `cks_…`。"""
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("skill_ids"):
+        return list(resolved["skill_ids"])
+    return _node_refs(node, "course_skill_refs")
+
+
+def _node_misconception_refs(
+    course_data: dict[str, Any],
+    node: dict[str, Any],
+) -> list[str]:
+    """易错点 ID，同样优先取知识库里真实的 `ckm_…`。
+
+    干扰项要对应具体易错点（清单 L2）也依赖这一层是真 ID，否则"对应易错点"
+    只是对应了一个查不到的字符串。
+    """
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("misconception_ids"):
+        return list(resolved["misconception_ids"])
+    return _node_refs(node, "course_misconception_refs")
+
+
+def _node_mastery_refs(
+    course_data: dict[str, Any],
+    node: dict[str, Any],
+) -> list[str]:
+    """掌握标准 ID，同样优先取知识库里真实的 `ckmc_…`。"""
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("mastery_ids"):
+        return list(resolved["mastery_ids"])
+    return _node_refs(node, "course_mastery_refs")
 
 
 def _objective_ref(course_data: dict[str, Any], node: dict[str, Any]) -> str:
