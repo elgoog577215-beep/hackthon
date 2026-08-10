@@ -8,6 +8,7 @@ from course_presentation_graph import (
     teaching_intent_for_roles,
 )
 from slide_ai_planning_v6 import (
+    AIPlannerInvocationError,
     _grounded_title_candidates,
     plan_slide_story_v3,
     plan_slide_visuals_v2,
@@ -289,6 +290,81 @@ async def test_story_balance_failure_is_not_misreported_as_rate_limiting() -> No
 
     assert captured.value.failure.code == "story_ai_batch_balance_unavailable"
     assert captured.value.failure.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_failed_story_batch_reports_sanitized_provider_attempt_diagnostics() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    events: list[dict] = []
+
+    async def planner(_request):
+        raise AIPlannerInvocationError(
+            RuntimeError("Error code: 429 - insufficient balance"),
+            telemetry=[
+                {
+                    "provider_route": "primary_pool",
+                    "model_id": "generic-primary-model",
+                    "provider_attempt": 1,
+                    "status": "failed",
+                    "error_code": "RateLimitError",
+                    "duration_ms": 120,
+                    "queue_wait_ms": 5,
+                    "api_key": "must-not-be-persisted",
+                    "prompt": "must-not-be-persisted",
+                },
+                {
+                    "provider_route": "modelscope_fallback",
+                    "model_id": "generic-fallback-model",
+                    "provider_attempt": 1,
+                    "status": "failed",
+                    "error_code": "BalanceError",
+                    "duration_ms": 240,
+                    "queue_wait_ms": 8,
+                },
+            ],
+        )
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(
+            graph,
+            template,
+            ai_planner=planner,
+            batch_callback=lambda event: events.append(event),
+        )
+
+    assert captured.value.failure.code == "story_ai_batch_balance_unavailable"
+    failed = next(event for event in events if event["phase"] == "failed")
+    diagnostic = failed["diagnostic"].model_dump(mode="json")
+    assert diagnostic["validation_status"] == "failed"
+    assert diagnostic["failure_category"] == "story_ai_batch_balance_unavailable"
+    assert diagnostic["provider"] == "modelscope_fallback"
+    assert diagnostic["model"] == "generic-fallback-model"
+    assert diagnostic["attempts"] == 2
+    assert diagnostic["retry_count"] == 1
+    assert diagnostic["attempt_records"] == [
+        {
+            "provider": "primary_pool",
+            "model": "generic-primary-model",
+            "attempt": 1,
+            "status": "failed",
+            "duration_ms": 120,
+            "queue_wait_ms": 5,
+            "error_code": "RateLimitError",
+        },
+        {
+            "provider": "modelscope_fallback",
+            "model": "generic-fallback-model",
+            "attempt": 1,
+            "status": "failed",
+            "duration_ms": 240,
+            "queue_wait_ms": 8,
+            "error_code": "BalanceError",
+        },
+    ]
+    assert "api_key" not in str(diagnostic)
+    assert "prompt" not in str(diagnostic)
 
 
 @pytest.mark.asyncio

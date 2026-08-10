@@ -15,6 +15,7 @@ from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
 )
+from slide_ai_planning_v6 import AIPlannerInvocationError
 from teaching_representations import TeachingRepresentationRepository
 
 
@@ -338,6 +339,50 @@ async def test_failed_v6_candidate_keeps_last_published_representation(tmp_path:
     )
     assert after.spec_id == before.spec_id
     assert candidates.load("task-v6-failed")["status"] == "v6_failed"
+
+
+@pytest.mark.asyncio
+async def test_failed_v6_candidate_persists_sanitized_ai_batch_diagnostics(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+
+    async def failed_story(_request):
+        raise AIPlannerInvocationError(
+            RuntimeError("provider quota unavailable"),
+            telemetry=[{
+                "provider_route": "shared-fallback",
+                "model_id": "generic-model",
+                "provider_attempt": 2,
+                "status": "failed",
+                "error_code": "QuotaError",
+                "duration_ms": 75,
+                "queue_wait_ms": 4,
+                "api_key": "must-not-be-persisted",
+            }],
+        )
+
+    with pytest.raises(V6BuildError, match="story_ai_batch_balance_unavailable"):
+        await orchestrator.build(
+            task_id="task-v6-failed-diagnostics",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=failed_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    candidate = candidates.load("task-v6-failed-diagnostics")
+    assert candidate["status"] == "v6_failed"
+    assert candidate["ai_batch_diagnostics"][0]["failure_category"] == (
+        "story_ai_batch_balance_unavailable"
+    )
+    assert candidate["ai_batch_diagnostics"][0]["provider"] == "shared-fallback"
+    assert candidate["ai_batch_diagnostics"][0]["model"] == "generic-model"
+    assert "api_key" not in str(candidate["ai_batch_diagnostics"])
 
 
 @pytest.mark.asyncio
