@@ -90,8 +90,8 @@ def test_environment_cannot_disable_per_request_safety_fuses(
     budget = CourseGenerationBudget.from_env()
 
     assert "max_sections" not in budget.to_dict()
-    assert budget.max_input_chars == 24_000
-    assert budget.max_input_tokens == 8000
+    assert budget.max_input_chars == 48_000
+    assert budget.max_input_tokens == 24_000
     assert budget.provider_max_attempts == 2
     assert budget.content_inactivity_timeout_seconds == 240
     assert "content_node_timeout_seconds" not in budget.to_dict()
@@ -194,13 +194,13 @@ async def test_outline_compacts_forty_thousand_character_requirement_before_api(
 
     assert len(payloads) == 7
     for user_prompt, system_prompt, kwargs in payloads:
-        assert len(user_prompt) + len(system_prompt) <= 20_000
+        assert len(user_prompt) + len(system_prompt) <= 32_000
         assert AIBase.estimate_request_tokens(
             user_prompt,
             system_prompt,
-        ) <= 7_000
-        assert kwargs["max_input_chars"] == 20_000
-        assert kwargs["max_input_tokens"] == 7_000
+        ) <= 16_000
+        assert kwargs["max_input_chars"] == 32_000
+        assert kwargs["max_input_tokens"] == 16_000
     outline_stage = result["generation_stage_artifacts"]["outline"]
     assert outline_stage["strategy"] == "hierarchical_chapter_batches"
     assert outline_stage["adaptive_compaction_count"] >= 1
@@ -451,3 +451,133 @@ def test_large_linear_course_context_stays_bounded_by_frozen_responsibilities():
     assert "能完成前序任务 21" in context
     assert "能完成前序任务 1；" not in context
     assert len(context) < 2_000
+
+
+def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
+    """真实体量的小节必须能选到 full 正文 prompt。
+
+    输入预算过低时 select_budgeted_prompt 会静默降级到 minimal，
+    把教学画像、难度契约、总编契约、细知识结构等全部丢掉——
+    表现为"生成成功"，实际却是用最贫瘠的上下文生成的。
+    """
+    from course_generation_adaptive import (
+        PromptCandidate,
+        prompt_detail_levels_for_source,
+        select_budgeted_prompt,
+    )
+    from course_prompt_composer import CoursePromptComposer
+
+    budget = CourseGenerationBudget()
+    composer = CoursePromptComposer()
+    # 12 个知识点、8 条易错、6 条验收：常规大学课程小节的量级。
+    node = {
+        "node_id": "L2-3-2",
+        "node_level": 2,
+        "node_name": "3.2 离散型与连续型随机变量",
+        "learning_objective": "能够区分离散型与连续型随机变量并正确使用分布律与密度函数",
+        "scope_boundary": "只负责一维随机变量的分布描述，不展开多维联合分布",
+        "prerequisite_node_ids": ["L2-3-1"],
+        "key_points": [f"知识点{index}的规范名称" for index in range(1, 13)],
+        "misconceptions": [
+            f"把{index}号条件当作无条件成立，忽略定义域与可积性要求"
+            for index in range(1, 9)
+        ],
+        "assessment": [
+            f"完成第{index}类任务并说明判断依据与边界" for index in range(1, 7)
+        ],
+        "knowledge_structure": [{
+            "concept_group": f"概念组{index}",
+            "group_description": "把随机试验结果数量化并描述其取值规律" * 4,
+            "knowledge_points": [{
+                "name": f"知识点{index}-{offset}的规范名称",
+                "statement": "该知识在当前课程中的成立条件、适用边界与典型用法" * 4,
+                "capability": "能够在新情境中独立判断适用条件并完成计算",
+                "mistake_points": [{
+                    "name": f"忽略知识点{index}-{offset}的成立条件",
+                    "description": "在不满足可积性或独立性时直接套用结论" * 2,
+                }],
+            } for offset in range(1, 3)],
+        } for index in range(1, 6)],
+        "module_plan": [{
+            "module_id": module_id,
+            "label": label,
+            "block_role": role,
+            "required": True,
+            "output_contract": f"{label}必须产出的可检查内容" * 2,
+            "prompt_instruction": f"{label}的具体写作要求" * 2,
+        } for module_id, label, role in (
+            ("lesson_goal", "本节任务", "objective"),
+            ("core_explanation", "核心教学", "concept"),
+            ("math_worked_example", "示范例题", "example"),
+            ("learner_action", "学习者行动", "activity"),
+            ("feedback_check", "检查与反馈", "feedback"),
+        )],
+        "difficulty_contract": {
+            "target_level": "intermediate",
+            "challenge": {"reasoning_depth": 3, "transfer_distance": 3},
+            "support": {"scaffold_intensity": 3},
+            "mastery": {"independence": 3},
+        },
+        "grounding_contract": {},
+    }
+    course_data = {
+        "course_id": "budget-detail-course",
+        "course_name": "概率论基础：从随机事件到中心极限定理",
+        "target_audience": "大学一年级学生",
+        "subject_pedagogy_profile": {
+            "primary_mode": "math_formal",
+            "secondary_mode": None,
+            "rationale": "数学课程需要形式化定义与推导" * 4,
+            "evidence": [],
+            "enabled_module_ids": [],
+        },
+        "difficulty_profile": {
+            "target_level": "intermediate",
+            "rationale": "面向大一学生的系统性课程" * 4,
+        },
+        "nodes": [node],
+    }
+    context = "## 已冻结前序教学责任\n" + "\n".join(
+        f"- 第{index}节：完成对应教学责任并交付可观察证据"
+        for index in range(1, 6)
+    )
+
+    levels = prompt_detail_levels_for_source(
+        {"node": node, "context": context},
+        max_input_chars=budget.max_input_chars,
+    )
+    candidates = []
+    for level in levels:
+        user_prompt, system_prompt = composer.build_content_prompt(
+            course_data=course_data,
+            node=node,
+            context=context,
+            detail_level=level,
+        )
+        candidates.append(PromptCandidate(
+            detail_level=level,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+        ))
+    selected = select_budgeted_prompt(
+        iter(candidates),
+        max_input_chars=budget.max_input_chars,
+        max_input_tokens=budget.max_input_tokens,
+        token_estimator=AIBase.estimate_request_tokens,
+    )
+
+    assert selected is not None
+    assert selected.detail_level == "full"
+    # full 变体确实比 minimal 大得多，说明这不是一个恰好都能过的小 fixture。
+    minimal = next(
+        item for item in candidates if item.detail_level == "minimal"
+    )
+    full_tokens = AIBase.estimate_request_tokens(
+        selected.user_prompt, selected.system_prompt
+    )
+    minimal_tokens = AIBase.estimate_request_tokens(
+        minimal.user_prompt, minimal.system_prompt
+    )
+    assert full_tokens > minimal_tokens * 1.5
+    # 旧的 7000 token 闸门会把这一节挤到 minimal。
+    assert full_tokens > 7_000

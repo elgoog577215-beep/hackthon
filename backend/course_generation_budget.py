@@ -37,8 +37,8 @@ class CourseGenerationDeadlineExceeded(AIProviderRequestError):
 
 @dataclass(frozen=True)
 class CourseGenerationBudget:
-    max_input_chars: int = 20_000
-    max_input_tokens: int = 7000
+    max_input_chars: int = 32_000
+    max_input_tokens: int = 16_000
     outline_max_output_tokens: int = 8192
     content_max_output_tokens: int = 8192
     provider_max_attempts: int = 2
@@ -54,15 +54,15 @@ class CourseGenerationBudget:
         return cls(
             max_input_chars=_env_int(
                 "COURSE_GENERATION_MAX_INPUT_CHARS",
-                20_000,
+                32_000,
                 minimum=8_000,
-                maximum=24_000,
+                maximum=48_000,
             ),
             max_input_tokens=_env_int(
                 "COURSE_GENERATION_MAX_INPUT_TOKENS",
-                7000,
+                16_000,
                 minimum=2000,
-                maximum=8000,
+                maximum=24_000,
             ),
             outline_max_output_tokens=_env_int(
                 "COURSE_OUTLINE_MAX_OUTPUT_TOKENS",
