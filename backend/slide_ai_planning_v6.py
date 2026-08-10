@@ -46,6 +46,7 @@ _STORY_PAGE_CONTRACT_FIELDS = frozenset({
     "summary",
     "source_block_ids",
 })
+_STORY_SEMANTIC_MAX_ATTEMPTS = 3
 
 
 class _StrictModel(BaseModel):
@@ -544,7 +545,7 @@ async def plan_slide_story_v3(
         try:
             contract_error: Exception | None = None
             previous_response_payload: dict[str, Any] | None = None
-            for validation_attempt in range(2):
+            for validation_attempt in range(_STORY_SEMANTIC_MAX_ATTEMPTS):
                 attempt_request = request
                 if validation_attempt:
                     attempt_request = {
@@ -624,7 +625,7 @@ async def plan_slide_story_v3(
                     break
                 except (ValidationError, ValueError, V6BuildError) as error:
                     contract_error = error
-                    if validation_attempt == 0:
+                    if validation_attempt < _STORY_SEMANTIC_MAX_ATTEMPTS - 1:
                         continue
                     if isinstance(error, V6BuildError):
                         raise V6BuildError(
@@ -637,8 +638,8 @@ async def plan_slide_story_v3(
                             batch_id=batch_id,
                         ) from error
                     raise
-            else:  # pragma: no cover - the bounded loop either succeeds or raises
-                raise RuntimeError("Story response repair loop exited unexpectedly")
+                else:  # pragma: no cover - the bounded loop either succeeds or raises
+                    raise RuntimeError("Story response repair loop exited unexpectedly")
             batch = SlideStoryBatchV3(
                     batch_id=batch_id,
                     chapter_id=batch.chapter_id,

@@ -490,7 +490,7 @@ async def test_story_batch_reports_the_exact_contract_error_after_bounded_repair
     with pytest.raises(V6BuildError) as captured:
         await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert calls == 2
+    assert calls == 3
     assert captured.value.failure.code == "template_layout_unavailable"
     assert captured.value.failure.chapter_id == "chapter-a"
     assert captured.value.failure.batch_id == "story-1"
