@@ -395,12 +395,52 @@ def _story_repair_targets(
 
     if response_payload is None or not isinstance(error, V6BuildError):
         return []
-    failed_page_id = str(error.failure.page_id or "")
-    if not failed_page_id:
-        return []
     pages = response_payload.get("pages")
     if not isinstance(pages, list):
         return []
+    units = {
+        str(item.get("teaching_unit_id") or ""): item
+        for item in request.get("teaching_units") or []
+        if isinstance(item, dict)
+    }
+
+    def target_for(
+        unit: dict[str, Any],
+        *,
+        page_id: str = "",
+        missing_source_block_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "page_id": page_id,
+            "teaching_unit_id": str(unit.get("teaching_unit_id") or ""),
+            "allowed_template_layout_ids": list(
+                unit.get("allowed_template_layout_ids") or []
+            ),
+            "required_source_block_ids": list(unit.get("primary_block_ids") or []),
+            "missing_source_block_ids": list(missing_source_block_ids or []),
+            "allowed_title_candidates": list(unit.get("title_candidates") or []),
+        }
+
+    failed_page_id = str(error.failure.page_id or "")
+    if not failed_page_id:
+        covered = {
+            str(block_id)
+            for page in pages
+            if isinstance(page, dict)
+            for block_id in page.get("source_block_ids") or []
+        }
+        missing_targets = []
+        for unit in units.values():
+            missing = [
+                str(block_id)
+                for block_id in unit.get("primary_block_ids") or []
+                if str(block_id) not in covered
+            ]
+            if missing:
+                missing_targets.append(
+                    target_for(unit, missing_source_block_ids=missing)
+                )
+        return missing_targets
     failed_page = next(
         (
             page for page in pages
@@ -412,25 +452,10 @@ def _story_repair_targets(
     if failed_page is None:
         return []
     unit_id = str(failed_page.get("teaching_unit_id") or "")
-    unit = next(
-        (
-            item for item in request.get("teaching_units") or []
-            if isinstance(item, dict)
-            and str(item.get("teaching_unit_id") or "") == unit_id
-        ),
-        None,
-    )
+    unit = units.get(unit_id)
     if unit is None:
         return []
-    return [{
-        "page_id": failed_page_id,
-        "teaching_unit_id": unit_id,
-        "allowed_template_layout_ids": list(
-            unit.get("allowed_template_layout_ids") or []
-        ),
-        "required_source_block_ids": list(unit.get("primary_block_ids") or []),
-        "allowed_title_candidates": list(unit.get("title_candidates") or []),
-    }]
+    return [target_for(unit, page_id=failed_page_id)]
 
 
 async def plan_slide_story_v3(
