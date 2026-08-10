@@ -356,3 +356,36 @@ async def test_coherence_repair_only_accepts_a_candidate_that_removes_blocking_i
     assert final_report["passed"] is True
     assert repaired["nodes"][1]["node_content"].endswith(duplicate)
     assert duplicate not in repaired["nodes"][3]["node_content"]
+
+
+def test_final_report_exposes_a_render_dimension_across_nodes():
+    """L3e: every other section is a content dimension; render needs its own.
+
+    Before this the report had six sections and none of them could express
+    "the teaching content is sound but it renders as LaTeX source".
+    """
+    course = _course()
+    report = build_final_course_quality_report(course, job_id="render-clean")
+
+    render = report["render_quality"]
+    assert render["dimension"] == "render"
+    assert render["passed"] is True
+    assert render["failing_node_ids"] == []
+
+
+def test_final_report_names_the_nodes_whose_rendering_is_broken():
+    course = _course()
+    # An unwrapped display environment: `$$` count stays even, so only the
+    # dedicated check catches it.
+    course["nodes"][1]["node_content"] += (
+        "\n\n$$\nf(x)=\n$$\n"
+        "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
+        "$$\ny=1\n$$"
+    )
+
+    report = build_final_course_quality_report(course, job_id="render-broken")
+
+    render = report["render_quality"]
+    assert render["passed"] is False
+    assert course["nodes"][1]["node_id"] in render["failing_node_ids"]
+    assert render["issue_count"] > 0

@@ -368,3 +368,103 @@ def test_two_lists_separated_by_prose_are_not_flagged():
         _content("\n\n1. 第一步\n2. 第二步\n\n中间说明文字。\n\n1. 另一组\n2. 继续")
     )
     assert "list_numbering_restart" not in codes
+
+
+def test_render_and_content_dimensions_are_reported_separately():
+    """L3e: the report must be able to say which dimension failed."""
+    report = evaluate_node_content(_content(), _node())
+
+    assert report["render_quality"]["dimension"] == "render"
+    assert report["content_quality"]["dimension"] == "content"
+    assert report["hygiene_quality"]["dimension"] == "hygiene"
+
+
+def test_a_render_only_defect_is_attributed_to_the_render_dimension():
+    """The case that had no expressible answer before: which dimension broke?
+
+    `table_missing_delimiter` is `major` — it lowers the score without blocking,
+    exactly like the overall gate treats major. What matters here is that it is
+    counted as a *render* defect and not mixed into the content score.
+    """
+    report = evaluate_node_content(
+        _content("\n\n| 结构 | 复杂度 |\n| 数组 | O(n) |"),
+        _node(),
+    )
+
+    assert any(
+        item["code"] == "table_missing_delimiter"
+        for item in report["render_quality"]["issues"]
+    )
+    assert report["render_quality"]["score"] < 1.0
+    # The same issue must not be double-counted into the content dimension.
+    assert all(
+        item["code"] != "table_missing_delimiter"
+        for item in report["content_quality"]["issues"]
+    )
+
+
+def test_a_critical_render_defect_fails_render_but_not_content():
+    """An unwrapped display environment is critical: render fails, content does not."""
+    report = evaluate_node_content(
+        _content(
+            "\n\n$$\nf(x)=\n$$\n"
+            "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
+            "$$\ny=1\n$$"
+        ),
+        _node(),
+    )
+
+    assert report["render_quality"]["passed"] is False
+    assert report["content_quality"]["passed"] is True
+
+
+def test_reported_math_failure_is_scored_as_render_not_content():
+    report = evaluate_node_content(
+        _content(),
+        _node(),
+        render_diagnostics={"math_failure_count": 1},
+    )
+
+    assert report["render_quality"]["passed"] is False
+    assert report["content_quality"]["passed"] is True
+
+
+def test_generation_hygiene_is_its_own_dimension():
+    report = evaluate_node_content(
+        "好的，以下是正文。\n\n" + _content(), _node()
+    )
+
+    assert any(
+        item["code"] == "meta_preamble"
+        for item in report["hygiene_quality"]["issues"]
+    )
+    assert report["render_quality"]["passed"] is True
+    assert all(
+        item["code"] != "meta_preamble"
+        for item in report["content_quality"]["issues"]
+    )
+
+
+def test_unclassified_codes_default_to_content_and_are_never_dropped():
+    """A new code must not silently vanish from every dimension."""
+    from course_quality import _issue_dimension
+
+    assert _issue_dimension("some_future_code") == "content"
+
+
+def test_every_emitted_code_belongs_to_exactly_one_dimension():
+    import re
+
+    from course_quality import (
+        HYGIENE_ISSUE_CODES,
+        RENDER_ISSUE_CODES,
+        _issue_dimension,
+    )
+
+    source = open("backend/course_quality.py", encoding="utf-8").read()
+    codes = set(re.findall(r"_issue\(\s*[\"']([a-z_0-9]+)[\"']", source))
+    assert codes, "未能从源码中提取到任何 issue code"
+    for code in codes:
+        assert _issue_dimension(code) in {"render", "content", "hygiene"}
+    # No code may be claimed by two explicit sets at once.
+    assert not (RENDER_ISSUE_CODES & HYGIENE_ISSUE_CODES)

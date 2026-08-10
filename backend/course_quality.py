@@ -14,6 +14,72 @@ from course_pedagogy import MODULES, coerce_persisted_profile
 
 QUALITY_CONTRACT_VERSION = "course_quality_v10"
 
+# L3e: content correctness and visual correctness are different questions with
+# different owners. A course can be pedagogically sound but render as garbled
+# LaTeX, or render beautifully while missing half its key points — and until now
+# both landed in one `issues` list sharing one score, so a report could not say
+# which. These sets classify every code the module emits; `_issue_dimension`
+# treats anything unlisted as content, so a new code is never silently dropped
+# from the content score.
+RENDER_ISSUE_CODES = frozenset({
+    # Real-render failures reported by the frontend (L3a).
+    "math_render_failed",
+    "block_render_failed",
+    # Math delimiter and environment structure.
+    "unclosed_math_fence",
+    "unwrapped_display_environment",
+    "legacy_math_delimiter",
+    # Block structure that changes what the learner sees.
+    "unclosed_code_fence",
+    "markdown_block_join",
+    "table_missing_delimiter",
+    "table_delimiter_mismatch",
+    "empty_blockquote",
+    "list_numbering_restart",
+    "feedback_math_as_code",
+})
+
+# Generation hygiene: traces of the model's own process leaking into the body.
+# Not a rendering fault and not a teaching-content fault, but it must still
+# block, so it is scored with content rather than given a third score.
+HYGIENE_ISSUE_CODES = frozenset({
+    "meta_preamble",
+    "model_self_correction",
+    "placeholder_content",
+})
+
+
+def _issue_dimension(code: str) -> str:
+    if code in RENDER_ISSUE_CODES:
+        return "render"
+    if code in HYGIENE_ISSUE_CODES:
+        return "hygiene"
+    return "content"
+
+
+def _dimension_report(issues: list[dict[str, Any]], dimension: str) -> dict[str, Any]:
+    """Score one dimension in isolation.
+
+    Uses the same `_score_from_issues` weighting so the numbers stay comparable
+    with the overall score; only the input set differs.
+    """
+    scoped = [
+        item for item in issues
+        if _issue_dimension(str(item.get("code") or "")) == dimension
+    ]
+    # A dimension fails when it carries a critical issue of its own kind. This
+    # mirrors the overall gate (`_has_critical`), which also blocks only on
+    # critical — a `major` lowers the score without blocking. Using a stricter
+    # rule here would make a dimension report "failed" for content the gate
+    # happily publishes, which is worse than no dimension at all.
+    return {
+        "dimension": dimension,
+        "passed": not _has_critical(scoped),
+        "score": _score_from_issues(scoped),
+        "issue_count": len(scoped),
+        "issues": scoped,
+    }
+
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
     "general_explained_example": (("例如", "例子", "案例", "示例"), "缺少与概念对应的具体例子"),
@@ -315,6 +381,12 @@ def evaluate_node_content(
         "content_chars": len(text),
         "difficulty_alignment": difficulty_alignment,
         "grounding_check": grounding_check,
+        # L3e: the same issues, split by dimension, so a caller can distinguish
+        # "content is fine but it renders wrong" from the opposite. `passed`
+        # above is unchanged and still the single authority for the gate.
+        "render_quality": _dimension_report(issues, "render"),
+        "content_quality": _dimension_report(issues, "content"),
+        "hygiene_quality": _dimension_report(issues, "hygiene"),
     }
 
 
@@ -846,6 +918,10 @@ def build_final_course_quality_report(
             "weak": len(weak_nodes),
             "average_score": round(sum(float(report.get("score") or 0) for report in node_reports) / max(1, len(node_reports)), 3),
         },
+        # L3e: every section above is a content dimension. This one aggregates
+        # the render verdict across nodes, so the report can state plainly that
+        # a course is pedagogically sound but visually broken.
+        "render_quality": _aggregate_render_quality(node_reports),
         "weak_nodes": weak_nodes,
         "manual_review_required_nodes": manual_review_nodes,
         "publication_allowed": not blocking_issues,
@@ -1180,6 +1256,37 @@ def _ordered_list_runs(body: list[str]) -> list[list[int]]:
     if current:
         runs.append(current)
     return runs
+
+
+def _aggregate_render_quality(node_reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Roll every node's render verdict into one course-level section.
+
+    Kept separate from `publication_allowed`: this reports the render dimension,
+    while blocking remains driven by the node-level `passed` values that already
+    include these issues. Making it a second gate would double-block the same
+    defect.
+    """
+    failing: list[str] = []
+    issues: list[dict[str, Any]] = []
+    scores: list[float] = []
+    for report in node_reports:
+        render = report.get("render_quality")
+        if not isinstance(render, dict):
+            continue
+        scores.append(float(render.get("score") or 0))
+        if not render.get("passed", True):
+            node_id = str(report.get("node_id") or "")
+            if node_id:
+                failing.append(node_id)
+        issues.extend(render.get("issues") or [])
+    return {
+        "dimension": "render",
+        "passed": not failing,
+        "score": round(sum(scores) / max(1, len(scores)), 3) if scores else 1.0,
+        "failing_node_ids": failing,
+        "issue_count": len(issues),
+        "issues": issues[:50],
+    }
 
 
 def _issue(
