@@ -97,6 +97,7 @@
       v-if="building"
       :progress="progress"
       :stage="stage"
+      :step-index="buildStepIndex"
       :detail="buildDetail"
       :estimated-slide-count="estimatedSlideCount"
       :variant="standalone ? 'toolbar' : 'embedded'"
@@ -488,6 +489,7 @@ const props = withDefaults(defineProps<{
   building: boolean
   progress: number
   stage: string
+  buildStepIndex?: number | null
   buildDetail?: SlideDeckBuildDetail | null
   estimatedSlideCount?: number
   error: string
@@ -523,6 +525,7 @@ const props = withDefaults(defineProps<{
   logicUpgrading: false,
   logicUpgradeError: '',
   buildDetail: null,
+  buildStepIndex: null,
   estimatedSlideCount: 0,
 })
 

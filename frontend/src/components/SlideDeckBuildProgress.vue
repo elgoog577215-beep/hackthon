@@ -88,6 +88,7 @@
 import { computed } from 'vue'
 import { CircleCheck, LoaderCircle } from 'lucide-vue-next'
 import type { SlideDeckBuildDetail } from '../stores/teachingRepresentations'
+import { inferSlideBuildStepIndex } from '../utils/slide-build-progress'
 
 interface BuildStep {
   key: string
@@ -101,10 +102,12 @@ const props = withDefaults(defineProps<{
   stage: string
   detail?: SlideDeckBuildDetail | null
   estimatedSlideCount?: number
+  stepIndex?: number | null
   variant?: 'toolbar' | 'initial' | 'embedded'
 }>(), {
   detail: null,
   estimatedSlideCount: 0,
+  stepIndex: null,
   variant: 'embedded',
 })
 
@@ -160,8 +163,8 @@ const steps: readonly BuildStep[] = [
   {
     key: 'quality',
     label: '内容视觉质检',
-    description: '检查知识覆盖、文字密度与版式安全',
-    tasks: ['检查知识点与目标覆盖', '检查文字密度和可读性', '检查版式安全并标记问题页'],
+    description: '检查知识覆盖、文字密度并完成问题返修',
+    tasks: ['检查知识点与目标覆盖', '检查文字密度和可读性', '修复问题页并重新质检'],
   },
   {
     key: 'publish',
@@ -193,30 +196,6 @@ const stageLabels: Record<string, string> = {
   render_repair: '正在修复导出版式问题',
   repair_progress: '正在定向修复问题页面',
   complete: '课件生成完成',
-}
-
-const stageStepIndex: Record<string, number> = {
-  fragmenting: 0,
-  planning: 0,
-  story_plan: 1,
-  chapter_plan: 2,
-  episode_progress: 2,
-  slide_plan: 3,
-  bundle_plan: 3,
-  layout_plan: 4,
-  visual_plan: 5,
-  asset_compilation: 5,
-  bundle_part_build: 6,
-  slide_build: 6,
-  semantic_repair: 7,
-  image_search: 7,
-  reviewing: 8,
-  quality: 8,
-  visual_quality: 8,
-  render_review: 9,
-  render_repair: 9,
-  repair_progress: 9,
-  complete: 9,
 }
 
 const stageTaskIndex: Record<string, number> = {
@@ -271,17 +250,10 @@ const normalizedProgress = computed(() => (
 ))
 
 const activeStepIndex = computed(() => {
-  if (stageStepIndex[props.stage] != null) return stageStepIndex[props.stage]!
-  if (normalizedProgress.value >= 98) return 9
-  if (normalizedProgress.value >= 96) return 8
-  if (normalizedProgress.value >= 93) return 7
-  if (normalizedProgress.value >= 22) return 6
-  if (normalizedProgress.value >= 18) return 5
-  if (normalizedProgress.value >= 14) return 4
-  if (normalizedProgress.value >= 10) return 3
-  if (normalizedProgress.value >= 6) return 2
-  if (normalizedProgress.value >= 2) return 1
-  return 0
+  if (props.stepIndex != null && Number.isFinite(props.stepIndex)) {
+    return Math.max(0, Math.min(steps.length - 1, Math.round(props.stepIndex)))
+  }
+  return inferSlideBuildStepIndex(props.stage, normalizedProgress.value)
 })
 
 const currentStep = computed(() => steps[activeStepIndex.value] || steps[0]!)
@@ -297,6 +269,15 @@ const currentDetailLabel = computed(() => {
   const total = Number(detail?.total || props.estimatedSlideCount || 0)
   const itemTitle = String(detail?.itemTitle || '')
   const itemId = String(detail?.itemId || '')
+
+  if (detail?.event === 'slide_upsert' && detail.candidateStage === 'final_contract') {
+    const pagePosition = completed && total ? `第 ${completed} / ${total} 页` : '当前页面'
+    return `正在汇总并校验${pagePosition}${itemTitle ? ` · ${itemTitle}` : ''}`
+  }
+  if (detail?.event === 'slide_upsert' && detail.candidateStage === 'render_verified') {
+    const pagePosition = completed && total ? `第 ${completed} / ${total} 页` : '当前页面'
+    return `正在回写渲染确认后的${pagePosition}${itemTitle ? ` · ${itemTitle}` : ''}`
+  }
 
   if (props.stage === 'slide_build') {
     const pagePosition = completed && total
@@ -354,6 +335,9 @@ const activeTaskIndex = computed(() => {
   let index = eventTaskIndex[String(props.detail?.event || '')]
     ?? stageTaskIndex[props.stage]
     ?? 0
+
+  const rawStepIndex = inferSlideBuildStepIndex(props.stage, normalizedProgress.value)
+  if (activeStepIndex.value > rawStepIndex) index = taskCount - 1
 
   if (
     total > 0
