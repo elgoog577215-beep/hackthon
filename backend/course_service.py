@@ -2424,11 +2424,24 @@ class CourseService(AIBase):
                                 skeleton=skeleton,
                                 sections=planning_sections,
                             )
+                model_blocking_codes: list[str] = []
                 if not batch_report.get("passed"):
                     generation_source = "deterministic_local_fallback"
                     fallback_reason = (
                         fallback_reason or "model_output_failed_validation"
                     )
+                    # Capture why the model output was rejected before the
+                    # local fallback report overwrites it.  Without this the
+                    # only surviving trace is the generic
+                    # "model_output_failed_validation", which makes a batch
+                    # that keeps failing impossible to diagnose after the run.
+                    model_blocking_codes = [
+                        str(issue.get("code") or "")
+                        for issue in (
+                            batch_report.get("blocking_issues") or []
+                        )
+                        if isinstance(issue, dict) and issue.get("code")
+                    ][:8]
                     batch = compile_fallback_teaching_batch(
                         batch_spec=spec,
                         skeleton=skeleton,
@@ -2451,6 +2464,9 @@ class CourseService(AIBase):
                             "unit": batch_id,
                             "reason": fallback_reason,
                             "section_ids": list(section_ids),
+                            "model_blocking_codes": list(
+                                model_blocking_codes
+                            ),
                         })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {

@@ -2319,3 +2319,61 @@ async def test_teaching_plan_retries_failed_unit_more_than_once(monkeypatch):
         for batch_id, count in batch_calls.items()
         if batch_id != "TP-B02"
     )
+
+
+@pytest.mark.asyncio
+async def test_failed_batch_records_why_the_model_output_was_rejected(
+    monkeypatch,
+):
+    """批次退兜底时必须留下模型被拒的具体校验码，否则事后无法诊断。"""
+    labels = [f"可观测{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="可观测课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-observability",
+        "course_name": "可观测课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        match = re.search(r"TP-B\d{2}", prompt)
+        if match and match.group(0) == "TP-B01":
+            # 结构合法但知识点缺失：会被批次校验以具体码拒绝。
+            return json.dumps({"sections": []}, ensure_ascii=False)
+        if match:
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    with pytest.raises(AIProviderRequestError):
+        await service._prepare_course_teaching_plan(
+            course_data=course_data,
+            plan=plan,
+            artifacts=None,
+            on_phase=None,
+            on_checkpoint=None,
+        )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    failed = [
+        unit for unit in stage["fallback_units"]
+        if unit.get("unit") == "TP-B01"
+    ]
+    assert failed, stage["fallback_units"]
+    # 关键：不能只留下笼统的 model_output_failed_validation。
+    assert failed[0]["model_blocking_codes"]
+    assert all(
+        isinstance(code, str) and code
+        for code in failed[0]["model_blocking_codes"]
+    )
