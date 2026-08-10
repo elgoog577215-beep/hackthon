@@ -952,6 +952,208 @@ def test_scaffold_and_canonical_operations_apply_as_one_group(tmp_path):
     assert restored[receipt["inserted_block_ids"][0]].status == "retired"
 
 
+def test_crash_between_course_commit_and_plan_save_leaves_no_half_applied_state(
+    tmp_path,
+    monkeypatch,
+):
+    """Injected failure after the document commit must not strand the plan.
+
+    The course document and the plan state live in two repositories, so a
+    failure between them is the one real half-update window. The plan must not
+    stay ``pending`` while its blocks are already visible in the course, and the
+    learner must not be able to reject it into a set of orphan course blocks.
+    """
+    course = _course()
+    state, anchor, mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    real_save = CourseEvolutionRepository.save
+    failures: list[str] = []
+
+    def failing_save(self, value):
+        plan = next(
+            (
+                item for item in value.change_sets
+                if item.change_set_id == "plan-mixed-family"
+            ),
+            None,
+        )
+        if plan is not None and plan.status == "applied":
+            failures.append(plan.change_set_id)
+            raise OSError("simulated disk failure after the course document commit")
+        return real_save(self, value)
+
+    monkeypatch.setattr(CourseEvolutionRepository, "save", failing_save)
+    with pytest.raises(OSError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-mixed-family",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+    monkeypatch.setattr(CourseEvolutionRepository, "save", real_save)
+    assert failures == ["plan-mixed-family"]
+
+    committed_document, _ = document_repository.load_document(course["course_id"])
+    assert committed_document.document_revision != before_document.document_revision
+
+    # The plan must not read as untouched while its blocks are already committed.
+    stranded = repository.load("student-a", course["course_id"]).change_sets[0]
+    assert stranded.status != "pending"
+    assert stranded.impact_summary["command_group"]["status"] == "applying"
+    assert stranded.impact_summary["command_group"]["command_id"]
+
+    # Rejecting a plan whose blocks already reached the course must be refused
+    # rather than silently leaving them behind with no owner.
+    with pytest.raises(ValueError):
+        reject_change_set(
+            user_id="student-a",
+            course_id=course["course_id"],
+            change_set_id="plan-mixed-family",
+            reason="想想还是不要了",
+            repository=repository,
+            document_repository=document_repository,
+        )
+
+    # Re-accepting reconciles the stranded group instead of committing twice.
+    recovered = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    plan = recovered.change_sets[0]
+    assert plan.status == "applied"
+    assert plan.impact_summary["command_group"]["status"] == "committed"
+    recovered_document, _ = document_repository.load_document(course["course_id"])
+    assert recovered_document.document_revision == committed_document.document_revision
+    assert len(recovered_document.blocks) == len(committed_document.blocks)
+    # The recovered receipt still supports undo.
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    undone_document, _ = document_repository.load_document(course["course_id"])
+    undone = {block.block_id: block for block in undone_document.blocks}
+    assert undone[mastered.block_id].status == "final"
+
+
+def test_crash_before_the_course_commit_releases_the_plan_for_review(
+    tmp_path,
+    monkeypatch,
+):
+    """The other half of the window: nothing reached the course.
+
+    When the commit itself never happened the plan must go back to the pending
+    queue, and rejecting it stays legitimate — there is nothing to strand.
+    """
+    course = _course()
+    state, _anchor, _mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    def failing_group(*_args, **_kwargs):
+        raise OSError("simulated failure before the course document commit")
+
+    monkeypatch.setattr(
+        course_evolution.CourseCommandService,
+        "apply_block_operation_group",
+        failing_group,
+    )
+    with pytest.raises(OSError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-mixed-family",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+    monkeypatch.undo()
+
+    unchanged_document, _ = document_repository.load_document(course["course_id"])
+    assert unchanged_document.document_revision == before_document.document_revision
+    assert len(unchanged_document.blocks) == len(before_document.blocks)
+
+    stranded = repository.load("student-a", course["course_id"]).change_sets[0]
+    assert stranded.status == "accepted"
+    assert stranded.impact_summary["command_group"]["status"] == "applying"
+
+    # Accepting again finds no receipt, releases the group and applies cleanly.
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    plan = applied.change_sets[0]
+    assert plan.status == "applied"
+    assert plan.impact_summary["command_group"]["status"] == "committed"
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    assert applied_document.document_revision != before_document.document_revision
+
+
+def test_released_command_group_can_still_be_rejected(tmp_path, monkeypatch):
+    """A plan whose commit never landed stays rejectable.
+
+    Rejection settles the unfinished group itself: the course operation log
+    shows no receipt, so nothing was applied and the learner's "no" is honoured
+    without making them re-accept first.
+    """
+    course = _course()
+    state, _anchor, _mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+
+    def failing_group(*_args, **_kwargs):
+        raise OSError("simulated failure before the course document commit")
+
+    monkeypatch.setattr(
+        course_evolution.CourseCommandService,
+        "apply_block_operation_group",
+        failing_group,
+    )
+    with pytest.raises(OSError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-mixed-family",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+    monkeypatch.undo()
+
+    rejected = reject_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        reason="不需要",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    plan = rejected.change_sets[0]
+    assert plan.status == "rejected"
+    assert plan.impact_summary["command_group"]["status"] == "released"
+    final_document, _ = document_repository.load_document(course["course_id"])
+    assert all(block.status != "retired" for block in final_document.blocks)
+
+
 def test_demo_mode_relaxes_strong_contract(monkeypatch):
     weak = "不理解为什么复合变换要先右后左，请用动画解释一下。"
     contract = course_evolution._strong_self_report_contract(weak)

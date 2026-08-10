@@ -32,6 +32,7 @@ from product_runtime_policy import demo_overrides_enabled
 from practice_attempts import practice_attempt_repository
 
 COURSE_EVOLUTION_SCHEMA = "course_evolution_v2"
+COURSE_COMMAND_GROUP_SCHEMA = "course_evolution_command_group_v1"
 HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
@@ -368,6 +369,93 @@ def synchronize_and_evaluate_course_evolution(
     return repository.save(state)
 
 
+def _reconcile_command_group(
+    state: CourseEvolutionState,
+    change_set: CourseEvolutionPlan,
+    *,
+    repository: CourseEvolutionRepository,
+    document_repository: CourseDocumentRepository,
+) -> CourseEvolutionState | None:
+    """Settle a command group that was recorded but never acknowledged.
+
+    A crash or disk failure between the course commit and the plan save leaves
+    the group at ``applying``. The course operation log is the authority: if the
+    receipt is there the commit landed and the plan is finalized from the stored
+    outcome; if not, nothing reached the course and the group is released so the
+    learner can accept, adjust or reject it normally.
+    """
+    group = change_set.impact_summary.get("command_group") or {}
+    if str(group.get("status") or "") != "applying":
+        return None
+    command_id = str(group.get("command_id") or "")
+    receipt = (
+        document_repository.receipt_for_command(change_set.course_id, command_id)
+        if command_id
+        else None
+    )
+    if not receipt:
+        change_set.impact_summary["command_group"] = {
+            **group,
+            "status": "released",
+            "reason": "course_commit_never_reached_the_document",
+            "released_at": _now(),
+        }
+        if change_set.status == "accepted":
+            change_set.status = "pending"
+        change_set.updated_at = _now()
+        return repository.save(state)
+
+    outcome = deepcopy(group.get("outcome") or {})
+    if not outcome:
+        # Without the pre-commit outcome the applied blocks cannot be named, and
+        # guessing them would produce an undo receipt that retires the wrong
+        # content. Keep the group blocked for explicit resolution instead.
+        change_set.impact_summary["command_group"] = {
+            **group,
+            "status": "blocked",
+            "reason": "committed_group_lost_its_prepared_outcome",
+            "blocked_at": _now(),
+        }
+        change_set.updated_at = _now()
+        repository.save(state)
+        raise ValueError(
+            "Course change set was committed to the course but its operation "
+            "group cannot be reconstructed; resolve it before accepting again",
+        )
+
+    replaced: CourseEvolutionPlan | None = None
+    replaced_retire_block_ids: list[str] = []
+    if change_set.replaces_change_set_id:
+        replaced = next(
+            (
+                item for item in state.change_sets
+                if item.change_set_id == change_set.replaces_change_set_id
+                and item.status == "applied"
+            ),
+            None,
+        )
+        if replaced is not None:
+            replaced_retire_block_ids = list(replaced.applied_block_ids)
+    stored_scope = str(group.get("selected_scope") or "")
+    _finalize_applied_change_set(
+        state,
+        change_set,
+        receipt=receipt,
+        outcome=outcome,
+        selected_scope=(
+            "current_and_next" if stored_scope == "current_and_next" else "current"
+        ),
+        replaced=replaced,
+        replaced_retire_block_ids=replaced_retire_block_ids,
+    )
+    change_set.impact_summary["command_group"] = {
+        **(change_set.impact_summary.get("command_group") or {}),
+        "reconciled_at": _now(),
+        "reconciled_reason": "course_commit_receipt_found_after_interrupted_save",
+    }
+    return repository.save(state)
+
+
 def accept_change_set(
     course_data: dict[str, Any],
     *,
@@ -388,6 +476,15 @@ def accept_change_set(
         raise ValueError("Course must be migrated before course growth can be applied")
     state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
+    reconciled = _reconcile_command_group(
+        state,
+        change_set,
+        repository=repository,
+        document_repository=document_repository,
+    )
+    if reconciled is not None:
+        state = reconciled
+        change_set = _change_set(state, change_set_id)
     if change_set.status == "applied":
         same_selection = (
             selected_operation_ids is None
@@ -459,6 +556,35 @@ def accept_change_set(
         selected_operation_ids=accepted_operation_id_set,
     )
     command_id = f"course-evolution-apply:{user_id}:{change_set.change_set_id}"
+    # The course document and this plan live in two repositories, so a failure
+    # between the two writes is the one place a half-applied state can appear.
+    # Record the intended outcome before committing: a restart can then tell
+    # "never committed" from "committed but not yet acknowledged" and finish the
+    # group instead of leaving orphan blocks in the course.
+    outcome = _application_outcome(
+        change_set,
+        document,
+        insertions=insertions,
+        replacements=replacements,
+        accepted_operation_ids=accepted_operation_ids,
+        excluded_operation_ids=excluded_operation_ids,
+        accepted_operation_id_set=accepted_operation_id_set,
+    )
+    change_set.impact_summary["command_group"] = {
+        "schema_version": COURSE_COMMAND_GROUP_SCHEMA,
+        "status": "applying",
+        "command_id": command_id,
+        "selected_scope": selected_scope,
+        "selected_operation_ids": list(accepted_operation_ids),
+        "expected_document_revision": document.document_revision,
+        "prepared_at": _now(),
+        "outcome": deepcopy(outcome),
+    }
+    # ``accepted`` marks "the learner confirmed, the course commit is in flight".
+    # It keeps the plan out of the pending queue while the outcome is unknown.
+    change_set.status = "accepted"
+    change_set.updated_at = _now()
+    repository.save(state)
     try:
         receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
             course_id,
@@ -476,47 +602,60 @@ def accept_change_set(
         ))
     except CourseDocumentConflict as exc:
         change_set.status = "stale"
+        change_set.impact_summary["command_group"] = {
+            **change_set.impact_summary["command_group"],
+            "status": "failed",
+            "failure_reason": str(exc),
+            "failed_at": _now(),
+        }
         change_set.updated_at = _now()
         repository.save(state)
         raise ValueError(str(exc)) from exc
 
-    change_set.selected_scope = selected_scope
-    change_set.selected_operation_ids = accepted_operation_ids
-    change_set.excluded_operation_ids = excluded_operation_ids
-    change_set.status = "applied"
-    change_set.plan_kind = "course_evolution_plan"
-    change_set.write_target = "course_document"
-    change_set.accepted_at = _now()
-    change_set.resolved_at = change_set.accepted_at
-    change_set.updated_at = change_set.accepted_at
-    inserted_block_ids = [item["block"].block_id for item in insertions]
-    replaced_block_ids = [str(item["block_id"]) for item in replacements]
-    folded_block_ids = [
-        operation.target_block_id
-        for operation in change_set.operations
-        if operation.operation_type == "FOLD_COURSE_BLOCK"
-        and operation.operation_id in accepted_operation_id_set
-    ]
-    reordered_block_ids = [
-        operation.target_block_id
-        for operation in change_set.operations
-        if operation.operation_type == "REORDER_COURSE_BLOCK"
-        and operation.operation_id in accepted_operation_id_set
-    ]
-    change_set.applied_block_ids = list(dict.fromkeys([
-        *replaced_block_ids,
-        *inserted_block_ids,
-        *folded_block_ids,
-        *reordered_block_ids,
-    ]))
-    change_set.application_receipt = {
-        **deepcopy(receipt),
-        "inserted_block_ids": inserted_block_ids,
-        "replaced_block_ids": replaced_block_ids,
-        "folded_block_ids": folded_block_ids,
-        "reordered_block_ids": reordered_block_ids,
-        "accepted_operation_ids": accepted_operation_ids,
-        "excluded_operation_ids": excluded_operation_ids,
+    _finalize_applied_change_set(
+        state,
+        change_set,
+        receipt=receipt,
+        outcome=outcome,
+        selected_scope=selected_scope,
+        replaced=replaced,
+        replaced_retire_block_ids=replaced_retire_block_ids,
+    )
+    return repository.save(state)
+
+
+def _application_outcome(
+    change_set: CourseEvolutionPlan,
+    document: CourseDocument,
+    *,
+    insertions: list[dict[str, Any]],
+    replacements: list[dict[str, Any]],
+    accepted_operation_ids: list[str],
+    excluded_operation_ids: list[str],
+    accepted_operation_id_set: set[str],
+) -> dict[str, Any]:
+    """Describe what the pending commit will change, from the pre-commit document.
+
+    Computed before the course commit so recovery can finalize an acknowledged
+    group without recompiling against a document that the group already changed.
+    """
+    return {
+        "inserted_block_ids": [item["block"].block_id for item in insertions],
+        "replaced_block_ids": [str(item["block_id"]) for item in replacements],
+        "folded_block_ids": [
+            operation.target_block_id
+            for operation in change_set.operations
+            if operation.operation_type == "FOLD_COURSE_BLOCK"
+            and operation.operation_id in accepted_operation_id_set
+        ],
+        "reordered_block_ids": [
+            operation.target_block_id
+            for operation in change_set.operations
+            if operation.operation_type == "REORDER_COURSE_BLOCK"
+            and operation.operation_id in accepted_operation_id_set
+        ],
+        "accepted_operation_ids": list(accepted_operation_ids),
+        "excluded_operation_ids": list(excluded_operation_ids),
         "replacement_journal": [
             {
                 "block_id": operation.target_block_id,
@@ -551,6 +690,44 @@ def accept_change_set(
             and operation.operation_id in accepted_operation_id_set
         ],
     }
+
+
+def _finalize_applied_change_set(
+    state: CourseEvolutionState,
+    change_set: CourseEvolutionPlan,
+    *,
+    receipt: dict[str, Any],
+    outcome: dict[str, Any],
+    selected_scope: Literal["current", "current_and_next"],
+    replaced: CourseEvolutionPlan | None,
+    replaced_retire_block_ids: list[str],
+) -> None:
+    """Write the plan bookkeeping for a course commit that already succeeded."""
+    change_set.selected_scope = selected_scope
+    change_set.selected_operation_ids = list(outcome["accepted_operation_ids"])
+    change_set.excluded_operation_ids = list(outcome["excluded_operation_ids"])
+    change_set.status = "applied"
+    change_set.plan_kind = "course_evolution_plan"
+    change_set.write_target = "course_document"
+    change_set.accepted_at = _now()
+    change_set.resolved_at = change_set.accepted_at
+    change_set.updated_at = change_set.accepted_at
+    change_set.applied_block_ids = list(dict.fromkeys([
+        *outcome["replaced_block_ids"],
+        *outcome["inserted_block_ids"],
+        *outcome["folded_block_ids"],
+        *outcome["reordered_block_ids"],
+    ]))
+    change_set.application_receipt = {
+        **deepcopy(receipt),
+        **deepcopy(outcome),
+    }
+    change_set.impact_summary["command_group"] = {
+        **(change_set.impact_summary.get("command_group") or {}),
+        "status": "committed",
+        "document_revision": str(receipt.get("document_revision") or ""),
+        "committed_at": change_set.accepted_at,
+    }
     hypothesis = _hypothesis(state, change_set.hypothesis_id)
     baseline_evidence = [
         item for item in state.evidence_items
@@ -564,7 +741,7 @@ def accept_change_set(
         "target_block_ids": [
             operation.target_block_id
             for operation in change_set.operations
-            if operation.operation_id in accepted_operation_id_set
+            if operation.operation_id in set(outcome["accepted_operation_ids"])
         ],
         "evidence_ids": list(change_set.evidence_ids),
         "practice_attempt_ids": [
@@ -602,7 +779,6 @@ def accept_change_set(
         }
     hypothesis.status = "evaluating"
     hypothesis.updated_at = change_set.accepted_at
-    return repository.save(state)
 
 
 def create_adjustment_plan(
@@ -703,10 +879,31 @@ def reject_change_set(
     change_set_id: str,
     reason: str = "",
     repository: CourseEvolutionRepository | None = None,
+    document_repository: CourseDocumentRepository | None = None,
 ) -> CourseEvolutionState:
     repository = repository or course_evolution_repository
     state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
+    # A group still marked ``applying`` may already have reached the course.
+    # Settle it against the course operation log first: rejecting a committed
+    # group would strand its blocks with no owner and no undo receipt, while a
+    # group that never committed is released straight back to pending.
+    if str(
+        (change_set.impact_summary.get("command_group") or {}).get("status") or ""
+    ) == "applying":
+        reconciled = _reconcile_command_group(
+            state,
+            change_set,
+            repository=repository,
+            document_repository=document_repository or _default_document_repository(),
+        )
+        if reconciled is not None:
+            state = reconciled
+            change_set = _change_set(state, change_set_id)
+    if change_set.status == "applied":
+        raise ValueError(
+            "Course change set already reached the course; undo it instead of rejecting it",
+        )
     if change_set.status != "pending":
         raise ValueError(f"Course change set cannot be rejected from {change_set.status}")
     change_set.status = "rejected"

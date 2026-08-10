@@ -334,6 +334,7 @@ async def reject_course_evolution_change_set(
             course_id=course_id,
             change_set_id=change_set_id,
             reason=body.reason,
+            document_repository=get_course_document_repository(),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
