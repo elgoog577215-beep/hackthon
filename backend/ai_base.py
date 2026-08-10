@@ -12,6 +12,7 @@ AI 基础服务模块 - LLM 调用层
 """
 
 import asyncio
+from copy import deepcopy
 import json
 import logging
 import math
@@ -41,6 +42,7 @@ from ai_capacity import (
     get_provider_capacity_controller,
 )
 from ai_provider_route import (
+    provider_route_snapshot,
     record_fallback_switch,
     record_primary_recovered,
 )
@@ -190,6 +192,7 @@ class AIBase:
         }
         self._provider_failure: str | None = None
         self._modelscope_fallback_failure: str | None = None
+        self._generation_preflight_cache: tuple[float, dict] | None = None
         self._request_spacing_lock = asyncio.Lock()
         self._last_request_started = 0.0
         self._minimum_request_interval = max(
@@ -515,6 +518,139 @@ class AIBase:
 
     def provider_capacity_snapshot(self) -> dict:
         return get_provider_capacity_controller(self.api_base).snapshot()
+
+    async def generation_provider_preflight(
+        self,
+        *,
+        live_probe: bool = True,
+    ) -> dict:
+        """Validate the provider route before a durable course job exists."""
+
+        started = time.monotonic()
+        routes = [
+            {
+                "route": "primary",
+                "configured": bool(self.api_key and self.client),
+                "available_model_count": len(self._models_for(True)),
+                "models": list(dict.fromkeys([*self.fast_models, *self.smart_models])),
+                "health": self._provider_failure or "unknown",
+            },
+            {
+                "route": "fallback",
+                "configured": bool(
+                    self.modelscope_fallback_api_key
+                    and self.modelscope_fallback_client
+                ),
+                "available_model_count": len(self._modelscope_fallback_models_for()),
+                "models": list(self.modelscope_fallback_models),
+                "health": self._modelscope_fallback_failure or "unknown",
+            },
+        ]
+        issues: list[dict] = []
+        configured = [item for item in routes if item["configured"]]
+        available = [
+            item for item in configured
+            if item["available_model_count"] > 0
+            and item["health"] not in {
+                "authentication_failed",
+                "quota_exhausted",
+            }
+        ]
+        if not available:
+            issues.append({
+                "code": "provider_pool_unavailable",
+                "severity": "blocking",
+                "scope": "provider",
+                "message": "主模型和备用模型当前都不可用。",
+                "action": "检查凭据、模型 ID、额度和服务状态后重试。",
+                "item_id": "",
+            })
+            return {
+                "status": "blocked",
+                "probe_status": "not_run",
+                "active_route": "none",
+                "duration_ms": round((time.monotonic() - started) * 1000),
+                "routes": routes,
+                "capacity": self.provider_capacity_snapshot(),
+                "issues": issues,
+            }
+        if len(configured) < 2:
+            issues.append({
+                "code": "provider_redundancy_missing",
+                "severity": "warning",
+                "scope": "provider",
+                "message": "当前只有一条模型服务路线可用，长课程的中途恢复风险较高。",
+                "action": "可以继续，但建议配置独立备用模型服务。",
+                "item_id": "",
+            })
+
+        ttl = max(5.0, float(os.getenv("AI_PREFLIGHT_CACHE_SECONDS", "60")))
+        if live_probe and self._generation_preflight_cache:
+            expires_at, cached = self._generation_preflight_cache
+            if expires_at > time.monotonic():
+                result = deepcopy(cached)
+                result["duration_ms"] = round((time.monotonic() - started) * 1000)
+                return result
+
+        probe_status = "configuration_only"
+        active_route = str(provider_route_snapshot().get("route") or "primary")
+        if live_probe:
+            try:
+                timeout = max(
+                    3.0,
+                    min(30.0, float(os.getenv("AI_PREFLIGHT_TIMEOUT_SECONDS", "12"))),
+                )
+                response = await asyncio.wait_for(
+                    self._call_llm(
+                        "Reply with OK.",
+                        "This is a provider health probe. Reply with OK only.",
+                        use_fast_model=True,
+                        retry_count=1,
+                        enable_thinking=False,
+                        max_tokens=8,
+                        max_attempts=1,
+                        raise_on_failure=True,
+                    ),
+                    timeout=timeout,
+                )
+                if not str(response or "").strip():
+                    raise AIProviderRequestError("empty_preflight_response")
+                probe_status = "passed"
+                active_route = str(
+                    provider_route_snapshot().get("route") or "primary"
+                )
+            except Exception as exc:
+                probe_status = "failed"
+                issues.append({
+                    "code": "provider_live_probe_failed",
+                    "severity": "blocking",
+                    "scope": "provider",
+                    "message": "模型服务未通过最小生成探测，长任务不会启动。",
+                    "action": f"检查服务状态或额度后重试（{type(exc).__name__}）。",
+                    "item_id": "",
+                })
+
+        result = {
+            "status": (
+                "blocked"
+                if any(item.get("severity") == "blocking" for item in issues)
+                else "degraded"
+                if any(item.get("severity") == "warning" for item in issues)
+                else "ready"
+            ),
+            "probe_status": probe_status,
+            "active_route": active_route,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+            "routes": routes,
+            "capacity": self.provider_capacity_snapshot(),
+            "issues": issues,
+        }
+        if live_probe and probe_status == "passed":
+            self._generation_preflight_cache = (
+                time.monotonic() + ttl,
+                deepcopy(result),
+            )
+        return result
 
     @staticmethod
     def _error_status_code(error: Exception) -> Optional[int]:

@@ -1,0 +1,154 @@
+{
+  "schema_version": "course_generation_benchmark_v1",
+  "fixture_version": "2026-08-10.1",
+  "model_pool": {
+    "smart_models": [
+      "Qwen/Qwen3.5-27B",
+      "Qwen/Qwen3.5-122B-A10B",
+      "Qwen/Qwen3.5-397B-A17B"
+    ],
+    "fast_models": [
+      "Qwen/Qwen3.5-27B",
+      "Qwen/Qwen3.5-122B-A10B",
+      "Qwen/Qwen3.5-397B-A17B"
+    ],
+    "fallback_models": ["Qwen/Qwen3.5-35B-A3B"],
+    "thinking_enabled": true,
+    "max_output_tokens": 8192
+  },
+  "release_gates": {
+    "minimum_runs_12_sections": 20,
+    "success_rate": 0.98,
+    "p50_seconds": {
+      "first_outline": 30,
+      "formal_lesson_plan": 60,
+      "first_section_content": 90,
+      "complete_course": 180
+    },
+    "p95_seconds": {"complete_course": 360},
+    "duplicate_completed_unit_rate": 0.0
+  },
+  "teacher_rubric": {
+    "scale": "1-5",
+    "pass_rule": "每项不低于 4，且无 hard_gate 失败",
+    "dimensions": [
+      {"key": "standards_alignment", "label": "目标与课程标准对齐", "hard_gate": true},
+      {"key": "knowledge_accuracy", "label": "知识、边界与来源准确", "hard_gate": true},
+      {"key": "lesson_plan_usability", "label": "教案字段完整且能直接上课", "hard_gate": true},
+      {"key": "activity_feasibility", "label": "活动、课时与评价可实施", "hard_gate": true},
+      {"key": "cross_section_coherence", "label": "跨节术语与前后关系一致", "hard_gate": true},
+      {"key": "misconception_quality", "label": "易错点包含辨别、原因与修复", "hard_gate": false},
+      {"key": "source_traceability", "label": "外部事实和资料可追溯", "hard_gate": true},
+      {"key": "template_leakage", "label": "无模板话术、占位符与伪引用", "hard_gate": true}
+    ]
+  },
+  "failure_set": [
+    {"code": "template_placeholder_leak", "target": "任意课程块出现待补充、示例占位符或系统提示语"},
+    {"code": "unsupported_external_fact", "target": "联网事实没有准入来源或引用指向不存在的来源"},
+    {"code": "cross_section_term_drift", "target": "同一术语在不同小节采用冲突定义且无显式辨析"},
+    {"code": "forward_reference_without_prerequisite", "target": "正文依赖后续知识但图谱没有前置关系或桥接"},
+    {"code": "activity_exceeds_lesson_time", "target": "课堂活动分钟总和超过课时且没有取舍说明"},
+    {"code": "misconception_without_repair", "target": "只列错误答案，没有辨别证据、原因或纠偏活动"},
+    {"code": "lesson_plan_missing_evidence", "target": "教师活动、学生活动或形成性检查不可观察"},
+    {"code": "relation_direction_conflict", "target": "关系方向与前置、推导或对比理由相反"}
+  ],
+  "scenarios": [
+    {
+      "id": "math_4x8",
+      "discipline": "mathematics",
+      "expected_chapters": 4,
+      "expected_sections": 8,
+      "material_files": [],
+      "request": {
+        "subject": "一元一次方程：从等式性质到真实问题建模",
+        "course_type": "systematic",
+        "difficulty": "intermediate",
+        "pedagogy_mode": "math_formal",
+        "assessment_generation_profile": "fast",
+        "requirements": "完整覆盖概念、等式性质、解法、检验、易错辨析和应用建模；每节有可观察目标、课堂活动与形成性评价。",
+        "target_audience": "初中一年级学生",
+        "teacher_course_brief": {
+          "schema_version": "teacher_course_brief_v1",
+          "target_audience": "初中一年级学生",
+          "academic_term": "七年级上学期",
+          "total_class_hours": 8,
+          "lesson_duration_minutes": 45,
+          "teaching_context": "classroom",
+          "chapter_count": 4,
+          "section_count": 8
+        },
+        "retrieval": {"enabled": false}
+      }
+    },
+    {
+      "id": "science_material_4x12",
+      "discipline": "natural_science",
+      "expected_chapters": 4,
+      "expected_sections": 12,
+      "material_files": ["materials/newton_motion_reference.md"],
+      "request": {
+        "subject": "牛顿运动定律：证据、模型与工程应用",
+        "course_type": "inquiry",
+        "difficulty": "intermediate",
+        "pedagogy_mode": "natural_science",
+        "assessment_generation_profile": "fast",
+        "requirements": "依据上传资料和权威联网来源组织课程；区分定律适用边界、常见误解、实验检验与真实工程情境。",
+        "target_audience": "高中一年级学生",
+        "course_intent": {
+          "schema_version": "course_intent_v1",
+          "type": "inquiry",
+          "core_question": "力如何改变物体运动，模型在什么条件下失效？",
+          "existing_understanding": "已学习位移、速度和加速度",
+          "evidence_scope": "教材资料、标准、大学开放课程与权威科研教育机构",
+          "desired_output": "完成实验解释和工程情境建模"
+        },
+        "teacher_course_brief": {
+          "schema_version": "teacher_course_brief_v1",
+          "target_audience": "高中一年级学生",
+          "academic_term": "高一上学期",
+          "total_class_hours": 12,
+          "lesson_duration_minutes": 45,
+          "teaching_context": "blended",
+          "chapter_count": 4,
+          "section_count": 12
+        },
+        "retrieval": {"enabled": true}
+      }
+    },
+    {
+      "id": "humanities_4x12",
+      "discipline": "humanities_social",
+      "expected_chapters": 4,
+      "expected_sections": 12,
+      "material_files": [],
+      "request": {
+        "subject": "中国近代城市化：材料阅读、因果解释与历史论证",
+        "course_type": "inquiry",
+        "difficulty": "advanced",
+        "pedagogy_mode": "humanities_social",
+        "assessment_generation_profile": "fast",
+        "requirements": "以史料证据组织多因解释，明确观点、证据、反例与局限；禁止把单一事件写成唯一原因。",
+        "target_audience": "大学一年级学生",
+        "course_intent": {
+          "schema_version": "course_intent_v1",
+          "type": "inquiry",
+          "core_question": "制度、技术、贸易与人口流动如何共同塑造近代城市？",
+          "existing_understanding": "具备中国近代史时间线基础",
+          "evidence_scope": "开放档案、统计资料、学术机构与大学课程",
+          "desired_output": "完成一篇来源可追溯的比较论证"
+        },
+        "teacher_course_brief": {
+          "schema_version": "teacher_course_brief_v1",
+          "target_audience": "大学一年级学生",
+          "academic_term": "本科一年级",
+          "total_class_hours": 12,
+          "lesson_duration_minutes": 50,
+          "teaching_context": "classroom",
+          "chapter_count": 4,
+          "section_count": 12
+        },
+        "retrieval": {"enabled": true}
+      }
+    }
+  ]
+}

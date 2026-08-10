@@ -59,11 +59,11 @@ def migrate_guided_workflow(
     *,
     request: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Migrate persisted workflows to explicit outline/teaching/content gates.
+    """Migrate persisted workflows to explicit artifact stages.
 
-    V2 briefly collapsed teaching review into content generation. V3 restores
-    the product contract: the confirmed outline produces a reviewable teaching
-    plan, and lesson content cannot start until that plan is confirmed.
+    Teaching and content keep stable revisions, but new jobs only stop for the
+    outline and final release. Persisted jobs already waiting at teaching remain
+    confirmable for backwards compatibility.
     """
     keys = [
         str(item.get("key") or "")

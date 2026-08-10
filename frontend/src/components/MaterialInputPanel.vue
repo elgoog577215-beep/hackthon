@@ -84,7 +84,7 @@
           <el-input
             v-model="material.filename"
             size="small"
-            :disabled="material.upload_status === 'uploading' || material.upload_status === 'uploaded'"
+            :disabled="['uploading', 'parsing', 'uploaded'].includes(material.upload_status)"
             :placeholder="t('courseGeneration.materials.namePlaceholder', '资料名称')"
           />
           <div class="material-card__meta">
@@ -98,11 +98,11 @@
         </div>
         <div class="material-card__actions">
         <button
-          v-if="material.upload_status === 'error'"
+          v-if="material.upload_status === 'error' || material.parse_status === 'failed'"
           type="button"
           class="material-icon-button material-icon-button--retry"
           :title="t('courseGeneration.materials.retry', '重试上传')"
-          @click="uploadDraft(material.local_id)"
+          @click="material.asset_id ? parseDraft(material.local_id) : uploadDraft(material.local_id)"
         >
           <RefreshCw :size="14" />
         </button>
@@ -110,7 +110,7 @@
           type="button"
           class="material-icon-button material-icon-button--remove"
           :title="t('courseGeneration.materials.remove', '移除资料')"
-          :disabled="material.upload_status === 'uploading'"
+          :disabled="material.upload_status === 'uploading' || material.upload_status === 'parsing'"
           @click="removeMaterial(material.local_id)"
         >
           <Trash2 :size="14" />
@@ -121,6 +121,45 @@
       <div v-if="material.upload_error" class="material-error" role="alert">
         {{ material.upload_error }}
       </div>
+
+      <details
+        v-if="material.parse_quality_report"
+        class="material-quality"
+        :class="`material-quality--${material.parse_quality_report.status}`"
+      >
+        <summary>
+          <span>
+            <strong>{{ qualityStatusLabel(material.parse_quality_report.status) }}</strong>
+            <small>{{ qualitySummaryLabel(material.parse_quality_report.status, material.parse_quality_report.summary) }}</small>
+          </span>
+          <span>{{ material.parse_quality_report.coverage.block_count || 0 }} {{ t('courseGeneration.materials.quality.blocks', '个内容块') }}</span>
+        </summary>
+        <div class="material-quality__facts">
+          <span>{{ t('courseGeneration.materials.quality.located', '来源定位') }} {{ Math.round(Number(material.parse_quality_report.coverage.location_coverage || 0) * 100) }}%</span>
+          <span v-if="material.parse_quality_report.coverage.page_count">{{ material.parse_quality_report.coverage.page_count }} {{ t('courseGeneration.materials.quality.pages', '页') }}</span>
+          <span v-if="material.parse_quality_report.coverage.slide_count">{{ material.parse_quality_report.coverage.slide_count }} {{ t('courseGeneration.materials.quality.slides', '张幻灯片') }}</span>
+          <span v-if="material.parse_quality_report.observed_structure.tables">{{ material.parse_quality_report.observed_structure.tables }} {{ t('courseGeneration.materials.quality.tables', '个表格') }}</span>
+          <span v-if="material.parse_quality_report.observed_structure.formulas">{{ material.parse_quality_report.observed_structure.formulas }} {{ t('courseGeneration.materials.quality.formulas', '个公式') }}</span>
+        </div>
+        <ul v-if="material.parse_quality_report.issues.length" class="material-quality__issues">
+          <li v-for="issue in material.parse_quality_report.issues" :key="issue.code">
+            {{ t(`courseGeneration.materials.quality.issue.${issue.code}`, issue.message) }}
+          </li>
+        </ul>
+        <div v-if="material.parse_quality_report.capabilities_missing.length" class="material-quality__missing">
+          <strong>{{ t('courseGeneration.materials.quality.missingCapabilities', '需要复核') }}</strong>
+          <span
+            v-for="capability in material.parse_quality_report.capabilities_missing"
+            :key="capability"
+          >{{ t(`courseGeneration.materials.quality.capability.${capability}`, capability) }}</span>
+        </div>
+        <div v-if="material.parse_preview?.length" class="material-quality__preview">
+          <strong>{{ t('courseGeneration.materials.quality.preview', '解析摘要') }}</strong>
+          <p v-for="block in material.parse_preview.slice(0, 4)" :key="block.block_id">
+            <span>{{ block.kind }}</span>{{ block.text }}
+          </p>
+        </div>
+      </details>
 
       <div class="material-card__settings">
         <label><span>{{ t('courseGeneration.materials.field.purpose', '用途') }}</span><el-select v-model="material.purpose" size="small" @change="applyPurposeDefaults(material)">
@@ -302,13 +341,43 @@ const uploadDraft = async (localId: string) => {
       asset_id: response.data.asset_id,
       filename: response.data.filename || draft.filename,
       parse_status: response.data.status,
-      upload_status: 'uploaded',
+      upload_status: 'parsing',
       upload_error: '',
     })
+    await nextTick()
+    await parseDraft(localId, response.data.asset_id)
   } catch (error: any) {
     updateDraft(localId, {
       upload_status: 'error',
       upload_error: materialUploadErrorMessage(error, t('courseGeneration.materials.uploadFailed', '上传失败')),
+    })
+  }
+}
+
+const parseDraft = async (localId: string, explicitAssetId = '') => {
+  const draft = props.modelValue.find(item => item.local_id === localId)
+  const assetId = explicitAssetId || draft?.asset_id || ''
+  if (!draft || !assetId) return
+  updateDraft(localId, { upload_status: 'parsing', upload_error: '' })
+  await nextTick()
+  try {
+    const response = await http.post(`/api/materials/${assetId}/parse`)
+    updateDraft(localId, {
+      asset_id: assetId,
+      upload_status: 'uploaded',
+      parse_status: response.data.document?.parse_status || 'failed',
+      parse_quality_report: response.data.quality_report,
+      parse_preview: response.data.preview || [],
+      upload_error: response.data.document?.error || '',
+    })
+  } catch (error: any) {
+    updateDraft(localId, {
+      upload_status: 'uploaded',
+      parse_status: 'failed',
+      upload_error: materialUploadErrorMessage(
+        error,
+        t('courseGeneration.materials.parseFailed', '资料解析失败，请重试'),
+      ),
     })
   }
 }
@@ -368,7 +437,17 @@ const ensureUploaded = async (): Promise<CourseMaterialBindingInput[]> => {
 
 const statusLabel = (status: CourseMaterialDraft['upload_status']) => t(
   `courseGeneration.materials.status.${status}`,
-  ({ pending: '等待上传', uploading: '上传中', uploaded: '已上传', error: '上传失败' } as const)[status],
+  ({ pending: '等待上传', uploading: '上传中', parsing: '解析中', uploaded: '已上传', error: '上传失败' } as const)[status],
+)
+
+const qualityStatusLabel = (status: string) => t(
+  `courseGeneration.materials.quality.status.${status}`,
+  ({ ready: '可作为课程依据', needs_review: '建议检查解析结果', failed: '不能作为课程依据' } as Record<string, string>)[status] || status,
+)
+
+const qualitySummaryLabel = (status: string, fallback: string) => t(
+  `courseGeneration.materials.quality.summary.${status}`,
+  fallback,
 )
 
 const parseStatusLabel = (status: string) => t(
@@ -379,6 +458,7 @@ const parseStatusLabel = (status: string) => t(
 const statusClass = (status: CourseMaterialDraft['upload_status']) => ({
   pending: 'status-pending',
   uploading: 'status-uploading',
+  parsing: 'status-uploading',
   uploaded: 'status-uploaded',
   error: 'status-error',
 }[status])
@@ -414,6 +494,7 @@ defineExpose({ ensureUploaded })
 .material-card { position: relative; display: grid; gap: 11px; padding: 13px; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; box-shadow: 0 3px 12px rgba(15,23,42,.035); }
 .material-card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: #cbd5e1; }
 .material-card--uploading::before { background: #6366f1; }
+.material-card--parsing::before { background: #8b5cf6; }
 .material-card--uploaded::before { background: #10b981; }
 .material-card--error::before { background: #ef4444; }
 .material-card__top { gap: 10px; }
@@ -428,6 +509,26 @@ defineExpose({ ensureUploaded })
 .material-icon-button--retry { color: #d97706; }.material-icon-button--retry:hover { background: #fffbeb; }
 .material-icon-button--remove { color: #f87171; }.material-icon-button--remove:hover { color: #ef4444; background: #fef2f2; }
 .material-error { padding: 8px 10px; border: 1px solid #fecaca; border-radius: 8px; color: #b91c1c; background: #fef2f2; font-size: 10px; line-height: 1.5; }
+.material-quality { padding:9px 10px; border:1px solid #bbf7d0; border-radius:9px; background:#f0fdf4; }
+.material-quality--needs_review { border-color:#fde68a; background:#fffbeb; }
+.material-quality--failed { border-color:#fecaca; background:#fef2f2; }
+.material-quality summary { display:flex; align-items:center; justify-content:space-between; gap:12px; cursor:pointer; list-style:none; }
+.material-quality summary::-webkit-details-marker { display:none; }
+.material-quality summary > span:first-child { min-width:0; display:grid; gap:2px; }
+.material-quality summary strong { color:var(--lz-text); font-size:10px; }
+.material-quality summary small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.material-quality summary > span:last-child { flex:0 0 auto; color:var(--lz-text-secondary); font-size:9px; font-weight:700; }
+.material-quality__facts { display:flex; flex-wrap:wrap; gap:5px; margin-top:9px; }
+.material-quality__facts span { padding:3px 6px; border-radius:6px; color:var(--lz-text-secondary); background:rgba(255,255,255,.75); font-size:8px; }
+.material-quality__issues { display:grid; gap:4px; margin:8px 0 0; padding-left:16px; color:#92400e; font-size:9px; line-height:1.45; }
+.material-quality--failed .material-quality__issues { color:#991b1b; }
+.material-quality__missing { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:8px; }
+.material-quality__missing strong { margin-right:2px; color:var(--lz-text-secondary); font-size:9px; }
+.material-quality__missing span { padding:3px 6px; border:1px solid rgba(245,158,11,.22); border-radius:999px; color:#92400e; background:rgba(255,255,255,.72); font-size:8px; }
+.material-quality__preview { display:grid; gap:5px; margin-top:9px; padding-top:8px; border-top:1px solid rgba(148,163,184,.2); }
+.material-quality__preview > strong { color:var(--lz-text); font-size:9px; }
+.material-quality__preview p { margin:0; display:-webkit-box; overflow:hidden; color:var(--lz-text-secondary); font-size:9px; line-height:1.45; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.material-quality__preview p span { margin-right:5px; color:var(--lz-brand-strong); font-weight:750; }
 .material-card__settings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .material-card__settings label { min-width: 0; }
 .material-card__settings label > span { display: block; margin: 0 0 4px 2px; color: #94a3b8; font-size: 9px; font-weight: 700; }

@@ -462,6 +462,37 @@
               </section>
             </div>
           </details>
+
+          <section
+            v-if="preflight"
+            class="generation-preflight"
+            :class="`generation-preflight--${preflight.status}`"
+            data-testid="generation-preflight"
+            aria-live="polite"
+          >
+            <div class="generation-preflight__summary">
+              <span class="generation-preflight__icon">
+                <CheckCircle2 v-if="preflight.status === 'ready'" :size="17" />
+                <TriangleAlert v-else :size="17" />
+              </span>
+              <div>
+                <strong>{{ preflightTitle }}</strong>
+                <span>{{ preflightSummary }}</span>
+              </div>
+              <small>{{ preflight.capacity?.estimated_sections || 0 }} {{ t('courseGeneration.preflight.sections', '节') }}</small>
+            </div>
+            <div class="generation-preflight__facts">
+              <span>{{ t('courseGeneration.preflight.provider', '模型路线') }} · {{ providerRouteLabel(preflight.provider?.active_route) }}</span>
+              <span>{{ t('courseGeneration.preflight.materials', '资料可读') }} · {{ preflight.materials?.readable || 0 }}/{{ preflight.materials?.count || 0 }}</span>
+              <span>{{ t('courseGeneration.preflight.concurrency', '建议并发') }} · {{ preflight.capacity?.recommended_concurrency || 1 }}</span>
+            </div>
+            <ul v-if="preflight.issues.length" class="generation-preflight__issues">
+              <li v-for="issue in preflight.issues" :key="`${issue.code}-${issue.item_id || ''}`">
+                <strong>{{ preflightIssueMessage(issue.code, issue.message) }}</strong>
+                <span>{{ preflightIssueAction(issue.code, issue.action) }}</span>
+              </li>
+            </ul>
+          </section>
         </form>
 
         <footer class="generation-dialog__footer">
@@ -476,7 +507,7 @@
             <button type="button" class="primary-button" :disabled="!canSubmit" @click="submit">
               <LoaderCircle v-if="busy" class="spin" :size="16" />
               <Sparkles v-else :size="16" />
-              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录') }}
+              {{ submitLabel }}
             </button>
           </div>
         </footer>
@@ -491,6 +522,7 @@ import {
   BookMarked,
   BookOpen,
   Check,
+  CheckCircle2,
   Hammer,
   Info,
   Library,
@@ -501,18 +533,22 @@ import {
   Sparkles,
   Target,
   Timer,
+  TriangleAlert,
   Trophy,
   X,
 } from 'lucide-vue-next'
 import MaterialInputPanel from './MaterialInputPanel.vue'
+import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
+  type CourseMaterialBindingInput,
   type CourseMaterialDraft,
   type CourseType,
   type DifficultyLevel,
+  type GenerationPreflightProjection,
   type PedagogyMode,
   type PedagogyModeSelection,
 } from '@/shared/prompt-config'
@@ -531,7 +567,48 @@ const materials = ref<CourseMaterialDraft[]>([])
 const uploading = ref(false)
 const submissionRequestId = ref('')
 const submissionIdentity = ref('')
+const preflight = ref<GenerationPreflightProjection | null>(null)
+const preflightIdentity = ref('')
 const busy = computed(() => props.busy || uploading.value)
+const awaitingDegradedAcceptance = computed(() => (
+  preflight.value?.status === 'degraded'
+  && preflightIdentity.value === submissionIdentity.value
+))
+const preflightTitle = computed(() => ({
+  ready: t('courseGeneration.preflight.readyTitle', '生成条件已就绪'),
+  degraded: t('courseGeneration.preflight.degradedTitle', '可以生成，但存在风险'),
+  blocked: t('courseGeneration.preflight.blockedTitle', '暂时不能开始生成'),
+}[preflight.value?.status || 'ready']))
+const preflightSummary = computed(() => ({
+  ready: t('courseGeneration.preflight.readySummary', '模型、资料与联网能力已经完成检查。'),
+  degraded: t('courseGeneration.preflight.degradedSummary', '已完成内容会保留；请确认下列风险后继续。'),
+  blocked: t('courseGeneration.preflight.blockedSummary', '修复阻断项后再创建长任务，不会浪费等待时间。'),
+}[preflight.value?.status || 'ready']))
+const providerRouteLabel = (route?: string) => t(
+  `courseGeneration.preflight.route.${route || 'none'}`,
+  ({ primary: '主模型', fallback: '备用模型', none: '不可用' } as Record<string, string>)[route || 'none'] || route || '—',
+)
+const preflightIssueMessage = (code: string, fallback: string) => t(
+  `courseGeneration.preflight.issue.${code}.message`,
+  fallback,
+)
+const preflightIssueAction = (code: string, fallback: string) => t(
+  `courseGeneration.preflight.issue.${code}.action`,
+  fallback,
+)
+const submitLabel = computed(() => {
+  if (busy.value) return t('courseGeneration.actions.submitting', '正在检查')
+  if (awaitingDegradedAcceptance.value) {
+    return t('courseGeneration.actions.acceptPreflight', '风险已了解，继续生成')
+  }
+  if (
+    preflight.value?.status === 'blocked'
+    && preflightIdentity.value === submissionIdentity.value
+  ) {
+    return t('courseGeneration.actions.retryPreflight', '重新检查生成条件')
+  }
+  return t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录')
+})
 const form = reactive({
   courseType: 'systematic' as CourseType,
   systematicTopic: '',
@@ -630,6 +707,8 @@ watch(() => props.modelValue, async open => {
   if (!open) {
     submissionRequestId.value = ''
     submissionIdentity.value = ''
+    preflight.value = null
+    preflightIdentity.value = ''
     return
   }
   await nextTick()
@@ -649,13 +728,35 @@ function selectCourseType(courseType: CourseType) {
   if (!busy.value && option?.available) form.courseType = courseType
 }
 
+function emitGeneration(
+  subject: string,
+  options: CourseGenerationOptions,
+  acceptance?: GenerationPreflightProjection,
+) {
+  emit('generate', {
+    subject,
+    options: {
+      ...options,
+      request_id: submissionRequestId.value,
+      ...(acceptance
+        ? {
+            preflight_acceptance: {
+              preflight_id: acceptance.preflight_id,
+              accepted_issue_codes: acceptance.issues.map(item => item.code),
+            },
+          }
+        : {}),
+    },
+  })
+}
+
 async function submit() {
   const subject = activeSubject.value
   if (!canSubmit.value) return
   uploading.value = true
   try {
-    const materialBindings = materials.value.length
-      ? await materialInputRef.value?.ensureUploaded()
+    const materialBindings: CourseMaterialBindingInput[] = materials.value.length
+      ? (await materialInputRef.value?.ensureUploaded()) ?? []
       : []
     const options: CourseGenerationOptions = {
       difficulty: form.difficulty,
@@ -735,13 +836,28 @@ async function submit() {
     if (!submissionRequestId.value || submissionIdentity.value !== identity) {
       submissionRequestId.value = crypto.randomUUID()
       submissionIdentity.value = identity
+      preflight.value = null
+      preflightIdentity.value = ''
     }
-    emit('generate', {
+    if (
+      preflight.value?.status === 'degraded'
+      && preflightIdentity.value === identity
+    ) {
+      emitGeneration(subject, options, preflight.value)
+      return
+    }
+    const response = await http.post('/api/course-generation/preflight', {
       subject,
-      options: { ...options, request_id: submissionRequestId.value },
+      ...options,
+      request_id: submissionRequestId.value,
     })
+    preflight.value = response.data as GenerationPreflightProjection
+    preflightIdentity.value = identity
+    if (preflight.value.status === 'ready') {
+      emitGeneration(subject, options)
+    }
   } catch (error: any) {
-    emit('error', error?.message || t('courseGeneration.materials.uploadFailed', '资料上传失败'))
+    emit('error', error?.response?.data?.detail?.message || error?.message || t('courseGeneration.preflight.failed', '生成条件检查失败，请稍后重试'))
   } finally {
     uploading.value = false
   }
@@ -751,7 +867,7 @@ async function submit() {
 <style scoped>
 .generation-dialog-layer { position: fixed; inset: 0; z-index: 520; display: grid; place-items: center; padding: 20px; }
 .generation-dialog-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30, 41, 59, .34); backdrop-filter: blur(5px); cursor: default; }
-.generation-dialog { position: relative; width: min(920px, 100%); max-height: min(860px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid rgba(255,255,255,.92); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: rgba(255,255,255,.98); box-shadow: var(--lz-shadow-overlay); outline: none; }
+.generation-dialog { position: relative; width: min(920px, 100%); max-height: min(860px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: clip; border: 1px solid rgba(255,255,255,.92); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: rgba(255,255,255,.98); box-shadow: var(--lz-shadow-overlay); outline: none; }
 .generation-dialog__header { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--lz-border); }
 .generation-dialog__heading { min-width: 0; display: flex; align-items: center; gap: 11px; }
 .generation-dialog__mark { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
@@ -879,6 +995,23 @@ async function submit() {
 .segmented-options span strong { margin-bottom: 2px; }
 .material-section :deep(section) { margin: 0; }
 .generation-dialog__footer { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 18px 10px 24px; border-top: 1px solid var(--lz-border); background: rgba(248,250,252,.84); }
+.generation-preflight { display:grid; gap:10px; margin:18px 0 4px; padding:13px 14px; border:1px solid #bbf7d0; border-radius:12px; background:#f0fdf4; }
+.generation-preflight--degraded { border-color:#fde68a; background:#fffbeb; }
+.generation-preflight--blocked { border-color:#fecaca; background:#fef2f2; }
+.generation-preflight__summary { display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:10px; }
+.generation-preflight__icon { width:30px; height:30px; display:grid; place-items:center; border-radius:9px; color:#047857; background:#dcfce7; }
+.generation-preflight--degraded .generation-preflight__icon { color:#b45309; background:#fef3c7; }
+.generation-preflight--blocked .generation-preflight__icon { color:#b91c1c; background:#fee2e2; }
+.generation-preflight__summary strong,.generation-preflight__summary span { display:block; }
+.generation-preflight__summary strong { color:var(--lz-text-strong); font-size:12px; }
+.generation-preflight__summary span { margin-top:2px; color:var(--lz-text-secondary); font-size:10px; line-height:1.45; }
+.generation-preflight__summary small { padding:3px 7px; border-radius:999px; color:var(--lz-text-secondary); background:rgba(255,255,255,.72); font-size:9px; font-weight:750; }
+.generation-preflight__facts { display:flex; flex-wrap:wrap; gap:6px; }
+.generation-preflight__facts span { padding:4px 7px; border:1px solid rgba(148,163,184,.2); border-radius:7px; color:var(--lz-text-secondary); background:rgba(255,255,255,.72); font-size:9px; }
+.generation-preflight__issues { display:grid; gap:7px; margin:0; padding:0; list-style:none; }
+.generation-preflight__issues li { display:grid; gap:2px; padding-top:7px; border-top:1px solid rgba(148,163,184,.2); }
+.generation-preflight__issues strong { color:var(--lz-text); font-size:10px; }
+.generation-preflight__issues span { color:var(--lz-text-muted); font-size:9px; line-height:1.45; }
 .generation-dialog__footer > div:first-child { min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--lz-text-muted); font-size: 10px; }
 .footer-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .primary-button,.secondary-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 15px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }

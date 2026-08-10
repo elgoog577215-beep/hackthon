@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import pytest
+
 from content_blocks import set_node_content_blocks
+import course_service as course_service_module
 from course_retrieval import (
     build_course_retrieval_queries,
     build_course_source_context,
+    build_knowledge_gap_retrieval_queries,
     build_outline_research_instruction,
     build_outline_research_proposal,
+    build_topic_retrieval_queries,
+    merge_course_retrieval_packages,
 )
 from course_versioning import build_blueprint_draft
+from course_service import CourseService
 from web_retrieval import PURPOSE_LIMITS
 
 
@@ -86,6 +93,27 @@ def test_course_queries_only_use_public_course_contract():
     joined = " ".join(queries)
     assert "Linear algebra" in joined
     assert "Compute eigenvalues" in joined
+    assert "PRIVATE_PROFILE_SENTINEL" not in joined
+    assert "PRIVATE_REQUIREMENT_SENTINEL" not in joined
+    assert "student@example.com" not in joined
+
+
+def test_topic_retrieval_can_start_before_outline_without_private_fields():
+    queries = build_topic_retrieval_queries({
+        "subject": "牛顿运动定律",
+        "difficulty": "intermediate",
+        "course_intent": {
+            "type": "inquiry",
+            "core_question": "力如何改变运动？",
+            "existing_understanding": "PRIVATE_PROFILE_SENTINEL student@example.com",
+        },
+        "requirements": "PRIVATE_REQUIREMENT_SENTINEL",
+        "learner_profile_summary": "PRIVATE_PROFILE_SENTINEL",
+    })
+
+    assert queries
+    joined = " ".join(queries)
+    assert "牛顿运动定律" in joined
     assert "PRIVATE_PROFILE_SENTINEL" not in joined
     assert "PRIVATE_REQUIREMENT_SENTINEL" not in joined
     assert "student@example.com" not in joined
@@ -239,3 +267,156 @@ def test_confirmed_sources_get_stable_inline_citations_and_block_metadata():
     )
     assert blocks[0]["metadata"]["citations"] == {"S2": "src_b"}
     assert blocks[0]["metadata"]["source_ids"] == ["src_b"]
+
+
+def test_knowledge_gap_queries_only_include_public_graph_terms():
+    course = _course()
+    course["generation_request"] = {
+        "subject": "Linear algebra",
+        "requirements": "PRIVATE_REQUIREMENT_SENTINEL",
+    }
+    graph = {
+        "nodes": [
+            {
+                "knowledge_key": "kp-eigenvalue",
+                "name": "Eigenvalue boundary",
+                "statement": "Explain repeated eigenvalues",
+                "detail_status": "skeleton",
+                "source_refs": [],
+                "counterexamples": [],
+                "private_note": "PRIVATE_PROFILE_SENTINEL student@example.com",
+            },
+        ],
+    }
+
+    queries = build_knowledge_gap_retrieval_queries(course, graph)
+
+    assert queries
+    joined = " ".join(queries)
+    assert "Eigenvalue" in joined
+    assert "PRIVATE_PROFILE_SENTINEL" not in joined
+    assert "PRIVATE_REQUIREMENT_SENTINEL" not in joined
+    assert "student@example.com" not in joined
+
+
+def test_retrieval_package_merge_creates_new_immutable_revision_and_deduplicates():
+    base = _package()
+    base["queries"] = ["base query"]
+    base["receipt"] = {
+        "status": "completed",
+        "query_count": 1,
+        "duration_ms": 20,
+        "cache_hit_count": 0,
+    }
+    supplement = {
+        "schema_version": "retrieval_package_v1",
+        "status": "completed",
+        "revision": 2,
+        "queries": ["gap query"],
+        "sources": [
+            dict(base["sources"][0]),
+            {
+                "source_id": "src_c",
+                "url": "https://example.edu/eigenvalue-boundary",
+                "title": "Eigenvalue boundary",
+                "excerpt": "A boundary case.",
+                "trust_tier": "tier_a",
+            },
+        ],
+        "receipt": {
+            "status": "completed",
+            "query_count": 1,
+            "duration_ms": 30,
+            "cache_hit_count": 1,
+        },
+    }
+
+    merged = merge_course_retrieval_packages(base, supplement)
+
+    assert [item["source_id"] for item in base["sources"]] == ["src_a", "src_b"]
+    assert [item["source_id"] for item in merged["sources"]] == ["src_a", "src_b", "src_c"]
+    assert merged["revision"] == 2
+    assert merged["coverage"]["stages"] == ["outline", "knowledge_gap"]
+    assert merged["receipt"]["duration_ms"] == 50
+    assert merged["stage_receipts"]["outline"]["query_count"] == 1
+    assert merged["stage_receipts"]["knowledge_gap"]["query_count"] == 1
+    assert len(merged["package_hash"]) == 64
+
+
+@pytest.mark.asyncio
+async def test_course_service_runs_gap_retrieval_after_graph_revision(monkeypatch):
+    supplement = {
+        "schema_version": "retrieval_package_v1",
+        "status": "completed",
+        "revision": 2,
+        "queries": ["Linear algebra Eigenvalue official"],
+        "sources": [{
+            "source_id": "src_gap",
+            "url": "https://example.edu/eigenvalue",
+            "title": "Eigenvalue definition",
+            "excerpt": "An eigenvalue is defined by Av = lambda v.",
+            "trust_tier": "tier_a",
+            "matched_query": "Linear algebra Eigenvalue official",
+            "accepted_for_generation": True,
+        }],
+        "receipt": {"status": "completed", "query_count": 1},
+    }
+
+    class FakeGateway:
+        async def retrieve(self, request):
+            assert request.purpose == "course"
+            assert request.revision >= 2
+            assert request.max_queries == 8
+            return supplement
+
+    monkeypatch.setattr(
+        course_service_module,
+        "configured_retrieval_gateway",
+        lambda actor_id: (FakeGateway(), {"enabled_for_user": True, "actor_id": actor_id}),
+    )
+    course = {
+        "course_name": "Linear algebra",
+        "retrieval_package": _package(),
+        "retrieval_acceptance": {
+            "accepted_source_ids": ["src_a"],
+            "package_revision": 1,
+        },
+        "generation_stage_artifacts": {"web_retrieval": {}},
+    }
+    graph = {
+        "revision_id": "kg-rev-2",
+        "nodes": [{
+            "knowledge_key": "kp-eigenvalue",
+            "name": "Eigenvalue",
+            "statement": "Define eigenvalue",
+            "detail_status": "skeleton",
+            "source_refs": [],
+            "counterexamples": [],
+        }],
+    }
+    phases: list[str] = []
+    checkpoints: list[dict] = []
+
+    async def on_phase(phase, *_args):
+        phases.append(phase)
+
+    async def on_checkpoint(snapshot):
+        checkpoints.append(snapshot)
+
+    service = object.__new__(CourseService)
+    context = await service._prepare_knowledge_gap_retrieval(
+        course_data=course,
+        graph_draft=graph,
+        retrieval_context={"enabled": True, "actor_id": "teacher-1"},
+        on_phase=on_phase,
+        on_checkpoint=on_checkpoint,
+    )
+
+    assert course["retrieval_package"]["revision"] == 2
+    assert course["generation_stage_artifacts"]["web_retrieval"]["knowledge_gap"]["status"] == "completed"
+    assert course["generation_stage_artifacts"]["web_retrieval"]["knowledge_gap"]["source_bindings"] == {
+        "kp-eigenvalue": ["src_gap"]
+    }
+    assert phases == ["knowledge_gap_retrieval", "knowledge_gap_retrieval"]
+    assert checkpoints
+    assert "已确认联网资料" in context

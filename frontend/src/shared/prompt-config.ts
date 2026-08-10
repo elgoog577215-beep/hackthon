@@ -260,9 +260,61 @@ export interface CourseMaterialDraft extends Omit<CourseMaterialBindingInput, 'a
   file_type?: string;
   file?: File;
   manual_content?: string;
-  upload_status: 'pending' | 'uploading' | 'uploaded' | 'error';
+  upload_status: 'pending' | 'uploading' | 'parsing' | 'uploaded' | 'error';
   parse_status?: string;
+  parse_quality_report?: ParsedDocumentQualityV2;
+  parse_preview?: Array<{
+    block_id: string;
+    kind: string;
+    text: string;
+    locator?: Record<string, unknown>;
+  }>;
   upload_error?: string;
+}
+
+export interface ParsedDocumentQualityV2 {
+  schema_version: 'parsed_document_quality_v2';
+  status: 'ready' | 'needs_review' | 'failed';
+  suitability: 'factual_basis' | 'teaching_reference' | 'manual_review';
+  summary: string;
+  coverage: Record<string, number>;
+  observed_structure: Record<string, number>;
+  capabilities_missing: string[];
+  issues: Array<{ code: string; severity: string; message: string }>;
+}
+
+export interface GenerationPreflightProjection {
+  schema_version: 'generation_preflight_v1';
+  preflight_id: string;
+  status: 'ready' | 'degraded' | 'blocked';
+  acceptance_required: boolean;
+  provider?: {
+    status?: string;
+    probe_status?: string;
+    active_route?: string;
+  };
+  retrieval?: {
+    requested?: boolean;
+    available?: boolean;
+    status?: string;
+  };
+  materials?: {
+    count?: number;
+    readable?: number;
+  };
+  capacity?: {
+    recommended_concurrency?: number;
+    estimated_calls?: number;
+    estimated_sections?: number;
+  };
+  issues: Array<{
+    code: string;
+    severity: 'blocking' | 'warning' | string;
+    scope: string;
+    message: string;
+    action: string;
+    item_id?: string;
+  }>;
 }
 
 export interface TeacherResourceRef {
@@ -317,6 +369,10 @@ export interface GenerateCourseParams {
   };
   retrieval?: {
     enabled: boolean;
+  };
+  preflight_acceptance?: {
+    preflight_id: string;
+    accepted_issue_codes: string[];
   };
 }
 

@@ -86,6 +86,7 @@ from course_retrieval import (
     build_course_retrieval_queries,
     build_outline_research_instruction,
     build_outline_research_proposal,
+    build_topic_retrieval_queries,
 )
 from course_teaching_plan_projection import project_course_teaching_plan
 from course_type_contracts import (
@@ -114,6 +115,7 @@ from generation_workspace import (
     GenerationWorkspaceRepository,
     generation_workspace_repository,
 )
+from generation_preflight import build_generation_preflight
 from guided_generation import (
     GUIDED_STEP_KEYS,
     build_source_chain_report,
@@ -1104,6 +1106,24 @@ class TaskManager:
                     }
             return await self._create_generation_job(request_snapshot)
 
+    async def preflight_generation(
+        self,
+        request_snapshot: dict[str, Any],
+        *,
+        live_probe: bool = True,
+    ) -> dict[str, Any]:
+        """Check providers, retrieval, materials and capacity before persistence."""
+
+        request_snapshot = dict(request_snapshot)
+        actor_id = str(request_snapshot.get("_retrieval_actor_id") or "") or None
+        return await build_generation_preflight(
+            request_snapshot,
+            ai_service=self.course_service,
+            repository=self._material_repository,
+            actor_id=actor_id,
+            live_probe=live_probe,
+        )
+
     async def _create_generation_job(
         self, request_snapshot: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1577,6 +1597,7 @@ class TaskManager:
         request: dict[str, Any],
         *,
         package_revision: int = 1,
+        preloaded_retrieval: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Retrieve once and create a non-applied source-backed outline draft."""
 
@@ -1594,28 +1615,32 @@ class TaskManager:
             }
             return course_data
 
-        queries = build_course_retrieval_queries(course_data, request)
-        gateway, feature = configured_retrieval_gateway(
-            str(request.get("_retrieval_actor_id") or "") or None
-        )
-        package = await gateway.retrieve(
-            RetrievalRequest(
-                purpose="course",
-                enabled=True,
-                queries=queries,
-                request_fingerprint=stable_hash(
-                    {
-                        "course_id": course_data.get("course_id"),
-                        "subject": request.get("subject"),
-                        "difficulty": request.get("difficulty"),
-                        "course_intent": request.get("course_intent") or {},
-                        "outline_revision": blueprint_revision_id(course_data),
-                    },
-                    prefix="rrq_",
-                ),
-                revision=max(1, int(package_revision)),
+        if preloaded_retrieval:
+            package = deepcopy(preloaded_retrieval.get("package") or {})
+            feature = deepcopy(preloaded_retrieval.get("feature") or {})
+        else:
+            queries = build_course_retrieval_queries(course_data, request)
+            gateway, feature = configured_retrieval_gateway(
+                str(request.get("_retrieval_actor_id") or "") or None
             )
-        )
+            package = await gateway.retrieve(
+                RetrievalRequest(
+                    purpose="course",
+                    enabled=True,
+                    queries=queries,
+                    request_fingerprint=stable_hash(
+                        {
+                            "course_id": course_data.get("course_id"),
+                            "subject": request.get("subject"),
+                            "difficulty": request.get("difficulty"),
+                            "course_intent": request.get("course_intent") or {},
+                            "outline_revision": blueprint_revision_id(course_data),
+                        },
+                        prefix="rrq_",
+                    ),
+                    revision=max(1, int(package_revision)),
+                )
+            )
         artifact = {
             "schema_version": "course_web_retrieval_v2",
             "status": package.get("status"),
@@ -1681,6 +1706,69 @@ class TaskManager:
                 "message": str(exc)[:500],
             }
         return course_data
+
+    async def _retrieve_course_topic_package(
+        self,
+        request: dict[str, Any],
+        *,
+        course_id: str,
+        package_revision: int = 1,
+    ) -> dict[str, Any] | None:
+        """Run broad retrieval while material parsing and outline planning proceed."""
+
+        policy = resolve_retrieval_policy(request)
+        if "course" not in policy.get("scopes", []):
+            return None
+        queries = build_topic_retrieval_queries(request)
+        feature: dict[str, Any] = {}
+        try:
+            gateway, feature = configured_retrieval_gateway(
+                str(request.get("_retrieval_actor_id") or "") or None
+            )
+            package = await gateway.retrieve(RetrievalRequest(
+                purpose="course",
+                enabled=True,
+                queries=queries,
+                request_fingerprint=stable_hash(
+                    {
+                        "course_id": course_id,
+                        "subject": request.get("subject"),
+                        "difficulty": request.get("difficulty"),
+                        "course_intent": request.get("course_intent") or {},
+                        "stage": "topic_retrieval_v1",
+                    },
+                    prefix="rrq_",
+                ),
+                revision=max(1, int(package_revision)),
+            ))
+        except Exception as exc:
+            logger.warning(
+                "course topic retrieval failed before outline: %s",
+                type(exc).__name__,
+            )
+            package = {
+                "schema_version": "retrieval_package_v1",
+                "status": "failed_fallback_local",
+                "purpose": "course",
+                "queries": queries,
+                "sources": [],
+                "rejected_sources": [],
+                "errors": [{"code": "topic_retrieval_failed"}],
+                "revision": max(1, int(package_revision)),
+                "receipt": {
+                    "schema_version": "retrieval_receipt_v1",
+                    "status": "failed_fallback_local",
+                    "query_count": len(queries),
+                    "source_count": 0,
+                    "admitted_count": 0,
+                    "error_codes": ["topic_retrieval_failed"],
+                },
+            }
+        return {
+            "package": package,
+            "feature": feature,
+            "authorization": policy,
+        }
 
     @staticmethod
     def _accept_outline_research(
@@ -5868,44 +5956,69 @@ class TaskManager:
             stop_after_outline = bool(
                 review_pending and not course_data.get("course_outline")
             )
-            course_data = await self.course_service.build_course_draft(
-                course_id=course_id,
-                topic=str(request.get("subject") or course_data.get("course_name") or ""),
-                target_audience=str(request.get("target_audience") or "大学生"),
-                depth=str(request.get("difficulty") or "intermediate"),
-                style=request.get("style"),
-                composition_style=request.get("composition_style"),
-                requirements=str(request.get("requirements") or ""),
-                materials=request.get("materials") or [],
-                material_bindings=request.get("material_bindings") or [],
-                grounding_strategy=str(request.get("grounding_strategy") or "material_first"),
-                learner_profile_summary=str(request.get("learner_profile_summary") or ""),
-                course_type=request.get("course_type"),
-                course_intent=request.get("course_intent") or {},
-                learner_starting_profile=request.get("learner_starting_profile") or {},
-                teacher_course_brief=request.get("teacher_course_brief") or {},
-                current_readiness=request.get("current_readiness"),
-                adaptation_preference=str(
-                    request.get("adaptation_preference") or "preserve_target_extend"
-                ),
-                pedagogy_mode=str(request.get("pedagogy_mode") or "auto"),
-                secondary_mode=request.get("secondary_mode"),
-                secondary_intensity=request.get("secondary_intensity"),
-                generation_mode=str(
-                    request.get("generation_mode") or "review_blueprint"
-                ),
-                course_purpose=str(request.get("course_purpose") or "systematic"),
-                asset_preferences=request.get("asset_preferences") or {},
-                web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
-                existing_course_data=course_data,
-                stop_after_outline=stop_after_outline,
-                on_phase=on_phase,
-                on_checkpoint=on_checkpoint,
-            )
+            topic_retrieval_task: asyncio.Task | None = None
+            if stop_after_outline and "course" in resolve_retrieval_policy(request).get("scopes", []):
+                topic_retrieval_task = asyncio.create_task(
+                    self._retrieve_course_topic_package(
+                        request,
+                        course_id=course_id,
+                    )
+                )
+            try:
+                course_data = await self.course_service.build_course_draft(
+                    course_id=course_id,
+                    topic=str(request.get("subject") or course_data.get("course_name") or ""),
+                    target_audience=str(request.get("target_audience") or "大学生"),
+                    depth=str(request.get("difficulty") or "intermediate"),
+                    style=request.get("style"),
+                    composition_style=request.get("composition_style"),
+                    requirements=str(request.get("requirements") or ""),
+                    materials=request.get("materials") or [],
+                    material_bindings=request.get("material_bindings") or [],
+                    grounding_strategy=str(request.get("grounding_strategy") or "material_first"),
+                    learner_profile_summary=str(request.get("learner_profile_summary") or ""),
+                    course_type=request.get("course_type"),
+                    course_intent=request.get("course_intent") or {},
+                    learner_starting_profile=request.get("learner_starting_profile") or {},
+                    teacher_course_brief=request.get("teacher_course_brief") or {},
+                    current_readiness=request.get("current_readiness"),
+                    adaptation_preference=str(
+                        request.get("adaptation_preference") or "preserve_target_extend"
+                    ),
+                    pedagogy_mode=str(request.get("pedagogy_mode") or "auto"),
+                    secondary_mode=request.get("secondary_mode"),
+                    secondary_intensity=request.get("secondary_intensity"),
+                    generation_mode=str(
+                        request.get("generation_mode") or "review_blueprint"
+                    ),
+                    course_purpose=str(request.get("course_purpose") or "systematic"),
+                    asset_preferences=request.get("asset_preferences") or {},
+                    web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
+                    retrieval_enabled=bool((request.get("retrieval") or {}).get("enabled")),
+                    retrieval_actor_id=str(request.get("_retrieval_actor_id") or "") or None,
+                    existing_course_data=course_data,
+                    stop_after_outline=stop_after_outline,
+                    on_phase=on_phase,
+                    on_checkpoint=on_checkpoint,
+                )
+            except BaseException:
+                if topic_retrieval_task:
+                    topic_retrieval_task.cancel()
+                    await asyncio.gather(
+                        topic_retrieval_task,
+                        return_exceptions=True,
+                    )
+                raise
             if stop_after_outline:
+                preloaded_retrieval = (
+                    await topic_retrieval_task
+                    if topic_retrieval_task
+                    else None
+                )
                 course_data = await self._prepare_course_outline_research(
                     course_data,
                     request,
+                    preloaded_retrieval=preloaded_retrieval,
                 )
                 research_proposal = (
                     (
@@ -6019,14 +6132,28 @@ class TaskManager:
                     teaching_plan.get("section_count")
                     or len(teaching_plan.get("sections") or [])
                 )
-                await self._pause_for_guided_review(
-                    task_id,
-                    course_data,
+                teaching_revision = guided_artifact_revision(
                     "teaching",
-                    phase="teaching_plan_ready",
-                    progress=max(55, int(task.get("progress") or 0)),
-                    message="全课教案已生成，确认后将按小节持续生成正文",
-                    phase_detail={
+                    course_data,
+                    request=task.get("request_snapshot") or {},
+                )
+                # 目录是唯一的中途强确认门。教案仍保留稳定修订和可读产物，
+                # 但生成链不会再停下来要求教师确认一次技术阶段。
+                async with self._lock:
+                    mark_guided_step_waiting(
+                        guided_workflow,
+                        "teaching",
+                        revision=teaching_revision,
+                    )
+                    confirm_waiting_step(
+                        guided_workflow,
+                        "teaching",
+                        revision=teaching_revision,
+                    )
+                    task["phase"] = "teaching_plan_confirmed"
+                    task["current_phase"] = "teaching_plan_confirmed"
+                    task["phase_progress"] = 100
+                    task["phase_detail"] = {
                         "artifact_type": "course_teaching_plan",
                         "completed_items": section_count,
                         "total_items": section_count,
@@ -6040,9 +6167,13 @@ class TaskManager:
                             or teaching_stage.get("total_batches")
                             or 0
                         ),
-                    },
-                )
-                return
+                        "confirmation_policy": "automatic_after_quality_gate",
+                    }
+                    task["message"] = "全课教案已形成，正在继续生成正文"
+                    task["updated_at"] = datetime.now().isoformat()
+                    self.save_tasks()
+                await self._save_task_course(task_id, course_data)
+                await self._push_progress(task_id)
             if not course_data.get("learning_asset_plan"):
                 course_data["learning_asset_plan"] = compile_learning_asset_plan(course_data)
                 if isinstance(course_data.get("course_blueprint"), dict):

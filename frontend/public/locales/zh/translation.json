@@ -273,6 +273,7 @@
       "outlineReady": "等待确认课程目录",
       "outlineRebuildRequired": "按完整课程模式重建目录",
       "outlineConfirmed": "目录已确认",
+      "knowledgeGapRetrieval": "补充知识缺口来源",
       "courseTeachingPlan": "规划并汇编全课小节教案",
       "courseTeachingPlanSkeleton": "冻结全课知识职责",
       "courseTeachingPlanSkeletonValidation": "检查全课知识职责",
@@ -295,6 +296,7 @@
       "knowledgeConfirmed": "旧版知识确认点已迁移",
       "teachingReady": "迁移旧版教案确认点",
       "teachingConfirmed": "旧版教案确认点已迁移",
+      "teachingPlanConfirmed": "教案已形成，继续生成正文",
       "blueprintGeneration": "生成课程蓝图",
       "blueprintValidation": "检查课程蓝图",
       "blueprintReady": "等待确认课程蓝图",
@@ -2050,6 +2052,7 @@
       "manualName": "手工资料.md",
       "retry": "重试上传",
       "uploadFailed": "资料上传失败",
+      "parseFailed": "资料解析失败，请重试",
       "unsupportedType": "不支持的文件类型：{extension}",
       "tooLarge": "文件过大，单个文件最大支持 {max} MB",
       "emptyFile": "文件为空，请选择包含内容的文件",
@@ -2064,8 +2067,45 @@
       "status": {
         "pending": "等待上传",
         "uploading": "上传中",
+        "parsing": "解析中",
         "uploaded": "已上传",
         "error": "上传失败"
+      },
+      "quality": {
+        "blocks": "个内容块",
+        "located": "来源定位",
+        "pages": "页",
+        "slides": "张幻灯片",
+        "tables": "个表格",
+        "formulas": "个公式",
+        "preview": "解析摘要",
+        "missingCapabilities": "需要复核",
+        "status": {
+          "ready": "可作为课程依据",
+          "needs_review": "建议检查解析结果",
+          "failed": "不能作为课程依据"
+        },
+        "summary": {
+          "ready": "解析结构和来源定位可用于课程事实依据。",
+          "needs_review": "可以作为教学参考，但关键事实应结合原文件复核。",
+          "failed": "未形成可用证据，请重新上传或改用可读取版本。"
+        },
+        "capability": {
+          "reading_order": "阅读顺序",
+          "page_or_slide_locator": "页码或幻灯片定位",
+          "layout": "版面结构",
+          "speaker_notes": "讲者备注",
+          "table_structure": "表格结构",
+          "formula_structure": "公式结构",
+          "image_caption_binding": "图片与图注关系"
+        },
+        "issue": {
+          "no_usable_content": "没有解析出可用于课程生成的内容。",
+          "fallback_text_only": "当前仅完成文本降级提取，版面和来源定位可能缺失。",
+          "ocr_semantics_limited": "扫描 PDF 已逐页 OCR，但表格、公式和图文关系需要人工复核。",
+          "low_ocr_confidence": "OCR 平均置信度偏低，事实和题目必须核对原页。",
+          "parser_reported_warnings": "解析器报告了需要注意的降级信息。"
+        }
       },
       "parseStatus": {
         "parsed": "解析完成",
@@ -2155,7 +2195,34 @@
       "reviewBlueprint": "审阅蓝图",
       "start": "开始生成",
       "confirmRequirements": "确认需求，生成目录",
-      "submitting": "正在提交"
+      "submitting": "正在检查",
+      "acceptPreflight": "风险已了解，继续生成",
+      "retryPreflight": "重新检查生成条件"
+    },
+    "preflight": {
+      "readyTitle": "生成条件已就绪",
+      "degradedTitle": "可以生成，但存在风险",
+      "blockedTitle": "暂时不能开始生成",
+      "readySummary": "模型、资料与联网能力已经完成检查。",
+      "degradedSummary": "已完成内容会保留；请确认下列风险后继续。",
+      "blockedSummary": "修复阻断项后再创建长任务，不会浪费等待时间。",
+      "provider": "模型路线",
+      "materials": "资料可读",
+      "concurrency": "建议并发",
+      "sections": "节",
+      "failed": "生成条件检查失败，请稍后重试",
+      "route": {"primary": "主模型", "fallback": "备用模型", "none": "不可用"},
+      "issue": {
+        "provider_pool_unavailable": {"message": "主模型和备用模型当前都不可用。", "action": "检查凭据、模型 ID、额度和服务状态后重试。"},
+        "provider_redundancy_missing": {"message": "当前只有一条模型服务路线可用，长课程的中途恢复风险较高。", "action": "可以继续，但建议配置独立备用模型服务。"},
+        "provider_live_probe_failed": {"message": "模型服务未通过最小生成探测，长任务不会启动。", "action": "检查服务状态或额度后重试。"},
+        "material_missing": {"message": "引用的资料不存在或已经失效。", "action": "移除该资料后重新上传。"},
+        "material_source_unreadable": {"message": "资料原文件不可读。", "action": "移除后重新上传这份资料。"},
+        "material_parse_failed": {"message": "资料没有解析出可用内容。", "action": "重新上传可读取版本，或改为非必用资料。"},
+        "material_parse_degraded": {"message": "资料仅完成降级解析。", "action": "查看解析预览，确认缺失能力不影响课程。"},
+        "retrieval_not_enabled": {"message": "当前账号尚未启用课程联网研究。", "action": "关闭联网研究，或由管理员开启该能力。"},
+        "retrieval_not_configured": {"message": "联网研究已开启，但搜索服务尚未配置。", "action": "关闭联网研究，或先完成搜索服务配置。"}
+      }
     },
     "messages": {
       "topicRequired": "请输入课程主题",
@@ -2178,6 +2245,7 @@
       "outline_generation": "生成轻量课程目录",
       "outline_validation": "检查课程目录",
       "outline_ready": "等待确认课程目录",
+      "knowledge_gap_retrieval": "补充知识缺口来源",
       "course_teaching_plan": "规划并汇编全课小节教案",
       "course_teaching_plan_skeleton": "冻结全课知识职责",
       "course_teaching_plan_skeleton_validation": "检查全课知识职责",
@@ -2197,6 +2265,7 @@
       "course_graph_validation": "检查旧版关系图结构",
       "knowledge_mapping": "编译全课知识关系",
       "course_knowledge_blueprint": "编译全课知识关系",
+      "teaching_plan_confirmed": "教案已形成，继续生成正文",
       "blueprint_generation": "生成课程蓝图",
       "blueprint_validation": "检查课程蓝图",
       "blueprint_ready": "等待蓝图确认",

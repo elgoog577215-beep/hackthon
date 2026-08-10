@@ -1,5 +1,7 @@
 import asyncio
 from io import BytesIO
+import sys
+from types import SimpleNamespace
 
 import pytest
 from docx import Document
@@ -19,6 +21,9 @@ from material_evidence import (
 )
 import material_pipeline
 from material_pipeline import prepare_course_materials
+import material_parser
+from material_models import MaterialAsset
+from material_parser import PdfPageOcrParser
 from material_storage import MaterialRepository, MaterialStorageError
 
 
@@ -246,8 +251,78 @@ def test_material_upload_api_uses_persisted_asset(monkeypatch, tmp_path):
     assert repository.get_asset(asset_id) is not None
     assert "source_name" not in response.json()
 
+    parsed = client.post(f"/api/materials/{asset_id}/parse")
+    assert parsed.status_code == 200
+    assert parsed.json()["quality_report"]["schema_version"] == "parsed_document_quality_v2"
+    assert parsed.json()["quality_report"]["status"] == "ready"
+    assert parsed.json()["preview"][0]["locator"]["section_path"] == ["Notes"]
+
     delete = client.delete(f"/api/materials/{asset_id}")
     assert delete.status_code == 200
+
+
+def test_scanned_pdf_fallback_preserves_page_locators_and_quality(tmp_path, monkeypatch):
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF-1.4\n")
+    asset = MaterialAsset(
+        asset_id="mat-scan",
+        filename="scan.pdf",
+        extension=".pdf",
+        mime_type="application/pdf",
+        detected_mime="application/pdf",
+        size_bytes=source.stat().st_size,
+        sha256="scan-sha",
+        source_name="source.pdf",
+        uploaded_at="2026-08-10T00:00:00+00:00",
+        updated_at="2026-08-10T00:00:00+00:00",
+    )
+
+    class FakePage:
+        def render(self, *, scale):
+            assert scale == 2.0
+            return self
+
+        def to_pil(self):
+            return self
+
+        def save(self, path, *, format):
+            assert format == "PNG"
+            path.write_bytes(b"png")
+
+        def close(self):
+            return None
+
+    class FakePdf:
+        def __init__(self, _path):
+            self.pages = [FakePage(), FakePage()]
+
+        def __len__(self):
+            return len(self.pages)
+
+        def __getitem__(self, index):
+            return self.pages[index]
+
+        def close(self):
+            return None
+
+    monkeypatch.setitem(sys.modules, "pypdfium2", SimpleNamespace(PdfDocument=FakePdf))
+    monkeypatch.setattr(
+        material_parser,
+        "_ocr_image",
+        lambda path: [{
+            "text": f"第 {path.stem.split('-')[-1]} 页内容",
+            "confidence": 0.92,
+            "bbox": [0, 0, 100, 20],
+        }],
+    )
+
+    document = PdfPageOcrParser().parse(asset, source)
+
+    assert document.parse_status == "parsed"
+    assert document.parser_name == "pdf_page_ocr"
+    assert [block.locator.page for block in document.blocks] == [1, 2]
+    assert document.quality["ocr_page_coverage"] == 1.0
+    assert document.warnings
 
 
 def test_build_evidence_catalog_summary_covers_every_asset_not_just_earliest():

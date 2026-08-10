@@ -173,6 +173,13 @@ class RetrievalInput(BaseModel):
     enabled: bool = False
 
 
+class GenerationPreflightAcceptance(BaseModel):
+    """教师对当前一次降级预检的显式确认。"""
+
+    preflight_id: str = Field(..., min_length=8, max_length=200)
+    accepted_issue_codes: List[str] = Field(default_factory=list, max_length=30)
+
+
 CourseType = Literal["systematic", "project", "inquiry", "exam"]
 
 
@@ -306,6 +313,7 @@ class CourseGenerationRequest(BaseModel):
     ] = "systematic"
     asset_preferences: Dict[str, bool] = Field(default_factory=dict)
     retrieval: RetrievalInput = Field(default_factory=RetrievalInput)
+    preflight_acceptance: Optional[GenerationPreflightAcceptance] = None
     web_question_enrichment: WebQuestionEnrichmentInput = Field(
         default_factory=WebQuestionEnrichmentInput
     )

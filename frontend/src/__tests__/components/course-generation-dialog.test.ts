@@ -5,13 +5,98 @@ import { setLocale } from '@/shared/i18n'
 import enMessages from '../../../public/locales/en/translation.json'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
+const { post } = vi.hoisted(() => ({ post: vi.fn() }))
+vi.mock('@/utils/http', () => ({ default: { post } }))
+
+const readyPreflight = {
+  schema_version: 'generation_preflight_v1',
+  preflight_id: 'gpf-ready-123',
+  status: 'ready',
+  acceptance_required: false,
+  provider: { status: 'ready', probe_status: 'passed', active_route: 'primary' },
+  retrieval: { requested: false, available: false, status: 'disabled' },
+  materials: { count: 0, readable: 0 },
+  capacity: { recommended_concurrency: 2, estimated_calls: 27, estimated_sections: 8 },
+  issues: [],
+}
+
 describe('CourseGenerationDialog', () => {
   beforeEach(async () => {
+    post.mockReset()
+    post.mockResolvedValue({ data: readyPreflight })
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
       ok: true,
       json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
     })))
     await setLocale('zh')
+  })
+
+  it('预检降级时先展示风险，第二次确认才创建生成请求', async () => {
+    post.mockResolvedValueOnce({
+      data: {
+        ...readyPreflight,
+        preflight_id: 'gpf-degraded-123',
+        status: 'degraded',
+        acceptance_required: true,
+        issues: [{
+          code: 'provider_redundancy_missing',
+          severity: 'warning',
+          scope: 'provider',
+          message: '当前只有一条模型服务路线可用。',
+          action: '可以继续，但建议配置备用模型。',
+        }],
+      },
+    })
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+    await wrapper.get('#course-subject').setValue('概率论')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('generate')).toBeUndefined()
+    expect(wrapper.get('[data-testid="generation-preflight"]').text()).toContain('当前只有一条模型服务路线可用')
+    expect(wrapper.find('.generation-dialog__footer .primary-button').text()).toContain('风险已了解')
+
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.preflight_acceptance).toEqual({
+      preflight_id: 'gpf-degraded-123',
+      accepted_issue_codes: ['provider_redundancy_missing'],
+    })
+  })
+
+  it('英文模式按稳定代码本地化预检路线、问题与动作', async () => {
+    await setLocale('en')
+    post.mockResolvedValueOnce({
+      data: {
+        ...readyPreflight,
+        preflight_id: 'gpf-degraded-en',
+        status: 'degraded',
+        acceptance_required: true,
+        issues: [{
+          code: 'provider_redundancy_missing',
+          severity: 'warning',
+          scope: 'provider',
+          message: '当前只有一条模型服务路线可用。',
+          action: '可以继续，但建议配置备用模型。',
+        }],
+      },
+    })
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+    await wrapper.get('#course-subject').setValue('Probability')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    const text = wrapper.get('[data-testid="generation-preflight"]').text()
+    expect(text).toContain('Primary model')
+    expect(text).toContain('Only one model route is available')
+    expect(text).toContain('configure an independent backup provider')
+    expect(text).not.toContain('当前只有一条')
   })
 
   it('默认只突出必要信息，把生成偏好收进可选设置', async () => {

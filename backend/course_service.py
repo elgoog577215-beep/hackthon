@@ -139,7 +139,11 @@ from course_prompt_composer import (
     get_course_prompt_composer,
 )
 from course_quality import evaluate_node_content, validate_blueprint
-from course_retrieval import build_course_source_context
+from course_retrieval import (
+    build_course_source_context,
+    build_knowledge_gap_retrieval_queries,
+    merge_course_retrieval_packages,
+)
 from course_teaching_guidance import compile_overall_teaching_guidance
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
@@ -156,6 +160,7 @@ from material_evidence import attach_evidence_to_plan, extract_grounding_annotat
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
 from models import NodeGenerationConfig
+from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -459,6 +464,8 @@ class CourseService(AIBase):
         course_purpose: str = "systematic",
         asset_preferences: dict[str, bool] | None = None,
         web_question_enrichment: dict[str, Any] | None = None,
+        retrieval_enabled: bool = False,
+        retrieval_actor_id: str | None = None,
         existing_course_data: dict[str, Any] | None = None,
         stop_after_outline: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
@@ -850,6 +857,7 @@ class CourseService(AIBase):
                 "web_question_enrichment": deepcopy(
                     web_question_enrichment or {"enabled": False}
                 ),
+                "retrieval": {"enabled": bool(retrieval_enabled)},
                 "teacher_course_brief": deepcopy(teacher_course_brief or {}),
                 "material_bindings": artifacts.get("material_bindings", []),
                 "grounding_strategy": grounding_strategy,
@@ -1004,6 +1012,10 @@ class CourseService(AIBase):
             artifacts=artifacts,
             on_phase=on_phase,
             on_checkpoint=on_checkpoint,
+            retrieval_context={
+                "enabled": bool(retrieval_enabled),
+                "actor_id": retrieval_actor_id,
+            },
         )
         plan = normalize_course_plan_contract(plan)
         full_plan_report = validate_course_plan_constraints(
@@ -1225,6 +1237,139 @@ class CourseService(AIBase):
         )
         return working
 
+    async def _prepare_knowledge_gap_retrieval(
+        self,
+        *,
+        course_data: dict[str, Any],
+        graph_draft: dict[str, Any],
+        retrieval_context: dict[str, Any],
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> str:
+        """Retrieve targeted evidence after course-wide knowledge IDs freeze."""
+
+        if not retrieval_context.get("enabled"):
+            return ""
+        artifacts = course_data.setdefault("generation_stage_artifacts", {})
+        retrieval_stage = artifacts.setdefault("web_retrieval", {})
+        graph_revision = str(graph_draft.get("revision_id") or "")
+        gap_stage = retrieval_stage.get("knowledge_gap") or {}
+        if (
+            gap_stage.get("source_graph_revision_id") == graph_revision
+            and gap_stage.get("status") in {
+                "completed",
+                "completed_no_gaps",
+                "failed_fallback_existing",
+            }
+        ):
+            context, _citation_map, _cards = build_course_source_context(course_data)
+            return context[:4000]
+
+        queries = build_knowledge_gap_retrieval_queries(
+            course_data,
+            graph_draft,
+        )
+        if not queries:
+            retrieval_stage["knowledge_gap"] = {
+                "schema_version": "course_knowledge_gap_retrieval_v1",
+                "status": "completed_no_gaps",
+                "source_graph_revision_id": graph_revision,
+                "queries": [],
+            }
+            return ""
+
+        await self._notify_phase(
+            on_phase,
+            "knowledge_gap_retrieval",
+            40,
+            "正在为低置信知识点补充权威来源",
+            phase_progress=0,
+            phase_detail={
+                "artifact_type": "course_knowledge_gap_retrieval",
+                "query_count": len(queries),
+            },
+        )
+        gateway, feature = configured_retrieval_gateway(
+            str(retrieval_context.get("actor_id") or "") or None
+        )
+        base_package = deepcopy(
+            course_data.get("retrieval_package")
+            or retrieval_stage.get("package")
+            or {}
+        )
+        supplement = await gateway.retrieve(RetrievalRequest(
+            purpose="course",
+            enabled=True,
+            queries=queries,
+            request_fingerprint=f"knowledge_gap:{graph_revision}",
+            revision=max(2, int(base_package.get("revision") or 1) + 1),
+            max_queries=8,
+            max_sources=16,
+            concurrency=2,
+        ))
+        if supplement.get("status") == "completed":
+            merged = merge_course_retrieval_packages(base_package, supplement)
+            course_data["retrieval_package"] = deepcopy(merged)
+            retrieval_stage["package"] = deepcopy(merged)
+            if isinstance(course_data.get("retrieval_acceptance"), dict):
+                course_data["retrieval_acceptance"]["package_revision"] = merged.get("revision")
+                course_data["retrieval_acceptance"]["package_hash"] = merged.get("package_hash")
+            status = "completed"
+        else:
+            merged = base_package
+            status = "failed_fallback_existing"
+        source_bindings: dict[str, list[str]] = {}
+        for node in graph_draft.get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            name = str(node.get("name") or "").casefold()
+            if not name:
+                continue
+            source_bindings[str(node.get("knowledge_key") or "")] = [
+                str(source.get("source_id") or "")
+                for source in supplement.get("sources") or []
+                if source.get("source_id")
+                and name in str(source.get("matched_query") or "").casefold()
+                and str(source.get("trust_tier") or "") == "tier_a"
+            ]
+        source_bindings = {
+            key: value for key, value in source_bindings.items() if value
+        }
+        retrieval_stage["knowledge_gap"] = {
+            "schema_version": "course_knowledge_gap_retrieval_v1",
+            "status": status,
+            "source_graph_revision_id": graph_revision,
+            "feature": feature,
+            "queries": queries,
+            "package": deepcopy(supplement),
+            "source_bindings": source_bindings,
+            "notice": (
+                "知识缺口补证未完成，继续使用目录确认时冻结的来源包"
+                if status != "completed" else ""
+            ),
+        }
+        await self._notify_checkpoint(on_checkpoint, course_data)
+        await self._notify_phase(
+            on_phase,
+            "knowledge_gap_retrieval",
+            42,
+            (
+                "知识缺口来源已并入课程证据包"
+                if status == "completed"
+                else "知识缺口补证未完成，已保留原证据包"
+            ),
+            phase_progress=100,
+            phase_detail={
+                "artifact_type": "course_knowledge_gap_retrieval",
+                "status": status,
+                "source_count": len(supplement.get("sources") or []),
+            },
+        )
+        if not merged:
+            return ""
+        context, _citation_map, _cards = build_course_source_context(course_data)
+        return context[:4000]
+
     async def _prepare_course_teaching_plan(
         self,
         *,
@@ -1234,6 +1379,7 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
         semantic_retry_count: int = 0,
+        retrieval_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build one official plan through the complete 1-N-1 path."""
         sections: list[dict[str, Any]] = []
@@ -1856,6 +2002,17 @@ class CourseService(AIBase):
         teaching_stage["knowledge_graph_draft_revision_id"] = (
             knowledge_graph_draft.get("revision_id")
         )
+        gap_source_context = await self._prepare_knowledge_gap_retrieval(
+            course_data=course_data,
+            graph_draft=knowledge_graph_draft,
+            retrieval_context=retrieval_context or {},
+            on_phase=on_phase,
+            on_checkpoint=on_checkpoint,
+        )
+        if gap_source_context:
+            overall_teaching_guidance = (
+                f"{overall_teaching_guidance}\n\n{gap_source_context}"
+            )[:12000]
         compact_by_id = {
             str(item.get("node_id") or ""): item
             for item in planning_context.get("sections") or []
@@ -2553,6 +2710,7 @@ class CourseService(AIBase):
                     on_phase=on_phase,
                     on_checkpoint=on_checkpoint,
                     semantic_retry_count=semantic_retry_count + 1,
+                    retrieval_context=retrieval_context,
                 )
             raise AIProviderRequestError(
                 "全课教案仍有非 AI 语义单元，已保留成功批次并停止在正文之前；"
@@ -3128,6 +3286,8 @@ class CourseService(AIBase):
             pedagogy_mode=str(kwargs.get("pedagogy_mode") or "auto"),
             secondary_mode=kwargs.get("secondary_mode"),
             secondary_intensity=kwargs.get("secondary_intensity"),
+            retrieval_enabled=bool((kwargs.get("retrieval") or {}).get("enabled")),
+            retrieval_actor_id=str(kwargs.get("retrieval_actor_id") or "") or None,
         )
 
     # ------------------------------------------------------------------

@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.metadata
+import os
 import re
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
 from material_models import DocumentBlock, DocumentLocator, MaterialAsset, ParsedDocument
+from material_quality import compile_parsed_document_quality
 from material_storage import IMAGE_EXTENSIONS, TEXT_EXTENSIONS, MaterialRepository
 
 PARSE_OPTIONS_VERSION = "material_parse_v1"
@@ -240,6 +244,106 @@ class DoclingDocumentParser:
         )
 
 
+class PdfPageOcrParser:
+    """Page-level local OCR fallback for image-only PDFs."""
+
+    name = "pdf_page_ocr"
+    version = "1"
+
+    def supports(self, extension: str) -> bool:
+        return extension == ".pdf"
+
+    def parse(self, asset: MaterialAsset, source_path: Path) -> ParsedDocument:
+        try:
+            import pypdfium2 as pdfium
+        except ImportError as exc:
+            raise RuntimeError("PDF OCR 渲染组件未安装") from exc
+
+        blocks: list[DocumentBlock] = []
+        confidences: list[float] = []
+        rendered: list[tuple[int, Path]] = []
+        with tempfile.TemporaryDirectory(prefix="lingzhi-pdf-ocr-") as temp_dir:
+            pdf = pdfium.PdfDocument(str(source_path))
+            page_count = len(pdf)
+            try:
+                for page_index in range(page_count):
+                    page = pdf[page_index]
+                    try:
+                        image = page.render(scale=2.0).to_pil()
+                        image_path = Path(temp_dir) / f"page-{page_index + 1}.png"
+                        image.save(image_path, format="PNG")
+                        rendered.append((page_index + 1, image_path))
+                    finally:
+                        page.close()
+            finally:
+                pdf.close()
+
+            try:
+                configured = int(os.getenv("MATERIAL_PDF_OCR_CONCURRENCY", "2"))
+            except ValueError:
+                configured = 2
+            workers = max(1, min(4, configured, len(rendered) or 1))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                results = list(executor.map(
+                    lambda item: (item[0], _ocr_image(item[1])),
+                    rendered,
+                ))
+
+        for page_number, segments in results:
+            for segment in segments:
+                text = str(segment.get("text") or "").strip()
+                if not text:
+                    continue
+                confidence = max(
+                    0.0,
+                    min(1.0, float(segment.get("confidence") or 0)),
+                )
+                confidences.append(confidence)
+                blocks.append(DocumentBlock(
+                    block_id=f"blk-{len(blocks) + 1}",
+                    kind=_detect_block_kind(text),
+                    text=text,
+                    order=len(blocks),
+                    locator=DocumentLocator(
+                        page=page_number,
+                        bbox=_normalized_bbox(segment.get("bbox")),
+                    ),
+                    metadata={
+                        "ocr_engine": "rapidocr",
+                        "ocr_confidence": round(confidence, 4),
+                    },
+                ))
+        if not blocks:
+            raise RuntimeError("逐页 OCR 没有提取到可用文字")
+        average = round(sum(confidences) / max(1, len(confidences)), 4)
+        located_pages = len({block.locator.page for block in blocks})
+        degraded = average < 0.85 or located_pages < max(1, page_count)
+        return ParsedDocument(
+            document_id=f"doc-{uuid.uuid4().hex}",
+            asset_id=asset.asset_id,
+            source_sha256=asset.sha256,
+            parse_status="degraded" if degraded else "parsed",
+            parser_name=self.name,
+            parser_version=self.version,
+            parse_options_hash=_options_hash(self.name),
+            blocks=blocks,
+            quality={
+                **_quality(blocks),
+                "page_count": page_count,
+                "ocr_page_count": located_pages,
+                "ocr_page_coverage": round(
+                    located_pages / max(1, page_count), 3
+                ),
+                "ocr_confidence": average,
+                "ocr_engine": "rapidocr",
+            },
+            warnings=[
+                "扫描 PDF 已逐页 OCR；表格、公式和图文关系需要人工复核"
+            ],
+            created_at=_now(),
+        )
+
+
 class MarkItDownFallbackParser:
     name = "markitdown"
 
@@ -284,6 +388,23 @@ async def parse_material_asset(
 ) -> ParsedDocument:
     cached = repository.load_parsed_document(asset.asset_id)
     if cached and cached.source_sha256 == asset.sha256 and cached.parse_status in {"parsed", "degraded"}:
+        if not isinstance(cached.quality.get("quality_report"), dict):
+            quality_report = compile_parsed_document_quality(cached, asset)
+            cached.quality = {
+                **cached.quality,
+                "quality_state": quality_report["status"],
+                "quality_report": quality_report,
+            }
+            repository.save_parsed_document(cached)
+            repository.update_status(
+                asset.asset_id,
+                cached.parse_status,
+                warnings=cached.warnings,
+                parser_name=cached.parser_name,
+                parser_version=cached.parser_version,
+                parse_options_hash=cached.parse_options_hash,
+                parse_quality=cached.quality,
+            )
         return cached
 
     repository.update_status(asset.asset_id, "parsing")
@@ -294,7 +415,10 @@ async def parse_material_asset(
     elif asset.extension in IMAGE_EXTENSIONS:
         parsers = [ImageOcrParser()]
     else:
-        parsers = [DoclingDocumentParser(), MarkItDownFallbackParser()]
+        parsers = [DoclingDocumentParser()]
+        if asset.extension == ".pdf":
+            parsers.append(PdfPageOcrParser())
+        parsers.append(MarkItDownFallbackParser())
 
     errors: list[str] = []
     for parser in parsers:
@@ -302,6 +426,12 @@ async def parse_material_asset(
             continue
         try:
             document = await asyncio.to_thread(parser.parse, asset, source)
+            quality_report = compile_parsed_document_quality(document, asset)
+            document.quality = {
+                **document.quality,
+                "quality_state": quality_report["status"],
+                "quality_report": quality_report,
+            }
             repository.save_parsed_document(document)
             repository.update_status(
                 asset.asset_id,
@@ -330,8 +460,19 @@ async def parse_material_asset(
         error=message,
         created_at=_now(),
     )
+    failed_quality = compile_parsed_document_quality(failed, asset)
+    failed.quality = {
+        **failed.quality,
+        "quality_state": failed_quality["status"],
+        "quality_report": failed_quality,
+    }
     repository.save_parsed_document(failed)
-    repository.update_status(asset.asset_id, "failed", error=message)
+    repository.update_status(
+        asset.asset_id,
+        "failed",
+        error=message,
+        parse_quality=failed.quality,
+    )
     return failed
 
 
@@ -507,6 +648,7 @@ __all__ = [
     "DocumentParser",
     "MarkItDownFallbackParser",
     "ImageOcrParser",
+    "PdfPageOcrParser",
     "TextDocumentParser",
     "parse_material_asset",
 ]

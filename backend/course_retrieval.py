@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from copy import deepcopy
 from typing import Any
@@ -73,6 +75,181 @@ def build_course_retrieval_queries(
         if query and query not in queries:
             queries.append(query)
     return queries[:4]
+
+
+def build_topic_retrieval_queries(request: dict[str, Any]) -> list[str]:
+    """Build the broad first-pass query before materials and outline finish."""
+
+    public_course = {
+        "course_name": str(request.get("subject") or "course"),
+        "course_intent": deepcopy(request.get("course_intent") or {}),
+        "nodes": [],
+    }
+    return build_course_retrieval_queries(public_course, {
+        "subject": str(request.get("subject") or "course"),
+        "difficulty": str(request.get("difficulty") or "intermediate"),
+        "course_intent": deepcopy(request.get("course_intent") or {}),
+    })[:2]
+
+
+def build_knowledge_gap_retrieval_queries(
+    course: dict[str, Any],
+    graph_draft: dict[str, Any],
+    *,
+    limit: int = 6,
+) -> list[str]:
+    """Build bounded, public queries for source and boundary gaps."""
+
+    subject = _safe_term(
+        str(course.get("course_name") or (course.get("generation_request") or {}).get("subject") or "course")
+    )
+    nodes = [
+        item for item in graph_draft.get("nodes") or []
+        if isinstance(item, dict)
+        and str(item.get("knowledge_key") or "")
+        and (
+            item.get("detail_status") != "enriched"
+            or not item.get("source_refs")
+            or not item.get("counterexamples")
+        )
+    ]
+    sampled = _sample_outline_sections(nodes, limit=max(1, min(8, limit)))
+    search_hint = (
+        "定义 边界 反例 官方"
+        if _contains_cjk(subject)
+        else "definition boundary counterexample official source"
+    )
+    queries: list[str] = []
+    for node in sampled:
+        query = _join_query(
+            subject,
+            _safe_term(str(node.get("name") or "")),
+            _query_focus(str(node.get("statement") or "")),
+            search_hint,
+        )
+        if query and query not in queries:
+            queries.append(query)
+    return queries[: max(1, min(8, limit))]
+
+
+def merge_course_retrieval_packages(
+    base: dict[str, Any] | None,
+    supplement: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge two immutable receipts into one new course evidence revision."""
+
+    original = deepcopy(base or {})
+    addition = deepcopy(supplement or {})
+    sources: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def append_unique(target: list[dict[str, Any]], raw: Any) -> None:
+        if not isinstance(raw, dict):
+            return
+        key = str(
+            raw.get("canonical_url")
+            or raw.get("url")
+            or raw.get("content_hash")
+            or raw.get("source_id")
+            or ""
+        )
+        if not key or key in seen:
+            return
+        seen.add(key)
+        target.append(deepcopy(raw))
+
+    for package in (original, addition):
+        for source in package.get("sources") or []:
+            append_unique(sources, source)
+        for source in package.get("rejected_sources") or []:
+            append_unique(rejected, source)
+
+    errors = list(dict.fromkeys(
+        str(item.get("code") or "")
+        for package in (original, addition)
+        for item in package.get("errors") or []
+        if isinstance(item, dict) and item.get("code")
+    ))
+    revision = max(
+        int(original.get("revision") or 0) + 1,
+        int(addition.get("revision") or 1),
+        2,
+    )
+    merged = {
+        "schema_version": "retrieval_package_v1",
+        "request_fingerprint": str(
+            addition.get("request_fingerprint")
+            or original.get("request_fingerprint")
+            or ""
+        ),
+        "policy_version": str(
+            addition.get("policy_version")
+            or original.get("policy_version")
+            or ""
+        ),
+        "provider": str(addition.get("provider") or original.get("provider") or ""),
+        "purpose": "course",
+        "category": "general",
+        "status": "completed" if sources else "failed_fallback_local",
+        "queries": list(dict.fromkeys([
+            *list(original.get("queries") or []),
+            *list(addition.get("queries") or []),
+        ])),
+        "sources": sources,
+        "rejected_sources": rejected,
+        "coverage": {
+            "requested_queries": len(list(dict.fromkeys([
+                *list(original.get("queries") or []),
+                *list(addition.get("queries") or []),
+            ]))),
+            "completed_queries": sum(
+                int(((package.get("receipt") or {}).get("query_count") or 0))
+                for package in (original, addition)
+            ),
+            "has_admitted_sources": bool(sources),
+            "stages": ["outline", "knowledge_gap"],
+        },
+        "errors": [{"code": code} for code in errors],
+        "retrieved_at": str(addition.get("retrieved_at") or original.get("retrieved_at") or ""),
+        "revision": revision,
+        "stage_receipts": {
+            "outline": deepcopy(original.get("receipt") or {}),
+            "knowledge_gap": deepcopy(addition.get("receipt") or {}),
+        },
+    }
+    tier_distribution = {"tier_a": 0, "tier_b": 0, "tier_c": len(rejected)}
+    for source in sources:
+        tier = str(source.get("trust_tier") or "tier_c")
+        tier_distribution[tier] = tier_distribution.get(tier, 0) + 1
+    merged["receipt"] = {
+        "schema_version": "retrieval_receipt_v1",
+        "status": merged["status"],
+        "query_count": len(merged["queries"]),
+        "source_count": len(sources),
+        "admitted_count": len(sources),
+        "tier_distribution": tier_distribution,
+        "error_codes": errors,
+        "duration_ms": sum(
+            int(((package.get("receipt") or {}).get("duration_ms") or 0))
+            for package in (original, addition)
+        ),
+        "package_revision": revision,
+        "cache_hit_count": sum(
+            int(((package.get("receipt") or {}).get("cache_hit_count") or 0))
+            for package in (original, addition)
+        ),
+    }
+    hash_input = dict(merged)
+    merged["package_hash"] = hashlib.sha256(
+        json.dumps(
+            hash_input,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return merged
 
 
 def build_outline_research_instruction(
@@ -305,6 +482,9 @@ def _single_line(value: str, limit: int) -> str:
 __all__ = [
     "build_course_retrieval_queries",
     "build_course_source_context",
+    "build_knowledge_gap_retrieval_queries",
+    "build_topic_retrieval_queries",
     "build_outline_research_instruction",
     "build_outline_research_proposal",
+    "merge_course_retrieval_packages",
 ]

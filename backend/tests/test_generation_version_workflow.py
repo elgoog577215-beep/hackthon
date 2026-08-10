@@ -561,17 +561,11 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
     await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "teaching"
-    teaching_review = manager.get_generation_review(job["course_id"])
-    assert teaching_review["step"] == "teaching"
-    assert teaching_review["can_confirm"] is True
-
-    await manager.confirm_generation_step(job["course_id"], "teaching")
-    assert await manager._task_queue.get() == job["job_id"]
-    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
-    task = manager.tasks[job["job_id"]]
-    assert task["status"] == "waiting_for_review"
     assert task["guided_workflow"]["review_step"] == "release"
+    assert next(
+        step for step in task["guided_workflow"]["steps"]
+        if step["key"] == "teaching"
+    )["status"] == "confirmed"
     assert next(
         step for step in task["guided_workflow"]["steps"]
         if step["key"] == "content"
@@ -621,12 +615,6 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
         "_quality_allows_publication",
         lambda _course, _report: True,
     )
-    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
-    task = manager.tasks[job["job_id"]]
-    assert task["status"] == "waiting_for_review"
-    assert task["guided_workflow"]["review_step"] == "teaching"
-    await manager.confirm_generation_step(job["course_id"], "teaching")
-    assert await manager._task_queue.get() == job["job_id"]
     await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
     task = manager.tasks[job["job_id"]]
     assert task["status"] == "waiting_for_review"

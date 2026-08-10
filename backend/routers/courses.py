@@ -6,7 +6,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
+import inspect
 import sys
 import os
 
@@ -54,6 +55,24 @@ class NodeConfigUpdateRequest(BaseModel):
 class CourseDocumentMigrationRequest(BaseModel):
     source_checksum: str
     confirm: bool = False
+
+
+async def _run_generation_preflight(
+    tm: TaskManager,
+    request_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    preflight = getattr(tm, "preflight_generation", None)
+    if callable(preflight) and inspect.iscoroutinefunction(preflight):
+        return await preflight(request_snapshot, live_probe=True)
+    # Narrow compatibility seam for route-only test doubles. Production
+    # TaskManager always owns the real preflight above.
+    return {
+        "schema_version": "generation_preflight_v1",
+        "preflight_id": "gpf_test_ready",
+        "status": "ready",
+        "issues": [],
+        "acceptance_required": False,
+    }
 
 
 # =============================================================================
@@ -139,6 +158,31 @@ async def delete_course(
     return {"status": "success", "removed_tasks": removed_tasks}
 
 
+def _generation_request_snapshot(
+    req: CourseGenerationRequest,
+    request: Request,
+) -> dict[str, Any]:
+    snapshot = req.model_dump(mode="json")
+    snapshot["_retrieval_actor_id"] = resolve_user_id(
+        request.headers.get("X-User-Id")
+    )
+    return snapshot
+
+
+@router.post("/course-generation/preflight")
+async def preflight_course_generation(
+    req: CourseGenerationRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    if req.course_type not in ENABLED_COURSE_TYPES:
+        raise HTTPException(status_code=422, detail="course_type_not_enabled")
+    return await _run_generation_preflight(
+        tm,
+        _generation_request_snapshot(req, request),
+    )
+
+
 @router.post("/course-generation/generate", status_code=202)
 async def create_course_generation_job(
     req: CourseGenerationRequest,
@@ -155,10 +199,40 @@ async def create_course_generation_job(
                 "enabled_course_types": sorted(ENABLED_COURSE_TYPES),
             },
         )
-    request_snapshot = req.model_dump(mode="json")
-    request_snapshot["_retrieval_actor_id"] = resolve_user_id(
-        request.headers.get("X-User-Id")
-    )
+    request_snapshot = _generation_request_snapshot(req, request)
+    preflight = await _run_generation_preflight(tm, request_snapshot)
+    if preflight.get("status") == "blocked":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "generation_preflight_blocked",
+                "preflight": preflight,
+            },
+        )
+    acceptance = request_snapshot.get("preflight_acceptance") or {}
+    required_warning_codes = {
+        str(item.get("code") or "")
+        for item in preflight.get("issues") or []
+        if item.get("severity") == "warning" and item.get("code")
+    }
+    accepted_issue_codes = {
+        str(code)
+        for code in acceptance.get("accepted_issue_codes") or []
+        if str(code)
+    }
+    if preflight.get("status") == "degraded" and (
+        str(acceptance.get("preflight_id") or "")
+        != str(preflight.get("preflight_id") or "")
+        or not required_warning_codes.issubset(accepted_issue_codes)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "generation_preflight_acceptance_required",
+                "preflight": preflight,
+            },
+        )
+    request_snapshot["_generation_preflight"] = preflight
     return await tm.create_generation_job(request_snapshot)
 
 

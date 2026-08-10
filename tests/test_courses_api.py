@@ -210,3 +210,97 @@ async def test_generate_course_rejects_blank_subject(client):
 
     assert resp.status_code == 422
     manager.create_generation_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generation_preflight_blocks_job_creation(client, monkeypatch):
+    import dependencies as deps_module
+
+    fake_manager = MagicMock()
+    fake_manager.tasks = {}
+    fake_manager.preflight_generation = AsyncMock(return_value={
+        "schema_version": "generation_preflight_v1",
+        "preflight_id": "gpf-blocked-123",
+        "status": "blocked",
+        "issues": [{"code": "provider_pool_unavailable", "severity": "blocking"}],
+        "acceptance_required": False,
+    })
+    fake_manager.create_generation_job = AsyncMock()
+    monkeypatch.setattr(deps_module, "_task_manager", fake_manager)
+
+    preflight = await client.post(
+        "/api/course-generation/preflight",
+        json={"subject": "完整课程"},
+        headers={"X-Forwarded-For": "198.51.100.21"},
+    )
+    generate = await client.post(
+        "/api/course-generation/generate",
+        json={"subject": "完整课程"},
+        headers={"X-Forwarded-For": "198.51.100.21"},
+    )
+
+    assert preflight.status_code == 200
+    assert preflight.json()["status"] == "blocked"
+    assert generate.status_code == 409
+    assert generate.json()["detail"]["code"] == "generation_preflight_blocked"
+    fake_manager.create_generation_job.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_degraded_preflight_requires_matching_acceptance(client, monkeypatch):
+    import dependencies as deps_module
+
+    projection = {
+        "schema_version": "generation_preflight_v1",
+        "preflight_id": "gpf-degraded-123",
+        "status": "degraded",
+        "issues": [{"code": "provider_redundancy_missing", "severity": "warning"}],
+        "acceptance_required": True,
+    }
+    fake_manager = MagicMock()
+    fake_manager.tasks = {}
+    fake_manager.preflight_generation = AsyncMock(return_value=projection)
+    fake_manager.create_generation_job = AsyncMock(return_value={
+        "job_id": "job-accepted",
+        "task_id": "job-accepted",
+        "course_id": "course-accepted",
+        "course_name": "完整课程",
+        "status": "pending",
+        "phase": "queued",
+    })
+    monkeypatch.setattr(deps_module, "_task_manager", fake_manager)
+
+    rejected = await client.post(
+        "/api/course-generation/generate",
+        json={"subject": "完整课程"},
+        headers={"X-Forwarded-For": "198.51.100.22"},
+    )
+    warning_not_accepted = await client.post(
+        "/api/course-generation/generate",
+        json={
+            "subject": "完整课程",
+            "preflight_acceptance": {
+                "preflight_id": "gpf-degraded-123",
+                "accepted_issue_codes": [],
+            },
+        },
+        headers={"X-Forwarded-For": "198.51.100.22"},
+    )
+    accepted = await client.post(
+        "/api/course-generation/generate",
+        json={
+            "subject": "完整课程",
+            "preflight_acceptance": {
+                "preflight_id": "gpf-degraded-123",
+                "accepted_issue_codes": ["provider_redundancy_missing"],
+            },
+        },
+        headers={"X-Forwarded-For": "198.51.100.22"},
+    )
+
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "generation_preflight_acceptance_required"
+    assert warning_not_accepted.status_code == 409
+    assert accepted.status_code == 202
+    snapshot = fake_manager.create_generation_job.await_args.args[0]
+    assert snapshot["_generation_preflight"]["preflight_id"] == "gpf-degraded-123"

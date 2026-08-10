@@ -273,6 +273,7 @@
       "outlineReady": "Waiting for outline confirmation",
       "outlineRebuildRequired": "Rebuilding the full course outline",
       "outlineConfirmed": "Outline confirmed",
+      "knowledgeGapRetrieval": "Adding sources for knowledge gaps",
       "courseTeachingPlan": "Planning and assembling all section lesson plans",
       "courseTeachingPlanSkeleton": "Freezing course-wide knowledge ownership",
       "courseTeachingPlanSkeletonValidation": "Validating course-wide knowledge ownership",
@@ -295,6 +296,7 @@
       "knowledgeConfirmed": "Legacy knowledge review migrated",
       "teachingReady": "Migrating a legacy lesson-plan review",
       "teachingConfirmed": "Legacy lesson-plan review migrated",
+      "teachingPlanConfirmed": "Lesson plan ready; continuing with course content",
       "blueprintGeneration": "Generating the course blueprint",
       "blueprintValidation": "Validating the course blueprint",
       "blueprintReady": "Waiting for blueprint review",
@@ -2050,6 +2052,7 @@
       "manualName": "Manual material.md",
       "retry": "Retry upload",
       "uploadFailed": "Material upload failed",
+      "parseFailed": "Material parsing failed. Try again",
       "unsupportedType": "Unsupported file type: {extension}",
       "tooLarge": "File is too large. Maximum size is {max} MB",
       "emptyFile": "This file is empty. Choose a file that contains content",
@@ -2064,8 +2067,45 @@
       "status": {
         "pending": "Waiting to upload",
         "uploading": "Uploading",
+        "parsing": "Parsing",
         "uploaded": "Uploaded",
         "error": "Upload failed"
+      },
+      "quality": {
+        "blocks": "content blocks",
+        "located": "Source locations",
+        "pages": "pages",
+        "slides": "slides",
+        "tables": "tables",
+        "formulas": "formulas",
+        "preview": "Parse preview",
+        "missingCapabilities": "Needs review",
+        "status": {
+          "ready": "Ready as course evidence",
+          "needs_review": "Review parsing result",
+          "failed": "Not usable as course evidence"
+        },
+        "summary": {
+          "ready": "The parsed structure and source locations can support course facts.",
+          "needs_review": "Usable as a teaching reference; verify critical facts against the original file.",
+          "failed": "No usable evidence was produced. Upload a readable version."
+        },
+        "capability": {
+          "reading_order": "Reading order",
+          "page_or_slide_locator": "Page or slide locations",
+          "layout": "Layout structure",
+          "speaker_notes": "Speaker notes",
+          "table_structure": "Table structure",
+          "formula_structure": "Formula structure",
+          "image_caption_binding": "Image and caption links"
+        },
+        "issue": {
+          "no_usable_content": "No usable course-generation content was extracted.",
+          "fallback_text_only": "Only fallback text extraction completed; layout and source locations may be missing.",
+          "ocr_semantics_limited": "The scanned PDF was OCRed page by page, but tables, formulas, and image relationships need review.",
+          "low_ocr_confidence": "Average OCR confidence is low; verify facts and questions against the original page.",
+          "parser_reported_warnings": "The parser reported degradation that needs attention."
+        }
       },
       "parseStatus": {
         "parsed": "Parsed",
@@ -2155,7 +2195,34 @@
       "reviewBlueprint": "Review blueprint",
       "start": "Start generation",
       "confirmRequirements": "Confirm requirements and build outline",
-      "submitting": "Submitting"
+      "submitting": "Checking",
+      "acceptPreflight": "Accept risks and continue",
+      "retryPreflight": "Check generation readiness again"
+    },
+    "preflight": {
+      "readyTitle": "Generation is ready",
+      "degradedTitle": "Generation can continue with risks",
+      "blockedTitle": "Generation cannot start yet",
+      "readySummary": "Models, materials, and retrieval capabilities have been checked.",
+      "degradedSummary": "Completed work will be preserved. Confirm the risks below to continue.",
+      "blockedSummary": "Resolve the blockers before creating a long task.",
+      "provider": "Model route",
+      "materials": "Readable materials",
+      "concurrency": "Suggested concurrency",
+      "sections": "sections",
+      "failed": "Generation preflight failed. Try again shortly",
+      "route": {"primary": "Primary model", "fallback": "Backup model", "none": "Unavailable"},
+      "issue": {
+        "provider_pool_unavailable": {"message": "Both the primary and backup model routes are unavailable.", "action": "Check credentials, model IDs, quota, and provider health, then retry."},
+        "provider_redundancy_missing": {"message": "Only one model route is available, increasing recovery risk for a long course.", "action": "You can continue, but configure an independent backup provider when possible."},
+        "provider_live_probe_failed": {"message": "The model route failed the minimal generation probe, so the long task will not start.", "action": "Check provider health and quota, then retry."},
+        "material_missing": {"message": "A referenced material is missing or expired.", "action": "Remove it and upload the file again."},
+        "material_source_unreadable": {"message": "A material source file cannot be read.", "action": "Remove it and upload a readable copy."},
+        "material_parse_failed": {"message": "A material did not produce usable content.", "action": "Upload a readable version or make it optional."},
+        "material_parse_degraded": {"message": "A material only completed fallback parsing.", "action": "Review the preview and confirm that missing capabilities do not affect the course."},
+        "retrieval_not_enabled": {"message": "Course web research is not enabled for this account.", "action": "Turn web research off or ask an administrator to enable it."},
+        "retrieval_not_configured": {"message": "Web research is enabled, but no search provider is configured.", "action": "Turn web research off or configure the search provider first."}
+      }
     },
     "messages": {
       "topicRequired": "Enter a course topic.",
@@ -2178,6 +2245,7 @@
       "outline_generation": "Generating a lightweight course outline",
       "outline_validation": "Validating the course outline",
       "outline_ready": "Awaiting course outline confirmation",
+      "knowledge_gap_retrieval": "Adding sources for knowledge gaps",
       "course_teaching_plan": "Planning and assembling all section lesson plans",
       "course_teaching_plan_skeleton": "Freezing course-wide knowledge ownership",
       "course_teaching_plan_skeleton_validation": "Validating course-wide knowledge ownership",
@@ -2197,6 +2265,7 @@
       "course_graph_validation": "Validating a legacy graph",
       "knowledge_mapping": "Compiling course-wide knowledge relations",
       "course_knowledge_blueprint": "Compiling course-wide knowledge relations",
+      "teaching_plan_confirmed": "Lesson plan ready; continuing with course content",
       "blueprint_generation": "Generating course blueprint",
       "blueprint_validation": "Validating course blueprint",
       "blueprint_ready": "Awaiting blueprint confirmation",
