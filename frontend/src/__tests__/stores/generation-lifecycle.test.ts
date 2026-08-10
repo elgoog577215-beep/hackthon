@@ -1,3 +1,4 @@
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElMessage } from 'element-plus'
@@ -626,5 +627,90 @@ describe('course generation lifecycle reconciliation', () => {
     expect(node.error_code).toBe('provider_rate_limited')
     expect(node.error_retryable).toBe(true)
     expect(node.error_summary).toBe('RateLimitError: 429 too_many_requests')
+  })
+})
+
+describe('L3b 真实渲染校验接进发布链路', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
+  it('节点定稿后对正文实跑渲染，并把结果回报后端', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-x'
+    courses.nodes = [{
+      node_id: 'L2-1-1', parent_node_id: 'root', node_name: '波函数', node_level: 2,
+      node_content: '', node_type: 'original', generation_status: 'generating',
+      generated_chars: 0,
+    }] as any
+    generation.createTask('job-x', 'course-x', '量子力学')
+    const post = vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'recorded' } })
+
+    generation.handleWSMessage({
+      type: 'node_finalized',
+      course_id: 'course-x',
+      task_id: 'job-x',
+      payload: { node_id: 'L2-1-1', node_content: '坏公式 $\\frac{}{$ 收尾' },
+    } as any)
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledTimes(1)
+    const [url, body] = post.mock.calls[0]!
+    expect(url).toBe('/api/courses/course-x/nodes/L2-1-1/render-diagnostics')
+    expect((body as any).math_failure_count).toBeGreaterThan(0)
+  })
+
+  it('正文渲染正常时也回报，让修好的节点能清掉旧问题', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-y'
+    courses.nodes = [{
+      node_id: 'L2-2-1', parent_node_id: 'root', node_name: '正常节', node_level: 2,
+      node_content: '', node_type: 'original', generation_status: 'generating',
+      generated_chars: 0,
+    }] as any
+    generation.createTask('job-y', 'course-y', '量子力学')
+    const post = vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'recorded' } })
+
+    generation.handleWSMessage({
+      type: 'node_finalized',
+      course_id: 'course-y',
+      task_id: 'job-y',
+      payload: { node_id: 'L2-2-1', node_content: '正常公式 $x^2 + y^2 = z^2$ 结束' },
+    } as any)
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledTimes(1)
+    expect((post.mock.calls[0]![1] as any)).toEqual({
+      math_failure_count: 0,
+      block_failure_count: 0,
+    })
+  })
+
+  it('回报失败不能影响生成流程', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-z'
+    courses.nodes = [{
+      node_id: 'L2-3-1', parent_node_id: 'root', node_name: '节点', node_level: 2,
+      node_content: '', node_type: 'original', generation_status: 'generating',
+      generated_chars: 0,
+    }] as any
+    generation.createTask('job-z', 'course-z', '量子力学')
+    vi.spyOn(http, 'post').mockRejectedValue(new Error('404 no active task'))
+
+    expect(() => generation.handleWSMessage({
+      type: 'node_finalized',
+      course_id: 'course-z',
+      task_id: 'job-z',
+      payload: { node_id: 'L2-3-1', node_content: '内容 $x$' },
+    } as any)).not.toThrow()
+    await flushPromises()
+
+    // The node still finalizes normally.
+    expect((courses.nodes[0] as any).generation_status).toBe('completed')
   })
 })

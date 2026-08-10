@@ -8330,6 +8330,51 @@ class TaskManager:
                 },
             )
 
+    async def record_node_render_diagnostics(
+        self,
+        task_id: str,
+        node_id: str,
+        diagnostics: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Store what the browser actually saw when it rendered this node.
+
+        The backend gate is pure string matching and cannot run KaTeX, so
+        without this channel a formula the renderer refuses to draw is
+        indistinguishable from one that renders fine. The frontend validates
+        with the real renderer and posts the counts here; the stored value is
+        then fed to ``evaluate_node_content`` so a render failure becomes a
+        blocking issue instead of a silent degradation.
+
+        Re-validating the same node overwrites the previous record: the newest
+        render is the truth, and a fixed node must be able to clear its issues.
+        """
+        math_failures = max(0, int(diagnostics.get("math_failure_count") or 0))
+        block_failures = max(0, int(diagnostics.get("block_failure_count") or 0))
+        stored = {
+            "math_failure_count": math_failures,
+            "block_failure_count": block_failures,
+            "reported_at": datetime.now().isoformat(),
+        }
+
+        def update(course_data: dict[str, Any]) -> dict[str, Any]:
+            for node in course_data.get("nodes", []):
+                if str(node.get("node_id") or "") != node_id:
+                    continue
+                node["render_diagnostics"] = deepcopy(stored)
+                # Re-score immediately so the node's own quality reflects the
+                # render verdict without waiting for the next generation pass.
+                node["generation_quality"] = evaluate_node_content(
+                    str(node.get("node_content") or ""),
+                    node,
+                    render_diagnostics=stored,
+                )
+                break
+            return course_data
+
+        await self._mutate_task_course(task_id, update)
+        await self._push_progress(task_id)
+        return stored
+
     async def _set_node_status(
         self,
         task_id: str,
