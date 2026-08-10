@@ -461,6 +461,16 @@ _DEFAULT_FORM_BY_INPUT_MODE: dict[str, str] = {
 }
 
 
+def _node_of(
+    course_data: dict[str, Any],
+    node_id: str,
+) -> dict[str, Any] | None:
+    for node in (course_data or {}).get("nodes") or []:
+        if isinstance(node, dict) and str(node.get("node_id") or "") == str(node_id):
+            return node
+    return None
+
+
 def resolve_slot_question_form(
     course_data: dict[str, Any],
     *,
@@ -484,6 +494,19 @@ def resolve_slot_question_form(
     candidates = _FORMS_BY_INPUT_MODE.get(str(input_mode or ""))
     if not candidates:
         return default_form
+
+    # 小节可以显式指定作答形态，优先于 H2 推荐。
+    #
+    # 需要这条是因为 H2 的推荐表里**没有任何知识点类型把 multiple_choice 排在
+    # 第一位**（rule 排第三，其余更靠后），于是纯按推荐顺序永远选不出多选。
+    # 与其为了凑出多选去改 H2 的教研判断表（那是把工具改成迎合结论），
+    # 不如给一个显式入口：教师/教研明确要多选时直接声明。
+    requested = str(
+        (_node_of(course_data, node_id) or {}).get("preferred_question_form")
+        or ""
+    )
+    if requested in candidates:
+        return requested
 
     # 局部导入：question_knowledge_binding 只读知识库，但 blueprint 是被广泛
     # import 的底层模块，顶层引入会把依赖方向倒过来。
@@ -572,6 +595,10 @@ def input_contract_for_slot(
         # input_mode 分支，新增成员的影响面远大于收益。question_forms 已能从
         # 「short_text + blanks」判出 fill_blank，走这条路。
         contract["blanks"] = []
+        # 仍给一个作答字段：填空的空位在题面里，但作答载体要有地方落。
+        contract["fields"] = [
+            _field("blanks", "structured", "各空作答", True),
+        ]
     elif mode == "numeric_unit":
         contract["fields"] = [
             _field("value", "number", "数值", True),

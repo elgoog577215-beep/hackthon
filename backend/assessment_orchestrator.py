@@ -2935,9 +2935,14 @@ class AssessmentGenerationOrchestrator:
             # False——求解器把同一组答案换个顺序写出来就判不一致，约一半多选候选
             # 会因此被误判。判分侧 practice_grading._grade_typed 早就排序了，
             # 生成侧一直没有。这里复用判分侧同一套 id 归一，不各写一份。
-            if _is_multi_answer_choice(contract):
-                canonical = sorted(canonical_option_ids(canonical))
-                solved = sorted(canonical_option_ids(solved))
+            if _is_choice_contract(contract):
+                options = (
+                    (contract.get("question_spec") or {}).get("options") or []
+                )
+                canonical = sorted(
+                    _resolve_option_ids(canonical, options)
+                )
+                solved = sorted(_resolve_option_ids(solved, options))
             validation = validate_candidate_answer(
                 validation_mode,
                 canonical,
@@ -4149,6 +4154,47 @@ def _compact_batch_generation_context(
             if isinstance(reference, dict)
         ]
     return compact
+
+
+def _resolve_option_ids(value: Any, options: list[Any]) -> set[str]:
+    """把答案归一成 option id 集合，允许答案写的是选项文本。
+
+    独立求解器经常直接回答选项文本而不是 id——判断题尤其明显，模型会回
+    「正确」而不是「A」。改动前这会让 answers_equivalent 判不一致，四轮修复
+    全废最后 discard；真机实测判断题正是这样连续失败的。
+
+    这不是放宽判定：只有当答案与某个选项的**文本完全一致**时才映射到该选项，
+    对不上的原样保留，仍会判不一致。
+    """
+    ids = canonical_option_ids(value)
+    by_text: dict[str, str] = {}
+    known_ids: set[str] = set()
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        option_id = str(option.get("id") or "").strip()
+        if not option_id:
+            continue
+        known_ids.add(option_id)
+        text = str(option.get("text") or "").strip().casefold()
+        if text:
+            by_text[text] = option_id
+    resolved: set[str] = set()
+    for item in ids:
+        if item in known_ids:
+            resolved.add(item)
+            continue
+        mapped = by_text.get(item.strip().casefold())
+        resolved.add(mapped if mapped else item)
+    return resolved
+
+
+def _is_choice_contract(contract: dict[str, Any]) -> bool:
+    spec = contract.get("question_spec") or {}
+    input_contract = (
+        spec.get("input_contract") or contract.get("input_contract") or {}
+    )
+    return str(input_contract.get("mode") or "") == "choice"
 
 
 def _is_multi_answer_choice(contract: dict[str, Any]) -> bool:

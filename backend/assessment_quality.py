@@ -557,6 +557,11 @@ def _valid_input_contract(value: Any) -> bool:
         return False
     if mode == "choice":
         return True
+    # 填空题的作答单元是空位而不是字段：合同带 blanks 即为有效。
+    # 不认这一条的话，声明为填空的槽位会在硬门上以 INPUT_CONTRACT_MISMATCH
+    # 反复失败——真机第一次跑就是这样，四轮全废最后 discard。
+    if isinstance(value.get("blanks"), list):
+        return True
     fields = value.get("fields")
     return isinstance(fields, list) and bool(fields)
 

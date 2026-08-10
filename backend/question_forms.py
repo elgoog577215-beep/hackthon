@@ -86,6 +86,19 @@ def classify_question_form(item: dict[str, Any]) -> str:
         return "fill_blank"
 
     if mode == "choice" or options:
+        # 先认合同声明的 selection。
+        #
+        # V2 题的 answer_spec 在落库时被显式置空（私有答案存在
+        # solution_envelopes 里），只看答案就永远判不出多选——真机实测一道
+        # 合同已声明 multiple=True 的题被分类成 single_choice。
+        selection = input_contract.get("selection") if isinstance(
+            input_contract, dict
+        ) else None
+        if isinstance(selection, dict):
+            if selection.get("multiple"):
+                return "multiple_choice"
+            if selection.get("true_false"):
+                return "true_false"
         return _choice_form(options, answer_spec)
 
     if mode == "rich_text":
