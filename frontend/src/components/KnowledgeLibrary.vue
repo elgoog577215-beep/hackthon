@@ -868,6 +868,10 @@ function descriptionFallback(_node: KnowledgeNode): string {
 
 function sourceLabel(source: string): string {
   if (source === 'course_path') return t('knowledgeLibrary.sourceCoursePath', '课程路径投影')
+  // material_grounded 与 course_generated 必须显示成不同的话：教师要据此判断
+  // 这条知识是有资料依据的，还是模型凭通用知识写的。
+  if (source === 'material_grounded') return t('knowledgeLibrary.sourceMaterial', '资料来源')
+  if (source === 'course_generated') return t('knowledgeLibrary.sourceModel', '模型推断')
   return t('knowledgeLibrary.sourceCourse', '当前课程知识库')
 }
 

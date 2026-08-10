@@ -242,6 +242,32 @@ describe('Course knowledge library', () => {
     expect(scrollSpy).toHaveBeenCalledWith('L2-1-1')
   })
 
+  it('区分"有资料依据"与"模型生成"两种来源，而不是都写成当前课程知识库', async () => {
+    // 后端把 source_status 改成按 source_refs 实际计算后，两种状态必须在界面上
+    // 读起来不一样 —— 否则教师看不出哪条知识没有资料支撑。
+    const [grounded, generated] = ['material_grounded', 'course_generated']
+    const patched = {
+      ...libraryView,
+      nodes: libraryView.nodes.map(item => item.node_type === 'knowledge_point'
+        ? { ...item, source_status: item.sort_order === 0 ? grounded : generated }
+        : item),
+    }
+    httpMock.get.mockResolvedValue({
+      data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
+    })
+    const { wrapper } = await mountLibrary()
+    const points = wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')
+
+    await points[0].trigger('click')
+    const first = wrapper.get('.knowledge-tree-detail-footer').text()
+    await points[1].trigger('click')
+    const second = wrapper.get('.knowledge-tree-detail-footer').text()
+
+    expect(first).toContain('资料来源')
+    expect(second).toContain('模型推断')
+    expect(first).not.toBe(second)
+  })
+
   it('从教案知识标签打开时直接定位对应原子知识', async () => {
     const { wrapper, courseStore } = await mountLibrary(
       'linear-combination-definition',

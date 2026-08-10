@@ -1,5 +1,11 @@
 export type KnowledgeNodeType = 'course' | 'chapter' | 'section' | 'concept_group' | 'knowledge_point'
 
+/**
+ * 知识记录的来源状态。只有两个值：当前流水线的 evidence_id 全部由上传文档派生，
+ * 没有联网检索来源，所以不声明一个永远不会出现的 web_grounded。
+ */
+export type KnowledgeSourceStatus = 'material_grounded' | 'course_generated'
+
 export interface KnowledgeNode {
   knowledge_id: string
   code: string
@@ -30,7 +36,10 @@ export interface KnowledgeNode {
   counterexamples?: string[]
   granularity_status?: string
   covered_by_course: boolean
-  source_status: string
+  /** 后端按 source_refs 实际计算：material_grounded 表示能追到上传资料，course_generated 表示模型依通用知识生成 */
+  source_status: KnowledgeSourceStatus | string
+  /** 可追溯的证据块 id；无资料依据时为空数组而非缺字段 */
+  source_refs: string[]
   status: string
   revision_id: string
 }

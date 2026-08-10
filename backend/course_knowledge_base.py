@@ -22,6 +22,13 @@ RELATION_TYPES = {
     "generalizes",
 }
 SYMMETRIC_RELATION_TYPES = {"equivalent_to", "contrasts_with"}
+
+# 知识记录的来源状态。只有两个值，因为当前流水线只有一种可追溯来源：
+# material_evidence.py 从上传文档切块派生 evidence_id，没有联网检索来源。
+# 与其留一个永远不会出现的 `web_grounded` 让教师以为系统会查资料，不如只报
+# 能证明的两种情况。新增来源渠道时再扩这个词表。
+SOURCE_STATUS_MATERIAL = "material_grounded"
+SOURCE_STATUS_GENERATED = "course_generated"
 KNOWLEDGE_TYPES = {
     "definition",
     "principle",
@@ -1113,7 +1120,8 @@ def build_course_knowledge_library_view(
             "mastery_criterion_ids": [],
             "improvement_ids": [],
             "covered_by_course": True,
-            "source_status": "course_source",
+            "source_status": _source_status(group),
+            "source_refs": deepcopy(group.get("source_refs") or []),
             "status": group.get("status", "active"),
             "revision_id": group.get("revision_id"),
         })
@@ -1147,7 +1155,8 @@ def build_course_knowledge_library_view(
             "aliases": deepcopy(point.get("aliases") or []),
             "learning_actions": _unique(skill_behaviors.get(point_id, [])),
             "typical_problems": [],
-            "source_status": "course_source",
+            "source_status": _source_status(point),
+            "source_refs": deepcopy(point.get("source_refs") or []),
             "status": point.get("status", "active"),
             "revision_id": point.get("revision_id"),
             "identity_scope": "course_local",
@@ -1182,7 +1191,8 @@ def build_course_knowledge_library_view(
         "observable_behaviors": [item.get("observable_behavior")],
         "primary_knowledge_id": item.get("primary_knowledge_id"),
         "knowledge_ids": _unique([item.get("primary_knowledge_id"), *(item.get("supporting_knowledge_ids") or [])]),
-        "source_status": "course_source",
+        "source_status": _source_status(item),
+        "source_refs": deepcopy(item.get("source_refs") or []),
     } for item in knowledge_base.get("skill_units") or []]
     mistake_view = [{
         "mistake_point_id": item.get("misconception_id"),
@@ -1192,7 +1202,8 @@ def build_course_knowledge_library_view(
         "discrimination": item.get("discrimination"),
         "repair_strategy": item.get("repair_strategy"),
         "knowledge_ids": _unique([item.get("primary_knowledge_id"), *(item.get("related_knowledge_ids") or [])]),
-        "source_status": "course_source",
+        "source_status": _source_status(item),
+        "source_refs": deepcopy(item.get("source_refs") or []),
     } for item in knowledge_base.get("misconceptions") or []]
 
     quality = deepcopy(knowledge_base.get("quality_report") or {})
@@ -1244,7 +1255,9 @@ def build_course_knowledge_library_view(
         "origin": "course_and_domain_generated",
         "quality_report": public_quality,
         "generation_audit": deepcopy(knowledge_base.get("generation_audit") or {}),
-        "source_summary": {"course_source": published_point_count},
+        "source_summary": _source_summary(
+            knowledge_base.get("knowledge_points") or [] if publishable else [],
+        ),
     }
     payload["asset_id"] = stable_hash(
         {"knowledge_base": knowledge_base.get("revision_id"), "course_map": course_map.get("revision_id")},
@@ -1887,6 +1900,37 @@ def _view_path_node(
         "status": "active",
         "revision_id": stable_hash({"id": knowledge_id, "name": name}, prefix="ckpathr_"),
     }
+
+
+def _source_status(record: dict[str, Any]) -> str:
+    """如实报告一条知识记录有没有可追溯的资料依据。
+
+    判据就是记录自己的 `source_refs`：编译期它由 `_section_evidence_refs` 从
+    小节的 `evidence_refs` 与 `grounding_contract` 派生，所以有值意味着确实能
+    追到上传资料里的具体证据块。之前这里对四类记录一律写死 `course_source`，
+    教师界面上"有资料依据"与"模型凭通用知识写的"完全无法区分，来源落地率恒为
+    0 却没人看得见。
+    """
+    return (
+        SOURCE_STATUS_MATERIAL
+        if [ref for ref in record.get("source_refs") or [] if str(ref).strip()]
+        else SOURCE_STATUS_GENERATED
+    )
+
+
+def _source_summary(points: list[Any]) -> dict[str, int]:
+    """按实际来源状态分桶计数，只列出真正出现的桶。
+
+    汇总是教师看"这门课有多少知识点真有资料依据"的唯一入口；原来它直接写成
+    `{"course_source": 总数}`，所以无论有没有证据都长得一样。
+    """
+    summary: dict[str, int] = {}
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        status = _source_status(point)
+        summary[status] = summary.get(status, 0) + 1
+    return summary
 
 
 def _view_path(nodes: list[dict[str, Any]], node_id: str) -> tuple[list[str], list[str]]:
