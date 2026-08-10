@@ -713,6 +713,26 @@ def _code_candidates(text: str) -> list[str]:
     return fenced or [text.strip()]
 
 
+def _prose_source_text(block: CourseBlock) -> str:
+    text = block_source_text(block)
+    without_code = re.sub(
+        r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n.*?```",
+        "",
+        text,
+        flags=re.DOTALL,
+    )
+    prose_lines = [
+        line
+        for line in without_code.splitlines()
+        if not re.match(r"^\s*\|.*\|\s*$", line)
+        and not re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", line)
+    ]
+    prose = "\n".join(prose_lines).strip()
+    if prose == text.strip() and block.kind in {"code", "table"}:
+        return ""
+    return prose
+
+
 def _bounded_code_content(
     blocks: list[CourseBlock],
     *,
@@ -774,11 +794,15 @@ def _bounded_slot_content(
             max_chars=max_chars,
             max_lines=max_lines,
         )
-    texts = [
-        block_source_text(block)
-        for block in blocks
-        if block_source_text(block)
-    ]
+    texts = []
+    for block in blocks:
+        text = (
+            _prose_source_text(block)
+            if slot_kind not in {"formula", "table", "visual"}
+            else block_source_text(block)
+        )
+        if text:
+            texts.append(text)
     if not texts:
         return ""
     capacity = max_chars or 520
@@ -1022,6 +1046,17 @@ def _materialize_template_regions(
             remaining = [block for block in remaining if block not in matches]
 
     text_slots = [slot for slot in content_slots if slot.slot_id not in assigned]
+    reusable_artifact_blocks = [
+        block
+        for slot_blocks in assigned.values()
+        for block in slot_blocks
+        if block not in remaining and _prose_source_text(block)
+    ]
+    remaining.extend(
+        block
+        for block in reusable_artifact_blocks
+        if block not in remaining
+    )
     for index, slot in enumerate(text_slots):
         if not remaining:
             break

@@ -636,6 +636,80 @@ def test_code_overflow_uses_a_source_excerpt_and_keeps_full_code_in_notes() -> N
     )
 
 
+def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -> None:
+    source = (
+        "Explain why the guard must run before the action.\n\n"
+        "```python\n"
+        "def execute(value):\n"
+        "    if value is None:\n"
+        "        return False\n"
+        "    return True\n"
+        "```"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-code-explanation",
+        title="Guarded execution",
+        sections=[CourseSection(
+            section_id="section",
+            title="Explain and execute",
+            position=0,
+        )],
+        blocks=[_block(
+            "explained-code",
+            "section",
+            0,
+            role="reasoning",
+            text=source,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="explained-code-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-code"),
+        title="guard must run",
+        summary="",
+        source_block_ids=["explained-code"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="code",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    regions = {region.slot_id: region for region in deck.pages[0].regions}
+    assert "def execute(value):" in regions["code"].content
+    assert "Explain why the guard" not in regions["code"].content
+    assert regions["annotation"].content == (
+        "Explain why the guard must run before the action."
+    )
+    assert "def execute(value):" not in regions["annotation"].content
+    assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
+
+
 def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> None:
     header = "| Habitat | Observation |\n|---|---|"
     rows = "\n".join(f"| Zone {index} | Record {index} |" for index in range(17))
