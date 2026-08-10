@@ -48,6 +48,7 @@ describe('SlideDeckWorkbench', () => {
         building: true,
         progress: 46,
         stage: 'slide_build',
+        buildStepIndex: 6,
         error: '',
         quality: null,
         standalone: true,
@@ -94,6 +95,7 @@ describe('SlideDeckWorkbench', () => {
     await wrapper.setProps({
       progress: 97,
       stage: 'image_search',
+      buildStepIndex: 8,
       buildDetail: {
         event: 'image_search',
         completed: 2,
@@ -103,15 +105,18 @@ describe('SlideDeckWorkbench', () => {
     })
     expect(panel.text()).toContain('正在检索并核验教学图片')
     expect(panel.text()).toContain('正在为「向量的几何意义」查找可用教学图片')
-    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(7)
-    expect(taskList.text()).toContain('识别需要配图的页面')
-    expect(taskList.text()).toContain('检索并去重候选图片')
-    expect(taskList.text()).toContain('核验图片来源并修复缺口')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(8)
+    expect(taskList.text()).toContain('检查知识点与目标覆盖')
+    expect(taskList.text()).toContain('检查文字密度和可读性')
+    expect(taskList.text()).toContain('修复问题页并重新质检')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(2)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
     expect(taskList.find('[data-current-activity]').text()).toContain('向量的几何意义')
 
     await wrapper.setProps({
       progress: 99,
       stage: 'render_repair',
+      buildStepIndex: 9,
       buildDetail: {
         event: 'render_repair',
         completed: 12,
