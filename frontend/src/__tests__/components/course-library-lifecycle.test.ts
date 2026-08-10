@@ -11,6 +11,7 @@ const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: '/courses', name: 'course-library', component: CourseLibraryView },
+    { path: '/teacher-course-space', name: 'teacher-course-space', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
 })
@@ -124,7 +125,8 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.library-actions .primary-button').trigger('click')
+    await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
+    await wrapper.get('[data-testid="create-blank-course"]').trigger('click')
     await wrapper.get('.generate-now').trigger('click')
     await flushPromises()
 
@@ -157,6 +159,11 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
     const input = wrapper.get('input[type="file"]')
+    const inputClick = vi.spyOn(input.element as HTMLInputElement, 'click')
+    await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
+    await wrapper.get('[data-testid="import-markdown-course"]').trigger('click')
+    expect(inputClick).toHaveBeenCalledOnce()
+
     const file = new File(['# 线性代数\n\n向量有大小和方向。'], 'linear.md', { type: 'text/markdown' })
     Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
 
@@ -168,6 +175,72 @@ describe('CourseLibraryView generation lifecycle', () => {
     const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
     expect(taskCenter.props('modelValue')).toBe(true)
     expect(taskCenter.props('courseId')).toBe('course-import-1')
+  })
+
+  it('将跨课程入口移入全局顶栏，并只在页面标题区保留新建课程菜单', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+    const task = generation.createTask('job-needs-attention', 'course-running', '进行中的课程')
+    task.status = 'running'
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.library-actions .task-center-button').exists()).toBe(false)
+    expect(wrapper.find('.library-actions .import-button').exists()).toBe(false)
+    expect(wrapper.find('.library-global-actions .task-center-button').exists()).toBe(true)
+    expect(wrapper.get('.library-global-actions .action-count').text()).toBe('1')
+    expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('false')
+
+    await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-testid="create-blank-course"]').text()).toContain('新建空白课程')
+    expect(wrapper.get('[data-testid="import-markdown-course"]').text()).toContain('导入 Markdown')
+
+    await wrapper.get('.library-global-actions .task-center-button').trigger('click')
+    expect(wrapper.getComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(true)
+  })
+
+  it('从全局顶栏进入教师文件空间', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-teacher-course-space"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('teacher-course-space')
   })
 
   it('opens a published course directly in the learning workspace', async () => {
