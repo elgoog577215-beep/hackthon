@@ -566,13 +566,19 @@ class CoursePromptComposer:
    掌握标准；易错点必须包含具体错误表现、判别方法与修复策略。
 3. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
    也不得修改骨架冻结的前置关系。
-4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
+4. `relation_type` 按语义从六类中选，不要一律写 `prerequisite`；缺必填字段的关系整条丢弃。
+   `prerequisite` 学习顺序依赖；`applies_to` source 是方法或原理、target 是应用对象；
+   `generalizes` source 是一般情形、target 是其特例；`equivalent_to` 同一实质不同表述（对称）；
+   `derives` target 可由 source 推出，必填 `derivation_steps`（有序关键步骤，不可为空）；
+   `contrasts_with` 两者易混需辨析（对称），必填 `distinction`（凭什么区分两者）。
+   本节教学上确实成立的前置之外关系都要给出，但不要为凑数编造。
+5. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
-5. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
+6. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
    评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
-6. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
+7. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
-7. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
+8. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
    课堂检查、作业或备注；这些字段必须与教学场景和总课时相容，未知内容可以省略，不能编造资料来源。
 
 ## JSON Schema
@@ -613,10 +619,19 @@ class CoursePromptComposer:
         }}
       ],
       "knowledge_relations": [{{
-        "source_key": "K001",
-        "target_key": "K002",
-        "relation_type": "prerequisite",
-        "reason": "具体语义理由"
+        "source_key": "K001", "target_key": "K002",
+        "relation_type": "prerequisite", "reason": "具体语义理由"
+      }}, {{
+        "source_key": "K002", "target_key": "K003",
+        "relation_type": "derives", "reason": "K003 由 K002 推出",
+        "derivation_steps": ["从 K002 出发", "代入成立条件", "整理得到 K003"]
+      }}, {{
+        "source_key": "K003", "target_key": "K004",
+        "relation_type": "contrasts_with", "reason": "两者常被混同",
+        "distinction": "K003 是瞬时变化率，K004 是累积总量"
+      }}, {{
+        "source_key": "K002", "target_key": "K005",
+        "relation_type": "applies_to", "reason": "K002 是解 K005 这类问题的方法"
       }}],
       "teaching_modules": [{{
         "module_id": "core_explanation",
