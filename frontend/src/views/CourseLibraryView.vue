@@ -1,7 +1,10 @@
 <template>
   <section
     class="course-library glass-panel-elevated"
-    :class="{ 'course-library--paginated': totalPages > 1 }"
+    :class="{
+      'course-library--paginated': totalPages > 1,
+      'course-library--empty': !courseStore.loading && !courseStore.courseList.length,
+    }"
   >
     <Teleport to="#app-header-route-actions">
       <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
@@ -30,9 +33,11 @@
 
     <header class="library-header">
       <div>
-        <p>{{ t('courseLibrary.eyebrow', '课程库') }}</p>
-        <h1>{{ t('courseLibrary.title', '选择一门课程继续学习') }}</h1>
-        <span>{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
+        <p v-if="courseStore.courseList.length">{{ t('courseLibrary.eyebrow', '课程库') }}</p>
+        <h1>{{ courseStore.courseList.length
+          ? t('courseLibrary.title', '选择一门课程继续学习')
+          : t('courseLibrary.eyebrow', '课程库') }}</h1>
+        <span v-if="courseStore.courseList.length">{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
       </div>
       <div class="library-actions">
         <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
@@ -100,7 +105,7 @@
       </span>
     </button>
 
-    <div class="library-toolbar">
+    <div v-if="courseStore.courseList.length || query" class="library-toolbar">
       <label>
         <Search :size="16" />
         <input v-model="query" type="search" :placeholder="t('courseLibrary.search', '搜索课程')" />
@@ -150,7 +155,7 @@
               aria-valuemin="0"
               aria-valuemax="100"
             >
-              <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
+              <span class="progress-track"><span :style="{ transform: `scaleX(${status.progress / 100})` }"></span></span>
             </span>
           </span>
         </button>
@@ -644,7 +649,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-status--warning .course-status__dot { background:#d97706; }
 .generation-progress { display:block; width:min(100%,360px); margin-top:12px; }
 .progress-track { display:block; height:4px; overflow:hidden; border-radius:999px; background:var(--lz-surface-muted); }
-.progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
+.progress-track > span { display:block; width:100%; height:100%; border-radius:inherit; background:var(--lz-brand); transform-origin:left center; }
 .course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
 .course-actions { position:relative; min-width:0; display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-end; padding:18px 20px; }
 .course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 4px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; cursor:pointer; }
@@ -676,6 +681,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 .pagination-dock-enter-active,.pagination-dock-leave-active { transition:opacity .16s ease,transform .16s ease; }
 .pagination-dock-enter-from,.pagination-dock-leave-to { opacity:0; transform:translate(-50%,8px); }
 .library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
+.course-library--empty .library-state { min-height:260px; }
 .library-state strong { color: var(--lz-text); font-size: 15px; }
 .library-state span { font-size: 12px; }
 .spin { animation: spin 1s linear infinite; }
@@ -694,6 +700,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .resume-card__icon { width:38px; height:38px; }
   .resume-card__action { grid-column:2; }
   .library-toolbar { margin-top:18px; }
+  .course-library--empty .library-state { min-height:230px; }
   .library-toolbar > span { display:none; }
   .course-item { min-height:150px; grid-template-columns:minmax(0,1fr) 116px; }
   .course-main { min-height:148px; grid-template-columns:44px minmax(0,1fr); gap:13px; padding:18px 8px 18px 18px; }
