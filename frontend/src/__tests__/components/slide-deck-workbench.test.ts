@@ -69,6 +69,7 @@ describe('SlideDeckWorkbench', () => {
     expect(panel.text()).toContain('向量的定义')
     expect(panel.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('46')
     expect(panel.findAll('[data-build-step]')).toHaveLength(10)
+    expect(panel.findAll('[data-step-description]')).toHaveLength(10)
     expect(panel.text()).toContain('设计教学主线')
     expect(panel.text()).toContain('编排章节场景')
     expect(panel.text()).toContain('规划页面结构')
@@ -79,6 +80,16 @@ describe('SlideDeckWorkbench', () => {
     expect(panel.text()).toContain('渲染与发布')
     expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(6)
     expect(panel.findAll('[data-build-step][data-state="active"]')).toHaveLength(1)
+    const taskList = panel.find('[data-testid="build-task-list"]')
+    expect(taskList.exists()).toBe(true)
+    expect(taskList.findAll('[data-build-task]')).toHaveLength(3)
+    expect(taskList.text()).toContain('读取当前页面计划')
+    expect(taskList.text()).toContain('生成页面内容与讲者备注')
+    expect(taskList.text()).toContain('写入并校验全部页面')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="pending"]')).toHaveLength(1)
+    expect(taskList.find('[data-current-activity]').text()).toContain('第 2 / 12 页 · 向量的定义')
 
     await wrapper.setProps({
       progress: 97,
@@ -93,6 +104,10 @@ describe('SlideDeckWorkbench', () => {
     expect(panel.text()).toContain('正在检索并核验教学图片')
     expect(panel.text()).toContain('正在为「向量的几何意义」查找可用教学图片')
     expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(7)
+    expect(taskList.text()).toContain('识别需要配图的页面')
+    expect(taskList.text()).toContain('检索并去重候选图片')
+    expect(taskList.text()).toContain('核验图片来源并修复缺口')
+    expect(taskList.find('[data-current-activity]').text()).toContain('向量的几何意义')
 
     await wrapper.setProps({
       progress: 99,
@@ -106,6 +121,11 @@ describe('SlideDeckWorkbench', () => {
     })
     expect(panel.text()).toContain('正在执行第 2 轮版式修复')
     expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(9)
+    expect(taskList.text()).toContain('渲染全部页面')
+    expect(taskList.text()).toContain('修复溢出、遮挡与错位')
+    expect(taskList.text()).toContain('发布可下载课件')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
 
     await wrapper.setProps({ building: false })
     expect(wrapper.find('[data-testid="slide-build-progress"]').exists()).toBe(false)
