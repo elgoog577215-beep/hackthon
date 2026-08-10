@@ -190,6 +190,13 @@ def attach_evidence_to_plan(
             if (binding_map.get(str(item.get("asset_id"))) or {}).get("usage_policy") == "must_use"
         ]
         optional = [item["evidence_id"] for item in selected if item["evidence_id"] not in required]
+        # 跨语种兜底：中文小节配英文资料（或反之）时词面重合恒为 0，
+        # 逐节证据契约会整体落空。仅在"确实是语种不同"时补一小批 optional，
+        # 绝不进 required —— required 是质量门（未被引用即判 major），
+        # 误入会造成假失败；optional 只是"允许引用"，不引用无代价。
+        if not selected:
+            fallback = _cross_language_fallback(query, factual)
+            optional = [item["evidence_id"] for item in fallback]
         questions = [
             item["evidence_id"] for item in selected if item.get("purpose") == "question_source" or item.get("kind") == "question"
         ]
@@ -356,6 +363,92 @@ def _relevance(query: str, item: dict[str, Any]) -> float:
     if item.get("purpose") == "question_source" and any(marker in query for marker in ("练习", "题", "应用", "验收")):
         score += 0.2
     return score
+
+
+# 跨语种兜底每节最多补的证据条数。刻意压得很小：这批证据无法用词面证明
+# 与本节相关，只是"允许引用"，多了会稀释真正相关的证据。
+CROSS_LANGUAGE_FALLBACK_LIMIT = 2
+
+
+# 联网资料落地时会加中文出处头（来源 URL / 抓取时间 / 可信度等）。
+# 那是元数据不是课程内容，却会被 _keywords 抽成中文词，
+# 让"英文资料"看起来像"中英混排"，进而误判为同语种。
+# 判断语种时剔除这些固定词面，元数据本身仍完整保留在
+# binding.source_metadata 与 Markdown 正文里，可追溯性不受影响。
+_PROVENANCE_MARKERS = (
+    "本文为联网检索得到的外部参考资料摘录",
+    "非平台原创内容",
+    "来源", "域名", "抓取时间", "可信度标记", "检索来源标识",
+    "发布时间", "许可信息", "复用策略", "摘录正文", "未知", "未标注",
+)
+
+
+def _strip_provenance(text: str) -> str:
+    for marker in _PROVENANCE_MARKERS:
+        text = text.replace(marker, " ")
+    return text
+
+
+def _script_profile(text: str) -> set[str]:
+    """粗判文本用的书写系统，用于识别"语种不同"而非"内容无关"。"""
+    profile: set[str] = set()
+    if re.search(r"[\u4e00-\u9fff]", text):
+        profile.add("cjk")
+    if re.search(r"[A-Za-z]", text):
+        profile.add("latin")
+    return profile
+
+
+def _cross_language_fallback(
+    query: str,
+    evidence: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """词面匹配为空时，仅在跨语种场景下补少量可引用证据。
+
+    为什么这不会引入误绑定：
+
+    1. **只在语种确实不同时触发**。同语种下"没有词面重合"是可信的
+       "不相关"信号，此时仍然一条都不补。只有小节文本与证据关键词
+       分属不同书写系统（无法用词面判断相关性）时才兜底。
+    2. **只进 optional，永不进 required**。required 是质量门——被列为
+       必用却未被正文引用会判 major 问题；optional 只扩大"允许引用"集合，
+       不引用没有任何代价，因此不会制造假失败，也不会逼模型硬凑引用。
+    3. **有上限**（每节 2 条），不会淹没真正相关的证据。
+    4. **范围本就属于本课程**：evidence 来自本课程 course_id 下的资料绑定，
+       不是全库检索，所以补进来的至少是"为这门课取回的资料"。
+    5. 联网资料本身还带 authority=secondary/context_only 与
+       reuse_policy=reference_only，即使被引用也标注为参考而非权威。
+    """
+    # 判据必须与 _relevance 实际比对的 token 一致：它只比 keywords，
+    # 不比 summary。落地的联网资料带中文出处头，summary 里混着中文，
+    # 若按 summary 判断会误认为"同语种"而不兜底。
+    query_scripts = _script_profile(" ".join(_keywords(query)))
+    if not query_scripts:
+        return []
+    # 小节的主体语种：有中文即以中文为主体（中文小节夹带公式/编号很常见）。
+    primary_script = "cjk" if "cjk" in query_scripts else "latin"
+    candidates: list[tuple[float, int, dict[str, Any]]] = []
+    for index, item in enumerate(evidence):
+        # 从原文（而非已切好的 n-gram 关键词）剥离出处头再判语种：
+        # keywords 里中文已被切成"本文/文为/为联"这类碎片，字符串替换去不掉。
+        item_scripts = _script_profile(_strip_provenance(
+            str(item.get("source_text") or item.get("summary") or "")
+        ))
+        if not item_scripts:
+            continue
+        # 判据：证据里是否含"小节主体语种"的内容。
+        # 不能用"两边脚本有交集就算同语种"——中文小节常夹带公式与编号
+        # （如 2x2、det(A)），会带上 latin，与纯英文证据被误判为同语种。
+        # 只有证据中**存在小节主体语种的内容**时，词面零重合才是可信的
+        # "不相关"信号；证据完全不含该语种时，词面无从比对，才兜底。
+        if primary_script in item_scripts:
+            continue
+        priority = {"core": 0, "supporting": 1}.get(str(item.get("priority") or ""), 2)
+        authority = {"primary": 0, "secondary": 1}.get(str(item.get("authority") or ""), 2)
+        # 排序稳定且与语言无关：优先级 -> 权威度 -> 原始顺序。
+        candidates.append((priority + authority / 10, index, item))
+    candidates.sort(key=lambda triple: (triple[0], triple[1]))
+    return [item for _, _, item in candidates[:CROSS_LANGUAGE_FALLBACK_LIMIT]]
 
 
 def _evidence_kind(text: str, block_kind: str) -> str:

@@ -2141,6 +2141,76 @@
         "prefer": "Prefer",
         "optional": "Optional",
         "styleOnly": "Style only"
+      },
+      "webSearch": {
+        "adopted": "{count} adopted",
+        "allowedDomains": "Allow only these domains",
+        "blockedDomains": "Block these domains",
+        "degraded": "No web materials were retrieved; using imported materials only",
+        "domainsPlaceholder": "One domain per line, e.g. edu.cn",
+        "exclude": "Exclude this",
+        "excludePending": "{count} excluded; takes effect on the next generation",
+        "excluded": "Excluded",
+        "fetchedAt": "Fetched at",
+        "fetchedAtValue": "Fetched at: {value}",
+        "gatewayError": {
+          "no_sources": "No usable sources found",
+          "not_configured": "Web retrieval is not configured",
+          "privacy_blocked": "Query contained personal data and was blocked",
+          "provider_error": "Web retrieval provider error",
+          "timeout": "Web retrieval timed out"
+        },
+        "ingestHint": "Web results are parsed alongside imported materials and keep their attribution. Turn off to cite them for this generation only, without storing them.",
+        "ingestLabel": "Add web materials to the course material library",
+        "label": "Web materials",
+        "maxResults": "Max adopted results",
+        "messageCode": {
+          "web_search_disabled": "Web search is off",
+          "web_search_ingest_skipped": "Teacher chose cite-only; web materials were not added to the library",
+          "web_search_no_queries": "No usable search queries; web search skipped",
+          "web_search_no_results": "Web search returned no usable results",
+          "web_search_not_configured": "Web search is not configured; using imported materials only",
+          "web_search_provider_failed": "Web search provider call failed; using imported materials only",
+          "web_search_ready": "Web materials are ready",
+          "web_search_unavailable": "Web search unavailable; fell back to imported materials only"
+        },
+        "none": "No web materials this time",
+        "openSource": "Open source",
+        "queries": "Search queries",
+        "queriesHint": "Queries are derived from your teaching brief and listed in the report",
+        "reason": {
+          "duplicate_content": "Duplicate of existing material",
+          "excluded_by_teacher": "Excluded by teacher",
+          "insufficient_text": "Too little body text",
+          "low_relevance": "Not relevant enough",
+          "missing_date_for_current_query": "Missing date for a time-sensitive query",
+          "missing_excerpt": "No excerpt",
+          "not_admitted": "Not admitted",
+          "prompt_injection": "Contains prompt injection",
+          "unsafe_url": "Unsafe URL"
+        },
+        "rejectedCount": "{count} excluded",
+        "restore": "Restore",
+        "reviewHint": "Confirm the source and fit before adopting. Citations keep their attribution and are not presented as original work.",
+        "reviewTitle": "Review web materials",
+        "sourceUrl": "Source URL",
+        "status": {
+          "disabled": "Off",
+          "ingest_skipped": "Cited only, not stored",
+          "no_queries": "No queries",
+          "no_results": "No results",
+          "provider_unavailable": "Provider unavailable",
+          "ready": "Ready",
+          "unavailable_not_configured": "Not configured"
+        },
+        "subtitle": "Supplement with public web pages; source and fetch time stay traceable",
+        "trust": "Trust",
+        "trustLevel": {
+          "high": "High",
+          "medium": "Medium",
+          "low": "Low"
+        },
+        "trustValue": "Trust: {value}"
       }
     },
     "grounding": {

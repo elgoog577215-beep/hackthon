@@ -1165,6 +1165,9 @@ class TaskManager:
             "web_question_enrichment": deepcopy(
                 request_snapshot.get("web_question_enrichment") or {"enabled": False}
             ),
+            "web_material_ingest": deepcopy(
+                request_snapshot.get("web_material_ingest") or {}
+            ),
         }
         workspace_created = False
         try:
@@ -5897,6 +5900,7 @@ class TaskManager:
                 course_purpose=str(request.get("course_purpose") or "systematic"),
                 asset_preferences=request.get("asset_preferences") or {},
                 web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
+                web_material_ingest=request.get("web_material_ingest") or {},
                 existing_course_data=course_data,
                 stop_after_outline=stop_after_outline,
                 on_phase=on_phase,

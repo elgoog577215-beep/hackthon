@@ -444,6 +444,21 @@
             </label>
           </section>
 
+          <section v-if="form.retrievalEnabled" class="form-section web-enrichment-setting">
+            <label class="web-enrichment-setting__control">
+              <input
+                v-model="form.webMaterialIngest"
+                data-testid="web-material-ingest"
+                type="checkbox"
+                :disabled="busy"
+              />
+              <span>
+                <strong>{{ t('courseGeneration.materials.webSearch.ingestLabel', '把联网资料并入课程资料库') }}</strong>
+                <small>{{ t('courseGeneration.materials.webSearch.ingestHint', '联网结果会与导入资料同路解析并保留出处；关闭则只作为本次生成的引用，不落库。') }}</small>
+              </span>
+            </label>
+          </section>
+
           <section class="form-section">
             <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
             <textarea
@@ -549,6 +564,7 @@ const form = reactive({
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   assessmentGenerationProfile: 'fast' as 'fast' | 'deliberate',
   retrievalEnabled: false,
+  webMaterialIngest: true,
   requirements: '',
   targetAudience: '大学生',
   academicTerm: '',
@@ -729,6 +745,9 @@ async function submit() {
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
+      ...(form.retrievalEnabled && !form.webMaterialIngest
+        ? { web_material_ingest: { skip_ingest: true } }
+        : {}),
       target_audience: form.targetAudience.trim(),
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1',
