@@ -426,7 +426,11 @@ async def test_story_batch_resolves_known_layout_from_page_level_source_intent()
         calls.append(request)
         unit = request["teaching_units"][0]
         concept_id, feedback_id = unit["primary_block_ids"]
-        concept_layout = unit["allowed_template_layout_ids"][0]
+        concept_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/practice-feedback")
+        )
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -456,14 +460,57 @@ async def test_story_batch_resolves_known_layout_from_page_level_source_intent()
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
     assert len(calls) == 1
-    expected_layout = _layout_for_request_blocks(
-        calls[0]["teaching_units"][0],
-        [calls[0]["teaching_units"][0]["primary_block_ids"][0]],
-    )
-    assert story.pages[0].template_layout_id == expected_layout
-    assert story.pages[0].template_layout_id != calls[0]["teaching_units"][0][
-        "allowed_template_layout_ids"
-    ][0]
+    assert story.pages[0].template_layout_id.endswith("/content-stack")
+    assert not story.pages[0].template_layout_id.endswith("/practice-feedback")
+
+
+@pytest.mark.asyncio
+async def test_story_resolves_feedback_only_page_to_a_single_source_layout() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        concept_id, feedback_id = unit["primary_block_ids"]
+        feedback_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/practice-feedback")
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "field-concept",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [concept_id],
+                    ),
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [concept_id],
+                },
+                {
+                    "page_id": "field-feedback",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": feedback_layout,
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    feedback_page = next(page for page in story.pages if page.page_id == "field-feedback")
+    assert feedback_page.template_layout_id.endswith("/content-stack")
 
 
 @pytest.mark.asyncio

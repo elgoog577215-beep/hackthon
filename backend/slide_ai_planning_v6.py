@@ -227,17 +227,43 @@ def _normalize_story_batch_response(
             if roles or artifacts
             else str(unit.get("teaching_intent") or "")
         )
-        return [
-            str(layout.get("template_layout_id") or "")
-            for layout in unit.get("allowed_template_layouts") or []
-            if isinstance(layout, dict)
-            and page_intent in (layout.get("teaching_intents") or [])
-            and (
-                not artifacts
-                or artifacts.intersection(layout.get("artifact_kinds") or [])
-            )
-            and str(layout.get("template_layout_id") or "")
-        ]
+        result: list[str] = []
+        for layout in unit.get("allowed_template_layouts") or []:
+            if not isinstance(layout, dict):
+                continue
+            layout_id = str(layout.get("template_layout_id") or "")
+            if not layout_id or page_intent not in (layout.get("teaching_intents") or []):
+                continue
+            if artifacts and not artifacts.intersection(layout.get("artifact_kinds") or []):
+                continue
+            if roles and not artifacts:
+                remaining_roles = list(roles)
+                required_text_slots = [
+                    slot
+                    for slot in layout.get("slots") or []
+                    if isinstance(slot, dict)
+                    and bool(slot.get("required"))
+                    and slot.get("slot_kind") in {"body", "items"}
+                ]
+                satisfiable = True
+                for slot in required_text_slots:
+                    source_roles = set(slot.get("source_roles") or [])
+                    matching_index = next(
+                        (
+                            index
+                            for index, role in enumerate(remaining_roles)
+                            if not source_roles or role in source_roles
+                        ),
+                        None,
+                    )
+                    if matching_index is None:
+                        satisfiable = False
+                        break
+                    remaining_roles.pop(matching_index)
+                if not satisfiable:
+                    continue
+            result.append(layout_id)
+        return result
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):

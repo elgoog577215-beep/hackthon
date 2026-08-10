@@ -690,24 +690,6 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
     return f"{excerpt}…"
 
 
-_SLOT_ROLE_PREFERENCES: dict[str, set[str]] = {
-    "driving_question": {"orientation", "objective", "checkpoint", "activity"},
-    "task": {"activity", "checkpoint", "orientation"},
-    "prompt": {"activity", "checkpoint", "orientation", "example"},
-    "criteria": {"feedback", "summary", "objective"},
-    "feedback": {"feedback", "answer", "remediation"},
-    "annotation": {"concept", "reasoning", "feedback", "remediation"},
-    "derivation": {"reasoning", "example"},
-    "reasoning": {"reasoning", "example"},
-    "interpretation": {"reasoning", "feedback", "summary"},
-    "explanation": {"concept", "reasoning", "feedback"},
-    "symptom": {"misconception", "counterexample"},
-    "cause": {"reasoning", "misconception"},
-    "repair": {"remediation", "feedback"},
-    "next_action": {"transfer", "application", "activity"},
-}
-
-
 def _slot_artifact_kind(slot_kind: str) -> str:
     return {
         "code": "code",
@@ -1118,7 +1100,7 @@ def _materialize_template_regions(
     for index, slot in enumerate(text_slots):
         if not remaining:
             break
-        preferred_roles = _SLOT_ROLE_PREFERENCES.get(slot.slot_id, set())
+        preferred_roles = set(slot.source_roles)
         preferred = [block for block in remaining if block.role in preferred_roles]
         is_last_text_slot = index == len(text_slots) - 1
         if preferred:
