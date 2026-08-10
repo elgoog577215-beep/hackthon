@@ -331,6 +331,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import themePack from '../data/slide-themes.json'
 import layoutContract from '../../../shared/slide-layout-contract-v5.json'
 import type { SlideVisual } from '../types/slideVisual'
+import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 
 interface SlideBlock {
   block_id: string
@@ -614,6 +615,7 @@ const themeStyle = computed(() => {
   if (!token) return {}
   const visualAssets = token.visual_assets || {}
   const textBoxStyles = token.text_box_styles || {}
+  const assetUrl = (value?: string) => resolvePublicAssetUrl(value, import.meta.env.BASE_URL)
   return {
     '--deck-bg': `#${token.surface}`,
     '--deck-paper': `#${token.surface}`,
@@ -641,25 +643,25 @@ const themeStyle = computed(() => {
       ? `${Number(token.geometry.card_radius_in) * 7.5}cqw`
       : '1cqw',
     '--deck-cover-image': visualAssets.cover?.web_path
-      ? `url("${visualAssets.cover.web_path}")`
+      ? `url("${assetUrl(visualAssets.cover.web_path)}")`
       : 'none',
     '--deck-chapter-image': visualAssets.chapter?.web_path
-      ? `url("${visualAssets.chapter.web_path}")`
+      ? `url("${assetUrl(visualAssets.chapter.web_path)}")`
       : 'none',
     '--deck-recap-image': visualAssets.recap?.web_path
-      ? `url("${visualAssets.recap.web_path}")`
+      ? `url("${assetUrl(visualAssets.recap.web_path)}")`
       : 'none',
     '--deck-content-image': visualAssets.interior_content?.web_path
-      ? `url("${visualAssets.interior_content.web_path}")`
+      ? `url("${assetUrl(visualAssets.interior_content.web_path)}")`
       : 'none',
     '--deck-reasoning-image': visualAssets.interior_reasoning?.web_path
-      ? `url("${visualAssets.interior_reasoning.web_path}")`
+      ? `url("${assetUrl(visualAssets.interior_reasoning.web_path)}")`
       : 'none',
     '--deck-practice-image': visualAssets.interior_practice?.web_path
-      ? `url("${visualAssets.interior_practice.web_path}")`
+      ? `url("${assetUrl(visualAssets.interior_practice.web_path)}")`
       : 'none',
     '--deck-evidence-image': visualAssets.interior_evidence?.web_path
-      ? `url("${visualAssets.interior_evidence.web_path}")`
+      ? `url("${assetUrl(visualAssets.interior_evidence.web_path)}")`
       : 'none',
     '--deck-box-standard': `#${textBoxStyles.standard?.fill || token.surface}`,
     '--deck-box-standard-depth': `#${textBoxStyles.standard?.depth || textBoxStyles.standard?.border || token.chart_bg}`,
