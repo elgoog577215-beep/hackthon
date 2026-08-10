@@ -463,7 +463,10 @@ def test_question_bank_list_review_revision_and_conflict(monkeypatch, tmp_path):
         json={"patch": {"answer_spec": {"correct_answer": "SECRET"}}},
     )
     assert leaked_answer.status_code == 422
-    assert "private solution contract" in leaked_answer.json()["detail"]
+    # G2：题面修订接口一律不接受答案类字段（此前只在 V2 题上拒绝，旧题是漏的）。
+    detail = leaked_answer.json()["detail"]
+    assert "answer_spec" in detail
+    assert "must not change answers" in detail
 
 
 def test_question_bank_review_rejects_failed_quality_item(monkeypatch, tmp_path):

@@ -41,6 +41,7 @@ from question_generation import (
     validate_question_spec,
 )
 from question_forms import classify_question_form, question_form_distribution
+from question_public_guard import rejected_teacher_patch_fields
 from question_knowledge_binding import resolve_node_knowledge_binding
 from storage import DATA_DIR
 
@@ -356,6 +357,17 @@ def revise_question_bank_item(
     unknown = set(patch) - allowed_fields
     if unknown:
         raise ValueError(f"unsupported question item fields: {sorted(unknown)}")
+    # G2：题面修订接口一律不接受答案类字段。
+    #
+    # 此前只在 V2 题上拒绝 answer_spec（见下方），旧题仍可经这个接口改标准答案。
+    # 题面修订就该只改题面；改答案要走私有解答合同，否则「公开题面」与「私有
+    # 答案」两条链路的边界在旧题上是漏的。
+    rejected = rejected_teacher_patch_fields(patch)
+    if rejected:
+        raise ValueError(
+            "question wording revisions must not change answers: "
+            f"{rejected}"
+        )
     for field in ("prompt", "explanation", "deliverable"):
         if field in patch and len(str(patch[field] or "")) > 12_000:
             raise ValueError(f"{field} exceeds the 12000 character limit")

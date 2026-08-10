@@ -149,6 +149,13 @@ def evaluate_question_contract_quality(
         "semantic_preflight": bool(
             semantic_preflight.get("passed")
         ) if semantic_preflight_required else True,
+        # G1：题目必须说得出「学生要表现出什么可观察动作」。
+        #
+        # 这个字段早就在 AssessmentIntent 里（practice_analysis:141），
+        # learning_assets 的资产门也查，但**题目质量门此前不查**——于是一道说不出
+        # 可观察动作的题仍能通过 8 维打分进入题库。过程评价与引导式解答都要靠
+        # 它判定「学生该表现什么」，缺了这两件事就没有落点。
+        "observable_action": _has_observable_action(contract),
     }
     hard_issue_map = {
         "schema": ("SCHEMA_INVALID", "题目结构不符合question_spec_v2"),
@@ -193,6 +200,10 @@ def evaluate_question_contract_quality(
         "semantic_preflight": (
             "SEMANTIC_PREFLIGHT_FAILED",
             "题型、材料、题面前提与答案之间的语义硬门未通过",
+        ),
+        "observable_action": (
+            "OBSERVABLE_ACTION_MISSING",
+            "题目说不出学生要表现出的可观察动作",
         ),
     }
     for check, passed in hard_checks.items():
@@ -716,6 +727,55 @@ def _has_substantive_code(value: str) -> bool:
             flags=re.MULTILINE,
         )
     )
+
+
+def _has_observable_action(contract: dict[str, Any]) -> bool:
+    """题目能否说出「学生要表现出什么可观察动作」（G1）。
+
+    按可信度从高到低找，任一成立即可：
+
+    1. 已编译的 AssessmentIntent 自带 observable_actions；
+    2. 绑定的能力点声明了 observable_behavior；
+    3. 答案量规 / 结果检查 / 作答契约必答部分——这些都是「做出什么才算完成」的
+       可观察表述。
+
+    不接受纯粹的题干文字：题干说"请分析"不等于说清了要观察什么行为。
+    """
+    intent = contract.get("assessment_intent") or {}
+    if _non_empty_texts(intent.get("observable_actions")):
+        return True
+    for skill in intent.get("target_skills") or []:
+        if isinstance(skill, dict) and str(
+            skill.get("observable_behavior") or ""
+        ).strip():
+            return True
+    solution = contract.get("solution_envelope") or {}
+    spec = contract.get("question_spec") or {}
+    response_contract = spec.get("response_contract") or {}
+    return bool(
+        _non_empty_texts(solution.get("rubric"))
+        or _non_empty_texts(solution.get("result_checks"))
+        or _non_empty_texts(contract.get("result_checks"))
+        or _non_empty_texts(response_contract.get("required_parts"))
+        or _non_empty_texts(
+            (contract.get("answer_spec") or {}).get("criteria")
+        )
+    )
+
+
+def _non_empty_texts(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        str(item).strip()
+        for item in value
+        if str(item if not isinstance(item, dict) else (
+            item.get("text")
+            or item.get("criterion")
+            or item.get("check")
+            or ""
+        )).strip()
+    ]
 
 
 def _subject_fact_issues(
