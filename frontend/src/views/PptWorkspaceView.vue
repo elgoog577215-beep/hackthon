@@ -324,34 +324,6 @@ const buildErrorLabel = computed(() => (
       ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
       : store.buildError
 ))
-const stageLabel = computed(() => ({
-  fragmenting: '正在切分并校验课程原文',
-  planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
-  story_plan: '正在读取课程逻辑',
-  chapter_plan: '正在编排章节叙事',
-  episode_progress: '正在生成教学场景',
-  layout_plan: '正在匹配语义版式',
-  slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划整套页面'),
-  visual_plan: '正在规划课件视觉',
-  asset_compilation: '正在编译课件素材',
-  slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在逐页生成教学内容'),
-  reviewing: '正在审核页面分配',
-  quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
-  render_review: '正在渲染复核成品',
-  semantic_repair: '正在修复内容完整性与分页',
-  image_search: '正在检索并核验教学图片',
-  render_repair: '正在修复导出版式问题',
-  repair_progress: '正在定向修复问题页面',
-  quality_fallback: t('pptWorkspace.qualityFallbackStage', 'AI 草稿未通过检查，正在切换稳定生成方案'),
-  bundle_plan: '正在按章节拆分课件',
-  bundle_part_build: '正在逐册生成课件',
-  paused: '已暂停，可从保存点继续',
-  resuming: '正在从保存点继续',
-  build_blocked: '生成已停止',
-  cancelled: '生成已取消',
-  complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
-}[store.buildStage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
-
 async function loadWorkspace() {
   const id = courseId.value
   if (!id) return
