@@ -178,6 +178,26 @@ def _normalize_story_batch_response(
         for target in repair_targets
         if str(target.get("page_id") or "")
     }
+
+    def repair_target_for(page: dict[str, Any]) -> dict[str, Any] | None:
+        exact = repair_targets_by_page.get(str(page.get("page_id") or ""))
+        if exact is not None:
+            return exact
+        unit_id = str(page.get("teaching_unit_id") or "")
+        source_ids = {
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        }
+        matching = [
+            target
+            for target in repair_targets
+            if str(target.get("teaching_unit_id") or "") == unit_id
+            and {
+                str(block_id)
+                for block_id in target.get("current_source_block_ids") or []
+            }
+            == source_ids
+        ]
+        return matching[0] if len(matching) == 1 else None
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
         if not isinstance(value, dict):
@@ -207,7 +227,7 @@ def _normalize_story_batch_response(
                 },
                 prefix="v6page_",
             )
-        repair_target = repair_targets_by_page.get(str(page.get("page_id") or ""))
+        repair_target = repair_target_for(page)
         if repair_target is not None:
             required_title = str(repair_target.get("required_title") or "").strip()
             required_layout_id = str(
@@ -700,7 +720,6 @@ def _story_repair_targets(
         layout_repair_required = error.failure.code in {
             "template_layout_artifact_mismatch",
             "template_layout_intent_mismatch",
-            "template_layout_unavailable",
         }
         return {
             "page_id": page_id,
@@ -721,6 +740,7 @@ def _story_repair_targets(
                 else ""
             ),
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
+            "current_source_block_ids": current_source_block_ids,
             "missing_source_block_ids": list(missing_source_block_ids or []),
             "duplicate_source_block_ids": list(duplicate_source_block_ids or []),
             "duplicate_page_ids": list(duplicate_page_ids or []),

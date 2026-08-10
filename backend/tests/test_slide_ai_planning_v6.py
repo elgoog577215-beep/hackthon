@@ -396,7 +396,7 @@ async def test_story_batch_requires_an_exact_source_title_during_repair() -> Non
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
             "pages": [{
-                "page_id": "generic-grounded-title",
+                "page_id": f"generic-grounded-title-{len(calls)}",
                 "teaching_unit_id": unit["teaching_unit_id"],
                 "template_layout_id": unit["allowed_template_layout_ids"][0],
                 "title": title,
@@ -432,7 +432,7 @@ async def test_story_batch_repairs_layout_from_page_level_source_intent() -> Non
             "chapter_id": request["chapter_id"],
             "pages": [
                 {
-                    "page_id": "generic-concept-page",
+                    "page_id": f"generic-concept-page-{len(calls)}",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": concept_layout,
                     "title": unit["title_candidates"][0],
