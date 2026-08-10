@@ -72,6 +72,7 @@ def _region_block(page: SlidePageV6, region: Any) -> SlideBlockSpec:
         "v6_slot_id": region.slot_id,
         "v6_region_id": region.region_id,
         "source_block_ids": list(region.source_block_ids),
+        "source_asset_refs": list(region.source_asset_refs),
     }
     block_type = "statement"
     items: list[str] = []
@@ -138,8 +139,24 @@ def _visuals(page: SlidePageV6) -> list[dict[str, Any]]:
             "edges": [],
             "parameters": {"direction": "vertical"},
         }]
-    if decision in {"image", "experiment", "source_excerpt"}:
-        return [{"kind": "none", "caption": page.title, "parameters": {}}]
+    if decision in {"image", "experiment"}:
+        asset_ids = list(page.visual_decision.source_asset_ids)
+        if not asset_ids:
+            asset_ids = [
+                asset_ref
+                for region in page.regions
+                for asset_ref in region.source_asset_refs
+            ]
+        if not asset_ids:
+            raise ValueError(f"v6_visual_source_asset_missing:{page.page_id}")
+        return [{
+            "kind": "source_image",
+            "caption": page.title,
+            "alt_text": page.title,
+            "asset_id": asset_ids[0],
+            "source_fragment_ids": list(page.source_block_ids),
+            "parameters": {"asset_ref": asset_ids[0]},
+        }]
     return []
 
 

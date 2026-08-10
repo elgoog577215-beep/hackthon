@@ -181,3 +181,47 @@ async def test_source_revision_drift_fails_before_registry_publish(tmp_path: Pat
     failure = candidates.load("task-v6-drift")["failure"]
     assert failure["stage"] == "publish"
     assert failure["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_render_audit_failure_keeps_the_previous_published_deck(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import slide_deck_v6_orchestrator as orchestrator_module
+
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    await orchestrator.build(
+        task_id="task-v6-render-baseline",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+    before = next(item for item in representations.load(document.course_id).representations)
+    monkeypatch.setattr(orchestrator_module, "audit_exported_pptx", lambda *_args, **_kwargs: {
+        "schema_version": "slide_render_review_v1",
+        "passed": False,
+        "issues": [{"severity": "critical", "code": "exported_text_frame_overflow", "page": 1}],
+        "blockers": [{"severity": "critical", "code": "exported_text_frame_overflow", "page": 1}],
+    })
+
+    with pytest.raises(V6BuildError, match="render_quality_gate_failed"):
+        await orchestrator.build(
+            task_id="task-v6-render-failed",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=_story_planner,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    after = next(item for item in representations.load(document.course_id).representations)
+    assert after.spec_id == before.spec_id
+    assert candidates.load("task-v6-render-failed")["failure"]["stage"] == "render"

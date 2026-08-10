@@ -7,6 +7,7 @@ interface V6Region {
   content_kind: string
   content: string
   source_block_ids?: string[]
+  source_asset_refs?: string[]
 }
 
 interface V6NoteBlock {
@@ -22,6 +23,10 @@ interface V6Page {
   resolved_layout: string
   source_block_ids: string[]
   regions: V6Region[]
+  visual_decision?: {
+    decision?: string
+    source_asset_ids?: string[]
+  }
   speaker_notes: {
     source_document_revision: string
     teaching_unit_id: string
@@ -75,6 +80,7 @@ function regionBlock(region: V6Region): Record<string, unknown> {
       v6_slot_id: region.slot_id,
       v6_region_id: region.region_id,
       source_block_ids: region.source_block_ids || [],
+      source_asset_refs: region.source_asset_refs || [],
       formula: region.content_kind === 'formula',
       table_source: region.content_kind === 'table',
     },
@@ -90,6 +96,19 @@ function pageVisuals(page: V6Page): Array<Record<string, unknown>> {
   }]
   const table = page.regions.find(region => region.content_kind === 'table')
   if (table) return [{ kind: 'table', caption: table.slot_id, parameters: {} }]
+  if (['image', 'experiment'].includes(String(page.visual_decision?.decision || ''))) {
+    const assetId = page.visual_decision?.source_asset_ids?.[0]
+      || page.regions.flatMap(region => region.source_asset_refs || [])[0]
+    if (!assetId) throw new Error(`v6_visual_source_asset_missing:${page.page_id}`)
+    return [{
+      kind: 'source_image',
+      caption: page.title,
+      alt_text: page.title,
+      asset_id: assetId,
+      source_fragment_ids: [...page.source_block_ids],
+      parameters: { asset_ref: assetId },
+    }]
+  }
   return []
 }
 

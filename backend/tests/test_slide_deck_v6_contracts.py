@@ -258,6 +258,102 @@ def test_final_deck_has_full_notes_and_template_native_layout_ids() -> None:
     }
 
 
+def test_visible_slot_content_expresses_every_bound_source_block() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-dense-source",
+            title="现场记录",
+            sections=[CourseSection(section_id="section", title="证据", position=0)],
+            blocks=[
+                _block(
+                    "long-context", "section", 0, role="concept",
+                    text="观察前先冻结对象与时间范围，避免记录口径变化。" * 24,
+                ),
+                _block(
+                    "required-conclusion", "section", 1, role="reasoning",
+                    text="最终结论必须保留：区分观察事实与解释。",
+                ),
+            ],
+        )
+    )
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=story.pages[0].page_id,
+            decision="text_native",
+            source_block_ids=story.pages[0].source_block_ids,
+            resolved_template_layout_id=story.pages[0].template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    visible = "\n".join(region.content for region in deck.pages[0].regions)
+
+    assert "区分观察事实与解释" in visible
+    assert deck.quality.formal_block_visible_coverage == 1.0
+
+
+def test_story_plan_rejects_duplicate_page_titles() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[1].title = story.batches[0].pages[0].title
+
+    with pytest.raises(V6BuildError, match="duplicate_slide_title"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_visual_image_requires_a_source_asset_reference() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-field-image",
+            title="现场证据",
+            sections=[CourseSection(section_id="section", title="记录", position=0)],
+            blocks=[CourseBlock(
+                block_id="field-photo",
+                section_id="section",
+                position=0,
+                role="example",
+                kind="image",
+                payload={"markdown": "河岸样方的现场照片。"},
+                asset_refs=[],
+            )],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="image-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-figure"),
+        title="现场照片证据",
+        source_block_ids=["field-photo"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1", chapter_id="section", provider="fixture", model="fixture",
+            duration_ms=1, attempts=1, validation_status="passed", pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="image-page",
+            decision="image",
+            source_block_ids=["field-photo"],
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="visual_source_asset_missing"):
+        validate_slide_visual_plan_v2(visual, story, graph, template)
+
+
 def test_v6_modules_do_not_hardcode_course_identity_or_fixed_artifacts() -> None:
     import course_presentation_graph
     import slide_deck_v6

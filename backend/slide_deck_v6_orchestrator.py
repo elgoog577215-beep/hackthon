@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -24,6 +25,8 @@ from slide_deck_v6 import (
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
 )
+from slide_deck_renderer import audit_exported_pptx
+from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from teaching_representations import (
     SourceBinding,
     TeachingRepresentation,
@@ -247,6 +250,7 @@ class SlideDeckV6Orchestrator:
                 tracker.complete(f"visual-{index + 1}")
 
             tracker.add_work([
+                SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
                 *[
                     SlideWorkItemV2(
                         item_id=f"render-{page.page_id}",
@@ -262,14 +266,73 @@ class SlideDeckV6Orchestrator:
             ])
             await _emit(progress_callback, tracker.snapshot())
 
+            current_work = "materialize"
+            tracker.start("materialize")
+            deck = compile_slide_deck_v6(document, graph, story, visual, template)
+            tracker.complete("materialize")
+
+            first_page = story.pages[0]
+            current_work = f"render-{first_page.page_id}"
+            tracker.start(current_work, page_id=first_page.page_id)
+            try:
+                with tempfile.TemporaryDirectory(prefix="lingzhi-v6-render-gate-") as review_dir:
+                    review_path = Path(review_dir) / "candidate.pptx"
+                    await _await_with_heartbeats(
+                        asyncio.to_thread(export_slide_deck_v6_pptx, deck, review_path),
+                        tracker=tracker,
+                        callback=progress_callback,
+                    )
+                    render_review = await _await_with_heartbeats(
+                        asyncio.to_thread(
+                            audit_exported_pptx,
+                            review_path,
+                            expected_slide_count=len(deck.pages),
+                        ),
+                        tracker=tracker,
+                        callback=progress_callback,
+                    )
+            except V6BuildError:
+                raise
+            except BaseException as error:
+                raise V6BuildError(
+                    stage="render",
+                    code="render_export_failed",
+                    message=str(error) or "V6 PPTX export could not be opened and audited",
+                    retryable=True,
+                    page_id=first_page.page_id,
+                ) from error
+            if not render_review.get("passed"):
+                first_blocker = next(iter(render_review.get("blockers") or []), {})
+                page_number = int(first_blocker.get("page") or 0)
+                failed_page_id = (
+                    deck.pages[page_number - 1].page_id
+                    if 0 < page_number <= len(deck.pages)
+                    else first_page.page_id
+                )
+                raise V6BuildError(
+                    stage="render",
+                    code="render_quality_gate_failed",
+                    message=str(first_blocker.get("code") or "Exported V6 deck failed render audit"),
+                    retryable=False,
+                    page_id=failed_page_id,
+                )
             for page in story.pages:
-                current_work = f"render-{page.page_id}"
-                tracker.start(current_work, page_id=page.page_id)
-                tracker.complete(current_work)
+                work_id = f"render-{page.page_id}"
+                if work_id != current_work:
+                    tracker.start(work_id, page_id=page.page_id)
+                tracker.complete(work_id)
             current_work = "quality"
             tracker.start("quality")
-            deck = compile_slide_deck_v6(document, graph, story, visual, template)
+            deck.quality.render_review = dict(render_review)
+            if not deck.quality.passed:
+                raise V6BuildError(
+                    stage="quality",
+                    code="v6_quality_gate_failed",
+                    message="V6 deck failed its final source, template, subject, or render gate",
+                    retryable=False,
+                )
             tracker.complete("quality")
+            await _emit(progress_callback, tracker.snapshot())
 
             current_work = "publish"
             tracker.start("publish")

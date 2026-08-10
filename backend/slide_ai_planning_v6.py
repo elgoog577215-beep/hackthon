@@ -139,6 +139,7 @@ def _story_requests(
                     "primary_block_ids": unit.primary_block_ids,
                     "teaching_intent": unit.teaching_intent,
                     "artifact_kinds": unit.artifact_kinds,
+                    "source_asset_ids": unit.source_asset_refs,
                     "prerequisite_unit_ids": unit.prerequisite_unit_ids,
                     "source_text": unit.source_text,
                     "allowed_template_layout_ids": _allowed_layout_ids(unit, template),
@@ -239,6 +240,7 @@ def _visual_request(
                 "source_block_ids": page.source_block_ids,
                 "source_text": units[page.teaching_unit_id].source_text,
                 "artifact_kinds": units[page.teaching_unit_id].artifact_kinds,
+                "source_asset_ids": units[page.teaching_unit_id].source_asset_refs,
             }
             for page in batch.pages
         ],

@@ -40,6 +40,7 @@ class CoursePresentationUnitV1(_StrictModel):
     supporting_block_ids: list[str] = Field(default_factory=list)
     teaching_intent: str
     artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
+    source_asset_refs: list[str] = Field(default_factory=list)
     prerequisite_unit_ids: list[str] = Field(default_factory=list)
     dependent_unit_ids: list[str] = Field(default_factory=list)
     source_text: str
@@ -209,6 +210,14 @@ def compile_course_presentation_graph(
                 artifact_kinds=list(
                     dict.fromkeys(
                         kind for block in blocks for kind in _artifact_kinds(block)
+                    )
+                ),
+                source_asset_refs=list(
+                    dict.fromkeys(
+                        asset_ref
+                        for block in blocks
+                        for asset_ref in block.asset_refs
+                        if asset_ref
                     )
                 ),
                 prerequisite_unit_ids=[previous_unit_id] if previous_unit_id else [],

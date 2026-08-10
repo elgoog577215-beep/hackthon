@@ -131,6 +131,7 @@ class SlideVisualDecisionV2(_StrictModel):
     page_id: str
     decision: VisualDecisionKind
     source_block_ids: list[str] = Field(min_length=1)
+    source_asset_ids: list[str] = Field(default_factory=list)
     resolved_template_layout_id: str
     provider: str = ""
     model: str = ""
@@ -166,6 +167,7 @@ class SlideRegionV6(_StrictModel):
     content_kind: str
     content: str
     source_block_ids: list[str] = Field(default_factory=list)
+    source_asset_refs: list[str] = Field(default_factory=list)
 
 
 class SlidePageV6(_StrictModel):
@@ -191,6 +193,7 @@ class SlideDeckV6Quality(_StrictModel):
     template_contract_passed: bool
     subject_artifacts_passed: bool
     web_pptx_contract_shared: bool
+    render_review: dict[str, Any] = Field(default_factory=dict)
     blockers: list[V6Failure] = Field(default_factory=list)
     passed: bool = True
 
@@ -327,6 +330,7 @@ def validate_slide_story_plan_v3(
     observed_blocks: list[str] = []
     previous_unit_ordinal = -1
     page_count_by_unit: Counter[str] = Counter()
+    title_owners: dict[str, str] = {}
     for page in sorted(plan.pages, key=lambda item: item.page_ordinal):
         unit = units.get(page.teaching_unit_id)
         if unit is None:
@@ -350,6 +354,15 @@ def validate_slide_story_plan_v3(
         unsupported = _protected_tokens(page.summary) - _protected_tokens(unit.source_text)
         if unsupported:
             raise V6BuildError(stage="story", code="story_unsupported_fact", message=f"Unsupported factual tokens: {', '.join(sorted(unsupported))}", page_id=page.page_id)
+        normalized_title = re.sub(r"\s+", "", page.title).casefold()
+        if normalized_title in title_owners:
+            raise V6BuildError(
+                stage="story",
+                code="duplicate_slide_title",
+                message="Each V6 page must have a distinct teaching title",
+                page_id=page.page_id,
+            )
+        title_owners[normalized_title] = page.page_id
         observed_blocks.extend(page.source_block_ids)
     missing = [block_id for block_id in graph.formal_block_ids if block_id not in observed_blocks]
     if missing:
@@ -389,6 +402,21 @@ def validate_slide_visual_plan_v2(
         layout = template.get_layout(decision.resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="visual", code="template_layout_unavailable", message="Visual plan selected an unknown template layout", page_id=page_id)
+        unknown_assets = set(decision.source_asset_ids) - set(unit.source_asset_refs)
+        if unknown_assets:
+            raise V6BuildError(
+                stage="visual",
+                code="visual_unknown_source_asset",
+                message="Visual plan references an asset outside the frozen teaching unit",
+                page_id=page_id,
+            )
+        if decision.decision in {"image", "experiment"} and not decision.source_asset_ids:
+            raise V6BuildError(
+                stage="visual",
+                code="visual_source_asset_missing",
+                message="Image and experiment visuals require a frozen source asset reference",
+                page_id=page_id,
+            )
         for artifact in unit.artifact_kinds:
             allowed = _REQUIRED_VISUAL_DECISION.get(artifact)
             if allowed and decision.decision not in allowed:
@@ -480,15 +508,17 @@ def _bounded_slot_content(
         return ""
     capacity = max_chars or 520
     if slot_kind == "code":
-        lines = "\n\n".join(texts).splitlines()
-        if max_lines:
-            lines = lines[:max_lines]
-        return "\n".join(lines)[:capacity].rstrip()
+        content = "\n\n".join(texts)
+        lines = content.splitlines()
+        if (max_lines and len(lines) > max_lines) or len(content) > capacity:
+            raise ValueError("template_slot_capacity_exceeded")
+        return content.rstrip()
     if slot_kind == "table":
-        lines = "\n".join(texts).splitlines()
-        if max_rows:
-            lines = lines[: max_rows + 2]
-        return "\n".join(lines)[:capacity].rstrip()
+        content = "\n".join(texts)
+        lines = content.splitlines()
+        if (max_rows and len(lines) > max_rows + 2) or len(content) > capacity:
+            raise ValueError("template_slot_capacity_exceeded")
+        return content.rstrip()
     if slot_kind == "items":
         items: list[str] = []
         for text in texts:
@@ -498,10 +528,21 @@ def _bounded_slot_content(
                 if line.strip()
             ]
             items.extend(candidates or [text])
-        if max_items:
-            items = items[:max_items]
-        return "\n".join(items)[:capacity].rstrip()
-    return _complete_sentence_excerpt("\n\n".join(texts), capacity)
+        if (max_items and len(items) > max_items) or len("\n".join(items)) > capacity:
+            raise ValueError("template_slot_capacity_exceeded")
+        return "\n".join(items).rstrip()
+    if len(texts) == 1:
+        return _complete_sentence_excerpt(texts[0], capacity)
+    separator_cost = 2 * (len(texts) - 1)
+    per_block_capacity = max(24, (capacity - separator_cost) // len(texts))
+    excerpts = [
+        _complete_sentence_excerpt(text, per_block_capacity)
+        for text in texts
+    ]
+    content = "\n\n".join(excerpts)
+    if len(content) > capacity:
+        raise ValueError("template_slot_capacity_exceeded")
+    return content
 
 
 def _materialize_template_regions(
@@ -561,14 +602,24 @@ def _materialize_template_regions(
     regions: list[SlideRegionV6] = []
     for slot in content_slots:
         slot_blocks = assigned.get(slot.slot_id, [])
-        content = _bounded_slot_content(
-            slot_blocks,
-            slot_kind=slot.slot_kind,
-            max_chars=slot.max_chars,
-            max_items=slot.max_items,
-            max_lines=slot.max_lines,
-            max_rows=slot.max_rows,
-        )
+        try:
+            content = _bounded_slot_content(
+                slot_blocks,
+                slot_kind=slot.slot_kind,
+                max_chars=slot.max_chars,
+                max_items=slot.max_items,
+                max_lines=slot.max_lines,
+                max_rows=slot.max_rows,
+            )
+        except ValueError as error:
+            if str(error) != "template_slot_capacity_exceeded":
+                raise
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_capacity_exceeded",
+                message=f"Source-backed content exceeds template slot {slot.slot_id}",
+                page_id=page_id,
+            ) from error
         if slot.required and not content:
             raise V6BuildError(
                 stage="template",
@@ -585,6 +636,14 @@ def _materialize_template_regions(
                 content_kind=slot.slot_kind,
                 content=content,
                 source_block_ids=[block.block_id for block in slot_blocks],
+                source_asset_refs=list(
+                    dict.fromkeys(
+                        asset_ref
+                        for block in slot_blocks
+                        for asset_ref in block.asset_refs
+                        if asset_ref
+                    )
+                ),
             )
         )
     visible_blocks = {
