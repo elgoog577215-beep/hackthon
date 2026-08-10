@@ -240,12 +240,144 @@ def source_status_for_refs(refs: list[dict[str, Any]]) -> str:
     return "web_grounded"
 
 
+def knowledge_points_missing_evidence(
+    package: EvidencePackage | None,
+    knowledge_keys: list[str],
+    *,
+    limit: int = DEFAULT_KEY_MATCH_LIMIT,
+) -> list[str]:
+    """找出当前包里无来源的知识点，作为 E2 补搜的输入。"""
+    if not knowledge_keys:
+        return []
+    missing: list[str] = []
+    for key in knowledge_keys:
+        text = str(key or "").strip()
+        if not text:
+            continue
+        if not evidence_for_keys(package, keys=[text], limit=limit):
+            missing.append(text)
+    return missing
+
+
+async def supplement_missing_evidence(
+    package: EvidencePackage,
+    *,
+    knowledge_keys: list[str],
+    course_id: str = "",
+    generation_request: dict[str, Any] | None = None,
+    repository: Any = None,
+    gateway: Any = None,
+    feature: dict[str, Any] | None = None,
+    now: str | None = None,
+) -> EvidencePackage:
+    """E2：只为缺来源的知识点补搜，不触发全课程重新检索。
+
+    与 E1 冻结的关系：补搜结果作为 `supplements` **追加**，
+    `units` 与 `package_revision_id` 都不变——已经引用该修订的目录、
+    教案、正文不会因为一次补搜而失配。
+
+    检索范围严格受控：
+    - 只对 `knowledge_points_missing_evidence()` 判定为缺来源的知识点发起；
+    - 每个知识点一次独立检索，互不合并也不扩散到全课程；
+    - 任一知识点失败只记录该条 status，不影响其他知识点与既有证据。
+    """
+    missing = knowledge_points_missing_evidence(package, knowledge_keys)
+    if not missing:
+        return package
+
+    from material_pipeline import prepare_course_materials
+    from web_material_search import discover_web_materials
+
+    updated = package.model_copy(deep=True)
+    timestamp = now or _now()
+    for key in missing:
+        supplement_id = stable_hash(
+            {"package": package.package_revision_id, "key": key}, prefix="evs_",
+        )
+        if any(item.supplement_id == supplement_id for item in updated.supplements):
+            continue
+        try:
+            # 每个缺口一次独立检索：topic 与 requirements 都锁定该知识点，
+            # 不带全课程主题，避免检索范围扩散。
+            extra: dict[str, Any] = {}
+            if gateway is not None:
+                extra["gateway"] = gateway
+            if feature is not None:
+                extra["feature"] = feature
+            report = await discover_web_materials(
+                topic=key,
+                requirements=key,
+                generation_request=generation_request or {},
+                **extra,
+            )
+        except Exception:
+            report = {"status": "unavailable", "candidates": []}
+
+        candidates = list(report.get("candidates") or [])
+        if not candidates:
+            status = "unavailable" if report.get("status") in {
+                "unavailable", "provider_unavailable", "unavailable_not_configured",
+            } else "no_results"
+            updated.supplements.append(EvidenceSupplement(
+                supplement_id=supplement_id,
+                knowledge_key=key,
+                queries=[str(item) for item in report.get("queries") or []],
+                unit_ids=[],
+                status=status,
+                created_at=timestamp,
+            ))
+            continue
+
+        unit_ids: list[str] = []
+        if repository is not None:
+            prepared = await prepare_course_materials(
+                course_id=course_id or package.course_id,
+                material_bindings=[],
+                legacy_materials=[],
+                repository=repository,
+                web_search_report=report,
+            )
+            new_units = [
+                item for item in (prepared.get("evidence_catalog") or [])
+                if str(item.get("evidence_id") or "")
+            ]
+            known = {unit.evidence_id for unit in updated.units}
+            for item in new_units:
+                evidence_id = str(item["evidence_id"])
+                if evidence_id in known:
+                    continue
+                updated.units.append(EvidenceUnit.model_validate(item))
+                known.add(evidence_id)
+                unit_ids.append(evidence_id)
+            supplement_index = build_source_index(
+                new_units, prepared.get("material_bindings") or [],
+            )
+            updated.source_index.update(supplement_index)
+
+        updated.supplements.append(EvidenceSupplement(
+            supplement_id=supplement_id,
+            knowledge_key=key,
+            queries=[str(item) for item in report.get("queries") or []],
+            unit_ids=unit_ids,
+            status="ready" if unit_ids else "no_results",
+            created_at=timestamp,
+        ))
+
+    updated.coverage = _coverage(
+        [unit.model_dump(mode="json") for unit in updated.units],
+        updated.source_index,
+    )
+    return updated
+
+
 __all__ = [
     "DEFAULT_KEY_MATCH_LIMIT",
     "build_source_index",
     "evidence_for_keys",
     "freeze_evidence_package",
     "load_frozen_package",
+    "knowledge_points_missing_evidence",
     "package_revision_id",
     "source_status_for_refs",
+    "supplement_missing_evidence",
 ]
