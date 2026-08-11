@@ -36,6 +36,10 @@ class TemplateSlotContractV1(_StrictModel):
     max_items: int = Field(default=0, ge=0)
     max_lines: int = Field(default=0, ge=0)
     max_rows: int = Field(default=0, ge=0)
+    split_wrapped_lines: int = Field(default=0, ge=0)
+    full_wrapped_lines: int = Field(default=0, ge=0)
+    split_column_chars: int = Field(default=0, ge=0)
+    full_column_chars: int = Field(default=0, ge=0)
     source_roles: list[str] = Field(default_factory=list)
 
 
@@ -102,6 +106,10 @@ def _slot(
     items: int = 0,
     lines: int = 0,
     rows: int = 0,
+    split_wrapped_lines: int = 0,
+    full_wrapped_lines: int = 0,
+    split_column_chars: int = 0,
+    full_column_chars: int = 0,
 ) -> dict[str, Any]:
     return {
         "slot_id": slot_id,
@@ -111,6 +119,10 @@ def _slot(
         "max_items": items,
         "max_lines": lines,
         "max_rows": rows,
+        "split_wrapped_lines": split_wrapped_lines,
+        "full_wrapped_lines": full_wrapped_lines,
+        "split_column_chars": split_column_chars,
+        "full_column_chars": full_column_chars,
         "source_roles": sorted(_SLOT_SOURCE_ROLES.get(slot_id, set())),
     }
 
@@ -195,7 +207,21 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "evidence-table": {
         "intents": ["artifact_explanation", "comparison", "worked_example", "misconception_repair"],
         "artifact_kinds": ["table", "data"],
-        "slots": [_TITLE, _slot("table", "table", rows=10, chars=900), _slot("interpretation", "body", chars=220), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot(
+                "table",
+                "table",
+                rows=10,
+                chars=900,
+                split_wrapped_lines=9,
+                full_wrapped_lines=10,
+                split_column_chars=18,
+                full_column_chars=36,
+            ),
+            _slot("interpretation", "body", chars=220),
+            _NOTES,
+        ],
         "continuations": ["evidence-table"],
     },
     "evidence-figure": {

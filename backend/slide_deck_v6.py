@@ -1036,6 +1036,96 @@ def _split_artifact_block(
     return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
 
 
+def _display_width_units(value: str) -> int:
+    return sum(1 if ord(character) < 128 else 2 for character in str(value or ""))
+
+
+def _table_row_wrap_cost(row: str, column_chars: int) -> int:
+    cells = [cell.strip() for cell in str(row or "").strip().strip("|").split("|")]
+    capacity = max(1, int(column_chars or 1))
+    return max(
+        1,
+        max(
+            (
+                max(1, (_display_width_units(cell) + capacity - 1) // capacity)
+                for cell in cells
+            ),
+            default=1,
+        ),
+    )
+
+
+def _split_table_block_for_layout_variants(
+    block: CourseBlock,
+    *,
+    slot: Any,
+    split_first_page: bool,
+) -> list[CourseBlock]:
+    lines = block_source_text(block).splitlines()
+    if not (
+        len(lines) >= 2
+        and re.match(r"^\s*\|.*\|\s*$", lines[0])
+        and re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", lines[1])
+    ):
+        return _split_artifact_block(
+            block,
+            slot_kind="table",
+            max_chars=slot.max_chars,
+            max_lines=slot.max_lines,
+            max_rows=slot.max_rows,
+        )
+    header = lines[:2]
+    header_text = "\n".join(header)
+    rows = lines[2:]
+    chunks: list[str] = []
+    current: list[str] = []
+    page_index = 0
+
+    def page_column_capacity() -> int:
+        if page_index == 0 and split_first_page:
+            return int(slot.split_column_chars or slot.full_column_chars or 1)
+        return int(slot.full_column_chars or slot.split_column_chars or 1)
+
+    def wrapped_cost(candidate_rows: list[str]) -> int:
+        capacity = page_column_capacity()
+        header_cost = _table_row_wrap_cost(header[0], capacity)
+        return header_cost + sum(
+            _table_row_wrap_cost(row, capacity) for row in candidate_rows
+        )
+
+    def wrapped_budget() -> int:
+        if page_index == 0 and split_first_page:
+            return int(slot.split_wrapped_lines or slot.full_wrapped_lines or 0)
+        return int(slot.full_wrapped_lines or slot.split_wrapped_lines or 0)
+
+    def exceeds(candidate_rows: list[str]) -> bool:
+        candidate_text = "\n".join([*header, *candidate_rows])
+        return bool(
+            (slot.max_rows and len(candidate_rows) > slot.max_rows)
+            or (slot.max_chars and len(candidate_text) > slot.max_chars)
+            or (
+                wrapped_budget()
+                and wrapped_cost(candidate_rows) > wrapped_budget()
+            )
+        )
+
+    for row in rows:
+        candidate = [*current, row]
+        if current and exceeds(candidate):
+            chunks.append("\n".join([*header, *current]))
+            page_index += 1
+            current = [row]
+        else:
+            current = candidate
+        if exceeds(current):
+            raise ValueError("template_slot_capacity_exceeded")
+    if current:
+        chunks.append("\n".join([*header, *current]))
+    elif len(header_text) <= slot.max_chars:
+        chunks.append(header_text)
+    return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
+
+
 def _safe_artifact_page_blocks(
     *,
     page_id: str,
@@ -1058,19 +1148,51 @@ def _safe_artifact_page_blocks(
         for block in source_blocks
         if _block_matches_slot(block, artifact_slot.slot_kind)
     ]
+    artifact_ids = {block.block_id for block in artifact_blocks}
+    non_artifact_blocks = [
+        block for block in source_blocks if block.block_id not in artifact_ids
+    ]
+    adaptive_table = bool(
+        artifact_slot.slot_kind == "table"
+        and (artifact_slot.split_wrapped_lines or artifact_slot.full_wrapped_lines)
+        and artifact_slot.full_column_chars
+    )
+    artifact_chunks: list[CourseBlock] = []
     try:
-        _bounded_slot_content(
-            artifact_blocks,
-            slot_kind=artifact_slot.slot_kind,
-            max_chars=artifact_slot.max_chars,
-            max_items=artifact_slot.max_items,
-            max_lines=artifact_slot.max_lines,
-            max_rows=artifact_slot.max_rows,
-        )
-        return [source_blocks]
+        if adaptive_table:
+            for block in artifact_blocks:
+                artifact_chunks.extend(
+                    _split_table_block_for_layout_variants(
+                        block,
+                        slot=artifact_slot,
+                        split_first_page=bool(non_artifact_blocks),
+                    )
+                )
+            if len(artifact_chunks) == 1:
+                return [source_blocks]
+        else:
+            _bounded_slot_content(
+                artifact_blocks,
+                slot_kind=artifact_slot.slot_kind,
+                max_chars=artifact_slot.max_chars,
+                max_items=artifact_slot.max_items,
+                max_lines=artifact_slot.max_lines,
+                max_rows=artifact_slot.max_rows,
+            )
+            return [source_blocks]
     except ValueError as error:
         if str(error) != "template_slot_capacity_exceeded":
             raise
+        if adaptive_table:
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_capacity_exceeded",
+                message=(
+                    f"A single source line exceeds template slot "
+                    f"{artifact_slot.slot_id}"
+                ),
+                page_id=page_id,
+            ) from error
     if layout.layout_slug not in set(layout.safe_continuation_layout_slugs):
         raise V6BuildError(
             stage="template",
@@ -1078,25 +1200,28 @@ def _safe_artifact_page_blocks(
             message="The selected template layout declares no safe artifact continuation",
             page_id=page_id,
         )
-    artifact_chunks: list[CourseBlock] = []
-    try:
-        for block in artifact_blocks:
-            artifact_chunks.extend(
-                _split_artifact_block(
-                    block,
-                    slot_kind=artifact_slot.slot_kind,
-                    max_chars=artifact_slot.max_chars,
-                    max_lines=artifact_slot.max_lines,
-                    max_rows=artifact_slot.max_rows,
+    if not artifact_chunks:
+        try:
+            for block in artifact_blocks:
+                artifact_chunks.extend(
+                    _split_artifact_block(
+                        block,
+                        slot_kind=artifact_slot.slot_kind,
+                        max_chars=artifact_slot.max_chars,
+                        max_lines=artifact_slot.max_lines,
+                        max_rows=artifact_slot.max_rows,
+                    )
                 )
-            )
-    except ValueError as error:
-        raise V6BuildError(
-            stage="template",
-            code="template_slot_capacity_exceeded",
-            message=f"A single source line exceeds template slot {artifact_slot.slot_id}",
-            page_id=page_id,
-        ) from error
+        except ValueError as error:
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_capacity_exceeded",
+                message=(
+                    f"A single source line exceeds template slot "
+                    f"{artifact_slot.slot_id}"
+                ),
+                page_id=page_id,
+            ) from error
     if len(artifact_chunks) > 3:
         raise V6BuildError(
             stage="template",
@@ -1104,10 +1229,6 @@ def _safe_artifact_page_blocks(
             message="A source artifact needs more than three template-safe pages",
             page_id=page_id,
         )
-    artifact_ids = {block.block_id for block in artifact_blocks}
-    non_artifact_blocks = [
-        block for block in source_blocks if block.block_id not in artifact_ids
-    ]
     materializations: list[list[CourseBlock]] = []
     for chunk in artifact_chunks:
         by_position = [*non_artifact_blocks, chunk]
