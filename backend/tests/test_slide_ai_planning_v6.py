@@ -195,6 +195,7 @@ def _mixed_table_and_code_document() -> CourseDocument:
                     role="example",
                     payload={
                         "markdown": (
+                            "Reproduce the recorded result with the supplied procedure.\n\n"
                             "```python\n"
                             "def reproduce(record):\n"
                             "    return record['result']\n"

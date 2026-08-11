@@ -36,9 +36,9 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     graph_page_source_blocks,
-    validate_story_template_text_slots,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
+    validate_story_template_text_slots,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
 
@@ -276,7 +276,9 @@ def _normalize_story_batch_response(
             layout_id = str(layout.get("template_layout_id") or "")
             if not layout_id or page_intent not in (layout.get("teaching_intents") or []):
                 continue
-            if artifacts and not artifacts.intersection(layout.get("artifact_kinds") or []):
+            if artifacts and not artifacts.issubset(
+                set(layout.get("artifact_kinds") or [])
+            ):
                 continue
             source_decisions = set(_allowed_visual_decisions(
                 artifacts,
@@ -750,7 +752,7 @@ def _story_unit_request(
             for layout_id in candidates
             if (
                 (layout := template.get_layout(layout_id)) is not None
-                and block_artifacts.intersection(layout.artifact_kinds)
+                and block_artifacts.issubset(set(layout.artifact_kinds))
             )
         ]
 
@@ -1397,7 +1399,7 @@ async def plan_slide_story_v3(
                                 "select its layout from allowed_template_layout_ids_by_page_intent. If a "
                                 "page contains any primary block with artifact_kinds, its layout must also "
                                 "appear in that block's compatible_template_layout_ids and in "
-                                "artifact_layout_ids_by_kind for at least one bound artifact. Never assign "
+                                "artifact_layout_ids_by_kind for every bound artifact. Never assign "
                                 "an artifact-bearing page to a text-only layout. The "
                                 "validator will reject the result instead of generating replacement story "
                                 "pages. Set "

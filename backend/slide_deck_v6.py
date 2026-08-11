@@ -537,7 +537,9 @@ def validate_slide_story_plan_v3(
         required_artifacts = page_artifact_kinds(unit, page.source_block_ids)
         if page_intent not in layout.teaching_intents:
             raise V6BuildError(stage="template", code="template_layout_intent_mismatch", message="Template layout does not support the teaching intent", page_id=page.page_id)
-        if required_artifacts and not required_artifacts.intersection(layout.artifact_kinds):
+        if required_artifacts and not required_artifacts.issubset(
+            set(layout.artifact_kinds)
+        ):
             raise V6BuildError(
                 stage="template",
                 code="template_layout_artifact_mismatch",
