@@ -412,6 +412,63 @@ def test_story_plan_rejects_an_ungrounded_visible_title() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_a_title_that_ends_on_a_dangling_connector() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "生态承载力与"
+
+    with pytest.raises(V6BuildError, match="story_title_incomplete"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_a_structural_label_instead_of_a_specific_title() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-title-specificity",
+        title="Field evidence",
+        sections=[CourseSection(section_id="field", title="Field", position=0)],
+        blocks=[_block(
+            "field-evidence",
+            "field",
+            0,
+            role="concept",
+            text=(
+                "## 项目名称：湿地观察证据链\n"
+                "湿地观察必须记录地点、时间、天气和观察者，并把结论绑定到原始证据。"
+            ),
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "项目名称"
+
+    with pytest.raises(V6BuildError, match="story_title_lacks_specificity"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_an_underfilled_editorial_body_when_source_is_rich() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-density",
+        title="Field evidence",
+        sections=[CourseSection(section_id="field", title="Field", position=0)],
+        blocks=[_block(
+            "field-evidence",
+            "field",
+            0,
+            role="concept",
+            text=(
+                "## 湿地观察证据链\n"
+                "观察前先冻结地点、时间、天气、观察者和采样批次；记录后逐项核对原始证据、"
+                "验收标准、审核修订和异常原因，确保结论没有用解释替代事实。"
+            ) * 3,
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "湿地观察证据链"
+    story.batches[0].pages[0].summary = "记录地点、时间和天气。"
+
+    with pytest.raises(V6BuildError, match="story_page_underfilled"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)

@@ -65,6 +65,18 @@ def _document(*, with_code: bool = False) -> CourseDocument:
     )
 
 
+def test_title_candidates_exclude_structural_labels_and_dangling_excerpts() -> None:
+    candidates = _grounded_title_candidates(
+        "## 项目名称：湿地观察证据链与审核路径\n"
+        "湿地观察需要绑定地点、时间、天气和原始证据。",
+        max_chars=10,
+    )
+
+    assert "项目名称" not in candidates
+    assert "湿地观察证据链" in candidates
+    assert all(not title.endswith(("与", "和", "及", ":", "：")) for title in candidates)
+
+
 def _mixed_artifact_document(
     artifact_kind: str,
     artifact_markdown: str,
@@ -809,6 +821,59 @@ async def test_story_batch_requires_an_exact_source_title_during_repair() -> Non
     assert repair_feedback["code"] == "story_unsupported_title"
     assert target["required_title"] in target["available_title_candidates"]
     assert story.pages[0].title == target["required_title"]
+
+
+@pytest.mark.asyncio
+async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
+    source_sentence = (
+        "湿地观察必须记录地点、时间、天气、观察者和采样批次，并逐项核对原始证据、"
+        "验收标准、审核修订和异常原因，确保结论没有用解释替代事实。"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-density-repair",
+        title="Field evidence",
+        sections=[CourseSection(section_id="chapter-a", title="Field", position=0)],
+        blocks=[CourseBlock(
+            block_id="field-evidence",
+            section_id="chapter-a",
+            position=0,
+            role="concept",
+            payload={"markdown": f"## 湿地观察证据链\n{source_sentence * 3}"},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        summary = "记录地点、时间和天气。" if len(calls) == 1 else source_sentence * 2
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "field-density-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": "湿地观察证据链",
+                "summary": summary,
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    feedback = calls[1]["repair_feedback"]
+    target = feedback["repair_targets"][0]
+    assert feedback["code"] == "story_page_underfilled"
+    assert target["summary_min_chars"] > len("记录地点、时间和天气。")
+    assert len(story.pages[0].summary) >= target["summary_min_chars"]
 
 
 @pytest.mark.asyncio
