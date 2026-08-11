@@ -213,10 +213,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(deleteCourse).toHaveBeenCalledWith('course-delete')
   })
 
-  it('每页最多展示六门课程，并提供完整的翻页与跳转操作', async () => {
+  it('每页最多展示九门课程，并提供完整的翻页与跳转操作', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
-    courses.courseList = Array.from({ length: 8 }, (_, index) => ({
+    courses.courseList = Array.from({ length: 11 }, (_, index) => ({
       course_id: `course-${index + 1}`,
       course_name: `课程 ${index + 1}`,
       node_count: index + 1,
@@ -240,9 +240,9 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.course-item')).toHaveLength(6)
+    expect(wrapper.findAll('.course-item')).toHaveLength(9)
     expect(wrapper.text()).toContain('课程 1')
-    expect(wrapper.text()).not.toContain('课程 7')
+    expect(wrapper.text()).not.toContain('课程 10')
 
     const pagination = wrapper.get('[aria-label="课程分页"]')
     expect(pagination.classes()).toContain('library-pagination-dock')
@@ -253,8 +253,8 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.course-item')).toHaveLength(2)
-    expect(wrapper.text()).toContain('课程 7')
-    expect(wrapper.text()).toContain('课程 8')
+    expect(wrapper.text()).toContain('课程 10')
+    expect(wrapper.text()).toContain('课程 11')
     expect(wrapper.text()).not.toContain('课程 1')
     const secondPagePagination = wrapper.get('[aria-label="课程分页"]')
     expect((secondPagePagination.get('button[aria-label="下一页"]').element as HTMLButtonElement).disabled).toBe(true)
@@ -263,7 +263,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await secondPagePagination.get('form.pagination-jump').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.findAll('.course-item')).toHaveLength(6)
+    expect(wrapper.findAll('.course-item')).toHaveLength(9)
     expect(wrapper.text()).toContain('课程 1')
     expect(wrapper.get('button[aria-label="第 1 页"]').attributes('aria-current')).toBe('page')
   })
