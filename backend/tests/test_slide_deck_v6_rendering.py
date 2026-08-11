@@ -253,6 +253,22 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_its_o
     tmp_path: Path,
 ) -> None:
     deck = _dense_table_deck()
+    split_slide = adapt_v6_page_to_slide_spec(deck.pages[0])
+    continuation_page = deck.pages[0].model_copy(
+        update={
+            "page_id": f"{deck.pages[0].page_id}--continuation-2",
+            "continuation_of_page_id": deck.pages[0].page_id,
+            "continuation_index": 2,
+            "continuation_count": 2,
+        },
+        deep=True,
+    )
+    continuation_slide = adapt_v6_page_to_slide_spec(continuation_page)
+
+    assert split_slide.quality["v6_layout_variant"] == "table-with-interpretation"
+    assert split_slide.quality["v6_artifact_support_mode"] == "split"
+    assert continuation_slide.quality["v6_layout_variant"] == "table-continuation"
+    assert continuation_slide.quality["v6_artifact_support_mode"] == "full"
 
     output = export_slide_deck_v6_pptx(
         deck,
