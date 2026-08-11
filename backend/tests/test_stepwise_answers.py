@@ -479,3 +479,64 @@ def test_both_contract_paths_share_one_stepwise_rule():
 
     assert compiled["input_contract"]["stepwise"] is False
     assert enriched["input_contract"]["stepwise"] is False
+
+
+# --- 步骤编号必须连续且唯一（代码自查发现的绑定错位） -------------------------
+
+
+def test_duplicate_client_indices_cannot_misbind_a_verdict():
+    """客户端给的 step_index 重号时，逐步判定会绑错步骤——必须重新编号。
+
+    自查复现：`[{step_index:0,text:'甲'},{step_index:1,text:'乙'}]` 里 0 是非正数
+    会退回位置 1，于是两步都拿到 index=1；normalize 用字典按 index 收敛，后者
+    覆盖前者，模型对"第 1 步"的判定实际落到了'乙'上。**把判定安到学生没写的那
+    一步上，正是诚实性红线禁止的事。**
+    """
+    steps = extract_steps({"steps": [
+        {"step_index": 0, "text": "甲"},
+        {"step_index": 1, "text": "乙"},
+    ]})
+
+    assert [item["step_index"] for item in steps] == [1, 2]
+    assert [item["text"] for item in steps] == ["甲", "乙"]
+
+    judged = normalize_step_judgements(
+        [{"step_index": 1, "verdict": "flawed", "comment": "第一步错"}], steps
+    )
+    assert len(judged) == 1
+    assert judged[0]["step_index"] == 1  # 明确指向"甲"，不再有歧义
+
+
+def test_indices_are_renumbered_contiguously_after_dropping_blanks():
+    """空步骤被丢掉后，剩余步骤必须重新连号，不能留下空洞。
+
+    留空洞会让"第 3 步"在 UI 上指向实际的第 2 个输入框。
+    """
+    steps = extract_steps({"steps": [
+        {"step_index": 1, "text": "甲"},
+        {"step_index": 2, "text": "   "},
+        {"step_index": 3, "text": "丙"},
+    ]})
+
+    assert [item["step_index"] for item in steps] == [1, 2]
+    assert [item["text"] for item in steps] == ["甲", "丙"]
+
+
+def test_arbitrary_client_indices_are_normalized():
+    """跳号（7、9）同样规整为 1、2——位置才是权威，客户端声明不是。"""
+    steps = extract_steps({"steps": [
+        {"step_index": 7, "text": "甲"},
+        {"step_index": 9, "text": "乙"},
+    ]})
+
+    assert [item["step_index"] for item in steps] == [1, 2]
+
+
+def test_malformed_step_payloads_do_not_crash():
+    """畸形 payload 只应产生更少的步骤，不应抛异常。"""
+    assert extract_steps({"steps": {"a": 1}}) == []
+    assert [item["text"] for item in extract_steps({"steps": [None, "有内容", None]})] == ["有内容"]
+    assert [item["text"] for item in extract_steps({"steps": [123, "文本"]})] == ["123", "文本"]
+    # 上限仍然生效
+    assert len(extract_steps({"steps": [f"s{i}" for i in range(200)]})) == 20
+    assert len(extract_steps({"steps": [{"step_index": 1, "text": "x" * 99999}]})[0]["text"]) == 5000

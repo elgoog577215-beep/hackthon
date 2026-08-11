@@ -73,29 +73,38 @@ def stepwise_enabled(question: dict[str, Any]) -> bool:
 
 
 def extract_steps(answer_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize the student's submitted steps; empty means 'not stepwise'."""
+    """Normalize the student's submitted steps; empty means 'not stepwise'.
+
+    Indices are renumbered contiguously from 1 rather than trusted as given.  A
+    client-supplied ``step_index`` can repeat or skip (a stale draft, a hand-built
+    payload, a step deleted mid-edit), and per-step verdicts are matched back by
+    index — so a duplicate would silently attach the model's judgement of "step 1"
+    to the wrong step.  Attributing a verdict to a step the student did not write
+    is precisely what the honesty rule forbids, so position wins over the claim.
+    """
     raw = (answer_payload or {}).get("steps")
     if not isinstance(raw, list):
         return []
     steps: list[dict[str, Any]] = []
-    for position, value in enumerate(raw[:MAX_STEPS], start=1):
+    for value in raw[:MAX_STEPS]:
         if isinstance(value, dict):
             text = str(value.get("text") or value.get("content") or "").strip()
             step_id = str(value.get("step_id") or "").strip()
-            index = value.get("step_index")
         else:
             text = str(value or "").strip()
             step_id = ""
-            index = None
         if not text:
             # A blank step is the student not having written that step yet.  It is
             # not evidence of anything, so it must not become a judged step.
             continue
         steps.append({
-            "step_index": int(index) if isinstance(index, int) and index > 0 else position,
+            # Renumbered below once blanks are dropped, so indices stay contiguous.
+            "step_index": 0,
             "step_id": step_id,
             "text": text[:MAX_STEP_TEXT],
         })
+    for position, step in enumerate(steps, start=1):
+        step["step_index"] = position
     return steps
 
 
