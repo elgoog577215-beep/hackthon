@@ -38,6 +38,7 @@ from slide_deck_v6 import (
     graph_page_source_blocks,
     story_page_count_range,
     story_safe_page_slices,
+    story_safe_partition_options,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
     validate_story_template_text_slots,
@@ -742,6 +743,7 @@ def _story_unit_request(
         )
     safe_page_slices = story_safe_page_slices(unit, template)
     allowed_page_count_range = story_page_count_range(unit, template)
+    safe_partition_options = story_safe_partition_options(unit, template)
 
     def block_compatible_layout_ids(block_id: str) -> list[str]:
         block_intent = page_teaching_intent(unit, [block_id])
@@ -792,6 +794,7 @@ def _story_unit_request(
         "summary_max_chars_by_layout_id": summary_max_chars_by_layout_id,
         "allowed_page_count_range": allowed_page_count_range,
         "safe_page_slices": safe_page_slices,
+        "safe_partition_options": safe_partition_options,
         "allowed_template_layout_ids": allowed_layout_ids,
         "allowed_template_layout_ids_by_page_intent": (
             allowed_layout_ids_by_page_intent
@@ -1085,6 +1088,9 @@ def _story_repair_targets(
                 unit.get("allowed_page_count_range") or [1, 3]
             ),
             "safe_page_slices": list(unit.get("safe_page_slices") or []),
+            "safe_partition_options": list(
+                unit.get("safe_partition_options") or []
+            ),
             "observed_unit_page_ids": [
                 str(page.get("page_id") or "")
                 for page in observed_unit_pages
@@ -1436,8 +1442,9 @@ async def plan_slide_story_v3(
                                 "derives each page's intent from its bound primary_blocks and uses "
                                 "only that intent's allowed_template_layout_ids_by_page_intent, and "
                                 "contains only source IDs supplied for that unit. Partition every "
-                                "unit's primary_block_ids within that unit's allowed_page_count_range "
-                                "using only contiguous entries from safe_page_slices: bind multiple "
+                                "unit's primary_block_ids by choosing exactly one complete entry from "
+                                "that unit's safe_partition_options. Copy every option page's "
+                                "source_block_ids exactly and choose one of its template_layout_ids: bind multiple "
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
                                 "Copy each title verbatim from that unit's title_candidates and keep "
@@ -1446,8 +1453,9 @@ async def plan_slide_story_v3(
                                 "its template_layout_id exactly to required_template_layout_id when "
                                 "provided. When a repair target has repartition_required=true, "
                                 "replace every page listed in replace_page_ids with a fresh LLM-authored "
-                                "partition of source_block_order within allowed_page_count_range. Use "
-                                "safe_page_slices to select both each slice and its layout. Do not retain "
+                                "partition of source_block_order by choosing exactly one complete entry from "
+                                "safe_partition_options. Copy its page source_block_ids exactly and select one "
+                                "listed template_layout_id per page. Do not retain "
                                 "the failed source grouping. Each new page must bind a non-empty contiguous "
                                 "slice of source_block_order, preserve the complete order exactly once, and "
                                 "select its layout from allowed_template_layout_ids_by_page_intent. If a "
@@ -2309,8 +2317,9 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id. "
                 "Derive each page intent from the roles and artifacts of its bound primary_blocks, "
                 "then select a layout from allowed_template_layout_ids_by_page_intent for that intent. "
-                "Create a page count within each unit's allowed_page_count_range and use only "
-                "that unit's contiguous safe_page_slices with one of the listed layout IDs. Do not create "
+                "For each teaching unit, choose exactly one complete safe_partition_options entry. "
+                "Copy each option page's source_block_ids exactly and choose one of that page's listed "
+                "template_layout_ids. Do not create "
                 "one page per primary block: partition the unit's block IDs across its pages and "
                 "bind multiple related blocks to one page when needed. The downstream compiler "
                 "keeps complete source text in speaker notes, so canvas pages should express a "

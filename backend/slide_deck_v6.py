@@ -1918,6 +1918,85 @@ def story_page_count_range(
     return [minimum_pages, maximum_pages]
 
 
+def story_safe_partition_options(
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+    *,
+    max_options_per_page_count: int = 12,
+) -> list[dict[str, Any]]:
+    """Compile safe slices into complete, ordered exact-cover choices for the LLM."""
+
+    safe_slices = story_safe_page_slices(unit, template)
+    allowed_page_count_range = story_page_count_range(unit, template)
+    slices_by_start: dict[int, list[dict[str, Any]]] = {}
+    for item in safe_slices:
+        slices_by_start.setdefault(int(item["start_index"]), []).append(item)
+    for items in slices_by_start.values():
+        items.sort(
+            key=lambda item: (
+                -int(item["end_index"]),
+                tuple(item["source_block_ids"]),
+            )
+        )
+
+    options: list[dict[str, Any]] = []
+    source_count = len(unit.primary_block_ids)
+    for target_page_count in range(
+        allowed_page_count_range[0],
+        allowed_page_count_range[1] + 1,
+    ):
+        matching_paths: list[list[dict[str, Any]]] = []
+
+        def collect(position: int, path: list[dict[str, Any]]) -> None:
+            if len(matching_paths) >= max_options_per_page_count:
+                return
+            remaining_pages = target_page_count - len(path)
+            remaining_blocks = source_count - position
+            if remaining_pages < 0 or remaining_blocks < remaining_pages:
+                return
+            if position == source_count:
+                if len(path) == target_page_count:
+                    matching_paths.append(list(path))
+                return
+            if len(path) >= target_page_count:
+                return
+            for item in slices_by_start.get(position, []):
+                collect(int(item["end_index"]), [*path, item])
+
+        collect(0, [])
+        for path in matching_paths:
+            pages = [
+                {
+                    "source_block_ids": list(item["source_block_ids"]),
+                    "teaching_intent": str(item["teaching_intent"]),
+                    "artifact_kinds": list(item["artifact_kinds"]),
+                    "template_layout_ids": list(item["template_layout_ids"]),
+                }
+                for item in path
+            ]
+            options.append({
+                "partition_id": stable_hash(
+                    {
+                        "teaching_unit_id": unit.teaching_unit_id,
+                        "pages": pages,
+                    },
+                    prefix="safe_partition_",
+                ),
+                "page_count": len(pages),
+                "pages": pages,
+            })
+    if not options:
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message=(
+                "No complete template-safe partition option covers teaching unit "
+                f"{unit.teaching_unit_id}"
+            ),
+        )
+    return options
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
