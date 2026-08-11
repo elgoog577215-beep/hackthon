@@ -48,7 +48,9 @@ class V6BuildError(ValueError):
         chapter_id: str = "",
         page_id: str = "",
         batch_id: str = "",
+        node_id: str = "",
     ) -> None:
+        self.node_id = node_id
         self.failure = V6Failure(
             stage=stage,
             code=code,
@@ -406,6 +408,8 @@ _LATIN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
 _GENERIC_GROUNDING_TERMS = {
     "一个", "可以", "需要", "必须", "通过", "采用", "使用", "完成",
     "进行", "形成", "当前", "相关", "内容", "方法", "过程", "结果",
+    "the", "and", "for", "with", "from", "into", "then", "before", "after",
+    "this", "that", "these", "those", "using", "use", "used", "through",
 }
 
 
@@ -454,6 +458,18 @@ def _semantic_grounding_ratio(claim: str, source: str) -> float:
     if not claim_terms:
         return 1.0
     return len(claim_terms.intersection(_grounding_terms(source))) / len(claim_terms)
+
+
+def _unit_source_text_for_blocks(
+    unit: CoursePresentationUnitV1,
+    block_ids: set[str] | list[str],
+) -> str:
+    texts = [
+        str(unit.primary_block_texts.get(block_id) or "").strip()
+        for block_id in block_ids
+        if str(unit.primary_block_texts.get(block_id) or "").strip()
+    ]
+    return "\n\n".join(texts) or unit.source_text
 
 
 def _unit_map(graph: CoursePresentationGraphV1) -> dict[str, CoursePresentationUnitV1]:
@@ -652,8 +668,18 @@ def validate_slide_visual_plan_v2(
                 node_sources = set(node.get("source_block_ids") or [])
                 if not label or not node_sources or not node_sources.issubset(set(page.source_block_ids)):
                     raise V6BuildError(stage="visual", code="visual_diagram_node_unbound", message="Every diagram node needs a page source binding", page_id=page_id)
-                if _protected_tokens(label) - _protected_tokens(unit.source_text) or _semantic_grounding_ratio(label, unit.source_text) < 0.12:
-                    raise V6BuildError(stage="visual", code="visual_diagram_label_unsupported", message="Diagram node label is not grounded in source text", page_id=page_id)
+                node_source_text = _unit_source_text_for_blocks(unit, node_sources)
+                if (
+                    _title_protected_tokens(label) - _protected_tokens(node_source_text)
+                    or _semantic_grounding_ratio(label, node_source_text) < 0.12
+                ):
+                    raise V6BuildError(
+                        stage="visual",
+                        code="visual_diagram_label_unsupported",
+                        message="Diagram node label is not grounded in its bound source blocks",
+                        page_id=page_id,
+                        node_id=str(node.get("node_id") or ""),
+                    )
             if any(
                 not isinstance(edge, dict)
                 or str(edge.get("source") or "") not in node_ids

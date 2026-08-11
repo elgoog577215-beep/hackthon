@@ -39,6 +39,7 @@ class CoursePresentationUnitV1(_StrictModel):
     primary_block_ids: list[str] = Field(min_length=1)
     primary_block_roles: dict[str, str] = Field(default_factory=dict)
     primary_block_artifacts: dict[str, list[ArtifactKind]] = Field(default_factory=dict)
+    primary_block_texts: dict[str, str] = Field(default_factory=dict)
     supporting_block_ids: list[str] = Field(default_factory=list)
     teaching_intent: str
     artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
@@ -298,6 +299,9 @@ def compile_course_presentation_graph(
                 },
                 primary_block_artifacts={
                     block.block_id: _artifact_kinds(block) for block in blocks
+                },
+                primary_block_texts={
+                    block.block_id: block_source_text(block) for block in blocks
                 },
                 teaching_intent=_teaching_intent(blocks),
                 artifact_kinds=list(

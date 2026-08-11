@@ -1309,6 +1309,19 @@ def _visual_request(
     template: TemplateLayoutPackContractV1,
 ) -> dict[str, Any]:
     units = {unit.teaching_unit_id: unit for unit in graph.units}
+    def page_source_blocks(page: SlideStoryPageV3) -> list[dict[str, str]]:
+        unit = units[page.teaching_unit_id]
+        blocks = [
+            {
+                "block_id": block_id,
+                "source_text": str(unit.primary_block_texts.get(block_id) or "").strip(),
+            }
+            for block_id in page.source_block_ids
+        ]
+        if len(blocks) == 1 and not blocks[0]["source_text"]:
+            blocks[0]["source_text"] = unit.source_text
+        return blocks
+
     return {
         "schema_version": "slide_visual_batch_request_v2",
         "chapter_id": batch.chapter_id,
@@ -1330,6 +1343,7 @@ def _visual_request(
             ],
             "optional_decision_fields": ["source_asset_ids", "visual_payload"],
             "forbidden_decision_fields": ["decision_type", "code_payload"],
+            "diagram_node_fields": ["node_id", "label", "source_block_ids"],
         },
         "pages": [
             {
@@ -1337,7 +1351,11 @@ def _visual_request(
                 "teaching_unit_id": page.teaching_unit_id,
                 "template_layout_id": page.template_layout_id,
                 "source_block_ids": page.source_block_ids,
-                "source_text": units[page.teaching_unit_id].source_text,
+                "source_text": "\n\n".join(
+                    block["source_text"] for block in page_source_blocks(page)
+                    if block["source_text"]
+                ) or units[page.teaching_unit_id].source_text,
+                "source_blocks": page_source_blocks(page),
                 "artifact_kinds": sorted(page_artifact_kinds(
                     units[page.teaching_unit_id],
                     page.source_block_ids,
@@ -1422,6 +1440,7 @@ def _validate_visual_batch_candidate(
 def _visual_repair_targets(
     request: dict[str, Any],
     error: Exception | None,
+    decisions: list[SlideVisualDecisionV2] | None = None,
 ) -> list[dict[str, Any]]:
     failed_page_id = (
         str(error.failure.page_id or "")
@@ -1434,17 +1453,93 @@ def _visual_repair_targets(
         if isinstance(page, dict)
         and (not failed_page_id or str(page.get("page_id") or "") == failed_page_id)
     ]
-    return [
-        {
-            "page_id": str(page.get("page_id") or ""),
+    decisions_by_page = {
+        decision.page_id: decision for decision in (decisions or [])
+    }
+    targets: list[dict[str, Any]] = []
+    for page in pages:
+        page_id = str(page.get("page_id") or "")
+        decision = decisions_by_page.get(page_id)
+        failed_node_id = (
+            str(getattr(error, "node_id", "") or "")
+            if isinstance(error, V6BuildError)
+            else ""
+        )
+        nodes = (
+            decision.visual_payload.get("nodes") or []
+            if decision is not None
+            else []
+        )
+        targets.append({
+            "page_id": page_id,
             "required_artifact_kinds": list(page.get("artifact_kinds") or []),
             "allowed_decisions": list(page.get("allowed_decisions") or []),
             "required_source_block_ids": list(page.get("source_block_ids") or []),
             "required_template_layout_id": str(page.get("template_layout_id") or ""),
             "allowed_source_asset_ids": list(page.get("source_asset_ids") or []),
-        }
-        for page in pages
-    ]
+            "source_blocks": list(page.get("source_blocks") or []),
+            "failed_node_ids": [failed_node_id] if failed_node_id else [],
+            "locked_nodes": [
+                node for node in nodes
+                if isinstance(node, dict)
+                and str(node.get("node_id") or "") != failed_node_id
+            ] if failed_node_id else [],
+        })
+    return targets
+
+
+def _merge_visual_repair_decisions(
+    previous: list[SlideVisualDecisionV2],
+    repaired: list[SlideVisualDecisionV2],
+    error: Exception | None,
+) -> list[SlideVisualDecisionV2]:
+    repaired_by_page = {decision.page_id: decision for decision in repaired}
+    failed_page_id = (
+        str(error.failure.page_id or "")
+        if isinstance(error, V6BuildError)
+        else ""
+    )
+    failed_node_id = (
+        str(getattr(error, "node_id", "") or "")
+        if isinstance(error, V6BuildError)
+        else ""
+    )
+    merged: list[SlideVisualDecisionV2] = []
+    for prior in previous:
+        replacement = repaired_by_page.get(prior.page_id)
+        if replacement is None:
+            merged.append(prior)
+            continue
+        if (
+            prior.page_id == failed_page_id
+            and failed_node_id
+            and prior.decision == "diagram"
+            and replacement.decision == "diagram"
+        ):
+            replacement_nodes = {
+                str(node.get("node_id") or ""): node
+                for node in replacement.visual_payload.get("nodes") or []
+                if isinstance(node, dict)
+            }
+            prior_payload = dict(prior.visual_payload)
+            prior_payload["nodes"] = [
+                replacement_nodes[failed_node_id]
+                if isinstance(node, dict)
+                and str(node.get("node_id") or "") == failed_node_id
+                and failed_node_id in replacement_nodes
+                else node
+                for node in prior.visual_payload.get("nodes") or []
+            ]
+            merged.append(prior.model_copy(update={
+                "visual_payload": prior_payload,
+                "provider": replacement.provider or prior.provider,
+                "model": replacement.model or prior.model,
+                "duration_ms": max(prior.duration_ms, replacement.duration_ms),
+                "attempts": max(prior.attempts, replacement.attempts),
+            }))
+            continue
+        merged.append(replacement)
+    return merged
 
 
 async def plan_slide_visuals_v2(
@@ -1512,11 +1607,24 @@ async def plan_slide_visuals_v2(
         batch_failure_category = ""
         try:
             contract_error: Exception | None = None
+            previous_decisions: list[SlideVisualDecisionV2] = []
             for validation_attempt in range(_VISUAL_SEMANTIC_MAX_ATTEMPTS):
                 attempt_request = request
                 if validation_attempt:
+                    repair_targets = _visual_repair_targets(
+                        request,
+                        contract_error,
+                        previous_decisions,
+                    )
+                    repair_page_ids = {
+                        str(target.get("page_id") or "") for target in repair_targets
+                    }
                     attempt_request = {
                         **request,
+                        "pages": [
+                            page for page in request.get("pages") or []
+                            if str(page.get("page_id") or "") in repair_page_ids
+                        ] or list(request.get("pages") or []),
                         "repair_feedback": {
                             "attempt": validation_attempt + 1,
                             "code": (
@@ -1525,15 +1633,13 @@ async def plan_slide_visuals_v2(
                                 else "visual_response_contract_invalid"
                             ),
                             "message": str(contract_error or ""),
-                            "repair_targets": _visual_repair_targets(
-                                request,
-                                contract_error,
-                            ),
+                            "repair_targets": repair_targets,
                             "instruction": (
-                                "Return a fresh response that follows response_contract exactly. "
-                                "For each repair target choose only an allowed_decision, preserve "
-                                "its exact source block and template layout bindings, and never "
-                                "invent artifact payloads."
+                                "Return decisions only for the pages in this repair request. For a "
+                                "failed diagram node, keep its node_id, bind it only to supplied "
+                                "source_blocks, prefer an extractive short label, preserve every "
+                                "locked_node unchanged, and keep exact numbers and code identifiers. "
+                                "Choose only an allowed_decision and never invent artifact payloads."
                             ),
                         },
                     }
@@ -1579,6 +1685,12 @@ async def plan_slide_visuals_v2(
                         )
                         for decision in response.decisions
                     ]
+                    if validation_attempt and previous_decisions:
+                        decisions = _merge_visual_repair_decisions(
+                            previous_decisions,
+                            decisions,
+                            contract_error,
+                        )
                     _validate_visual_batch_candidate(
                         story=story,
                         graph=graph,
@@ -1589,6 +1701,8 @@ async def plan_slide_visuals_v2(
                     break
                 except (ValidationError, ValueError, V6BuildError) as error:
                     contract_error = error
+                    if "decisions" in locals():
+                        previous_decisions = decisions
                     if validation_attempt < _VISUAL_SEMANTIC_MAX_ATTEMPTS - 1:
                         continue
                     raise
@@ -1766,7 +1880,11 @@ def build_ai_base_visual_planner_v2() -> Planner:
                 "or invent labels, facts, data, code_payload, or other artifact payloads. The compiler "
                 "reads code, formulas and tables from frozen source blocks. For diagram decisions "
                 "include visual_payload with "
-                "two to six source-grounded nodes, source_block_ids per node, and valid edges. For "
+                "two to six source-grounded nodes, source_block_ids per node, and valid edges. Bind "
+                "each node only to page source_blocks that support it. Prefer short labels extracted "
+                "from those blocks; faithful paraphrases must retain a source term, while numbers and "
+                "code identifiers must remain exact. During repair, change only failed_node_ids and "
+                "preserve locked_nodes. For "
                 "image or experiment decisions choose only supplied source_asset_ids."
                 ),
                 use_fast_model=True,
