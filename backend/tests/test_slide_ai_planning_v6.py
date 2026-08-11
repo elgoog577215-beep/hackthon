@@ -719,6 +719,64 @@ async def test_story_batch_resolves_known_layout_from_page_level_source_intent()
 
 
 @pytest.mark.asyncio
+async def test_story_resolves_known_but_off_contract_layout_to_page_compatible_layout() -> None:
+    """A provider may name another layout in the same template pack.
+
+    Keep the closed template registry, but adapt that known selection to the
+    frozen page sources instead of spending repair attempts on a mismatch.
+    This field-work fixture is deliberately neither mathematical nor code-led.
+    """
+
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        concept_id, feedback_id = unit["primary_block_ids"]
+        known_but_off_contract = next(
+            layout.template_layout_id
+            for layout in template.layouts
+            if layout.layout_slug == "evidence-code"
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "field-concept-off-contract",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": known_but_off_contract,
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [concept_id],
+                },
+                {
+                    "page_id": "field-feedback-compatible",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [feedback_id],
+                    ),
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    concept_page = next(
+        page for page in story.pages if page.page_id == "field-concept-off-contract"
+    )
+    assert concept_page.template_layout_id.endswith("/content-stack")
+
+
+@pytest.mark.asyncio
 async def test_story_resolves_feedback_only_page_to_a_single_source_layout() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})

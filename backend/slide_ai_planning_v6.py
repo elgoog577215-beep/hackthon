@@ -365,10 +365,9 @@ def _normalize_story_batch_response(
             )
         if unit is not None:
             selected_layout_id = str(page.get("template_layout_id") or "")
-            unit_layout_ids = set(unit.get("allowed_template_layout_ids") or [])
             page_layout_ids = allowed_layout_ids_for_page(unit, page)
             if (
-                selected_layout_id in unit_layout_ids
+                template.get_layout(selected_layout_id) is not None
                 and selected_layout_id not in page_layout_ids
                 and page_layout_ids
             ):
