@@ -1009,6 +1009,33 @@ def _story_repair_targets(
             for artifact in block_metadata.get(block_id, {}).get("artifact_kinds") or []
             if str(artifact)
         }
+        layout_artifact_kinds_by_id = {
+            str(layout.get("template_layout_id") or ""): {
+                str(artifact)
+                for artifact in layout.get("artifact_kinds") or []
+                if str(artifact)
+            }
+            for layout in unit.get("allowed_template_layouts") or []
+            if isinstance(layout, dict)
+            and str(layout.get("template_layout_id") or "")
+        }
+        current_layout_id = str(
+            (current_page or {}).get("template_layout_id") or ""
+        )
+        current_layout_artifacts = layout_artifact_kinds_by_id.get(
+            current_layout_id,
+            set(),
+        )
+        artifact_source_block_ids_by_kind = {
+            artifact: [
+                block_id
+                for block_id in current_source_block_ids
+                if artifact in set(
+                    block_metadata.get(block_id, {}).get("artifact_kinds") or []
+                )
+            ]
+            for artifact in sorted(current_artifacts)
+        }
         page_intent = (
             teaching_intent_for_roles(current_roles, current_artifacts)
             if current_roles or current_artifacts
@@ -1083,6 +1110,14 @@ def _story_repair_targets(
             "page_intent": page_intent,
             "allowed_template_layout_ids": page_allowed_layout_ids,
             "required_template_layout_id": "",
+            "required_artifact_kinds": sorted(current_artifacts),
+            "current_layout_artifact_kinds": sorted(current_layout_artifacts),
+            "missing_artifact_kinds": sorted(
+                current_artifacts - current_layout_artifacts
+            ),
+            "artifact_source_block_ids_by_kind": (
+                artifact_source_block_ids_by_kind
+            ),
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
             "current_source_block_ids": current_source_block_ids,
             "missing_source_block_ids": list(missing_source_block_ids or []),
@@ -1398,8 +1433,13 @@ async def plan_slide_story_v3(
                                 "slice of source_block_order, preserve the complete order exactly once, and "
                                 "select its layout from allowed_template_layout_ids_by_page_intent. If a "
                                 "page contains any primary block with artifact_kinds, its layout must also "
-                                "appear in that block's compatible_template_layout_ids and in "
-                                "artifact_layout_ids_by_kind for every bound artifact. Never assign "
+                                "appear in that block's compatible_template_layout_ids. The union of "
+                                "artifact_kinds for all blocks bound to a page must be a subset of the "
+                                "selected layout's artifact kinds. Use required_artifact_kinds, "
+                                "current_layout_artifact_kinds, missing_artifact_kinds, and "
+                                "artifact_source_block_ids_by_kind to repair the failed grouping. If no "
+                                "single layout appears in artifact_layout_ids_by_kind for every required "
+                                "artifact, split those source blocks across separate pages. Never assign "
                                 "an artifact-bearing page to a text-only layout. The "
                                 "validator will reject the result instead of generating replacement story "
                                 "pages. Set "
