@@ -37,6 +37,7 @@ from slide_deck_v6 import (
     V6BuildError,
     _title_is_incomplete,
     graph_page_source_blocks,
+    source_required_slot_kinds,
     story_page_count_range,
     story_safe_page_slices,
     story_safe_partition_options,
@@ -957,15 +958,22 @@ def _story_unit_request(
         block_artifacts = set(
             unit.primary_block_artifacts.get(block_id, [])
         )
+        required_slot_kinds = source_required_slot_kinds(
+            graph_page_source_blocks(unit, [block_id])
+        )
         candidates = allowed_layout_ids_by_page_intent.get(block_intent, [])
-        if not block_artifacts:
-            return list(candidates)
         return [
             layout_id
             for layout_id in candidates
             if (
                 (layout := template.get_layout(layout_id)) is not None
-                and block_artifacts.issubset(set(layout.artifact_kinds))
+                and (
+                    not block_artifacts
+                    or block_artifacts.issubset(set(layout.artifact_kinds))
+                )
+                and required_slot_kinds.issubset(
+                    {slot.slot_kind for slot in layout.slots}
+                )
             )
         ]
 
@@ -978,6 +986,9 @@ def _story_unit_request(
                 "block_id": block_id,
                 "role": unit.primary_block_roles.get(block_id, ""),
                 "artifact_kinds": unit.primary_block_artifacts.get(block_id, []),
+                "required_slot_kinds": sorted(source_required_slot_kinds(
+                    graph_page_source_blocks(unit, [block_id])
+                )),
                 "page_intent": page_teaching_intent(unit, [block_id]),
                 "source_text": unit.primary_block_texts.get(block_id, ""),
                 "title_candidates": _grounded_title_candidates(
@@ -1169,6 +1180,7 @@ def _story_repair_targets(
         repartition_required = error.failure.code in {
             "template_layout_artifact_mismatch",
             "template_layout_intent_mismatch",
+            "template_layout_semantic_slot_mismatch",
         }
         observed_unit_pages = [
             page

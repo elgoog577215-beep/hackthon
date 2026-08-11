@@ -579,6 +579,20 @@ def validate_slide_story_plan_v3(
                 message="Template layout does not express the page's source artifact",
                 page_id=page.page_id,
             )
+        required_slot_kinds = source_required_slot_kinds(
+            graph_page_source_blocks(unit, page.source_block_ids)
+        )
+        layout_slot_kinds = {slot.slot_kind for slot in layout.slots}
+        if not required_slot_kinds.issubset(layout_slot_kinds):
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_semantic_slot_mismatch",
+                message=(
+                    "Template layout cannot preserve a required source semantic "
+                    "structure"
+                ),
+                page_id=page.page_id,
+            )
         title_slot = next(
             (slot for slot in layout.slots if slot.slot_kind == "title"),
             None,
@@ -1211,6 +1225,19 @@ def _ordered_step_items(value: str) -> list[str]:
         if re.match(r"^\s*[-*+]\s+", line)
         and _visible_prose_text(re.sub(r"^\s*[-*+]\s+", "", line)).strip()
     ]
+
+
+def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
+    """Return semantic template slots required to keep source structure visible."""
+
+    sequence_roles = {"activity", "checkpoint", "orientation"}
+    if any(
+        block.role in sequence_roles
+        and len(_ordered_step_items(block_source_text(block))) >= 2
+        for block in source_blocks
+    ):
+        return {"steps"}
+    return set()
 
 
 def _bounded_slot_content(
@@ -2024,6 +2051,8 @@ def story_safe_page_slices(
             source_block_ids = block_ids[start_index:end_index]
             teaching_intent = page_teaching_intent(unit, source_block_ids)
             required_artifacts = page_artifact_kinds(unit, source_block_ids)
+            source_blocks = graph_page_source_blocks(unit, source_block_ids)
+            required_slot_kinds = source_required_slot_kinds(source_blocks)
             compatible_layout_ids: list[str] = []
             for layout in template.layouts:
                 if teaching_intent not in layout.teaching_intents:
@@ -2032,14 +2061,15 @@ def story_safe_page_slices(
                     set(layout.artifact_kinds)
                 ):
                     continue
+                if not required_slot_kinds.issubset(
+                    {slot.slot_kind for slot in layout.slots}
+                ):
+                    continue
                 try:
                     validate_story_template_text_slots(
                         page_id="story-safe-slice",
                         layout=layout,
-                        source_blocks=graph_page_source_blocks(
-                            unit,
-                            source_block_ids,
-                        ),
+                        source_blocks=source_blocks,
                         story_summary="",
                     )
                 except V6BuildError:
@@ -2052,6 +2082,7 @@ def story_safe_page_slices(
                     "source_block_ids": source_block_ids,
                     "teaching_intent": teaching_intent,
                     "artifact_kinds": sorted(required_artifacts),
+                    "required_slot_kinds": sorted(required_slot_kinds),
                     "template_layout_ids": compatible_layout_ids,
                 })
     return slices
@@ -2152,6 +2183,7 @@ def story_safe_partition_options(
                     "source_block_ids": list(item["source_block_ids"]),
                     "teaching_intent": str(item["teaching_intent"]),
                     "artifact_kinds": list(item["artifact_kinds"]),
+                    "required_slot_kinds": list(item["required_slot_kinds"]),
                     "template_layout_ids": list(item["template_layout_ids"]),
                 }
                 for item in path
