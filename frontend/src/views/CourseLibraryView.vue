@@ -88,19 +88,6 @@
       </div>
     </header>
 
-    <button v-if="latestResumeCourse" type="button" class="resume-card" @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)">
-      <span class="resume-card__icon"><History :size="18" /></span>
-      <span class="resume-card__copy">
-        <small>{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
-        <strong>{{ formatCourseTitle(latestResumeCourse.course_name) }}</strong>
-        <span>{{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}</span>
-      </span>
-      <span class="resume-card__action">
-        {{ t('courseLibrary.resume.open', '继续') }}
-        <ArrowRight :size="16" />
-      </span>
-    </button>
-
     <div class="library-toolbar">
       <label>
         <Search :size="16" />
@@ -118,7 +105,7 @@
         data-testid="resume-course"
         :aria-label="[
           resumeKindLabel(latestResumeCourse.resume?.kind || 'reading'),
-          latestResumeCourse.course_name,
+          formatCourseTitle(latestResumeCourse.course_name),
           t('courseLibrary.resume.open', '继续'),
         ].join(' · ')"
         @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)"
@@ -126,7 +113,7 @@
         <span class="library-resume__icon"><History :size="16" /></span>
         <span class="library-resume__copy">
           <small class="library-resume__label">{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
-          <strong class="library-resume__title">{{ latestResumeCourse.course_name }}</strong>
+          <strong class="library-resume__title">{{ formatCourseTitle(latestResumeCourse.course_name) }}</strong>
           <span class="library-resume__separator" aria-hidden="true">·</span>
           <span class="library-resume__location">
             {{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}
@@ -651,19 +638,24 @@ async function deleteCourse(courseId: string, courseName: string) {
 .create-course-menu__item small { margin-top:3px; color:var(--lz-text-muted); font-size:10px; line-height:1.4; }
 .create-menu-enter-active,.create-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .create-menu-enter-from,.create-menu-leave-to { opacity:0; transform:translateY(-5px) scale(.98); }
-.resume-card { width:100%; max-width:var(--course-content-width); min-width:0; margin:24px auto 0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:13px; padding:14px 16px; border:1px solid rgba(134,239,172,.72); border-radius:14px; color:var(--lz-text); background:linear-gradient(105deg,#f0fdf4,#fff); text-align:left; box-shadow:0 7px 20px rgba(21,128,61,.07); cursor:pointer; }
-.resume-card:hover { border-color:#4ade80; box-shadow:0 10px 24px rgba(21,128,61,.11); }
-.resume-card__icon { width:42px; height:42px; display:grid; place-items:center; border-radius:12px; color:#fff; background:#15803d; }
-.resume-card__copy { min-width:0; display:flex; flex-direction:column; }
-.resume-card__copy small { color:#15803d; font-size:10px; font-weight:800; }
-.resume-card__copy strong,.resume-card__copy span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.resume-card__copy strong { margin-top:2px; color:var(--lz-text-strong); font-size:14px; }
-.resume-card__copy span { margin-top:2px; color:var(--lz-text-muted); font-size:11px; }
-.resume-card__action { display:inline-flex; align-items:center; gap:5px; color:#166534; font-size:12px; font-weight:800; }
-.library-toolbar { max-width:var(--course-content-width); margin:28px auto 14px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.library-toolbar label { width:min(360px,100%); height:38px; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
+.library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:grid; grid-template-columns:minmax(240px,360px) minmax(0,1fr) auto; align-items:center; gap:12px; }
+.library-toolbar label { width:100%; height:44px; display:flex; align-items:center; gap:8px; padding:0 14px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
-.library-toolbar > span { color: var(--lz-text-muted); font-size: 12px; }
+.library-resume { min-width:0; height:44px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px 0 9px; overflow:hidden; border:1px solid rgba(134,239,172,.62); border-radius:12px; color:var(--lz-text); background:rgba(240,253,244,.52); box-shadow:inset 0 1px 0 rgba(255,255,255,.88); text-align:left; cursor:pointer; transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.library-resume:hover,.library-resume:focus-visible { border-color:rgba(74,222,128,.92); background:rgba(240,253,244,.9); box-shadow:0 5px 14px rgba(21,128,61,.08),inset 0 1px 0 rgba(255,255,255,.9); outline:none; }
+.library-resume:focus-visible { box-shadow:0 0 0 3px rgba(34,197,94,.14),0 5px 14px rgba(21,128,61,.08); }
+.library-resume__icon { width:28px; height:28px; display:grid; place-items:center; border-radius:9px; color:#15803d; background:rgba(220,252,231,.92); }
+.library-resume__copy { min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; white-space:nowrap; }
+.library-resume__label { flex:0 0 auto; color:#15803d; font-size:10px; font-weight:800; }
+.library-resume__title,.library-resume__location { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-resume__title { flex:0 1 auto; color:var(--lz-text-strong); font-size:12px; font-weight:800; }
+.library-resume__separator { flex:0 0 auto; color:rgba(148,163,184,.78); font-size:11px; }
+.library-resume__location { flex:1 1 auto; color:var(--lz-text-muted); font-size:11px; }
+.library-resume__action { display:inline-flex; align-items:center; gap:5px; color:#166534; font-size:11px; font-weight:800; white-space:nowrap; }
+.library-resume__action svg { transition:transform .18s ease; }
+.library-resume:hover .library-resume__action svg { transform:translateX(3px); }
+.library-resume:focus-visible .library-resume__action svg { transform:translateX(3px); }
+.library-toolbar__count { color:var(--lz-text-muted); font-size:12px; white-space:nowrap; }
 .course-grid { width:100%; max-width:var(--course-grid-width); margin:0; margin-inline-start:max(0px,calc((100% - var(--course-content-width)) / 2)); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
 .course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 96px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
@@ -724,6 +716,11 @@ async function deleteCourse(courseId: string, courseName: string) {
 @media (max-width:1360px) {
   .course-grid { max-width:1040px; grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+@media (max-width:980px) {
+  .library-toolbar { grid-template-columns:minmax(220px,320px) minmax(0,1fr); }
+  .library-toolbar__count { display:none; }
+  .library-resume__location,.library-resume__separator { display:none; }
+}
 @media (max-width:860px) {
   .course-grid { max-width:511px; grid-template-columns:minmax(0,1fr); }
 }
@@ -733,11 +730,8 @@ async function deleteCourse(courseId: string, courseName: string) {
   .library-header { align-items:stretch; flex-direction:column; }
   .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
   .create-course-menu__panel { left:0; right:0; width:auto; }
-  .resume-card { margin-top:18px; grid-template-columns:38px minmax(0,1fr); padding:12px; }
-  .resume-card__icon { width:38px; height:38px; }
-  .resume-card__action { grid-column:2; }
-  .library-toolbar { margin-top:18px; }
-  .library-toolbar > span { display:none; }
+  .library-toolbar { margin-top:18px; grid-template-columns:minmax(0,1fr); gap:10px; }
+  .library-resume { width:100%; }
   .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }
   .course-main { min-height:calc(var(--course-card-height) - 2px); grid-template-columns:var(--course-cover-width) minmax(0,1fr); gap:13px; padding:16px 5px 16px 14px; }
   .course-actions { padding:13px; }
@@ -754,5 +748,9 @@ async function deleteCourse(courseId: string, courseName: string) {
   .global-action-button { width:40px; padding:0; }
   .global-action-button .action-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .task-center-button > .action-count { position:absolute; top:-4px; right:-4px; min-width:17px; height:17px; padding:0 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-resume,.library-resume__action svg { transition:none; }
+  .library-resume:hover .library-resume__action svg,.library-resume:focus-visible .library-resume__action svg { transform:none; }
 }
 </style>

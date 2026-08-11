@@ -337,7 +337,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.resume-card__copy strong').text()).toBe('《辩论：逻辑构建与实战技巧》')
+    expect(wrapper.get('.library-toolbar .library-resume__title').text()).toBe('《辩论：逻辑构建与实战技巧》')
     expect(wrapper.findAll('.course-copy h2').map(title => title.text())).toEqual([
       '《辩论：逻辑构建与实战技巧》',
       '《局部解剖学》',

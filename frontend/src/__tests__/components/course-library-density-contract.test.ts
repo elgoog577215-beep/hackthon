@@ -15,9 +15,13 @@ describe('course library density contract', () => {
   it('preserves the original course library shell measurements', () => {
     expect(librarySource).toMatch(/--course-content-width:\s*1280px/)
     expect(librarySource).toMatch(/padding:\s*30px\s+clamp\(18px,4vw,54px\)\s+48px/)
-    expect(librarySource).toMatch(/\.resume-card\s*\{[^}]*margin:\s*24px\s+auto\s+0/s)
-    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*28px\s+auto\s+14px/s)
-    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*min\(360px,100%\)/s)
+    expect(librarySource).not.toMatch(/class="resume-card"/)
+    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*24px\s+auto\s+14px[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(240px,360px\)\s+minmax\(0,1fr\)\s+auto/s)
+    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*100%[^}]*height:\s*44px/s)
+    expect(librarySource).toMatch(/\.library-resume\s*\{[^}]*height:\s*44px[^}]*grid-template-columns:\s*28px\s+minmax\(0,1fr\)\s+auto/s)
+    expect(librarySource).toMatch(/\.library-resume__action svg\s*\{[^}]*transition:\s*transform\s+\.18s\s+ease/s)
+    expect(librarySource).toMatch(/\.library-resume:hover\s+\.library-resume__action svg\s*\{[^}]*transform:\s*translateX\(3px\)/s)
+    expect(librarySource).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.library-resume[^}]*transition:\s*none/s)
   })
 
   it('fills wide screens with three readable cards and steps down responsively', () => {
