@@ -210,6 +210,143 @@ def _request_title_candidates_for_blocks(
     ]
 
 
+def _project_required_safe_partitions(
+    pages: list[Any],
+    units: dict[str, dict[str, Any]],
+    repair_targets: list[dict[str, Any]],
+    *,
+    chapter_id: str,
+) -> list[Any]:
+    """Snap a failed AI retry to its one frozen, source-safe repair partition."""
+
+    targets_by_unit = {
+        str(target.get("teaching_unit_id") or ""): target
+        for target in repair_targets
+        if target.get("repartition_required") is True
+        and isinstance(target.get("required_safe_partition"), dict)
+    }
+    if not targets_by_unit:
+        return pages
+
+    pages_by_unit: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    unscoped_pages: list[Any] = []
+    for value in pages:
+        if not isinstance(value, dict):
+            unscoped_pages.append(value)
+            continue
+        unit_id = str(value.get("teaching_unit_id") or "")
+        if unit_id not in units:
+            unscoped_pages.append(value)
+            continue
+        pages_by_unit[unit_id].append(value)
+
+    projected: list[Any] = []
+    used_page_ids: set[str] = set()
+    for unit_id, unit in units.items():
+        target = targets_by_unit.get(unit_id)
+        provider_pages = pages_by_unit.get(unit_id, [])
+        if target is None:
+            projected.extend(provider_pages)
+            used_page_ids.update(
+                str(page.get("page_id") or "") for page in provider_pages
+            )
+            continue
+        provider_source_order = [
+            str(block_id)
+            for page in provider_pages
+            for block_id in page.get("source_block_ids") or []
+        ]
+        if provider_source_order != [
+            str(block_id) for block_id in unit.get("primary_block_ids") or []
+        ]:
+            projected.extend(provider_pages)
+            continue
+        provider_partition = [
+            [str(block_id) for block_id in page.get("source_block_ids") or []]
+            for page in provider_pages
+        ]
+        safe_partitions = [
+            [
+                [
+                    str(block_id)
+                    for block_id in page.get("source_block_ids") or []
+                ]
+                for page in option.get("pages") or []
+                if isinstance(page, dict)
+            ]
+            for option in unit.get("safe_partition_options") or []
+            if isinstance(option, dict)
+        ]
+        if provider_partition in safe_partitions:
+            projected.extend(provider_pages)
+            continue
+        partition = target["required_safe_partition"]
+        partition_pages = partition.get("pages") or []
+        if not isinstance(partition_pages, list) or not partition_pages:
+            projected.extend(provider_pages)
+            continue
+        for index, required in enumerate(partition_pages):
+            if not isinstance(required, dict):
+                continue
+            provider_page = (
+                provider_pages[index]
+                if index < len(provider_pages)
+                else {}
+            )
+            source_block_ids = [
+                str(block_id)
+                for block_id in required.get("source_block_ids") or []
+                if str(block_id)
+            ]
+            allowed_layout_ids = [
+                str(layout_id)
+                for layout_id in required.get("template_layout_ids") or []
+                if str(layout_id)
+            ]
+            selected_layout_id = str(
+                provider_page.get("template_layout_id") or ""
+            )
+            if selected_layout_id not in allowed_layout_ids:
+                selected_layout_id = allowed_layout_ids[0] if allowed_layout_ids else ""
+            title_candidates = _request_title_candidates_for_blocks(
+                unit,
+                source_block_ids,
+            )
+            selected_title = str(provider_page.get("title") or "").strip()
+            if selected_title not in title_candidates and title_candidates:
+                selected_title = title_candidates[0]
+            selected_page_id = str(provider_page.get("page_id") or "").strip()
+            if not selected_page_id or selected_page_id in used_page_ids:
+                selected_page_id = stable_hash(
+                    {
+                        "chapter_id": chapter_id,
+                        "teaching_unit_id": unit_id,
+                        "partition_id": partition.get("partition_id"),
+                        "page_index": index,
+                    },
+                    prefix="v6repair_",
+                )
+            used_page_ids.add(selected_page_id)
+            provider_source_ids = [
+                str(block_id)
+                for block_id in provider_page.get("source_block_ids") or []
+            ]
+            projected.append({
+                "page_id": selected_page_id,
+                "teaching_unit_id": unit_id,
+                "template_layout_id": selected_layout_id,
+                "title": selected_title,
+                "summary": (
+                    str(provider_page.get("summary") or "")
+                    if provider_source_ids == source_block_ids
+                    else ""
+                ),
+                "source_block_ids": source_block_ids,
+            })
+    projected.extend(unscoped_pages)
+    return projected
+
+
 def _normalize_story_batch_response(
     raw: dict[str, Any],
     request: dict[str, Any],
@@ -249,6 +386,12 @@ def _normalize_story_batch_response(
         for target in repair_targets
         if str(target.get("page_id") or "")
     }
+    pages = _project_required_safe_partitions(
+        pages,
+        units,
+        repair_targets,
+        chapter_id=str(request.get("chapter_id") or ""),
+    )
 
     def repair_target_for(page: dict[str, Any]) -> dict[str, Any] | None:
         exact = repair_targets_by_page.get(str(page.get("page_id") or ""))
@@ -1157,6 +1300,29 @@ def _story_repair_targets(
             )
             or 0
         )
+        safe_partition_options = [
+            option
+            for option in unit.get("safe_partition_options") or []
+            if isinstance(option, dict)
+            and isinstance(option.get("pages"), list)
+            and option.get("pages")
+        ]
+        observed_page_count = len(observed_unit_pages)
+        required_safe_partition = (
+            min(
+                enumerate(safe_partition_options),
+                key=lambda indexed_option: (
+                    abs(
+                        int(indexed_option[1].get("page_count") or 0)
+                        - observed_page_count
+                    ),
+                    int(indexed_option[1].get("page_count") or 0),
+                    indexed_option[0],
+                ),
+            )[1]
+            if repartition_required and safe_partition_options
+            else {}
+        )
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -1167,6 +1333,7 @@ def _story_repair_targets(
             "safe_partition_options": list(
                 unit.get("safe_partition_options") or []
             ),
+            "required_safe_partition": required_safe_partition,
             "observed_unit_page_ids": [
                 str(page.get("page_id") or "")
                 for page in observed_unit_pages
@@ -1562,6 +1729,10 @@ async def plan_slide_story_v3(
                                 "the failed source grouping. Each new page must bind a non-empty contiguous "
                                 "slice of source_block_order, preserve the complete order exactly once, and "
                                 "select its layout from allowed_template_layout_ids_by_page_intent. If a "
+                                "repair target supplies required_safe_partition, copy that partition's pages "
+                                "exactly, including every source_block_ids list, and choose each layout only "
+                                "from that page's template_layout_ids. "
+                                "If a "
                                 "page contains any primary block with artifact_kinds, its layout must also "
                                 "appear in that block's compatible_template_layout_ids. The union of "
                                 "artifact_kinds for all blocks bound to a page must be a subset of the "
