@@ -723,6 +723,24 @@ def _story_unit_request(
         if slot.get("slot_kind") == "title" and int(slot.get("max_chars") or 0) > 0
     ]
     title_max_chars = min(title_capacities) if title_capacities else 72
+
+    def block_compatible_layout_ids(block_id: str) -> list[str]:
+        block_intent = page_teaching_intent(unit, [block_id])
+        block_artifacts = set(
+            unit.primary_block_artifacts.get(block_id, [])
+        )
+        candidates = allowed_layout_ids_by_page_intent.get(block_intent, [])
+        if not block_artifacts:
+            return list(candidates)
+        return [
+            layout_id
+            for layout_id in candidates
+            if (
+                (layout := template.get_layout(layout_id)) is not None
+                and block_artifacts.intersection(layout.artifact_kinds)
+            )
+        ]
+
     return {
         "teaching_unit_id": unit.teaching_unit_id,
         "source_ordinal": unit.source_ordinal,
@@ -734,6 +752,9 @@ def _story_unit_request(
                 "artifact_kinds": unit.primary_block_artifacts.get(block_id, []),
                 "page_intent": page_teaching_intent(unit, [block_id]),
                 "source_text": unit.primary_block_texts.get(block_id, ""),
+                "compatible_template_layout_ids": (
+                    block_compatible_layout_ids(block_id)
+                ),
             }
             for block_id in unit.primary_block_ids
         ],
@@ -986,6 +1007,17 @@ def _story_repair_targets(
             and re.sub(r"\s+", "", str(title)).casefold()
             not in normalized_forbidden_titles
         ]
+        artifact_layout_ids_by_kind: dict[str, list[str]] = defaultdict(list)
+        for layout in unit.get("allowed_template_layouts") or []:
+            if not isinstance(layout, dict):
+                continue
+            layout_id = str(layout.get("template_layout_id") or "")
+            if not layout_id:
+                continue
+            for artifact_kind in layout.get("artifact_kinds") or []:
+                artifact = str(artifact_kind or "")
+                if artifact and layout_id not in artifact_layout_ids_by_kind[artifact]:
+                    artifact_layout_ids_by_kind[artifact].append(layout_id)
         title_repair_required = error.failure.code in {
             "duplicate_slide_title",
             "story_title_capacity_exceeded",
@@ -1026,6 +1058,8 @@ def _story_repair_targets(
             "allowed_template_layout_ids_by_page_intent": dict(
                 unit.get("allowed_template_layout_ids_by_page_intent") or {}
             ),
+            "artifact_layout_ids_by_kind": dict(artifact_layout_ids_by_kind),
+            "primary_blocks": list(unit.get("primary_blocks") or []),
             "page_intent": page_intent,
             "allowed_template_layout_ids": page_allowed_layout_ids,
             "required_template_layout_id": "",
@@ -1339,7 +1373,11 @@ async def plan_slide_story_v3(
                                 "partition of source_block_order across one to three pages. Do not retain "
                                 "the failed source grouping. Each new page must bind a non-empty contiguous "
                                 "slice of source_block_order, preserve the complete order exactly once, and "
-                                "select its layout from allowed_template_layout_ids_by_page_intent. The "
+                                "select its layout from allowed_template_layout_ids_by_page_intent. If a "
+                                "page contains any primary block with artifact_kinds, its layout must also "
+                                "appear in that block's compatible_template_layout_ids and in "
+                                "artifact_layout_ids_by_kind for at least one bound artifact. Never assign "
+                                "an artifact-bearing page to a text-only layout. The "
                                 "validator will reject the result instead of generating replacement story "
                                 "pages. Set "
                                 "summary to empty unless its complete wording is directly supported "
