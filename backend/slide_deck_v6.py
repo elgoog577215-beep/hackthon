@@ -1644,8 +1644,17 @@ def _split_table_block_for_layout_variants(
 
     def wrapped_budget() -> int:
         if page_index == 0 and split_first_page and not wide_first_page:
-            return int(slot.split_wrapped_lines or slot.full_wrapped_lines or 0)
-        return int(slot.full_wrapped_lines or slot.split_wrapped_lines or 0)
+            declared = int(slot.split_wrapped_lines or slot.full_wrapped_lines or 0)
+        else:
+            declared = int(slot.full_wrapped_lines or slot.split_wrapped_lines or 0)
+        if not declared:
+            return 0
+        # The wrapped-line contract is calibrated against a three-column table.
+        # Fewer columns have materially more vertical room per row, so scale the
+        # budget without weakening the long-cell safety check for 3+ columns.
+        if len(headers) < 3:
+            return max(declared, round(declared * 3 / len(headers)))
+        return declared
 
     def exceeds(candidate_rows: list[list[str]]) -> bool:
         candidate_text = rendered_text(candidate_rows)

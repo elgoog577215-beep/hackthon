@@ -599,16 +599,38 @@ def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     adapted = adapt_v6_page_to_slide_spec(page)
     assert adapted.quality["v6_layout_variant"] == "table-wide-with-summary"
     assert adapted.quality["v6_artifact_support_mode"] == "band"
+    assert len(deck.pages) == 2
+    continuation = adapt_v6_page_to_slide_spec(deck.pages[1])
+    assert continuation.quality["v6_layout_variant"] == "table-row-detail"
+
+    compiled_table_text = "\n".join(
+        region.content
+        for compiled_page in deck.pages
+        for region in compiled_page.regions
+        if region.content_kind == "table"
+    )
+    assert (
+        "Record the site \\| time, weather, and observer before sampling begins"
+        in compiled_table_text
+    )
+    assert "restore it from the signed field note" in compiled_table_text
+    assert "separate them" in compiled_table_text
 
     output = export_slide_deck_v6_pptx(deck, tmp_path / "wide-table.pptx")
-    report = audit_exported_pptx(output, expected_slide_count=1)
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
     assert report["passed"], report["blockers"]
 
     presentation = Presentation(output)
     table_shape = next(shape for shape in presentation.slides[0].shapes if shape.has_table)
     rendered_rows = [[cell.text for cell in row.cells] for row in table_shape.table.rows]
-    rendered_text = "\n".join(cell for row in rendered_rows for cell in row)
-    assert len(rendered_rows) == 3
+    rendered_text = "\n".join(
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
+    rendered_text += "\n" + "\n".join(cell for row in rendered_rows for cell in row)
+    assert len(rendered_rows) == 2
     assert len(rendered_rows[0]) == 5
     assert "site | time" in rendered_text
     assert not any(marker in rendered_text for marker in ("**", "`", "<br>"))
