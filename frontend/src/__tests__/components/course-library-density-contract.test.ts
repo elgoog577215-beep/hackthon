@@ -58,13 +58,16 @@ describe('course library density contract', () => {
     expect(coverSource).not.toMatch(/course-cover__(?:artwork|pattern|symbol|detail)/)
   })
 
-  it('gives the header create action a substantial branded split-button treatment', () => {
+  it('adapts the Uiverse white navigation control into an accessible split action', () => {
     expect(librarySource).toMatch(/class="create-course-trigger-group"/)
     expect(librarySource).toMatch(/class="create-course-primary__icon"/)
-    expect(librarySource).toMatch(/\.create-course-trigger-group\s*\{[^}]*height:\s*48px[^}]*border:\s*1px\s+solid[^}]*border-radius:\s*13px[^}]*background:\s*#4f46e5[^}]*box-shadow:/s)
-    expect(librarySource).toMatch(/\.create-course-primary\s*\{[^}]*padding:\s*0\s+17px[^}]*font-size:\s*13px[^}]*white-space:\s*nowrap/s)
-    expect(librarySource).toMatch(/\.create-course-primary__icon\s*\{[^}]*width:\s*24px[^}]*height:\s*24px[^}]*background:\s*rgba\(255,255,255,\.14\)/s)
-    expect(librarySource).toMatch(/\.create-course-menu-toggle\s*\{[^}]*width:\s*42px[^}]*border-left:\s*1px\s+solid\s+rgba\(255,255,255,\.22\)/s)
+    expect(librarySource).toMatch(/class="create-course-primary__label"/)
+    expect(librarySource).toMatch(/\.create-course-trigger-group\s*\{[^}]*height:\s*44px[^}]*border:\s*1px\s+solid[^}]*border-radius:\s*10px[^}]*background:\s*#fff[^}]*box-shadow:/s)
+    expect(librarySource).toMatch(/\.create-course-primary\s*\{[^}]*padding:\s*0\s+14px[^}]*font-size:\s*13px[^}]*font-weight:\s*700[^}]*white-space:\s*nowrap/s)
+    expect(librarySource).toMatch(/\.create-course-primary__icon\s*\{[^}]*width:\s*22px[^}]*height:\s*22px[^}]*color:\s*#7c3aed[^}]*transition:\s*transform/s)
+    expect(librarySource).toMatch(/\.create-course-primary:hover\s*\{[^}]*color:\s*#6d28d9[^}]*background:\s*#f5f5f5/s)
+    expect(librarySource).toMatch(/\.create-course-primary:hover\s+\.create-course-primary__icon\s*\{[^}]*transform:\s*rotate\(90deg\)\s+scale\(1\.05\)/s)
+    expect(librarySource).toMatch(/\.create-course-menu-toggle\s*\{[^}]*width:\s*40px[^}]*border-left:\s*1px\s+solid\s+rgba\(226,232,240,\.96\)/s)
     expect(librarySource).toMatch(/\.course-primary-action\s*\{[^}]*white-space:\s*nowrap/s)
     expect(librarySource).toMatch(/\.course-menu\s*\{[^}]*width:\s*160px[^}]*padding:\s*4px[^}]*border-radius:\s*10px/s)
     expect(librarySource).toMatch(/\.course-menu__item\s*\{[^}]*min-height:\s*36px[^}]*gap:\s*8px[^}]*padding:\s*0\s+9px/s)
