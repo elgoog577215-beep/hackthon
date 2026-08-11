@@ -572,3 +572,52 @@ def test_unit_bearing_answer_value_is_also_caught():
 
     assert screening["safe"] is False
     assert screening["reason"] == "reveals_final_answer"
+
+
+def test_single_character_answers_do_not_block_normal_guidance():
+    """答案是单个数字/字母时，不能把"第 1 步""选项 B"这类正常措辞判成泄漏。
+
+    自查时发现的误伤：答案为 "1"/"2"/"B" 的题上，引导只要提到步骤序号或选项
+    标号就被拦下。一个不敢提步骤号的苏格拉底式引导是没法用的——这类答案改由
+    短语级检查与参考步骤检查兜底，裸值守卫只管长到不会歧义的值。
+    """
+    def question(answer):
+        return {
+            "prompt": "p",
+            "question_type": "short_answer",
+            "answer_spec": {
+                "correct_answer": answer,
+                "solution_spec": {
+                    "final_answer": answer,
+                    "steps": [{"step_id": "s1", "action": "某一步推导"}],
+                },
+            },
+        }
+
+    for answer, text in (
+        ("1", "第 1 步你用了什么条件？"),
+        ("2", "请把第 2 步的依据写出来。"),
+        ("B", "选项 B 和 C 的区别在哪里？"),
+    ):
+        screening = screen_guidance_turn(
+            {"question": text, "focus": "", "closing": ""}, question(answer)
+        )
+        assert screening["safe"] is True, (answer, text)
+
+
+def test_two_character_answers_are_still_guarded():
+    """两位及以上的裸值仍然要拦——这是修误伤时不能一起放掉的东西。"""
+    question = {
+        "prompt": "p",
+        "question_type": "short_answer",
+        "answer_spec": {
+            "correct_answer": "42",
+            "solution_spec": {"final_answer": "42", "steps": []},
+        },
+    }
+    screening = screen_guidance_turn(
+        {"question": "答案就是 42。", "focus": "", "closing": ""}, question
+    )
+
+    assert screening["safe"] is False
+    assert screening["matched_value"] == "42"

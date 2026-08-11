@@ -43,6 +43,9 @@ MAX_HISTORY_TURNS = 12
 # A guidance turn may quote the student's own words freely, but must not restate
 # the reference derivation.  This is the same signal K1 uses on frozen hints.
 MAX_REFERENCE_COVERAGE = 0.6
+# Bare answer values shorter than this are not acted on: a lone "1"/"B" collides
+# with step indices and option labels, and blocking those makes guidance unusable.
+MIN_LITERAL_ANSWER_LEN = 2
 
 
 _GUIDANCE_SYSTEM_PROMPT = """
@@ -119,6 +122,13 @@ def _answer_values(question: dict[str, Any]) -> list[str]:
     the number") is what motivated this: the stored answer was the phrase
     「最小值为 -4」 while the model emitted the bare 「-4」, so phrase matching
     alone let it through.
+
+    Single characters are excluded on purpose.  With answer "1" or "B" a perfectly
+    normal turn — 「第 1 步你用了什么条件？」/「选项 B 和 C 的区别在哪里？」 —
+    would be blocked, and guidance that refuses to mention step numbers or option
+    labels is useless.  Those answers stay protected by the phrase-level check and
+    by the reference-step check; the bare-value guard only covers values long
+    enough to be unambiguous.
     """
     spec = question.get("answer_spec") or {}
     solution = spec.get("solution_spec") or {}
@@ -138,7 +148,12 @@ def _answer_values(question: dict[str, Any]) -> list[str]:
         # so the guard also covers the bare value the model is likely to utter.
         for token in re.findall(r"-?\d+(?:\.\d+)?", text):
             values.append(token)
-    return [value for value in dict.fromkeys(values) if value]
+    return [
+        value for value in dict.fromkeys(values)
+        # "".join drops the "-" of "-4"? No: len("-4") == 2, kept. A lone "4"/"B"
+        # is dropped as too collision-prone to act on.
+        if value and len("".join(value.split())) >= MIN_LITERAL_ANSWER_LEN
+    ]
 
 
 def _mentions_answer_value(text: str, question: dict[str, Any]) -> str:
