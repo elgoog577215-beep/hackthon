@@ -139,4 +139,48 @@ describe('slide deck V6 web adapter', () => {
     })
     expect(slides[0]!.blocks[0].metadata.table_source).toBe(true)
   })
+
+  it('uses the wide-table summary band for four-or-more-column evidence', () => {
+    const page = {
+      schema_version: 'slide_page_v6',
+      page_id: 'page-wide-table',
+      page_ordinal: 0,
+      title: 'Compare the field evidence',
+      resolved_layout: 'qizhi-classroom-v2@2026.08.10.4/evidence-table',
+      source_block_ids: ['evidence', 'interpretation'],
+      continuation_index: 1,
+      continuation_count: 1,
+      regions: [
+        {
+          region_id: 'page-wide-table:table',
+          slot_id: 'table',
+          content_kind: 'table',
+          content: [
+            '| Stage | Standard | Evidence | Repair |',
+            '| --- | --- | --- | --- |',
+            '| Observe | Record context | Preserve evidence | Repair gaps |',
+          ].join('\n'),
+          source_block_ids: ['evidence'],
+        },
+        {
+          region_id: 'page-wide-table:interpretation',
+          slot_id: 'interpretation',
+          content_kind: 'body',
+          content: 'Compare every observation with its declared evidence.',
+          source_block_ids: ['interpretation'],
+        },
+      ],
+      visual_decision: { decision: 'table' },
+      speaker_notes: {
+        source_document_revision: 'r1',
+        teaching_unit_id: 'u1',
+        source_blocks: [],
+      },
+    }
+
+    const slides = adaptSlideDeckV6ForWeb({ schema_version: 'slide_deck_v6', pages: [page] })
+
+    expect(slides[0]!.quality.v6_layout_variant).toBe('table-wide-with-summary')
+    expect(slides[0]!.quality.v6_artifact_support_mode).toBe('band')
+  })
 })
