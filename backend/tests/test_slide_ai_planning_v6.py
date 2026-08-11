@@ -1530,6 +1530,168 @@ async def test_non_artifact_course_keeps_text_native_as_a_valid_visual_language(
 
 
 @pytest.mark.asyncio
+async def test_required_diagram_layout_restricts_visual_ai_to_diagram() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-observation-flow",
+            title="Observation flow",
+            sections=[CourseSection(section_id="field", title="Field review", position=0)],
+            blocks=[CourseBlock(
+                block_id="flow",
+                section_id="field",
+                position=0,
+                role="concept",
+                payload={
+                    "markdown": (
+                        "## Review the observation flow\n"
+                        "Collect the field sample, compare the observation, "
+                        "and record the verified result."
+                    )
+                },
+            )],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "observation-flow",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/evidence-diagram")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    calls = []
+
+    async def visual_planner(request):
+        calls.append(request)
+        page = request["pages"][0]
+        decision = "text_native" if len(calls) == 1 else "diagram"
+        payload = {}
+        if decision == "diagram":
+            payload = {
+                "nodes": [
+                    {
+                        "node_id": "collect",
+                        "label": "Collect the field sample",
+                        "source_block_ids": ["flow"],
+                    },
+                    {
+                        "node_id": "compare",
+                        "label": "Compare the observation",
+                        "source_block_ids": ["flow"],
+                    },
+                    {
+                        "node_id": "record",
+                        "label": "Record the verified result",
+                        "source_block_ids": ["flow"],
+                    },
+                ],
+                "edges": [
+                    {"source": "collect", "target": "compare"},
+                    {"source": "compare", "target": "record"},
+                ],
+            }
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": decision,
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+                "visual_payload": payload,
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["pages"][0]["layout_artifact_kinds"] == ["diagram"]
+    assert calls[0]["pages"][0]["layout_requires_artifact"] is True
+    assert calls[0]["pages"][0]["allowed_decisions"] == ["diagram"]
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["allowed_decisions"] == ["diagram"]
+    assert visual.decisions[0].decision == "diagram"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("asset_refs", "figure_layout_allowed"),
+    [([], False), (["source-photo"], True)],
+)
+async def test_story_layout_registry_requires_source_support_for_mandatory_figures(
+    asset_refs: list[str],
+    figure_layout_allowed: bool,
+) -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-habitat-observation",
+            title="Habitat observation",
+            sections=[CourseSection(section_id="habitat", title="Habitat", position=0)],
+            blocks=[CourseBlock(
+                block_id="observation",
+                section_id="habitat",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Observe habitat evidence and explain the finding"},
+                asset_refs=asset_refs,
+            )],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    requests = []
+
+    async def story_planner(request):
+        requests.append(request)
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "habitat-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    await plan_slide_story_v3(graph, template, ai_planner=story_planner)
+
+    allowed_layouts = requests[0]["teaching_units"][0]["allowed_template_layout_ids"]
+    assert any(layout_id.endswith("/evidence-diagram") for layout_id in allowed_layouts)
+    assert any(layout_id.endswith("/evidence-figure") for layout_id in allowed_layouts) is figure_layout_allowed
+
+
+@pytest.mark.asyncio
 async def test_visual_ai_repairs_only_the_failed_diagram_node_with_bound_sources() -> None:
     document = refresh_document_revision(
         CourseDocument(
