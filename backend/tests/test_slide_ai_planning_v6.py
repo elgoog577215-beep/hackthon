@@ -15,7 +15,13 @@ from slide_ai_planning_v6 import (
     plan_slide_story_v3,
     plan_slide_visuals_v2,
 )
-from slide_deck_v6 import V6BuildError, validate_slide_story_plan_v3
+from slide_deck_v6 import (
+    SlideVisualDecisionV2,
+    SlideVisualPlanV2,
+    V6BuildError,
+    compile_slide_deck_v6,
+    validate_slide_story_plan_v3,
+)
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
@@ -97,6 +103,53 @@ def _mixed_artifact_document(
                         "markdown": (
                             "## Apply the representation\n"
                             f"{artifact_markdown}"
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
+def _structured_field_check_document() -> CourseDocument:
+    """A non-code, non-math task whose primary expression is a table."""
+
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-field-check",
+            title="Field evidence review",
+            sections=[
+                CourseSection(
+                    section_id="field-check",
+                    title="Verify the observation record",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="field-task-table",
+                    section_id="field-check",
+                    position=0,
+                    kind="review_checkpoint",
+                    role="activity",
+                    payload={
+                        "markdown": (
+                            "| Check | Required evidence |\n"
+                            "| --- | --- |\n"
+                            "| Time | Recorded |\n"
+                            "| Habitat | Described |"
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="field-feedback",
+                    section_id="field-check",
+                    position=1,
+                    role="feedback",
+                    payload={
+                        "markdown": (
+                            "## Interpret the field record\n"
+                            "Compare every observation with the stated evidence requirement."
                         )
                     },
                 ),
@@ -712,6 +765,69 @@ async def test_story_resolves_feedback_only_page_to_a_single_source_layout() -> 
     assert len(calls) == 1
     feedback_page = next(page for page in story.pages if page.page_id == "field-feedback")
     assert feedback_page.template_layout_id.endswith("/content-stack")
+
+
+@pytest.mark.asyncio
+async def test_structured_task_table_uses_table_layout_and_materializes_all_required_slots() -> None:
+    document = _structured_field_check_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        layout = next(
+            (
+                layout_id
+                for layout_id in unit["allowed_template_layout_ids"]
+                if layout_id.endswith("/practice-prompt")
+            ),
+            "",
+        )
+        if not layout:
+            layout = next(
+                layout_id
+                for layout_id in unit["allowed_template_layout_ids"]
+                if layout_id.endswith("/evidence-table")
+            )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": "field-check-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": "Interpret the field record",
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+    page = story.pages[0]
+    assert page.template_layout_id.endswith("/evidence-table")
+
+    visual = SlideVisualPlanV2(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        decisions=[
+            SlideVisualDecisionV2(
+                page_id=page.page_id,
+                decision="table",
+                source_block_ids=page.source_block_ids,
+                resolved_template_layout_id=page.template_layout_id,
+            )
+        ],
+    )
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert deck.status == "v6_ready"
+    assert {region.slot_id for region in deck.pages[0].regions} == {
+        "table",
+        "interpretation",
+    }
 
 
 @pytest.mark.asyncio
