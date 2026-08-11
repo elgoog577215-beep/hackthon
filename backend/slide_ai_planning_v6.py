@@ -11,7 +11,7 @@ import inspect
 import json
 import re
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -256,9 +256,10 @@ def _project_required_safe_partitions(
             for page in provider_pages
             for block_id in page.get("source_block_ids") or []
         ]
-        if provider_source_order != [
+        expected_source_order = [
             str(block_id) for block_id in unit.get("primary_block_ids") or []
-        ]:
+        ]
+        if Counter(provider_source_order) != Counter(expected_source_order):
             projected.extend(provider_pages)
             continue
         provider_partition = [
