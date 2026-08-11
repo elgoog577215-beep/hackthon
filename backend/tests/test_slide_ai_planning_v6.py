@@ -881,6 +881,11 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
         "llm-code-without-annotation",
         "llm-feedback-alone",
     ]
+    assert repair_target["forbidden_titles"] == []
+    assert (
+        repair_target["available_title_candidates"]
+        == unit["title_candidates"]
+    )
     assert repair_target["required_template_layout_id"] == ""
     assert [page.page_id for page in story.pages] == [
         "llm-code-with-context",

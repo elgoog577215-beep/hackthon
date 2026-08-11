@@ -733,6 +733,7 @@ def _story_unit_request(
                 "role": unit.primary_block_roles.get(block_id, ""),
                 "artifact_kinds": unit.primary_block_artifacts.get(block_id, []),
                 "page_intent": page_teaching_intent(unit, [block_id]),
+                "source_text": unit.primary_block_texts.get(block_id, ""),
             }
             for block_id in unit.primary_block_ids
         ],
@@ -899,6 +900,21 @@ def _story_repair_targets(
             ),
             None,
         )
+        repartition_required = error.failure.code in {
+            "template_layout_artifact_mismatch",
+            "template_layout_intent_mismatch",
+        }
+        observed_unit_pages = [
+            page
+            for page in pages
+            if isinstance(page, dict)
+            and str(page.get("teaching_unit_id") or "") == unit_id
+        ]
+        replaced_page_ids = {
+            str(page.get("page_id") or "")
+            for page in observed_unit_pages
+            if str(page.get("page_id") or "")
+        } if repartition_required else set()
         current_title = str((current_page or {}).get("title") or "")
         current_summary = str((current_page or {}).get("summary") or "")
         normalized_current_title = re.sub(r"\s+", "", current_title).casefold()
@@ -907,6 +923,7 @@ def _story_repair_targets(
             for page in pages
             if isinstance(page, dict)
             and str(page.get("page_id") or "") != page_id
+            and str(page.get("page_id") or "") not in replaced_page_ids
             and re.sub(r"\s+", "", str(page.get("title") or "")).casefold()
             == normalized_current_title
         ] if normalized_current_title else []
@@ -921,6 +938,7 @@ def _story_repair_targets(
                 for page in pages
                 if isinstance(page, dict)
                 and str(page.get("page_id") or "") != page_id
+                and str(page.get("page_id") or "") not in replaced_page_ids
                 and str(page.get("title") or "").strip()
             ),
         ]))
@@ -973,28 +991,44 @@ def _story_repair_targets(
             "story_title_capacity_exceeded",
             "story_unsupported_title",
         }
-        layout_repair_required = error.failure.code in {
-            "template_layout_artifact_mismatch",
-            "template_layout_intent_mismatch",
-        }
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
             "allowed_page_count_range": [1, 3],
             "observed_unit_page_ids": [
                 str(page.get("page_id") or "")
-                for page in pages
-                if isinstance(page, dict)
-                and str(page.get("teaching_unit_id") or "") == unit_id
-                and str(page.get("page_id") or "")
+                for page in observed_unit_pages
+                if str(page.get("page_id") or "")
             ],
+            "repartition_required": repartition_required,
+            "repartition_scope": (
+                "teaching_unit" if repartition_required else "page"
+            ),
+            "source_block_order": list(unit.get("primary_block_ids") or []),
+            "replace_page_ids": [
+                str(page.get("page_id") or "")
+                for page in observed_unit_pages
+                if str(page.get("page_id") or "")
+            ] if repartition_required else [],
+            "current_partition": [
+                {
+                    "page_id": str(page.get("page_id") or ""),
+                    "template_layout_id": str(
+                        page.get("template_layout_id") or ""
+                    ),
+                    "source_block_ids": [
+                        str(block_id)
+                        for block_id in page.get("source_block_ids") or []
+                    ],
+                }
+                for page in observed_unit_pages
+            ],
+            "allowed_template_layout_ids_by_page_intent": dict(
+                unit.get("allowed_template_layout_ids_by_page_intent") or {}
+            ),
             "page_intent": page_intent,
             "allowed_template_layout_ids": page_allowed_layout_ids,
-            "required_template_layout_id": (
-                str(page_allowed_layout_ids[0])
-                if layout_repair_required and page_allowed_layout_ids
-                else ""
-            ),
+            "required_template_layout_id": "",
             "required_source_block_ids": list(unit.get("primary_block_ids") or []),
             "current_source_block_ids": current_source_block_ids,
             "missing_source_block_ids": list(missing_source_block_ids or []),
@@ -1300,7 +1334,14 @@ async def plan_slide_story_v3(
                                 "it within that unit's title_max_chars. Set "
                                 "a repair target's title exactly to required_title when provided. Set "
                                 "its template_layout_id exactly to required_template_layout_id when "
-                                "provided. Set "
+                                "provided. When a repair target has repartition_required=true, "
+                                "replace every page listed in replace_page_ids with a fresh LLM-authored "
+                                "partition of source_block_order across one to three pages. Do not retain "
+                                "the failed source grouping. Each new page must bind a non-empty contiguous "
+                                "slice of source_block_order, preserve the complete order exactly once, and "
+                                "select its layout from allowed_template_layout_ids_by_page_intent. The "
+                                "validator will reject the result instead of generating replacement story "
+                                "pages. Set "
                                 "summary to empty unless its complete wording is directly supported "
                                 "by that unit's source_text; never add identifiers or facts."
                             ),
