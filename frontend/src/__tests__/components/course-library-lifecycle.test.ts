@@ -467,9 +467,9 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.library-global-actions .task-center-button').exists()).toBe(true)
     expect(wrapper.get('[data-testid="open-course-workbench"]').text()).toContain('课程工作台')
     expect(wrapper.get('.library-global-actions .action-count').text()).toBe('1')
-    expect(wrapper.find('.library-header [data-testid="create-course-menu-trigger"]').exists()).toBe(false)
-    expect(wrapper.find('.library-toolbar [data-testid="create-course-menu-trigger"]').exists()).toBe(true)
-    expect(wrapper.find('.library-toolbar [data-testid="create-blank-course-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('.library-header [data-testid="create-course-menu-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('.library-header [data-testid="create-blank-course-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('.library-toolbar [data-testid="create-course-menu-trigger"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('false')
 
     await wrapper.get('[data-testid="create-blank-course-trigger"]').trigger('click')
