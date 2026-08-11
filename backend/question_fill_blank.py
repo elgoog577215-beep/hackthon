@@ -67,6 +67,73 @@ def parse_blank_ids(prompt: str) -> list[str]:
     return seen
 
 
+def derive_blank_placeholders(
+    prompt: str,
+    blanks: list[dict[str, Any]],
+) -> tuple[str, list[str]]:
+    """把「陈述句 + 答案原文」确定性地挖成空位（H1b 的成品率问题）。
+
+    ## 为什么要这一步
+
+    真机取证反复出现同一种失败：模型给了 `solution.blanks` 的答案，却把题面写成
+    「请计算 ΔU」这种普通问答句，**题面里根本没有 `{{n}}` 空位**，契约编译直接
+    拒收。把「必须写 {{1}}」提到指令最前、写成硬性要求、给正反例，成品率也只
+    从 0 升到 3/10——模型对这种模板语法的服从度就是不高。
+
+    换一个更容易照做的要求：让模型写一句**把答案包含在内的完整陈述句**
+    （「…内能变化 ΔU = 23 kJ」），再由代码把答案原文挖掉换成 `{{n}}`。
+    「写一句真话」比「按模板语法填占位符」对模型容易得多，而挖空这一步是
+    纯字符串操作，不依赖模型。
+
+    ## 边界
+
+    - 题面已经有 `{{n}}` 的**原样返回**，不重复加工（那条路已经能走通）；
+    - 答案在题面里找不到原文的**不挖**，并如实报出来——凭空造一个空位会做出
+      一道题面与答案对不上的题，比生成失败更糟；
+    - 只替换第一次出现，避免把正文里同样的数值一起挖掉。
+
+    返回 `(新题面, 未能挖空的 blank_id 列表)`。
+    """
+    text = str(prompt or "")
+    if _PLACEHOLDER.search(text):
+        return text, []
+
+    unresolved: list[str] = []
+    for blank in _as_list(blanks):
+        if not isinstance(blank, dict):
+            continue
+        blank_id = _text(blank.get("blank_id"))
+        answer_text = _answer_text(blank.get("answer"))
+        if not blank_id:
+            continue
+        if not answer_text or answer_text not in text:
+            unresolved.append(blank_id)
+            continue
+        text = text.replace(answer_text, "{{" + blank_id + "}}", 1)
+    return text, unresolved
+
+
+def _answer_text(value: Any) -> str:
+    """答案的可搜索文本形式。
+
+    数值+单位这种结构化答案先拼成「值 单位」再找——模型写陈述句时就是这么写的。
+    """
+    if isinstance(value, dict):
+        number = value.get("value")
+        unit = _text(value.get("unit"))
+        if number is None:
+            return ""
+        number_text = (
+            str(int(number))
+            if isinstance(number, float) and number.is_integer()
+            else str(number)
+        )
+        return f"{number_text} {unit}".strip() if unit else number_text
+    if isinstance(value, (list, dict)):
+        return ""
+    return _text(value)
+
+
 def compile_fill_blank_contract(
     *,
     prompt: str,
@@ -241,6 +308,7 @@ def assert_no_answer_leak(public_view: dict[str, Any]) -> None:
 
 __all__ = [
     "BLANK_MATCH_MODES",
+    "derive_blank_placeholders",
     "FILL_BLANK_RESULT_SCHEMA",
     "FILL_BLANK_SCHEMA",
     "MAX_BLANKS",

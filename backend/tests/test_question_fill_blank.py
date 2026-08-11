@@ -273,3 +273,76 @@ def test_fill_blank_is_recognised_by_the_bank_classifier() -> None:
             "blanks": contract["blank_ids"],
         },
     }) == "fill_blank"
+
+
+# --- 确定性挖空（H1b 成品率）------------------------------------------------
+
+
+def test_derives_placeholders_from_a_declarative_stem() -> None:
+    """模型写一句含答案的陈述句，由代码挖空。
+
+    比让模型自己写 {{1}} 可靠得多——真机实测它对模板语法的服从度只有 3/10。
+    """
+    from question_fill_blank import derive_blank_placeholders
+
+    text, unresolved = derive_blank_placeholders(
+        "封闭系统吸热 35 kJ、对外做功 12 kJ，内能变化 ΔU = 23 kJ。",
+        [{"blank_id": "1", "answer": {"value": 23, "unit": "kJ"}}],
+    )
+    assert text == "封闭系统吸热 35 kJ、对外做功 12 kJ，内能变化 ΔU = {{1}}。"
+    assert unresolved == []
+
+
+def test_existing_placeholders_are_left_alone() -> None:
+    """题面已经挖好空的原样返回，不重复加工。"""
+    from question_fill_blank import derive_blank_placeholders
+
+    original = "内能变化 ΔU = {{1}} kJ。"
+    text, unresolved = derive_blank_placeholders(
+        original, [{"blank_id": "1", "answer": "23"}],
+    )
+    assert text == original
+    assert unresolved == []
+
+
+def test_answer_absent_from_the_stem_is_reported_not_invented() -> None:
+    """凭空造一个空位会做出题面与答案对不上的题，比生成失败更糟。"""
+    from question_fill_blank import derive_blank_placeholders
+
+    text, unresolved = derive_blank_placeholders(
+        "请计算该系统的内能变化。",
+        [{"blank_id": "1", "answer": "23"}],
+    )
+    assert "{{" not in text
+    assert unresolved == ["1"]
+
+
+def test_only_the_first_occurrence_is_blanked() -> None:
+    """正文里出现同样的数值时不能一起挖掉。"""
+    from question_fill_blank import derive_blank_placeholders
+
+    text, _ = derive_blank_placeholders(
+        "已知 12 kJ 为参考值，本题答案为 12 kJ。",
+        [{"blank_id": "1", "answer": "12 kJ"}],
+    )
+    assert text.count("{{1}}") == 1
+    assert text.startswith("已知 {{1}} 为参考值")
+
+
+def test_multiple_blanks_are_derived_in_order() -> None:
+    from question_fill_blank import (
+        compile_fill_blank_contract,
+        derive_blank_placeholders,
+    )
+
+    blanks = [
+        {"blank_id": "1", "answer": "23", "match_mode": "exact"},
+        {"blank_id": "2", "answer": "热力学第一定律", "match_mode": "exact"},
+    ]
+    text, unresolved = derive_blank_placeholders(
+        "ΔU 为 23，判据是热力学第一定律。", blanks,
+    )
+    assert unresolved == []
+    # 挖出来的题面必须能直接编译成契约
+    contract = compile_fill_blank_contract(prompt=text, blanks=blanks)
+    assert contract["blank_ids"] == ["1", "2"]

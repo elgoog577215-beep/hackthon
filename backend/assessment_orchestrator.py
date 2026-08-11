@@ -4240,11 +4240,47 @@ def _validate_fill_blank_solution(
     blanks = (contract.get("solution_envelope") or {}).get("blanks")
     if not isinstance(blanks, list) or not blanks:
         return None
-    from question_fill_blank import compile_fill_blank_contract, grade_fill_blank
+    from question_fill_blank import (
+        compile_fill_blank_contract,
+        derive_blank_placeholders,
+        grade_fill_blank,
+    )
+
+    # 模型没在题面挖空时，由代码按答案原文确定性挖空（见 derive_blank_placeholders）。
+    # 挖出来的题面要写回公开题面，否则学生看到的还是那句没有空位的陈述句。
+    derived, unresolved = derive_blank_placeholders(
+        str(contract.get("prompt") or ""), blanks,
+    )
+    if unresolved:
+        return {
+            "schema_version": "assessment_validator_result_v1",
+            "validation_mode": "fill_blank_validator",
+            "passed": False,
+            "status": "failed",
+            "deterministic": True,
+            "confidence": 1.0,
+            "requires_teacher_review": False,
+            "issue_code": "fill_blank_answer_not_in_stem",
+            "details": {"unresolved_blank_ids": unresolved},
+        }
+    if derived != str(contract.get("prompt") or ""):
+        contract["prompt"] = derived
+        spec = contract.get("question_spec")
+        if isinstance(spec, dict):
+            stimulus = spec.get("stimulus")
+            if isinstance(stimulus, dict):
+                stimulus["rendered_text"] = derive_blank_placeholders(
+                    str(stimulus.get("rendered_text") or ""), blanks,
+                )[0]
+            task = spec.get("task")
+            if isinstance(task, dict):
+                task["rendered_text"] = derive_blank_placeholders(
+                    str(task.get("rendered_text") or ""), blanks,
+                )[0]
 
     try:
         compiled = compile_fill_blank_contract(
-            prompt=str(contract.get("prompt") or ""),
+            prompt=derived,
             blanks=blanks,
         )
     except ValueError as error:
@@ -4366,11 +4402,14 @@ def _form_directive(question_form: str) -> str:
         )
     if question_form == "fill_blank":
         return (
-            # 这一句放最前且写成硬性要求：真机实测模型最常见的失败就是
-            # 「solution.blanks 给了，但题面里根本没挖空」——契约编译直接拒收。
-            "【填空题最重要的一条】题面里必须真的出现 {{1}} 这样的空位占位符，"
-            "否则本题无效。不要写成「请计算…」这种普通问答，要写成"
-            "「…则 ΔU = {{1}} kJ，判据是 {{2}}。」这种带空位的句子。\n"
+            # 改成「写一句包含答案的陈述句」而不是「按模板填占位符」。
+            # 真机实测模型对 {{n}} 语法的服从度只有 3/10；而写一句真话它做得到，
+            # 挖空交给代码（question_fill_blank.derive_blank_placeholders）。
+            "【填空题最重要的一条】题面必须是一句**包含答案在内的完整陈述句**，"
+            "而不是「请计算…」这样的问句。每个空的答案文字必须**原样出现在题面里**——"
+            "例如题面写「该过程内能变化 ΔU = 23 kJ」，同时 solution.blanks 里第 1 空的"
+            "answer 就是「23 kJ」。系统会自动把答案文字挖成空位，"
+            "你**不需要**自己写 {{1}}；写了也可以，但答案必须能在题面里找到原文。\n"
             "本题是填空题：stimulus 或 task 的题面中用 {{1}}、{{2}} 标出空位"
             "（编号从 1 连续递增，最多 20 空），options 必须为空数组；"
             "solution.blanks 必须为每个空位给出 "
