@@ -386,6 +386,74 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
     }
 
 
+def _table_cell_audits(shape: Any) -> list[dict[str, Any]]:
+    if not getattr(shape, "has_table", False):
+        return []
+    table = shape.table
+    audits: list[dict[str, Any]] = []
+    for row_index, row in enumerate(table.rows):
+        for column_index, cell in enumerate(row.cells):
+            if not str(cell.text or "").strip():
+                continue
+            width_pt = max(
+                1.0,
+                (
+                    int(table.columns[column_index].width)
+                    - int(cell.margin_left or 0)
+                    - int(cell.margin_right or 0)
+                ) / 12700,
+            )
+            height_pt = max(
+                1.0,
+                (
+                    int(row.height)
+                    - int(cell.margin_top or 0)
+                    - int(cell.margin_bottom or 0)
+                ) / 12700,
+            )
+            required_height = 0.0
+            minimum_size = 10**9
+            maximum_lines = 1
+            for paragraph in cell.text_frame.paragraphs:
+                font_size = _paragraph_font_size_pt(paragraph)
+                minimum_size = min(
+                    minimum_size,
+                    _paragraph_minimum_font_size_pt(paragraph),
+                )
+                line_count = _wrapped_line_count(
+                    paragraph.text or "",
+                    width_pt=width_pt,
+                    font_size_pt=font_size,
+                )
+                maximum_lines = max(maximum_lines, line_count)
+                before = (
+                    float(paragraph.space_before.pt)
+                    if paragraph.space_before
+                    else 0.0
+                )
+                after = (
+                    float(paragraph.space_after.pt)
+                    if paragraph.space_after
+                    else 0.0
+                )
+                required_height += line_count * font_size * 1.22 + before + after
+            if required_height > max(height_pt * 1.18, height_pt + 2.0):
+                audits.append({
+                    "severity": "critical",
+                    "code": "exported_table_cell_overflow",
+                    "shape_name": str(shape.name or ""),
+                    "row": row_index + 1,
+                    "column": column_index + 1,
+                    "required_height_pt": round(required_height, 2),
+                    "available_height_pt": round(height_pt, 2),
+                    "minimum_font_size_pt": (
+                        18.0 if minimum_size == 10**9 else minimum_size
+                    ),
+                    "maximum_wrapped_lines": maximum_lines,
+                })
+    return audits
+
+
 def _normalized_ocr_text(value: object) -> str:
     return re.sub(r"[^0-9a-zA-Z\u3400-\u9fff]+", "", str(value or "")).lower()
 
@@ -567,6 +635,8 @@ def audit_exported_pptx(
                 })
             if int(shape.width) > 0 and int(shape.height) > 0:
                 visible_object_count += 1
+            for table_issue in _table_cell_audits(shape):
+                issues.append({"page": slide_index, **table_issue})
             if getattr(shape, "has_text_frame", False) and str(shape.text or "").strip():
                 text_shapes.append(shape)
                 text_audit = _text_frame_audit(shape)
@@ -1355,11 +1425,11 @@ def _render_table_visual(
             block for block in unit.blocks
             if not block.metadata.get("table_source")
         ]
-        split_support = bool(
-            supporting_blocks
-            and unit.quality.get("v6_artifact_support_mode") != "full"
-        )
+        support_mode = str(unit.quality.get("v6_artifact_support_mode") or "")
+        split_support = bool(supporting_blocks and support_mode == "split")
+        band_support = bool(supporting_blocks and support_mode == "band")
         table_width = 7.18 if split_support else 11.78
+        table_height = 3.22 if band_support else 4.62
         _table(
             slide,
             [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
@@ -1367,7 +1437,7 @@ def _render_table_visual(
             0.78,
             1.92,
             table_width,
-            4.62,
+            table_height,
             theme,
         )
         if split_support:
@@ -1378,6 +1448,65 @@ def _render_table_visual(
                 ],
             })
             _source_panel(slide, supporting, 8.2, 1.92, 4.36, 4.62, theme)
+        elif band_support:
+            support_text = "\n".join(
+                [
+                    *(
+                        item
+                        for block in supporting_blocks
+                        for item in block.items
+                        if str(item).strip()
+                    ),
+                    *(
+                        block.content
+                        for block in supporting_blocks
+                        if str(block.content or "").strip()
+                    ),
+                ]
+            ).strip()
+            support_label = next(
+                (
+                    str(block.title or "").strip()
+                    for block in supporting_blocks
+                    if str(block.title or "").strip()
+                ),
+                "SUMMARY",
+            )
+            _shape(
+                slide,
+                0.78,
+                5.34,
+                11.78,
+                1.2,
+                theme["surface"],
+                radius=True,
+                line=theme["chart_bg"],
+            )
+            _text(
+                slide,
+                support_label.upper(),
+                1.08,
+                5.59,
+                1.45,
+                0.28,
+                10,
+                theme["accent"],
+                bold=True,
+                font=theme["body_font"],
+                east_asian_font=theme["body_east_asian_font"],
+            )
+            _text(
+                slide,
+                support_text,
+                2.6,
+                5.48,
+                9.55,
+                0.78,
+                16,
+                theme["ink"],
+                font=theme["body_font"],
+                east_asian_font=theme["body_east_asian_font"],
+            )
         return
     block = next(
         (

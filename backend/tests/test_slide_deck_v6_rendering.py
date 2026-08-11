@@ -183,7 +183,7 @@ def _wide_markdown_table_deck():
         "| Stage | Standard | Evidence | Basis | Repair |",
         "| :--- | :--- | :--- | :--- :--- |",
         (
-            "| **Observe** | Record the `site`, time, weather, and observer before "
+            "| **Observe** | Record the `site` \\| time, weather, and observer before "
             "sampling begins | The log preserves the original field condition | "
             "A stable context makes later comparisons meaningful | **Error**: context "
             "is missing.<br>**Repair**: restore it from the signed field note |"
@@ -387,14 +387,19 @@ def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     rendered_rows = [[cell.text for cell in row.cells] for row in table_shape.table.rows]
     rendered_text = "\n".join(cell for row in rendered_rows for cell in row)
     assert len(rendered_rows) == 3
+    assert len(rendered_rows[0]) == 5
+    assert "site | time" in rendered_text
     assert not any(marker in rendered_text for marker in ("**", "`", "<br>"))
     assert not any(set(cell.replace(" ", "")) <= {":", "-"} for cell in rendered_rows[1])
 
     layout = template.get_layout(template.layout_id("evidence-table"))
     assert layout is not None
     table_slot = next(slot for slot in layout.slots if slot.slot_kind == "table")
+    effective_wide_column_chars = round(
+        table_slot.full_column_chars * 3 / len(rendered_rows[0])
+    )
     assert max(len(cell) for row in rendered_rows[1:] for cell in row) <= (
-        table_slot.split_column_chars * 2
+        effective_wide_column_chars * 2
     )
 
 
@@ -438,6 +443,47 @@ def test_code_excerpt_ends_at_a_complete_source_unit_instead_of_a_trailing_comme
 
     assert not excerpt.rstrip().splitlines()[-1].lstrip().startswith("//")
     assert excerpt.count("{") == excerpt.count("}")
+    assert all(line in source.splitlines() for line in excerpt.splitlines())
+
+
+def test_code_excerpt_ignores_braces_inside_strings_and_comments() -> None:
+    source = "\n".join([
+        "public class Formatter",
+        "{",
+        "    void Render()",
+        "    {",
+        '        var label = "{pending}";',
+        "        Publish(label); // unmatched } belongs to the comment",
+        "    }",
+        "",
+        "    void Archive()",
+        "    {",
+        "        Save();",
+        "    }",
+        "}",
+    ])
+    block = CourseBlock(
+        block_id="generic-brace-code",
+        section_id="generic-section",
+        position=0,
+        role="example",
+        kind="code",
+        payload={"markdown": source},
+    )
+
+    from slide_deck_v6 import _bounded_slot_content
+
+    excerpt = _bounded_slot_content(
+        [block],
+        slot_kind="code",
+        max_chars=220,
+        max_items=0,
+        max_lines=8,
+        max_rows=0,
+    )
+
+    assert "void Render()" in excerpt
+    assert excerpt.rstrip().endswith("}")
     assert all(line in source.splitlines() for line in excerpt.splitlines())
 
 

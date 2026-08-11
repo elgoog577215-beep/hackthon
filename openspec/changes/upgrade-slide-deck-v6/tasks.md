@@ -18,6 +18,7 @@
 - [x] 3.2 Enforce 100% primary-block coverage, order/dependency preservation, known IDs and grounded factual tokens; fail the whole candidate on any story-batch failure.
 - [x] 3.3 Implement `slide_visual_plan_v2` schemas, bounded concurrency, source-backed decisions and page-level degradations.
 - [x] 3.4 Mark allowed degradations `v6_needs_manual_edit`; hard-fail subject, source, capacity and template loss.
+- [x] 3.5 Make source-grounded, Markdown-free page summaries an explicit LLM output contract bounded by the selected template slot.
 
 ## 4. Final compiler and orchestration
 
@@ -25,6 +26,7 @@
 - [x] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
 - [x] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
 - [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
+- [x] 4.5 Compile Markdown, code and tables into template-safe visible excerpts while retaining complete source text in speaker notes.
 
 ## 5. Adaptive progress
 

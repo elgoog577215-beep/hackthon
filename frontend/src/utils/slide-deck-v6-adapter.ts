@@ -56,6 +56,9 @@ interface AdapterDefinition {
     split_variant: string
     full_variant: string
     continuation_variant: string
+    wide_min_columns?: string
+    wide_variant?: string
+    wide_support_mode?: string
   }
 }
 
@@ -88,8 +91,10 @@ function parseMarkdownTable(value: string): { headers: string[]; rows: string[][
     .split('\n')
     .map(line => line.trim())
     .filter(line => line.startsWith('|') && line.endsWith('|'))
-    .map(line => line.slice(1, -1).split('|').map(cell => cell.trim()))
-    .filter(cells => !cells.every(cell => /^:?-{3,}:?$/.test(cell)))
+    .filter(line => !(line.includes('-') && /^[|:\-\s]+$/.test(line)))
+    .map(line => line.slice(1, -1)
+      .split(/(?<!\\)\|/)
+      .map(cell => cell.replace(/\\\|/g, '|').trim()))
   return { headers: rows[0] || [], rows: rows.slice(1) }
 }
 
@@ -105,6 +110,23 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
   const hasSupport = page.regions.some(
     region => region.content_kind !== policy.artifact_content_kind,
   )
+  const artifactRegion = page.regions.find(
+    region => region.content_kind === policy.artifact_content_kind,
+  )
+  const wideMinimum = Number(policy.wide_min_columns || 0)
+  if (
+    hasArtifact
+    && hasSupport
+    && policy.artifact_content_kind === 'table'
+    && artifactRegion
+    && wideMinimum > 0
+    && parseMarkdownTable(artifactRegion.content).headers.length >= wideMinimum
+  ) {
+    return {
+      variant: policy.wide_variant || policy.split_variant,
+      supportMode: policy.wide_support_mode || 'band',
+    }
+  }
   return hasArtifact && hasSupport
     ? { variant: policy.split_variant, supportMode: 'split' }
     : { variant: policy.full_variant, supportMode: 'full' }

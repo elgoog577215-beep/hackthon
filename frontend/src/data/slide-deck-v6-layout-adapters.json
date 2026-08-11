@@ -20,7 +20,10 @@
         "artifact_content_kind": "table",
         "split_variant": "table-with-interpretation",
         "full_variant": "table-full",
-        "continuation_variant": "table-continuation"
+        "continuation_variant": "table-continuation",
+        "wide_min_columns": "4",
+        "wide_variant": "table-wide-with-summary",
+        "wide_support_mode": "band"
       }
     },
     "evidence-figure": { "renderer_layout": "figure-text", "basic_layout": "concept" },

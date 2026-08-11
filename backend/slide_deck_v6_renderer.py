@@ -73,6 +73,27 @@ def _layout_variant(
         return str(policy.get("continuation_variant") or ""), "full"
     has_artifact = any(region.content_kind == artifact_kind for region in page.regions)
     has_support = any(region.content_kind != artifact_kind for region in page.regions)
+    wide_min_columns = int(policy.get("wide_min_columns") or 0)
+    artifact_region = next(
+        (
+            region
+            for region in page.regions
+            if region.content_kind == artifact_kind
+        ),
+        None,
+    )
+    if (
+        has_artifact
+        and has_support
+        and artifact_kind == "table"
+        and artifact_region is not None
+        and wide_min_columns
+        and len(_parse_markdown_table(artifact_region.content)[0]) >= wide_min_columns
+    ):
+        return (
+            str(policy.get("wide_variant") or policy.get("split_variant") or ""),
+            str(policy.get("wide_support_mode") or "band"),
+        )
     if has_artifact and has_support:
         return str(policy.get("split_variant") or ""), "split"
     return str(policy.get("full_variant") or ""), "full"
@@ -130,8 +151,13 @@ def _parse_markdown_table(value: str) -> tuple[list[str], list[list[str]]]:
         stripped = line.strip()
         if not stripped.startswith("|") or not stripped.endswith("|"):
             continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if cells and not all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
+        if re.fullmatch(r"[|:\-\s]+", stripped) and "-" in stripped:
+            continue
+        cells = [
+            cell.replace(r"\|", "|").strip()
+            for cell in re.split(r"(?<!\\)\|", stripped.strip("|"))
+        ]
+        if cells:
             rows.append(cells)
     return (rows[0], rows[1:]) if rows else ([], [])
 

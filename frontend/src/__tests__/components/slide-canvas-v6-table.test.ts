@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest'
 import SlideCanvas from '../../components/SlideCanvas.vue'
 
 
-function tableSlide(variant: 'table-with-interpretation' | 'table-continuation') {
+type TableVariant = 'table-with-interpretation' | 'table-continuation' | 'table-wide-with-summary'
+
+function tableSlide(variant: TableVariant) {
   return {
     layout: 'concept',
     title: 'Compare the field evidence',
@@ -32,12 +34,18 @@ function tableSlide(variant: 'table-with-interpretation' | 'table-continuation')
     quality: {
       resolved_layout: 'data-highlight',
       v6_layout_variant: variant,
-      v6_artifact_support_mode: (variant === 'table-with-interpretation' ? 'split' : 'full') as 'split' | 'full',
+      v6_artifact_support_mode: (
+        variant === 'table-with-interpretation'
+          ? 'split'
+          : variant === 'table-wide-with-summary'
+            ? 'band'
+            : 'full'
+      ) as 'split' | 'full' | 'band',
     },
   }
 }
 
-function mountSlide(variant: 'table-with-interpretation' | 'table-continuation') {
+function mountSlide(variant: TableVariant) {
   return mount(SlideCanvas, {
     props: {
       slide: tableSlide(variant),
@@ -70,5 +78,14 @@ describe('SlideCanvas V6 table family', () => {
     expect(continuationStory.attributes('data-layout-variant')).toBe('table-continuation')
     expect(continuationStory.attributes('data-source-empty')).toBe('true')
     expect(continuation.find('.deck-canvas__source').exists()).toBe(false)
+  })
+
+  it('keeps the source-grounded summary visible below a wide table', () => {
+    const wide = mountSlide('table-wide-with-summary')
+    const story = wide.get('.deck-canvas__story')
+
+    expect(story.attributes('data-layout-variant')).toBe('table-wide-with-summary')
+    expect(story.attributes('data-source-empty')).toBe('false')
+    expect(wide.get('.deck-canvas__source').text()).toContain('Compare the recorded condition')
   })
 })

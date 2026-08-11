@@ -16,7 +16,7 @@ describe('slide deck V6 web adapter', () => {
         page_id: 'page-code',
         page_ordinal: 0,
         title: 'Connect the event to feedback',
-        resolved_layout: 'qizhi-classroom-v2@2026.08.10.4/evidence-code',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/evidence-code',
         source_block_ids: ['condition', 'implementation', 'result'],
         artifact_kinds: ['code'],
         regions: [
@@ -84,7 +84,7 @@ describe('slide deck V6 web adapter', () => {
       page_id: 'page-table',
       page_ordinal: 0,
       title: 'Compare the field evidence',
-      resolved_layout: 'qizhi-classroom-v2@2026.08.10.4/evidence-table',
+      resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/evidence-table',
       source_block_ids: ['interpretation', 'evidence'],
       continuation_index: 1,
       continuation_count: 2,
@@ -93,7 +93,7 @@ describe('slide deck V6 web adapter', () => {
           region_id: 'page-table:table',
           slot_id: 'table',
           content_kind: 'table',
-          content: '| Check | Evidence |\n| --- | --- |\n| Input | Recorded |',
+          content: '| Check | Evidence |\n| --- | --- |\n| Input \\| timestamp | Recorded |',
           source_block_ids: ['evidence'],
         },
         {
@@ -135,7 +135,7 @@ describe('slide deck V6 web adapter', () => {
     expect(slides[1]!.quality.v6_layout_variant).toBe('table-continuation')
     expect(slides[0]!.visuals[0].parameters).toEqual({
       headers: ['Check', 'Evidence'],
-      rows: [['Input', 'Recorded']],
+      rows: [['Input | timestamp', 'Recorded']],
     })
     expect(slides[0]!.blocks[0].metadata.table_source).toBe(true)
   })
@@ -146,7 +146,7 @@ describe('slide deck V6 web adapter', () => {
       page_id: 'page-wide-table',
       page_ordinal: 0,
       title: 'Compare the field evidence',
-      resolved_layout: 'qizhi-classroom-v2@2026.08.10.4/evidence-table',
+      resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/evidence-table',
       source_block_ids: ['evidence', 'interpretation'],
       continuation_index: 1,
       continuation_count: 1,

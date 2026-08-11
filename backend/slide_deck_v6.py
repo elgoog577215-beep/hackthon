@@ -555,10 +555,30 @@ def validate_slide_story_plan_v3(
                 message="Story title exceeds the selected template title capacity",
                 page_id=page.page_id,
             )
+        summary_body_slots = [
+            slot for slot in layout.slots if slot.slot_kind == "body"
+        ]
+        if page.summary and _visible_prose_text(page.summary) != page.summary.strip():
+            raise V6BuildError(
+                stage="story",
+                code="story_summary_markdown_invalid",
+                message="Story summary must be presentation-ready text without Markdown",
+                page_id=page.page_id,
+            )
+        if page.summary and len(summary_body_slots) == 1:
+            summary_capacity = int(summary_body_slots[0].max_chars or 0)
+            if summary_capacity and len(page.summary) > summary_capacity:
+                raise V6BuildError(
+                    stage="story",
+                    code="story_summary_capacity_exceeded",
+                    message="Story summary exceeds the selected template support slot",
+                    page_id=page.page_id,
+                )
         validate_story_template_text_slots(
             page_id=page.page_id,
             layout=layout,
             source_blocks=graph_page_source_blocks(unit, page.source_block_ids),
+            story_summary=page.summary,
         )
         if unit.source_ordinal < previous_unit_ordinal:
             raise V6BuildError(stage="story", code="story_dependency_order_invalid", message="Story reverses course teaching-unit order", page_id=page.page_id)
@@ -749,7 +769,16 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
         return ""
     if len(normalized) <= capacity:
         return normalized
-    sentences = re.split(r"(?<=[。！？.!?])\s*", normalized)
+    numbered_marker = "\u0000V6_NUMBER_DOT\u0000"
+    protected = re.sub(
+        r"(^|\s)(\d{1,2})\.\s+",
+        lambda match: f"{match.group(1)}{match.group(2)}{numbered_marker} ",
+        normalized,
+    )
+    sentences = [
+        sentence.replace(numbered_marker, ".")
+        for sentence in re.split(r"(?<=[。！？.!?])\s*", protected)
+    ]
     result = ""
     for sentence in sentences:
         if not sentence:
@@ -764,6 +793,60 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
         return normalized[:1]
     excerpt = normalized[: capacity - 1].rstrip("，。！？,;: ")
     return f"{excerpt}…"
+
+
+def _visible_prose_text(value: str) -> str:
+    """Compile source Markdown into audience-facing text without changing facts."""
+
+    text = str(value or "")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"!\[([^]]*)]\([^)]*\)", r"\1", text)
+    text = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", text)
+    text = re.sub(r"(?<!\\)(\*\*|__)(.+?)\1", r"\2", text)
+    text = re.sub(r"(?<!\\)(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", text)
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)
+    text = re.sub(r"(?m)^\s*#{1,6}\s+", "", text)
+    text = re.sub(
+        r"</?[A-Za-z][A-Za-z0-9:_-]*(?:\s[^<>]*)?/?>",
+        "",
+        text,
+    )
+    return text.replace(r"\*", "*").replace(r"\_", "_").strip()
+
+
+def _display_excerpt(value: str, display_units: int) -> str:
+    """Return a source-only excerpt bounded by rendered-width units."""
+
+    clean = " ".join(_visible_prose_text(value).split())
+    if display_units <= 0 or _display_width_units(clean) <= display_units:
+        return clean
+    preferred = ""
+    for segment in re.split(r"(?<=[。！？.!?；;])\s*", clean):
+        candidate = segment if not preferred else f"{preferred} {segment}"
+        if _display_width_units(candidate) > display_units:
+            break
+        preferred = candidate
+    if preferred:
+        return preferred
+    budget = max(1, display_units - 2)
+    result = ""
+    for character in clean:
+        if _display_width_units(result + character) > budget:
+            break
+        result += character
+    next_character = clean[len(result):len(result) + 1]
+    if (
+        result
+        and next_character
+        and result[-1].isascii()
+        and result[-1].isalnum()
+        and next_character.isascii()
+        and next_character.isalnum()
+    ):
+        word_boundary = result.rfind(" ")
+        if word_boundary >= max(4, len(result) // 2):
+            result = result[:word_boundary]
+    return f"{result.rstrip('，。！？,;: ')}…" if result else "…"
 
 
 def _slot_artifact_kind(slot_kind: str) -> str:
@@ -814,10 +897,144 @@ def _prose_source_text(block: CourseBlock) -> str:
         if not re.match(r"^\s*\|.*\|\s*$", line)
         and not re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", line)
     ]
-    prose = "\n".join(prose_lines).strip()
+    prose = _visible_prose_text("\n".join(prose_lines))
     if prose == text.strip() and block.kind in {"code", "table"}:
         return ""
     return prose
+
+
+def _code_display_line_cost(line: str, line_width: int) -> int:
+    width = max(1, line_width)
+    return max(1, (_display_width_units(line.expandtabs(4)) + width - 1) // width)
+
+
+def _code_structure_text(
+    line: str,
+    *,
+    in_block_comment: bool,
+) -> tuple[str, bool]:
+    """Return code characters that can affect brace structure."""
+
+    structural: list[str] = []
+    quote = ""
+    escaped = False
+    index = 0
+    while index < len(line):
+        character = line[index]
+        next_character = line[index + 1:index + 2]
+        if in_block_comment:
+            if character == "*" and next_character == "/":
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == quote:
+                quote = ""
+            index += 1
+            continue
+        if character in {'"', "'", "`"}:
+            quote = character
+            index += 1
+            continue
+        if character == "/" and next_character == "*":
+            in_block_comment = True
+            index += 2
+            continue
+        if (character == "/" and next_character == "/") or (
+            character == "-" and next_character == "-"
+        ):
+            break
+        if character == "#" and not "".join(structural).strip():
+            break
+        structural.append(character)
+        index += 1
+    return "".join(structural), in_block_comment
+
+
+def _balanced_code_spans(lines: list[str]) -> list[list[str]]:
+    """Find complete source brace blocks, preferring executable inner units."""
+
+    stack: list[tuple[int, bool]] = []
+    spans: list[list[str]] = []
+    in_block_comment = False
+    for index, line in enumerate(lines):
+        structural_line, in_block_comment = _code_structure_text(
+            line,
+            in_block_comment=in_block_comment,
+        )
+        for character_index, character in enumerate(structural_line):
+            if character == "{":
+                stack.append((index, bool(structural_line[:character_index].strip())))
+            elif character == "}" and stack:
+                start, has_inline_signature = stack.pop()
+                signature = start
+                if not has_inline_signature:
+                    line_index = next(
+                        (
+                            candidate
+                            for candidate in range(start - 1, -1, -1)
+                            if lines[candidate].strip()
+                        ),
+                        None,
+                    )
+                    if line_index is not None:
+                        signature = line_index
+                spans.append(lines[signature:index + 1])
+    return spans
+
+
+def _safe_code_excerpt(
+    candidate: str,
+    *,
+    max_chars: int,
+    max_lines: int,
+) -> str:
+    lines = candidate.splitlines()
+    line_budget = max_lines or max(1, len(lines))
+    char_budget = max_chars or max(1, len(candidate))
+    line_width = max(24, char_budget // max(1, line_budget))
+
+    def fits(candidate_lines: list[str]) -> bool:
+        return bool(
+            candidate_lines
+            and len("\n".join(candidate_lines)) <= char_budget
+            and sum(
+                _code_display_line_cost(line, line_width)
+                for line in candidate_lines
+            ) <= line_budget
+        )
+
+    if fits(lines):
+        return candidate.strip("\n")
+
+    complete_spans = [span for span in _balanced_code_spans(lines) if fits(span)]
+    if complete_spans:
+        selected = max(
+            complete_spans,
+            key=lambda span: (
+                sum(bool(line.strip()) for line in span),
+                len("\n".join(span)),
+            ),
+        )
+        return "\n".join(selected).strip("\n")
+
+    selected: list[str] = []
+    for line in lines:
+        if not fits([*selected, line]):
+            break
+        selected.append(line)
+    while selected and (
+        not selected[-1].strip()
+        or selected[-1].lstrip().startswith(("//", "#", "--"))
+    ):
+        selected.pop()
+    return "\n".join(selected).strip("\n")
 
 
 def _bounded_code_content(
@@ -837,27 +1054,12 @@ def _bounded_code_content(
     excerpts: list[str] = []
     for block in blocks:
         candidates = _code_candidates(block_source_text(block))
-        candidate = max(
-            (
-                text for text in candidates
-                if len(text) <= per_block_chars
-                and len(text.splitlines()) <= per_block_lines
-            ),
-            key=len,
-            default=candidates[0],
+        candidate = max(candidates, key=len)
+        excerpt = _safe_code_excerpt(
+            candidate,
+            max_chars=per_block_chars,
+            max_lines=per_block_lines,
         )
-        selected: list[str] = []
-        for line in candidate.splitlines():
-            next_text = "\n".join([*selected, line])
-            if selected and (
-                len(selected) + 1 > per_block_lines
-                or len(next_text) > per_block_chars
-            ):
-                break
-            if len(next_text) > per_block_chars:
-                continue
-            selected.append(line)
-        excerpt = "\n".join(selected).strip()
         if excerpt:
             excerpts.append(excerpt)
     content = "\n\n".join(excerpts)
@@ -894,7 +1096,7 @@ def _bounded_slot_content(
         return ""
     capacity = max_chars or 520
     if slot_kind == "table":
-        content = "\n".join(texts)
+        content = _normalize_markdown_table("\n".join(texts))
         lines = content.splitlines()
         if (max_rows and len(lines) > max_rows + 2) or len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
@@ -903,11 +1105,11 @@ def _bounded_slot_content(
         items_by_block: list[list[str]] = []
         for text in texts:
             candidates = [
-                re.sub(
+                _visible_prose_text(re.sub(
                     r"^\s*(?:#{1,6}\s+|[-*+] |\d+[.)]\s*)",
                     "",
                     line,
-                ).strip()
+                )).strip()
                 for line in text.splitlines()
                 if line.strip()
             ]
@@ -1040,8 +1242,85 @@ def _display_width_units(value: str) -> int:
     return sum(1 if ord(character) < 128 else 2 for character in str(value or ""))
 
 
+def _table_cells(line: str) -> list[str]:
+    cells = re.split(r"(?<!\\)\|", str(line or "").strip().strip("|"))
+    return [
+        _visible_prose_text(cell.replace(r"\|", "|")).replace("\n", " ").strip()
+        for cell in cells
+    ]
+
+
+def _is_table_separator(line: str) -> bool:
+    stripped = str(line or "").strip()
+    return bool(stripped and re.fullmatch(r"[|:\-\s]+", stripped) and "-" in stripped)
+
+
+def _table_components(value: str) -> tuple[list[str], list[list[str]]]:
+    lines = [
+        line.strip()
+        for line in str(value or "").splitlines()
+        if line.strip().startswith("|") and line.strip().endswith("|")
+    ]
+    if not lines:
+        return [], []
+    headers = _table_cells(lines[0])
+    data_lines = lines[1:]
+    if data_lines and _is_table_separator(data_lines[0]):
+        data_lines = data_lines[1:]
+    column_count = max(1, len(headers))
+    rows: list[list[str]] = []
+    for line in data_lines:
+        if _is_table_separator(line):
+            continue
+        cells = _table_cells(line)
+        rows.append((cells + [""] * column_count)[:column_count])
+    return headers, rows
+
+
+def _markdown_table_text(headers: list[str], rows: list[list[str]]) -> str:
+    if not headers:
+        return ""
+
+    def markdown_cell(value: str) -> str:
+        return str(value or "").replace("|", r"\|")
+
+    column_count = len(headers)
+    normalized_rows = [
+        (list(row) + [""] * column_count)[:column_count]
+        for row in rows
+    ]
+    return "\n".join([
+        "| " + " | ".join(markdown_cell(cell) for cell in headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+        *(
+            "| " + " | ".join(markdown_cell(cell) for cell in row) + " |"
+            for row in normalized_rows
+        ),
+    ])
+
+
+def _normalize_markdown_table(
+    value: str,
+    *,
+    cell_display_units: int = 0,
+) -> str:
+    headers, rows = _table_components(value)
+    if not headers:
+        return _visible_prose_text(value)
+    if cell_display_units:
+        headers = [
+            _display_excerpt(cell, cell_display_units)
+            for cell in headers
+        ]
+        rows = [
+            [_display_excerpt(cell, cell_display_units) for cell in row]
+            for row in rows
+        ]
+    return _markdown_table_text(headers, rows)
+
+
 def _table_row_wrap_cost(row: str, column_chars: int) -> int:
-    cells = [cell.strip() for cell in str(row or "").strip().strip("|").split("|")]
+    cells = _table_cells(row)
     capacity = max(1, int(column_chars or 1))
     return max(
         1,
@@ -1061,12 +1340,8 @@ def _split_table_block_for_layout_variants(
     slot: Any,
     split_first_page: bool,
 ) -> list[CourseBlock]:
-    lines = block_source_text(block).splitlines()
-    if not (
-        len(lines) >= 2
-        and re.match(r"^\s*\|.*\|\s*$", lines[0])
-        and re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", lines[1])
-    ):
+    headers, rows = _table_components(block_source_text(block))
+    if not headers:
         return _split_artifact_block(
             block,
             slot_kind="table",
@@ -1074,32 +1349,76 @@ def _split_table_block_for_layout_variants(
             max_lines=slot.max_lines,
             max_rows=slot.max_rows,
         )
-    header = lines[:2]
-    header_text = "\n".join(header)
-    rows = lines[2:]
     chunks: list[str] = []
-    current: list[str] = []
+    current: list[list[str]] = []
     page_index = 0
+    wide_first_page = bool(
+        split_first_page
+        and int(getattr(slot, "wide_min_columns", 0) or 0)
+        and len(headers) >= int(slot.wide_min_columns)
+    )
 
     def page_column_capacity() -> int:
-        if page_index == 0 and split_first_page:
-            return int(slot.split_column_chars or slot.full_column_chars or 1)
-        return int(slot.full_column_chars or slot.split_column_chars or 1)
+        if page_index == 0 and split_first_page and not wide_first_page:
+            declared = int(slot.split_column_chars or slot.full_column_chars or 1)
+        else:
+            declared = int(slot.full_column_chars or slot.split_column_chars or 1)
+        # Slot capacity is declared against a three-column reference table.
+        # Wider schemas keep the same template geometry, so each cell's safe
+        # display width must shrink instead of forcing a smaller font.
+        return max(
+            6,
+            min(declared, round(declared * 3 / max(3, len(headers)))),
+        )
 
-    def wrapped_cost(candidate_rows: list[str]) -> int:
+    def compacted(candidate_rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
+        cell_budget = max(1, page_column_capacity() * 2)
+        return (
+            [_display_excerpt(cell, cell_budget) for cell in headers],
+            [
+                [_display_excerpt(cell, cell_budget) for cell in row]
+                for row in candidate_rows
+            ],
+        )
+
+    def rendered_text(candidate_rows: list[list[str]]) -> str:
+        compact_headers, compact_rows = compacted(candidate_rows)
+        return _markdown_table_text(compact_headers, compact_rows)
+
+    def wrapped_cost(candidate_rows: list[list[str]]) -> int:
         capacity = page_column_capacity()
-        header_cost = _table_row_wrap_cost(header[0], capacity)
+        compact_headers, compact_rows = compacted(candidate_rows)
+        header_cost = max(
+            1,
+            max(
+                (
+                    (_display_width_units(cell) + capacity - 1) // capacity
+                    for cell in compact_headers
+                ),
+                default=1,
+            ),
+        )
         return header_cost + sum(
-            _table_row_wrap_cost(row, capacity) for row in candidate_rows
+            max(
+                1,
+                max(
+                    (
+                        (_display_width_units(cell) + capacity - 1) // capacity
+                        for cell in row
+                    ),
+                    default=1,
+                ),
+            )
+            for row in compact_rows
         )
 
     def wrapped_budget() -> int:
-        if page_index == 0 and split_first_page:
+        if page_index == 0 and split_first_page and not wide_first_page:
             return int(slot.split_wrapped_lines or slot.full_wrapped_lines or 0)
         return int(slot.full_wrapped_lines or slot.split_wrapped_lines or 0)
 
-    def exceeds(candidate_rows: list[str]) -> bool:
-        candidate_text = "\n".join([*header, *candidate_rows])
+    def exceeds(candidate_rows: list[list[str]]) -> bool:
+        candidate_text = rendered_text(candidate_rows)
         return bool(
             (slot.max_rows and len(candidate_rows) > slot.max_rows)
             or (slot.max_chars and len(candidate_text) > slot.max_chars)
@@ -1112,7 +1431,7 @@ def _split_table_block_for_layout_variants(
     for row in rows:
         candidate = [*current, row]
         if current and exceeds(candidate):
-            chunks.append("\n".join([*header, *current]))
+            chunks.append(rendered_text(current))
             page_index += 1
             current = [row]
         else:
@@ -1120,9 +1439,9 @@ def _split_table_block_for_layout_variants(
         if exceeds(current):
             raise ValueError("template_slot_capacity_exceeded")
     if current:
-        chunks.append("\n".join([*header, *current]))
-    elif len(header_text) <= slot.max_chars:
-        chunks.append(header_text)
+        chunks.append(rendered_text(current))
+    elif len(_markdown_table_text(headers, [])) <= slot.max_chars:
+        chunks.append(_markdown_table_text(headers, []))
     return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
 
 
@@ -1168,8 +1487,6 @@ def _safe_artifact_page_blocks(
                         split_first_page=bool(non_artifact_blocks),
                     )
                 )
-            if len(artifact_chunks) == 1:
-                return [source_blocks]
         else:
             _bounded_slot_content(
                 artifact_blocks,
@@ -1253,6 +1570,7 @@ def _materialize_template_regions(
     title: str,
     layout: Any,
     source_blocks: list[CourseBlock],
+    story_summary: str = "",
 ) -> list[SlideRegionV6]:
     title_slot = next(
         (slot for slot in layout.slots if slot.slot_kind == "title"),
@@ -1312,18 +1630,33 @@ def _materialize_template_regions(
         assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
         remaining = []
 
+    summary_slot_id = ""
+    summary_content = _visible_prose_text(story_summary)
+    if (
+        summary_content
+        and len(text_slots) == 1
+        and text_slots[0].slot_kind == "body"
+    ):
+        summary_slot_id = text_slots[0].slot_id
+
     regions: list[SlideRegionV6] = []
     for slot in content_slots:
         slot_blocks = assigned.get(slot.slot_id, [])
         try:
-            content = _bounded_slot_content(
-                slot_blocks,
-                slot_kind=slot.slot_kind,
-                max_chars=slot.max_chars,
-                max_items=slot.max_items,
-                max_lines=slot.max_lines,
-                max_rows=slot.max_rows,
-            )
+            if slot.slot_id == summary_slot_id:
+                if slot.max_chars and len(summary_content) > slot.max_chars:
+                    raise ValueError("template_slot_capacity_exceeded")
+                content = summary_content
+                slot_blocks = list(source_blocks)
+            else:
+                content = _bounded_slot_content(
+                    slot_blocks,
+                    slot_kind=slot.slot_kind,
+                    max_chars=slot.max_chars,
+                    max_items=slot.max_items,
+                    max_lines=slot.max_lines,
+                    max_rows=slot.max_rows,
+                )
         except ValueError as error:
             if str(error) != "template_slot_capacity_exceeded":
                 raise
@@ -1382,6 +1715,7 @@ def validate_story_template_text_slots(
     page_id: str,
     layout: Any,
     source_blocks: list[CourseBlock],
+    story_summary: str = "",
 ) -> None:
     """Reject story layouts whose required prose slots cannot bind source."""
 
@@ -1432,16 +1766,30 @@ def validate_story_template_text_slots(
     if remaining and text_slots:
         assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
 
+    summary_slot_id = ""
+    summary_content = _visible_prose_text(story_summary)
+    if (
+        summary_content
+        and len(text_slots) == 1
+        and text_slots[0].slot_kind == "body"
+    ):
+        summary_slot_id = text_slots[0].slot_id
+
     for slot in text_slots:
         try:
-            content = _bounded_slot_content(
-                assigned.get(slot.slot_id, []),
-                slot_kind=slot.slot_kind,
-                max_chars=slot.max_chars,
-                max_items=slot.max_items,
-                max_lines=slot.max_lines,
-                max_rows=slot.max_rows,
-            )
+            if slot.slot_id == summary_slot_id:
+                if slot.max_chars and len(summary_content) > slot.max_chars:
+                    raise ValueError("template_slot_capacity_exceeded")
+                content = summary_content
+            else:
+                content = _bounded_slot_content(
+                    assigned.get(slot.slot_id, []),
+                    slot_kind=slot.slot_kind,
+                    max_chars=slot.max_chars,
+                    max_items=slot.max_items,
+                    max_lines=slot.max_lines,
+                    max_rows=slot.max_rows,
+                )
         except ValueError as error:
             raise V6BuildError(
                 stage="template",
@@ -1521,6 +1869,7 @@ def compile_slide_deck_v6(
                 title=title,
                 layout=layout,
                 source_blocks=materialized_blocks,
+                story_summary=story_page.summary,
             )
             decision = visual_by_page[story_page.page_id].model_copy(
                 update={"page_id": page_id},

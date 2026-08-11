@@ -329,6 +329,7 @@ def _normalize_story_batch_response(
                         graph_unit,
                         source_ids,
                     ),
+                    story_summary=str(page.get("summary") or ""),
                 )
             except V6BuildError:
                 continue
@@ -723,6 +724,18 @@ def _story_unit_request(
         if slot.get("slot_kind") == "title" and int(slot.get("max_chars") or 0) > 0
     ]
     title_max_chars = min(title_capacities) if title_capacities else 72
+    summary_max_chars_by_layout_id = {}
+    for layout in allowed_layouts:
+        body_slots = [
+            slot
+            for slot in layout["slots"]
+            if slot.get("slot_kind") == "body"
+        ]
+        summary_max_chars_by_layout_id[layout["template_layout_id"]] = (
+            int(body_slots[0].get("max_chars") or 0)
+            if len(body_slots) == 1
+            else 0
+        )
 
     def block_compatible_layout_ids(block_id: str) -> list[str]:
         block_intent = page_teaching_intent(unit, [block_id])
@@ -770,6 +783,7 @@ def _story_unit_request(
             unit.source_text,
             max_chars=title_max_chars,
         ),
+        "summary_max_chars_by_layout_id": summary_max_chars_by_layout_id,
         "allowed_template_layout_ids": allowed_layout_ids,
         "allowed_template_layout_ids_by_page_intent": (
             allowed_layout_ids_by_page_intent
@@ -800,6 +814,10 @@ def _story_requests(
                 "primary_block_page_ownership": "exactly_once",
                 "allow_multiple_primary_blocks_per_page": True,
                 "canvas_expression": "semantic_closure_with_full_source_in_notes",
+                "summary_policy": (
+                    "source_grounded_semantic_closure_for_all_bound_blocks_"
+                    "complete_sentence_no_markdown"
+                ),
                 "pages_per_unit": [1, 3],
                 "allow_new_facts": False,
                 "allow_unknown_ids": False,
@@ -1081,7 +1099,10 @@ def _story_repair_targets(
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
             "current_summary": current_summary,
-            "summary_policy": "exact_source_excerpt_or_empty",
+            "summary_policy": (
+                "source_grounded_semantic_closure_for_all_bound_blocks_"
+                "complete_sentence_no_markdown"
+            ),
         }
 
     failed_page_id = str(error.failure.page_id or "")
@@ -1380,8 +1401,11 @@ async def plan_slide_story_v3(
                                 "an artifact-bearing page to a text-only layout. The "
                                 "validator will reject the result instead of generating replacement story "
                                 "pages. Set "
-                                "summary to empty unless its complete wording is directly supported "
-                                "by that unit's source_text; never add identifiers or facts."
+                                "summary to one complete, Markdown-free, source-grounded sentence "
+                                "that expresses the semantic closure of every bound source_block_id "
+                                "whose length does not exceed summary_max_chars_by_layout_id for the "
+                                "selected layout. Use an empty summary only when that limit is zero or "
+                                "no faithful synthesis is possible; never add identifiers or facts."
                             ),
                         },
                     }
@@ -2234,7 +2258,8 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
                 "page level; never emit a nested content object. Copy titles verbatim from the "
                 "selected teaching unit's title_candidates and keep each title within the supplied "
-                "title_max_chars. Never invent teaching content."
+                "title_max_chars. A non-empty summary must express the semantic closure of every "
+                "source_block_id bound to that page. Never invent teaching content."
                 ),
                 use_fast_model=False,
                 retry_count=1,

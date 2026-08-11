@@ -234,7 +234,8 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
         "semantic_closure_with_full_source_in_notes"
     )
     assert calls[0]["constraints"]["summary_policy"] == (
-        "source_grounded_complete_sentence_no_markdown"
+        "source_grounded_semantic_closure_for_all_bound_blocks_"
+        "complete_sentence_no_markdown"
     )
     assert calls[0]["teaching_units"][0]["summary_max_chars_by_layout_id"]
     assert {item["template_layout_id"] for item in supplied_layouts} == set(
@@ -564,7 +565,8 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
     assert repair_target["conflicting_page_ids"] == []
     assert repair_target["current_summary"] == ""
     assert repair_target["summary_policy"] == (
-        "source_grounded_complete_sentence_no_markdown"
+        "source_grounded_semantic_closure_for_all_bound_blocks_"
+        "complete_sentence_no_markdown"
     )
     assert story.batches[0].attempts == 2
 
@@ -1169,7 +1171,8 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
     target = calls[1]["repair_feedback"]["repair_targets"][0]
     assert target["current_summary"] == "UnsupportedIdentifier_999"
     assert target["summary_policy"] == (
-        "source_grounded_complete_sentence_no_markdown"
+        "source_grounded_semantic_closure_for_all_bound_blocks_"
+        "complete_sentence_no_markdown"
     )
     assert story.pages[0].summary == ""
     validate_slide_story_plan_v3(story, graph, template)

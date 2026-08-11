@@ -40,6 +40,7 @@ class TemplateSlotContractV1(_StrictModel):
     full_wrapped_lines: int = Field(default=0, ge=0)
     split_column_chars: int = Field(default=0, ge=0)
     full_column_chars: int = Field(default=0, ge=0)
+    wide_min_columns: int = Field(default=0, ge=0)
     source_roles: list[str] = Field(default_factory=list)
 
 
@@ -110,6 +111,7 @@ def _slot(
     full_wrapped_lines: int = 0,
     split_column_chars: int = 0,
     full_column_chars: int = 0,
+    wide_min_columns: int = 0,
 ) -> dict[str, Any]:
     return {
         "slot_id": slot_id,
@@ -123,6 +125,7 @@ def _slot(
         "full_wrapped_lines": full_wrapped_lines,
         "split_column_chars": split_column_chars,
         "full_column_chars": full_column_chars,
+        "wide_min_columns": wide_min_columns,
         "source_roles": sorted(_SLOT_SOURCE_ROLES.get(slot_id, set())),
     }
 
@@ -218,8 +221,9 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
                 full_wrapped_lines=10,
                 split_column_chars=18,
                 full_column_chars=36,
+                wide_min_columns=4,
             ),
-            _slot("interpretation", "body", required=False, chars=220),
+            _slot("interpretation", "body", required=False, chars=140),
             _NOTES,
         ],
         "continuations": ["evidence-table"],

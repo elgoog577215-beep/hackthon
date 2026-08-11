@@ -73,6 +73,32 @@ def test_display_excerpt_never_cuts_an_ascii_word_in_half():
     assert excerpt[:-1].rstrip(" ,;:").endswith(("site", "time", "weather", "observer"))
 
 
+def test_visible_prose_preserves_source_identifiers_with_underscores():
+    block = _block(
+        "source-identifiers",
+        "generic-section",
+        0,
+        role="concept",
+        text=(
+            "Compare sensor_input with expected_value and preserve the condition "
+            "lower_bound < measured_value > upper_bound before publishing the result."
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="body",
+        max_chars=220,
+        max_items=0,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert "sensor_input" in content
+    assert "expected_value" in content
+    assert "lower_bound < measured_value > upper_bound" in content
+
+
 def test_item_slot_uses_source_excerpts_within_template_limits():
     block = _block(
         "field-checks",
