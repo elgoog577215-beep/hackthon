@@ -1023,6 +1023,135 @@ def _story_repair_targets(
     return [target_for(unit, page_id=failed_page_id)]
 
 
+def _story_request_page_intent(
+    unit: dict[str, Any],
+    source_block_ids: list[str],
+) -> str:
+    block_metadata = {
+        str(block.get("block_id") or ""): block
+        for block in unit.get("primary_blocks") or []
+        if isinstance(block, dict)
+    }
+    roles = [
+        str(block_metadata.get(block_id, {}).get("role") or "")
+        for block_id in source_block_ids
+        if str(block_metadata.get(block_id, {}).get("role") or "")
+    ]
+    artifacts = {
+        str(artifact)
+        for block_id in source_block_ids
+        for artifact in block_metadata.get(block_id, {}).get("artifact_kinds") or []
+        if str(artifact)
+    }
+    return (
+        teaching_intent_for_roles(roles, artifacts)
+        if roles or artifacts
+        else str(unit.get("teaching_intent") or "")
+    )
+
+
+def _coalesce_oversplit_story_unit(
+    response_payload: dict[str, Any],
+    request: dict[str, Any],
+    error: V6BuildError,
+) -> dict[str, Any]:
+    """Deterministically cap one coherent unit without rewriting its batch."""
+
+    if error.failure.code != "teaching_unit_page_limit_exceeded":
+        return response_payload
+    pages = response_payload.get("pages")
+    if not isinstance(pages, list):
+        return response_payload
+    failed_page = next(
+        (
+            page for page in pages
+            if isinstance(page, dict)
+            and str(page.get("page_id") or "") == str(error.failure.page_id or "")
+        ),
+        None,
+    )
+    if failed_page is None:
+        return response_payload
+    unit_id = str(failed_page.get("teaching_unit_id") or "")
+    unit = next(
+        (
+            item for item in request.get("teaching_units") or []
+            if isinstance(item, dict)
+            and str(item.get("teaching_unit_id") or "") == unit_id
+        ),
+        None,
+    )
+    unit_pages = [
+        page for page in pages
+        if isinstance(page, dict)
+        and str(page.get("teaching_unit_id") or "") == unit_id
+    ]
+    if unit is None or len(unit_pages) <= 3:
+        return response_payload
+
+    primary_ids = [
+        str(block_id) for block_id in unit.get("primary_block_ids") or []
+    ]
+    seen: set[str] = set()
+    owner_pages: list[dict[str, Any]] = []
+    for page in unit_pages:
+        page_ids = {
+            str(block_id) for block_id in page.get("source_block_ids") or []
+        }
+        fresh_ids = [
+            block_id for block_id in primary_ids
+            if block_id in page_ids and block_id not in seen
+        ]
+        if fresh_ids:
+            owner_pages.append(page)
+            seen.update(fresh_ids)
+    observed_ids = [block_id for block_id in primary_ids if block_id in seen]
+    if not observed_ids or not owner_pages:
+        return response_payload
+
+    target_count = min(3, len(owner_pages), len(observed_ids))
+    base_size, remainder = divmod(len(observed_ids), target_count)
+    chunks: list[list[str]] = []
+    cursor = 0
+    for index in range(target_count):
+        size = base_size + (1 if index < remainder else 0)
+        chunks.append(observed_ids[cursor:cursor + size])
+        cursor += size
+
+    replacements: list[dict[str, Any]] = []
+    for index, source_ids in enumerate(chunks):
+        page = dict(owner_pages[index])
+        page["source_block_ids"] = source_ids
+        page["summary"] = ""
+        page_intent = _story_request_page_intent(unit, source_ids)
+        allowed_layout_ids = list(
+            (unit.get("allowed_template_layout_ids_by_page_intent") or {}).get(
+                page_intent,
+                unit.get("allowed_template_layout_ids") or [],
+            )
+        )
+        if (
+            allowed_layout_ids
+            and str(page.get("template_layout_id") or "") not in allowed_layout_ids
+        ):
+            page["template_layout_id"] = str(allowed_layout_ids[0])
+        replacements.append(page)
+
+    rebuilt_pages: list[Any] = []
+    emitted = False
+    for page in pages:
+        if (
+            isinstance(page, dict)
+            and str(page.get("teaching_unit_id") or "") == unit_id
+        ):
+            if not emitted:
+                rebuilt_pages.extend(replacements)
+                emitted = True
+            continue
+        rebuilt_pages.append(page)
+    return {**response_payload, "pages": rebuilt_pages}
+
+
 async def plan_slide_story_v3(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -1180,12 +1309,41 @@ async def plan_slide_story_v3(
                         validation_status="passed",
                         pages=local_pages,
                     )
-                    _validate_story_batch_candidate(
-                        graph=graph,
-                        template=template,
-                        request=request,
-                        batch=candidate_batch,
-                    )
+                    try:
+                        _validate_story_batch_candidate(
+                            graph=graph,
+                            template=template,
+                            request=request,
+                            batch=candidate_batch,
+                        )
+                    except V6BuildError as validation_error:
+                        repaired_payload = _coalesce_oversplit_story_unit(
+                            previous_response_payload,
+                            request,
+                            validation_error,
+                        )
+                        if repaired_payload is previous_response_payload:
+                            raise
+                        previous_response_payload = repaired_payload
+                        response = _StoryBatchResponse.model_validate(
+                            previous_response_payload
+                        )
+                        local_pages = [
+                            SlideStoryPageV3(
+                                **item.model_dump(mode="json"),
+                                page_ordinal=index,
+                            )
+                            for index, item in enumerate(response.pages)
+                        ]
+                        candidate_batch = candidate_batch.model_copy(
+                            update={"pages": local_pages}
+                        )
+                        _validate_story_batch_candidate(
+                            graph=graph,
+                            template=template,
+                            request=request,
+                            batch=candidate_batch,
+                        )
                     pages = [
                         page.model_copy(update={"page_ordinal": page_ordinal + index})
                         for index, page in enumerate(local_pages)
