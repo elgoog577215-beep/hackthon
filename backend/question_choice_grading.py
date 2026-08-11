@@ -110,11 +110,14 @@ def canonical_option_ids(canonical_answer: Any) -> set[str]:
     single = _text(canonical_answer)
     if not single:
         return set()
-    # 多选答案常被写成一个串：「A、C」「A,C」「A C」。独立求解器尤其爱这么写。
-    # 拆开是为了能和选项 id 对上，不是放宽判定——拆出来的每一段仍要逐个匹配
-    # 真实存在的选项，对不上照样判不一致。
+    # 多选答案常被写成一个串：「A、C」「A,C」。独立求解器尤其爱这么写。
+    #
+    # **只按显式列表分隔符拆，不按空白拆。** 自查时发现按空白拆会把合法的单值
+    # 答案打碎：「12 kJ」→ {12, kJ}、「选项 A」→ {选项, A}，进而破坏
+    # `_resolve_option_ids` 的「选项原文 → id」映射（选项文本含空格时永远对不上）。
+    # 多选写成「A C」这种纯空格形式很少见，而误拆单值答案的代价更大。
     parts = [
-        part for part in re.split(r"[,，、;；/\s]+", single) if part
+        part for part in re.split(r"[,，、;；/]+", single) if part.strip()
     ]
     if len(parts) > 1:
         return {part.strip() for part in parts if part.strip()}

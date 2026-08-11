@@ -257,3 +257,35 @@ def test_is_multiple_choice_reads_the_contract() -> None:
     assert is_multiple_choice(_question(multiple=True)) is True
     assert is_multiple_choice(_question(multiple=False)) is False
     assert is_multiple_choice({}) is False
+
+
+# --- 自查发现的回归：串形拆分不得打碎单值答案 -----------------------------
+
+
+def test_string_split_does_not_shred_single_valued_answers() -> None:
+    """按空白拆会把合法单值答案打碎，进而破坏「选项原文 -> id」映射。
+
+    自查实测：`12 kJ` 曾被拆成 {12, kJ}，于是选项文本含空格时永远对不上。
+    多选写成「A C」这种纯空格形式很少见，误拆单值答案的代价更大，
+    所以只按显式列表分隔符拆。
+    """
+    from question_choice_grading import canonical_option_ids
+
+    # 显式分隔符：拆
+    assert canonical_option_ids("A、C") == {"A", "C"}
+    assert canonical_option_ids("A,C") == {"A", "C"}
+    assert canonical_option_ids("A;C") == {"A", "C"}
+
+    # 含空格的单值：不拆
+    assert canonical_option_ids("12 kJ") == {"12 kJ"}
+    assert canonical_option_ids("选项 A") == {"选项 A"}
+    assert canonical_option_ids("ΔU = Q - W") == {"ΔU = Q - W"}
+
+
+def test_option_text_with_spaces_still_maps_to_its_id() -> None:
+    """求解器按选项原文作答时，含空格的选项文本必须仍能映射回 id。"""
+    from assessment_orchestrator import _resolve_option_ids
+
+    options = [{"id": "A", "text": "12 kJ"}, {"id": "B", "text": "28 kJ"}]
+    assert _resolve_option_ids("12 kJ", options) == {"A"}
+    assert _resolve_option_ids("28 kJ", options) == {"B"}
