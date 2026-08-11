@@ -150,7 +150,7 @@
       <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程或导入已有 Markdown 开始学习。') }}</span>
     </div>
 
-    <div v-else ref="courseGridRef" class="course-grid" data-layout="two-column">
+    <div v-else ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
       <article
         v-for="{ course, status } in courseCards"
         :key="course.course_id"
@@ -616,7 +616,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 </script>
 
 <style scoped>
-.course-library { --course-content-width:1280px; --course-grid-width:1040px; --course-card-height:150px; --course-grid-gap:18px; --course-cover-width:78px; width:100%; height:100%; overflow:auto; padding:30px clamp(18px,4vw,54px) 48px; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:rgba(255,255,255,.76); box-shadow:var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
+.course-library { --course-content-width:1280px; --course-grid-width:1280px; --course-card-height:150px; --course-grid-gap:18px; --course-cover-width:78px; width:100%; height:100%; overflow:auto; padding:30px clamp(18px,4vw,54px) 48px; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:rgba(255,255,255,.76); box-shadow:var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .library-header { max-width:var(--course-content-width); margin:0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
 .library-header p { margin: 0 0 7px; color: var(--lz-brand); font-size: 12px; font-weight: 700; }
 .library-header h1 { margin:0; color:#312e81; font-size:clamp(25px,3vw,32px); line-height:1.2; }
@@ -657,8 +657,8 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-toolbar label { width:min(360px,100%); height:38px; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .library-toolbar > span { color: var(--lz-text-muted); font-size: 12px; }
-.course-grid { width:100%; max-width:var(--course-grid-width); margin:0; margin-inline-start:max(0px,calc((100% - var(--course-content-width)) / 2)); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
-.course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 112px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.course-grid { width:100%; max-width:var(--course-grid-width); margin:0; margin-inline-start:max(0px,calc((100% - var(--course-content-width)) / 2)); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
+.course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 96px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
 .course-item--menu-open { z-index:30; }
 .course-main { min-width:0; min-height:calc(var(--course-card-height) - 2px); display:grid; grid-template-columns:var(--course-cover-width) minmax(0,1fr); align-items:center; gap:16px; padding:16px 8px 16px 18px; border:0; border-radius:15px 0 0 15px; color:inherit; background:transparent; text-align:left; cursor:pointer; }
@@ -714,7 +714,10 @@ async function deleteCourse(courseId: string, courseName: string) {
 .spin { animation: spin 1s linear infinite; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width:980px) {
+@media (max-width:1360px) {
+  .course-grid { max-width:1040px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width:860px) {
   .course-grid { max-width:511px; grid-template-columns:minmax(0,1fr); }
 }
 @media (max-width:700px) {
