@@ -4192,6 +4192,40 @@ def _local_solver_applicable(public_spec: dict[str, Any]) -> bool:
     return True
 
 
+def _normalize_blank_submission(
+    solved: Any,
+    compiled: dict[str, Any],
+) -> dict[str, Any]:
+    """把求解器的填空答案归一成 `{"blanks": {blank_id: answer}}`。
+
+    求解器实际会用三种写法（真机实测都出现过）：
+    - `{"blanks": {"1": "230 J"}}`——已经是目标形状；
+    - `{"blanks": ["230 J", "内能增加"]}`——**按位置给的列表**，需按空位顺序对上；
+    - `"-110"`——单空题直接给标量。
+
+    改动前只认第一种，后两种一律判不一致。按位置对齐不是放宽判定：数量对不上
+    就不对齐，逐空判定照常执行。
+    """
+    blank_ids = [
+        str(blank["blank_id"]) for blank in compiled.get("blanks") or []
+    ]
+    payload: Any = solved
+    if isinstance(payload, dict) and "blanks" in payload:
+        payload = payload.get("blanks")
+    if isinstance(payload, dict):
+        return {"blanks": payload}
+    if isinstance(payload, (list, tuple)):
+        values = list(payload)
+        if len(values) == len(blank_ids):
+            return {
+                "blanks": dict(zip(blank_ids, values)),
+            }
+        return {"blanks": {}}
+    if payload is not None and len(blank_ids) == 1:
+        return {"blanks": {blank_ids[0]: payload}}
+    return {"blanks": {}}
+
+
 def _validate_fill_blank_solution(
     contract: dict[str, Any],
     solved: Any,
@@ -4225,9 +4259,7 @@ def _validate_fill_blank_solution(
             "issue_code": "fill_blank_contract_invalid",
             "details": {"error": str(error)},
         }
-    submission = solved if isinstance(solved, dict) else {}
-    if "blanks" not in submission:
-        submission = {"blanks": submission}
+    submission = _normalize_blank_submission(solved, compiled)
     graded = grade_fill_blank(compiled, submission)
     passed = bool(graded.get("all_correct"))
     return {
@@ -4334,6 +4366,11 @@ def _form_directive(question_form: str) -> str:
         )
     if question_form == "fill_blank":
         return (
+            # 这一句放最前且写成硬性要求：真机实测模型最常见的失败就是
+            # 「solution.blanks 给了，但题面里根本没挖空」——契约编译直接拒收。
+            "【填空题最重要的一条】题面里必须真的出现 {{1}} 这样的空位占位符，"
+            "否则本题无效。不要写成「请计算…」这种普通问答，要写成"
+            "「…则 ΔU = {{1}} kJ，判据是 {{2}}。」这种带空位的句子。\n"
             "本题是填空题：stimulus 或 task 的题面中用 {{1}}、{{2}} 标出空位"
             "（编号从 1 连续递增，最多 20 空），options 必须为空数组；"
             "solution.blanks 必须为每个空位给出 "
