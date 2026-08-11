@@ -1050,6 +1050,13 @@ async def test_story_repartitions_page_when_layout_covers_only_one_required_arti
     assert len(calls) == 2
     repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
     assert repair_target["repartition_required"] is True
+    assert repair_target["required_artifact_kinds"] == ["code", "table"]
+    assert repair_target["current_layout_artifact_kinds"] == ["data", "table"]
+    assert repair_target["missing_artifact_kinds"] == ["code"]
+    assert repair_target["artifact_source_block_ids_by_kind"] == {
+        "code": ["reproduction-procedure"],
+        "table": ["observation-record"],
+    }
     assert repair_target["source_block_order"] == [
         "observation-record",
         "reproduction-procedure",
