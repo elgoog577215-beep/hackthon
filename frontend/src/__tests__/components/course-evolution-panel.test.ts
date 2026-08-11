@@ -285,6 +285,111 @@ describe('CourseEvolutionPanel', () => {
     expect(undo).toHaveBeenCalledWith('plan-1')
   })
 
+  it('复验窗口到期时如实显示无样本，不呈现为调整无效', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'insufficient_evidence',
+          verification_level: 'not_verified',
+          recommended_action: 'collect_more_evidence',
+          reverification_window: {
+            status: 'expired',
+            window_days: 14,
+            elapsed_days: 21,
+            independent_sample_count: 0,
+            conclusion: 'no_independent_sample',
+            requires_human_review: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const windowText = wrapper.get('.reverification-window').text()
+
+    expect(windowText).toContain('已等待 21 天')
+    expect(windowText).toContain('仍无独立样本')
+    expect(windowText).toContain('人工判断')
+    // 到期不得被写成"无效"或"已改善"，也不得出现回退/调整按钮语义
+    expect(windowText).not.toContain('无效')
+    expect(windowText).not.toContain('改善')
+    expect(wrapper.get('.applied-growth').text()).not.toContain('建议回退')
+    expect(wrapper.get('.applied-growth button').text()).toContain('撤销')
+  })
+
+  it('复验窗口进行中显示仍在等待，不给出任何效果结论', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'insufficient_evidence',
+          verification_level: 'not_verified',
+          reverification_window: {
+            status: 'open',
+            window_days: 14,
+            elapsed_days: 3,
+            independent_sample_count: 0,
+            conclusion: 'awaiting_independent_sample',
+            requires_human_review: false,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const windowText = wrapper.get('.reverification-window').text()
+
+    expect(windowText).toContain('已等待 3 天')
+    expect(windowText).toContain('14 天窗口内')
+    expect(windowText).not.toContain('无效')
+  })
+
+  it('英文模式下复验窗口到期同样如实呈现且无中文残留', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/')
+        ? enMessages
+        : zhMessages,
+    })))
+    await setLocale('en')
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'insufficient_evidence',
+          verification_level: 'not_verified',
+          reverification_window: {
+            status: 'expired',
+            window_days: 14,
+            elapsed_days: 30,
+            independent_sample_count: 0,
+            conclusion: 'no_independent_sample',
+            requires_human_review: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const windowText = wrapper.get('.reverification-window').text()
+
+    expect(windowText).toContain('30 days')
+    expect(windowText).toContain('no independent sample')
+    expect(windowText).toContain('human decision')
+    expect(windowText).not.toMatch(/[一-鿿]/)
+    await setLocale('zh')
+  })
+
   it('一次独立复验通过只显示初步支持，不冒充持续确认', () => {
     useCourseEvolutionStore().applyPayload('course-1', {
       evidence_items: evidence,

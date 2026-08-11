@@ -833,7 +833,8 @@
       "targetedPractice": "针对性练习",
       "animation": "分步演示",
       "fold": "折叠已会内容",
-      "reorder": "重组学习顺序"
+      "reorder": "重组学习顺序",
+      "resequence": "跨章节重排"
     },
     "sectionGrowth": {
       "stepsLabel": "课程生长六步",
@@ -884,7 +885,23 @@
       "ineffective": "后续证据显示需要调整",
       "harmful": "后续证据显示有副作用，建议回退",
       "insufficient": "等待独立复验：后续同能力正式题"
-    }
+    },
+    "applying": "正在写入课程…",
+    "reverification": {
+      "title": "独立复验",
+      "open": "复验窗口进行中",
+      "openDetail": "已等待 {days} 天，还在 {window} 天窗口内，等待独立新题作答。",
+      "expired": "无样本，无法判定",
+      "expiredDetail": "已等待 {days} 天，仍无独立样本。这需要人工判断，不能据此认为调整已生效或应当回退。",
+      "satisfied": "已有独立样本",
+      "satisfiedDetail": "窗口内已收到 {count} 条独立新题作答，效果结论以这些样本为准。",
+      "noSample": "无样本",
+      "retakeExcluded": "原题重测不计入复验样本"
+    },
+    "applyingDetail": "已确认，正在提交课程修订；完成前不会重复提议。",
+    "declined": "你已排除的调整",
+    "declinedDetail": "这些条目在本次审阅中被你排除，短期内不会再次提议。",
+    "declinedCooldown": "冷却至 {date}"
   },
   "learningNavigator": {
     "title": "课程目录",
@@ -1666,7 +1683,10 @@
       "growthMoreSections": "还有 {count} 个小节将在本章继续生长",
       "growthStarting": "正在找到这门课的生长主线",
       "growthStartingHelp": "先确定整体章节和每章职责，随后小节会在它们的最终位置逐个出现。",
-      "growthNodeProgress": "{completed}/{total} 个小节"
+      "growthNodeProgress": "{completed}/{total} 个小节",
+      "authError": "AI 服务暂时无法完成身份校验。",
+      "timeoutError": "AI 服务响应超时，本阶段尚未完成。",
+      "unavailableError": "AI 服务暂时不可用，本阶段尚未完成。"
     },
     "outlineReview": {
       "ariaLabel": "课程目录确认",
@@ -2065,7 +2085,8 @@
       "exam": {
         "label": "考试冲刺",
         "detail": "根据考纲、薄弱点和剩余时间安排复习"
-      }
+      },
+      "comingSoon": "即将开放"
     },
     "project": {
       "title": "定义你的实战项目",

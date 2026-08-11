@@ -833,7 +833,8 @@
       "targetedPractice": "Targeted practice",
       "animation": "Step animation",
       "fold": "Fold mastered content",
-      "reorder": "Reorganize learning order"
+      "reorder": "Reorganize learning order",
+      "resequence": "Cross-chapter resequence"
     },
     "sectionGrowth": {
       "stepsLabel": "Six course growth steps",
@@ -884,7 +885,23 @@
       "ineffective": "Later evidence suggests another adjustment",
       "harmful": "Later evidence shows side effects; rollback is recommended",
       "insufficient": "Waiting for independent validation on a later formal task"
-    }
+    },
+    "applying": "Writing to the course…",
+    "reverification": {
+      "title": "Independent re-verification",
+      "open": "Re-verification window open",
+      "openDetail": "Waited {days} days, still inside the {window}-day window, awaiting an independent new task.",
+      "expired": "No sample — no verdict possible",
+      "expiredDetail": "Waited {days} days with no independent sample. This needs a human decision; it does not mean the change worked or should be rolled back.",
+      "satisfied": "Independent sample collected",
+      "satisfiedDetail": "{count} independent new-task attempts arrived in the window; the effect verdict rests on those samples.",
+      "noSample": "No sample",
+      "retakeExcluded": "Retaking the original task does not count as a re-verification sample"
+    },
+    "applyingDetail": "Confirmed and committing the course revision; it will not be proposed again until this finishes.",
+    "declined": "Adjustments you excluded",
+    "declinedDetail": "You excluded these items during review, so they will not be proposed again for now.",
+    "declinedCooldown": "On hold until {date}"
   },
   "learningNavigator": {
     "title": "Course outline",
@@ -1666,7 +1683,10 @@
       "growthMoreSections": "{count} more sections will continue growing in this chapter",
       "growthStarting": "Finding the growth path for this course",
       "growthStartingHelp": "The system first defines the chapters and each chapter's responsibility. Sections then appear one by one in their final positions.",
-      "growthNodeProgress": "{completed}/{total} sections"
+      "growthNodeProgress": "{completed}/{total} sections",
+      "authError": "The AI service could not authenticate.",
+      "timeoutError": "The AI service timed out before this stage completed.",
+      "unavailableError": "The AI service is temporarily unavailable, so this stage did not complete."
     },
     "outlineReview": {
       "ariaLabel": "Course outline confirmation",
@@ -2065,7 +2085,8 @@
       "exam": {
         "label": "Exam sprint",
         "detail": "Prioritize the syllabus and weak areas within the time available"
-      }
+      },
+      "comingSoon": "Coming soon"
     },
     "project": {
       "title": "Define your project",
