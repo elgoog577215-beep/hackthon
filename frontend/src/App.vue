@@ -1,10 +1,10 @@
 <template>
-  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute, 'is-public-concept': isPublicConceptRoute }">
-    <header v-if="!isPptRoute && !isPublicConceptRoute" class="app-header glass-panel-elevated">
-      <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
+  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
+    <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
+      <RouterLink class="brand-button" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
         <span class="brand-name">启智</span>
-      </button>
+      </RouterLink>
 
       <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions" />
 
@@ -91,14 +91,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
 
-const router = useRouter()
 const route = useRoute()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
@@ -209,6 +208,7 @@ function changeLocale(locale: 'zh' | 'en') {
   padding: 0;
   background: transparent;
   text-align: left;
+  text-decoration: none;
   border-radius: 13px;
   transition: transform .2s ease, background .2s ease;
 }
