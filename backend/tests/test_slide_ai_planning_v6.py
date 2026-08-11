@@ -158,6 +158,55 @@ def _structured_field_check_document() -> CourseDocument:
     )
 
 
+def _mixed_table_and_code_document() -> CourseDocument:
+    """A generic evidence unit that needs separate table and code expressions."""
+
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-mixed-evidence",
+            title="Evidence reproduction workflow",
+            sections=[
+                CourseSection(
+                    section_id="evidence-review",
+                    title="Inspect and reproduce the evidence",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="observation-record",
+                    section_id="evidence-review",
+                    position=0,
+                    kind="review_checkpoint",
+                    role="activity",
+                    payload={
+                        "markdown": (
+                            "| Check | Result |\n"
+                            "| --- | --- |\n"
+                            "| Signal | Found |"
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="reproduction-procedure",
+                    section_id="evidence-review",
+                    position=1,
+                    kind="code",
+                    role="example",
+                    payload={
+                        "markdown": (
+                            "```python\n"
+                            "def reproduce(record):\n"
+                            "    return record['result']\n"
+                            "```"
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
 def _layout_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
     block_metadata = {
         block["block_id"]: block for block in unit["primary_blocks"]
@@ -928,6 +977,88 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
         unit["primary_block_ids"][:2],
         unit["primary_block_ids"][2:],
     ]
+
+
+@pytest.mark.asyncio
+async def test_story_repartitions_page_when_layout_covers_only_one_required_artifact() -> None:
+    """A mixed-artifact page is invalid until every artifact has a safe layout."""
+
+    document = _mixed_table_and_code_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        table_id, code_id = unit["primary_block_ids"]
+        table_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-table")
+        )
+        code_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-code")
+        )
+        repair_targets = (request.get("repair_feedback") or {}).get(
+            "repair_targets"
+        ) or []
+        if repair_targets:
+            pages = [
+                {
+                    "page_id": "record-table",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": table_layout,
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [table_id],
+                },
+                {
+                    "page_id": "reproduction-code",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": code_layout,
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [code_id],
+                },
+            ]
+        else:
+            pages = [
+                {
+                    "page_id": "mixed-evidence",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": table_layout,
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [table_id, code_id],
+                }
+            ]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": pages,
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["repartition_required"] is True
+    assert repair_target["source_block_order"] == [
+        "observation-record",
+        "reproduction-procedure",
+    ]
+    assert [page.source_block_ids for page in story.pages] == [
+        ["observation-record"],
+        ["reproduction-procedure"],
+    ]
+    assert story.pages[0].template_layout_id.endswith("/evidence-table")
+    assert story.pages[1].template_layout_id.endswith("/evidence-code")
 
 
 @pytest.mark.asyncio
