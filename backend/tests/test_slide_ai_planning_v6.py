@@ -1299,6 +1299,75 @@ async def test_story_contract_projects_repeated_invalid_grouping_to_one_safe_par
 
 
 @pytest.mark.asyncio
+async def test_story_contract_restores_source_order_for_complete_repair_pages() -> None:
+    """A complete AI retry may be reordered, but cannot omit or duplicate source."""
+
+    document = _mixed_table_and_code_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        table_id, code_id = unit["primary_block_ids"]
+        table_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-table")
+        )
+        code_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-code")
+        )
+        pages = (
+            [{
+                "page_id": "invalid-combined-evidence",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": table_layout,
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": [table_id, code_id],
+            }]
+            if len(calls) == 1
+            else [
+                {
+                    "page_id": "code-returned-first",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": code_layout,
+                    "title": _title_for_request_blocks(unit, [code_id]),
+                    "summary": "",
+                    "source_block_ids": [code_id],
+                },
+                {
+                    "page_id": "table-returned-second",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": table_layout,
+                    "title": _title_for_request_blocks(unit, [table_id]),
+                    "summary": "",
+                    "source_block_ids": [table_id],
+                },
+            ]
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": pages,
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    assert [page.source_block_ids for page in story.pages] == [
+        ["observation-record"],
+        ["reproduction-procedure"],
+    ]
+    assert story.pages[0].template_layout_id.endswith("/evidence-table")
+    assert story.pages[1].template_layout_id.endswith("/evidence-code")
+
+
+@pytest.mark.asyncio
 async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> None:
     document = _dense_mixed_evidence_document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
