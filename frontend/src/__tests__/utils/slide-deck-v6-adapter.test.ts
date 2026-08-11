@@ -77,4 +77,66 @@ describe('slide deck V6 web adapter', () => {
       }],
     })).toThrow('v6_template_layout_adapter_missing')
   })
+
+  it('materializes published table-family variants and structured table data without duplicating source text', () => {
+    const basePage = {
+      schema_version: 'slide_page_v6',
+      page_id: 'page-table',
+      page_ordinal: 0,
+      title: 'Compare the field evidence',
+      resolved_layout: 'qizhi-classroom-v2@2026.08.10.4/evidence-table',
+      source_block_ids: ['interpretation', 'evidence'],
+      continuation_index: 1,
+      continuation_count: 2,
+      regions: [
+        {
+          region_id: 'page-table:table',
+          slot_id: 'table',
+          content_kind: 'table',
+          content: '| Check | Evidence |\n| --- | --- |\n| Input | Recorded |',
+          source_block_ids: ['evidence'],
+        },
+        {
+          region_id: 'page-table:interpretation',
+          slot_id: 'interpretation',
+          content_kind: 'body',
+          content: 'Compare the recorded condition with the required evidence.',
+          source_block_ids: ['interpretation'],
+        },
+      ],
+      visual_decision: { decision: 'table' },
+      speaker_notes: {
+        source_document_revision: 'r1',
+        teaching_unit_id: 'u1',
+        source_blocks: [{ block_id: 'evidence', block_revision: 'b1', full_text: 'full table' }],
+      },
+    }
+    const content = {
+      schema_version: 'slide_deck_v6',
+      pages: [
+        basePage,
+        {
+          ...basePage,
+          page_id: 'page-table--continuation-2',
+          page_ordinal: 1,
+          continuation_of_page_id: 'page-table',
+          continuation_index: 2,
+          regions: basePage.regions.map(region => ({
+            ...region,
+            region_id: region.region_id.replace('page-table', 'page-table--continuation-2'),
+          })),
+        },
+      ],
+    }
+
+    const slides = adaptSlideDeckV6ForWeb(content)
+
+    expect(slides[0]!.quality.v6_layout_variant).toBe('table-with-interpretation')
+    expect(slides[1]!.quality.v6_layout_variant).toBe('table-continuation')
+    expect(slides[0]!.visuals[0].parameters).toEqual({
+      headers: ['Check', 'Evidence'],
+      rows: [['Input', 'Recorded']],
+    })
+    expect(slides[0]!.blocks[0].metadata.table_source).toBe(true)
+  })
 })
