@@ -401,6 +401,9 @@ def _sanitize_message(payload: dict[str, Any]) -> dict[str, Any]:
         "proposal_id": str(payload.get("proposal_id") or ""),
         "receipt_id": str(payload.get("receipt_id") or ""),
         "status": str(payload.get("status") or "complete"),
+        # Which classified model failure produced a `failed` turn, so a reload
+        # can still explain the failure instead of showing a blank answer.
+        "failure_code": str(payload.get("failure_code") or ""),
     }
 
 

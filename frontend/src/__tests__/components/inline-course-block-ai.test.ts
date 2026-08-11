@@ -162,6 +162,33 @@ describe('InlineCourseBlockAI', () => {
     expect(wrapper.text()).toContain('已沉淀到正文')
   })
 
+  it('块级回答失败时说明是哪一类模型问题，不再只留失败样式', async () => {
+    // The inline block AI shares the same store and SSE contract as the side
+    // panel, so it must surface the same classified failure instead of only
+    // turning the (possibly empty) answer red.
+    const { wrapper, aiStore } = mountBlockAI()
+    vi.spyOn(aiStore, 'sendMessage').mockImplementation(async payload => {
+      const message: AIMessage = {
+        message_id: 'message-failed',
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        context_ref: payload.contextRef,
+      }
+      payload.onAssistantMessage?.(message)
+      message.status = 'failed'
+      message.failure_code = 'model_rate_limited'
+      message.failure_retryable = true
+    })
+
+    await wrapper.findAll('.block-ai-menu button')[0]!.trigger('click')
+    await flushPromises()
+
+    const failure = wrapper.get('[data-testid="inline-ai-model-failure"]')
+    expect(failure.text()).toContain('AI 模型当前繁忙')
+    expect(failure.text()).toContain('可以重试')
+  })
+
   it('完整回答只收集显式效果反馈，不自动触发下一步或额外问答', async () => {
     const { wrapper, aiStore } = mountBlockAI()
     const feedback = vi.spyOn(aiStore, 'submitAnswerFeedback').mockResolvedValue({

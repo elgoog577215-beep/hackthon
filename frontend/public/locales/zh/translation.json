@@ -2918,7 +2918,36 @@
       "retrievalOff": "当前会话已关闭",
       "retrievalStarted": "正在联网检索",
       "retrievalCompleted": "联网核验完成",
-      "retrievalFailed": "联网检索失败，本回答未完成外部核验"
+      "retrievalFailed": "联网检索失败，本回答未完成外部核验",
+      "receipt": {
+        "noteCreated": "已保存为笔记",
+        "issueCreated": "已标记为待解决问题",
+        "reviewTaskCreated": "已创建复习任务",
+        "bookmarkCreated": "已创建书签",
+        "runtimeActionOpened": "已准备打开当前学习任务",
+        "recordArchived": "已撤销并归档学习记录",
+        "proposalExpired": "这条建议已过期，请重新发起",
+        "runtimeChanged": "学习状态已变化，请重新计算建议",
+        "undoTargetChanged": "这条记录创建后被改动过，已保留你的修改",
+        "proposalRejected": "这条建议已被拒绝，不会执行",
+        "actionFailed": "这次动作没有完成，学习状态未改变",
+        "undoNotSupported": "这个动作没有可撤销的对象",
+        "undoTargetMissing": "原学习记录已不存在，无需撤销",
+        "unknown": "动作已处理"
+      },
+      "failure": {
+        "notConfigured": "AI 老师尚未配置模型",
+        "authFailed": "AI 模型认证失败",
+        "quotaExhausted": "AI 模型额度已用完",
+        "requestTooLarge": "这次提问的上下文过大，请缩小选区",
+        "rateLimited": "AI 模型当前繁忙",
+        "timeout": "AI 模型响应超时",
+        "truncated": "回答被长度限制截断，内容不完整",
+        "unavailable": "AI 老师暂时不可用",
+        "cancelled": "已停止生成",
+        "retryHint": "课程与正式学习任务不受影响，可以重试。",
+        "noRetryHint": "重试无法解决，请联系管理员；课程与正式学习任务不受影响。"
+      }
     },
     "sources": {
       "title": "本节来源",

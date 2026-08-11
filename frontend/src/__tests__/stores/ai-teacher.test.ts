@@ -16,6 +16,7 @@ vi.mock('@/utils/http', () => ({
 }))
 
 import { useAITeacherStore, type AIMessage } from '@/stores/aiTeacher'
+import { useLearningProgressStore } from '@/stores/learningProgress'
 
 const emptyConversation = {
   conversation_id: 'aic-1',
@@ -187,5 +188,158 @@ describe('AI teacher store', () => {
         content_anchor: { block_id: 'block-1', block_revision_id: 'rev-1' },
       },
     )
+  })
+
+  it('保留分类后的模型失败代码与已经读到的半截回答', async () => {
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/ai-teacher/conversations') return Promise.resolve({ data: { conversations: [] } })
+      return Promise.resolve({ data: { ...emptyConversation } })
+    })
+    httpMock.post.mockResolvedValue({ data: { ...emptyConversation } })
+    const sse = [
+      'event: context\ndata: {"conversation_id":"aic-1","user_message_id":"user-1","assistant_message_id":"assistant-1"}\n\n',
+      'event: answer\ndata: {"chunk":"线性相关的意思是"}\n\n',
+      'event: error\ndata: {"code":"model_rate_limited","message":"AI 模型当前繁忙，请稍后重试。","retryable":true}\n\n',
+      'event: done\ndata: {"conversation_id":"aic-1"}\n\n',
+    ].join('')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sse, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })))
+
+    const store = useAITeacherStore()
+    let observed: AIMessage | undefined
+    await store.sendMessage({
+      courseId: 'course-1',
+      question: '什么是线性相关？',
+      onAssistantMessage: message => { observed = message },
+    })
+
+    expect(observed?.status).toBe('failed')
+    expect(observed?.failure_code).toBe('model_rate_limited')
+    expect(observed?.failure_retryable).toBe(true)
+    // The partial answer must survive — the error copy does not overwrite it.
+    expect(observed?.content).toBe('线性相关的意思是')
+  })
+
+  it('把不可重试的模型失败标记为不可重试', async () => {
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/ai-teacher/conversations') return Promise.resolve({ data: { conversations: [] } })
+      return Promise.resolve({ data: { ...emptyConversation } })
+    })
+    httpMock.post.mockResolvedValue({ data: { ...emptyConversation } })
+    const sse = [
+      'event: context\ndata: {"conversation_id":"aic-1","assistant_message_id":"assistant-1"}\n\n',
+      'event: error\ndata: {"code":"model_auth_failed","message":"AI 模型认证失败，请联系管理员检查密钥。","retryable":false}\n\n',
+      'event: done\ndata: {"conversation_id":"aic-1"}\n\n',
+    ].join('')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sse, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })))
+
+    const store = useAITeacherStore()
+    let observed: AIMessage | undefined
+    await store.sendMessage({
+      courseId: 'course-1',
+      question: '什么是线性相关？',
+      onAssistantMessage: message => { observed = message },
+    })
+
+    expect(observed?.failure_code).toBe('model_auth_failed')
+    expect(observed?.failure_retryable).toBe(false)
+  })
+
+  it('把被拒绝的确认当作真实回执，而不是成功动作', async () => {
+    // The backend now answers every terminal confirm outcome with a receipt.
+    // A `stale` receipt means nothing was written, so the proposal must not be
+    // left looking succeeded and the runtime must not be reloaded.
+    const runtimeStore = useLearningProgressStore()
+    const runtimeSpy = vi.spyOn(runtimeStore, 'loadRuntime').mockResolvedValue(undefined as never)
+    httpMock.post.mockResolvedValue({
+      data: {
+        receipt_id: 'air-1',
+        proposal_id: 'aip-1',
+        status: 'stale',
+        result_code: 'runtime_changed',
+        action_type: 'create_note',
+        affected_refs: [],
+        summary: '学习状态已经变化，请重新计算建议。',
+        failure_reason: '学习状态已经变化，请重新计算建议。',
+        undo_capability: 'none',
+      },
+    })
+    const store = useAITeacherStore()
+    store.courseId = 'course-1'
+    const message: AIMessage = {
+      message_id: 'assistant-1',
+      role: 'assistant',
+      content: '解释内容',
+      status: 'complete',
+      proposal: {
+        proposal_id: 'aip-1',
+        action_type: 'create_note',
+        target_ref: { node_id: 'node-1' },
+        payload_preview: {},
+        reason: '',
+        expected_effect: '创建一条学习笔记',
+        confirmation_mode: 'explicit',
+        runtime_revision_id: 'runtime-1',
+        status: 'presented',
+      },
+    }
+
+    const receipt = await store.confirmProposal(message)
+
+    expect(receipt?.status).toBe('stale')
+    expect(receipt?.result_code).toBe('runtime_changed')
+    expect(message.proposal?.status).toBe('stale')
+    expect(message.receipt_id).toBe('air-1')
+    expect(runtimeSpy).not.toHaveBeenCalled()
+  })
+
+  it('拒绝的撤销保留原回执状态且不重载运行时', async () => {
+    const runtimeStore = useLearningProgressStore()
+    const runtimeSpy = vi.spyOn(runtimeStore, 'loadRuntime').mockResolvedValue(undefined as never)
+    httpMock.post.mockResolvedValue({
+      data: {
+        receipt_id: 'air-undo-1',
+        proposal_id: 'aip-1',
+        status: 'stale',
+        result_code: 'undo_target_changed',
+        action_type: 'undo_create_record',
+        affected_refs: [],
+        summary: '这条记录在创建之后被改动过，已保留你的修改。',
+        failure_reason: '这条记录在创建之后被改动过，已保留你的修改。',
+        undo_capability: 'none',
+        undo_of_receipt_id: 'air-1',
+      },
+    })
+    const store = useAITeacherStore()
+    store.courseId = 'course-1'
+    const message: AIMessage = {
+      message_id: 'assistant-1',
+      role: 'assistant',
+      content: '解释内容',
+      status: 'complete',
+      receipt: {
+        receipt_id: 'air-1',
+        proposal_id: 'aip-1',
+        status: 'succeeded',
+        result_code: 'note_created',
+        action_type: 'create_note',
+        affected_refs: [{ kind: 'learning_record', record_id: 'rec-1', revision: 1 }],
+        summary: '已保存为笔记。',
+        undo_capability: 'archive_record',
+      },
+    }
+
+    const receipt = await store.undoReceipt(message)
+
+    expect(receipt?.status).toBe('stale')
+    expect(receipt?.result_code).toBe('undo_target_changed')
+    expect(message.receipt?.receipt_id).toBe('air-undo-1')
+    expect(message.receipt?.undo_capability).toBe('none')
+    expect(runtimeSpy).not.toHaveBeenCalled()
   })
 })

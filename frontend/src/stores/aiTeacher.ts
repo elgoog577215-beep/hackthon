@@ -27,23 +27,57 @@ export interface AIActionProposal {
   undo_capability?: string
 }
 
+export type AIReceiptResultCode =
+  | 'note_created'
+  | 'issue_created'
+  | 'review_task_created'
+  | 'bookmark_created'
+  | 'runtime_action_opened'
+  | 'record_archived'
+  | 'proposal_expired'
+  | 'runtime_changed'
+  | 'undo_target_changed'
+  | 'proposal_rejected'
+  | 'action_failed'
+  | 'undo_not_supported'
+  | 'undo_target_missing'
+
 export interface AIActionReceipt {
   receipt_id: string
   proposal_id: string
-  status: string
+  status: 'succeeded' | 'failed' | 'stale'
+  /** Machine-readable outcome; the localized copy is derived from this, not from `summary`. */
+  result_code?: AIReceiptResultCode
+  schema_version?: string
   action_type: string
   affected_refs: Array<Record<string, any>>
   summary: string
   failure_reason?: string
   undo_capability: string
   runtime_revision_after?: string
+  undo_of_receipt_id?: string
 }
+
+export type AIModelFailureCode =
+  | 'model_not_configured'
+  | 'model_auth_failed'
+  | 'model_quota_exhausted'
+  | 'model_request_too_large'
+  | 'model_rate_limited'
+  | 'model_timeout'
+  | 'model_response_truncated'
+  | 'model_unavailable'
+  | 'cancelled'
 
 export interface AIMessage {
   message_id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   status?: 'streaming' | 'complete' | 'failed'
+  /** Which classified model failure produced a `failed` turn. */
+  failure_code?: AIModelFailureCode
+  /** Whether retrying the same question could plausibly succeed. */
+  failure_retryable?: boolean
   context_ref?: AIContextRef
   task_ref?: Record<string, any>
   sources?: Array<Record<string, any>>
@@ -345,9 +379,15 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     } catch (sendError: any) {
       if (controller.signal.aborted || sendError?.name === 'AbortError') {
         assistantMessage.status = 'failed'
+        assistantMessage.failure_code = 'cancelled'
+        assistantMessage.failure_retryable = true
         assistantMessage.content ||= '已停止生成'
       } else {
+        // A transport-level failure never reached the classifier, so report the
+        // generic retryable code rather than pretending to know the cause.
         assistantMessage.status = 'failed'
+        assistantMessage.failure_code = 'model_unavailable'
+        assistantMessage.failure_retryable = true
         assistantMessage.content ||= 'AI 老师暂时不可用，课程和正式学习任务仍可继续使用。'
         error.value = sendError?.message || 'assistant_failed'
       }
@@ -403,7 +443,12 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       assistantMessage.receipt = data
       assistantMessage.receipt_id = data.receipt_id
     } else if (eventName === 'error') {
+      // The backend classifies the provider failure; keep the code so the UI
+      // can say whether retrying is worth it, and keep any partial answer the
+      // learner already read rather than replacing it with the error text.
       assistantMessage.status = 'failed'
+      assistantMessage.failure_code = data.code || 'model_unavailable'
+      assistantMessage.failure_retryable = data.retryable !== false
       assistantMessage.content ||= data.message || 'AI teacher unavailable'
     }
   }
@@ -448,12 +493,18 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       idempotency_key: `web:${target.proposal_id}`,
     })
-    message.receipt = response.data
-    message.receipt_id = response.data.receipt_id
-    target.status = response.data.status === 'succeeded' ? 'succeeded' : response.data.status
-    await useLearningProgressStore().loadRuntime(courseId.value, target.target_ref?.node_id)
+    const receipt = response.data as AIActionReceipt
+    message.receipt = receipt
+    message.receipt_id = receipt.receipt_id
+    // A refused confirm (expired, rejected, runtime moved) still returns a
+    // receipt. Reflect its real status so the proposal card stops offering
+    // "confirm" on an action the server has already declined to run.
+    target.status = receipt.status === 'succeeded' ? 'succeeded' : receipt.status
+    if (receipt.status === 'succeeded') {
+      await useLearningProgressStore().loadRuntime(courseId.value, target.target_ref?.node_id)
+    }
     persistCache()
-    return response.data as AIActionReceipt
+    return receipt
   }
 
   async function submitAnswerFeedback(
@@ -491,10 +542,16 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       idempotency_key: `web:undo:${message.receipt.receipt_id}`,
     })
-    message.receipt = response.data
-    await useLearningProgressStore().loadRuntime(courseId.value, message.context_ref?.node_id)
+    const receipt = response.data as AIActionReceipt
+    message.receipt = receipt
+    message.receipt_id = receipt.receipt_id
+    // A refused undo leaves the original record untouched, so only a real
+    // archive needs the runtime reloaded.
+    if (receipt.status === 'succeeded') {
+      await useLearningProgressStore().loadRuntime(courseId.value, message.context_ref?.node_id)
+    }
     persistCache()
-    return response.data as AIActionReceipt
+    return receipt
   }
 
   return {

@@ -2918,7 +2918,36 @@
       "retrievalOff": "Disabled for this conversation",
       "retrievalStarted": "Searching the web",
       "retrievalCompleted": "Web verification complete",
-      "retrievalFailed": "Web retrieval failed; this answer was not externally verified"
+      "retrievalFailed": "Web retrieval failed; this answer was not externally verified",
+      "receipt": {
+        "noteCreated": "Saved as a note",
+        "issueCreated": "Marked as an open question",
+        "reviewTaskCreated": "Review task created",
+        "bookmarkCreated": "Bookmark created",
+        "runtimeActionOpened": "Ready to open your current learning task",
+        "recordArchived": "Undone and the learning record archived",
+        "proposalExpired": "This suggestion has expired. Ask again to get a fresh one",
+        "runtimeChanged": "Your learning state changed. Recalculate this suggestion",
+        "undoTargetChanged": "This record was edited after it was created, so your edit was kept",
+        "proposalRejected": "This suggestion was declined and will not run",
+        "actionFailed": "This action did not complete. Your learning state is unchanged",
+        "undoNotSupported": "This action has nothing to undo",
+        "undoTargetMissing": "The original learning record no longer exists, so there is nothing to undo",
+        "unknown": "Action handled"
+      },
+      "failure": {
+        "notConfigured": "No model is configured for the AI tutor",
+        "authFailed": "The AI model rejected our credentials",
+        "quotaExhausted": "The AI model quota is used up",
+        "requestTooLarge": "This question carries too much context. Narrow your selection",
+        "rateLimited": "The AI model is busy right now",
+        "timeout": "The AI model timed out",
+        "truncated": "The answer was cut off by a length limit and is incomplete",
+        "unavailable": "The AI tutor is temporarily unavailable",
+        "cancelled": "Generation stopped",
+        "retryHint": "Your course and formal learning tasks are unaffected. You can retry.",
+        "noRetryHint": "Retrying will not help; please contact an administrator. Your course and formal learning tasks are unaffected."
+      }
     },
     "sources": {
       "title": "Section sources",
