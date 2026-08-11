@@ -16,6 +16,8 @@ ENVIRONMENT_KEYS = (
     "MODELSCOPE_API_KEY",
     "MODELSCOPE_BASE_URL",
     "MODELSCOPE_MODEL",
+    "AI_PPT_STORY_MODELS",
+    "AI_PPT_VISUAL_MODELS",
 )
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 TRUSTED_MODELSCOPE_HOST = "api-inference.modelscope.cn"
@@ -35,6 +37,14 @@ def _validated_settings(payload: object) -> dict[str, str]:
     api_key = _single_line(payload.get("api_key"), "api_key")
     base_url = _single_line(payload.get("base_url"), "base_url")
     model = _single_line(payload.get("model"), "model")
+    ppt_story_models = _single_line(
+        payload.get("ppt_story_models"),
+        "ppt_story_models",
+    )
+    ppt_visual_models = _single_line(
+        payload.get("ppt_visual_models"),
+        "ppt_visual_models",
+    )
 
     parsed = urlparse(base_url)
     if (
@@ -49,11 +59,23 @@ def _validated_settings(payload: object) -> dict[str, str]:
         raise ValueError("base_url must be the trusted ModelScope v1 endpoint")
     if not MODEL_PATTERN.fullmatch(model):
         raise ValueError("model contains unsupported characters")
+    for field, model_list in (
+        ("ppt_story_models", ppt_story_models),
+        ("ppt_visual_models", ppt_visual_models),
+    ):
+        models = [item.strip() for item in model_list.split(",")]
+        if not models or any(
+            not item or not MODEL_PATTERN.fullmatch(item)
+            for item in models
+        ):
+            raise ValueError(f"{field} contains an invalid model")
 
     return {
         "MODELSCOPE_API_KEY": api_key,
         "MODELSCOPE_BASE_URL": base_url,
         "MODELSCOPE_MODEL": model,
+        "AI_PPT_STORY_MODELS": ppt_story_models,
+        "AI_PPT_VISUAL_MODELS": ppt_visual_models,
     }
 
 

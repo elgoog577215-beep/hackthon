@@ -61,9 +61,13 @@ jobs:
           MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
           MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
           MODELSCOPE_MODEL: Qwen/Qwen3.5-35B-A3B
+          AI_PPT_STORY_MODELS: deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
+          AI_PPT_VISUAL_MODELS: deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
         run: |
           set -euo pipefail
           test -n "$MODELSCOPE_API_KEY"
+          test -n "$AI_PPT_STORY_MODELS"
+          test -n "$AI_PPT_VISUAL_MODELS"
 
           remote_script="$(ssh \
             -i ~/.ssh/lingzhi_deploy \
@@ -90,7 +94,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             scripts/configure_modelscope_fallback.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"]}))' | ssh \
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]}))' | ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \

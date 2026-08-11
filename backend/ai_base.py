@@ -164,6 +164,12 @@ class AIBase:
                 "assessment_reviewer": _parse_model_list(
                     os.getenv("AI_ASSESSMENT_REVIEWER_MODELS")
                 ),
+                "ppt_story": _parse_model_list(
+                    os.getenv("AI_PPT_STORY_MODELS")
+                ),
+                "ppt_visual": _parse_model_list(
+                    os.getenv("AI_PPT_VISUAL_MODELS")
+                ),
             }.items()
             if models
         }
