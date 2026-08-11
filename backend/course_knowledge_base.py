@@ -333,11 +333,24 @@ def compile_course_knowledge_base(
         "skill_units": skill_units,
         "misconceptions": misconceptions,
         "mastery_criteria": mastery_criteria,
+        # Only claim the relation-plan contract when the decisions that
+        # contract requires actually survived compilation. The course plan can
+        # still carry `knowledge_relation_schema_version` long after the
+        # per-point decisions were dropped (they are produced by the generation
+        # pipeline, not re-derivable from the blueprint). Asserting the schema
+        # without them makes the base fail its own
+        # `incomplete_relation_decisions` gate and degrade to zero nodes —
+        # measured on 2 of 4 real courses, where a healthy stored library of
+        # 67–77 nodes was replaced by an empty "needs upgrade" view.
         "relation_plan_schema_version": (
-            course_data.get("knowledge_relation_schema_version")
-            or (course_data.get("course_plan") or {}).get(
-                "knowledge_relation_schema_version"
+            (
+                course_data.get("knowledge_relation_schema_version")
+                or (course_data.get("course_plan") or {}).get(
+                    "knowledge_relation_schema_version"
+                )
             )
+            if relation_decisions
+            else None
         ),
         "relation_decisions": relation_decisions,
         "relations": _dedupe_relations(relations),

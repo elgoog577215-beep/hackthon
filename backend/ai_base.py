@@ -40,6 +40,10 @@ from ai_capacity import (
     ModelCapacityCoolingDown,
     get_provider_capacity_controller,
 )
+from ai_provider_route import (
+    record_fallback_switch,
+    record_primary_recovered,
+)
 
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
@@ -1041,6 +1045,7 @@ class AIBase:
         logger.warning(
             "Primary AI provider exhausted; switching to ModelScope fallback"
         )
+        record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
         for model_id in self._modelscope_fallback_models_for():
@@ -1266,6 +1271,7 @@ class AIBase:
         logger.warning(
             "Primary AI provider exhausted; switching stream to ModelScope fallback"
         )
+        record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
         for model_id in self._modelscope_fallback_models_for():
@@ -1610,6 +1616,9 @@ class AIBase:
                         model_role,
                     )
                     await capacity.report_success(model_id)
+                    # A successful primary call is the recovery signal: no
+                    # separate health probe is needed to leave fallback mode.
+                    record_primary_recovered()
                     logger.debug(
                         "AI reasoning received (Model: %s, chars=%d)",
                         model_id,
@@ -1802,6 +1811,7 @@ class AIBase:
                 if yielded:
                     self._remember_model(use_fast_model, model_id)
                     await capacity.report_success(model_id)
+                    record_primary_recovered()
                     return
                 last_error = AIProviderRequestError(f"Model {model_id} returned an empty stream")
             except Exception as e:

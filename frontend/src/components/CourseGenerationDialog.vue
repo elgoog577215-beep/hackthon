@@ -47,6 +47,8 @@
                   :class="{ active: form.courseType === item.value }"
                   :data-course-type="item.value"
                   :aria-pressed="form.courseType === item.value"
+                  :aria-label="`${item.label}：${item.detail}`"
+                  :title="item.detail"
                   :disabled="busy || !item.available"
                   @click="selectCourseType(item.value)"
                 >
@@ -57,9 +59,9 @@
                     </span>
                     <span>{{ item.detail }}</span>
                   </span>
-                  <span v-if="item.available" class="course-type-option__check"><Check :size="11" /></span>
                 </button>
               </div>
+              <p class="course-type-summary" aria-live="polite">{{ selectedCourseTypeOption?.detail }}</p>
             </fieldset>
           </section>
 
@@ -305,17 +307,17 @@
                   :class="{ active: form.difficulty === item.value }"
                   :data-tone="item.tone"
                   :aria-pressed="form.difficulty === item.value"
+                  :aria-label="`${item.label}：${item.detail}`"
+                  :title="item.detail"
                   :disabled="busy"
                   @click="form.difficulty = item.value"
                 >
-                  <span class="difficulty-option__rail" />
                   <span class="difficulty-option__copy">
                     <strong>{{ item.label }}</strong>
-                    <small>{{ item.detail }}</small>
                   </span>
-                  <span class="difficulty-option__check"><Check :size="12" /></span>
                 </button>
                 </div>
+                <p class="difficulty-summary" aria-live="polite">{{ selectedDifficultyOption?.detail }}</p>
               </fieldset>
 
               <div class="strategy-settings">
@@ -444,6 +446,21 @@
             </label>
           </section>
 
+          <section v-if="form.retrievalEnabled" class="form-section web-enrichment-setting">
+            <label class="web-enrichment-setting__control">
+              <input
+                v-model="form.webMaterialIngest"
+                data-testid="web-material-ingest"
+                type="checkbox"
+                :disabled="busy"
+              />
+              <span>
+                <strong>{{ t('courseGeneration.materials.webSearch.ingestLabel', '把联网资料并入课程资料库') }}</strong>
+                <small>{{ t('courseGeneration.materials.webSearch.ingestHint', '联网结果会与导入资料同路解析并保留出处；关闭则只作为本次生成的引用，不落库。') }}</small>
+              </span>
+            </label>
+          </section>
+
           <section class="form-section">
             <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
             <textarea
@@ -486,7 +503,6 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import {
   BookMarked,
   BookOpen,
-  Check,
   Hammer,
   Info,
   Library,
@@ -501,7 +517,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import MaterialInputPanel from './MaterialInputPanel.vue'
-import { t } from '@/shared/i18n'
+import { activeLocale, t } from '@/shared/i18n'
 import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   PEDAGOGY_MODE_OPTIONS,
@@ -528,6 +544,11 @@ const uploading = ref(false)
 const submissionRequestId = ref('')
 const submissionIdentity = ref('')
 const busy = computed(() => props.busy || uploading.value)
+const defaultAudience = () => t(
+  'courseGeneration.teacherBrief.defaultAudience',
+  activeLocale.value === 'en' ? 'University students' : '大学生',
+)
+let lastDefaultAudience = defaultAudience()
 const form = reactive({
   courseType: 'systematic' as CourseType,
   systematicTopic: '',
@@ -549,8 +570,9 @@ const form = reactive({
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   assessmentGenerationProfile: 'fast' as 'fast' | 'deliberate',
   retrievalEnabled: false,
+  webMaterialIngest: true,
   requirements: '',
-  targetAudience: '大学生',
+  targetAudience: lastDefaultAudience,
   academicTerm: '',
   totalClassHours: 16,
   lessonDurationMinutes: 45,
@@ -596,6 +618,8 @@ const courseTypeOptions = computed(() => ([
     available: true,
   },
 ]))
+const selectedCourseTypeOption = computed(() => courseTypeOptions.value.find(item => item.value === form.courseType))
+const selectedDifficultyOption = computed(() => difficultyOptions.value.find(item => item.value === form.difficulty))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
 const secondaryPedagogyOptions = computed(() => [
   { value: '' as const, label: t('courseGeneration.pedagogy.secondaryNone', '无辅助学科') },
@@ -650,6 +674,10 @@ watch(() => props.modelValue, async open => {
     submissionRequestId.value = ''
     submissionIdentity.value = ''
     return
+  }
+  if (form.targetAudience === lastDefaultAudience) {
+    lastDefaultAudience = defaultAudience()
+    form.targetAudience = lastDefaultAudience
   }
   await nextTick()
   dialogRef.value?.focus()
@@ -729,6 +757,9 @@ async function submit() {
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
+      ...(form.retrievalEnabled && !form.webMaterialIngest
+        ? { web_material_ingest: { skip_ingest: true } }
+        : {}),
       target_audience: form.targetAudience.trim(),
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1',
@@ -783,21 +814,20 @@ async function submit() {
 .form-section:last-child { border-bottom: 0; }
 .form-section--lead { padding-top: 22px; }
 .course-type-section { padding-bottom: 18px; }
-.course-type-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
-.course-type-option { position: relative; min-width: 0; min-height: 92px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 17px; align-items: start; gap: 9px; padding: 12px 10px; border: 1px solid rgba(226,232,240,.92); border-radius: 10px; color: var(--lz-text-secondary); background: #fff; text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
-.course-type-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
-.course-type-option.active { border-color: var(--lz-brand); color: var(--lz-brand-strong); background: rgba(238,242,255,.72); box-shadow: inset 0 0 0 1px rgba(99,102,241,.08); }
+.course-type-options { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:11px; background:var(--lz-surface-muted); }
+.course-type-option { min-width:0; min-height:48px; display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,box-shadow .16s ease; }
+.course-type-option:hover:not(:disabled) { border-color:rgba(165,180,252,.62); color:var(--lz-brand-strong); background:rgba(255,255,255,.72); }
+.course-type-option.active { border-color:rgba(165,180,252,.72); color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(79,70,229,.07); }
 .course-type-option:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
 .course-type-option:disabled { cursor: not-allowed; color: var(--lz-text-muted); background: var(--lz-surface-muted); opacity: .72; }
-.course-type-option__icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--lz-brand); background: var(--lz-brand-soft); }
+.course-type-option__icon { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:7px; color:var(--lz-brand); background:var(--lz-brand-soft); }
 .course-type-option:disabled .course-type-option__icon { color: var(--lz-text-muted); background: #fff; }
-.course-type-option__copy { min-width: 0; display: grid; gap: 5px; }
-.course-type-option__copy > span:last-child { overflow-wrap: anywhere; color: var(--lz-text-muted); font-size: 9px; line-height: 1.45; }
+.course-type-option__copy { min-width:0; display:block; }
+.course-type-option__copy > span:last-child { display:none; }
 .course-type-option__heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.course-type-option__heading strong { color: inherit; font-size: 11px; }
+.course-type-option__heading strong { color:inherit; font-size:11px; line-height:1.3; }
 .course-type-option__heading small { padding: 2px 5px; border-radius: 4px; color: var(--lz-text-muted); background: #fff; font-size: 8px; font-weight: 650; }
-.course-type-option__check { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); }
-.course-type-option.active .course-type-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
+.course-type-summary,.difficulty-summary { margin:8px 0 0; color:var(--lz-text-muted); font-size:10px; line-height:1.45; }
 .intent-section { padding-top: 18px; }
 .project-intent { display: grid; gap: 16px; }
 .project-intent__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; color: var(--lz-brand-strong); }
@@ -836,21 +866,12 @@ async function submit() {
 .field-icon { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid; border-radius: 8px; box-shadow: 0 2px 7px rgba(15,23,42,.04); }
 .field-icon--amber { border-color: #fde7b0; color: #d97706; background: #fffbeb; }
 .field-icon--rose { border-color: #fbcfe8; color: #db2777; background: #fdf2f8; }
-.difficulty-options { display: grid; gap: 9px; }
-.difficulty-option { --choice-accent: #60a5fa; min-width: 0; min-height: 58px; display: grid; grid-template-columns: 5px minmax(0, 1fr) 20px; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid rgba(226,232,240,.92); border-radius: 12px; color: var(--lz-text-secondary); background: #fff; text-align: left; box-shadow: 0 2px 8px rgba(15,23,42,.025); cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
-.difficulty-option[data-tone="emerald"] { --choice-accent: #34d399; }
-.difficulty-option[data-tone="blue"] { --choice-accent: #60a5fa; }
-.difficulty-option[data-tone="violet"] { --choice-accent: #a78bfa; }
-.difficulty-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
-.difficulty-option.active { border-color: var(--lz-brand); background: linear-gradient(135deg,#fff,rgba(238,242,255,.72)); box-shadow: 0 8px 18px rgba(79,70,229,.09), inset 0 0 0 1px rgba(99,102,241,.08); }
-.difficulty-option__rail { width: 5px; height: 34px; border-radius: 4px; background: #e2e8f0; transition: background .16s ease; }
-.difficulty-option.active .difficulty-option__rail { background: var(--choice-accent); }
+.difficulty-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:10px; background:var(--lz-surface-muted); }
+.difficulty-option { min-width:0; min-height:40px; display:grid; place-items:center; padding:6px 8px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:center; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,box-shadow .16s ease; }
+.difficulty-option:hover:not(:disabled) { border-color:rgba(165,180,252,.62); color:var(--lz-brand-strong); background:rgba(255,255,255,.72); }
+.difficulty-option.active { border-color:rgba(165,180,252,.72); color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(79,70,229,.07); }
 .difficulty-option__copy { min-width: 0; display: block; }
-.difficulty-option__copy strong { display: block; color: var(--lz-text); font-size: 12px; }
-.difficulty-option__copy small { display: block; margin-top: 2px; overflow: hidden; color: var(--lz-text-muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.difficulty-option__check { display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
-.difficulty-option__check { width: 20px; height: 20px; }
-.difficulty-option.active .difficulty-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); transform: scale(1.06); }
+.difficulty-option__copy strong { display:block; color:inherit; font-size:11px; }
 .difficulty-option:disabled { cursor: not-allowed; opacity: .6; }
 .strategy-settings { padding-top: 18px; border-top: 1px dashed rgba(203,213,225,.72); }
 .strategy-settings__heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 11px; }
@@ -914,7 +935,11 @@ async function submit() {
   .guided-intro__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
   .guided-intro__steps li:nth-child(3n)::after { display: none; }
   .segmented-options--three,.segmented-options--two,.compact-grid { grid-template-columns: 1fr; }
-  .course-type-options,.project-fields { grid-template-columns: 1fr; }
+  .course-type-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .course-type-option { min-height:44px; }
+  .choice-group__title small { display:none; }
+  .course-type-summary { min-height:29px; }
+  .project-fields { grid-template-columns: 1fr; }
   .project-field--wide { grid-column: auto; }
   .segmented-options button { min-height: 52px; }
   .strategy-settings__heading { align-items: flex-start; flex-direction: column; gap: 3px; }

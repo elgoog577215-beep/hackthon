@@ -88,12 +88,23 @@ export interface TeachingPlanWorkbench {
   revisions: TeachingPlanRevision[]
   change_sets: TeachingPlanChangeSet[]
   ai_candidates: TeachingPlanAICandidate[]
+  // 后端 field_permission 返回三态；分小节的字段几乎都是
+  // requires_impact_review（可写草稿，但应用前必须有完整影响报告）。
   editable_fields: Array<{
     path: string
     state: 'editable' | 'requires_impact_review' | 'readonly'
     reason: string
     value_hash?: string
   }>
+  // 学科模板为每节提供的候选教学环节：前端据此渲染增删入口。
+  // 必需环节由模板规定，取消勾选会被后端的必需环节合同拒绝。
+  section_module_options?: Record<string, Array<{
+    module_id: string
+    label: string
+    required: boolean
+    selected: boolean
+    output_contract: string
+  }>>
   downstream: Record<string, unknown>
 }
 
@@ -124,6 +135,14 @@ function apiErrorMessage(error: any): string {
     : ''
 }
 
+// 领域错误的 details 里带着可执行信息（例如 redirect_to_outline_edit 的目录
+// 编辑器 endpoint）。只记 code 会把这些信息丢掉，前端就只能显示一句文案、
+// 没法真的把教师送过去。
+function apiErrorDetail(error: any): Record<string, unknown> {
+  const detail = error?.response?.data?.detail
+  return detail && typeof detail === 'object' ? { ...detail } : {}
+}
+
 export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench', {
   state: () => ({
     courseId: '',
@@ -139,6 +158,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
     pendingAction: '' as '' | 'initialize' | 'ai' | 'review' | 'apply' | 'restore' | 'discard',
     errorCode: '',
     errorMessage: '',
+    errorDetail: {} as Record<string, unknown>,
   }),
 
   getters: {
@@ -156,6 +176,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.pendingAction = ''
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
     },
 
     applyWorkbench(workbench: TeachingPlanWorkbench) {
@@ -173,6 +194,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.loading = true
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       try {
         const { data } = await http.get(`/api/courses/${courseId}/teaching-plan/workbench`, { silentError: true })
         this.applyWorkbench(data.workbench)
@@ -180,6 +202,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.loading = false
@@ -215,6 +238,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       if (!this.workbench || !this.courseId) return null
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/drafts`,
@@ -231,6 +255,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       }
     },
@@ -240,6 +265,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       if (!draft || !this.workbench || !this.courseId) return null
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       this.savingPaths = [...new Set([...this.savingPaths, path])]
       try {
         const { data } = await http.patch(
@@ -261,6 +287,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.savingPaths = this.savingPaths.filter(item => item !== path)
@@ -273,6 +300,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorCode = ''
       this.errorMessage = ''
       this.pendingAction = 'review'
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/validate`,
@@ -284,6 +312,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.pendingAction = ''
@@ -296,6 +325,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorCode = ''
       this.errorMessage = ''
       this.pendingAction = 'discard'
+      this.errorDetail = {}
       try {
         const { data } = await http.delete(
           `/api/courses/${this.courseId}/teaching-plan/drafts/${draft.draft_id}`,
@@ -309,6 +339,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.pendingAction = ''
@@ -321,6 +352,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorCode = ''
       this.errorMessage = ''
       this.pendingAction = 'ai'
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/drafts/${draft.draft_id}/ai-candidates`,
@@ -332,6 +364,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.pendingAction = ''
@@ -342,6 +375,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       if (!this.courseId) return null
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/ai-candidates/${candidateId}/accept`,
@@ -353,6 +387,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       }
     },
@@ -361,6 +396,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       if (!this.courseId) return
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/ai-candidates/${candidateId}/reject`,
@@ -371,6 +407,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       }
     },
@@ -379,6 +416,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       if (!this.courseId || !this.workbench) return null
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       try {
         const { data } = await http.get(
           `/api/courses/${this.courseId}/teaching-plan/revisions/${revisionId}/diff`,
@@ -392,6 +430,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       }
     },
@@ -401,6 +440,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorCode = ''
       this.errorMessage = ''
       this.pendingAction = 'restore'
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/revisions/${revisionId}/restore`,
@@ -413,6 +453,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.pendingAction = ''
@@ -425,6 +466,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorCode = ''
       this.errorMessage = ''
       this.pendingAction = 'review'
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/change-sets`,
@@ -446,6 +488,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.pendingAction = ''
@@ -457,6 +500,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorCode = ''
       this.errorMessage = ''
       this.pendingAction = 'apply'
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/change-sets/${changeSetId}/apply`,
@@ -469,6 +513,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       } finally {
         this.pendingAction = ''
@@ -479,6 +524,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       if (!this.courseId) return null
       this.errorCode = ''
       this.errorMessage = ''
+      this.errorDetail = {}
       try {
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/change-sets/${changeSetId}/reject`,
@@ -490,6 +536,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       } catch (error) {
         this.errorCode = apiErrorCode(error)
         this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
         throw error
       }
     },
