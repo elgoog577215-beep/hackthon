@@ -404,3 +404,44 @@ def test_multi_answer_question_survives_bank_alignment() -> None:
     assert spec["presentation_contract"]["mode"] == "multiple_choice"
     assert spec["presentation_contract"]["selection_limit"] == 2
     assert spec["response_contract"]["required_parts"] == ["selected_option_ids"]
+
+
+# --- 本地解题器的适用范围（M1 打开后暴露的真实故障） ----------------------
+
+
+def test_local_solver_is_not_used_for_choice_questions() -> None:
+    """拿一把算数值的尺子去量选择题，永远量不对。
+
+    真机实测：模型给一道判断题也写了 solver_contract，本地解题器算出
+    {"value": -90, "unit": "J"}，而该题标准答案是选项 id "A"。数值不可能等于
+    选项 id，于是 VALIDATION_FAILED + PROMPT_SOLUTION_CONTRADICTION，四轮
+    修复全废后丢弃——三类新题型的失败几乎全部是这一条。
+    """
+    from assessment_orchestrator import _local_solver_applicable
+
+    assert _local_solver_applicable({
+        "input_contract": {"mode": "choice"},
+        "solver_contract": {"kind": "numeric_expression", "expression": "20-8"},
+    }) is False
+
+
+def test_local_solver_is_not_used_for_fill_blank() -> None:
+    """填空的答案是逐空对照，本地解题器只产出单个值。"""
+    from assessment_orchestrator import _local_solver_applicable
+
+    assert _local_solver_applicable({
+        "input_contract": {"mode": "short_text", "blanks": []},
+    }) is False
+
+
+def test_local_solver_still_applies_to_numeric_questions() -> None:
+    """M1 的收益不能被这道闸门抹掉：数值题仍然走本地求解。"""
+    from assessment_orchestrator import _local_solver_applicable
+
+    assert _local_solver_applicable({
+        "input_contract": {"mode": "numeric_unit"},
+        "solver_contract": {"kind": "numeric_expression", "expression": "20-8"},
+    }) is True
+    assert _local_solver_applicable({
+        "input_contract": {"mode": "structured_fields"},
+    }) is True

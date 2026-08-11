@@ -2828,7 +2828,9 @@ class AssessmentGenerationOrchestrator:
             or ""
         )
         independent: dict[str, Any] | None = None
-        if generation_policy.prefer_local_solver:
+        if generation_policy.prefer_local_solver and _local_solver_applicable(
+            public_spec,
+        ):
             independent = self.local_solvers.solve(public_spec)
             if independent is not None:
                 audit["local_independent_solution_count"] = int(
@@ -4163,6 +4165,31 @@ def _compact_batch_generation_context(
             if isinstance(reference, dict)
         ]
     return compact
+
+
+def _local_solver_applicable(public_spec: dict[str, Any]) -> bool:
+    """本地确定性解题器是否适用于这道题的**作答形状**。
+
+    M1 打开本地解题器后出现的真实故障：模型给一道判断题也写了
+    `solver_contract`，本地解题器照着算出 `{"value": -90, "unit": "J"}`，
+    而这道题的标准答案是选项 id `"A"`。数值永远不可能等于选项 id，于是
+    VALIDATION_FAILED + PROMPT_SOLUTION_CONTRADICTION，四轮修复全废后丢弃。
+
+    真机取证里三类新题型的失败几乎全部是这一条——**不是模型出的题不好，
+    是我们拿一把算数值的尺子去量选择题**。
+
+    所以按输入模式限定：内置解法（numeric_expression / state_operations）
+    产出的是数值或状态，只对数值型作答有意义。选择题的答案是选项 id、
+    填空的答案是逐空对照，都不该由它接手——那些题落回模型求解，
+    与 M1 之前的行为一致。
+    """
+    input_contract = public_spec.get("input_contract") or {}
+    mode = str(input_contract.get("mode") or "")
+    if mode == "choice":
+        return False
+    if "blanks" in input_contract or public_spec.get("blanks"):
+        return False
+    return True
 
 
 def _validate_fill_blank_solution(
