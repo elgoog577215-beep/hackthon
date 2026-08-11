@@ -362,7 +362,7 @@ import { formatCourseTitle } from '../utils/course-presentation'
 const router = useRouter()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
-const COURSES_PER_PAGE = 6
+const COURSES_PER_PAGE = 9
 const query = ref('')
 const currentPage = ref(1)
 const pageJumpInput = ref('')

@@ -255,7 +255,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.findAll('.course-item')).toHaveLength(2)
     expect(wrapper.text()).toContain('课程 10')
     expect(wrapper.text()).toContain('课程 11')
-    expect(wrapper.text()).not.toContain('课程 1')
+    expect(wrapper.text()).not.toContain('课程 9')
     const secondPagePagination = wrapper.get('[aria-label="课程分页"]')
     expect((secondPagePagination.get('button[aria-label="下一页"]').element as HTMLButtonElement).disabled).toBe(true)
 
