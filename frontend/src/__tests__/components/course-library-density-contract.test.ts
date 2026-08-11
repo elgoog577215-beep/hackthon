@@ -16,9 +16,9 @@ describe('course library density contract', () => {
     expect(librarySource).toMatch(/--course-content-width:\s*1280px/)
     expect(librarySource).toMatch(/padding:\s*30px\s+clamp\(18px,4vw,54px\)\s+48px/)
     expect(librarySource).not.toMatch(/class="resume-card"/)
-    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*24px\s+auto\s+14px[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(240px,360px\)\s+minmax\(0,1fr\)\s+auto/s)
-    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*100%[^}]*height:\s*44px/s)
-    expect(librarySource).toMatch(/\.library-resume\s*\{[^}]*height:\s*44px[^}]*grid-template-columns:\s*28px\s+minmax\(0,1fr\)\s+auto/s)
+    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*24px\s+auto\s+14px[^}]*display:\s*flex[^}]*align-items:\s*center[^}]*gap:\s*12px/s)
+    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*100%[^}]*height:\s*44px[^}]*flex:\s*0\s+1\s+360px/s)
+    expect(librarySource).toMatch(/\.library-resume\s*\{[^}]*height:\s*44px[^}]*flex:\s*1\s+1\s+520px[^}]*grid-template-columns:\s*28px\s+minmax\(0,1fr\)\s+auto/s)
     expect(librarySource).toMatch(/\.library-resume__action svg\s*\{[^}]*transition:\s*transform\s+\.18s\s+ease/s)
     expect(librarySource).toMatch(/\.library-resume:hover\s+\.library-resume__action svg\s*\{[^}]*transform:\s*translateX\(3px\)/s)
     expect(librarySource).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.library-resume[^}]*transition:\s*none/s)
@@ -59,6 +59,10 @@ describe('course library density contract', () => {
   })
 
   it('keeps the primary action on one line and uses a compact overflow menu', () => {
+    expect(librarySource).toMatch(/class="create-course-trigger-group"/)
+    expect(librarySource).toMatch(/\.create-course-trigger-group\s*\{[^}]*height:\s*38px[^}]*border:\s*1px\s+solid[^}]*border-radius:\s*9px[^}]*background:\s*#fff/s)
+    expect(librarySource).toMatch(/\.create-course-primary\s*\{[^}]*white-space:\s*nowrap/s)
+    expect(librarySource).toMatch(/\.create-course-menu-toggle\s*\{[^}]*width:\s*34px[^}]*border-left:\s*1px\s+solid/s)
     expect(librarySource).toMatch(/\.course-primary-action\s*\{[^}]*white-space:\s*nowrap/s)
     expect(librarySource).toMatch(/\.course-menu\s*\{[^}]*width:\s*160px[^}]*padding:\s*4px[^}]*border-radius:\s*10px/s)
     expect(librarySource).toMatch(/\.course-menu__item\s*\{[^}]*min-height:\s*36px[^}]*gap:\s*8px[^}]*padding:\s*0\s+9px/s)

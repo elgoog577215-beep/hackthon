@@ -739,7 +739,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-library--paginated { padding-bottom:126px; }
   .library-header { align-items:stretch; flex-direction:column; }
   .create-course-menu { width:auto; margin-left:auto; }
-  .create-course-menu__panel { left:0; right:0; width:auto; }
+  .create-course-menu__panel { left:auto; right:0; width:min(270px,calc(100vw - 40px)); }
   .library-toolbar { margin-top:18px; flex-wrap:wrap; gap:10px; }
   .library-toolbar label,.library-resume { width:100%; flex:1 0 100%; }
   .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }
