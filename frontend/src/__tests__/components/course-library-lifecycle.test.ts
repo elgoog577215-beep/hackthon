@@ -122,6 +122,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -150,6 +151,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -169,11 +171,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     await reviewButton.trigger('click')
     await flushPromises()
 
-    const reviewCenter = wrapper.getComponent({ name: 'QuestionBankReviewCenter' })
-    expect(reviewCenter.props('modelValue')).toBe(true)
-    expect(reviewCenter.props('courseId')).toBe('course-review')
-    const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
-    expect(taskCenter.props('modelValue')).toBe(false)
+    const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
+    expect(workbench.props('modelValue')).toBe(true)
+    expect(workbench.props('initialSection')).toBe('question-bank')
+    expect(workbench.props('courseId')).toBe('course-review')
     expect(wrapper.find('[data-testid="course-menu-course-review"]').exists()).toBe(false)
   })
 
@@ -193,6 +194,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -229,6 +231,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -279,6 +282,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -324,6 +328,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -368,6 +373,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: GenerationDialogStub,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -383,7 +389,7 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     expect(router.currentRoute.value.name).toBe('learning')
     expect(router.currentRoute.value.params.courseId).toBe('course-live')
-    expect(wrapper.findComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(false)
+    expect(wrapper.findComponent({ name: 'CourseWorkbench' }).props('modelValue')).toBe(false)
   })
 
   it('Markdown 导入创建后台任务后打开任务中心而不是提前进入空课程', async () => {
@@ -402,6 +408,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -423,9 +430,10 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     expect(courses.importMarkdown).toHaveBeenCalledWith(file)
     expect(router.currentRoute.value.name).toBe('course-library')
-    const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
-    expect(taskCenter.props('modelValue')).toBe(true)
-    expect(taskCenter.props('courseId')).toBe('course-import-1')
+    const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
+    expect(workbench.props('modelValue')).toBe(true)
+    expect(workbench.props('initialSection')).toBe('tasks')
+    expect(workbench.props('courseId')).toBe('course-import-1')
   })
 
   it('将跨课程入口移入全局顶栏，并只在页面标题区保留新建课程菜单', async () => {
@@ -435,14 +443,17 @@ describe('CourseLibraryView generation lifecycle', () => {
     vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
     vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
     vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
-    const task = generation.createTask('job-needs-attention', 'course-running', '进行中的课程')
-    task.status = 'running'
+    const runningTask = generation.createTask('job-running', 'course-running', '进行中的课程')
+    runningTask.status = 'running'
+    const reviewTask = generation.createTask('job-needs-attention', 'course-review', '等待确认的课程')
+    reviewTask.status = 'waiting_for_review'
 
     const wrapper = mount(CourseLibraryView, {
       global: {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -454,6 +465,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.library-actions .task-center-button').exists()).toBe(false)
     expect(wrapper.find('.library-actions .import-button').exists()).toBe(false)
     expect(wrapper.find('.library-global-actions .task-center-button').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="open-course-workbench"]').text()).toContain('课程工作台')
     expect(wrapper.get('.library-global-actions .action-count').text()).toBe('1')
     expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('false')
 
@@ -464,7 +476,9 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('[data-testid="import-markdown-course"]').text()).toContain('导入 Markdown')
 
     await wrapper.get('.library-global-actions .task-center-button').trigger('click')
-    expect(wrapper.getComponent({ name: 'CourseTaskCenter' }).props('modelValue')).toBe(true)
+    const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
+    expect(workbench.props('modelValue')).toBe(true)
+    expect(workbench.props('initialSection')).toBe('tasks')
   })
 
   it('从全局顶栏进入教师文件空间', async () => {
@@ -480,6 +494,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
@@ -509,6 +524,7 @@ describe('CourseLibraryView generation lifecycle', () => {
         plugins: [router],
         stubs: {
           CourseGenerationDialog: true,
+          CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
           Teleport: true,
