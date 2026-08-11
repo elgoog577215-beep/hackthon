@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import CourseWorkspaceTabs from '@/components/CourseWorkspaceTabs.vue'
@@ -111,5 +113,16 @@ describe('CourseWorkspaceTabs', () => {
     expect(lessonPlan.attributes('title')).toContain('后台')
     await lessonPlan.trigger('click')
     expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
+  })
+
+  it('移动端将四个一级视图等宽收纳，英文标签不会把 PPT 挤出屏幕', () => {
+    const component = readFileSync(
+      resolve(process.cwd(), 'src/components/CourseWorkspaceTabs.vue'),
+      'utf8',
+    )
+
+    expect(component).toContain('grid-template-columns:repeat(4,minmax(0,1fr))')
+    expect(component).toContain('.course-workspace-tabs button svg { display:none; }')
+    expect(component).toContain('.course-workspace-tabs button span { overflow:hidden; text-overflow:ellipsis; }')
   })
 })

@@ -1,10 +1,10 @@
 <template>
   <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
     <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
-      <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
+      <RouterLink class="brand-button" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
         <span class="brand-name">启智</span>
-      </button>
+      </RouterLink>
 
       <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions" />
 
@@ -85,20 +85,19 @@
       <router-view />
     </main>
 
-    <KnowledgeLibrary />
+    <KnowledgeLibrary v-if="!isPublicConceptRoute" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
 
-const router = useRouter()
 const route = useRoute()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
@@ -114,6 +113,7 @@ const reconcileVisibleGenerationTasks = () => {
 }
 
 onMounted(() => {
+  if (window.location.pathname.startsWith('/workspace-concept')) return
   generationStore.restoreGenerationState()
   generationStore.startGlobalMonitor()
   window.addEventListener('storage', reconcileGenerationTasksFromStorage)
@@ -129,6 +129,7 @@ onBeforeUnmount(() => {
 
 const isLearningRoute = computed(() => route.name === 'learning')
 const isPptRoute = computed(() => route.name === 'ppt-workspace')
+const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -168,6 +169,8 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .app-shell.is-ppt-workspace { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
 .app-shell.is-ppt-workspace .app-main { border-radius:0; }
+.app-shell.is-public-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#f5f6f9; }
+.app-shell.is-public-concept .app-main { border-radius:0; }
 
 .app-header {
   position: relative;
@@ -205,6 +208,7 @@ function changeLocale(locale: 'zh' | 'en') {
   padding: 0;
   background: transparent;
   text-align: left;
+  text-decoration: none;
   border-radius: 13px;
   transition: transform .2s ease, background .2s ease;
 }

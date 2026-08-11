@@ -17,7 +17,14 @@ const BACKEND = resolve(__dirname, '../../../../backend')
 const readBackend = (name: string): string =>
   readFileSync(resolve(BACKEND, name), 'utf8')
 
-const webSearch = (locale: typeof enLocale): Record<string, Record<string, string>> =>
+interface WebSearchLocale {
+  messageCode: Record<string, string>
+  reason: Record<string, string>
+  gatewayError: Record<string, string>
+  status: Record<string, string>
+}
+
+const webSearch = (locale: typeof enLocale): WebSearchLocale =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (locale as any).courseGeneration.materials.webSearch
 
@@ -67,7 +74,7 @@ describe('web search i18n coverage', () => {
     // The gateway's ERROR_CODES set is what reaches the teacher on failure.
     const block = gateway.match(/ERROR_CODES\s*=\s*\{([^}]*)\}/)
     expect(block, 'ERROR_CODES not found in web_retrieval.py').toBeTruthy()
-    const codes = uniqueMatches(block![1], /"([a-z_]+)"/g)
+    const codes = uniqueMatches(block?.[1] ?? '', /"([a-z_]+)"/g)
     expect(codes.length).toBeGreaterThanOrEqual(5)
 
     for (const locale of [enLocale, zhLocale]) {

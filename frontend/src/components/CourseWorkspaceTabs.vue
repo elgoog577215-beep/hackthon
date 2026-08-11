@@ -163,20 +163,23 @@ const emit = defineEmits<{
   .course-workspace-tabs {
     width:100%;
     min-height:40px;
-    justify-content:flex-start;
-    overflow-x:auto;
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:2px;
     padding:3px;
     border-radius:10px;
-    scrollbar-width:none;
   }
-  .course-workspace-tabs::-webkit-scrollbar { display:none; }
   .course-workspace-tabs button {
-    min-width:70px;
+    width:100%;
+    min-width:0;
     min-height:32px;
-    flex:1 0 auto;
-    padding:0 10px;
+    gap:3px;
+    padding:0 3px;
     font-size:10px;
+    overflow:hidden;
   }
+  .course-workspace-tabs button svg { display:none; }
+  .course-workspace-tabs button span { overflow:hidden; text-overflow:ellipsis; }
 }
 @media (prefers-reduced-motion:reduce) {
   .course-workspace-tabs button { transition:none; }
