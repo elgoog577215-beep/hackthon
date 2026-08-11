@@ -170,6 +170,57 @@ def _structured_field_check_document() -> CourseDocument:
     )
 
 
+def _ordered_field_task_with_table_feedback_document() -> CourseDocument:
+    """A generic procedure whose ordered task must not disappear into a table page."""
+
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-ordered-field-task",
+            title="Field sample transfer",
+            sections=[
+                CourseSection(
+                    section_id="sample-transfer",
+                    title="Transfer and verify the sample",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="transfer-procedure",
+                    section_id="sample-transfer",
+                    position=0,
+                    role="activity",
+                    payload={
+                        "markdown": (
+                            "Follow the procedure in order:\n\n"
+                            "1. **Collect the sample**\n"
+                            "   - Record the collection time.\n"
+                            "2. **Seal the container**\n"
+                            "   - Check the lid.\n"
+                            "3. **Transfer the package**\n"
+                            "   - Obtain the receiver signature."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="transfer-errors",
+                    section_id="sample-transfer",
+                    position=1,
+                    role="feedback",
+                    payload={
+                        "markdown": (
+                            "| Symptom | Cause | Correction |\n"
+                            "| --- | --- | --- |\n"
+                            "| Broken seal | Lid was loose | Reseal the container |\n"
+                            "| Missing signature | Handoff was skipped | Repeat the handoff |"
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
 def _mixed_table_and_code_document() -> CourseDocument:
     """A generic evidence unit that needs separate table and code expressions."""
 
@@ -1296,6 +1347,57 @@ async def test_story_contract_projects_repeated_invalid_grouping_to_one_safe_par
     ]
     assert story.pages[0].template_layout_id.endswith("/evidence-table")
     assert story.pages[1].template_layout_id.endswith("/evidence-code")
+
+
+@pytest.mark.asyncio
+async def test_story_contract_keeps_ordered_task_out_of_table_only_layout() -> None:
+    """Ordered source steps remain a visible sequence across non-code subjects."""
+
+    document = _ordered_field_task_with_table_feedback_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        table_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-table")
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"collapsed-procedure-{len(calls)}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": table_layout,
+                "title": _title_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair = calls[1]["repair_feedback"]
+    assert repair["code"] == "template_layout_semantic_slot_mismatch"
+    target = repair["repair_targets"][0]
+    assert target["repartition_required"] is True
+    assert [page.source_block_ids for page in story.pages] == [
+        ["transfer-procedure"],
+        ["transfer-errors"],
+    ]
+    assert story.pages[0].template_layout_id.endswith("/practice-prompt")
+    assert story.pages[1].template_layout_id.endswith("/evidence-table")
 
 
 @pytest.mark.asyncio
