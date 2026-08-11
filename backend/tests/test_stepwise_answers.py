@@ -12,7 +12,8 @@
 import pytest
 
 from practice_attempts import evidence_strength
-from practice_grading import PracticeGrader, _support_level
+from practice_attempts import support_level as _support_level
+from practice_grading import PracticeGrader
 from stepwise_answers import (
     extract_steps,
     first_flawed_step,
@@ -375,31 +376,51 @@ def test_all_blank_steps_do_not_pass_the_empty_answer_guard():
 # --- J4：证据强度口径对齐（不重复建模） --------------------------------------
 
 
-def test_the_two_support_level_copies_stay_in_agreement():
-    """`_support_level` 目前在评分与路由两处各有一份**逐字相同**的实现。
+def test_support_level_has_exactly_one_implementation():
+    """`support_level` 必须只有一份实现，两个调用方指向同一个函数对象。
 
-    J4 要求复用同一套证据强度口径、不要重复建模。这两份副本一旦漂移，
-    同一次作答就会在"判定用的支持等级"和"上报用的支持等级"上给出不同答案，
-    而且不会有任何测试报警。本条把它们钉在一起。
+    此前评分与路由各有一份**逐字相同**的副本（D7）。两份副本一旦漂移，同一次
+    作答会在"判定用的支持等级"和"上报用的支持等级"上给出不同答案，而且不会有
+    任何测试报警——这条规则决定作答算不算掌握证据，漂移的后果是静默的。
+
+    合并后不再断言"两份行为一致"（那默许了副本存在），而是直接断言**同一性**：
+    任何人再复制一份出来，这条就会失败。
     """
-    from practice_grading import _support_level as grading_support_level
-    from routers.practice import _support_level as router_support_level
+    from practice_attempts import support_level as canonical
+    import practice_grading
+    from routers import practice as practice_router
 
-    cases = [
-        {},
-        {"ai_support_level": 2},
-        {"revealed_hint_levels": [1, 3]},
-        {"solution_revealed": True},
-        {"ai_support_level": 1, "revealed_hint_levels": [2], "solution_revealed": False},
-        {"ai_support_level": 0, "revealed_hint_levels": [], "solution_revealed": True},
-    ]
-    for attempt in cases:
-        assert grading_support_level(attempt) == router_support_level(attempt), attempt
+    assert practice_grading.support_level is canonical
+    assert practice_router.support_level is canonical
+    # 模块内不得再出现私有副本
+    assert not hasattr(practice_grading, "_support_level")
+    assert not hasattr(practice_router, "_support_level")
+
+
+def test_support_level_reads_all_three_support_signals():
+    """合并后的唯一实现仍须覆盖三个支持入口，取其最大值。"""
+    from practice_attempts import support_level
+
+    assert support_level({}) == 0
+    assert support_level({"ai_support_level": 2}) == 2
+    assert support_level({"revealed_hint_levels": [1, 3]}) == 3
+    assert support_level({"solution_revealed": True}) == 3
+    # 多个入口同时存在时取最大，不是相加也不是最后一个
+    assert support_level({
+        "ai_support_level": 1,
+        "revealed_hint_levels": [2],
+        "solution_revealed": False,
+    }) == 2
+    assert support_level({
+        "ai_support_level": 0,
+        "revealed_hint_levels": [],
+        "solution_revealed": True,
+    }) == 3
 
 
 def test_support_level_and_evidence_strength_agree_on_every_support_source():
     """三个支持入口（提示 / AI 求助 / 看答案）都必须同时影响两套口径。"""
-    from practice_grading import _support_level
+    from practice_attempts import support_level as _support_level
 
     # 提示与 AI 求助按等级折算。
     assert _support_level({"revealed_hint_levels": [2]}) == 2

@@ -13,7 +13,7 @@ from code_runner_client import (
     CodeRunnerUnavailable,
     code_runner_client,
 )
-from practice_attempts import evidence_strength
+from practice_attempts import evidence_strength, support_level
 from stepwise_answers import (
     extract_steps,
     merged_answer_text,
@@ -53,7 +53,7 @@ class PracticeGrader(AIBase):
         else:
             result = await self._grade_rubric(question, answer_payload)
         result["evidence_strength"] = strength
-        result["support_level"] = _support_level(attempt)
+        result["support_level"] = support_level(attempt)
         result["grading_method"] = result.get("grading_method") or method
         allows_mastery = validation_policy.get("mastery_eligible")
         if allows_mastery is None:
@@ -439,15 +439,6 @@ def _pending_review(message: str) -> dict[str, Any]:
         "grading_method": "rubric_ai",
         "mastery_eligible": False,
     }
-
-
-def _support_level(attempt: dict[str, Any]) -> int:
-    return max([
-        0,
-        int(attempt.get("ai_support_level") or 0),
-        *[int(item) for item in attempt.get("revealed_hint_levels") or []],
-        3 if attempt.get("solution_revealed") else 0,
-    ])
 
 
 _NONE_SENTINEL = "\0__none__\0"

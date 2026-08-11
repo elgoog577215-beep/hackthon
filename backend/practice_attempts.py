@@ -413,6 +413,24 @@ class PracticeAttemptRepository:
                 temp.unlink()
 
 
+def support_level(attempt: dict[str, Any]) -> int:
+    """Highest level of help used on one attempt (0 = fully independent).
+
+    Lives next to `evidence_strength` because they read the same three support
+    signals — hints revealed, AI support used, solution revealed — and must never
+    disagree about what happened.  Previously duplicated verbatim in
+    `practice_grading` and `routers.practice`; two copies of a rule that decides
+    whether work counts as mastery evidence would eventually drift, and nothing
+    would have caught it.
+    """
+    return max([
+        0,
+        int(attempt.get("ai_support_level") or 0),
+        *[int(item) for item in attempt.get("revealed_hint_levels") or []],
+        3 if attempt.get("solution_revealed") else 0,
+    ])
+
+
 def evidence_strength(attempt: dict[str, Any]) -> str:
     if attempt.get("status") == "invalidated":
         return "invalid"
@@ -484,4 +502,5 @@ __all__ = [
     "PracticeAttemptRepository",
     "evidence_strength",
     "practice_attempt_repository",
+    "support_level",
 ]

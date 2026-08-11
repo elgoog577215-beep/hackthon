@@ -34,6 +34,7 @@ from practice_attempts import (
     AttemptConflict,
     InvalidAttemptTransition,
     practice_attempt_repository,
+    support_level,
 )
 from practice_contracts import DEFAULT_PRACTICE_BATCH_SIZE
 from practice_analysis import (
@@ -771,7 +772,7 @@ async def submit_attempt(
             evidence={
                 "answer": payload.answer_payload,
                 "active_seconds": payload.active_seconds,
-                "support_level": _support_level(attempt),
+                "support_level": support_level(attempt),
             },
         )
     grading_output, diagnosis_output = await asyncio.gather(
@@ -1472,15 +1473,6 @@ def _missing_answer_fields(
         ):
             missing.append(field_id)
     return missing
-
-
-def _support_level(attempt: dict[str, Any]) -> int:
-    return max([
-        0,
-        int(attempt.get("ai_support_level") or 0),
-        *[int(item) for item in attempt.get("revealed_hint_levels") or []],
-        3 if attempt.get("solution_revealed") else 0,
-    ])
 
 
 def _needs_review(attempt: dict[str, Any]) -> bool:
