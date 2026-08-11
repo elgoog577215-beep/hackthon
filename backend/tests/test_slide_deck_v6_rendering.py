@@ -89,6 +89,95 @@ def _code_deck():
     return document, compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _dense_table_deck():
+    table = "\n".join([
+        "| Check | Required evidence | Result |",
+        "| --- | --- | --- |",
+        *(
+            f"| Field item {index} | Record the observation condition and supporting evidence {index} | Verified |"
+            for index in range(1, 9)
+        ),
+    ])
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-field-table-render-fixture",
+            title="Field evidence review",
+            sections=[
+                CourseSection(
+                    section_id="field-review",
+                    title="Review the evidence",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="interpretation",
+                    section_id="field-review",
+                    position=0,
+                    role="activity",
+                    payload={
+                        "markdown": (
+                            "Compare every recorded condition with the required evidence, "
+                            "then identify the first unsupported observation before publishing "
+                            "the field result. "
+                        ) * 3,
+                    },
+                ),
+                CourseBlock(
+                    block_id="evidence-table",
+                    section_id="field-review",
+                    position=1,
+                    kind="review_checkpoint",
+                    role="feedback",
+                    payload={"markdown": table},
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = template.layout_id("evidence-table")
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[
+            SlideStoryBatchV3(
+                batch_id="story-table",
+                chapter_id="field-review",
+                provider="fixture-pool",
+                model="fixture-story",
+                duration_ms=1,
+                attempts=1,
+                validation_status="passed",
+                pages=[
+                    SlideStoryPageV3(
+                        page_id="field-table-page",
+                        teaching_unit_id=unit.teaching_unit_id,
+                        template_layout_id=layout_id,
+                        title="Review the evidence",
+                        source_block_ids=unit.primary_block_ids,
+                        page_ordinal=0,
+                    )
+                ],
+            )
+        ],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[
+            SlideVisualDecisionV2(
+                page_id="field-table-page",
+                decision="table",
+                source_block_ids=unit.primary_block_ids,
+                resolved_template_layout_id=layout_id,
+            )
+        ],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
@@ -158,6 +247,20 @@ def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Pat
         report = audit_exported_pptx(output, expected_slide_count=1)
 
         assert report["passed"], report["blockers"]
+
+
+def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_its_own_frame(
+    tmp_path: Path,
+) -> None:
+    deck = _dense_table_deck()
+
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "v6-dense-table.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert report["passed"], report["blockers"]
 
 
 def test_chapter_entry_title_contract_allows_only_declared_safe_wrapping(
