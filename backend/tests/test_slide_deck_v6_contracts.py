@@ -14,6 +14,7 @@ from slide_deck_v6 import (
     V6BuildError,
     _bounded_slot_content,
     _complete_sentence_excerpt,
+    _display_excerpt,
     build_signature_v6,
     compile_shadow_chapter_document,
     compile_ppt_source_contract_v2,
@@ -61,6 +62,15 @@ def test_visible_prose_removes_markdown_and_never_ends_on_a_bare_list_marker():
     assert not any(marker in content for marker in ("**", "`", "<br>"))
     assert not re.search(r"(?:^|\s)\d+[.)]$", content)
     assert content.endswith(("。", "！", "？", ".", "!", "?", "…"))
+
+
+def test_display_excerpt_never_cuts_an_ascii_word_in_half():
+    source = "Record the site, time, weather, and observer before sampling begins"
+
+    excerpt = _display_excerpt(source, 22)
+
+    assert excerpt.endswith("…")
+    assert excerpt[:-1].rstrip(" ,;:").endswith(("site", "time", "weather", "observer"))
 
 
 def test_item_slot_uses_source_excerpts_within_template_limits():
@@ -1102,7 +1112,11 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
         for region in page.regions
         if region.content_kind == "table"
     ]
-    assert all(region.startswith(header) for region in table_regions)
+    assert all(
+        region.splitlines()[:2]
+        == ["| Habitat | Observation |", "| --- | --- |"]
+        for region in table_regions
+    )
     assert sum(region.count("| Zone ") for region in table_regions) == 17
 
 
