@@ -255,6 +255,14 @@ class AIBase:
             "api.modelscope.cn",
         }
 
+    @staticmethod
+    def _uses_model_scoped_quota(api_base: str) -> bool:
+        hostname = (urlparse(api_base).hostname or "").casefold()
+        return hostname in {
+            "api-inference.modelscope.cn",
+            "api.modelscope.cn",
+        }
+
     async def _wait_for_request_slot(self) -> None:
         if self._minimum_request_interval <= 0:
             return
@@ -1641,8 +1649,9 @@ class AIBase:
                             ),
                         )
                         self._cool_down_model(model_id, e)
-                        self._block_provider("quota_exhausted")
                         fallback_eligible = True
+                        if not self._uses_model_scoped_quota(self.api_base):
+                            self._block_provider("quota_exhausted")
                         break
                     if self._should_try_next_model(e):
                         fallback_eligible = True
