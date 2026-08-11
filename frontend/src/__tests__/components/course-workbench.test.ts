@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { defineComponent } from 'vue'
 import { describe, expect, it } from 'vitest'
 import CourseWorkbench from '@/components/CourseWorkbench.vue'
@@ -30,6 +31,7 @@ const mountWorkbench = (initialSection: 'tasks' | 'question-bank' = 'tasks') => 
     courseId: 'course-1',
   },
   global: {
+    plugins: [createPinia()],
     stubs: {
       Teleport: true,
       CourseTaskCenter: CourseTaskCenterStub,

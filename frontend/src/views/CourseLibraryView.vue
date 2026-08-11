@@ -17,13 +17,14 @@
         <button
           type="button"
           class="global-action-button task-center-button"
-          :title="t('courseLibrary.tasks', '课程任务')"
-          :aria-label="t('courseLibrary.tasks', '课程任务')"
+          data-testid="open-course-workbench"
+          :title="workbenchLabel"
+          :aria-label="workbenchLabel"
           @click="openTaskCenter()"
         >
-          <ListChecks :size="17" />
-          <span class="action-label">{{ t('courseLibrary.tasks', '课程任务') }}</span>
-          <span v-if="attentionTaskCount" class="action-count">{{ attentionTaskCount }}</span>
+          <LayoutDashboard :size="17" />
+          <span class="action-label">{{ workbenchLabel }}</span>
+          <span v-if="actionRequiredTaskCount" class="action-count">{{ actionRequiredTaskCount }}</span>
         </button>
       </nav>
     </Teleport>
@@ -334,10 +335,10 @@
       @generate="generateCourse"
       @error="message => ElMessage.error(message)"
     />
-    <CourseTaskCenter v-model="taskCenterOpen" :course-id="selectedTaskCourseId" />
-    <QuestionBankReviewCenter
-      v-model="questionBankReviewOpen"
-      :course-id="selectedReviewCourseId"
+    <CourseWorkbench
+      v-model="workbenchOpen"
+      :initial-section="workbenchSection"
+      :course-id="selectedWorkbenchCourseId"
     />
   </section>
 </template>
@@ -346,15 +347,14 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
-import CourseTaskCenter from '../components/CourseTaskCenter.vue'
-import QuestionBankReviewCenter from '../components/QuestionBankReviewCenter.vue'
+import CourseWorkbench from '../components/CourseWorkbench.vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
-import { t } from '../shared/i18n'
+import { activeLocale, t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
 import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume'
 import { formatCourseTitle } from '../utils/course-presentation'
@@ -374,10 +374,9 @@ const createMenuFirstItemRef = ref<HTMLButtonElement | null>(null)
 const createMenuOpen = ref(false)
 const openCourseMenuId = ref('')
 const createDialogOpen = ref(false)
-const taskCenterOpen = ref(false)
-const selectedTaskCourseId = ref('')
-const questionBankReviewOpen = ref(false)
-const selectedReviewCourseId = ref('')
+const workbenchOpen = ref(false)
+const workbenchSection = ref<'tasks' | 'question-bank'>('tasks')
+const selectedWorkbenchCourseId = ref('')
 const creating = ref(false)
 
 const filteredCourses = computed(() => {
@@ -401,7 +400,8 @@ const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis
   if (currentPage.value >= pages - 3) return [1, 'start-ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages]
   return [1, 'start-ellipsis', currentPage.value - 1, currentPage.value, currentPage.value + 1, 'end-ellipsis', pages]
 })
-const attentionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskNeedsAttention).length)
+const workbenchLabel = computed(() => activeLocale.value === 'en' ? 'Course workbench' : '课程工作台')
+const actionRequiredTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskRequiresAction).length)
 const latestResumeCourse = computed(() => latestResumableCourse(courseStore.courseList))
 
 watch(query, () => {
@@ -532,6 +532,11 @@ function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean
   return ['pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
+function taskRequiresAction(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
+  if (isPublishedWarning(task)) return false
+  return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
+}
+
 function openCourse(courseId: string, nodeId?: string) {
   closeCourseMenu()
   void router.push({
@@ -554,14 +559,16 @@ function openGeneratingCourse(courseId: string) {
 
 function openTaskCenter(courseId = '') {
   closeCourseMenu()
-  selectedTaskCourseId.value = courseId
-  taskCenterOpen.value = true
+  selectedWorkbenchCourseId.value = courseId
+  workbenchSection.value = 'tasks'
+  workbenchOpen.value = true
 }
 
 function openQuestionBankReview(courseId: string) {
   closeCourseMenu()
-  selectedReviewCourseId.value = courseId
-  questionBankReviewOpen.value = true
+  selectedWorkbenchCourseId.value = courseId
+  workbenchSection.value = 'question-bank'
+  workbenchOpen.value = true
 }
 
 async function generateCourse(payload: { subject: string; options: CourseGenerationOptions }) {
