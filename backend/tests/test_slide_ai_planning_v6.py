@@ -777,6 +777,122 @@ async def test_story_resolves_known_but_off_contract_layout_to_page_compatible_l
 
 
 @pytest.mark.asyncio
+async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout() -> None:
+    """Rules diagnose an impossible grouping; the LLM authors its replacement."""
+
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        concept_id, code_id, feedback_id = unit["primary_block_ids"]
+        repair_targets = (request.get("repair_feedback") or {}).get(
+            "repair_targets"
+        ) or []
+        should_repartition = bool(
+            repair_targets
+            and repair_targets[0].get("repartition_required") is True
+        )
+        if should_repartition:
+            pages = [
+                {
+                    "page_id": "llm-code-with-context",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": next(
+                        layout_id
+                        for layout_id in unit["allowed_template_layout_ids"]
+                        if layout_id.endswith("/evidence-code")
+                    ),
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [concept_id, code_id],
+                },
+                {
+                    "page_id": "llm-feedback-after-code",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [feedback_id],
+                    ),
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ]
+        else:
+            pages = [
+                {
+                    "page_id": "llm-concept-alone",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [concept_id],
+                    ),
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [concept_id],
+                },
+                {
+                    "page_id": "llm-code-without-annotation",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": next(
+                        layout_id
+                        for layout_id in unit["allowed_template_layout_ids"]
+                        if layout_id.endswith("/content-stack")
+                    ),
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [code_id],
+                },
+                {
+                    "page_id": "llm-feedback-alone",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [feedback_id],
+                    ),
+                    "title": unit["title_candidates"][2],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": pages,
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    unit = calls[0]["teaching_units"][0]
+    assert repair_target["repartition_required"] is True
+    assert repair_target["repartition_scope"] == "teaching_unit"
+    assert repair_target["source_block_order"] == unit["primary_block_ids"]
+    assert repair_target["replace_page_ids"] == [
+        "llm-concept-alone",
+        "llm-code-without-annotation",
+        "llm-feedback-alone",
+    ]
+    assert repair_target["required_template_layout_id"] == ""
+    assert [page.page_id for page in story.pages] == [
+        "llm-code-with-context",
+        "llm-feedback-after-code",
+    ]
+    assert [page.source_block_ids for page in story.pages] == [
+        unit["primary_block_ids"][:2],
+        unit["primary_block_ids"][2:],
+    ]
+
+
+@pytest.mark.asyncio
 async def test_story_resolves_feedback_only_page_to_a_single_source_layout() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
