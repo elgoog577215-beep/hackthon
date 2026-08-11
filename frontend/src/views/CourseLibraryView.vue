@@ -35,57 +35,6 @@
         <h1>{{ t('courseLibrary.title', '选择一门课程继续学习') }}</h1>
         <span>{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
       </div>
-      <div class="library-actions">
-        <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
-        <div ref="createMenuRef" class="create-course-menu" @keydown.esc.stop.prevent="closeCreateMenu(true)">
-          <button
-            ref="createMenuTriggerRef"
-            type="button"
-            class="primary-button create-course-trigger"
-            data-testid="create-course-menu-trigger"
-            aria-haspopup="menu"
-            aria-controls="create-course-menu"
-            :aria-expanded="createMenuOpen"
-            @click="toggleCreateMenu"
-          >
-            <Plus :size="17" />
-            {{ t('courseLibrary.newCourse', '新建课程') }}
-            <ChevronDown class="create-course-trigger__chevron" :class="{ open: createMenuOpen }" :size="15" />
-          </button>
-
-          <Transition name="create-menu">
-            <div v-if="createMenuOpen" id="create-course-menu" class="create-course-menu__panel" role="menu">
-              <button
-                ref="createMenuFirstItemRef"
-                type="button"
-                class="create-course-menu__item"
-                role="menuitem"
-                data-testid="create-blank-course"
-                @click="openBlankCourse"
-              >
-                <span class="create-course-menu__icon"><FilePlus2 :size="19" /></span>
-                <span>
-                  <strong>{{ t('courseLibrary.newBlankCourse', '新建空白课程') }}</strong>
-                  <small>{{ t('courseLibrary.newBlankCourseHelp', '从零开始创建课程') }}</small>
-                </span>
-              </button>
-              <button
-                type="button"
-                class="create-course-menu__item"
-                role="menuitem"
-                data-testid="import-markdown-course"
-                @click="openMarkdownImport"
-              >
-                <span class="create-course-menu__icon"><Upload :size="19" /></span>
-                <span>
-                  <strong>{{ t('courseLibrary.import', '导入 Markdown') }}</strong>
-                  <small>{{ t('courseLibrary.importHelp', '上传 .md 文件快速生成') }}</small>
-                </span>
-              </button>
-            </div>
-          </Transition>
-        </div>
-      </div>
     </header>
 
     <div class="library-toolbar">
@@ -124,6 +73,65 @@
           <ArrowRight :size="16" />
         </span>
       </button>
+      <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
+      <div ref="createMenuRef" class="create-course-menu" @keydown.esc.stop.prevent="closeCreateMenu(true)">
+        <div class="create-course-trigger-group">
+          <button
+            type="button"
+            class="create-course-primary"
+            data-testid="create-blank-course-trigger"
+            @click="openBlankCourse"
+          >
+            <Plus :size="16" />
+            <span>{{ t('courseLibrary.newCourse', '新建课程') }}</span>
+          </button>
+          <button
+            ref="createMenuTriggerRef"
+            type="button"
+            class="create-course-menu-toggle"
+            data-testid="create-course-menu-trigger"
+            aria-haspopup="menu"
+            aria-controls="create-course-menu"
+            :aria-expanded="createMenuOpen"
+            :aria-label="t('courseLibrary.moreCreateMethods', '更多新建方式')"
+            @click="toggleCreateMenu"
+          >
+            <ChevronDown class="create-course-trigger__chevron" :class="{ open: createMenuOpen }" :size="15" />
+          </button>
+        </div>
+
+        <Transition name="create-menu">
+          <div v-if="createMenuOpen" id="create-course-menu" class="create-course-menu__panel" role="menu">
+            <button
+              ref="createMenuFirstItemRef"
+              type="button"
+              class="create-course-menu__item"
+              role="menuitem"
+              data-testid="create-blank-course"
+              @click="openBlankCourse"
+            >
+              <span class="create-course-menu__icon"><FilePlus2 :size="19" /></span>
+              <span>
+                <strong>{{ t('courseLibrary.newBlankCourse', '新建空白课程') }}</strong>
+                <small>{{ t('courseLibrary.newBlankCourseHelp', '从零开始创建课程') }}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="create-course-menu__item"
+              role="menuitem"
+              data-testid="import-markdown-course"
+              @click="openMarkdownImport"
+            >
+              <span class="create-course-menu__icon"><Upload :size="19" /></span>
+              <span>
+                <strong>{{ t('courseLibrary.import', '导入 Markdown') }}</strong>
+                <small>{{ t('courseLibrary.importHelp', '上传 .md 文件快速生成') }}</small>
+              </span>
+            </button>
+          </div>
+        </Transition>
+      </div>
       <span class="library-toolbar__count">{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
     </div>
 
@@ -619,14 +627,16 @@ async function deleteCourse(courseId: string, courseName: string) {
 .global-action-button { position:relative; min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 10px; border:1px solid transparent; border-radius:10px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .global-action-button:hover,.global-action-button:focus-visible { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
 .task-center-button > .action-count { min-width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0 5px; border-radius:10px; color:#fff; background:var(--lz-warning); font-size:9px; font-weight:800; }
-.library-actions { display:flex; flex:0 0 auto; }
-.create-course-menu { position:relative; }
-.primary-button, .secondary-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 14px; border-radius:11px; font-size:12px; font-weight:700; cursor:pointer; }
-.primary-button { border:1px solid transparent; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; box-shadow:0 7px 16px rgba(99,102,241,.2); }
-.secondary-button { border:1px solid rgba(203,213,225,.72); background:rgba(255,255,255,.72); color:var(--lz-text-secondary); }
-.create-course-trigger { min-height:44px; padding:0 16px; font-size:13px; box-shadow:0 9px 20px rgba(99,102,241,.24); }
-.create-course-trigger:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:2px; }
-.create-course-trigger__chevron { margin-left:2px; transition:transform .18s ease; }
+.create-course-menu { position:relative; flex:0 0 auto; margin-left:auto; }
+.create-course-trigger-group { height:38px; display:inline-flex; align-items:stretch; overflow:hidden; border:1px solid rgba(203,213,225,.82); border-radius:9px; background:#fff; box-shadow:0 1px 2px rgba(51,65,85,.04); transition:border-color .16s ease,box-shadow .16s ease; }
+.create-course-trigger-group:hover,.create-course-trigger-group:focus-within { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
+.create-course-primary,.create-course-menu-toggle { min-height:36px; display:inline-flex; align-items:center; justify-content:center; border:0; color:var(--lz-brand-strong); background:transparent; font:inherit; cursor:pointer; transition:color .16s ease,background .16s ease; }
+.create-course-primary { gap:7px; padding:0 12px; font-size:12px; font-weight:800; white-space:nowrap; }
+.create-course-menu-toggle { width:34px; padding:0; border-left:1px solid rgba(226,232,240,.96); }
+.create-course-primary:hover,.create-course-menu-toggle:hover,.create-course-menu-toggle[aria-expanded='true'] { color:#4338ca; background:#f5f3ff; }
+.create-course-primary:active,.create-course-menu-toggle:active { background:#eef2ff; }
+.create-course-primary:focus-visible,.create-course-menu-toggle:focus-visible { position:relative; z-index:1; outline:2px solid rgba(99,102,241,.55); outline-offset:-2px; }
+.create-course-trigger__chevron { transition:transform .18s ease; }
 .create-course-trigger__chevron.open { transform:rotate(180deg); }
 .create-course-menu__panel { position:absolute; z-index:60; top:calc(100% + 9px); right:0; width:270px; overflow:hidden; padding:7px; border:1px solid rgba(203,213,225,.78); border-radius:14px; background:rgba(255,255,255,.98); box-shadow:0 18px 42px rgba(51,65,85,.16),0 4px 12px rgba(79,70,229,.08); }
 .create-course-menu__item { width:100%; display:grid; grid-template-columns:38px minmax(0,1fr); align-items:center; gap:10px; padding:11px; border:0; border-radius:10px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
@@ -638,10 +648,10 @@ async function deleteCourse(courseId: string, courseName: string) {
 .create-course-menu__item small { margin-top:3px; color:var(--lz-text-muted); font-size:10px; line-height:1.4; }
 .create-menu-enter-active,.create-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .create-menu-enter-from,.create-menu-leave-to { opacity:0; transform:translateY(-5px) scale(.98); }
-.library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:grid; grid-template-columns:minmax(240px,360px) minmax(0,1fr) auto; align-items:center; gap:12px; }
-.library-toolbar label { width:100%; height:44px; display:flex; align-items:center; gap:8px; padding:0 14px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
+.library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:flex; align-items:center; gap:12px; }
+.library-toolbar label { width:100%; height:44px; flex:0 1 360px; display:flex; align-items:center; gap:8px; padding:0 14px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
-.library-resume { min-width:0; height:44px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px 0 9px; overflow:hidden; border:1px solid rgba(134,239,172,.62); border-radius:12px; color:var(--lz-text); background:rgba(240,253,244,.52); box-shadow:inset 0 1px 0 rgba(255,255,255,.88); text-align:left; cursor:pointer; transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.library-resume { min-width:0; height:44px; flex:1 1 520px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px 0 9px; overflow:hidden; border:1px solid rgba(134,239,172,.62); border-radius:12px; color:var(--lz-text); background:rgba(240,253,244,.52); box-shadow:inset 0 1px 0 rgba(255,255,255,.88); text-align:left; cursor:pointer; transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
 .library-resume:hover,.library-resume:focus-visible { border-color:rgba(74,222,128,.92); background:rgba(240,253,244,.9); box-shadow:0 5px 14px rgba(21,128,61,.08),inset 0 1px 0 rgba(255,255,255,.9); outline:none; }
 .library-resume:focus-visible { box-shadow:0 0 0 3px rgba(34,197,94,.14),0 5px 14px rgba(21,128,61,.08); }
 .library-resume__icon { width:28px; height:28px; display:grid; place-items:center; border-radius:9px; color:#15803d; background:rgba(220,252,231,.92); }
@@ -717,7 +727,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-grid { max-width:1040px; grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:980px) {
-  .library-toolbar { grid-template-columns:minmax(220px,320px) minmax(0,1fr); }
+  .library-toolbar label { flex-basis:320px; }
   .library-toolbar__count { display:none; }
   .library-resume__location,.library-resume__separator { display:none; }
 }
@@ -728,10 +738,10 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-library { --course-card-height:150px; --course-cover-width:72px; padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
   .course-library--paginated { padding-bottom:126px; }
   .library-header { align-items:stretch; flex-direction:column; }
-  .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
+  .create-course-menu { width:auto; margin-left:auto; }
   .create-course-menu__panel { left:0; right:0; width:auto; }
-  .library-toolbar { margin-top:18px; grid-template-columns:minmax(0,1fr); gap:10px; }
-  .library-resume { width:100%; }
+  .library-toolbar { margin-top:18px; flex-wrap:wrap; gap:10px; }
+  .library-toolbar label,.library-resume { width:100%; flex:1 0 100%; }
   .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }
   .course-main { min-height:calc(var(--course-card-height) - 2px); grid-template-columns:var(--course-cover-width) minmax(0,1fr); gap:13px; padding:16px 5px 16px 14px; }
   .course-actions { padding:13px; }
@@ -750,7 +760,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .task-center-button > .action-count { position:absolute; top:-4px; right:-4px; min-width:17px; height:17px; padding:0 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .library-resume,.library-resume__action svg { transition:none; }
+  .library-resume,.library-resume__action svg,.create-course-trigger-group,.create-course-primary,.create-course-menu-toggle,.create-course-trigger__chevron { transition:none; }
   .library-resume:hover .library-resume__action svg,.library-resume:focus-visible .library-resume__action svg { transform:none; }
 }
 </style>
