@@ -2,21 +2,17 @@
   <section class="generation-lesson-plan">
     <header class="generation-lesson-plan__header">
       <div class="generation-lesson-plan__intro">
-        <div class="generation-lesson-plan__eyebrow">
-          <span>{{ t('courseGeneration.lessonPlan.eyebrow', '唯一正式全课教案') }}</span>
-          <i aria-hidden="true" />
-          <strong>{{ planStatusLabel }}</strong>
+        <div class="generation-lesson-plan__title-line">
+          <h2>{{ t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
+          <span class="generation-lesson-plan__status">{{ planStatusLabel }}</span>
         </div>
-        <h2>{{ t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
-        <p>{{ planReady
-          ? t('courseGeneration.lessonPlan.ready', '从目标到评价，所有教学安排都来自同一份全课计划')
-          : live
-            ? t('courseGeneration.lessonPlan.pending', '目录已经确定；详细教案会逐节生成并汇编为全课计划')
-            : t('courseGeneration.lessonPlan.legacyUnavailable', '这门旧课程还没有结构化全课教案，现展示已有学习目标') }}</p>
+        <p v-if="live && !planReady">
+          {{ t('courseGeneration.lessonPlan.pending', '目录已经确定；详细教案会逐节生成并汇编为全课计划') }}
+        </p>
       </div>
 
       <div class="generation-lesson-plan__summary">
-        <div v-if="showWorkbenchControls" class="generation-lesson-plan__workbench-controls">
+        <div v-if="showWorkbenchControls && workbenchAvailable" class="generation-lesson-plan__workbench-controls">
           <span v-if="currentRevisionNumber" class="generation-lesson-plan__revision-badge">
             {{ t('courseGeneration.lessonPlan.revisionLabel', '正式修订') }} #{{ currentRevisionNumber }}
           </span>
@@ -111,22 +107,62 @@
             <i :style="{ transform: `scaleX(${planProgress / 100})` }" />
           </div>
         </div>
-        <dl>
-          <div>
-            <dt>{{ t('courseGeneration.lessonPlan.sections', '小节') }}</dt>
-            <dd>{{ effectivePlan?.section_count || sections.length }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('courseGeneration.lessonPlan.knowledge', '知识点') }}</dt>
-            <dd>{{ effectivePlan?.knowledge_point_count || knowledgeCount }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('courseGeneration.lessonPlan.modules', '教学环节') }}</dt>
-            <dd>{{ effectivePlan?.teaching_module_count || moduleCount }}</dd>
-          </div>
-        </dl>
       </div>
     </header>
+
+    <div
+      v-if="overallPlan || selectedSection || hasPlanSummary"
+      class="generation-lesson-plan__context-row"
+    >
+      <div
+        v-if="overallPlan || selectedSection"
+        class="generation-lesson-plan__view-switch"
+        role="tablist"
+        :aria-label="t('courseGeneration.lessonPlan.viewLabel', '教案视图')"
+      >
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="viewMode === 'overall'"
+          :class="{ 'is-active': viewMode === 'overall' }"
+          :title="t('courseGeneration.lessonPlan.overallTabHelp', '看整门课怎样设计')"
+          @click="viewMode = 'overall'"
+        >
+          <BookOpenCheck :size="16" />
+          <span>
+            <strong>{{ t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
+          </span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="viewMode === 'sections'"
+          :class="{ 'is-active': viewMode === 'sections' }"
+          :title="t('courseGeneration.lessonPlan.sectionsTabHelp', '看每一节如何落地')"
+          @click="viewMode = 'sections'"
+        >
+          <ListTree :size="16" />
+          <span>
+            <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
+          </span>
+        </button>
+      </div>
+
+      <dl v-if="hasPlanSummary" class="generation-lesson-plan__metrics">
+        <div v-if="sectionCount">
+          <dt>{{ t('courseGeneration.lessonPlan.sections', '小节') }}</dt>
+          <dd>{{ sectionCount }}</dd>
+        </div>
+        <div v-if="effectiveKnowledgeCount">
+          <dt>{{ t('courseGeneration.lessonPlan.knowledge', '知识点') }}</dt>
+          <dd>{{ effectiveKnowledgeCount }}</dd>
+        </div>
+        <div v-if="effectiveModuleCount">
+          <dt>{{ t('courseGeneration.lessonPlan.modules', '教学环节') }}</dt>
+          <dd>{{ effectiveModuleCount }}</dd>
+        </div>
+      </dl>
+    </div>
 
     <aside
       v-if="showWorkbenchControls && !workbenchAvailable && activeWorkbench"
@@ -412,40 +448,6 @@
         <code v-for="operation in workbenchStore.revisionDiff.diff.operations" :key="operation.operation_id">{{ operation.path }}</code>
       </div>
     </section>
-
-    <div
-      v-if="overallPlan || selectedSection"
-      class="generation-lesson-plan__view-switch"
-      role="tablist"
-      :aria-label="t('courseGeneration.lessonPlan.viewLabel', '教案视图')"
-    >
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="viewMode === 'overall'"
-        :class="{ 'is-active': viewMode === 'overall' }"
-        @click="viewMode = 'overall'"
-      >
-        <BookOpenCheck :size="16" />
-        <span>
-          <strong>{{ t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
-          <small>{{ t('courseGeneration.lessonPlan.overallTabHelp', '看整门课怎样设计') }}</small>
-        </span>
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="viewMode === 'sections'"
-        :class="{ 'is-active': viewMode === 'sections' }"
-        @click="viewMode = 'sections'"
-      >
-        <ListTree :size="16" />
-        <span>
-          <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
-          <small>{{ t('courseGeneration.lessonPlan.sectionsTabHelp', '看每一节如何落地') }}</small>
-        </span>
-      </button>
-    </div>
 
     <article
       v-if="viewMode === 'overall' && overallPlan"
@@ -1334,6 +1336,18 @@ const knowledgeCount = computed(() => (effectivePlan.value?.sections || []).redu
   (sum, section) => sum + (section.key_points?.length || 0),
   0,
 ))
+const sectionCount = computed(() => Number(
+  effectivePlan.value?.section_count || sections.value.length || 0,
+))
+const effectiveKnowledgeCount = computed(() => Number(
+  effectivePlan.value?.knowledge_point_count || knowledgeCount.value || 0,
+))
+const effectiveModuleCount = computed(() => Number(
+  effectivePlan.value?.teaching_module_count || moduleCount.value || 0,
+))
+const hasPlanSummary = computed(() => Boolean(
+  sectionCount.value || effectiveKnowledgeCount.value || effectiveModuleCount.value,
+))
 const selectedKnowledgeTags = computed(() => {
   const tags = new Map<string, {
     knowledge_id: string
@@ -2059,7 +2073,7 @@ function openKnowledge(knowledgeId: string): void {
   min-height:0;
   flex:1;
   overflow:auto;
-  padding:36px clamp(24px,4.3vw,68px) 96px;
+  padding:20px clamp(24px,4.3vw,68px) 96px;
   color:#253044;
   background:
     linear-gradient(rgba(87,96,124,.035) 1px,transparent 1px),
@@ -2071,34 +2085,34 @@ function openKnowledge(knowledgeId: string): void {
   width:min(1180px,100%);
   display:grid;
   grid-template-columns:minmax(0,1fr) auto;
-  align-items:end;
-  gap:36px;
-  margin:0 auto 22px;
-  padding:0 3px 26px;
+  align-items:center;
+  gap:20px;
+  margin:0 auto 10px;
+  padding:0 3px 12px;
   border-bottom:1px solid #d8dce4;
 }
-.generation-lesson-plan__eyebrow { display:flex; align-items:center; gap:9px; color:#555bb7; font-size:12px; font-weight:800; letter-spacing:0; }
-.generation-lesson-plan__eyebrow i { width:24px; height:1px; background:#b9bdd2; }
-.generation-lesson-plan__eyebrow strong { color:#7b8392; font-size:12px; letter-spacing:0; }
-.generation-lesson-plan__header h2 { margin:8px 0 7px; color:#172131; font:700 36px/1.13 Georgia,"Noto Serif SC",serif; letter-spacing:0; }
-.generation-lesson-plan__intro > p { max-width:660px; margin:0; color:#687285; font-size:14px; line-height:1.72; }
-.generation-lesson-plan__summary { display:grid; gap:10px; }
-.generation-lesson-plan__summary dl { display:flex; margin:0; padding:10px 8px; border:1px solid rgba(213,217,226,.95); border-radius:14px; background:rgba(255,255,255,.82); box-shadow:0 10px 30px rgba(36,43,64,.05); backdrop-filter:blur(14px); }
-.generation-lesson-plan__summary dl div { min-width:94px; padding:3px 17px; border-left:1px solid #e1e4ea; }
-.generation-lesson-plan__summary dl div:first-child { border-left:0; }
-.generation-lesson-plan__summary dt { color:#858e9e; font-size:12px; line-height:1.3; }
-.generation-lesson-plan__summary dd { margin:5px 0 0; color:#263146; font:750 19px/1 ui-monospace,SFMono-Regular,monospace; }
-.generation-lesson-plan__progress { padding:10px 13px; border:1px solid #dfe1f6; border-radius:11px; background:#f8f8ff; }
+.generation-lesson-plan__title-line { min-width:0; display:flex; align-items:center; gap:10px; }
+.generation-lesson-plan__header h2 { margin:0; color:#172131; font:700 23px/1.25 Georgia,"Noto Serif SC",serif; letter-spacing:0; }
+.generation-lesson-plan__status { display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border:1px solid #d9ddec; border-radius:999px; color:#626a82; background:#f8f9fc; font-size:11px; font-weight:750; white-space:nowrap; }
+.generation-lesson-plan__intro > p { max-width:660px; margin:5px 0 0; color:#687285; font-size:12px; line-height:1.55; }
+.generation-lesson-plan__summary { min-width:0; display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; }
+.generation-lesson-plan__progress { min-width:184px; padding:8px 10px; border:1px solid #dfe1f6; border-radius:9px; background:#f8f8ff; }
 .generation-lesson-plan__progress > div:first-child { display:flex; justify-content:space-between; gap:14px; color:#5a60bb; font-size:12px; font-weight:750; }
 .generation-lesson-plan__progress-track { height:4px; overflow:hidden; margin-top:8px; border-radius:999px; background:#e5e7f5; }
 .generation-lesson-plan__progress-track i { display:block; width:100%; height:100%; border-radius:inherit; background:#6268cc; transform-origin:left center; transition:transform .25s ease; }
-.generation-lesson-plan__view-switch { width:min(1180px,100%); display:flex; gap:5px; margin:0 auto 14px; padding:5px; border:1px solid #dfe2e8; border-radius:14px; background:rgba(255,255,255,.76); box-shadow:0 8px 25px rgba(38,45,63,.04); backdrop-filter:blur(14px); }
-.generation-lesson-plan__view-switch button { min-width:0; display:flex; align-items:center; gap:10px; padding:9px 14px; border:0; border-radius:10px; color:#737c8c; background:transparent; cursor:pointer; text-align:left; }
+.generation-lesson-plan__context-row { width:min(1180px,100%); min-height:38px; display:flex; align-items:center; justify-content:space-between; gap:14px; margin:0 auto 10px; }
+.generation-lesson-plan__view-switch { min-width:0; display:flex; gap:3px; margin:0; padding:3px; border:1px solid #dfe2e8; border-radius:10px; background:#f4f5f8; }
+.generation-lesson-plan__view-switch button { min-width:0; display:flex; align-items:center; gap:8px; padding:7px 11px; border:0; border-radius:7px; color:#737c8c; background:transparent; cursor:pointer; text-align:left; }
 .generation-lesson-plan__view-switch button:hover { color:#4d55ae; background:#f6f6fc; }
-.generation-lesson-plan__view-switch button.is-active { color:#4e55ad; background:#f0f1fb; box-shadow:inset 0 0 0 1px #dfe1f5; }
+.generation-lesson-plan__view-switch button.is-active { color:#4e55ad; background:#fff; box-shadow:0 1px 3px rgba(38,45,63,.08); }
 .generation-lesson-plan__view-switch button > span { display:grid; gap:1px; }
 .generation-lesson-plan__view-switch button strong { color:inherit; font-size:12px; line-height:1.35; }
 .generation-lesson-plan__view-switch button small { color:#969daa; font-size:11px; line-height:1.35; }
+.generation-lesson-plan__metrics { min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:0; margin:0; }
+.generation-lesson-plan__metrics > div { display:flex; align-items:baseline; gap:5px; padding:0 11px; border-left:1px solid #dfe2e8; }
+.generation-lesson-plan__metrics > div:first-child { border-left:0; }
+.generation-lesson-plan__metrics dt { color:#858e9e; font-size:11px; line-height:1.3; }
+.generation-lesson-plan__metrics dd { margin:0; color:#354057; font-size:13px; font-weight:800; line-height:1; }
 .generation-lesson-plan__overview { width:min(1180px,100%); overflow:hidden; margin:0 auto; border:1px solid #d9dde5; border-radius:20px; background:rgba(255,255,255,.97); box-shadow:0 20px 55px rgba(38,45,63,.075); }
 .generation-lesson-plan__overview-hero { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(230px,.34fr); gap:40px; padding:38px 40px 34px; border-bottom:1px solid #e0e3e9; background:linear-gradient(120deg,#fbfbf9 0%,#fff 58%,#f2f3ff 100%); }
 .generation-lesson-plan__overview-hero::before { content:""; position:absolute; top:0; left:40px; width:72px; height:3px; background:#6269c4; }
@@ -2410,9 +2424,9 @@ function openKnowledge(knowledgeId: string): void {
 @keyframes lesson-plan-spin { to { transform:rotate(360deg); } }
 @keyframes lesson-plan-shimmer { to { background-position:-220% 0; } }
 @media (max-width:900px) {
-  .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:16px; }
-  .generation-lesson-plan__summary { width:100%; }
-  .generation-lesson-plan__summary dl div { min-width:0; flex:1; }
+  .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:10px; }
+  .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }
+  .generation-lesson-plan__context-row { align-items:flex-start; flex-wrap:wrap; }
   .generation-lesson-plan__overview-hero { grid-template-columns:1fr; gap:20px; }
   .generation-lesson-plan__overview-hero aside { max-width:520px; }
   .generation-lesson-plan__chapter-path { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -2429,10 +2443,13 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__ai-request { grid-template-columns:1fr; }
 }
 @media (max-width:767px) {
-  .generation-lesson-plan { padding:22px 10px 86px; background-size:100% 28px,auto,auto; }
-  .generation-lesson-plan__header { margin-bottom:14px; padding:0 6px 20px; }
-  .generation-lesson-plan__header h2 { font-size:29px; }
-  .generation-lesson-plan__summary dl div { padding:3px 10px; }
+  .generation-lesson-plan { padding:12px 10px 86px; background-size:100% 28px,auto,auto; }
+  .generation-lesson-plan__header { margin-bottom:8px; padding:0 4px 10px; }
+  .generation-lesson-plan__header h2 { font-size:21px; }
+  .generation-lesson-plan__status { min-height:22px; padding:0 7px; font-size:11px; }
+  .generation-lesson-plan__summary { gap:7px; }
+  .generation-lesson-plan__progress { width:100%; min-width:0; }
+  .generation-lesson-plan__context-row { min-height:0; align-items:stretch; flex-direction:column; gap:7px; margin-bottom:9px; }
   .generation-lesson-plan__workbench-controls { align-items:stretch; justify-content:flex-start; }
   .generation-lesson-plan__revision-badge,.generation-lesson-plan__draft-state { align-self:center; }
   .generation-lesson-plan__workbench-notice { flex-wrap:wrap; }
@@ -2448,9 +2465,11 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__diff-values > svg,.generation-lesson-plan__candidate-change > span > svg { transform:rotate(90deg); }
   .generation-lesson-plan__history-list li { align-items:flex-start; flex-direction:column; }
   .generation-lesson-plan__history-list li > div:last-child { width:100%; justify-content:flex-end; }
-  .generation-lesson-plan__view-switch { width:calc(100% - 4px); }
+  .generation-lesson-plan__view-switch { width:100%; }
   .generation-lesson-plan__view-switch button { flex:1; padding:9px 10px; }
   .generation-lesson-plan__view-switch button small { display:none; }
+  .generation-lesson-plan__metrics { justify-content:flex-start; overflow-x:auto; padding:0 2px; }
+  .generation-lesson-plan__metrics > div { padding:0 9px; }
   .generation-lesson-plan__overview { border-radius:15px; }
   .generation-lesson-plan__overview-hero { padding:29px 20px 24px; }
   .generation-lesson-plan__overview-hero::before { left:20px; }
