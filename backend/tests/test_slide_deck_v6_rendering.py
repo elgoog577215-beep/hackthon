@@ -627,6 +627,7 @@ def test_three_column_table_with_long_cells_is_split_before_export_overflow(
     assert deck.pages[1].continuation_of_page_id == deck.pages[0].page_id
     adapted = [adapt_v6_page_to_slide_spec(page) for page in deck.pages]
     assert adapted[0].quality["v6_layout_variant"] == "table-wide-with-summary"
+    assert adapted[1].quality["v6_layout_variant"] == "table-row-detail"
     table_content = "\n".join(
         region.content
         for page in deck.pages

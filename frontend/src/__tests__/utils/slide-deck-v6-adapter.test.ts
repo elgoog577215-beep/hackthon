@@ -169,7 +169,7 @@ describe('slide deck V6 web adapter', () => {
     const slides = adaptSlideDeckV6ForWeb(content)
 
     expect(slides[0]!.quality.v6_layout_variant).toBe('table-with-interpretation')
-    expect(slides[1]!.quality.v6_layout_variant).toBe('table-continuation')
+    expect(slides[1]!.quality.v6_layout_variant).toBe('table-row-detail')
     expect(slides[0]!.visuals[0].parameters).toEqual({
       headers: ['Check', 'Evidence'],
       rows: [['Input | timestamp', 'Recorded']],
