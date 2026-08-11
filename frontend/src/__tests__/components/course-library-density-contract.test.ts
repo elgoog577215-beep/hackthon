@@ -20,13 +20,16 @@ describe('course library density contract', () => {
     expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*min\(360px,100%\)/s)
   })
 
-  it('tightens only the course grid and cards inside the original shell', () => {
-    expect(librarySource).toMatch(/--course-grid-width:\s*1040px/)
+  it('fills wide screens with three readable cards and steps down responsively', () => {
+    expect(librarySource).toMatch(/--course-grid-width:\s*1280px/)
     expect(librarySource).toMatch(/--course-card-height:\s*150px/)
     expect(librarySource).toMatch(/--course-grid-gap:\s*18px/)
     expect(librarySource).toMatch(/\.course-grid\s*\{[^}]*max-width:\s*var\(--course-grid-width\)[^}]*margin:\s*0[^}]*margin-inline-start:\s*max\(0px,calc\(\(100%\s*-\s*var\(--course-content-width\)\)\s*\/\s*2\)\)[^}]*justify-content:\s*start/s)
+    expect(librarySource).toMatch(/\.course-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,minmax\(0,1fr\)\)/s)
+    expect(librarySource).toMatch(/@media\s*\(max-width:1360px\)\s*\{[^}]*\.course-grid\s*\{[^}]*max-width:\s*1040px[^}]*grid-template-columns:\s*repeat\(2,minmax\(0,1fr\)\)/s)
+    expect(librarySource).toMatch(/@media\s*\(max-width:860px\)\s*\{[^}]*\.course-grid\s*\{[^}]*max-width:\s*511px[^}]*grid-template-columns:\s*minmax\(0,1fr\)/s)
     expect(librarySource).not.toMatch(/\.course-grid\s*\{[^}]*margin:\s*0\s+auto/s)
-    expect(librarySource).toMatch(/\.course-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,1fr\)\s+112px/s)
+    expect(librarySource).toMatch(/\.course-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,1fr\)\s+96px/s)
     expect(librarySource).toMatch(/\.course-main\s*\{[^}]*gap:\s*16px[^}]*padding:\s*16px\s+8px\s+16px\s+18px/s)
     expect(librarySource).toMatch(/\.course-copy\s*\{[^}]*min-width:\s*0[^}]*display:\s*flex/s)
     expect(librarySource).not.toMatch(/\.course-copy\s*\{[^}]*max-width:/s)

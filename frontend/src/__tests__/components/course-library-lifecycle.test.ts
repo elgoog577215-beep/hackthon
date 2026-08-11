@@ -288,7 +288,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.course-item')).toHaveLength(1)
-    expect(wrapper.get('.course-grid').attributes('data-layout')).toBe('two-column')
+    expect(wrapper.get('.course-grid').attributes('data-layout')).toBe('responsive-three-column')
     expect(wrapper.find('[aria-label="课程分页"]').exists()).toBe(false)
   })
 
