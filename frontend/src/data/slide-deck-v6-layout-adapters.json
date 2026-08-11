@@ -21,6 +21,7 @@
         "split_variant": "table-with-interpretation",
         "full_variant": "table-full",
         "continuation_variant": "table-continuation",
+        "detail_variant": "table-row-detail",
         "wide_min_columns": "3",
         "wide_variant": "table-wide-with-summary",
         "wide_support_mode": "band"

@@ -2412,6 +2412,8 @@ def compile_slide_deck_v6(
             + len(materializations)
         )
         maximum_pages = unit_page_count_ranges[story_page.teaching_unit_id][1]
+        if layout.layout_slug in set(layout.safe_continuation_layout_slugs):
+            maximum_pages = max(maximum_pages, 3)
         if expanded_unit_count > maximum_pages:
             raise V6BuildError(
                 stage="template",

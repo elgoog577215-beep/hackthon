@@ -1413,6 +1413,67 @@ def _render_code_visual(
     _source_panel(slide, supporting, 8.7, 1.92, 3.86, 4.62, theme)
 
 
+def _render_table_row_detail(
+    slide: Any,
+    headers: list[str],
+    row: list[str],
+    theme: dict[str, str],
+) -> None:
+    """Render one oversized source row as readable labeled evidence fields."""
+
+    pairs = [
+        (
+            headers[index] if index < len(headers) else f"字段 {index + 1}",
+            value,
+        )
+        for index, value in enumerate(row)
+    ]
+    if not pairs:
+        return
+    weights = [max(1, min(3, math.ceil(len(value) / 80))) for _label, value in pairs]
+    total_weight = max(1, sum(weights))
+    available_height = 4.48
+    gap = 0.08
+    usable_height = available_height - gap * max(0, len(pairs) - 1)
+    y = 1.94
+    for index, ((label, value), weight) in enumerate(zip(pairs, weights)):
+        height = usable_height * weight / total_weight
+        _shape(
+            slide,
+            0.8,
+            y,
+            11.76,
+            height,
+            theme["surface"],
+            radius=True,
+            line=theme["chart_bg"],
+        )
+        _shape(slide, 0.8, y, 0.08, height, theme["accent"], radius=False)
+        _text(
+            slide,
+            label,
+            1.1,
+            y + 0.16,
+            2.15,
+            max(0.3, height - 0.28),
+            16,
+            theme["accent"],
+            bold=True,
+        )
+        _text(
+            slide,
+            value,
+            3.35,
+            y + 0.12,
+            8.75,
+            max(0.36, height - 0.22),
+            17 if len(value) <= 72 else 16,
+            theme["ink"],
+            bold=len(value) <= 48,
+        )
+        y += height + gap
+
+
 def _render_table_visual(
     slide: Any,
     unit: SlideSpec,
@@ -1422,6 +1483,18 @@ def _render_table_visual(
     parameters = visual.get("parameters") or {}
     parameter_rows = parameters.get("rows") or []
     if parameter_rows:
+        if (
+            str(unit.quality.get("v6_layout_variant") or "")
+            == "table-row-detail"
+            and len(parameter_rows) == 1
+        ):
+            _render_table_row_detail(
+                slide,
+                [str(value) for value in parameters.get("headers") or []],
+                [str(value) for value in parameter_rows[0]],
+                theme,
+            )
+            return
         supporting_blocks = [
             block for block in unit.blocks
             if not block.metadata.get("table_source")

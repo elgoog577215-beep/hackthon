@@ -68,8 +68,6 @@ def _layout_variant(
     artifact_kind = str(policy.get("artifact_content_kind") or "")
     if not artifact_kind:
         return "", ""
-    if page.continuation_index > 1:
-        return str(policy.get("continuation_variant") or ""), "full"
     has_artifact = any(region.content_kind == artifact_kind for region in page.regions)
     has_support = any(region.content_kind != artifact_kind for region in page.regions)
     wide_min_columns = int(policy.get("wide_min_columns") or 0)
@@ -81,6 +79,15 @@ def _layout_variant(
         ),
         None,
     )
+    if page.continuation_index > 1:
+        if (
+            artifact_kind == "table"
+            and artifact_region is not None
+            and len(_parse_markdown_table(artifact_region.content)[1]) == 1
+            and policy.get("detail_variant")
+        ):
+            return str(policy["detail_variant"]), "full"
+        return str(policy.get("continuation_variant") or ""), "full"
     if (
         has_artifact
         and has_support

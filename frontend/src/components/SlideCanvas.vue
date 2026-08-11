@@ -56,7 +56,17 @@
       </blockquote>
 
       <div
-        v-if="showsVisualStory"
+        v-if="slide.quality?.v6_layout_variant === 'table-row-detail'"
+        class="deck-table-row-detail"
+      >
+        <article v-for="entry in tableRowDetailEntries" :key="entry.label">
+          <small>{{ entry.label }}</small>
+          <MarkdownRenderer :content="entry.value" :enable-code-run="false" />
+        </article>
+      </div>
+
+      <div
+        v-else-if="showsVisualStory"
         class="deck-canvas__story"
         :data-composition="resolvedComposition"
         :data-layout-variant="slide.quality?.v6_layout_variant || undefined"
@@ -453,6 +463,19 @@ const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
     + (block.items || []).reduce((sum, item) => sum + String(item).length, 0),
   0,
 ))
+const tableRowDetailEntries = computed(() => {
+  const table = (props.slide.visuals || []).find(visual => visual.kind === 'table')
+  const headers = Array.isArray(table?.parameters?.headers)
+    ? table.parameters.headers.map(String)
+    : []
+  const firstRow = Array.isArray(table?.parameters?.rows?.[0])
+    ? table.parameters.rows[0].map(String)
+    : []
+  return firstRow.map((value, index) => ({
+    label: headers[index] || `字段 ${index + 1}`,
+    value,
+  }))
+})
 const semanticItems = computed(() => (props.slide.blocks || []).flatMap((block) => {
   if (block.items?.length) return block.items.filter(Boolean)
   return block.content ? [block.content] : []
@@ -1631,6 +1654,35 @@ function layoutLabel(value: string) {
   display:inline;
   font-size:1.28cqw;
   line-height:1.3;
+}
+.deck-table-row-detail {
+  position:absolute;
+  inset:25% 5.5% 10.5%;
+  display:grid;
+  grid-template-rows:repeat(auto-fit,minmax(0,1fr));
+  gap:.8cqw;
+  min-height:0;
+}
+.deck-table-row-detail article {
+  display:grid;
+  grid-template-columns:minmax(8cqw,18cqw) minmax(0,1fr);
+  align-items:center;
+  min-height:0;
+  padding:1cqw 1.4cqw;
+  border:1px solid var(--deck-line);
+  border-left:.32cqw solid var(--deck-blue);
+  border-radius:.8cqw;
+  background:color-mix(in srgb,var(--deck-surface) 94%,transparent);
+}
+.deck-table-row-detail article > small {
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+}
+.deck-table-row-detail article :deep(.markdown-body) {
+  color:var(--deck-ink);
+  font-size:1.55cqw;
+  line-height:1.42;
 }
 .deck-canvas__source {
   min-width:0;

@@ -59,6 +59,7 @@ interface AdapterDefinition {
     split_variant: string
     full_variant: string
     continuation_variant: string
+    detail_variant?: string
     wide_min_columns?: string
     wide_variant?: string
     wide_support_mode?: string
@@ -105,9 +106,6 @@ function parseMarkdownTable(value: string): { headers: string[]; rows: string[][
 function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
   const policy = adapter.variant_policy
   if (!policy?.artifact_content_kind) return { variant: '', supportMode: '' }
-  if (Number(page.continuation_index || 1) > 1) {
-    return { variant: policy.continuation_variant, supportMode: 'full' }
-  }
   const hasArtifact = page.regions.some(
     region => region.content_kind === policy.artifact_content_kind,
   )
@@ -117,6 +115,17 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
   const artifactRegion = page.regions.find(
     region => region.content_kind === policy.artifact_content_kind,
   )
+  if (Number(page.continuation_index || 1) > 1) {
+    if (
+      policy.artifact_content_kind === 'table'
+      && artifactRegion
+      && parseMarkdownTable(artifactRegion.content).rows.length === 1
+      && policy.detail_variant
+    ) {
+      return { variant: policy.detail_variant, supportMode: 'full' }
+    }
+    return { variant: policy.continuation_variant, supportMode: 'full' }
+  }
   const wideMinimum = Number(policy.wide_min_columns || 0)
   if (
     hasArtifact
