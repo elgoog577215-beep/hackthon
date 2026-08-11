@@ -30,7 +30,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await router.isReady()
   })
 
-  it('零课程时直接进入紧凑空状态，不展示无效搜索和计数', async () => {
+  it('零课程时保持一致的课程库框架并展示空状态', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = []
@@ -51,10 +51,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.library-header h1').text()).toBe('课程库')
-    expect(wrapper.find('.library-header p').exists()).toBe(false)
-    expect(wrapper.classes()).toContain('course-library--empty')
-    expect(wrapper.find('.library-toolbar').exists()).toBe(false)
+    expect(wrapper.get('.library-header h1').text()).toBe('选择一门课程继续学习')
+    expect(wrapper.get('.library-header p').text()).toBe('课程库')
+    expect(wrapper.classes()).not.toContain('course-library--empty')
+    expect(wrapper.find('.library-toolbar').exists()).toBe(true)
     expect(wrapper.get('.library-state').text()).toContain('还没有课程')
   })
 
@@ -92,7 +92,7 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     expect(wrapper.find('.resume-card').exists()).toBe(false)
     expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索课程')
-    expect(wrapper.get('.library-toolbar .library-resume__title').text()).toBe('Python 高级编程')
+    expect(wrapper.get('.library-toolbar .library-resume__title').text()).toBe('《Python 高级编程》')
     expect(wrapper.get('.library-resume__location').text()).toBe('3.3 默认参数与函数重载')
 
     await wrapper.get('[data-testid="resume-course"]').trigger('click')
