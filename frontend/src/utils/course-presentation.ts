@@ -1,9 +1,25 @@
-export type CourseCoverPreset = 'ai' | 'programming' | 'mathematics' | 'science' | 'humanities' | 'general'
+export type CourseCoverPreset =
+  | 'ai'
+  | 'programming'
+  | 'mathematics'
+  | 'medicine'
+  | 'engineering'
+  | 'science'
+  | 'humanities'
+  | 'general'
 
 const COURSE_COVER_RULES: Array<{ preset: CourseCoverPreset; pattern: RegExp }> = [
   {
     preset: 'ai',
     pattern: /机器学习|深度学习|人工智能|神经网络|大模型|计算机视觉|自然语言|数据科学|machine\s*learning|deep\s*learning|artificial\s*intelligence|\bai\b/i,
+  },
+  {
+    preset: 'medicine',
+    pattern: /医学|解剖|临床|生理|病理|护理|药理|诊断|人体|健康|medicine|medical|anatomy|clinical|nursing|health/i,
+  },
+  {
+    preset: 'engineering',
+    pattern: /控制学|控制论|自动化|工程|机械|电子|电路|信号|嵌入式|机器人|系统设计|control|engineering|automation|circuit|robotics/i,
   },
   {
     preset: 'programming',
@@ -19,7 +35,7 @@ const COURSE_COVER_RULES: Array<{ preset: CourseCoverPreset; pattern: RegExp }> 
   },
   {
     preset: 'humanities',
-    pattern: /语文|文学|写作|历史|哲学|政治|语言|英语|艺术|humanities|literature|history|philosophy|language|writing/i,
+    pattern: /语文|文学|写作|历史|哲学|政治|语言|英语|艺术|辩论|逻辑|演讲|法学|法律|社会|humanities|literature|history|philosophy|language|writing|debate|rhetoric|law/i,
   },
 ]
 
