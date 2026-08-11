@@ -25,6 +25,7 @@ class TemplateSlotContractV1(_StrictModel):
         "eyebrow",
         "body",
         "items",
+        "steps",
         "code",
         "formula",
         "table",
@@ -185,7 +186,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "process-flow": {
         "intents": ["mechanism", "process", "artifact_explanation"],
         "artifact_kinds": ["diagram"],
-        "slots": [_TITLE, _slot("steps", "items", items=6, chars=360), _slot("flow", "visual", required=False), _NOTES],
+        "slots": [_TITLE, _slot("steps", "steps", items=6, chars=360), _slot("flow", "visual", required=False), _NOTES],
         "continuations": ["process-flow", "content-stack"],
     },
     "worked-example": {
@@ -195,7 +196,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "practice-prompt": {
         "intents": ["practice_feedback"],
-        "slots": [_TITLE, _slot("task", "body", chars=280), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
+        "slots": [_TITLE, _slot("task", "steps", items=5, chars=420), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
         "continuations": ["practice-prompt", "practice-feedback"],
     },
     "practice-feedback": {

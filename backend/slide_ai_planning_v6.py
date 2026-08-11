@@ -327,7 +327,7 @@ def _normalize_story_batch_response(
                     for slot in layout.get("slots") or []
                     if isinstance(slot, dict)
                     and bool(slot.get("required"))
-                    and slot.get("slot_kind") in {"body", "items"}
+                    and slot.get("slot_kind") in {"body", "items", "steps"}
                 ]
                 satisfiable = True
                 for slot in required_text_slots:

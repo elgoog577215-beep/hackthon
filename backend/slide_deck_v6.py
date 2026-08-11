@@ -1166,6 +1166,53 @@ def _bounded_code_content(
     return content
 
 
+_ORDERED_STEP_PATTERN = re.compile(
+    r"^\s*(?:(?:\d+)[.)、．]|[一二三四五六七八九十百]+[、.．)]|(?:step|步骤)\s*\d+\s*[:：.、-]?)\s*(.+?)\s*$",
+    flags=re.IGNORECASE,
+)
+_NESTED_STEP_DETAIL_PATTERN = re.compile(r"^\s+[-*+]\s+(.+?)\s*$")
+
+
+def _ordered_step_items(value: str) -> list[str]:
+    """Preserve explicit source order while folding details into their parent step."""
+
+    steps: list[tuple[str, list[str]]] = []
+    for line in str(value or "").splitlines():
+        step_match = _ORDERED_STEP_PATTERN.match(line)
+        if step_match:
+            heading = _visible_prose_text(step_match.group(1)).strip()
+            if heading:
+                steps.append((heading, []))
+            continue
+        detail_match = _NESTED_STEP_DETAIL_PATTERN.match(line)
+        if steps and detail_match:
+            detail = _visible_prose_text(detail_match.group(1)).strip()
+            if detail:
+                steps[-1][1].append(detail)
+
+    if steps:
+        result: list[str] = []
+        for heading, details in steps:
+            clean_heading = heading.rstrip(" :：")
+            if not details:
+                result.append(clean_heading)
+                continue
+            cjk = bool(re.search(r"[\u3400-\u9fff]", clean_heading))
+            detail_separator = "；" if cjk else "; "
+            relation_separator = "：" if cjk else ": "
+            result.append(
+                f"{clean_heading}{relation_separator}{detail_separator.join(details)}"
+            )
+        return result
+
+    return [
+        _visible_prose_text(re.sub(r"^\s*[-*+]\s+", "", line)).strip()
+        for line in str(value or "").splitlines()
+        if re.match(r"^\s*[-*+]\s+", line)
+        and _visible_prose_text(re.sub(r"^\s*[-*+]\s+", "", line)).strip()
+    ]
+
+
 def _bounded_slot_content(
     blocks: list[CourseBlock],
     *,
@@ -1199,6 +1246,23 @@ def _bounded_slot_content(
         if (max_rows and len(lines) > max_rows + 2) or len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
         return content.rstrip()
+    if slot_kind == "steps":
+        steps = [step for text in texts for step in _ordered_step_items(text)]
+        if not steps:
+            steps = [_visible_prose_text(text).strip() for text in texts if text.strip()]
+        item_limit = max_items or len(steps)
+        if len(steps) > item_limit:
+            raise ValueError("template_slot_capacity_exceeded")
+        separator_cost = max(0, len(steps) - 1)
+        per_step_capacity = max(1, (capacity - separator_cost) // len(steps))
+        excerpts = [
+            _complete_sentence_excerpt(step, per_step_capacity)
+            for step in steps
+        ]
+        content = "\n".join(excerpts).rstrip()
+        if len(content) > capacity:
+            raise ValueError("template_slot_capacity_exceeded")
+        return content
     if slot_kind == "items":
         items_by_block: list[list[str]] = []
         for text in texts:
@@ -1870,7 +1934,7 @@ def validate_story_template_text_slots(
     text_slots = [
         slot
         for slot in content_slots
-        if slot.slot_kind in {"body", "items"}
+        if slot.slot_kind in {"body", "items", "steps"}
     ]
     assigned: dict[str, list[CourseBlock]] = {}
     for index, slot in enumerate(text_slots):

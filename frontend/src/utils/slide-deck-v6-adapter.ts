@@ -133,13 +133,15 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
 }
 
 function regionBlock(region: V6Region): Record<string, unknown> {
-  const items = region.content_kind === 'items'
+  const items = ['items', 'steps'].includes(region.content_kind)
     ? region.content.split('\n').map(item => item.trim()).filter(Boolean)
     : []
   return {
     block_id: region.region_id,
     type: region.content_kind === 'code'
       ? 'code'
+      : region.content_kind === 'steps'
+        ? 'process'
       : region.content_kind === 'items'
         ? 'bullets'
         : 'statement',

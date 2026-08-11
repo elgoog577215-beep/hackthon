@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideSpec
 from slide_deck_renderer import (
     SlideDeckQualityError,
@@ -15,8 +16,6 @@ from slide_deck_renderer import (
     validate_theme,
 )
 from slide_deck_v6 import SlideDeckV6, SlidePageV6
-from slide_asset_repository import SlideAssetRepository, slide_asset_repository
-
 
 _LAYOUT_ADAPTER_PATH = (
     Path(__file__).resolve().parents[1]
@@ -130,6 +129,9 @@ def _region_block(page: SlidePageV6, region: Any) -> SlideBlockSpec:
         block_type = "code"
     elif region.content_kind == "items":
         block_type = "bullets"
+        items = [line.strip() for line in region.content.splitlines() if line.strip()]
+    elif region.content_kind == "steps":
+        block_type = "process"
         items = [line.strip() for line in region.content.splitlines() if line.strip()]
     elif region.content_kind == "formula":
         metadata["formula"] = True

@@ -81,16 +81,12 @@ describe('slide deck V6 web adapter', () => {
   it('preserves ordered step regions as process blocks for numbered web rendering', () => {
     const slides = adaptSlideDeckV6ForWeb({
       schema_version: 'slide_deck_v6',
-      title: 'Field transfer',
-      theme: 'qizhi-classroom',
       pages: [{
-        schema_version: 'slide_page_v6',
         page_id: 'page-steps',
         page_ordinal: 0,
         title: 'Transfer the specimen',
         resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/practice-prompt',
         source_block_ids: ['transfer-steps'],
-        artifact_kinds: [],
         regions: [{
           region_id: 'page-steps:task',
           slot_id: 'task',
