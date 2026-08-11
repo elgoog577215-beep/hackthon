@@ -219,7 +219,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
                 split_column_chars=18,
                 full_column_chars=36,
             ),
-            _slot("interpretation", "body", chars=220),
+            _slot("interpretation", "body", required=False, chars=220),
             _NOTES,
         ],
         "continuations": ["evidence-table"],

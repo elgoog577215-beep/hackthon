@@ -889,6 +889,66 @@ async def test_structured_task_table_uses_table_layout_and_materializes_all_requ
 
 
 @pytest.mark.asyncio
+async def test_self_explanatory_table_does_not_require_fabricated_interpretation() -> None:
+    """A source-complete table may use the full table variant without prose."""
+
+    document = _structured_field_check_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        table_id, feedback_id = unit["primary_block_ids"]
+        known_but_incompatible = next(
+            layout.template_layout_id
+            for layout in template.layouts
+            if layout.layout_slug == "evidence-code"
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [
+                {
+                    "page_id": "field-table-only",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": known_but_incompatible,
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [table_id],
+                },
+                {
+                    "page_id": "field-table-feedback",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [feedback_id],
+                    ),
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    table_page = next(page for page in story.pages if page.page_id == "field-table-only")
+    assert table_page.template_layout_id.endswith("/evidence-table")
+    table_layout = template.get_layout(table_page.template_layout_id)
+    assert table_layout is not None
+    interpretation = next(
+        slot for slot in table_layout.slots if slot.slot_id == "interpretation"
+    )
+    assert interpretation.required is False
+
+
+@pytest.mark.asyncio
 async def test_story_repair_names_missing_blocks_without_weakening_coverage() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
