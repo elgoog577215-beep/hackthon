@@ -44,7 +44,7 @@
             @click="openBlankCourse"
           >
             <span class="create-course-primary__icon" aria-hidden="true"><Plus :size="16" /></span>
-            <span>{{ t('courseLibrary.newCourse', '新建课程') }}</span>
+            <span class="create-course-primary__label">{{ t('courseLibrary.newCourse', '新建课程') }}</span>
           </button>
           <button
             ref="createMenuTriggerRef"
@@ -628,16 +628,20 @@ async function deleteCourse(courseId: string, courseName: string) {
 .global-action-button:hover,.global-action-button:focus-visible { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
 .task-center-button > .action-count { min-width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0 5px; border-radius:10px; color:#fff; background:var(--lz-warning); font-size:9px; font-weight:800; }
 .create-course-menu { position:relative; flex:0 0 auto; margin-left:auto; }
-.create-course-trigger-group { height:48px; display:inline-flex; align-items:stretch; overflow:hidden; border:1px solid rgba(67,56,202,.72); border-radius:13px; background:#4f46e5; box-shadow:0 10px 24px rgba(67,56,202,.2),0 2px 5px rgba(49,46,129,.14),inset 0 1px 0 rgba(255,255,255,.18); transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease; }
-.create-course-trigger-group:hover { transform:translateY(-1px); border-color:#3730a3; background:#4338ca; box-shadow:0 13px 28px rgba(67,56,202,.24),0 3px 7px rgba(49,46,129,.16),inset 0 1px 0 rgba(255,255,255,.2); }
-.create-course-trigger-group:focus-within { border-color:#3730a3; box-shadow:0 0 0 4px rgba(99,102,241,.16),0 11px 25px rgba(67,56,202,.22); }
-.create-course-primary,.create-course-menu-toggle { min-height:46px; display:inline-flex; align-items:center; justify-content:center; border:0; color:#fff; background:transparent; font:inherit; cursor:pointer; transition:background .16s ease; }
-.create-course-primary { gap:9px; padding:0 17px; font-size:13px; font-weight:800; letter-spacing:.01em; white-space:nowrap; }
-.create-course-primary__icon { width:24px; height:24px; display:grid; place-items:center; flex:0 0 auto; border:1px solid rgba(255,255,255,.16); border-radius:7px; background:rgba(255,255,255,.14); box-shadow:inset 0 1px 0 rgba(255,255,255,.12); }
-.create-course-menu-toggle { width:42px; padding:0; border-left:1px solid rgba(255,255,255,.22); }
-.create-course-primary:hover,.create-course-menu-toggle:hover,.create-course-menu-toggle[aria-expanded='true'] { color:#fff; background:rgba(255,255,255,.1); }
-.create-course-primary:active,.create-course-menu-toggle:active { background:rgba(30,27,75,.18); }
-.create-course-primary:focus-visible,.create-course-menu-toggle:focus-visible { position:relative; z-index:1; outline:2px solid rgba(255,255,255,.92); outline-offset:-4px; }
+.create-course-trigger-group { height:44px; display:inline-flex; align-items:stretch; overflow:hidden; border:1px solid rgba(203,213,225,.86); border-radius:10px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.08),0 1px 3px rgba(79,70,229,.06),inset 0 1px 0 rgba(255,255,255,.96); transition:border-color .18s ease,box-shadow .18s ease; }
+.create-course-trigger-group:hover { border-color:rgba(167,139,250,.72); box-shadow:0 8px 22px rgba(15,23,42,.1),0 2px 5px rgba(124,58,237,.08); }
+.create-course-trigger-group:focus-within { border-color:#a78bfa; box-shadow:0 0 0 3px rgba(124,58,237,.12),0 7px 20px rgba(15,23,42,.09); }
+.create-course-primary,.create-course-menu-toggle { min-height:42px; display:inline-flex; align-items:center; justify-content:center; border:0; color:#334155; background:transparent; font:inherit; cursor:pointer; transition:color .18s ease,background .18s ease; }
+.create-course-primary { gap:8px; padding:0 14px; font-size:13px; font-weight:700; white-space:nowrap; }
+.create-course-primary__icon { width:22px; height:22px; display:grid; place-items:center; flex:0 0 auto; color:#7c3aed; transition:transform .2s cubic-bezier(.2,.8,.2,1),color .18s ease; }
+.create-course-primary__label { transform-origin:left center; transition:transform .2s cubic-bezier(.2,.8,.2,1); }
+.create-course-primary:hover { color:#6d28d9; background:#f5f5f5; }
+.create-course-primary:hover .create-course-primary__icon { transform:rotate(90deg) scale(1.05); }
+.create-course-primary:hover .create-course-primary__label { transform:translateX(1px); }
+.create-course-menu-toggle { width:40px; padding:0; border-left:1px solid rgba(226,232,240,.96); color:#64748b; }
+.create-course-menu-toggle:hover,.create-course-menu-toggle[aria-expanded='true'] { color:#6d28d9; background:#f5f5f5; }
+.create-course-primary:active,.create-course-menu-toggle:active { background:#ececec; }
+.create-course-primary:focus-visible,.create-course-menu-toggle:focus-visible { position:relative; z-index:1; outline:2px solid rgba(124,58,237,.58); outline-offset:-3px; }
 .create-course-trigger__chevron { transition:transform .18s ease; }
 .create-course-trigger__chevron.open { transform:rotate(180deg); }
 .create-course-menu__panel { position:absolute; z-index:60; top:calc(100% + 9px); right:0; width:270px; overflow:hidden; padding:7px; border:1px solid rgba(203,213,225,.78); border-radius:14px; background:rgba(255,255,255,.98); box-shadow:0 18px 42px rgba(51,65,85,.16),0 4px 12px rgba(79,70,229,.08); }
