@@ -35,45 +35,6 @@
         <h1>{{ t('courseLibrary.title', '选择一门课程继续学习') }}</h1>
         <span>{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
       </div>
-    </header>
-
-    <div class="library-toolbar">
-      <label>
-        <Search :size="16" />
-        <input
-          v-model="query"
-          type="search"
-          :aria-label="t('courseLibrary.search', '搜索课程')"
-          :placeholder="t('courseLibrary.search', '搜索课程')"
-        />
-      </label>
-      <button
-        v-if="latestResumeCourse"
-        type="button"
-        class="library-resume"
-        data-testid="resume-course"
-        :aria-label="[
-          resumeKindLabel(latestResumeCourse.resume?.kind || 'reading'),
-          formatCourseTitle(latestResumeCourse.course_name),
-          t('courseLibrary.resume.open', '继续'),
-        ].join(' · ')"
-        @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)"
-      >
-        <span class="library-resume__icon"><History :size="16" /></span>
-        <span class="library-resume__copy">
-          <small class="library-resume__label">{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
-          <strong class="library-resume__title">{{ formatCourseTitle(latestResumeCourse.course_name) }}</strong>
-          <span class="library-resume__separator" aria-hidden="true">·</span>
-          <span class="library-resume__location">
-            {{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}
-          </span>
-        </span>
-        <span class="library-resume__action">
-          {{ t('courseLibrary.resume.open', '继续') }}
-          <ArrowRight :size="16" />
-        </span>
-      </button>
-      <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
       <div ref="createMenuRef" class="create-course-menu" @keydown.esc.stop.prevent="closeCreateMenu(true)">
         <div class="create-course-trigger-group">
           <button
@@ -132,6 +93,45 @@
           </div>
         </Transition>
       </div>
+    </header>
+
+    <div class="library-toolbar">
+      <label>
+        <Search :size="16" />
+        <input
+          v-model="query"
+          type="search"
+          :aria-label="t('courseLibrary.search', '搜索课程')"
+          :placeholder="t('courseLibrary.search', '搜索课程')"
+        />
+      </label>
+      <button
+        v-if="latestResumeCourse"
+        type="button"
+        class="library-resume"
+        data-testid="resume-course"
+        :aria-label="[
+          resumeKindLabel(latestResumeCourse.resume?.kind || 'reading'),
+          formatCourseTitle(latestResumeCourse.course_name),
+          t('courseLibrary.resume.open', '继续'),
+        ].join(' · ')"
+        @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)"
+      >
+        <span class="library-resume__icon"><History :size="16" /></span>
+        <span class="library-resume__copy">
+          <small class="library-resume__label">{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
+          <strong class="library-resume__title">{{ formatCourseTitle(latestResumeCourse.course_name) }}</strong>
+          <span class="library-resume__separator" aria-hidden="true">·</span>
+          <span class="library-resume__location">
+            {{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}
+          </span>
+        </span>
+        <span class="library-resume__action">
+          {{ t('courseLibrary.resume.open', '继续') }}
+          <ArrowRight :size="16" />
+        </span>
+      </button>
+      <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
       <span class="library-toolbar__count">{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
     </div>
 
