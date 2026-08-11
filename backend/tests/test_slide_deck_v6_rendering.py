@@ -178,6 +178,92 @@ def _dense_table_deck():
     return compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _wide_markdown_table_deck():
+    table = "\n".join([
+        "| Stage | Standard | Evidence | Basis | Repair |",
+        "| :--- | :--- | :--- | :--- :--- |",
+        (
+            "| **Observe** | Record the `site`, time, weather, and observer before "
+            "sampling begins | The log preserves the original field condition | "
+            "A stable context makes later comparisons meaningful | **Error**: context "
+            "is missing.<br>**Repair**: restore it from the signed field note |"
+        ),
+        (
+            "| **Compare** | Check every observation against the declared criterion | "
+            "The first mismatch remains visible | Evidence must precede interpretation | "
+            "**Error**: a conclusion replaces the observation.<br>**Repair**: separate them |"
+        ),
+    ])
+    support = (
+        "The full audit record remains available for traceability and later review. "
+        "Compare each field observation with its declared evidence before publishing."
+    )
+    summary = "Compare each field observation with its declared evidence before publishing."
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-audit",
+        title="Field audit",
+        sections=[CourseSection(section_id="audit", title="Audit", position=0)],
+        blocks=[
+            CourseBlock(
+                block_id="audit-table",
+                section_id="audit",
+                position=0,
+                role="feedback",
+                kind="table",
+                payload={"markdown": table},
+            ),
+            CourseBlock(
+                block_id="audit-interpretation",
+                section_id="audit",
+                position=1,
+                role="reasoning",
+                payload={"markdown": support},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout_id = template.layout_id("evidence-table")
+    unit = graph.units[0]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-wide-table",
+            chapter_id="audit",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="wide-table-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Compare the field evidence",
+                summary=summary,
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="wide-table-page",
+            decision="table",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return (
+        compile_slide_deck_v6(document, graph, story, visual, template),
+        template,
+        summary,
+    )
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
@@ -277,6 +363,78 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_its_o
     report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
 
     assert report["passed"], report["blockers"]
+
+
+def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
+    tmp_path: Path,
+) -> None:
+    deck, template, summary = _wide_markdown_table_deck()
+    page = deck.pages[0]
+    regions = {region.slot_id: region for region in page.regions}
+
+    assert regions["interpretation"].content == summary
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "wide-table.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=1)
+    assert report["passed"], report["blockers"]
+
+    presentation = Presentation(output)
+    table_shape = next(shape for shape in presentation.slides[0].shapes if shape.has_table)
+    rendered_rows = [[cell.text for cell in row.cells] for row in table_shape.table.rows]
+    rendered_text = "\n".join(cell for row in rendered_rows for cell in row)
+    assert len(rendered_rows) == 3
+    assert not any(marker in rendered_text for marker in ("**", "`", "<br>"))
+    assert not any(set(cell.replace(" ", "")) <= {":", "-"} for cell in rendered_rows[1])
+
+    layout = template.get_layout(template.layout_id("evidence-table"))
+    assert layout is not None
+    table_slot = next(slot for slot in layout.slots if slot.slot_kind == "table")
+    assert max(len(cell) for row in rendered_rows[1:] for cell in row) <= (
+        table_slot.split_column_chars * 2
+    )
+
+
+def test_code_excerpt_ends_at_a_complete_source_unit_instead_of_a_trailing_comment() -> None:
+    source = "\n".join([
+        "using Example.Runtime;",
+        "",
+        "public class AuditRunner",
+        "{",
+        "    void FirstCheck()",
+        "    {",
+        "        VerifyContext();",
+        "    }",
+        "",
+        "    // The second check runs after the first result is visible",
+        "    void SecondCheck()",
+        "    {",
+        "        VerifyEvidence();",
+        "    }",
+        "}",
+    ])
+    block = CourseBlock(
+        block_id="generic-code",
+        section_id="audit",
+        position=0,
+        role="example",
+        kind="code",
+        payload={"markdown": source},
+    )
+
+    from slide_deck_v6 import _bounded_slot_content
+
+    excerpt = _bounded_slot_content(
+        [block],
+        slot_kind="code",
+        max_chars=300,
+        max_items=0,
+        max_lines=10,
+        max_rows=0,
+    )
+
+    assert not excerpt.rstrip().splitlines()[-1].lstrip().startswith("//")
+    assert excerpt.count("{") == excerpt.count("}")
+    assert all(line in source.splitlines() for line in excerpt.splitlines())
 
 
 def test_chapter_entry_title_contract_allows_only_declared_safe_wrapping(

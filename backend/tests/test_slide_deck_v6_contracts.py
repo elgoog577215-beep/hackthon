@@ -1,4 +1,5 @@
 import inspect
+import re
 
 import pytest
 
@@ -31,6 +32,35 @@ def test_sentence_excerpt_never_exceeds_its_template_budget():
     assert len(excerpt) <= 35
     assert excerpt.endswith("…")
     assert excerpt[:-1] in source
+
+
+def test_visible_prose_removes_markdown_and_never_ends_on_a_bare_list_marker():
+    block = _block(
+        "chapter-objective",
+        "chapter",
+        0,
+        role="objective",
+        text=(
+            "本节规范名称：**现场调查记录规范**。\n"
+            "学习者需完成以下目标：\n"
+            "1. 在 `Observation Log` 中记录对象、时间与环境条件。\n"
+            "2. 对照证据检查记录并说明结论。\n"
+            "3. 修正第一处不一致。"
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="body",
+        max_chars=100,
+        max_items=0,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert not any(marker in content for marker in ("**", "`", "<br>"))
+    assert not re.search(r"(?:^|\s)\d+[.)]$", content)
+    assert content.endswith(("。", "！", "？", ".", "!", "?", "…"))
 
 
 def test_item_slot_uses_source_excerpts_within_template_limits():
