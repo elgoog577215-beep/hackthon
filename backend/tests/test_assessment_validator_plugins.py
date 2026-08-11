@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from assessment_validators import validate_candidate_answer
+from assessment_validators import (
+    _symbolic_equivalent,
+    answers_equivalent,
+    validate_candidate_answer,
+)
 
 
 @pytest.mark.parametrize(
@@ -134,3 +138,30 @@ def test_unknown_validator_fails_closed():
     assert result["passed"] is False
     assert result["status"] == "needs_review"
     assert result["issue_code"] == "validator_unavailable"
+
+
+def test_symbolic_validator_handles_sympy_reserved_letters() -> None:
+    """Q / E / S / N / O 是 sympy 的内置名，不能被当成保留字。
+
+    这些恰好是物理化学最常用的变量（热量 Q、能量 E、熵 S）。修复前
+    sympify("Q - W") 会抛 TypeError（Q 被解析成 AssumptionKeys），
+    _symbolic_equivalent 捕获后返回 None，符号判等在这批变量上整体失效：
+    x - y ≡ -y + x 判 True，而 Q - W ≡ -W + Q 判 None。
+    """
+    for expected, actual in (
+        ("Q - W", "-W + Q"),
+        ("E - S", "-S + E"),
+        ("N + O", "O + N"),
+        ("x - y", "-y + x"),
+    ):
+        assert _symbolic_equivalent(expected, actual) is True, (expected, actual)
+        assert answers_equivalent("symbolic_validator", expected, actual) is True
+
+    # 放宽解析不等于放宽判定
+    assert _symbolic_equivalent("Q - W", "Q + W") is False
+    assert answers_equivalent("symbolic_validator", "Q - W", "Q + W") is False
+
+
+def test_symbolic_validator_still_rejects_unknown_function_calls() -> None:
+    """显式建符号表不得绕过函数白名单。"""
+    assert _symbolic_equivalent("os_system(x)", "os_system(x)") is None

@@ -569,9 +569,16 @@ async def test_three_disagreements_discard_only_failed_slot():
         "thermo-1"
     ]["objective_practice"]
 
+    # G3：按题的模型求解预算止住了「一道病态题反复求解」的循环。
+    #
+    # 改动前 generate 3 + repair 3 + solve 6 = 12 次模型调用，最后仍然 discard。
+    # 独立求解承担真实的正确性验证，所以不能删；但也不该无上限重试。现在求解
+    # 用满 3 次预算即停，转人工复核——结论相同（discard），求解从 6 降到 5，
+    # 且第 4 轮不再白跑一次求解。
     assert model.generate_calls == 3
     assert model.repair_calls == 3
-    assert model.solve_calls == 6
+    assert model.solve_calls == 5
+    assert model.solve_calls <= 6, "求解次数不得回退到无预算时的水平"
     assert contract["generation_status"] == "discarded"
     audit_item = next(
         item
@@ -580,6 +587,15 @@ async def test_three_disagreements_discard_only_failed_slot():
         ]
         if item["practice_level"] == "objective_practice"
     )
+    # 停在哪、为什么停，审计里要看得出来
+    assert audit_item["model_solve_budget"] == {
+        "used": 3,
+        "limit": 3,
+        "exhausted": True,
+    }
+    assert audit_item["attempts"][-1]["issue_codes"] == [
+        "MODEL_SOLVE_BUDGET_EXHAUSTED"
+    ]
     assert len(audit_item["attempts"]) == 4
     assert audit_item["final_decision"] == "discard"
 
@@ -920,10 +936,21 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert set(prepared["_assessment_generated_contracts"]) == {
         "thermo-2",
     }
-    assert model.batch_generate_calls == 0
-    assert model.generate_calls == 3
-    assert model.solve_calls == 4
-    assert model.repair_calls == 1
+    # M2：scoped_repair 也走批量首轮候选与合批评审。
+    #
+    # 改动前这里是 batch=0 / generate=3 / solve=4 / repair=1，共 8 次模型调用——
+    # deliberate 档的 scoped_repair 落进全链路最慢的分支。而 scoped_repair 正是
+    # 教师点了重建、正等着看结果的场景。现在同样的输入是 5 次。
+    assert model.batch_generate_calls == 1
+    assert model.generate_calls == 1
+    assert model.solve_calls == 3
+    assert model.repair_calls == 0
+    assert (
+        model.batch_generate_calls
+        + model.generate_calls
+        + model.solve_calls
+        + model.repair_calls
+    ) == 5, "scoped_repair 的模型调用数不得回退到批量化之前"
     assert [event["completed_items"] for event in progress_events] == [
         1,
         2,
@@ -1076,3 +1103,73 @@ async def test_fast_profile_stops_after_one_repair_attempt():
     assert model.repair_calls == 1
     assert len(audit_item["attempts"]) == 2
     assert contract["generation_status"] == "discarded"
+
+
+async def test_single_node_repair_runs_its_practice_levels_concurrently(
+    monkeypatch,
+):
+    """M2：只重建一个小节时，三个练习层级并发跑，不再串行空转两个槽位。
+
+    scoped_repair 是「教师点了某一节重建、正等着看结果」的场景。改动前它走
+    串行 for，一个层级做完才做下一个。
+    """
+    monkeypatch.setenv("ASSESSMENT_NODE_CONCURRENCY", "3")
+    in_flight = 0
+    peak_in_flight = 0
+
+    class ConcurrencyProbeModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            nonlocal in_flight, peak_in_flight
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+            try:
+                await asyncio.sleep(0)
+                return await super().generate_candidate(context)
+            finally:
+                in_flight -= 1
+
+    await AssessmentGenerationOrchestrator(
+        model=ConcurrencyProbeModel(),
+    ).prepare_course(_course(), node_ids=["thermo-1"])
+
+    assert peak_in_flight > 1, (
+        "单小节重建时三个练习层级仍在串行，槽位被空转"
+    )
+
+
+async def test_multi_node_repair_keeps_sections_interleaved(monkeypatch):
+    """M2 的另一半：并发不能把小节之间的交替吃掉。
+
+    全局槽位信号量只管总量、不管先后。若让每个小节把三个层级一次性投出去，
+    先到的小节会吃满全部槽位，后面的小节一个都起不来，多小节重建退化成
+    一节一节顺序做、章节回调也不再交替。这条锁住那个边界。
+    """
+    monkeypatch.setenv("ASSESSMENT_NODE_CONCURRENCY", "2")
+    started_nodes: set[str] = set()
+    both_started = asyncio.Event()
+
+    class CrossNodeModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            objective_id = str(
+                (context.get("assessment_slot") or {}).get("objective_id") or ""
+            )
+            started_nodes.add(objective_id)
+            if len(started_nodes) == 2:
+                both_started.set()
+            await both_started.wait()
+            return await super().generate_candidate(context)
+
+    course = _course()
+    second = deepcopy(course["nodes"][0])
+    second["node_id"] = "thermo-2"
+    second["node_name"] = "热力学第二小节"
+    course["nodes"].append(second)
+
+    # 两个小节必须都能开工；做不到这里会因 both_started 永不置位而超时。
+    await asyncio.wait_for(
+        AssessmentGenerationOrchestrator(
+            model=CrossNodeModel(),
+        ).prepare_course(course, node_ids=["thermo-1", "thermo-2"]),
+        timeout=2,
+    )
+    assert len(started_nodes) == 2

@@ -36,6 +36,7 @@ from assessment_generation_policy import (
     resolve_assessment_generation_policy,
 )
 from assessment_independent_solvers import IndependentSolverRegistry
+from question_choice_grading import canonical_option_ids
 from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
     compile_local_reference_package,
@@ -69,6 +70,36 @@ AssessmentChapterCallback = Callable[
     [dict[str, Any]],
     Awaitable[None] | None,
 ]
+
+
+class ModelSolveBudgetExhausted(AIProviderRequestError):
+    """这道题已用完按题的模型求解预算（G3）。
+
+    独立求解承担真实的正确性验证，不能跳过；但也不能无上限地重试。用完预算的
+    题必须进 waiting_review 交人判断，**不是**再回去重写一轮——重写会再要一次
+    求解，正是要止住的循环。
+    """
+
+    def __init__(self, used: int, limit: int) -> None:
+        super().__init__("model_solve_budget_exhausted")
+        self.used = used
+        self.limit = limit
+
+
+def _consume_solve_budget(solve_budget: dict[str, int] | None) -> None:
+    """扣掉一次模型求解预算，用完则抛 ModelSolveBudgetExhausted。
+
+    合批求解与直连求解都要经过这里——只管其中一条会让预算形同虚设。
+    """
+    if solve_budget is None:
+        return
+    limit = int(solve_budget.get("limit") or 0)
+    if limit <= 0:
+        return
+    used = int(solve_budget.get("used") or 0)
+    if used >= limit:
+        raise ModelSolveBudgetExhausted(used, limit)
+    solve_budget["used"] = used + 1
 
 
 class SemanticPreflightFailure(AIProviderRequestError):
@@ -1410,10 +1441,17 @@ class AssessmentGenerationOrchestrator:
                 on_chapter_complete=on_chapter_complete,
                 total_items=total_items,
                 practice_levels_by_node=requested_levels_by_node,
-                use_batch_generation=(
-                    resolved_generation_scope == "full_generation"
-                    or generation_policy.profile == "fast"
-                ),
+                # 批量生成与合批评审不再看生成范围。
+                #
+                # 改动前是 `scope == "full_generation" or profile == "fast"`，
+                # 于是 deliberate 档的 scoped_repair 落进最慢的一条分支：不批量
+                # 首轮候选、语义评审 batch wait 归零（等于不合批）、三个练习层级
+                # 串行 await。而 scoped_repair 正是"教师点了重建、正等着看结果"
+                # 的场景——最需要快的路径用了全链路最慢的实现。
+                #
+                # 范围只决定"重建哪些节点"，不决定"每个节点内部怎么并发"。
+                # 供给侧的压力由 `semaphore`(slot_parallelism) 与
+                # `node_semaphore`(node_concurrency) 兜底，与生成范围无关。
                 generation_policy=generation_policy,
             )
             completed_items = total_items
@@ -1862,7 +1900,6 @@ class AssessmentGenerationOrchestrator:
         on_chapter_complete: AssessmentChapterCallback | None,
         total_items: int,
         practice_levels_by_node: dict[str, tuple[str, ...]],
-        use_batch_generation: bool,
         generation_policy: AssessmentGenerationPolicy,
     ) -> dict[str, dict[str, dict[str, Any]]]:
         contracts: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1881,6 +1918,20 @@ class AssessmentGenerationOrchestrator:
             )
         semaphore = asyncio.Semaphore(slot_parallelism)
         node_semaphore = asyncio.Semaphore(self.node_concurrency)
+        # 每个小节最多同时占用几个槽位。
+        #
+        # 全局 `semaphore` 只管住总量，管不住"谁先拿到"。如果让每个小节把三个
+        # 练习层级一次性全投出去，先到的小节会吃满全部槽位，后面的小节一个都
+        # 起不来——`on_chapter_complete` 不再交替推进，多小节重建退化成一节一节
+        # 顺序做。这正是原来那句「避免饿死后面的小节」要防的事，不能不管。
+        #
+        # 但反过来，只重建一个小节时（教师点某一节重建，最常见的 scoped_repair）
+        # 串行跑三个层级会让另外两个槽位空转。
+        #
+        # 所以按本轮真正活跃的小节数分配：一个小节时三个层级全并发，多小节时
+        # 每节一个槽位、把并发让给小节之间。两种场景各自拿到该有的并行度。
+        active_nodes = max(1, min(len(target_nodes), self.node_concurrency))
+        per_node_slots = max(1, slot_parallelism // active_nodes)
         progress_lock = asyncio.Lock()
         chapter_callback_lock = asyncio.Lock()
         completed_items = 0
@@ -1915,8 +1966,6 @@ class AssessmentGenerationOrchestrator:
                         practice_levels=node_practice_levels,
                         generation_policy=generation_policy,
                     )
-                    if use_batch_generation
-                    else {}
                 )
                 semantic_batcher = _SemanticEvaluationBatcher(
                     model=self.model,
@@ -1933,7 +1982,6 @@ class AssessmentGenerationOrchestrator:
                             reference_package,
                             node_id=node_id,
                         ) >= 2
-                        and use_batch_generation
                         else 0.0
                     ),
                     generation_policy=generation_policy,
@@ -1944,14 +1992,13 @@ class AssessmentGenerationOrchestrator:
                     generation_policy=generation_policy,
                     max_wait_seconds=0.01,
                 )
-                repair_batcher = (
-                    _CandidateRepairBatcher(
-                        model=self.model,
-                        audit=audit,
-                        generation_policy=generation_policy,
-                    )
-                    if generation_policy.profile == "fast"
-                    else None
+                # 修复也合批。此前只有 fast 档创建 batcher，deliberate 下为
+                # None，于是每一次修复都是单独的 repair_single——而修复是按
+                # 「同一节的多个层级同时不过」成批发生的，正是最该合批的调用。
+                repair_batcher = _CandidateRepairBatcher(
+                    model=self.model,
+                    audit=audit,
+                    generation_policy=generation_policy,
                 )
 
                 async def run_slot(
@@ -2014,21 +2061,23 @@ class AssessmentGenerationOrchestrator:
                         }
                     await _notify_progress(on_progress, progress_event)
 
-                if use_batch_generation:
-                    results = await asyncio.gather(*[
-                        run_slot(PRACTICE_LEVELS.index(level), level)
-                        for level in node_practice_levels
-                    ])
-                    for result in results:
-                        await record_result(result)
-                else:
-                    # Scoped repair spends one global slot per active section.
-                    # This keeps three sections moving without increasing the
-                    # provider-wide request limit or starving later sections.
-                    for level in node_practice_levels:
-                        await record_result(
-                            await run_slot(PRACTICE_LEVELS.index(level), level)
+                # 同一节的多个练习层级按 `per_node_slots` 并发。
+                #
+                # 此前 scoped_repair 走串行 for，于是重建单个小节时三个层级一个
+                # 一个来，另外两个槽位空转——而 scoped_repair 正是教师点了重建、
+                # 正等着看结果的场景，最需要快却用了最慢的实现。
+                level_slots = asyncio.Semaphore(per_node_slots)
+
+                async def run_level(level: str) -> None:
+                    async with level_slots:
+                        result = await run_slot(
+                            PRACTICE_LEVELS.index(level), level,
                         )
+                    await record_result(result)
+
+                await asyncio.gather(*[
+                    run_level(level) for level in node_practice_levels
+                ])
                 chapter_passed = bool(
                     not fatal_errors
                     and set(contracts[node_id]) == set(node_practice_levels)
@@ -2334,6 +2383,13 @@ class AssessmentGenerationOrchestrator:
             final_attempt_index = (
                 generation_policy.max_generation_attempts - 1
             )
+            # 按题累计的模型求解预算，跨全部重试轮次共享（G3）。
+            solve_budget = {
+                "used": 0,
+                "limit": int(
+                    generation_policy.max_model_solve_calls_per_question
+                ),
+            }
             for attempt_index in range(
                 generation_policy.max_generation_attempts
             ):
@@ -2432,6 +2488,7 @@ class AssessmentGenerationOrchestrator:
                         audit,
                         generation_policy=generation_policy,
                         solution_batcher=solution_batcher,
+                        solve_budget=solve_budget,
                     )
                     semantic_report = await self._semantic_report(
                         contract,
@@ -2441,6 +2498,37 @@ class AssessmentGenerationOrchestrator:
                         audit=audit,
                         semantic_batcher=semantic_batcher,
                     )
+                except ModelSolveBudgetExhausted as exc:
+                    # 用完按题预算：停下来交人判断，不再重写。
+                    # 继续重写会再要一次求解，正是要止住的循环。
+                    item_audit["model_solve_budget"] = {
+                        "used": exc.used,
+                        "limit": exc.limit,
+                        "exhausted": True,
+                    }
+                    # 这一轮也要进 attempts，否则审计里看不出它是怎么停的。
+                    item_audit["attempts"].append({
+                        "attempt": attempt_index + 1,
+                        "score": 0,
+                        "passed": False,
+                        "decision": "discard",
+                        "issue_codes": ["MODEL_SOLVE_BUDGET_EXHAUSTED"],
+                    })
+                    last_quality = {
+                        "schema_version": "question_quality_report_v2",
+                        "passed": False,
+                        "score": 0,
+                        "decision": "discard",
+                        "issues": [{
+                            "code": "MODEL_SOLVE_BUDGET_EXHAUSTED",
+                            "severity": "critical",
+                            "message": (
+                                f"这道题已用完模型独立求解预算（{exc.used}/{exc.limit}），"
+                                "转人工复核，不再自动重写。"
+                            ),
+                        }],
+                    }
+                    break
                 except SemanticPreflightFailure as exc:
                     issue_codes = [
                         str(issue.get("code") or "")
@@ -2701,6 +2789,7 @@ class AssessmentGenerationOrchestrator:
         *,
         generation_policy: AssessmentGenerationPolicy,
         solution_batcher: _IndependentSolutionBatcher | None,
+        solve_budget: dict[str, int] | None = None,
     ) -> tuple[
         dict[str, Any],
         dict[str, Any],
@@ -2739,12 +2828,21 @@ class AssessmentGenerationOrchestrator:
             or ""
         )
         independent: dict[str, Any] | None = None
-        if generation_policy.prefer_local_solver:
+        if generation_policy.prefer_local_solver and _local_solver_applicable(
+            public_spec,
+        ):
             independent = self.local_solvers.solve(public_spec)
             if independent is not None:
                 audit["local_independent_solution_count"] = int(
                     audit.get("local_independent_solution_count") or 0
                 ) + 1
+        if independent is None:
+            # G3：按题的模型求解预算，一轮求解只扣一次。
+            #
+            # 合批与直连是同一轮求解的两条实现路径（合批拿不到结果时会落到直连），
+            # 所以必须在这里统一扣一次，而不是两个分支各扣一次——各扣一次会把
+            # 一轮求解算成两次，健康的题也会被误判为超预算。
+            _consume_solve_budget(solve_budget)
         if independent is None and solution_batcher is not None:
             independent = await solution_batcher.solve(
                 public_question_spec=public_spec,
@@ -2829,12 +2927,37 @@ class AssessmentGenerationOrchestrator:
                 "details": {},
             }
         else:
+            canonical = contract["solution_envelope"].get(
+                "canonical_answer"
+            )
+            solved = independent.get("answer")
+            # 多选：按集合比较，不看顺序。
+            #
+            # answers_equivalent('exact_validator', ['A','C'], ['C','A']) 实测为
+            # False——求解器把同一组答案换个顺序写出来就判不一致，约一半多选候选
+            # 会因此被误判。判分侧 practice_grading._grade_typed 早就排序了，
+            # 生成侧一直没有。这里复用判分侧同一套 id 归一，不各写一份。
+            fill_blank_validation = _validate_fill_blank_solution(
+                contract, solved,
+            )
+            if fill_blank_validation is not None:
+                validation = fill_blank_validation
+                _apply_independent_validation(
+                    contract, validation, independent,
+                )
+                return contract, validation, independent
+            if _is_choice_contract(contract):
+                options = (
+                    (contract.get("question_spec") or {}).get("options") or []
+                )
+                canonical = sorted(
+                    _resolve_option_ids(canonical, options)
+                )
+                solved = sorted(_resolve_option_ids(solved, options))
             validation = validate_candidate_answer(
                 validation_mode,
-                contract["solution_envelope"].get(
-                    "canonical_answer"
-                ),
-                independent.get("answer"),
+                canonical,
+                solved,
                 contract["solution_envelope"].get(
                     "validator_config"
                 )
@@ -3437,6 +3560,7 @@ def _contract_from_candidate(
     for field in (
         "canonical_answer",
         "acceptable_answers",
+        "blanks",
         "rubric",
         "validator_config",
         "misconception_rules",
@@ -4043,6 +4167,322 @@ def _compact_batch_generation_context(
     return compact
 
 
+def _local_solver_applicable(public_spec: dict[str, Any]) -> bool:
+    """本地确定性解题器是否适用于这道题的**作答形状**。
+
+    M1 打开本地解题器后出现的真实故障：模型给一道判断题也写了
+    `solver_contract`，本地解题器照着算出 `{"value": -90, "unit": "J"}`，
+    而这道题的标准答案是选项 id `"A"`。数值永远不可能等于选项 id，于是
+    VALIDATION_FAILED + PROMPT_SOLUTION_CONTRADICTION，四轮修复全废后丢弃。
+
+    真机取证里三类新题型的失败几乎全部是这一条——**不是模型出的题不好，
+    是我们拿一把算数值的尺子去量选择题**。
+
+    所以按输入模式限定：内置解法（numeric_expression / state_operations）
+    产出的是数值或状态，只对数值型作答有意义。选择题的答案是选项 id、
+    填空的答案是逐空对照，都不该由它接手——那些题落回模型求解，
+    与 M1 之前的行为一致。
+    """
+    input_contract = public_spec.get("input_contract") or {}
+    mode = str(input_contract.get("mode") or "")
+    if mode == "choice":
+        return False
+    if "blanks" in input_contract or public_spec.get("blanks"):
+        return False
+    return True
+
+
+def _normalize_blank_submission(
+    solved: Any,
+    compiled: dict[str, Any],
+) -> dict[str, Any]:
+    """把求解器的填空答案归一成 `{"blanks": {blank_id: answer}}`。
+
+    求解器实际会用三种写法（真机实测都出现过）：
+    - `{"blanks": {"1": "230 J"}}`——已经是目标形状；
+    - `{"blanks": ["230 J", "内能增加"]}`——**按位置给的列表**，需按空位顺序对上；
+    - `"-110"`——单空题直接给标量。
+
+    改动前只认第一种，后两种一律判不一致。按位置对齐不是放宽判定：数量对不上
+    就不对齐，逐空判定照常执行。
+    """
+    blank_ids = [
+        str(blank["blank_id"]) for blank in compiled.get("blanks") or []
+    ]
+    payload: Any = solved
+    if isinstance(payload, dict) and "blanks" in payload:
+        payload = payload.get("blanks")
+    if isinstance(payload, dict):
+        return {"blanks": payload}
+    if isinstance(payload, (list, tuple)):
+        values = list(payload)
+        if len(values) == len(blank_ids):
+            return {
+                "blanks": dict(zip(blank_ids, values)),
+            }
+        return {"blanks": {}}
+    if payload is not None and len(blank_ids) == 1:
+        return {"blanks": {blank_ids[0]: payload}}
+    return {"blanks": {}}
+
+
+def _validate_fill_blank_solution(
+    contract: dict[str, Any],
+    solved: Any,
+) -> dict[str, Any] | None:
+    """填空题按空位逐个校验独立解答，返回 None 表示这不是填空题。
+
+    改动前填空题走的是 `answers_equivalent(exact_validator, canonical, solved)`
+    ——把「各空答案」当成一整段文本比字符串。求解器只要格式稍有出入就判不一致，
+    真机实测填空题 4/4 全部因 VALIDATION_FAILED + PROMPT_SOLUTION_CONTRADICTION
+    被丢弃。这里改成用既有的 `grade_fill_blank` 逐空判，与学生作答同一套判定。
+    """
+    blanks = (contract.get("solution_envelope") or {}).get("blanks")
+    if not isinstance(blanks, list) or not blanks:
+        return None
+    from question_fill_blank import (
+        compile_fill_blank_contract,
+        derive_blank_placeholders,
+        grade_fill_blank,
+    )
+
+    # 模型没在题面挖空时，由代码按答案原文确定性挖空（见 derive_blank_placeholders）。
+    # 挖出来的题面要写回公开题面，否则学生看到的还是那句没有空位的陈述句。
+    derived, unresolved = derive_blank_placeholders(
+        str(contract.get("prompt") or ""), blanks,
+    )
+    if unresolved:
+        return {
+            "schema_version": "assessment_validator_result_v1",
+            "validation_mode": "fill_blank_validator",
+            "passed": False,
+            "status": "failed",
+            "deterministic": True,
+            "confidence": 1.0,
+            "requires_teacher_review": False,
+            "issue_code": "fill_blank_answer_not_in_stem",
+            "details": {"unresolved_blank_ids": unresolved},
+        }
+    if derived != str(contract.get("prompt") or ""):
+        contract["prompt"] = derived
+        spec = contract.get("question_spec")
+        if isinstance(spec, dict):
+            stimulus = spec.get("stimulus")
+            if isinstance(stimulus, dict):
+                stimulus["rendered_text"] = derive_blank_placeholders(
+                    str(stimulus.get("rendered_text") or ""), blanks,
+                )[0]
+            task = spec.get("task")
+            if isinstance(task, dict):
+                task["rendered_text"] = derive_blank_placeholders(
+                    str(task.get("rendered_text") or ""), blanks,
+                )[0]
+
+    try:
+        compiled = compile_fill_blank_contract(
+            prompt=derived,
+            blanks=blanks,
+        )
+    except ValueError as error:
+        return {
+            "schema_version": "assessment_validator_result_v1",
+            "validation_mode": "fill_blank_validator",
+            "passed": False,
+            "status": "failed",
+            "deterministic": True,
+            "confidence": 1.0,
+            "requires_teacher_review": False,
+            "issue_code": "fill_blank_contract_invalid",
+            "details": {"error": str(error)},
+        }
+    submission = _normalize_blank_submission(solved, compiled)
+    graded = grade_fill_blank(compiled, submission)
+    passed = bool(graded.get("all_correct"))
+    return {
+        "schema_version": "assessment_validator_result_v1",
+        "validation_mode": "fill_blank_validator",
+        "passed": passed,
+        "status": "passed" if passed else "failed",
+        "deterministic": True,
+        "confidence": 1.0,
+        "requires_teacher_review": False,
+        "issue_code": None if passed else "fill_blank_solution_mismatch",
+        "details": {
+            "blank_count": graded.get("blank_count"),
+            "correct_count": graded.get("correct_count"),
+        },
+    }
+
+
+def _resolve_option_ids(value: Any, options: list[Any]) -> set[str]:
+    """把答案归一成 option id 集合，允许答案写的是选项文本。
+
+    独立求解器经常直接回答选项文本而不是 id——判断题尤其明显，模型会回
+    「正确」而不是「A」。改动前这会让 answers_equivalent 判不一致，四轮修复
+    全废最后 discard；真机实测判断题正是这样连续失败的。
+
+    这不是放宽判定：只有当答案与某个选项的**文本完全一致**时才映射到该选项，
+    对不上的原样保留，仍会判不一致。
+    """
+    ids = canonical_option_ids(value)
+    by_text: dict[str, str] = {}
+    known_ids: set[str] = set()
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        option_id = str(option.get("id") or "").strip()
+        if not option_id:
+            continue
+        known_ids.add(option_id)
+        text = str(option.get("text") or "").strip().casefold()
+        if text:
+            by_text[text] = option_id
+    resolved: set[str] = set()
+    for item in ids:
+        if item in known_ids:
+            resolved.add(item)
+            continue
+        mapped = by_text.get(item.strip().casefold())
+        resolved.add(mapped if mapped else item)
+    return resolved
+
+
+def _is_choice_contract(contract: dict[str, Any]) -> bool:
+    spec = contract.get("question_spec") or {}
+    input_contract = (
+        spec.get("input_contract") or contract.get("input_contract") or {}
+    )
+    return str(input_contract.get("mode") or "") == "choice"
+
+
+def _is_multi_answer_choice(contract: dict[str, Any]) -> bool:
+    """这道题是否按「一组选项」判定。
+
+    看合同声明的 selection.multiple，或标准答案本身就是多个 id——生成期
+    selection 可能还没被推导出来，两个判据都要认。
+    """
+    spec = contract.get("question_spec") or {}
+    input_contract = (
+        spec.get("input_contract") or contract.get("input_contract") or {}
+    )
+    if str(input_contract.get("mode") or "") != "choice":
+        return False
+    if (input_contract.get("selection") or {}).get("multiple"):
+        return True
+    canonical = (contract.get("solution_envelope") or {}).get(
+        "canonical_answer"
+    )
+    return len(canonical_option_ids(canonical)) > 1
+
+
+_TRUE_FALSE_ALLOWED_TEXTS = "正确/错误、对/错、是/否、true/false"
+
+
+def _form_directive(question_form: str) -> str:
+    """按槽位声明的作答形态下发题面约束。
+
+    改动前这里写死「标准答案必须对应一个 option id」——多选是被 prompt 明确
+    禁止的，不是没提。single_choice 分支的措辞与改动前**逐字相同**，保证默认
+    路径的 prompt 不变（prompt 一变，既有题目的生成结果就不可比）。
+    """
+    if question_form == "multiple_choice":
+        return (
+            "本题是多选题：必须提供至少四个互斥 options，其中**两个或以上**成立；"
+            "canonical_answer 必须是这些正确 option id 组成的 JSON 数组"
+            "（例如 [\"A\",\"C\"]），不得只给一个。"
+            "每个不成立的选项都必须在 misconception_rules 里写明它对应的具体误解，"
+            "不得是随意编造的干扰项。"
+        )
+    if question_form == "true_false":
+        return (
+            "本题是判断题：必须**恰好两个** options，且选项文本只能取以下成对表述"
+            f"之一：{_TRUE_FALSE_ALLOWED_TEXTS}。"
+            "canonical_answer 必须是其中一个 option id。"
+            "题面必须是一个可判定真伪的完整命题，不能是开放问题。"
+        )
+    if question_form == "fill_blank":
+        return (
+            # 改成「写一句包含答案的陈述句」而不是「按模板填占位符」。
+            # 真机实测模型对 {{n}} 语法的服从度只有 3/10；而写一句真话它做得到，
+            # 挖空交给代码（question_fill_blank.derive_blank_placeholders）。
+            "【填空题最重要的一条】题面必须是一句**包含答案在内的完整陈述句**，"
+            "而不是「请计算…」这样的问句。每个空的答案文字必须**原样出现在题面里**——"
+            "例如题面写「该过程内能变化 ΔU = 23 kJ」，同时 solution.blanks 里第 1 空的"
+            "answer 就是「23 kJ」。系统会自动把答案文字挖成空位，"
+            "你**不需要**自己写 {{1}}；写了也可以，但答案必须能在题面里找到原文。\n"
+            "本题是填空题：stimulus 或 task 的题面中用 {{1}}、{{2}} 标出空位"
+            "（编号从 1 连续递增，最多 20 空），options 必须为空数组；"
+            "solution.blanks 必须为每个空位给出 "
+            "{\"blank_id\": \"1\", \"answer\": 标准答案, "
+            "\"match_mode\": \"exact\"|\"numeric\"|\"symbolic\", "
+            "\"acceptable_answers\": [其他可接受写法]}；"
+            "题面里出现的每个空位都必须有对应的 blanks 条目，数量一致。"
+            "match_mode 按答案性质选：数值带单位用 numeric，代数表达式用 symbolic，"
+            "其余用 exact。"
+        )
+    return (
+        "选择题必须提供至少两个唯一 options，标准答案必须对应"
+        "一个 option id。"
+    )
+
+
+def _batch_form_directives(batch: list[dict[str, Any]]) -> str:
+    """批量 prompt 里逐条下发各 item 的形态约束。
+
+    一批题可能混着不同形态，所以不能像改动前那样发一条全局的「canonical_answer
+    必须是唯一option id」——那会让声明为多选的 item 被 prompt 反向要求成单选。
+    只出现一种形态时退化成一句，措辞与单题路径一致。
+    """
+    # 批量项的形状是 {"slot_id": ..., "context": {...}}，slot_id 已被
+    # _batch_generation_payload 提到外层，assessment_slot 在 context 里面。
+    forms = [
+        str(
+            ((item.get("context") or {}).get("assessment_slot") or {})
+            .get("question_form")
+            or ""
+        )
+        for item in batch
+    ]
+    unique_forms = sorted({form for form in forms})
+    if len(unique_forms) <= 1:
+        return (
+            _form_directive(unique_forms[0] if unique_forms else "")
+            + "非选择题options必须为空数组。"
+        )
+    lines = ["本批题目的作答形态各不相同，按 slot_id 各自遵守："]
+    for item, form in zip(batch, forms):
+        slot_id = str(item.get("slot_id") or "")
+        lines.append(f"- {slot_id}：{_form_directive(form)}")
+    lines.append("非选择题options必须为空数组。")
+    return "\n".join(lines)
+
+
+def _slot_question_form(context: dict[str, Any]) -> str:
+    return str(
+        (context.get("assessment_slot") or {}).get("question_form") or ""
+    )
+
+
+def _solver_contract_kind_hint() -> str:
+    """告诉模型 `solver_contract.kind` 只能填哪几个值。
+
+    这一句是本地确定性解题器能否真正生效的开关。`IndependentSolverRegistry.solve`
+    只在 kind 命中已注册解法时才接手；模型如果写了一个自造的 kind，解题器一路
+    返回 None，于是"本地解题器已打开"在日志里成立、在请求数上毫无变化。
+
+    种类从注册表实时读取，不在这里另抄一份常量——抄一份就会在增删解法时悄悄失配。
+    """
+    kinds = IndependentSolverRegistry.with_builtin_solvers().kinds()
+    return (
+        "Optional. Only fill when the answer is fully determined by the public "
+        "question text, and only with one of: "
+        + " / ".join(kinds)
+        + ". Omit this object entirely when the answer needs judgement, "
+        "interpretation, or knowledge outside the public text — a wrong or "
+        "invented kind is worse than no solver_contract."
+    )
+
+
 def _generation_prompt(context: dict[str, Any]) -> str:
     return (
         "生成一道原创、可作答、可评分的课程题目。"
@@ -4112,7 +4552,7 @@ def _generation_prompt_v2(
                 {"id": "B", "text": "Choice text"},
             ],
             "solver_contract": {
-                "kind": "Optional public deterministic solver kind",
+                "kind": _solver_contract_kind_hint(),
                 "expression": "Optional public numeric expression",
                 "unit": "Optional answer unit",
             },
@@ -4125,6 +4565,12 @@ def _generation_prompt_v2(
                 "Answer payload matching the input mode"
             ),
             "acceptable_answers": [],
+            "blanks": [{
+                "blank_id": "Matches a {{n}} placeholder in the prompt",
+                "answer": "The canonical answer for this blank",
+                "match_mode": "exact | numeric | symbolic",
+                "acceptable_answers": [],
+            }],
             "rubric": ["Observable scoring criterion"],
             "validator_config": {},
             "misconception_rules": [],
@@ -4158,6 +4604,9 @@ def _generation_prompt_v2(
     }
     if compact:
         output_schema["solution"].pop("worked_solution", None)
+    if _slot_question_form(context) != "fill_blank":
+        # 非填空题不该输出 blanks；留在 schema 里模型会照着填一个空壳。
+        output_schema["solution"].pop("blanks", None)
     answer_first_directive = (
         "Treat question_design_brief as immutable. First lock one verifiable "
         "answer fact, canonical answer and validator; then select the smallest "
@@ -4198,8 +4647,8 @@ def _generation_prompt_v2(
             else "与worked_solution"
         )
         + "，不得把答案或内部Markdown标记"
-        "写入题面。选择题必须提供至少两个唯一 options，标准答案必须对应"
-        "一个 option id。"
+        "写入题面。"
+        + _form_directive(_slot_question_form(context))
         + (
             "不要输出worked_solution；独立求解器会在验证后补全教学解析。"
             if compact
@@ -4369,7 +4818,7 @@ def _batch_generation_prompt(
                 {"id": "B", "text": "选择题选项"},
             ],
             "solver_contract": {
-                "kind": "可选的公开确定性求解类型",
+                "kind": _solver_contract_kind_hint(),
                 "expression": "可选的公开数值表达式",
                 "unit": "可选答案单位",
             },
@@ -4380,6 +4829,12 @@ def _batch_generation_prompt(
             ),
             "canonical_answer": "与input_mode匹配的答案payload",
             "acceptable_answers": [],
+            "blanks": [{
+                "blank_id": "与题面中 {{n}} 空位编号一致",
+                "answer": "该空的标准答案",
+                "match_mode": "exact | numeric | symbolic",
+                "acceptable_answers": [],
+            }],
             "rubric": ["可观察的评分标准"],
             "validator_config": {},
             "misconception_rules": [],
@@ -4413,6 +4868,13 @@ def _batch_generation_prompt(
     }
     if compact:
         candidate_schema["solution"].pop("worked_solution", None)
+    if not any(
+        str(
+            (context.get("assessment_slot") or {}).get("question_form") or ""
+        ) == "fill_blank"
+        for context in contexts
+    ):
+        candidate_schema["solution"].pop("blanks", None)
     shared_context, batch = _batch_generation_payload(contexts)
     envelope = {
         "candidates": [{
@@ -4428,8 +4890,7 @@ def _batch_generation_prompt(
         "公式组合或解题路径；仅改变题型、措辞、标签、背景或数字不算新题。"
         "每道题必须遵守各自question_design_brief.diversity_plan，"
         "并至少在实例、认知动作、推理路径三项中的两项与其他题不同。\n"
-        "选择题必须至少包含两个互斥选项，canonical_answer必须是"
-        "唯一option id；非选择题options必须为空数组。"
+        + _batch_form_directives(batch)
         + (
             "快速候选不得输出worked_solution；独立求解器将在验证后"
             "生成唯一一份完整教学解析。"

@@ -6,21 +6,12 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from question_choice_grading import canonical_option_ids
 from solution_contracts import project_solution_spec
 from stepwise_answers import derive_stepwise_capability
 
 
-INPUT_MODES = {
-    "choice",
-    "numeric_unit",
-    "code",
-    "short_text",
-    "rich_text",
-    "structured_fields",
-    "structured_text",
-    "code_and_text",
-    "language_response",
-}
+from assessment_input_modes import INPUT_MODES  # noqa: F401  唯一真源
 
 _TYPED_VALIDATORS = {
     "exact_validator",
@@ -140,7 +131,15 @@ def solution_answer_spec(
             candidate = canonical.strip()
             if candidate in option_ids:
                 correct_option_id = candidate
-        return {
+        # 多选：标准答案是一组 option id。
+        #
+        # 改动前这里只产出标量 correct_option_id，列表答案得到空串，下游
+        # question_bank 的对齐再据此判定「题目不合法」并静默改写成单选
+        # （选项被替换、题干被重写）。这里把集合补上，止住那条链。
+        correct_ids = sorted(
+            canonical_option_ids(canonical) & option_ids
+        )
+        result_spec = {
             "type": "choice",
             "correct_option_id": correct_option_id,
             "canonical_answer": canonical,
@@ -164,6 +163,13 @@ def solution_answer_spec(
             "validator_config": validator_config,
             "solution_spec": solution_spec,
         }
+        # 只在真的多答案时才加这个键——单选的 answer_spec 必须逐键不变，
+        # 否则 compiled_contract_hash 会对所有既有题目漂移。
+        if len(correct_ids) > 1:
+            result_spec["correct_option_ids"] = correct_ids
+            if not correct_option_id:
+                result_spec["correct_option_id"] = ""
+        return result_spec
 
     if legacy:
         legacy.setdefault("solution_spec", solution_spec)
@@ -219,6 +225,16 @@ def compile_formal_task_contract(
         options=options,
         fallback=item.get("answer_spec") or {},
     )
+    if input_mode == "choice":
+        # H1a：多选与判断此前在合同层根本表达不出来——selection 恒为
+        # {"multiple": False}（assessment_blueprint.py:438），于是一道真有多个
+        # 正确选项的题会被合同声明成单选，学生只能选一个，判分再判它漏选。
+        # 这里按答案的实际形状确定性派生，不猜。
+        input_contract = _apply_choice_selection(
+            input_contract,
+            answer_spec=answer_spec,
+            options=options,
+        )
     validation_mode = str(
         (solution_envelope or {}).get("validation_mode")
         or item.get("validation_mode")
@@ -534,6 +550,74 @@ def _legacy_input_contract(item: dict[str, Any]) -> dict[str, Any]:
         "supports_attachments": item.get("question_type")
         in {"implementation_task", "scenario_deliverable"},
     }
+
+
+def _apply_choice_selection(
+    input_contract: dict[str, Any],
+    *,
+    answer_spec: dict[str, Any],
+    options: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """按标准答案的实际形状声明单选/多选，并识别判断题。
+
+    `multiple` 只在**确实有一个以上正确选项**时置真：把单选题声明成多选会让
+    学生以为可以多选，是另一种误导。部分给分默认关闭，由题目显式开启——
+    口径见 question_choice_grading。
+    """
+    contract = deepcopy(input_contract)
+    selection = dict(contract.get("selection") or {})
+    correct_ids = {
+        str(value).strip()
+        for value in (answer_spec.get("correct_option_ids") or [])
+        if str(value).strip()
+    }
+    if not correct_ids:
+        canonical = answer_spec.get("canonical_answer")
+        if isinstance(canonical, list):
+            correct_ids = {
+                str(value).strip()
+                for value in canonical
+                if str(value).strip()
+            }
+    if not correct_ids:
+        single = str(
+            answer_spec.get("correct_option_id")
+            or _selected_option_id(answer_spec.get("canonical_answer"))
+            or ""
+        ).strip()
+        if single:
+            correct_ids = {single}
+    selection["multiple"] = len(correct_ids) > 1
+    selection.setdefault("partial_credit", False)
+    if _looks_like_true_false(options):
+        selection["true_false"] = True
+    contract["selection"] = selection
+    return contract
+
+
+_TRUE_FALSE_TOKEN_PAIRS = (
+    {"正确", "错误"},
+    {"对", "错"},
+    {"是", "否"},
+    {"true", "false"},
+)
+
+
+def _looks_like_true_false(options: list[dict[str, Any]]) -> bool:
+    if len(options) != 2:
+        return False
+    texts = {
+        str(option.get("text") or "").strip().lower()
+        for option in options
+        if isinstance(option, dict)
+    }
+    texts = {value for value in texts if value}
+    if len(texts) != 2:
+        return False
+    return any(
+        texts == {token.lower() for token in pair}
+        for pair in _TRUE_FALSE_TOKEN_PAIRS
+    )
 
 
 def _selected_option_id(canonical: Any) -> str:
