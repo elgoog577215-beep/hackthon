@@ -199,17 +199,17 @@ def _provider_cooldowns() -> int:
     有效样本。
     """
     try:
-        from ai_capacity import provider_capacity
+        from ai_capacity import _CONTROLLERS
     except Exception:  # noqa: BLE001 - 拿不到就报 -1，不假装是 0
         return -1
     total = 0
-    for attr in ("_states", "states"):
-        states = getattr(provider_capacity, attr, None)
-        if isinstance(states, dict):
-            for state in states.values():
-                total += int(getattr(state, "quota_exhausted", 0) or 0)
-            return total
-    return -1
+    for controller in _CONTROLLERS.values():
+        models = getattr(controller, "_models", None)
+        if not isinstance(models, dict):
+            return -1
+        for state in models.values():
+            total += int(getattr(state, "quota_exhausted", 0) or 0)
+    return total
 
 
 async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
@@ -370,7 +370,7 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
     # 0 熔断；出现「100 秒出头、20 多次调用」就是熔断了，那一轮数据必须作废。
     # 我前五轮只记了耗时，调用数这一维无法回查——补上，让判据两个轴都能核。
     gen_audit = prepared.get("_assessment_generation_audit") or {}
-    vitals = {
+    vitals: dict[str, Any] = {
         "logical_call_count": int(gen_audit.get("logical_call_count") or 0),
         "physical_model_call_count": int(
             gen_audit.get("physical_model_call_count") or 0
@@ -388,6 +388,19 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
         ),
         "provider_cooldowns": _provider_cooldowns(),
     }
+    # 产出量必须与耗时/调用数一起看。
+    #
+    # 实测踩到过一次反例：修完缺陷后的运行 214.9 秒 / 82 次调用，两项都**低于**
+    # lz-web-search 给的健康区间（250-315 秒 / 92-103 次），按「快 = 熔断」会被
+    # 误判作废——但那一轮产出 27/30 道，是历轮最高。原因是修复减少了失败重试，
+    # 「更快更少」在这里是修好了的信号，不是熔断。
+    # 熔断的真正特征是「快 + 少 + 产出也少」，三者要一起看。
+    vitals["generated_total"] = sum(
+        int(v.get("generated") or 0) for v in per_form_report.values()
+    )
+    vitals["requested_total"] = sum(
+        int(v.get("requested") or 0) for v in per_form_report.values()
+    )
 
     return {
         "schema_version": "question_form_generation_audit_v2",
