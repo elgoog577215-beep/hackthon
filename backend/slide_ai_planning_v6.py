@@ -270,6 +270,17 @@ def _normalize_story_batch_response(
                 continue
             if artifacts and not artifacts.intersection(layout.get("artifact_kinds") or []):
                 continue
+            source_decisions = set(_allowed_visual_decisions(
+                artifacts,
+                list(unit.get("source_asset_ids") or []),
+            ))
+            if (
+                _layout_requires_artifact_decision(layout)
+                and not source_decisions.intersection(
+                    set(layout.get("artifact_kinds") or [])
+                )
+            ):
+                continue
             if roles and not artifacts:
                 remaining_roles = list(roles)
                 required_text_slots = [
@@ -552,15 +563,25 @@ async def _notify_batch(
 def _allowed_layout_ids_for(
     teaching_intent: str,
     required_artifacts: set[str],
+    source_asset_ids: list[str],
     template: TemplateLayoutPackContractV1,
     *,
     teaching_unit_id: str,
 ) -> list[str]:
     result = []
+    source_decisions = set(_allowed_visual_decisions(
+        required_artifacts,
+        source_asset_ids,
+    ))
     for layout in template.layouts:
         if teaching_intent not in layout.teaching_intents:
             continue
         if required_artifacts and not required_artifacts.intersection(layout.artifact_kinds):
+            continue
+        if (
+            _layout_requires_artifact_decision(layout)
+            and not source_decisions.intersection(set(layout.artifact_kinds))
+        ):
             continue
         result.append(layout.template_layout_id)
     if not result:
@@ -656,6 +677,7 @@ def _story_unit_request(
                 if page_intent == "artifact_explanation"
                 else set()
             ),
+            unit.source_asset_refs,
             template,
             teaching_unit_id=unit.teaching_unit_id,
         )
@@ -1480,6 +1502,52 @@ def _visual_request(
             blocks[0]["source_text"] = unit.source_text
         return blocks
 
+    def page_request(page: SlideStoryPageV3) -> dict[str, Any]:
+        unit = units[page.teaching_unit_id]
+        layout = template.get_layout(page.template_layout_id)
+        if layout is None:
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_unavailable",
+                message="Visual planning requires a published template layout",
+                page_id=page.page_id,
+            )
+        source_blocks = page_source_blocks(page)
+        artifact_kinds = page_artifact_kinds(unit, page.source_block_ids)
+        source_decisions = _allowed_visual_decisions(
+            artifact_kinds,
+            unit.source_asset_refs,
+        )
+        layout_requires_artifact = _layout_requires_artifact_decision(layout)
+        allowed_decisions = _decisions_allowed_by_layout(
+            source_decisions,
+            layout_artifact_kinds=set(layout.artifact_kinds),
+            layout_requires_artifact=layout_requires_artifact,
+        )
+        if not allowed_decisions:
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_unavailable",
+                message="Template layout has no source-supported visual decision",
+                page_id=page.page_id,
+            )
+        return {
+            "page_id": page.page_id,
+            "teaching_unit_id": page.teaching_unit_id,
+            "template_layout_id": page.template_layout_id,
+            "source_block_ids": page.source_block_ids,
+            "source_text": "\n\n".join(
+                block["source_text"] for block in source_blocks
+                if block["source_text"]
+            ) or unit.source_text,
+            "source_blocks": source_blocks,
+            "artifact_kinds": sorted(artifact_kinds),
+            "layout_artifact_kinds": list(layout.artifact_kinds),
+            "layout_requires_artifact": layout_requires_artifact,
+            "allowed_decisions": allowed_decisions,
+            "source_asset_ids": unit.source_asset_refs,
+        }
+
     return {
         "schema_version": "slide_visual_batch_request_v2",
         "chapter_id": batch.chapter_id,
@@ -1503,32 +1571,7 @@ def _visual_request(
             "forbidden_decision_fields": ["decision_type", "code_payload"],
             "diagram_node_fields": ["node_id", "label", "source_block_ids"],
         },
-        "pages": [
-            {
-                "page_id": page.page_id,
-                "teaching_unit_id": page.teaching_unit_id,
-                "template_layout_id": page.template_layout_id,
-                "source_block_ids": page.source_block_ids,
-                "source_text": "\n\n".join(
-                    block["source_text"] for block in page_source_blocks(page)
-                    if block["source_text"]
-                ) or units[page.teaching_unit_id].source_text,
-                "source_blocks": page_source_blocks(page),
-                "artifact_kinds": sorted(page_artifact_kinds(
-                    units[page.teaching_unit_id],
-                    page.source_block_ids,
-                )),
-                "allowed_decisions": _allowed_visual_decisions(
-                    page_artifact_kinds(
-                        units[page.teaching_unit_id],
-                        page.source_block_ids,
-                    ),
-                    units[page.teaching_unit_id].source_asset_refs,
-                ),
-                "source_asset_ids": units[page.teaching_unit_id].source_asset_refs,
-            }
-            for page in batch.pages
-        ],
+        "pages": [page_request(page) for page in batch.pages],
     }
 
 
@@ -1541,6 +1584,31 @@ _VISUAL_DECISIONS_BY_ARTIFACT: dict[str, set[str]] = {
     "experiment": {"experiment", "image", "data"},
     "source_excerpt": {"source_excerpt", "image"},
 }
+
+
+def _layout_requires_artifact_decision(layout: Any) -> bool:
+    slots = layout.slots if hasattr(layout, "slots") else layout.get("slots") or []
+    return any(
+        (slot.required if hasattr(slot, "required") else bool(slot.get("required")))
+        and (
+            slot.slot_kind if hasattr(slot, "slot_kind") else str(slot.get("slot_kind") or "")
+        ) in {"code", "formula", "table", "visual"}
+        for slot in slots
+    )
+
+
+def _decisions_allowed_by_layout(
+    source_decisions: list[str],
+    *,
+    layout_artifact_kinds: set[str],
+    layout_requires_artifact: bool,
+) -> list[str]:
+    if not layout_requires_artifact:
+        return list(source_decisions)
+    return [
+        decision for decision in source_decisions
+        if decision in layout_artifact_kinds
+    ]
 
 
 def _allowed_visual_decisions(
