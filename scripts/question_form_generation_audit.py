@@ -192,6 +192,26 @@ def _grade_fill_blank_cases(contract: dict[str, Any]) -> list[dict[str, Any]]:
     return results
 
 
+def _provider_cooldowns() -> int:
+    """本轮有没有触发过 provider 熔断/冷却。
+
+    熔断会让调用被跳过而不是真的发出去，跑出来又快又少——那样的数据不能当
+    有效样本。
+    """
+    try:
+        from ai_capacity import provider_capacity
+    except Exception:  # noqa: BLE001 - 拿不到就报 -1，不假装是 0
+        return -1
+    total = 0
+    for attr in ("_states", "states"):
+        states = getattr(provider_capacity, attr, None)
+        if isinstance(states, dict):
+            for state in states.values():
+                total += int(getattr(state, "quota_exhausted", 0) or 0)
+            return total
+    return -1
+
+
 async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
     from assessment_orchestrator import AssessmentGenerationOrchestrator
     from question_bank import build_question_bank
@@ -344,8 +364,34 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             ),
         }
 
+    # 熔断判据所需的运行体征。
+    #
+    # lz-web-search 独立复核给出的口径：健康运行 250-315 秒 / 92-103 次调用 /
+    # 0 熔断；出现「100 秒出头、20 多次调用」就是熔断了，那一轮数据必须作废。
+    # 我前五轮只记了耗时，调用数这一维无法回查——补上，让判据两个轴都能核。
+    gen_audit = prepared.get("_assessment_generation_audit") or {}
+    vitals = {
+        "logical_call_count": int(gen_audit.get("logical_call_count") or 0),
+        "physical_model_call_count": int(
+            gen_audit.get("physical_model_call_count") or 0
+        ),
+        "provider_attempt_count": int(
+            gen_audit.get("provider_attempt_count") or 0
+        ),
+        "generation_calls": int(gen_audit.get("generation_calls") or 0),
+        "repair_calls": int(gen_audit.get("repair_calls") or 0),
+        "independent_solution_calls": int(
+            gen_audit.get("independent_solution_calls") or 0
+        ),
+        "semantic_evaluation_calls": int(
+            gen_audit.get("semantic_evaluation_calls") or 0
+        ),
+        "provider_cooldowns": _provider_cooldowns(),
+    }
+
     return {
-        "schema_version": "question_form_generation_audit_v1",
+        "schema_version": "question_form_generation_audit_v2",
+        "run_vitals": vitals,
         "metric_name": "expected_agreement",
         "metric_disclaimer": (
             "预期一致率：预期分由 AI 编写、未经教研复核，"
