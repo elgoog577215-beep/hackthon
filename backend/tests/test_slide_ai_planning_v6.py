@@ -792,9 +792,20 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
         repair_targets = (request.get("repair_feedback") or {}).get(
             "repair_targets"
         ) or []
+        repair_target = repair_targets[0] if repair_targets else {}
         should_repartition = bool(
             repair_targets
-            and repair_targets[0].get("repartition_required") is True
+            and repair_target.get("repartition_required") is True
+            and any(
+                layout_id.endswith("/evidence-code")
+                for layout_id in (
+                    repair_target.get("artifact_layout_ids_by_kind") or {}
+                ).get("code") or []
+            )
+            and all(
+                str(block.get("source_text") or "").strip()
+                for block in repair_target.get("primary_blocks") or []
+            )
         )
         if should_repartition:
             pages = [
@@ -885,6 +896,20 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
     assert (
         repair_target["available_title_candidates"]
         == unit["title_candidates"]
+    )
+    assert any(
+        layout_id.endswith("/evidence-code")
+        for layout_id in repair_target["artifact_layout_ids_by_kind"]["code"]
+    )
+    assert repair_target["primary_blocks"] == unit["primary_blocks"]
+    code_block = next(
+        block
+        for block in unit["primary_blocks"]
+        if block["block_id"] == unit["primary_block_ids"][1]
+    )
+    assert any(
+        layout_id.endswith("/evidence-code")
+        for layout_id in code_block["compatible_template_layout_ids"]
     )
     assert repair_target["required_template_layout_id"] == ""
     assert [page.page_id for page in story.pages] == [
