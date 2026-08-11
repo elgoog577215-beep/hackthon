@@ -1238,6 +1238,66 @@ async def test_story_repartitions_page_when_layout_covers_only_one_required_arti
     assert story.pages[1].template_layout_id.endswith("/evidence-code")
 
 
+@pytest.mark.parametrize(
+    ("invalid_layout_slug", "failure_code"),
+    [
+        ("evidence-table", "template_layout_artifact_mismatch"),
+        ("content-stack", "template_layout_intent_mismatch"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_story_contract_projects_repeated_invalid_grouping_to_one_safe_partition(
+    invalid_layout_slug: str,
+    failure_code: str,
+) -> None:
+    """A retry remains AI-authored but its source grouping is contract constrained."""
+
+    document = _mixed_table_and_code_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        invalid_layout = next(
+            layout.template_layout_id
+            for layout in template.layouts
+            if layout.layout_slug == invalid_layout_slug
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"invalid-mixed-page-{len(calls)}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": invalid_layout,
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair = calls[1]["repair_feedback"]
+    assert repair["code"] == failure_code
+    target = repair["repair_targets"][0]
+    assert target["repartition_required"] is True
+    assert target["required_safe_partition"]["partition_id"]
+    assert target["required_safe_partition"]["pages"]
+    assert [page.source_block_ids for page in story.pages] == [
+        ["observation-record"],
+        ["reproduction-procedure"],
+    ]
+    assert story.pages[0].template_layout_id.endswith("/evidence-table")
+    assert story.pages[1].template_layout_id.endswith("/evidence-code")
+
+
 @pytest.mark.asyncio
 async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> None:
     document = _dense_mixed_evidence_document()
