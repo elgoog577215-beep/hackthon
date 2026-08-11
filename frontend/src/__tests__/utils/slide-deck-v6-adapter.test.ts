@@ -78,6 +78,46 @@ describe('slide deck V6 web adapter', () => {
     })).toThrow('v6_template_layout_adapter_missing')
   })
 
+  it('preserves ordered step regions as process blocks for numbered web rendering', () => {
+    const slides = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      title: 'Field transfer',
+      theme: 'qizhi-classroom',
+      pages: [{
+        schema_version: 'slide_page_v6',
+        page_id: 'page-steps',
+        page_ordinal: 0,
+        title: 'Transfer the specimen',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/practice-prompt',
+        source_block_ids: ['transfer-steps'],
+        artifact_kinds: [],
+        regions: [{
+          region_id: 'page-steps:task',
+          slot_id: 'task',
+          content_kind: 'steps',
+          content: [
+            'Verify the specimen: Match the identifier to the record.',
+            'Close the container: Confirm the seal is intact.',
+            'Record the handoff: Capture the receiver name.',
+          ].join('\n'),
+          source_block_ids: ['transfer-steps'],
+        }],
+        speaker_notes: {
+          source_document_revision: 'course-rev-steps',
+          teaching_unit_id: 'unit-steps',
+          source_blocks: [],
+        },
+      }],
+    })
+
+    expect(slides[0]!.blocks[0]!.type).toBe('process')
+    expect(slides[0]!.blocks[0]!.items).toEqual([
+      'Verify the specimen: Match the identifier to the record.',
+      'Close the container: Confirm the seal is intact.',
+      'Record the handoff: Capture the receiver name.',
+    ])
+  })
+
   it('materializes published table-family variants and structured table data without duplicating source text', () => {
     const basePage = {
       schema_version: 'slide_page_v6',

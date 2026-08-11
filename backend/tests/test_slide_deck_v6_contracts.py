@@ -544,6 +544,90 @@ def test_story_plan_rejects_a_layout_before_its_required_text_slot_materializes_
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_ordered_activity_materializes_as_distinct_source_bound_steps() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-procedure",
+        title="Field sample handling",
+        sections=[CourseSection(
+            section_id="field-procedure",
+            title="Preserve the sample chain",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="handling-steps",
+            section_id="field-procedure",
+            position=0,
+            role="activity",
+            payload={"markdown": (
+                "**Procedure record**\n\n"
+                "Follow these operations in order:\n\n"
+                "1. **Collect the sample**\n"
+                "   - Record the collection time.\n"
+                "2. **Seal the container**\n"
+                "   - Check that the lid is secure.\n"
+                "3. **Label the evidence**\n"
+                "   - Copy the sample identifier exactly.\n"
+                "4. **Transfer the package**\n"
+                "   - Obtain the receiver signature."
+            )},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="field-procedure-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("practice-prompt"),
+        title="Preserve the sample chain",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field-procedure",
+            chapter_id="field-procedure",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    region = next(
+        region
+        for region in deck.pages[0].regions
+        if region.slot_id == "task"
+    )
+    steps = region.content.splitlines()
+
+    assert region.content_kind == "steps"
+    assert len(steps) == 4
+    assert [step.split(":", 1)[0] for step in steps] == [
+        "Collect the sample",
+        "Seal the container",
+        "Label the evidence",
+        "Transfer the package",
+    ]
+    assert "Procedure record" not in region.content
+    assert "Follow these operations" not in region.content
+
+
 def test_visual_plan_degrades_only_optional_visuals() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)

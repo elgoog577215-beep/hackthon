@@ -398,6 +398,93 @@ def _chapter_entry_at_contract_capacity_deck():
     return compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _ordered_step_deck():
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-lab-transfer",
+        title="Laboratory transfer",
+        sections=[CourseSection(
+            section_id="transfer",
+            title="Transfer the specimen",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="transfer-steps",
+            section_id="transfer",
+            position=0,
+            role="activity",
+            payload={"markdown": (
+                "Complete the transfer in order:\n\n"
+                "1. **Verify the specimen**\n"
+                "   - Match the identifier to the record.\n"
+                "2. **Close the container**\n"
+                "   - Confirm the seal is intact.\n"
+                "3. **Record the handoff**\n"
+                "   - Capture the receiver name."
+            )},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = template.layout_id("practice-prompt")
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-transfer",
+            chapter_id="transfer",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="transfer-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Transfer the specimen",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="transfer-page",
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
+def test_v6_ordered_steps_render_as_numbered_lines_in_pptx(tmp_path: Path) -> None:
+    deck = _ordered_step_deck()
+    spec = adapt_v6_page_to_slide_spec(deck.pages[0])
+    process = next(block for block in spec.blocks if block.type == "process")
+
+    assert process.items == [
+        "Verify the specimen: Match the identifier to the record.",
+        "Close the container: Confirm the seal is intact.",
+        "Record the handoff: Capture the receiver name.",
+    ]
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "ordered-steps.pptx")
+    presentation = Presentation(output)
+    visible_text = "\n".join(
+        shape.text
+        for shape in presentation.slides[0].shapes
+        if hasattr(shape, "text_frame") and shape.text.strip()
+    )
+
+    assert "1. Verify the specimen" in visible_text
+    assert "2. Close the container" in visible_text
+    assert "3. Record the handoff" in visible_text
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
