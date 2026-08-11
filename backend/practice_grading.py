@@ -13,7 +13,15 @@ from code_runner_client import (
     CodeRunnerUnavailable,
     code_runner_client,
 )
-from practice_attempts import evidence_strength
+from practice_attempts import evidence_strength, support_level
+from stepwise_answers import (
+    extract_steps,
+    merged_answer_text,
+    normalize_step_judgements,
+    reference_steps,
+    stepwise_enabled,
+    stepwise_summary,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -45,7 +53,7 @@ class PracticeGrader(AIBase):
         else:
             result = await self._grade_rubric(question, answer_payload)
         result["evidence_strength"] = strength
-        result["support_level"] = _support_level(attempt)
+        result["support_level"] = support_level(attempt)
         result["grading_method"] = result.get("grading_method") or method
         allows_mastery = validation_policy.get("mastery_eligible")
         if allows_mastery is None:
@@ -262,10 +270,22 @@ class PracticeGrader(AIBase):
         question: dict[str, Any],
         answer_payload: dict[str, Any],
     ) -> dict[str, Any]:
+        submitted_steps = extract_steps(answer_payload)
         raw_answer = (
             answer_payload.get("text")
             or answer_payload.get("value")
         )
+        if submitted_steps and not stepwise_enabled(question):
+            # Steps arrived for an item with no derivation to judge (a choice
+            # item, say). Keep every word the student wrote in the graded answer
+            # below, but do not fabricate per-step verdicts against no reference.
+            submitted_steps = []
+            raw_answer = merged_answer_text(answer_payload)
+        if submitted_steps:
+            # A stepwise answer must be graded on everything the student wrote,
+            # steps included — the per-step verdicts below are an additional view,
+            # never a replacement for the overall rubric judgement.
+            raw_answer = merged_answer_text(answer_payload)
         if raw_answer is None and answer_payload:
             raw_answer = json.dumps(
                 answer_payload,
@@ -290,7 +310,7 @@ class PracticeGrader(AIBase):
         pass_score = int(spec.get("pass_score") or 70)
         criteria = [str(item) for item in spec.get("criteria") or []]
         expected = [str(item) for item in spec.get("expected_keywords") or []]
-        prompt = json.dumps({
+        prompt_payload: dict[str, Any] = {
             "question": question.get("prompt"),
             "question_type": question.get("question_type"),
             "rubric": criteria,
@@ -320,7 +340,27 @@ class PracticeGrader(AIBase):
                     "feedback": "evidence-based feedback",
                 }],
             },
-        }, ensure_ascii=False)
+        }
+        stepwise_instruction = ""
+        if submitted_steps:
+            prompt_payload["student_steps"] = submitted_steps
+            prompt_payload["reference_steps"] = reference_steps(question)
+            prompt_payload["required_output"]["step_judgements"] = [{
+                "step_index": "integer, must match a submitted student step",
+                "verdict": "correct | flawed | unclear",
+                "comment": "concise Chinese comment on this step only",
+                "evidence": "quote from this step that justifies the verdict",
+            }]
+            stepwise_instruction = (
+                "学生逐步提交了推导过程。除整体评分外，为每个 student_steps 给出"
+                " step_judgements：step_index 必须与学生实际提交的步骤号一致，"
+                "不得为学生没有写的步骤编造判定。只依据该步骤自身的文字判定，"
+                "evidence 必须是该步骤中的原文片段。若某步无法判断，verdict 用"
+                " unclear，不要猜测。reference_steps 是隐藏依据，学生的步骤划分"
+                "与它不同但推理成立时仍应判为 correct，不要因为步骤顺序或数量不同"
+                "就判为 flawed。"
+            )
+        prompt = json.dumps(prompt_payload, ensure_ascii=False)
         response = await self._call_llm(
             prompt,
             system_prompt=(
@@ -331,6 +371,7 @@ class PracticeGrader(AIBase):
                 "如果量规不足以可靠判断，将 confidence 设为低值。只输出 JSON。"
                 "score 和 rubric_results[].score 必须是 0 到 100 的纯数字，"
                 "confidence 必须是 0 到 1 的纯数字，不得添加单位、解释或其他字符。"
+                + stepwise_instruction
             ),
             use_fast_model=False,
             retry_count=2,
@@ -354,6 +395,10 @@ class PracticeGrader(AIBase):
             confidence = max(0.0, min(1.0, float(parsed.get("confidence"))))
         except (TypeError, ValueError):
             return _pending_review("自动评阅缺少可靠分数或置信度，答案已进入待评阅")
+        step_judgements = normalize_step_judgements(
+            parsed.get("step_judgements"),
+            submitted_steps,
+        ) if submitted_steps else []
         threshold = float((question.get("grading_policy") or {}).get("confidence_threshold") or 0.72)
         if confidence < threshold or abs(score - pass_score) <= 3:
             pending = _pending_review("结果接近通过线或置信度不足，答案已进入待评阅")
@@ -362,9 +407,14 @@ class PracticeGrader(AIBase):
                 "grading_confidence": confidence,
                 "rubric_results": _sanitize_rubric_results(parsed.get("rubric_results")),
             })
+            # Per-step verdicts survive into pending review: they are the most
+            # useful thing a human reviewer can look at, and withholding them
+            # would make the reviewer redo work the model already did.
+            if submitted_steps:
+                pending["stepwise"] = stepwise_summary(submitted_steps, step_judgements)
             return pending
         passed = score >= pass_score and parsed.get("passed") is not False
-        return {
+        result = {
             "status": "graded",
             "score": score,
             "passed": passed,
@@ -373,6 +423,9 @@ class PracticeGrader(AIBase):
             "grading_confidence": confidence,
             "grading_method": "rubric_ai",
         }
+        if submitted_steps:
+            result["stepwise"] = stepwise_summary(submitted_steps, step_judgements)
+        return result
 
 
 def _pending_review(message: str) -> dict[str, Any]:
@@ -386,15 +439,6 @@ def _pending_review(message: str) -> dict[str, Any]:
         "grading_method": "rubric_ai",
         "mastery_eligible": False,
     }
-
-
-def _support_level(attempt: dict[str, Any]) -> int:
-    return max([
-        0,
-        int(attempt.get("ai_support_level") or 0),
-        *[int(item) for item in attempt.get("revealed_hint_levels") or []],
-        3 if attempt.get("solution_revealed") else 0,
-    ])
 
 
 _NONE_SENTINEL = "\0__none__\0"

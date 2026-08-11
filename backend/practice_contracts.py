@@ -7,6 +7,8 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from hint_leakage import measure_deepest_hint_overlap
+from stepwise_answers import derive_stepwise_capability, reference_steps
 from reasoning_paths import compile_reasoning_support
 from solution_presentation import present_solution_value
 
@@ -240,6 +242,19 @@ def enrich_question_contract(
         answer_spec["criteria"] = criteria
         item["answer_spec"] = answer_spec
     _complete_hint_policy(item)
+    # Stepwise capability must be derived on this path too, not only in
+    # assessment_compiler: legacy/asset-backed questions (course assets, final
+    # assessment, remediation) all come through here, and without this the
+    # stepwise answer UI would simply never appear for them.
+    #
+    # Count the compiled reasoning path, not `criteria`: open-ended legacy items
+    # frequently carry no criteria at all, while _legacy_reasoning_support has
+    # just filled in the actual derivation they will be graded against.
+    item["input_contract"]["stepwise"] = derive_stepwise_capability(
+        input_mode=str(item["input_contract"].get("mode") or ""),
+        reference_step_count=len(reference_steps(item)),
+        existing=item["input_contract"].get("stepwise"),
+    )
     method = "deterministic" if answer_spec.get("correct_answer") is not None or answer_spec.get("correct_option_id") is not None else "rubric_ai"
     if not isinstance(item.get("grading_policy"), dict) or not item.get(
         "grading_policy"
@@ -586,9 +601,24 @@ def _complete_hint_policy(item: dict[str, Any]) -> None:
         "requires_unseen_equivalent_validation": True,
     })
     contract.setdefault("frozen_with_item_revision", True)
+    answer_spec = item.get("answer_spec") or {}
+    overlap = measure_deepest_hint_overlap(
+        contract.get("levels") or [],
+        {
+            "solution_spec": answer_spec.get("solution_spec") or {},
+            "canonical_answer": answer_spec.get("canonical_answer"),
+            "legacy_answer_spec": {
+                "correct_answer": answer_spec.get("correct_answer"),
+            },
+        },
+    )
     contract.setdefault("leakage_check", {
-        "passed": _legacy_hint_does_not_reveal_answer(item),
+        "passed": (
+            _legacy_hint_does_not_reveal_answer(item)
+            and not overlap.get("leaked")
+        ),
         "checked_at_compile_time": True,
+        "deepest_hint_overlap": overlap,
     })
 
 

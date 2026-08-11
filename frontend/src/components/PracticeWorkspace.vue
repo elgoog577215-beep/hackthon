@@ -242,6 +242,65 @@
             </div>
           </section>
 
+          <section
+            v-if="guidanceTurns.length || guidanceOpen"
+            class="guidance-panel"
+            data-testid="guidance-panel"
+            aria-live="polite"
+          >
+            <header class="guidance-heading">
+              <MessageCircleQuestion :size="16" aria-hidden="true" />
+              <strong>{{ t('courseWorkspace.practice.guidanceTitle', 'AI 老师引导') }}</strong>
+              <small>{{ t('courseWorkspace.practice.guidanceEvidenceNote', '引导只提问、不给答案；用得越多，本次作答作为独立掌握证据越弱。') }}</small>
+            </header>
+
+            <div
+              v-for="(turn, index) in guidanceTurns"
+              :key="`turn-${index}`"
+              class="guidance-turn"
+              :class="turn.role"
+            >
+              <span class="guidance-role">
+                {{ turn.role === 'student'
+                  ? t('courseWorkspace.practice.guidanceYou', '你')
+                  : t('courseWorkspace.practice.guidanceTeacher', 'AI 老师') }}
+              </span>
+              <p>{{ turn.text }}</p>
+              <small
+                v-if="turn.role === 'assistant' && turn.status && turn.status !== 'ok'"
+                class="guidance-degraded"
+                data-testid="guidance-degraded"
+              >
+                {{ guidanceStatusNote(String(turn.status)) }}
+              </small>
+            </div>
+
+            <div class="guidance-compose">
+              <textarea
+                v-model="guidanceMessage"
+                class="guidance-input"
+                :disabled="answerLocked || guidanceSending || guidanceExhausted"
+                :placeholder="t('courseWorkspace.practice.guidancePlaceholder', '说说你现在卡在哪一步，以及你用了什么条件')"
+                data-testid="guidance-input"
+              />
+              <button
+                type="button"
+                class="text-command"
+                :disabled="answerLocked || guidanceSending || guidanceExhausted || !guidanceMessage.trim()"
+                data-testid="guidance-send"
+                @click="sendGuidance"
+              >
+                <LoaderCircle v-if="guidanceSending" :size="15" class="animate-spin" aria-hidden="true" />
+                {{ guidanceSending
+                  ? t('courseWorkspace.practice.guidanceSending', '正在思考…')
+                  : t('courseWorkspace.practice.guidanceSend', '继续追问') }}
+              </button>
+            </div>
+            <small v-if="guidanceExhausted" class="guidance-degraded" data-testid="guidance-exhausted">
+              {{ t('courseWorkspace.practice.guidanceExhausted', '本题引导轮次已用完，请先自己往下写一步。') }}
+            </small>
+          </section>
+
           <section v-if="workspace.practiceResult" class="practice-feedback" :data-passed="workspace.practiceResult.passed">
             <div class="feedback-heading">
               <CheckCircle2 v-if="workspace.practiceResult.passed" :size="21" />
@@ -258,6 +317,34 @@
                 <small>{{ item.feedback }}</small>
               </div>
             </div>
+            <section
+              v-if="stepwiseJudgement?.steps?.length"
+              class="stepwise-judgement"
+              data-testid="stepwise-judgement"
+            >
+              <header>
+                <strong>{{ t('courseWorkspace.practice.stepwiseResultTitle', '逐步判定') }}</strong>
+                <span v-if="stepwiseJudgement.first_flawed_step_index">
+                  {{ t('courseWorkspace.practice.stepwiseFirstFlawed', '推导从第 {index} 步开始出问题')
+                    .replace('{index}', String(stepwiseJudgement.first_flawed_step_index)) }}
+                </span>
+                <span v-else>
+                  {{ t('courseWorkspace.practice.stepwiseNoFlaw', '没有发现出错的步骤') }}
+                </span>
+              </header>
+              <div
+                v-for="step in stepwiseJudgement.steps"
+                :key="`judged-${step.step_index}`"
+                class="stepwise-verdict"
+                :data-verdict="step.verdict"
+              >
+                <span class="verdict-index">
+                  {{ t('courseWorkspace.practice.stepLabel', '第 {index} 步').replace('{index}', String(step.step_index)) }}
+                </span>
+                <span class="verdict-tag">{{ stepVerdictLabel(step.verdict) }}</span>
+                <small v-if="step.comment">{{ step.comment }}</small>
+              </div>
+            </section>
             <section v-if="answerDiagnosis" class="answer-diagnosis">
               <header>
                 <strong>{{ t('courseWorkspace.practiceAnalysis.title', '题目解析与本次判断') }}</strong>
@@ -485,12 +572,20 @@ const emit = defineEmits<{
   (event: 'askTeacher', payload: { text: string; nodeId: string }): void
   (event: 'graded'): void
 }>()
+// Mirrors socratic_guidance.MAX_ROUNDS; the server is authoritative and returns
+// guidance_round_limit_reached, this only avoids offering a doomed request.
+const MAX_GUIDANCE_ROUNDS = 6
+
 const workspace = useCourseWorkspaceStore()
 const practiceView = ref<'current' | 'history' | 'needs_review'>(workspace.practiceLandingView)
 const submitting = ref(false)
 const targetedRetryingId = ref('')
 const questionRefreshing = ref(false)
 const hintLoadingLevel = ref<number | null>(null)
+const guidanceOpen = ref(false)
+const guidanceMessage = ref('')
+const guidanceSending = ref(false)
+const guidanceRoundLimitReached = ref(false)
 const questionBankRebuilding = ref(false)
 const questionBankRebuildError = ref('')
 const questionBankRebuildJob = ref<QuestionBankRebuildJob | null>(null)
@@ -546,6 +641,21 @@ const emptyState = computed(() => practiceAvailabilityCopy(
   t,
 ))
 const isChoiceQuestion = computed(() => currentQuestion.value?.input_contract?.mode === 'choice')
+
+// Guidance transcript lives on the attempt, so it survives reload and can never
+// disagree with the support level it drove.
+const guidanceTurns = computed(() => {
+  const turns = (workspace.currentAttempt as any)?.guidance_turns
+  return Array.isArray(turns)
+    ? turns.filter((turn: any) => turn && String(turn.text || '').trim())
+    : []
+})
+const guidanceRoundsUsed = computed(() => guidanceTurns.value.filter(
+  (turn: any) => turn.role === 'assistant' && turn.status === 'ok',
+).length)
+const guidanceExhausted = computed(() => (
+  guidanceRoundLimitReached.value || guidanceRoundsUsed.value >= MAX_GUIDANCE_ROUNDS
+))
 const answerLocked = computed(() => !!workspace.currentAttempt && workspace.currentAttempt.status !== 'in_progress')
 const hasAnswer = computed(() => hasMeaningfulAnswer(workspace.currentDraft || {}))
 const hasNext = computed(() => workspace.currentQuestionIndex < questions.value.length - 1)
@@ -632,6 +742,18 @@ const evidenceLabel = computed(() => t(
   `courseWorkspace.practice.evidence.${workspace.practiceResult?.evidence_strength || 'invalid'}`,
   `证据强度：${workspace.practiceResult?.evidence_strength || '待确认'}`,
 ))
+
+// Per-step verdicts (J3). The grader only attaches this when the student
+// actually submitted steps, so its absence is the whole-answer path, not an error.
+const stepwiseJudgement = computed(() => (workspace.practiceResult as any)?.stepwise || null)
+
+function stepVerdictLabel(verdict: string): string {
+  if (verdict === 'correct') return t('courseWorkspace.practice.stepCorrect', '这一步成立')
+  if (verdict === 'flawed') return t('courseWorkspace.practice.stepFlawed', '这一步有问题')
+  // "unclear" is a real answer, not a failure: the model must say so rather than
+  // guess, so it has to be shown as its own state instead of being hidden.
+  return t('courseWorkspace.practice.stepUnclear', '这一步看不出依据')
+}
 
 watch(
   () => [props.courseId, props.nodeId, props.scope],
@@ -735,15 +857,64 @@ async function revealHint(level: number) {
 }
 
 async function askTeacher() {
+  // Opening the guidance panel is the multi-round Socratic entry (K2). The
+  // support level is still recorded here so simply opening the AI tutor keeps
+  // counting exactly as it did before.
+  guidanceOpen.value = true
   await workspace.recordPracticeAiSupport(props.courseId, 1)
   emit('askTeacher', { text: currentQuestion.value?.prompt || '', nodeId: props.nodeId || '' })
 }
 
-function escalateToTeacher() {
+async function escalateToTeacher() {
+  // This path used to emit straight to the AI tutor without recording anything,
+  // which quietly bypassed the support accounting that mastery depends on —
+  // remediation help was free. It has to cost the same as any other AI help.
+  guidanceOpen.value = true
+  if (workspace.currentAttempt && !answerLocked.value) {
+    try {
+      await workspace.recordPracticeAiSupport(props.courseId, 1)
+    } catch {
+      // The shared HTTP layer already surfaced the error; escalation itself must
+      // still proceed so a recording failure never blocks a student asking.
+    }
+  }
   emit('askTeacher', {
     text: workflowHypothesis.value || currentQuestion.value?.prompt || '',
     nodeId: props.nodeId || '',
   })
+}
+
+async function sendGuidance() {
+  const message = guidanceMessage.value.trim()
+  if (!message || guidanceSending.value) return
+  guidanceSending.value = true
+  try {
+    await workspace.recordPracticeAiSupport(props.courseId, 1, message)
+    guidanceMessage.value = ''
+  } catch (error: any) {
+    if (error?.response?.data?.detail?.code === 'guidance_round_limit_reached') {
+      guidanceRoundLimitReached.value = true
+    }
+    // Other failures are already reported by the shared HTTP layer; the student's
+    // text stays in the box so a transient error never eats what they typed.
+  } finally {
+    guidanceSending.value = false
+  }
+}
+
+function guidanceStatusNote(status: string): string {
+  if (status === 'screened') {
+    // Deliberately honest: we stopped our own output, and it cost the student
+    // nothing (the backend does not charge support for undelivered turns).
+    return t(
+      'courseWorkspace.practice.guidanceScreened',
+      '这一轮引导没有通过安全检查，已换成一个不泄露答案的问题，本轮不计入求助。',
+    )
+  }
+  if (status === 'unavailable') {
+    return t('courseWorkspace.practice.guidanceUnavailable', 'AI 老师暂时不可用，本轮不计入求助。')
+  }
+  return t('courseWorkspace.practice.guidanceDegraded', '这一轮没能生成有效引导，本轮不计入求助。')
 }
 
 async function submit() {
@@ -1000,6 +1171,8 @@ function formatSolutionValue(value: unknown) {
 .answer-editor { width:100%; min-height:clamp(360px,54vh,680px); padding:16px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; resize:vertical; font:inherit; line-height:1.7; outline:none; }.answer-editor:focus { border-color:#0f766e; box-shadow:0 0 0 3px rgba(15,118,110,.1); }.answer-editor:disabled { background:#f1f5f9; }
 .choice-list { display:grid; gap:10px; }.choice-list label { display:grid; grid-template-columns:auto 24px minmax(0,1fr); gap:10px; align-items:flex-start; padding:13px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; cursor:pointer; }.choice-list label:has(input:checked) { border-color:#0f766e; background:#f0fdfa; }.choice-list input { margin-top:3px; }.choice-list strong { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:999px; background:#f1f5f9; color:#475569; font-size:12px; }.choice-list span { padding-top:2px; line-height:1.55; }.choice-list label:has(input:checked) strong { background:#0f766e; color:#fff; }
 .practice-actions { position:sticky; bottom:0; display:flex; justify-content:space-between; gap:14px; align-items:center; margin-top:22px; padding:12px 0; background:linear-gradient(to bottom,rgba(248,250,252,.86),#f8fafc 28%); }.support-actions { display:flex; gap:8px; align-items:center; }.icon-command,.text-command,.primary-command { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:0 12px; color:#334155; }.icon-command { width:42px; padding:0; }.icon-command:disabled,.text-command:disabled,.primary-command:disabled { opacity:.45; cursor:not-allowed; }.primary-command { border-color:#0f766e; background:#0f766e; color:#fff; font-weight:700; }
+.stepwise-judgement { margin-top:14px; display:grid; gap:8px; }.stepwise-judgement header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }.stepwise-judgement header strong { color:#0f766e; }.stepwise-judgement header span { color:#b45309; font-size:12px; }.stepwise-verdict { display:grid; grid-template-columns:78px auto 1fr; gap:10px; align-items:baseline; }.verdict-index { color:#64748b; font-size:12px; font-weight:700; }.verdict-tag { font-size:12px; font-weight:700; }.stepwise-verdict[data-verdict="correct"] .verdict-tag { color:#0f766e; }.stepwise-verdict[data-verdict="flawed"] .verdict-tag { color:#b91c1c; }.stepwise-verdict[data-verdict="unclear"] .verdict-tag { color:#b45309; }.stepwise-verdict small { color:#475569; line-height:1.5; }@media (max-width:700px){ .stepwise-verdict { grid-template-columns:1fr; gap:2px; } }
+.guidance-panel { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; display:grid; gap:10px; }.guidance-heading { display:flex; align-items:center; gap:8px; flex-wrap:wrap; color:#0f766e; }.guidance-heading small { flex-basis:100%; color:#64748b; font-weight:400; line-height:1.5; }.guidance-turn { display:grid; grid-template-columns:78px 1fr; gap:12px; align-items:start; }.guidance-role { color:#64748b; font-size:12px; font-weight:700; }.guidance-turn.assistant .guidance-role { color:#0f766e; }.guidance-turn p { margin:0; line-height:1.6; }.guidance-turn small { grid-column:2; }.guidance-degraded { color:#b45309; line-height:1.5; }.guidance-compose { display:grid; gap:8px; }.guidance-input { width:100%; box-sizing:border-box; min-height:76px; border:1px solid #cbd5e1; border-radius:8px; padding:10px 12px; font:inherit; line-height:1.6; resize:vertical; }.guidance-compose button { justify-self:start; }@media (max-width:700px){ .guidance-turn { grid-template-columns:1fr; gap:4px; } .guidance-turn small { grid-column:1; } .guidance-compose button { justify-self:stretch; } }
 .hint-results,.practice-feedback,.solution-result { margin-top:18px; border-top:1px solid #dbe3ed; padding-top:16px; }.hint-result { display:grid; grid-template-columns:78px 1fr; gap:12px; margin:8px 0; }.hint-result span { color:#a16207; font-size:12px; font-weight:700; }.hint-result p { margin:0; line-height:1.6; }.hint-result.loading p { display:flex; align-items:center; gap:8px; color:#64748b; }.hint-loading-icon { flex:0 0 auto; color:#0f766e; }
 .solution-result { color:#334155; }.solution-result p,.solution-result li { line-height:1.65; }.solution-result ul,.solution-result ol { padding-left:20px; }.solution-result h4 { margin:14px 0 7px; font-size:13px; color:#172033; }.solution-result pre { margin:0; padding:12px 14px; max-height:420px; overflow:auto; border:1px solid #dbe3ed; border-radius:6px; background:#f1f5f9; color:#0f172a; font:12px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.solution-steps ol,.solution-checks ul { margin:6px 0; }
 .remediation-context { margin-bottom:22px; padding:14px 0; border-top:1px solid #99f6e4; border-bottom:1px solid #99f6e4; }.remediation-context strong { color:#115e59; }.remediation-context p { margin:8px 0; line-height:1.65; }.remediation-context small { color:#64748b; }.workflow-result strong { color:#172033; }.workflow-result.warning svg { color:#b45309; }
