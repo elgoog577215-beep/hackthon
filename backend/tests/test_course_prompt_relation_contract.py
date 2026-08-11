@@ -182,3 +182,51 @@ def test_triggers_do_not_invite_fabrication() -> None:
     triggers = prompt[prompt.index("寻找关系时"): prompt.index("## JSON Schema")]
 
     assert "不成立" in triggers or "不要为凑数" in triggers
+
+
+# --- equivalent_to 的数据锚点触发（Gap A2） ---------------------------------
+#
+# 六次真实生成里 `equivalent_to` 一条都没出现。排查后**排除**了两个常见猜测：
+#
+# 1. "样例措辞太抽象"——不成立：实测六类样例中 `equivalent_to` 的 reason
+#    是**最长最具体**的一条（24 字），比产出正常的 `contrasts_with`（6 字）
+#    和 `prerequisite`（6 字）都具体。
+# 2. "对称关系语义门槛高"——不成立：`contrasts_with` 同为对称关系
+#    （`SYMMETRIC_RELATION_TYPES`），却能稳定产出。
+#
+# 真正的差别是**有没有数据锚点**：`contrasts_with` 挂在易错点的
+# `confused_with` 字段上，模型填了那个字段就等于承认两者易混，触发条件来自
+# 它自己的产出；而 `equivalent_to` 此前只有一句描述，没有任何字段能触发。
+#
+# 所以补的是同类锚点：`knowledge_type == "representation"`（schema 里本就
+# 存在的取值）。同一对象的两个 representation 之间天然是等价关系。
+
+
+def test_equivalent_to_has_a_data_anchored_trigger() -> None:
+    """`equivalent_to` 必须挂到 schema 里真实存在的字段上，而不是只有描述。
+
+    判据是锚点必须可判断：`representation` 是 `KNOWLEDGE_TYPES` 的合法取值，
+    模型给某个知识点标了这个类型，就有据可依去找它的等价对象。
+    """
+    from course_knowledge_base import KNOWLEDGE_TYPES
+
+    prompt = _batch_prompt()
+    triggers = prompt[prompt.index("寻找关系时"): prompt.index("## JSON Schema")]
+
+    assert "representation" in triggers
+    assert "representation" in KNOWLEDGE_TYPES, "锚点必须是 schema 里真实存在的类型"
+    assert "`equivalent_to`" in triggers
+
+
+def test_equivalent_to_trigger_names_a_checkable_condition() -> None:
+    """触发条件要能被判断，不能是"两者等价时就写等价"这种同义反复。"""
+    prompt = _batch_prompt()
+    triggers = prompt[prompt.index("寻找关系时"): prompt.index("## JSON Schema")]
+    # 取 equivalent_to 那一条的上下文（前后各 300 字），不做负索引切片——
+    # 负索引在关键词靠前时会绕回字符串末尾，断言就测到了别处。
+    at = triggers.index("`equivalent_to`")
+    section = triggers[max(0, at - 300): at + 300]
+
+    # 必须给出"怎么认出来"的具体信号，而不是重复类型定义。
+    assert "同一" in section, "要说清是同一对象/同一结论的不同表达"
+    assert "换了写法" in section or "另一种写法" in section, "要给出可判断的识别标准"
