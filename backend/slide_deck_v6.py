@@ -666,7 +666,7 @@ def validate_slide_visual_plan_v2(
                     message="Diagram edges must connect declared source-bound nodes",
                     page_id=page_id,
                 )
-        for artifact in unit.artifact_kinds:
+        for artifact in page_artifact_kinds(unit, page.source_block_ids):
             allowed = _REQUIRED_VISUAL_DECISION.get(artifact)
             if allowed and decision.decision not in allowed:
                 raise V6BuildError(

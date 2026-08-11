@@ -22,6 +22,7 @@ from course_document import stable_hash
 from course_presentation_graph import (
     CoursePresentationGraphV1,
     CoursePresentationUnitV1,
+    page_artifact_kinds,
     page_teaching_intent,
     teaching_intent_for_roles,
 )
@@ -1337,7 +1338,17 @@ def _visual_request(
                 "template_layout_id": page.template_layout_id,
                 "source_block_ids": page.source_block_ids,
                 "source_text": units[page.teaching_unit_id].source_text,
-                "artifact_kinds": units[page.teaching_unit_id].artifact_kinds,
+                "artifact_kinds": sorted(page_artifact_kinds(
+                    units[page.teaching_unit_id],
+                    page.source_block_ids,
+                )),
+                "allowed_decisions": _allowed_visual_decisions(
+                    page_artifact_kinds(
+                        units[page.teaching_unit_id],
+                        page.source_block_ids,
+                    ),
+                    units[page.teaching_unit_id].source_asset_refs,
+                ),
                 "source_asset_ids": units[page.teaching_unit_id].source_asset_refs,
             }
             for page in batch.pages
@@ -1354,6 +1365,26 @@ _VISUAL_DECISIONS_BY_ARTIFACT: dict[str, set[str]] = {
     "experiment": {"experiment", "image", "data"},
     "source_excerpt": {"source_excerpt", "image"},
 }
+
+
+def _allowed_visual_decisions(
+    artifact_kinds: set[str],
+    source_asset_ids: list[str],
+) -> list[str]:
+    required_artifacts = artifact_kinds.intersection(_HARD_VISUAL_ARTIFACTS)
+    if required_artifacts:
+        decisions = {
+            decision
+            for artifact in required_artifacts
+            for decision in _VISUAL_DECISIONS_BY_ARTIFACT.get(artifact, set())
+        }
+        if not source_asset_ids:
+            decisions.difference_update({"image", "experiment"})
+        return sorted(decisions)
+    decisions = {"diagram", "text_native"}
+    if source_asset_ids:
+        decisions.add("image")
+    return sorted(decisions)
 
 
 def _validate_visual_batch_candidate(
@@ -1407,11 +1438,7 @@ def _visual_repair_targets(
         {
             "page_id": str(page.get("page_id") or ""),
             "required_artifact_kinds": list(page.get("artifact_kinds") or []),
-            "allowed_decisions": sorted({
-                decision
-                for artifact in page.get("artifact_kinds") or []
-                for decision in _VISUAL_DECISIONS_BY_ARTIFACT.get(str(artifact), set())
-            } or {"text_native"}),
+            "allowed_decisions": list(page.get("allowed_decisions") or []),
             "required_source_block_ids": list(page.get("source_block_ids") or []),
             "required_template_layout_id": str(page.get("template_layout_id") or ""),
             "allowed_source_asset_ids": list(page.get("source_asset_ids") or []),
@@ -1572,7 +1599,10 @@ async def plan_slide_visuals_v2(
             required_pages = [
                 page
                 for page in batch.pages
-                if set(units[page.teaching_unit_id].artifact_kinds).intersection(_HARD_VISUAL_ARTIFACTS)
+                if page_artifact_kinds(
+                    units[page.teaching_unit_id],
+                    page.source_block_ids,
+                ).intersection(_HARD_VISUAL_ARTIFACTS)
             ]
             if required_pages:
                 failure_category = (
@@ -1731,7 +1761,8 @@ def build_ai_base_visual_planner_v2() -> Planner:
                 "page_id and follow response_contract exactly. Use decision, never decision_type. "
                 "Use only supplied source_block_ids and template_layout_id values. Preserve "
                 "required code, formula, table, data, experiment and source evidence. Choose "
-                "text_native when no meaningful visual is source-supported. Do not write slide copy "
+                "each page's decision only from its allowed_decisions. Choose text_native when no "
+                "meaningful visual is source-supported. Do not write slide copy "
                 "or invent labels, facts, data, code_payload, or other artifact payloads. The compiler "
                 "reads code, formulas and tables from frozen source blocks. For diagram decisions "
                 "include visual_payload with "

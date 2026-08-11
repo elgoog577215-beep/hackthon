@@ -1240,17 +1240,28 @@ async def test_visual_ai_repairs_required_subject_representation_per_batch() -> 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("artifact_kind", "artifact_markdown", "visual_decision"),
+    (
+        "artifact_kind",
+        "artifact_markdown",
+        "visual_decision",
+        "allowed_decisions",
+    ),
     [
-        ("code", "```python\nprint('evidence')\n```", "code"),
-        ("formula", "$$E = mc^2$$", "formula"),
-        ("table", "| Input | Result |\n|---|---|\n| A | Pass |", "table"),
+        ("code", "```python\nprint('evidence')\n```", "code", ["code"]),
+        ("formula", "$$E = mc^2$$", "formula", ["formula"]),
+        (
+            "table",
+            "| Input | Result |\n|---|---|\n| A | Pass |",
+            "table",
+            ["data", "table"],
+        ),
     ],
 )
 async def test_visual_artifact_contract_is_scoped_to_page_source_blocks(
     artifact_kind: str,
     artifact_markdown: str,
     visual_decision: str,
+    allowed_decisions: list[str],
 ) -> None:
     document = _mixed_artifact_document(artifact_kind, artifact_markdown)
     graph = compile_course_presentation_graph(document, teaching_plan={})
@@ -1331,11 +1342,15 @@ async def test_visual_artifact_contract_is_scoped_to_page_source_blocks(
     }
     assert requested_pages["context-page"]["artifact_kinds"] == []
     assert requested_pages["context-page"]["allowed_decisions"] == [
-        "text_native"
+        "diagram",
+        "text_native",
     ]
     assert requested_pages["artifact-page"]["artifact_kinds"] == [
         artifact_kind
     ]
+    assert requested_pages["artifact-page"]["allowed_decisions"] == (
+        allowed_decisions
+    )
     assert visual.decisions[0].decision == "text_native"
     assert visual.decisions[1].decision == visual_decision
 
@@ -1392,7 +1407,10 @@ async def test_non_artifact_course_keeps_text_native_as_a_valid_visual_language(
     )
 
     assert requests[0]["pages"][0]["artifact_kinds"] == []
-    assert requests[0]["pages"][0]["allowed_decisions"] == ["text_native"]
+    assert requests[0]["pages"][0]["allowed_decisions"] == [
+        "diagram",
+        "text_native",
+    ]
     assert visual.decisions[0].decision == "text_native"
 
 
