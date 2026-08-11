@@ -264,6 +264,140 @@ def _wide_markdown_table_deck():
     )
 
 
+def _long_cell_table_deck():
+    table = "\n".join([
+        "| 观察现象 | 判断依据 | 修正动作 |",
+        "| --- | --- | --- |",
+        (
+            "| The declared field observation and its acceptance criterion could not be reconciled | 原始记录必须同时保留地点、时间、天气、观察者和采样批次，"
+            "才能支持后续复核 | 从签字确认的现场记录恢复全部环境字段后再发布结论 |"
+        ),
+        (
+            "| 对照结论缺少证据 | 每项结论都必须指向对应观察条件、验收标准和原始测量值，"
+            "不能用解释代替证据 | 分离观察事实与研究者解释并重新执行逐项对照 |"
+        ),
+        (
+            "| 审核过程无法追溯 | 审核者身份、证据修订号和最终决定必须在同一记录中保持可见，"
+            "以便复查 | 重新打开审核并补齐缺失的来源信息后才能批准 |"
+        ),
+        (
+            "| 重复测量结果冲突 | 多次测量必须使用相同单位、采样窗口和校准基准，"
+            "否则不能直接比较 | 统一记录口径并在审核轨迹中解释每个排除值 |"
+        ),
+    ])
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-review-with-long-table-cells",
+        title="Field evidence review",
+        sections=[CourseSection(section_id="review", title="Review", position=0)],
+        blocks=[CourseBlock(
+            block_id="review-table",
+            section_id="review",
+            position=0,
+            role="feedback",
+            kind="review_checkpoint",
+            payload={"markdown": table},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout_id = template.layout_id("evidence-table")
+    unit = graph.units[0]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-long-table",
+            chapter_id="review",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="long-table-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="对照结论缺少证据",
+                summary=(
+                    "核对每项观察的环境条件、原始证据和验收标准；若结论缺少来源、审核轨迹"
+                    "或统一测量口径，应先补齐记录并重新执行逐项对照，再决定是否发布。"
+                ),
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="long-table-page",
+            decision="table",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
+def _chapter_entry_at_contract_capacity_deck():
+    driving_question = (
+        "开展实地观察前，怎样确认地点、时间、天气、观察者与采样批次均已记录，"
+        "并且每项结论都能追溯到原始证据、验收标准和审核修订，从而避免用解释替代事实？"
+        "若任一字段缺失，应先停止发布并返回现场记录补齐来源，之后重新核对。"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-orientation",
+        title="Field observation",
+        sections=[CourseSection(section_id="orientation", title="Orientation", position=0)],
+        blocks=[CourseBlock(
+            block_id="orientation-question",
+            section_id="orientation",
+            position=0,
+            role="objective",
+            payload={"markdown": driving_question},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout_id = template.layout_id("chapter-entry")
+    unit = graph.units[0]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-orientation",
+            chapter_id="orientation",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="orientation-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="开展实地观察前",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="orientation-page",
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+            degraded=True,
+            degradation_reason="visual_text_native",
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
@@ -401,6 +535,28 @@ def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     assert max(len(cell) for row in rendered_rows[1:] for cell in row) <= (
         effective_wide_column_chars * 2
     )
+
+
+def test_three_column_table_with_long_cells_is_split_before_export_overflow(
+    tmp_path: Path,
+) -> None:
+    deck = _long_cell_table_deck()
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "long-cell-table.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert report["passed"], report["blockers"]
+
+
+def test_chapter_entry_renderer_honors_declared_driving_question_capacity(
+    tmp_path: Path,
+) -> None:
+    deck = _chapter_entry_at_contract_capacity_deck()
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "chapter-entry-capacity.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
 
 
 def test_code_excerpt_ends_at_a_complete_source_unit_instead_of_a_trailing_comment() -> None:

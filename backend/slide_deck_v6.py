@@ -1470,6 +1470,7 @@ def _safe_artifact_page_blocks(
     page_id: str,
     layout: Any,
     source_blocks: list[CourseBlock],
+    story_summary: str = "",
 ) -> list[list[CourseBlock]]:
     artifact_slot = next(
         (
@@ -1504,7 +1505,9 @@ def _safe_artifact_page_blocks(
                     _split_table_block_for_layout_variants(
                         block,
                         slot=artifact_slot,
-                        split_first_page=bool(non_artifact_blocks),
+                        split_first_page=bool(
+                            non_artifact_blocks or _visible_prose_text(story_summary)
+                        ),
                     )
                 )
         else:
@@ -2025,6 +2028,7 @@ def compile_slide_deck_v6(
             page_id=story_page.page_id,
             layout=layout,
             source_blocks=source_blocks,
+            story_summary=story_page.summary,
         )
         expanded_unit_count = (
             unit_page_counts[story_page.teaching_unit_id]

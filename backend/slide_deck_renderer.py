@@ -2132,9 +2132,9 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             or unit.teaching_job
             or unit.takeaway
         )
-        _shape(slide, 4.48, 3.42, 0.08, 1.32, theme["accent"], radius=False)
+        _shape(slide, 4.48, 3.42, 0.08, 2.43, theme["accent"], radius=False)
         _text(slide, "本章主线", 4.82, 3.47, 1.5, 0.30, 11, theme["accent"], bold=True)
-        _text(slide, chapter_message, 4.82, 3.92, 6.72, 0.95, 17, theme["ink"], bold=True)
+        _text(slide, chapter_message, 4.82, 3.92, 6.72, 1.75, 17, theme["ink"], bold=True)
         return
     _shape(slide, 0.0, 0.0, 4.05, 7.5, theme["accent_soft"], radius=False)
     chapter_number = _chapter_number(unit.title)
@@ -2144,7 +2144,7 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         slide, unit.title, 4.65, 1.62, 7.55, 1.4, 35, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
-    _shape(slide, 4.65, 3.45, 6.95, 1.55, theme["canvas"], radius=True, line=theme["chart_bg"])
+    _shape(slide, 4.65, 3.45, 6.95, 2.5, theme["canvas"], radius=True, line=theme["chart_bg"])
     _text(slide, "本章主线", 4.98, 3.78, 1.4, 0.3, 11, theme["accent"], bold=True)
     chapter_message = (
         unit.key_message
@@ -2152,7 +2152,7 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         or unit.teaching_job
         or unit.takeaway
     )
-    _text(slide, chapter_message, 4.98, 4.12, 6.18, 0.62, 16, theme["ink"], bold=True)
+    _text(slide, chapter_message, 4.98, 4.12, 6.18, 1.75, 16, theme["ink"], bold=True)
 
 
 def _render_objective(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
