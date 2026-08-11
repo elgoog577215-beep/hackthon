@@ -1970,7 +1970,72 @@ async def plan_slide_visuals_v2(
                     page.source_block_ids,
                 ).intersection(_HARD_VISUAL_ARTIFACTS)
             ]
-            if required_pages:
+            required_page_ids = {page.page_id for page in required_pages}
+            degraded_soft_failure = False
+            first_failure_category = (
+                error.failure.code
+                if isinstance(error, V6BuildError)
+                else "visual_ai_batch_failed"
+            )
+            if isinstance(error, V6BuildError) and previous_decisions:
+                fallback_by_page = {
+                    decision.page_id: decision
+                    for decision in previous_decisions
+                }
+                fallback_error: V6BuildError = error
+                for _ in range(len(batch.pages)):
+                    failed_page_id = str(fallback_error.failure.page_id or "")
+                    if (
+                        not failed_page_id
+                        or failed_page_id in required_page_ids
+                        or failed_page_id not in fallback_by_page
+                    ):
+                        break
+                    failed_page = next(
+                        (
+                            page for page in batch.pages
+                            if page.page_id == failed_page_id
+                        ),
+                        None,
+                    )
+                    if failed_page is None:
+                        break
+                    fallback_by_page[failed_page_id] = SlideVisualDecisionV2(
+                        page_id=failed_page.page_id,
+                        decision="text_native",
+                        source_block_ids=failed_page.source_block_ids,
+                        resolved_template_layout_id=failed_page.template_layout_id,
+                        degraded=True,
+                        degradation_reason=fallback_error.failure.code,
+                        duration_ms=max(
+                            0,
+                            round((time.perf_counter() - started) * 1000),
+                        ),
+                    )
+                    fallback_decisions = [
+                        fallback_by_page[page.page_id]
+                        for page in batch.pages
+                        if page.page_id in fallback_by_page
+                    ]
+                    try:
+                        _validate_visual_batch_candidate(
+                            story=story,
+                            graph=graph,
+                            template=template,
+                            batch=batch,
+                            decisions=fallback_decisions,
+                        )
+                    except V6BuildError as next_error:
+                        fallback_error = next_error
+                        continue
+                    decisions = fallback_decisions
+                    batch_validation_status = "degraded"
+                    batch_failure_category = first_failure_category
+                    degraded_soft_failure = True
+                    break
+                if not degraded_soft_failure:
+                    error = fallback_error
+            if required_pages and not degraded_soft_failure:
                 failure_category = (
                     error.failure.code
                     if isinstance(error, V6BuildError)
@@ -2015,21 +2080,22 @@ async def plan_slide_visuals_v2(
                     page_id=required_pages[0].page_id,
                     batch_id=batch_id,
                 ) from error
-            category, _ = _failure_category(error, prefix="visual_ai_batch")
-            batch_validation_status = "degraded"
-            batch_failure_category = category
-            decisions = [
-                SlideVisualDecisionV2(
-                    page_id=page.page_id,
-                    decision="text_native",
-                    source_block_ids=page.source_block_ids,
-                    resolved_template_layout_id=page.template_layout_id,
-                    degraded=True,
-                    degradation_reason=category,
-                    duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
-                )
-                for page in batch.pages
-            ]
+            if not degraded_soft_failure:
+                category, _ = _failure_category(error, prefix="visual_ai_batch")
+                batch_validation_status = "degraded"
+                batch_failure_category = category
+                decisions = [
+                    SlideVisualDecisionV2(
+                        page_id=page.page_id,
+                        decision="text_native",
+                        source_block_ids=page.source_block_ids,
+                        resolved_template_layout_id=page.template_layout_id,
+                        degraded=True,
+                        degradation_reason=category,
+                        duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
+                    )
+                    for page in batch.pages
+                ]
         await _notify_batch(batch_callback, {
             "phase": "completed",
             "kind": "visual",

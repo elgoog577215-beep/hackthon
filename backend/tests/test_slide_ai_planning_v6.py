@@ -1470,6 +1470,117 @@ async def test_visual_ai_failure_degrades_optional_page_but_not_required_code() 
 
 
 @pytest.mark.asyncio
+async def test_visual_failure_degrades_soft_page_without_discarding_required_table() -> None:
+    """A soft diagram failure must not poison valid hard-artifact pages."""
+
+    document = _structured_field_check_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        table_id, feedback_id = unit["primary_block_ids"]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "field-required-table",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": next(
+                        layout_id
+                        for layout_id in unit["allowed_template_layout_ids"]
+                        if layout_id.endswith("/evidence-table")
+                    ),
+                    "title": unit["title_candidates"][0],
+                    "summary": "",
+                    "source_block_ids": [table_id],
+                },
+                {
+                    "page_id": "field-soft-explanation",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        [feedback_id],
+                    ),
+                    "title": unit["title_candidates"][1],
+                    "summary": "",
+                    "source_block_ids": [feedback_id],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    events: list[dict] = []
+
+    async def visual_planner(request):
+        decisions = []
+        for page in request["pages"]:
+            if page["page_id"] == "field-required-table":
+                decisions.append({
+                    "page_id": page["page_id"],
+                    "decision": "table",
+                    "source_block_ids": page["source_block_ids"],
+                    "resolved_template_layout_id": page["template_layout_id"],
+                })
+                continue
+            decisions.append({
+                "page_id": page["page_id"],
+                "decision": "diagram",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+                "visual_payload": {
+                    "nodes": [
+                        {
+                            "node_id": "invented",
+                            "label": "Invented diagnostic stage",
+                            "source_block_ids": page["source_block_ids"],
+                        },
+                        {
+                            "node_id": "compare",
+                            "label": "Compare every observation",
+                            "source_block_ids": page["source_block_ids"],
+                        },
+                    ],
+                    "edges": [{"source": "invented", "target": "compare"}],
+                },
+            })
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": decisions,
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+        batch_callback=lambda event: events.append(event),
+    )
+
+    decisions = {decision.page_id: decision for decision in visual.decisions}
+    assert decisions["field-required-table"].decision == "table"
+    assert decisions["field-required-table"].degraded is False
+    assert decisions["field-soft-explanation"].decision == "text_native"
+    assert decisions["field-soft-explanation"].degraded is True
+    assert (
+        decisions["field-soft-explanation"].degradation_reason
+        == "visual_diagram_label_unsupported"
+    )
+    diagnostic = next(
+        event["diagnostic"]
+        for event in events
+        if event["phase"] == "completed"
+    )
+    assert diagnostic.validation_status == "degraded"
+    assert diagnostic.failure_category == "visual_diagram_label_unsupported"
+
+
+@pytest.mark.asyncio
 async def test_visual_ai_projects_source_bound_aliases_and_discards_draft_code() -> None:
     document = _document(with_code=True)
     graph = compile_course_presentation_graph(document, teaching_plan={})
