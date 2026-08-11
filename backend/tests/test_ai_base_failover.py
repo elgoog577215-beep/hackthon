@@ -488,6 +488,27 @@ async def test_bounded_assessment_call_circuit_breaks_on_exhausted_quota(
 
 
 @pytest.mark.asyncio
+async def test_bounded_modelscope_call_tries_next_model_after_model_quota(
+    monkeypatch,
+):
+    error = RuntimeError("insufficient_quota: model token quota exhausted")
+    completions = SequencedCompletions(lambda: error)
+    service = _make_service(monkeypatch, completions)
+    service.api_base = "https://api-inference.modelscope.cn/v1"
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=2,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert service._provider_failure is None
+
+
+@pytest.mark.asyncio
 async def test_call_llm_still_fails_over_on_rate_limit_chinese_marker(monkeypatch):
     error = RuntimeError("触发速率限制，请稍后重试")
     completions = SequencedCompletions(lambda: error)
