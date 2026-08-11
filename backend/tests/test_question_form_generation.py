@@ -497,11 +497,14 @@ def test_new_forms_do_not_degrade_to_rich_text_without_a_contract() -> None:
     静默降级，不报错。practice_contracts.INPUT_MODES 是
     「question_type -> 输入模式」的映射，三个新形态此前不在里面。
     """
-    from practice_contracts import INPUT_MODES, enrich_question_contract
+    from practice_contracts import (
+        INPUT_MODE_BY_QUESTION_TYPE,
+        enrich_question_contract,
+    )
 
-    assert INPUT_MODES["multiple_choice"] == "choice"
-    assert INPUT_MODES["true_false"] == "choice"
-    assert INPUT_MODES["fill_blank"] == "short_text"
+    assert INPUT_MODE_BY_QUESTION_TYPE["multiple_choice"] == "choice"
+    assert INPUT_MODE_BY_QUESTION_TYPE["true_false"] == "choice"
+    assert INPUT_MODE_BY_QUESTION_TYPE["fill_blank"] == "short_text"
 
     enriched = enrich_question_contract({
         "question_type": "multiple_choice",
@@ -512,25 +515,53 @@ def test_new_forms_do_not_degrade_to_rich_text_without_a_contract() -> None:
     assert enriched["input_contract"]["mode"] == "choice"
 
 
-def test_three_input_modes_constants_are_not_the_same_thing() -> None:
-    """同名不同义的三份 INPUT_MODES——这条守卫是防止有人把它们"统一"掉。
+def test_input_modes_has_exactly_one_source_of_truth() -> None:
+    """E2：`INPUT_MODES` 曾在三个文件各有一份且内容不同。
 
-    - assessment_blueprint.INPUT_MODES：蓝图侧**合法输入模式的集合**
-    - assessment_compiler.INPUT_MODES：编译侧集合，多三个历史模式
-    - practice_contracts.INPUT_MODES：**question_type -> 输入模式的映射**（dict）
-
-    第三个与前两个连类型都不同。合并它们会把「题型」和「作答模式」两个维度
-    压成一个，正是 H1d 当初要拆开的东西。
+    前两处是同一个概念的两份副本却内容不一致，导致同一道题在不同门得到相反
+    结论（详见下一条用例）。现在两处都指向 `assessment_input_modes` 的同一个
+    对象——用 `is` 断言，改回各自定义会立刻失败。
     """
     from assessment_blueprint import INPUT_MODES as blueprint_modes
     from assessment_compiler import INPUT_MODES as compiler_modes
-    from practice_contracts import INPUT_MODES as contract_map
+    from assessment_input_modes import INPUT_MODES as canonical
 
-    assert isinstance(blueprint_modes, set)
-    assert isinstance(compiler_modes, set)
-    assert isinstance(contract_map, dict), "第三个是映射，不是集合"
+    assert blueprint_modes is canonical
+    assert compiler_modes is canonical
 
-    # 编译侧比蓝图侧多出的是历史模式，蓝图不该产出它们
-    assert blueprint_modes <= compiler_modes
-    # 映射的取值必须都是编译侧认识的模式，否则会产出编译器不认的合同
-    assert set(contract_map.values()) <= compiler_modes
+
+def test_question_type_mapping_is_a_different_concept_and_stays_in_range() -> None:
+    """第三处是「题型 -> 模式」的映射，不是模式集合，不能合并进来。
+
+    但它的**值域**必须落在唯一真源里——否则又会产出没人认识的模式。
+    """
+    from assessment_input_modes import INPUT_MODES as canonical
+    from practice_contracts import INPUT_MODE_BY_QUESTION_TYPE as mapping
+
+    assert isinstance(mapping, dict)
+    assert set(mapping.values()) <= canonical
+
+
+def test_every_mapped_question_type_passes_the_input_contract_gate() -> None:
+    """合并前的真实缺陷：6 种题型的作答模式被质量门判为非法。
+
+    `practice_contracts` 为 implementation_task / evidence_analysis /
+    mechanism_explanation / source_argument / language_production /
+    scenario_deliverable 产出 structured_text / code_and_text /
+    language_response，而质量门校验的是蓝图侧那份只有 6 项的集合——
+    于是这些题的输入合同当场判 INPUT_CONTRACT_MISMATCH。
+    """
+    from assessment_blueprint import INPUT_CONTRACT_SCHEMA
+    from assessment_quality import _valid_input_contract
+    from practice_contracts import INPUT_MODE_BY_QUESTION_TYPE as mapping
+
+    rejected = [
+        question_type
+        for question_type, mode in mapping.items()
+        if not _valid_input_contract({
+            "schema_version": INPUT_CONTRACT_SCHEMA,
+            "mode": mode,
+            "fields": [{"field_id": "answer", "required": True}],
+        })
+    ]
+    assert rejected == [], f"这些题型的作答模式过不了质量门：{rejected}"

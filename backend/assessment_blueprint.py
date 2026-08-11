@@ -30,14 +30,9 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-INPUT_MODES = {
-    "choice",
-    "numeric_unit",
-    "code",
-    "short_text",
-    "rich_text",
-    "structured_fields",
-}
+# 唯一真源见 assessment_input_modes。此处仅重导出——`assessment_quality`
+# 一直是 `from assessment_blueprint import INPUT_MODES`，保留这个名字不打断它。
+from assessment_input_modes import INPUT_MODES  # noqa: F401
 
 
 def _slot(

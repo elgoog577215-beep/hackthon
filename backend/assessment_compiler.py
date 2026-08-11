@@ -10,17 +10,7 @@ from question_choice_grading import canonical_option_ids
 from solution_contracts import project_solution_spec
 
 
-INPUT_MODES = {
-    "choice",
-    "numeric_unit",
-    "code",
-    "short_text",
-    "rich_text",
-    "structured_fields",
-    "structured_text",
-    "code_and_text",
-    "language_response",
-}
+from assessment_input_modes import INPUT_MODES  # noqa: F401  唯一真源
 
 _TYPED_VALIDATORS = {
     "exact_validator",

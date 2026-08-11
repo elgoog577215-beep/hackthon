@@ -14,11 +14,14 @@ DEFAULT_PRACTICE_BATCH_SIZE = 3
 DEFAULT_PRACTICE_QUESTION_TYPE = "single_choice"
 
 
-# 注意：这个 INPUT_MODES 与 assessment_blueprint / assessment_compiler 里的同名
-# 常量**不是一回事**——那两个是「合法输入模式的集合」，这里是
-# 「question_type -> 输入模式」的映射。同名不同义，读代码时别当成一份东西。
-# 三份的差异与各自职责见 NOTES_TO_OWNER。
-INPUT_MODES = {
+# 「question_type -> 作答输入模式」的映射。
+#
+# 曾经它也叫 INPUT_MODES，与 assessment_blueprint / assessment_compiler 里的
+# 同名集合**同名不同义**——那两个是「合法模式的集合」，这个是映射。三处同名
+# 让人以为是一份东西，实际内容还不一致，最终导致本映射产出的
+# structured_text / code_and_text / language_response 被质量门判为非法模式。
+# 现改名消歧；**值域必须 ⊆ assessment_input_modes.INPUT_MODES**（有守卫用例）。
+INPUT_MODE_BY_QUESTION_TYPE = {
     "single_choice": "choice",
     # 三个新作答形态（H1a/H1b）。缺了它们，一道没带 input_contract 的多选/判断题
     # 会退化成 rich_text（大题），学生看到的是一个文本框而不是选项——静默降级，
@@ -208,7 +211,7 @@ def enrich_question_contract(
         "input_contract"
     ):
         item["input_contract"] = {
-            "mode": INPUT_MODES.get(question_type, "rich_text"),
+            "mode": INPUT_MODE_BY_QUESTION_TYPE.get(question_type, "rich_text"),
             "required": True,
             "supports_attachments": question_type in {
                 "implementation_task",
