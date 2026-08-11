@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -37,26 +37,21 @@ describe('course library density contract', () => {
     expect(librarySource).toMatch(/\.course-status\s*\{[^}]*font-size:\s*12px/s)
   })
 
-  it('uses one shared three-dimensional book shell with category cover artwork', () => {
+  it('uses category texture variants of the same three-dimensional book model', () => {
     expect(librarySource).toMatch(/--course-cover-width:\s*78px/)
     expect(coverSource).toMatch(/width:\s*var\(--course-cover-width,\s*78px\)/)
     expect(coverSource).toMatch(/aspect-ratio:\s*2\s*\/\s*3/)
-    expect(coverSource.match(/course-book-master\.png/g)).toHaveLength(1)
-    expect(coverSource).not.toMatch(/course-cover-[a-z-]+-3d\.png/)
-    expect(coverSource).not.toMatch(/course-artwork-[a-z-]+\.svg/)
-    expect(coverSource.match(/class="course-cover__book"/g)).toHaveLength(1)
-    expect(coverSource.match(/class="course-cover__artwork"/g)).toHaveLength(1)
-    expect(coverSource.match(/class="course-cover__pattern"/g)).toHaveLength(1)
-    expect(coverSource.match(/class="course-cover__symbol"/g)).toHaveLength(1)
-    expect(coverSource.match(/class="course-cover__detail"/g)).toHaveLength(1)
-    expect(coverSource).toMatch(/:src="bookMaster"/)
-    expect(coverSource).toMatch(/const coverArtwork:\s*Record<CourseCoverPreset,\s*CoverArtwork>/)
-    expect(coverSource).toMatch(/medicine:\s*\{\s*symbol:\s*HeartPulse,\s*detail:\s*Stethoscope\s*\}/)
-    expect(coverSource).toMatch(/engineering:\s*\{\s*symbol:\s*Cog,\s*detail:\s*CircuitBoard\s*\}/)
-    expect(coverSource).toMatch(/humanities:\s*\{\s*symbol:\s*MessagesSquare,\s*detail:\s*Quote\s*\}/)
-    for (const preset of ['ai', 'programming', 'mathematics', 'medicine', 'engineering', 'science', 'humanities', 'general']) {
-      expect(coverSource).toContain(`data-cover-preset='${preset}'`)
+    const presets = ['ai', 'programming', 'mathematics', 'medicine', 'engineering', 'science', 'humanities', 'general']
+    for (const preset of presets) {
+      const filename = `course-book-${preset}.png`
+      expect(coverSource).toContain(filename)
+      expect(existsSync(resolve(process.cwd(), 'src/assets/course-covers', filename))).toBe(true)
     }
+    expect(coverSource.match(/class="course-cover__book"/g)).toHaveLength(1)
+    expect(coverSource).toMatch(/:src="bookTexture"/)
+    expect(coverSource).toMatch(/const bookTextures:\s*Record<CourseCoverPreset,\s*string>/)
+    expect(coverSource).not.toMatch(/lucide-vue-next/)
+    expect(coverSource).not.toMatch(/course-cover__(?:artwork|pattern|symbol|detail)/)
   })
 
   it('keeps the primary action on one line and uses a compact overflow menu', () => {
