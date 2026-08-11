@@ -35,6 +35,7 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    _title_is_incomplete,
     graph_page_source_blocks,
     story_page_count_range,
     story_safe_page_slices,
@@ -182,6 +183,31 @@ def _normalize_versioned_response(
                 f"Conflicting AI response fields: {collection_field} and {alias}"
             )
     return payload
+
+
+def _request_title_candidates_for_blocks(
+    unit: dict[str, Any],
+    source_block_ids: list[str],
+) -> list[str]:
+    block_metadata = {
+        str(block.get("block_id") or ""): block
+        for block in unit.get("primary_blocks") or []
+        if isinstance(block, dict)
+    }
+    candidates = list(dict.fromkeys(
+        str(candidate)
+        for block_id in source_block_ids
+        for candidate in block_metadata.get(block_id, {}).get(
+            "title_candidates",
+            [],
+        )
+        if str(candidate).strip()
+    ))
+    return candidates or [
+        str(candidate)
+        for candidate in unit.get("title_candidates") or []
+        if str(candidate).strip()
+    ]
 
 
 def _normalize_story_batch_response(
@@ -335,6 +361,7 @@ def _normalize_story_batch_response(
                         source_ids,
                     ),
                     story_summary=str(page.get("summary") or ""),
+                    enforce_min_chars=False,
                 )
             except V6BuildError:
                 continue
@@ -397,7 +424,13 @@ def _normalize_story_batch_response(
             replacement = next(
                 (
                     str(candidate)
-                    for candidate in unit.get("title_candidates") or []
+                    for candidate in _request_title_candidates_for_blocks(
+                        unit,
+                        [
+                            str(block_id)
+                            for block_id in page.get("source_block_ids") or []
+                        ],
+                    )
                     if re.sub(r"\s+", "", str(candidate)).casefold()
                     not in used_titles
                 ),
@@ -649,36 +682,56 @@ def _grounded_title_candidates(
 ) -> list[str]:
     capacity = max(4, max_chars)
     candidates: list[str] = []
-    for match in _MARKDOWN_TITLE_RE.finditer(source_text):
-        full_title = str(match.group(1) or match.group(2) or "").strip()
-        if len(full_title) <= capacity:
-            continue
-        for fragment in re.split(
-            r"(?:[：:；;｜|]|\s+[—–-]\s+|与|及|和|\s+(?:and|or|versus|vs\.?)\s+)",
-            full_title,
-            flags=re.IGNORECASE,
-        ):
-            candidate = fragment.strip().strip("#*` ")
-            if (
-                4 <= len(candidate) <= capacity
-                and candidate in source_text
-                and candidate not in candidates
-            ):
-                candidates.append(candidate)
-    for match in _MARKDOWN_TITLE_RE.finditer(source_text):
-        candidate = str(match.group(1) or match.group(2) or "").strip()
-        if len(candidate) > capacity:
-            candidate = candidate[:capacity].rstrip("，。！？,;: ")
-        if candidate and candidate in source_text and candidate not in candidates:
-            candidates.append(candidate)
-    for segment in re.split(r"[\n。！？!?；;]", source_text):
-        candidate = segment.strip().strip("#*` ")[:capacity].strip()
+
+    def add_candidate(value: str) -> None:
+        candidate = " ".join(str(value or "").split()).strip("#*` ，。！？,;:|")
         if (
-            len(candidate) >= 4
+            4 <= len(candidate) <= capacity
             and candidate in source_text
+            and not _title_is_incomplete(candidate)
             and candidate not in candidates
         ):
             candidates.append(candidate)
+
+    def add_complete_fragments(value: str) -> None:
+        clean = " ".join(str(value or "").split()).strip("#*` ")
+        if not clean:
+            return
+        if len(clean) <= capacity:
+            add_candidate(clean)
+            return
+        fragments = re.split(
+            r"(?:[，。！？；;：:｜|]|\s+[—–-]\s+|与|及|和|"
+            r"\s+(?:and|or|versus|vs\.?)\s+)",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        for fragment in fragments:
+            stripped = fragment.strip()
+            if len(stripped) <= capacity:
+                add_candidate(stripped)
+                continue
+            if re.search(r"\s", stripped):
+                words: list[str] = []
+                for word in stripped.split():
+                    candidate = " ".join([*words, word])
+                    if len(candidate) > capacity:
+                        break
+                    words.append(word)
+                add_candidate(" ".join(words))
+
+    for match in _MARKDOWN_TITLE_RE.finditer(source_text):
+        full_title = str(match.group(1) or match.group(2) or "").strip()
+        specific_title = re.split(r"[：:]", full_title, maxsplit=1)[-1].strip()
+        add_complete_fragments(specific_title)
+    heading_lines = {
+        match.group(0).strip()
+        for match in _MARKDOWN_TITLE_RE.finditer(source_text)
+    }
+    for raw_segment in re.split(r"[\n。！？!?；;]", source_text):
+        if raw_segment.strip() in heading_lines:
+            continue
+        add_complete_fragments(raw_segment)
         if len(candidates) >= 6:
             break
     return candidates[:6]
@@ -728,6 +781,7 @@ def _story_unit_request(
     ]
     title_max_chars = min(title_capacities) if title_capacities else 72
     summary_max_chars_by_layout_id = {}
+    summary_min_chars_by_layout_id = {}
     for layout in allowed_layouts:
         body_slots = [
             slot
@@ -736,6 +790,11 @@ def _story_unit_request(
         ]
         summary_max_chars_by_layout_id[layout["template_layout_id"]] = (
             int(body_slots[0].get("max_chars") or 0)
+            if len(body_slots) == 1
+            else 0
+        )
+        summary_min_chars_by_layout_id[layout["template_layout_id"]] = (
+            int(body_slots[0].get("min_chars") or 0)
             if len(body_slots) == 1
             else 0
         )
@@ -771,6 +830,10 @@ def _story_unit_request(
                 "artifact_kinds": unit.primary_block_artifacts.get(block_id, []),
                 "page_intent": page_teaching_intent(unit, [block_id]),
                 "source_text": unit.primary_block_texts.get(block_id, ""),
+                "title_candidates": _grounded_title_candidates(
+                    unit.primary_block_texts.get(block_id, ""),
+                    max_chars=title_max_chars,
+                ),
                 "compatible_template_layout_ids": (
                     block_compatible_layout_ids(block_id)
                 ),
@@ -784,12 +847,15 @@ def _story_unit_request(
         "prerequisite_unit_ids": unit.prerequisite_unit_ids,
         "source_text": unit.source_text,
         "title_max_chars": title_max_chars,
-        "title_policy": "copy_verbatim_from_title_candidates",
+        "title_policy": (
+            "copy_a_complete_specific_candidate_grounded_in_bound_blocks"
+        ),
         "title_candidates": _grounded_title_candidates(
             unit.source_text,
             max_chars=title_max_chars,
         ),
         "summary_max_chars_by_layout_id": summary_max_chars_by_layout_id,
+        "summary_min_chars_by_layout_id": summary_min_chars_by_layout_id,
         "allowed_page_count_range": allowed_page_count_range,
         "safe_page_slices": safe_page_slices,
         "safe_partition_options": safe_partition_options,
@@ -996,7 +1062,6 @@ def _story_repair_targets(
             re.sub(r"\s+", "", title).casefold()
             for title in forbidden_titles
         }
-        allowed_title_candidates = list(unit.get("title_candidates") or [])
         title_max_chars = int(unit.get("title_max_chars") or 0)
         current_source_block_ids = [
             str(block_id)
@@ -1007,6 +1072,10 @@ def _story_repair_targets(
             for block in unit.get("primary_blocks") or []
             if isinstance(block, dict)
         }
+        allowed_title_candidates = _request_title_candidates_for_blocks(
+            unit,
+            current_source_block_ids,
+        )
         current_roles = [
             str(block_metadata.get(block_id, {}).get("role") or "")
             for block_id in current_source_block_ids
@@ -1078,7 +1147,16 @@ def _story_repair_targets(
             "duplicate_slide_title",
             "story_title_capacity_exceeded",
             "story_unsupported_title",
+            "story_title_incomplete",
+            "story_title_lacks_specificity",
         }
+        summary_min_chars = int(
+            (unit.get("summary_min_chars_by_layout_id") or {}).get(
+                current_layout_id,
+                0,
+            )
+            or 0
+        )
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
@@ -1151,6 +1229,7 @@ def _story_repair_targets(
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
             "current_summary": current_summary,
+            "summary_min_chars": summary_min_chars,
             "summary_policy": (
                 "source_grounded_semantic_closure_for_all_bound_blocks_"
                 "complete_sentence_no_markdown"
@@ -1312,10 +1391,33 @@ def _coalesce_oversplit_story_unit(
         cursor += size
 
     replacements: list[dict[str, Any]] = []
+    used_titles = {
+        re.sub(r"\s+", "", str(page.get("title") or "")).casefold()
+        for page in pages
+        if isinstance(page, dict)
+        and str(page.get("teaching_unit_id") or "") != unit_id
+        and str(page.get("title") or "").strip()
+    }
     for index, source_ids in enumerate(chunks):
         page = dict(owner_pages[index])
         page["source_block_ids"] = source_ids
         page["summary"] = ""
+        replacement_title = next(
+            (
+                candidate
+                for candidate in _request_title_candidates_for_blocks(
+                    unit,
+                    source_ids,
+                )
+                if re.sub(r"\s+", "", candidate).casefold() not in used_titles
+            ),
+            "",
+        )
+        if replacement_title:
+            page["title"] = replacement_title
+            used_titles.add(
+                re.sub(r"\s+", "", replacement_title).casefold()
+            )
         page_intent = _story_request_page_intent(unit, source_ids)
         allowed_layout_ids = list(
             (unit.get("allowed_template_layout_ids_by_page_intent") or {}).get(
@@ -1446,7 +1548,10 @@ async def plan_slide_story_v3(
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
                                 "Copy each title verbatim from that unit's title_candidates and keep "
-                                "it within that unit's title_max_chars. Set "
+                                "it within that unit's title_max_chars. Titles must name the bound "
+                                "page's specific teaching subject and must not end with a connector, "
+                                "delimiter, or incomplete phrase. Prefer candidates supplied on the "
+                                "bound primary_blocks. Set "
                                 "a repair target's title exactly to required_title when provided. Set "
                                 "its template_layout_id exactly to required_template_layout_id when "
                                 "provided. When a repair target has repartition_required=true, "
@@ -1470,8 +1575,9 @@ async def plan_slide_story_v3(
                                 "pages. Set "
                                 "summary to one complete, Markdown-free, source-grounded sentence "
                                 "that expresses the semantic closure of every bound source_block_id "
-                                "whose length does not exceed summary_max_chars_by_layout_id for the "
-                                "selected layout. Use an empty summary only when that limit is zero or "
+                                "whose length remains between summary_min_chars_by_layout_id and "
+                                "summary_max_chars_by_layout_id for the selected layout when the frozen "
+                                "source is long enough. Use an empty summary only when the maximum is zero or "
                                 "no faithful synthesis is possible; never add identifiers or facts."
                             ),
                         },
@@ -2325,10 +2431,10 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
                 "by that unit's source_text. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
-                "page level; never emit a nested content object. Copy titles verbatim from the "
-                "selected teaching unit's title_candidates and keep each title within the supplied "
-                "title_max_chars. A non-empty summary must express the semantic closure of every "
-                "source_block_id bound to that page. Never invent teaching content."
+                 "page level; never emit a nested content object. Copy a complete title from candidates "
+                 "supplied by the primary_blocks bound to that page, keep it within title_max_chars, "
+                 "and never end it with a connector or delimiter. A non-empty summary must express the semantic closure of every "
+                 "source_block_id bound to that page. Never invent teaching content."
                 ),
                 use_fast_model=False,
                 retry_count=1,

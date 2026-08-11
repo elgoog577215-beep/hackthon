@@ -316,6 +316,17 @@ def _layout_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
     return unit["allowed_template_layout_ids_by_page_intent"][intent][0]
 
 
+def _title_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
+    block_metadata = {
+        block["block_id"]: block for block in unit["primary_blocks"]
+    }
+    return next(
+        candidate
+        for block_id in block_ids
+        for candidate in block_metadata[block_id]["title_candidates"]
+    )
+
+
 def test_long_source_heading_offers_semantic_fragments_within_template_capacity() -> None:
     source = "## Field protocol: Observe habitat signals and record the evidence"
 
@@ -347,7 +358,10 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
                     "page_id": "page-a",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": layout,
-                    "title": "完成一次可靠闭环",
+                    "title": _title_for_request_blocks(
+                        unit,
+                        unit["primary_block_ids"],
+                    ),
                     "summary": "",
                     "source_block_ids": unit["primary_block_ids"],
                 }
@@ -900,7 +914,10 @@ async def test_story_batch_resolves_known_layout_from_page_level_source_intent()
                     "page_id": f"generic-concept-page-{len(calls)}",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": concept_layout,
-                    "title": unit["title_candidates"][0],
+                    "title": _title_for_request_blocks(
+                        unit,
+                        [concept_id],
+                    ),
                     "summary": "",
                     "source_block_ids": [concept_id],
                 },
@@ -911,7 +928,7 @@ async def test_story_batch_resolves_known_layout_from_page_level_source_intent()
                         unit,
                         [feedback_id],
                     ),
-                    "title": unit["title_candidates"][1],
+                    "title": _title_for_request_blocks(unit, [feedback_id]),
                     "summary": "",
                     "source_block_ids": [feedback_id],
                 },
@@ -956,7 +973,7 @@ async def test_story_resolves_known_but_off_contract_layout_to_page_compatible_l
                     "page_id": "field-concept-off-contract",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": known_but_off_contract,
-                    "title": unit["title_candidates"][0],
+                    "title": _title_for_request_blocks(unit, [concept_id]),
                     "summary": "",
                     "source_block_ids": [concept_id],
                 },
@@ -967,7 +984,7 @@ async def test_story_resolves_known_but_off_contract_layout_to_page_compatible_l
                         unit,
                         [feedback_id],
                     ),
-                    "title": unit["title_candidates"][1],
+                    "title": _title_for_request_blocks(unit, [feedback_id]),
                     "summary": "",
                     "source_block_ids": [feedback_id],
                 },
@@ -1024,7 +1041,10 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
                         for layout_id in unit["allowed_template_layout_ids"]
                         if layout_id.endswith("/evidence-code")
                     ),
-                    "title": unit["title_candidates"][0],
+                    "title": _title_for_request_blocks(
+                        unit,
+                        [concept_id, code_id],
+                    ),
                     "summary": "",
                     "source_block_ids": [concept_id, code_id],
                 },
@@ -1035,7 +1055,7 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
                         unit,
                         [feedback_id],
                     ),
-                    "title": unit["title_candidates"][1],
+                    "title": _title_for_request_blocks(unit, [feedback_id]),
                     "summary": "",
                     "source_block_ids": [feedback_id],
                 },
@@ -1049,7 +1069,7 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
                         unit,
                         [concept_id],
                     ),
-                    "title": unit["title_candidates"][0],
+                    "title": _title_for_request_blocks(unit, [concept_id]),
                     "summary": "",
                     "source_block_ids": [concept_id],
                 },
@@ -1061,7 +1081,7 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
                         for layout_id in unit["allowed_template_layout_ids"]
                         if layout_id.endswith("/content-stack")
                     ),
-                    "title": unit["title_candidates"][1],
+                    "title": _title_for_request_blocks(unit, [code_id]),
                     "summary": "",
                     "source_block_ids": [code_id],
                 },
@@ -1072,7 +1092,7 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
                         unit,
                         [feedback_id],
                     ),
-                    "title": unit["title_candidates"][2],
+                    "title": _title_for_request_blocks(unit, [feedback_id]),
                     "summary": "",
                     "source_block_ids": [feedback_id],
                 },
@@ -1100,20 +1120,20 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
         "llm-feedback-alone",
     ]
     assert repair_target["forbidden_titles"] == []
+    code_block = next(
+        block
+        for block in unit["primary_blocks"]
+        if block["block_id"] == unit["primary_block_ids"][1]
+    )
     assert (
         repair_target["available_title_candidates"]
-        == unit["title_candidates"]
+        == code_block["title_candidates"]
     )
     assert any(
         layout_id.endswith("/evidence-code")
         for layout_id in repair_target["artifact_layout_ids_by_kind"]["code"]
     )
     assert repair_target["primary_blocks"] == unit["primary_blocks"]
-    code_block = next(
-        block
-        for block in unit["primary_blocks"]
-        if block["block_id"] == unit["primary_block_ids"][1]
-    )
     assert any(
         layout_id.endswith("/evidence-code")
         for layout_id in code_block["compatible_template_layout_ids"]
@@ -1234,7 +1254,6 @@ async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> 
             for option in unit["safe_partition_options"]
             if len(option["pages"]) == 4
         )
-        titles = unit["title_candidates"]
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -1246,7 +1265,10 @@ async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> 
                     "page_id": f"field-page-{index + 1}",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": page["template_layout_ids"][0],
-                    "title": titles[index],
+                    "title": _title_for_request_blocks(
+                        unit,
+                        page["source_block_ids"],
+                    ),
                     "summary": "",
                     "source_block_ids": page["source_block_ids"],
                 }
@@ -1290,7 +1312,7 @@ async def test_story_resolves_feedback_only_page_to_a_single_source_layout() -> 
                         unit,
                         [concept_id],
                     ),
-                    "title": unit["title_candidates"][0],
+                    "title": _title_for_request_blocks(unit, [concept_id]),
                     "summary": "",
                     "source_block_ids": [concept_id],
                 },
@@ -1298,7 +1320,7 @@ async def test_story_resolves_feedback_only_page_to_a_single_source_layout() -> 
                     "page_id": "field-feedback",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": feedback_layout,
-                    "title": unit["title_candidates"][1],
+                    "title": _title_for_request_blocks(unit, [feedback_id]),
                     "summary": "",
                     "source_block_ids": [feedback_id],
                 },
@@ -1404,7 +1426,7 @@ async def test_self_explanatory_table_does_not_require_fabricated_interpretation
                     "page_id": "field-table-only",
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": known_but_incompatible,
-                    "title": unit["title_candidates"][0],
+                    "title": _title_for_request_blocks(unit, [table_id]),
                     "summary": "",
                     "source_block_ids": [table_id],
                 },
@@ -1415,7 +1437,7 @@ async def test_self_explanatory_table_does_not_require_fabricated_interpretation
                         unit,
                         [feedback_id],
                     ),
-                    "title": unit["title_candidates"][1],
+                    "title": _title_for_request_blocks(unit, [feedback_id]),
                     "summary": "",
                     "source_block_ids": [feedback_id],
                 },

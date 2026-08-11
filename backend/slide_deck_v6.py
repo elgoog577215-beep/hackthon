@@ -460,6 +460,39 @@ def _semantic_grounding_ratio(claim: str, source: str) -> float:
     return len(claim_terms.intersection(_grounding_terms(source))) / len(claim_terms)
 
 
+_DANGLING_TITLE_END_RE = re.compile(
+    r"(?:[：:；;，,、/\\]|[（(《〈【\[]|"
+    r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的)|"
+    r"\b(?:and|or|to|of|with|versus|vs\.?)\b)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _title_is_incomplete(value: str) -> bool:
+    title = " ".join(str(value or "").split()).strip()
+    return bool(title and _DANGLING_TITLE_END_RE.search(title))
+
+
+def _title_semantic_source_text(value: str) -> str:
+    """Remove structural heading labels while retaining their specific subject."""
+
+    lines: list[str] = []
+    for raw_line in str(value or "").splitlines():
+        clean = _visible_prose_text(raw_line).strip()
+        if not clean:
+            continue
+        structural_heading = bool(
+            re.match(r"^\s*#{1,6}\s+", raw_line)
+            or re.fullmatch(r"\s*(?:\*\*|__).*?(?:\*\*|__)\s*", raw_line)
+        )
+        if structural_heading:
+            parts = re.split(r"[：:]", clean, maxsplit=1)
+            if len(parts) == 2 and parts[1].strip():
+                clean = parts[1].strip()
+        lines.append(clean)
+    return "\n".join(lines)
+
+
 def _unit_source_text_for_blocks(
     unit: CoursePresentationUnitV1,
     block_ids: set[str] | list[str],
@@ -557,6 +590,13 @@ def validate_slide_story_plan_v3(
                 message="Story title exceeds the selected template title capacity",
                 page_id=page.page_id,
             )
+        if _title_is_incomplete(page.title):
+            raise V6BuildError(
+                stage="story",
+                code="story_title_incomplete",
+                message="Visible page title ends with an incomplete connector or delimiter",
+                page_id=page.page_id,
+            )
         summary_body_slots = [
             slot for slot in layout.slots if slot.slot_kind == "body"
         ]
@@ -568,12 +608,30 @@ def validate_slide_story_plan_v3(
                 page_id=page.page_id,
             )
         if page.summary and len(summary_body_slots) == 1:
-            summary_capacity = int(summary_body_slots[0].max_chars or 0)
+            summary_slot = summary_body_slots[0]
+            summary_capacity = int(summary_slot.max_chars or 0)
             if summary_capacity and len(page.summary) > summary_capacity:
                 raise V6BuildError(
                     stage="story",
                     code="story_summary_capacity_exceeded",
                     message="Story summary exceeds the selected template support slot",
+                    page_id=page.page_id,
+                )
+            source_length = len(_visible_prose_text(
+                _unit_source_text_for_blocks(unit, page.source_block_ids)
+            ))
+            summary_min_chars = min(
+                int(getattr(summary_slot, "min_chars", 0) or 0),
+                source_length,
+            )
+            if summary_min_chars and len(_visible_prose_text(page.summary)) < summary_min_chars:
+                raise V6BuildError(
+                    stage="story",
+                    code="story_page_underfilled",
+                    message=(
+                        "Story summary underfills the selected template body despite "
+                        "sufficient frozen source content"
+                    ),
                     page_id=page.page_id,
                 )
         validate_story_template_text_slots(
@@ -595,12 +653,32 @@ def validate_slide_story_plan_v3(
                 page_id=page.page_id,
             )
         title_owners[normalized_title] = page.page_id
-        unsupported_title_tokens = _title_protected_tokens(page.title) - _title_protected_tokens(unit.source_text)
-        if unsupported_title_tokens or _semantic_grounding_ratio(page.title, unit.source_text) < 0.12:
+        page_source_text = _unit_source_text_for_blocks(
+            unit,
+            page.source_block_ids,
+        )
+        unsupported_title_tokens = (
+            _title_protected_tokens(page.title)
+            - _title_protected_tokens(page_source_text)
+        )
+        if unsupported_title_tokens or _semantic_grounding_ratio(page.title, page_source_text) < 0.12:
             raise V6BuildError(
                 stage="story",
                 code="story_unsupported_title",
                 message="Visible page title is not traceable to its frozen source unit",
+                page_id=page.page_id,
+            )
+        if _semantic_grounding_ratio(
+            page.title,
+            _title_semantic_source_text(page_source_text),
+        ) < 0.25:
+            raise V6BuildError(
+                stage="story",
+                code="story_title_lacks_specificity",
+                message=(
+                    "Visible page title repeats a structural label instead of the "
+                    "bound page's teaching subject"
+                ),
                 page_id=page.page_id,
             )
         unsupported = _protected_tokens(page.summary) - _protected_tokens(unit.source_text)
@@ -1587,6 +1665,18 @@ def _continuation_title(title: str, index: int, count: int, capacity: int) -> st
     return f"{title}{suffix}"
 
 
+def _effective_slot_min_chars(slot: Any, blocks: list[CourseBlock]) -> int:
+    declared = int(getattr(slot, "min_chars", 0) or 0)
+    if declared <= 0:
+        return 0
+    available = len(_visible_prose_text("\n\n".join(
+        block_source_text(block)
+        for block in blocks
+        if block_source_text(block)
+    )))
+    return min(declared, available)
+
+
 def _materialize_template_regions(
     *,
     page_id: str,
@@ -1696,6 +1786,16 @@ def _materialize_template_regions(
                 message=f"Required template slot {slot.slot_id} has no source-backed content",
                 page_id=page_id,
             )
+        minimum_chars = _effective_slot_min_chars(slot, slot_blocks)
+        if minimum_chars and len(_visible_prose_text(content)) < minimum_chars:
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_underfilled",
+                message=(
+                    f"Source-backed content underfills template slot {slot.slot_id}"
+                ),
+                page_id=page_id,
+            )
         if not content:
             continue
         regions.append(
@@ -1739,6 +1839,7 @@ def validate_story_template_text_slots(
     layout: Any,
     source_blocks: list[CourseBlock],
     story_summary: str = "",
+    enforce_min_chars: bool = True,
 ) -> None:
     """Reject story layouts whose required prose slots cannot bind source."""
 
@@ -1830,6 +1931,20 @@ def validate_story_template_text_slots(
                 ),
                 page_id=page_id,
             )
+        if enforce_min_chars:
+            minimum_chars = _effective_slot_min_chars(
+                slot,
+                assigned.get(slot.slot_id, []),
+            )
+            if minimum_chars and len(_visible_prose_text(content)) < minimum_chars:
+                raise V6BuildError(
+                    stage="template",
+                    code="template_slot_underfilled",
+                    message=(
+                        f"Source-backed content underfills template slot {slot.slot_id}"
+                    ),
+                    page_id=page_id,
+                )
 
 
 def story_safe_page_slices(

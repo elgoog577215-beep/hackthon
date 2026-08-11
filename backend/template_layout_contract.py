@@ -32,6 +32,7 @@ class TemplateSlotContractV1(_StrictModel):
         "notes",
     ]
     required: bool = True
+    min_chars: int = Field(default=0, ge=0)
     max_chars: int = Field(default=0, ge=0)
     max_items: int = Field(default=0, ge=0)
     max_lines: int = Field(default=0, ge=0)
@@ -103,6 +104,7 @@ def _slot(
     kind: str,
     *,
     required: bool = True,
+    min_chars: int = 0,
     chars: int = 0,
     items: int = 0,
     lines: int = 0,
@@ -117,6 +119,7 @@ def _slot(
         "slot_id": slot_id,
         "slot_kind": kind,
         "required": required,
+        "min_chars": min_chars,
         "max_chars": chars,
         "max_items": items,
         "max_lines": lines,
@@ -161,7 +164,12 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             "recap",
             "worked_example",
         ],
-        "slots": [_EYEBROW, _TITLE, _slot("body", "body", chars=520), _NOTES],
+        "slots": [
+            _EYEBROW,
+            _TITLE,
+            _slot("body", "body", min_chars=120, chars=520),
+            _NOTES,
+        ],
         "continuations": ["content-stack"],
     },
     "concept-pair": {
