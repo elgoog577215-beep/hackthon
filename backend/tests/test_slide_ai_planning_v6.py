@@ -1415,6 +1415,120 @@ async def test_non_artifact_course_keeps_text_native_as_a_valid_visual_language(
 
 
 @pytest.mark.asyncio
+async def test_visual_ai_repairs_only_the_failed_diagram_node_with_bound_sources() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-field-review",
+            title="Field evidence review",
+            sections=[CourseSection(section_id="field", title="Review", position=0)],
+            blocks=[CourseBlock(
+                block_id="flow",
+                section_id="field",
+                position=0,
+                role="reasoning",
+                kind="diagram",
+                payload={
+                    "markdown": (
+                        "Collect the field sample, review the evidence record, "
+                        "and publish the verified finding."
+                    )
+                },
+            )],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "field-flow",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/evidence-diagram")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": ["flow"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    calls = []
+
+    async def visual_planner(request):
+        calls.append(request)
+        page = request["pages"][0]
+        first_attempt = len(calls) == 1
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "diagram",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+                "visual_payload": {
+                    "nodes": [
+                        {
+                            "node_id": "collect",
+                            "label": (
+                                "Invented diagnostic stage"
+                                if first_attempt
+                                else "Collect the field sample"
+                            ),
+                            "source_block_ids": ["flow"],
+                        },
+                        {
+                            "node_id": "review",
+                            "label": (
+                                "Review the evidence record"
+                                if first_attempt
+                                else "Publish the verified finding"
+                            ),
+                            "source_block_ids": ["flow"],
+                        },
+                    ],
+                    "edges": [{"source": "collect", "target": "review"}],
+                },
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    assert len(calls) == 2
+    first_page = calls[0]["pages"][0]
+    assert first_page["source_text"] == document.blocks[0].payload["markdown"]
+    assert first_page["source_blocks"] == [{
+        "block_id": "flow",
+        "source_text": document.blocks[0].payload["markdown"],
+    }]
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["failed_node_ids"] == ["collect"]
+    assert [node["node_id"] for node in repair_target["locked_nodes"]] == ["review"]
+    assert repair_target["source_blocks"] == first_page["source_blocks"]
+    nodes = {
+        node["node_id"]: node
+        for node in visual.decisions[0].visual_payload["nodes"]
+    }
+    assert nodes["collect"]["label"] == "Collect the field sample"
+    assert nodes["review"]["label"] == "Review the evidence record"
+
+
+@pytest.mark.asyncio
 async def test_visual_batches_honor_shared_concurrency_limit() -> None:
     document = refresh_document_revision(
         CourseDocument(

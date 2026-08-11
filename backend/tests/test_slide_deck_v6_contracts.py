@@ -589,6 +589,237 @@ def test_diagram_decision_requires_source_bound_nodes_and_edges() -> None:
     assert validate_slide_visual_plan_v2(valid, story, graph, template) == "v6_ready"
 
 
+def test_diagram_labels_allow_anchored_paraphrase_within_the_bound_source_block() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-editorial-diagram",
+            title="Editorial evidence flow",
+            sections=[CourseSection(section_id="section", title="Review", position=0)],
+            blocks=[
+                _block(
+                    "review",
+                    "section",
+                    0,
+                    role="concept",
+                    text=(
+                        "The operator checks the evidence record before publishing the result."
+                    ),
+                ),
+                _block(
+                    "archive",
+                    "section",
+                    1,
+                    role="feedback",
+                    text="The approved observation is archived after review.",
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Editorial evidence flow",
+        source_block_ids=["review", "archive"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "verify",
+                        "label": "Verify the record",
+                        "source_block_ids": ["review"],
+                    },
+                    {
+                        "node_id": "publish",
+                        "label": "Publish the result",
+                        "source_block_ids": ["review"],
+                    },
+                ],
+                "edges": [{"source": "verify", "target": "publish"}],
+            },
+        )],
+    )
+
+    assert validate_slide_visual_plan_v2(visual, story, graph, template) == "v6_ready"
+
+
+def test_diagram_label_cannot_borrow_grounding_from_an_unbound_sibling_block() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-source-bound-diagram",
+            title="Observation handling",
+            sections=[CourseSection(section_id="section", title="Handling", position=0)],
+            blocks=[
+                _block(
+                    "collect",
+                    "section",
+                    0,
+                    role="concept",
+                    text="Collect the field sample and record its intake time.",
+                ),
+                _block(
+                    "archive",
+                    "section",
+                    1,
+                    role="feedback",
+                    text="Archive the approved observation after review.",
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Observation handling",
+        source_block_ids=["collect", "archive"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "collect",
+                        "label": "Archive the approved observation",
+                        "source_block_ids": ["collect"],
+                    },
+                    {
+                        "node_id": "archive",
+                        "label": "Archive the approved observation",
+                        "source_block_ids": ["archive"],
+                    },
+                ],
+                "edges": [{"source": "collect", "target": "archive"}],
+            },
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="visual_diagram_label_unsupported"):
+        validate_slide_visual_plan_v2(visual, story, graph, template)
+
+
+def test_diagram_label_keeps_numbers_and_code_identifiers_strict() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-identifier-diagram",
+            title="Build review",
+            sections=[CourseSection(section_id="section", title="Build", position=0)],
+            blocks=[
+                _block(
+                    "build",
+                    "section",
+                    0,
+                    role="concept",
+                    text="Run the build pipeline and inspect the result.",
+                )
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Build review",
+        source_block_ids=["build"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "run",
+                        "label": "Run BuildPipelineV7",
+                        "source_block_ids": ["build"],
+                    },
+                    {
+                        "node_id": "inspect",
+                        "label": "Inspect the result",
+                        "source_block_ids": ["build"],
+                    },
+                ],
+                "edges": [{"source": "run", "target": "inspect"}],
+            },
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="visual_diagram_label_unsupported"):
+        validate_slide_visual_plan_v2(visual, story, graph, template)
+
+
 def _artifact_deck_fixture(
     *,
     artifact_kind: str,
