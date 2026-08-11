@@ -107,6 +107,7 @@ describe('slide deck V6 web adapter', () => {
     })
 
     expect(slides[0]!.blocks[0]!.type).toBe('process')
+    expect(slides[0]!.quality.resolved_layout).toBe('practice-sequence')
     expect(slides[0]!.blocks[0]!.items).toEqual([
       'Verify the specimen: Match the identifier to the record.',
       'Close the container: Confirm the seal is intact.',
@@ -215,6 +216,53 @@ describe('slide deck V6 web adapter', () => {
     }
 
     const slides = adaptSlideDeckV6ForWeb({ schema_version: 'slide_deck_v6', pages: [page] })
+
+    expect(slides[0]!.quality.v6_layout_variant).toBe('table-wide-with-summary')
+    expect(slides[0]!.quality.v6_artifact_support_mode).toBe('band')
+  })
+
+  it('uses the full-width table family for dense three-column evidence', () => {
+    const content = {
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        schema_version: 'slide_page_v6',
+        page_id: 'page-dense-three-column-table',
+        page_ordinal: 0,
+        title: 'Preserve the full diagnostic evidence',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/evidence-table',
+        source_block_ids: ['evidence', 'interpretation'],
+        continuation_index: 1,
+        continuation_count: 1,
+        regions: [
+          {
+            region_id: 'page-dense-three-column-table:table',
+            slot_id: 'table',
+            content_kind: 'table',
+            content: [
+              '| Symptom | Cause | Repair |',
+              '| --- | --- | --- |',
+              '| The recorded state cannot be reconciled with the acceptance condition | Preserve the complete source evidence before review | Re-open the review and repair every missing field |',
+            ].join('\n'),
+            source_block_ids: ['evidence'],
+          },
+          {
+            region_id: 'page-dense-three-column-table:interpretation',
+            slot_id: 'interpretation',
+            content_kind: 'body',
+            content: 'Compare every condition before publishing the result.',
+            source_block_ids: ['interpretation'],
+          },
+        ],
+        visual_decision: { decision: 'table' },
+        speaker_notes: {
+          source_document_revision: 'r1',
+          teaching_unit_id: 'u1',
+          source_blocks: [],
+        },
+      }],
+    }
+
+    const slides = adaptSlideDeckV6ForWeb(content)
 
     expect(slides[0]!.quality.v6_layout_variant).toBe('table-wide-with-summary')
     expect(slides[0]!.quality.v6_artifact_support_mode).toBe('band')

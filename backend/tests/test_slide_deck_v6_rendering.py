@@ -466,6 +466,7 @@ def test_v6_ordered_steps_render_as_numbered_lines_in_pptx(tmp_path: Path) -> No
     spec = adapt_v6_page_to_slide_spec(deck.pages[0])
     process = next(block for block in spec.blocks if block.type == "process")
 
+    assert spec.quality["resolved_layout"] == "practice-sequence"
     assert process.items == [
         "Verify the specimen: Match the identifier to the record.",
         "Close the container: Confirm the seal is intact.",
@@ -628,6 +629,19 @@ def test_three_column_table_with_long_cells_is_split_before_export_overflow(
     tmp_path: Path,
 ) -> None:
     deck = _long_cell_table_deck()
+
+    adapted = [adapt_v6_page_to_slide_spec(page) for page in deck.pages]
+    assert adapted[0].quality["v6_layout_variant"] == "table-wide-with-summary"
+    table_content = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "table"
+    )
+    assert "The declared field observation and its acceptance criterion could not be reconciled" in table_content
+    assert "原始记录必须同时保留地点、时间、天气、观察者和采样批次，才能支持后续复核" in table_content
+    assert "重新打开审核并补齐缺失的来源信息后才能批准" in table_content
+    assert "…" not in table_content
 
     output = export_slide_deck_v6_pptx(deck, tmp_path / "long-cell-table.pptx")
     report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))

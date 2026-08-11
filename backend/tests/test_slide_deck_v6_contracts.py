@@ -99,6 +99,35 @@ def test_visible_prose_preserves_source_identifiers_with_underscores():
     assert "lower_bound < measured_value > upper_bound" in content
 
 
+def test_body_slot_preserves_semantic_paragraph_boundaries() -> None:
+    block = _block(
+        "field-explanation",
+        "generic-section",
+        0,
+        role="concept",
+        text=(
+            "先记录现场条件，并明确本次观察要回答的问题。\n\n"
+            "随后将观察事实与研究者解释分开，避免把推断写成原始证据。\n\n"
+            "最后依据验收标准复核结论，并记录需要返工的项目。"
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="body",
+        max_chars=240,
+        max_items=0,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert content.split("\n\n") == [
+        "先记录现场条件，并明确本次观察要回答的问题。",
+        "随后将观察事实与研究者解释分开，避免把推断写成原始证据。",
+        "最后依据验收标准复核结论，并记录需要返工的项目。",
+    ]
+
+
 def test_item_slot_uses_source_excerpts_within_template_limits():
     block = _block(
         "field-checks",
@@ -1285,6 +1314,86 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
         for region in table_regions
     )
     assert sum(region.count("| Zone ") for region in table_regions) == 17
+
+
+def test_full_course_compilation_inserts_a_source_bound_course_agenda() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-community-research",
+        title="Community research methods",
+        sections=[
+            CourseSection(section_id="observe", title="观察与记录", position=0),
+            CourseSection(section_id="explain", title="解释与复核", position=1),
+        ],
+        blocks=[
+            _block(
+                "observe-source",
+                "observe",
+                0,
+                role="concept",
+                text="记录地点、时间、参与者与观察事实，并保持原始证据可追溯。",
+            ),
+            _block(
+                "explain-source",
+                "explain",
+                0,
+                role="reasoning",
+                text="区分事实与解释，再根据验收标准复核结论并记录修订。",
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    story_pages = []
+    visual_decisions = []
+    for ordinal, unit in enumerate(graph.units):
+        page_id = f"content-{ordinal + 1}"
+        layout_id = template.layout_id("content-stack")
+        story_pages.append(SlideStoryPageV3(
+            page_id=page_id,
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=layout_id,
+            title=("记录可追溯的观察事实" if ordinal == 0 else "依据标准复核研究结论"),
+            source_block_ids=unit.primary_block_ids,
+            page_ordinal=ordinal,
+        ))
+        visual_decisions.append(SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        ))
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-course",
+            chapter_id="course",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=story_pages,
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=visual_decisions,
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    agenda = deck.pages[0]
+    assert agenda.resolved_layout == template.layout_id("agenda-path")
+    assert agenda.source_block_ids == []
+    assert agenda.source_section_ids == ["observe", "explain"]
+    assert agenda.speaker_notes.source_blocks == []
+    assert agenda.speaker_notes.source_section_ids == ["observe", "explain"]
+    assert agenda.regions[0].content.splitlines() == ["观察与记录", "解释与复核"]
+    assert [page.page_ordinal for page in deck.pages] == list(range(len(deck.pages)))
+    assert deck.quality.formal_block_visible_coverage == 1.0
+    assert deck.quality.source_order_preserved is True
 
 
 def test_very_large_code_still_respects_page_limit_with_full_notes() -> None:
