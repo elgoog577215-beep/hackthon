@@ -177,3 +177,35 @@ def test_local_solver_rejects_unsafe_or_incomplete_contract() -> None:
     assert registry.solve({
         "input_contract": {"mode": "choice"},
     }) is None
+
+
+def test_local_solver_returns_none_on_unparsable_expression() -> None:
+    """表达式解析不了要返回 None，**不能让 SyntaxError 逃出去**。
+
+    真机取证实测：模型给数值题写的 `expression` 经常带单位
+    （"150 J - 60 J"）或写成等式（"ΔU = 20 - 8"）。`ast.parse` 对这些抛
+    `SyntaxError`，而它不是 `ValueError` 的子类——改动前它会穿透 `solve()`
+    把整个槽位打死（`attempts: []` + `final_decision: discard`，
+    一次生成尝试都没发生），在审计里看起来像"模型出不了题"。
+    """
+    registry = IndependentSolverRegistry.with_builtin_solvers()
+
+    for expression in ("150 J - 60 J", "ΔU = 20 - 8", "20 kJ", "12 +"):
+        assert registry.solve({
+            "input_contract": {"mode": "numeric_unit"},
+            "solver_contract": {
+                "kind": "numeric_expression",
+                "expression": expression,
+                "unit": "kJ",
+            },
+        }) is None, f"{expression!r} 应返回 None 而不是抛异常"
+
+    # 修完之后合法表达式仍要照常求解（别把闸门关死了）。
+    assert registry.solve({
+        "input_contract": {"mode": "numeric_unit"},
+        "solver_contract": {
+            "kind": "numeric_expression",
+            "expression": "150 - 60",
+            "unit": "J",
+        },
+    })["answer"] == {"value": 90, "unit": "J"}

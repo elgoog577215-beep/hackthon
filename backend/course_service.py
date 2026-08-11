@@ -151,6 +151,7 @@ from course_teaching_plan_v3 import (
 )
 from course_type_contracts import apply_course_type_brief, resolve_course_type
 from learner_context import DEFAULT_USER_ID
+from evidence_package import freeze_evidence_package
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
@@ -198,6 +199,23 @@ def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any
         {key: item[key] for key in EVIDENCE_INDEX_FIELDS if key in item}
         for item in catalog
     ]
+
+
+def _stamp_evidence_revision(
+    target: dict[str, Any] | None,
+    source: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """把证据修订 ID 从 plan 盖到另一个阶段产物上（E1 验收用）。
+
+    教案是独立的 V3 对象而非 plan 的副本，且它的 `revision_id` 由自身内容
+    哈希得出——所以不能在组装时塞字段（会改变教案修订），只能在这里补盖。
+    """
+    if not isinstance(target, dict) or not isinstance(source, dict):
+        return target
+    revision = str(source.get("evidence_package_revision_id") or "")
+    if revision:
+        target["evidence_package_revision_id"] = revision
+    return target
 
 
 def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
@@ -363,6 +381,7 @@ class CourseService(AIBase):
             "web_question_enrichment",
             "web_material_ingest",
             "web_material_search",
+            "evidence_package",
             "requirements",
             "subject_pedagogy_profile",
             "difficulty_profile",
@@ -753,6 +772,8 @@ class CourseService(AIBase):
             "web_material_search": artifacts.get(
                 "web_material_search", {"enabled": False}
             ),
+            # E1：各阶段引用同一份证据修订的凭据。
+            "evidence_package": artifacts.get("evidence_package", {}),
             "subject_pedagogy_profile": profile.to_dict(),
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
@@ -882,13 +903,27 @@ class CourseService(AIBase):
                 **(plan_constraint_report.get("actual") or {}),
             },
         )
+        # E1：先冻结证据包，再做小节级绑定。此后目录/知识图谱/教案/正文/练习
+        # 都引用同一个 package_revision_id，避免各阶段各取一份证据。
+        evidence_package = freeze_evidence_package(
+            course_id=course_id,
+            evidence=artifacts.get("evidence_catalog") or [],
+            bindings=artifacts.get("material_bindings") or [],
+        )
+        artifacts["evidence_package"] = evidence_package.model_dump(mode="json")
+        artifacts["evidence_package_revision_id"] = evidence_package.package_revision_id
         plan, evidence_coverage_plan = attach_evidence_to_plan(
             plan,
             evidence=artifacts.get("evidence_catalog") or [],
             bindings=artifacts.get("material_bindings") or [],
             strategy=grounding_strategy,
         )
+        evidence_coverage_plan["package_revision_id"] = evidence_package.package_revision_id
         artifacts["evidence_coverage_plan"] = evidence_coverage_plan
+        # 把修订 ID 盖在 plan 上：plan 会流向目录、教案、正文与练习产物，
+        # 盖一次即可让各阶段产物都能自证"我用的是哪一份证据"。
+        # 这是 E1 验收（各阶段引用同一修订）能被独立核对的前提。
+        plan["evidence_package_revision_id"] = evidence_package.package_revision_id
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
@@ -986,6 +1021,8 @@ class CourseService(AIBase):
             "web_material_search": artifacts.get(
                 "web_material_search", {"enabled": False}
             ),
+            # E1：各阶段引用同一份证据修订的凭据。
+            "evidence_package": artifacts.get("evidence_package", {}),
             "course_blueprint": outline_blueprint,
             "course_outline_constraint_report": plan_constraint_report,
             "blueprint_validation_report": validate_blueprint(outline_blueprint),
@@ -1433,7 +1470,7 @@ class CourseService(AIBase):
                 "resumed": True,
             })
             course_data.update({
-                "course_teaching_plan": official_plan,
+                "course_teaching_plan": _stamp_evidence_revision(official_plan, planned_course),
                 "course_plan": deepcopy(planned_course),
                 "knowledge_relations": deepcopy(
                     planned_course.get("knowledge_relations") or []
@@ -2585,7 +2622,7 @@ class CourseService(AIBase):
         teaching_stage.pop("failed_batch_id", None)
         teaching_stage.pop("failed_batch_ids", None)
         course_data.update({
-            "course_teaching_plan": course_teaching_plan,
+            "course_teaching_plan": _stamp_evidence_revision(course_teaching_plan, planned_course),
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(
                 planned_course.get("knowledge_relations") or []
@@ -2884,7 +2921,7 @@ class CourseService(AIBase):
         })
         course_data.update({
             "course_teaching_plan_skeleton": skeleton,
-            "course_teaching_plan": course_teaching_plan,
+            "course_teaching_plan": _stamp_evidence_revision(course_teaching_plan, planned_course),
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(
                 planned_course.get("knowledge_relations") or []

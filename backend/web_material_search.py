@@ -12,6 +12,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from web_content_safety import assess_sensitivity, needs_teacher_review
 from web_retrieval import (
     RetrievalRequest,
     admitted_sources,
@@ -325,13 +326,19 @@ def candidate_from_source(source: dict[str, Any]) -> dict[str, Any]:
     正文已由网关清洗与截断，这里不再重复清洗，只做资料链需要的字段映射。
     """
     trust_tier = str(source.get("trust_tier") or "tier_c")
+    title = str(source.get("title") or "")
+    excerpt = str(source.get("excerpt") or "")
+    # P0 内容安全：只标记不拒绝。命中敏感主题的来源仍留在候选里，
+    # 但从"自动进链"降为"需教师确认"（accepted_for_generation=False）。
+    sensitivity = assess_sensitivity(title, excerpt)
+    accepted = bool(source.get("accepted_for_generation")) and not needs_teacher_review(sensitivity)
     return {
         "source_id": str(source.get("source_id") or ""),
         "url": str(source.get("url") or ""),
         "canonical_url": str(source.get("canonical_url") or ""),
         "domain": str(source.get("domain") or ""),
-        "title": str(source.get("title") or ""),
-        "text": str(source.get("excerpt") or ""),
+        "title": title,
+        "text": excerpt,
         "published_date": str(source.get("published_date") or ""),
         "license": str(source.get("license") or ""),
         "reuse_policy": str(source.get("reuse_policy") or "summary_only"),
@@ -342,6 +349,8 @@ def candidate_from_source(source: dict[str, Any]) -> dict[str, Any]:
         "retrieved_at": str(source.get("retrieved_at") or ""),
         "provider": str(source.get("provider") or ""),
         "relevance": source.get("relevance"),
+        "sensitivity": sensitivity,
+        "accepted_for_generation": accepted,
     }
 
 
