@@ -680,7 +680,9 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
     )
     assert repair_target["page_id"] == "page-1"
     assert repair_target["teaching_unit_id"] == calls[0]["teaching_units"][0]["teaching_unit_id"]
-    assert repair_target["allowed_page_count_range"] == [1, 3]
+    assert repair_target["allowed_page_count_range"] == (
+        calls[0]["teaching_units"][0]["allowed_page_count_range"]
+    )
     assert repair_target["observed_unit_page_ids"] == ["page-1"]
     assert repair_target["page_intent"] == calls[0]["teaching_units"][0]["teaching_intent"]
     assert repair_target["allowed_template_layout_ids"] == (

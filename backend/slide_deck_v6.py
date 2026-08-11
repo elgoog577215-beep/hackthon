@@ -586,8 +586,6 @@ def validate_slide_story_plan_v3(
             raise V6BuildError(stage="story", code="story_dependency_order_invalid", message="Story reverses course teaching-unit order", page_id=page.page_id)
         previous_unit_ordinal = unit.source_ordinal
         page_count_by_unit[unit.teaching_unit_id] += 1
-        if page_count_by_unit[unit.teaching_unit_id] > 3:
-            raise V6BuildError(stage="story", code="teaching_unit_page_limit_exceeded", message="A teaching unit exceeds the one-to-three page contract", page_id=page.page_id)
         normalized_title = re.sub(r"\s+", "", page.title).casefold()
         if normalized_title in title_owners:
             raise V6BuildError(
@@ -616,6 +614,26 @@ def validate_slide_story_plan_v3(
                 page_id=page.page_id,
             )
         observed_blocks.extend(page.source_block_ids)
+    for unit in graph.units:
+        maximum_pages = story_page_count_range(unit, template)[1]
+        if page_count_by_unit[unit.teaching_unit_id] > maximum_pages:
+            failed_page = next(
+                page
+                for page in reversed(sorted(
+                    plan.pages,
+                    key=lambda item: item.page_ordinal,
+                ))
+                if page.teaching_unit_id == unit.teaching_unit_id
+            )
+            raise V6BuildError(
+                stage="story",
+                code="teaching_unit_page_limit_exceeded",
+                message=(
+                    "A teaching unit exceeds its template-safe page budget "
+                    f"of {maximum_pages}"
+                ),
+                page_id=failed_page.page_id,
+            )
     missing = [block_id for block_id in graph.formal_block_ids if block_id not in observed_blocks]
     if missing:
         raise V6BuildError(stage="story", code="story_course_block_coverage_incomplete", message=f"Story omitted formal blocks: {', '.join(missing)}")
@@ -1811,6 +1829,95 @@ def validate_story_template_text_slots(
             )
 
 
+def story_safe_page_slices(
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+) -> list[dict[str, Any]]:
+    """Enumerate contiguous source slices that a published template can render."""
+
+    block_ids = list(unit.primary_block_ids)
+    slices: list[dict[str, Any]] = []
+    for start_index in range(len(block_ids)):
+        for end_index in range(start_index + 1, len(block_ids) + 1):
+            source_block_ids = block_ids[start_index:end_index]
+            teaching_intent = page_teaching_intent(unit, source_block_ids)
+            required_artifacts = page_artifact_kinds(unit, source_block_ids)
+            compatible_layout_ids: list[str] = []
+            for layout in template.layouts:
+                if teaching_intent not in layout.teaching_intents:
+                    continue
+                if required_artifacts and not required_artifacts.issubset(
+                    set(layout.artifact_kinds)
+                ):
+                    continue
+                try:
+                    validate_story_template_text_slots(
+                        page_id="story-safe-slice",
+                        layout=layout,
+                        source_blocks=graph_page_source_blocks(
+                            unit,
+                            source_block_ids,
+                        ),
+                        story_summary="",
+                    )
+                except V6BuildError:
+                    continue
+                compatible_layout_ids.append(layout.template_layout_id)
+            if compatible_layout_ids:
+                slices.append({
+                    "start_index": start_index,
+                    "end_index": end_index,
+                    "source_block_ids": source_block_ids,
+                    "teaching_intent": teaching_intent,
+                    "artifact_kinds": sorted(required_artifacts),
+                    "template_layout_ids": compatible_layout_ids,
+                })
+    return slices
+
+
+def story_page_count_range(
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+) -> list[int]:
+    """Derive a compact LLM page budget from template-safe source partitions."""
+
+    safe_slices = story_safe_page_slices(unit, template)
+    slice_edges = {
+        (int(item["start_index"]), int(item["end_index"]))
+        for item in safe_slices
+    }
+    reachable_counts: dict[int, set[int]] = {0: {0}}
+    for end_index in range(1, len(unit.primary_block_ids) + 1):
+        counts: set[int] = set()
+        for start_index in range(end_index):
+            if (start_index, end_index) not in slice_edges:
+                continue
+            counts.update(
+                count + 1
+                for count in reachable_counts.get(start_index, set())
+            )
+        if counts:
+            reachable_counts[end_index] = counts
+    feasible_counts = sorted(
+        reachable_counts.get(len(unit.primary_block_ids), set())
+    )
+    if not feasible_counts:
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message=(
+                "No contiguous template-safe partition covers teaching unit "
+                f"{unit.teaching_unit_id}"
+            ),
+        )
+    minimum_pages = feasible_counts[0]
+    maximum_pages = min(
+        feasible_counts[-1],
+        max(3, minimum_pages + 1),
+    )
+    return [minimum_pages, maximum_pages]
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -1825,6 +1932,10 @@ def compile_slide_deck_v6(
     visual_by_page = {decision.page_id: decision for decision in visual.decisions}
     pages: list[SlidePageV6] = []
     unit_page_counts = Counter(page.teaching_unit_id for page in story.pages)
+    unit_page_count_ranges = {
+        unit.teaching_unit_id: story_page_count_range(unit, template)
+        for unit in graph.units
+    }
     for story_page in sorted(story.pages, key=lambda item: item.page_ordinal):
         layout = template.get_layout(visual_by_page[story_page.page_id].resolved_template_layout_id)
         if layout is None:
@@ -1841,11 +1952,15 @@ def compile_slide_deck_v6(
             - 1
             + len(materializations)
         )
-        if expanded_unit_count > 3:
+        maximum_pages = unit_page_count_ranges[story_page.teaching_unit_id][1]
+        if expanded_unit_count > maximum_pages:
             raise V6BuildError(
                 stage="template",
                 code="teaching_unit_page_limit_exceeded",
-                message="A teaching unit exceeds three template-safe pages after pagination",
+                message=(
+                    "A teaching unit exceeds its template-safe page budget "
+                    f"of {maximum_pages} after pagination"
+                ),
                 page_id=story_page.page_id,
             )
         unit_page_counts[story_page.teaching_unit_id] = expanded_unit_count

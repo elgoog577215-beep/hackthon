@@ -49,7 +49,9 @@ The system SHALL keep required code, formulas, tables, experiment data and sourc
 
 #### Scenario: A programming unit contains code and expected output
 - **WHEN** V6 allocates the unit
-- **THEN** one to three adjacent pages preserve the code, execution conditions, explanation and result
+- **THEN** the page budget is derived from contiguous source slices that satisfy the published template's artifact and slot-capacity contracts
+- **AND** the compact default may expand beyond three pages only when the template-safe partition requires additional narrative room
+- **AND** adjacent pages preserve the code, execution conditions, explanation and result
 - **AND** generic prose cannot replace the code artifact
 
 #### Scenario: A mathematical unit contains definition, formula and derivation

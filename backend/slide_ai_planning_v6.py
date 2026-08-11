@@ -36,6 +36,8 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     graph_page_source_blocks,
+    story_page_count_range,
+    story_safe_page_slices,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
     validate_story_template_text_slots,
@@ -738,6 +740,8 @@ def _story_unit_request(
             if len(body_slots) == 1
             else 0
         )
+    safe_page_slices = story_safe_page_slices(unit, template)
+    allowed_page_count_range = story_page_count_range(unit, template)
 
     def block_compatible_layout_ids(block_id: str) -> list[str]:
         block_intent = page_teaching_intent(unit, [block_id])
@@ -786,6 +790,8 @@ def _story_unit_request(
             max_chars=title_max_chars,
         ),
         "summary_max_chars_by_layout_id": summary_max_chars_by_layout_id,
+        "allowed_page_count_range": allowed_page_count_range,
+        "safe_page_slices": safe_page_slices,
         "allowed_template_layout_ids": allowed_layout_ids,
         "allowed_template_layout_ids_by_page_intent": (
             allowed_layout_ids_by_page_intent
@@ -820,7 +826,9 @@ def _story_requests(
                     "source_grounded_semantic_closure_for_all_bound_blocks_"
                     "complete_sentence_no_markdown"
                 ),
-                "pages_per_unit": [1, 3],
+                "page_count_policy": (
+                    "use_each_teaching_unit_allowed_page_count_range"
+                ),
                 "allow_new_facts": False,
                 "allow_unknown_ids": False,
             },
@@ -1073,7 +1081,10 @@ def _story_repair_targets(
         return {
             "page_id": page_id,
             "teaching_unit_id": unit_id,
-            "allowed_page_count_range": [1, 3],
+            "allowed_page_count_range": list(
+                unit.get("allowed_page_count_range") or [1, 3]
+            ),
+            "safe_page_slices": list(unit.get("safe_page_slices") or []),
             "observed_unit_page_ids": [
                 str(page.get("page_id") or "")
                 for page in observed_unit_pages
@@ -1258,7 +1269,13 @@ def _coalesce_oversplit_story_unit(
         if isinstance(page, dict)
         and str(page.get("teaching_unit_id") or "") == unit_id
     ]
-    if unit is None or len(unit_pages) <= 3:
+    page_count_range = (
+        list(unit.get("allowed_page_count_range") or [1, 3])
+        if unit is not None
+        else [1, 3]
+    )
+    maximum_pages = int(page_count_range[-1])
+    if unit is None or len(unit_pages) <= maximum_pages:
         return response_payload
 
     primary_ids = [
@@ -1281,7 +1298,7 @@ def _coalesce_oversplit_story_unit(
     if not observed_ids or not owner_pages:
         return response_payload
 
-    target_count = min(3, len(owner_pages), len(observed_ids))
+    target_count = min(maximum_pages, len(owner_pages), len(observed_ids))
     base_size, remainder = divmod(len(observed_ids), target_count)
     chunks: list[list[str]] = []
     cursor = 0
@@ -1419,7 +1436,8 @@ async def plan_slide_story_v3(
                                 "derives each page's intent from its bound primary_blocks and uses "
                                 "only that intent's allowed_template_layout_ids_by_page_intent, and "
                                 "contains only source IDs supplied for that unit. Partition every "
-                                "unit's primary_block_ids across one to three pages: bind multiple "
+                                "unit's primary_block_ids within that unit's allowed_page_count_range "
+                                "using only contiguous entries from safe_page_slices: bind multiple "
                                 "related block IDs to the same page instead of creating one page per "
                                 "block. Full source remains available in speaker notes downstream. "
                                 "Copy each title verbatim from that unit's title_candidates and keep "
@@ -1428,7 +1446,8 @@ async def plan_slide_story_v3(
                                 "its template_layout_id exactly to required_template_layout_id when "
                                 "provided. When a repair target has repartition_required=true, "
                                 "replace every page listed in replace_page_ids with a fresh LLM-authored "
-                                "partition of source_block_order across one to three pages. Do not retain "
+                                "partition of source_block_order within allowed_page_count_range. Use "
+                                "safe_page_slices to select both each slice and its layout. Do not retain "
                                 "the failed source grouping. Each new page must bind a non-empty contiguous "
                                 "slice of source_block_order, preserve the complete order exactly once, and "
                                 "select its layout from allowed_template_layout_ids_by_page_intent. If a "
@@ -2290,7 +2309,8 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id. "
                 "Derive each page intent from the roles and artifacts of its bound primary_blocks, "
                 "then select a layout from allowed_template_layout_ids_by_page_intent for that intent. "
-                "Create one to three pages per unit. Do not create "
+                "Create a page count within each unit's allowed_page_count_range and use only "
+                "that unit's contiguous safe_page_slices with one of the listed layout IDs. Do not create "
                 "one page per primary block: partition the unit's block IDs across its pages and "
                 "bind multiple related blocks to one page when needed. The downstream compiler "
                 "keeps complete source text in speaker notes, so canvas pages should express a "
