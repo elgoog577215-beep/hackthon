@@ -484,3 +484,91 @@ def test_delivered_guidance_still_charges_support(monkeypatch, tmp_path):
     stored = repository.get("u1", "c1", attempt_id)
     assert stored["ai_support_level"] == 2
     assert stored["guidance_turns"][1]["counted_as_support"] is True
+
+
+# --- 裸答案值泄漏（真机抽查发现的真实缺陷） ----------------------------------
+
+
+def _bare_answer_question():
+    """存的答案是「最小值为 -4」这个短语，但模型很可能只说出裸数字 -4。"""
+    return {
+        "prompt": "求函数 f(x)=x^2-6x+5 的最小值，并写出推导过程。",
+        "question_type": "worked_solution",
+        "answer_spec": {
+            "type": "rubric",
+            "correct_answer": "最小值为 -4",
+            "solution_spec": {
+                "final_answer": "最小值为 -4",
+                "steps": [
+                    {"step_id": "s1", "action": "把 f(x)=x^2-6x+5 配方为 (x-3)^2-4"},
+                    {"step_id": "s2", "action": "读出顶点坐标 (3,-4)"},
+                ],
+            },
+        },
+    }
+
+
+def test_bare_numeric_answer_is_caught_even_when_phrase_is_not():
+    """真机对抗抽查复现出来的泄漏：学生硬要答案时模型说出了裸数字 -4。
+
+    短语「最小值为 -4」在引导文本里找不到，而 hint_leakage 会跳过短于一个
+    shingle 的答案（编译期这样取舍是对的，裸 "3"/"B" 与普通行文碰撞太容易）。
+    运行时引导是另一回事：一两句针对特定学生现生成的话里出现 "-4"，压倒性
+    地就是答案本身。
+    """
+    screening = screen_guidance_turn(
+        {
+            "question": "你现在最想直接知道的是那个数字（-4），但题目要求写出推导过程。",
+            "focus": "",
+            "closing": "",
+        },
+        _bare_answer_question(),
+    )
+
+    assert screening["safe"] is False
+    assert screening["reason"] == "reveals_final_answer"
+    assert screening["matched_value"] == "-4"
+
+
+def test_numbers_from_the_prompt_are_not_mistaken_for_the_answer():
+    """题面里的系数、步骤序号不能被误判为答案——误伤会让引导变得没法用。"""
+    question = _bare_answer_question()
+    for text in (
+        "题目里的 x^2-6x+5，你先看 -6 这个系数在配方时怎么处理？",
+        "请把第 2 步的依据写出来。",
+        "你说配完之后常数项算错，能说说你配到哪一步吗？",
+    ):
+        screening = screen_guidance_turn(
+            {"question": text, "focus": "", "closing": ""}, question
+        )
+        assert screening["safe"] is True, text
+
+
+def test_answer_digit_boundary_avoids_substring_false_positives():
+    """-4 不能在 -42 上误报，也不能在 14 里命中。"""
+    question = _bare_answer_question()
+    screening = screen_guidance_turn(
+        {"question": "如果把常数项写成 -42，你怎么检查它对不对？", "focus": "", "closing": ""},
+        question,
+    )
+
+    assert screening["safe"] is True
+
+
+def test_unit_bearing_answer_value_is_also_caught():
+    """带单位的答案（50 km/h）同样要拦下裸数值。"""
+    question = {
+        "prompt": "求全程平均速度。",
+        "question_type": "numeric_response",
+        "answer_spec": {
+            "correct_answer": "50 km/h",
+            "solution_spec": {"final_answer": "50 km/h", "steps": []},
+        },
+    }
+    screening = screen_guidance_turn(
+        {"question": "其实结果就是 50，你核对一下。", "focus": "", "closing": ""},
+        question,
+    )
+
+    assert screening["safe"] is False
+    assert screening["reason"] == "reveals_final_answer"

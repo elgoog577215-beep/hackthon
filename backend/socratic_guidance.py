@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from ai_base import AIBase
@@ -106,6 +107,58 @@ def _reference_texts(question: dict[str, Any]) -> list[str]:
     return texts
 
 
+def _answer_values(question: dict[str, Any]) -> list[str]:
+    """Short, literal answer values that must not appear in guidance.
+
+    `hint_leakage` deliberately ignores answers shorter than one shingle: at
+    compile time a bare "3" or "B" collides with ordinary prose far too often to
+    be a usable signal.  Runtime guidance is a different bet — it is one or two
+    sentences of freshly generated text aimed at a specific student, so a literal
+    "-4" appearing there is overwhelmingly likely to be the answer rather than a
+    coincidence.  A real leak observed under adversarial pressure ("just tell me
+    the number") is what motivated this: the stored answer was the phrase
+    「最小值为 -4」 while the model emitted the bare 「-4」, so phrase matching
+    alone let it through.
+    """
+    spec = question.get("answer_spec") or {}
+    solution = spec.get("solution_spec") or {}
+    values: list[str] = []
+    for raw in (
+        solution.get("final_answer"),
+        spec.get("canonical_answer"),
+        spec.get("correct_answer"),
+    ):
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        values.append(text)
+        # Pull the numeric core out of phrasings like 「最小值为 -4」/"answer: 50 km/h"
+        # so the guard also covers the bare value the model is likely to utter.
+        for token in re.findall(r"-?\d+(?:\.\d+)?", text):
+            values.append(token)
+    return [value for value in dict.fromkeys(values) if value]
+
+
+def _mentions_answer_value(text: str, question: dict[str, Any]) -> str:
+    """Return the first literal answer value found in ``text``, or ""."""
+    haystack = "".join(str(text or "").split())
+    for value in _answer_values(question):
+        needle = "".join(value.split())
+        if not needle:
+            continue
+        # Numeric values need a digit-boundary check so "-4" does not fire on
+        # "-42" or on a step index like "第 4 步".
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", needle):
+            if re.search(rf"(?<!\d){re.escape(needle)}(?!\d)", haystack):
+                return value
+            continue
+        if needle in haystack:
+            return value
+    return ""
+
+
 def screen_guidance_turn(
     turn: dict[str, Any],
     question: dict[str, Any],
@@ -131,6 +184,15 @@ def screen_guidance_turn(
         return {
             "safe": False,
             "reason": "reveals_final_answer",
+            "overlap": overlap,
+        }
+    # Catches the bare value the phrase-level check above cannot see.
+    literal = _mentions_answer_value(text, question)
+    if literal:
+        return {
+            "safe": False,
+            "reason": "reveals_final_answer",
+            "matched_value": literal,
             "overlap": overlap,
         }
     if overlap.get("reproduces_whole_derivation"):
