@@ -230,3 +230,24 @@ def test_equivalent_to_trigger_names_a_checkable_condition() -> None:
     # 必须给出"怎么认出来"的具体信号，而不是重复类型定义。
     assert "同一" in section, "要说清是同一对象/同一结论的不同表达"
     assert "换了写法" in section or "另一种写法" in section, "要给出可判断的识别标准"
+
+
+def test_prompt_lists_every_legal_knowledge_type() -> None:
+    """prompt 必须列出 `knowledge_type` 的全部合法取值。
+
+    实测根因：prompt 从来没告诉模型这个字段能填什么，JSON 样例里只示范了
+    `definition`。结果 qwen 生成时**发明了 `relationship`**（不在词表里），
+    而 `representation` 一次都没出现——即使课程主题就是"一次函数的多种表示"、
+    需求里明写了要标 representation。
+
+    后果不只是"少一个类型"：`course_knowledge_base.py:177-178` 会把非法值
+    **静默改写成 `definition`**，没有任何提示。所以模型填错、系统改错、
+    没人知道。这与 A1 的教训同构——模型跟样例走，样例里没有的它不会用。
+    """
+    from course_knowledge_base import KNOWLEDGE_TYPES
+
+    prompt = _batch_prompt()
+    constraints = prompt[prompt.index("## 约束"): prompt.index("## JSON Schema")]
+
+    missing = sorted(name for name in KNOWLEDGE_TYPES if name not in constraints)
+    assert missing == [], f"约束里没有给出这些合法 knowledge_type：{missing}"
