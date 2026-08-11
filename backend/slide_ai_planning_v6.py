@@ -223,6 +223,7 @@ def _project_required_safe_partitions(
         str(target.get("teaching_unit_id") or ""): target
         for target in repair_targets
         if target.get("repartition_required") is True
+        and target.get("source_coverage_verified") is True
         and isinstance(target.get("required_safe_partition"), dict)
     }
     if not targets_by_unit:
@@ -251,6 +252,8 @@ def _project_required_safe_partitions(
                 str(page.get("page_id") or "") for page in provider_pages
             )
             continue
+        if not provider_pages:
+            continue
         provider_source_order = [
             str(block_id)
             for page in provider_pages
@@ -259,7 +262,10 @@ def _project_required_safe_partitions(
         expected_source_order = [
             str(block_id) for block_id in unit.get("primary_block_ids") or []
         ]
-        if Counter(provider_source_order) != Counter(expected_source_order):
+        if any(
+            block_id not in set(expected_source_order)
+            for block_id in provider_source_order
+        ):
             projected.extend(provider_pages)
             continue
         provider_partition = [
@@ -1309,6 +1315,17 @@ def _story_repair_targets(
             and option.get("pages")
         ]
         observed_page_count = len(observed_unit_pages)
+        observed_source_ids = [
+            str(block_id)
+            for page in observed_unit_pages
+            for block_id in page.get("source_block_ids") or []
+        ]
+        expected_source_ids = [
+            str(block_id) for block_id in unit.get("primary_block_ids") or []
+        ]
+        source_coverage_verified = (
+            Counter(observed_source_ids) == Counter(expected_source_ids)
+        )
         required_safe_partition = (
             min(
                 enumerate(safe_partition_options),
@@ -1321,7 +1338,11 @@ def _story_repair_targets(
                     indexed_option[0],
                 ),
             )[1]
-            if repartition_required and safe_partition_options
+            if (
+                repartition_required
+                and source_coverage_verified
+                and safe_partition_options
+            )
             else {}
         )
         return {
@@ -1335,6 +1356,7 @@ def _story_repair_targets(
                 unit.get("safe_partition_options") or []
             ),
             "required_safe_partition": required_safe_partition,
+            "source_coverage_verified": source_coverage_verified,
             "observed_unit_page_ids": [
                 str(page.get("page_id") or "")
                 for page in observed_unit_pages
