@@ -126,6 +126,13 @@ The system SHALL compile `slide_deck_v6` with resolved template layout IDs, type
 - **THEN** the canvas contains a semantically closed source-faithful expression
 - **AND** complete source text and full code remain in speaker notes with block and revision bindings
 
+#### Scenario: A source table exceeds one slide's readable capacity
+- **WHEN** wrapped cell height, row count or protected identifiers cannot fit the selected table variant without semantic loss
+- **THEN** the compiler selects a declared full-width or wide table variant, or paginates complete rows across continuation pages with the header repeated
+- **AND** a single oversized row is promoted to a source-bound detail expression instead of being clipped
+- **AND** no renderer or compiler inserts an ellipsis that was absent from the source
+- **AND** every visible identifier, number, formula and code token remains complete; otherwise the candidate fails before publication
+
 ### Requirement: V6 Applies Fidelity And Render Gates Before Atomic Publication
 The system SHALL publish only after course coverage, order, fact traceability, subject artifacts, teaching intent, template capacity, render integrity and export checks pass.
 

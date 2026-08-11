@@ -27,6 +27,7 @@
 - [x] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
 - [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
 - [x] 4.5 Compile Markdown, code and tables into template-safe visible excerpts while retaining complete source text in speaker notes.
+- [ ] 4.6 Preserve complete table-cell semantics with full-width/wide selection, row pagination with repeated headers, oversized-row detail pages and a no-generated-ellipsis gate.
 
 ## 5. Adaptive progress
 
