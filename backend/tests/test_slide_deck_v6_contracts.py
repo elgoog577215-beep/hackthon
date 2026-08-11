@@ -363,6 +363,64 @@ def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_a_layout_before_its_required_text_slot_materializes_empty() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-observation-check",
+            title="Observation check",
+            sections=[
+                CourseSection(
+                    section_id="check",
+                    title="Check the record",
+                    position=0,
+                )
+            ],
+            blocks=[
+                _block(
+                    "check-rows",
+                    "check",
+                    0,
+                    role="activity",
+                    kind="review_checkpoint",
+                    text="| Time | Recorded |\n| Habitat | Described |",
+                )
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[
+            SlideStoryBatchV3(
+                batch_id="generic-slot-check",
+                chapter_id="check",
+                provider="fixture-provider",
+                model="fixture-model",
+                duration_ms=1,
+                attempts=1,
+                validation_status="passed",
+                pages=[
+                    SlideStoryPageV3(
+                        page_id="empty-task-slot",
+                        teaching_unit_id=unit.teaching_unit_id,
+                        template_layout_id=template.layout_id("practice-prompt"),
+                        title="",
+                        summary="",
+                        source_block_ids=unit.primary_block_ids,
+                        page_ordinal=0,
+                    )
+                ],
+            )
+        ],
+    )
+
+    with pytest.raises(V6BuildError, match="template_required_slot_unfilled"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_visual_plan_degrades_only_optional_visuals() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
