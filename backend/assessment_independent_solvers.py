@@ -69,7 +69,16 @@ class IndependentSolverRegistry:
             return None
         try:
             result = solver(deepcopy(contract))
-        except (ArithmeticError, TypeError, ValueError):
+        except (ArithmeticError, TypeError, ValueError, SyntaxError):
+            # SyntaxError 必须单列：它**不是** ValueError 的子类，而
+            # `_solve_numeric_expression` 用 `ast.parse` 解析模型给的表达式，
+            # 模型只要写成带单位（"150 J - 60 J"）或等式（"ΔU = 20 - 8"）就抛它。
+            #
+            # 漏掉它的后果不是"这道题不用本地解题器"，而是异常穿透整个
+            # `solve()` 把**整个槽位打死**——真机取证里表现为
+            # `attempts: []` + `final_decision: discard`，一次生成尝试都没发生。
+            # 求解器解不出来的正常语义是返回 None 让题目落回模型求解，
+            # 解析失败也该走这条路。
             return None
         if not _complete_solution(result):
             return None
