@@ -453,14 +453,12 @@ def _normalize_visual_batch_response(
             decision.pop("decision_type", None)
         page = pages.get(str(decision.get("page_id") or ""))
         if page is not None:
-            if not decision.get("source_block_ids"):
-                decision["source_block_ids"] = list(
-                    page.get("source_block_ids") or []
-                )
-            if not str(decision.get("resolved_template_layout_id") or "").strip():
-                decision["resolved_template_layout_id"] = str(
-                    page.get("template_layout_id") or ""
-                )
+            decision["source_block_ids"] = list(
+                page.get("source_block_ids") or []
+            )
+            decision["resolved_template_layout_id"] = str(
+                page.get("template_layout_id") or ""
+            )
         normalized.append({
             field: decision[field]
             for field in _VISUAL_DECISION_CONTRACT_FIELDS
