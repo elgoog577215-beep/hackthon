@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import SlideCanvas from '../../components/SlideCanvas.vue'
 
 
-type TableVariant = 'table-with-interpretation' | 'table-continuation' | 'table-wide-with-summary'
+type TableVariant = 'table-with-interpretation' | 'table-continuation' | 'table-wide-with-summary' | 'table-row-detail'
 
 function tableSlide(variant: TableVariant) {
   return {
@@ -87,5 +87,17 @@ describe('SlideCanvas V6 table family', () => {
     expect(story.attributes('data-layout-variant')).toBe('table-wide-with-summary')
     expect(story.attributes('data-source-empty')).toBe('false')
     expect(wide.get('.deck-canvas__source').text()).toContain('Compare the recorded condition')
+  })
+
+  it('promotes one oversized continuation row into labeled detail fields', () => {
+    const detail = mountSlide('table-row-detail')
+    const fields = detail.findAll('.deck-table-row-detail article')
+
+    expect(fields).toHaveLength(2)
+    expect(fields[0]!.text()).toContain('Check')
+    expect(fields[0]!.text()).toContain('Input')
+    expect(fields[1]!.text()).toContain('Evidence')
+    expect(fields[1]!.text()).toContain('Recorded')
+    expect(detail.find('.visual-stub').exists()).toBe(false)
   })
 })
