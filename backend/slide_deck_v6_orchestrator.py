@@ -703,14 +703,24 @@ class SlideDeckV6Orchestrator:
                 "planning_status": planning_status,
             }
             unit_bindings = {
-                page.page_id: [
-                    _source_binding_with_course_logic(
-                        document,
-                        course_data,
-                        block_id=block_id,
-                    )
-                    for block_id in page.source_block_ids
-                ]
+                page.page_id: (
+                    [
+                        _source_binding_with_course_logic(
+                            document,
+                            course_data,
+                            block_id=block_id,
+                        )
+                        for block_id in page.source_block_ids
+                    ]
+                    or [
+                        _source_binding_with_course_logic(
+                            document,
+                            course_data,
+                            section_id=section_id,
+                        )
+                        for section_id in page.source_section_ids
+                    ]
+                )
                 for page in deck.pages
             }
             bindings_by_key: dict[tuple[str, str, tuple[tuple[str, str], ...]], SourceBinding] = {}
