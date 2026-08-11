@@ -292,6 +292,64 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('[aria-label="课程分页"]').exists()).toBe(false)
   })
 
+  it('按课程类别展示预制教材封面，并统一课程名称书名号', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [
+      {
+        course_id: 'course-ai',
+        course_name: '机器学习：原理、算法与实践',
+        node_count: 10,
+        resume: {
+          kind: 'practice',
+          status: 'in_progress',
+          node_id: 'node-1',
+          node_name: '模型评估',
+          activity_at: '2026-08-10T09:00:00Z',
+        },
+      },
+      { course_id: 'course-programming', course_name: '《Unity 游戏编程进阶实战》', node_count: 8 },
+      { course_id: 'course-math', course_name: '微积分', node_count: 6 },
+      { course_id: 'course-science', course_name: '大学物理', node_count: 6 },
+      { course_id: 'course-humanities', course_name: '中国文学史', node_count: 6 },
+      { course_id: 'course-general', course_name: '职业发展', node_count: 6 },
+    ]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.resume-card__copy strong').text()).toBe('《机器学习：原理、算法与实践》')
+    expect(wrapper.findAll('.course-copy h2').map(title => title.text())).toEqual([
+      '《机器学习：原理、算法与实践》',
+      '《Unity 游戏编程进阶实战》',
+      '《微积分》',
+      '《大学物理》',
+      '《中国文学史》',
+      '《职业发展》',
+    ])
+    expect(wrapper.text()).not.toContain('《《')
+    expect(wrapper.get('[data-testid="course-cover-course-ai"]').attributes('data-cover-preset')).toBe('ai')
+    expect(wrapper.get('[data-testid="course-cover-course-programming"]').attributes('data-cover-preset')).toBe('programming')
+    expect(wrapper.get('[data-testid="course-cover-course-math"]').attributes('data-cover-preset')).toBe('mathematics')
+    expect(wrapper.get('[data-testid="course-cover-course-science"]').attributes('data-cover-preset')).toBe('science')
+    expect(wrapper.get('[data-testid="course-cover-course-humanities"]').attributes('data-cover-preset')).toBe('humanities')
+    expect(wrapper.get('[data-testid="course-cover-course-general"]').attributes('data-cover-preset')).toBe('general')
+  })
+
   it('新建课程后直接进入同一门课程的生成现场', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
