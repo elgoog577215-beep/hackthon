@@ -208,6 +208,88 @@ def _mixed_table_and_code_document() -> CourseDocument:
     )
 
 
+def _dense_mixed_evidence_document() -> CourseDocument:
+    """A field workflow whose safe template expression needs four pages."""
+
+    blocks = [
+        CourseBlock(
+            block_id="field-context",
+            section_id="field-workflow",
+            position=0,
+            role="concept",
+            payload={"markdown": "## Observe the site\nRecord the visible signal."},
+        ),
+        CourseBlock(
+            block_id="field-rationale",
+            section_id="field-workflow",
+            position=1,
+            role="reasoning",
+            payload={"markdown": "## Explain the check\nRelate the signal to the protocol."},
+        ),
+        CourseBlock(
+            block_id="collection-procedure",
+            section_id="field-workflow",
+            position=2,
+            kind="code",
+            role="example",
+            payload={
+                "markdown": (
+                    "## Run the collection procedure\nUse the supplied command.\n\n"
+                    "```python\nrecord = collect(signal)\n```"
+                )
+            },
+        ),
+        CourseBlock(
+            block_id="learner-check",
+            section_id="field-workflow",
+            position=3,
+            role="activity",
+            payload={"markdown": "## Check the sample\nRepeat the observation once."},
+        ),
+        CourseBlock(
+            block_id="observation-table",
+            section_id="field-workflow",
+            position=4,
+            kind="review_checkpoint",
+            role="feedback",
+            payload={
+                "markdown": (
+                    "| Evidence | Result |\n"
+                    "| --- | --- |\n"
+                    "| Signal | Recorded |"
+                )
+            },
+        ),
+        CourseBlock(
+            block_id="instrument-output",
+            section_id="field-workflow",
+            position=5,
+            kind="code",
+            role="feedback",
+            payload={
+                "markdown": (
+                    "## Verify the output\nCompare the returned value with the record.\n\n"
+                    "```text\nstatus=recorded\n```"
+                )
+            },
+        ),
+    ]
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-field-workflow",
+            title="Field evidence workflow",
+            sections=[
+                CourseSection(
+                    section_id="field-workflow",
+                    title="Collect and verify evidence",
+                    position=0,
+                )
+            ],
+            blocks=blocks,
+        )
+    )
+
+
 def _layout_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
     block_metadata = {
         block["block_id"]: block for block in unit["primary_blocks"]
@@ -1067,6 +1149,56 @@ async def test_story_repartitions_page_when_layout_covers_only_one_required_arti
     ]
     assert story.pages[0].template_layout_id.endswith("/evidence-table")
     assert story.pages[1].template_layout_id.endswith("/evidence-code")
+
+
+@pytest.mark.asyncio
+async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> None:
+    document = _dense_mixed_evidence_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        assert unit["allowed_page_count_range"] == [3, 4]
+        safe_slices = {
+            tuple(item["source_block_ids"]): item["template_layout_ids"]
+            for item in unit["safe_page_slices"]
+        }
+        partition = [
+            unit["primary_block_ids"][:3],
+            unit["primary_block_ids"][3:4],
+            unit["primary_block_ids"][4:5],
+            unit["primary_block_ids"][5:],
+        ]
+        titles = unit["title_candidates"]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "rotating-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [
+                {
+                    "page_id": f"field-page-{index + 1}",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": safe_slices[tuple(source_ids)][0],
+                    "title": titles[index],
+                    "summary": "",
+                    "source_block_ids": source_ids,
+                }
+                for index, source_ids in enumerate(partition)
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert len(story.pages) == 4
+    assert [block_id for page in story.pages for block_id in page.source_block_ids] == [
+        block.block_id for block in document.blocks
+    ]
 
 
 @pytest.mark.asyncio
