@@ -9,7 +9,7 @@
     "classification-three": { "renderer_layout": "classification-3", "basic_layout": "concept" },
     "process-flow": { "renderer_layout": "process-sequence", "basic_layout": "process" },
     "worked-example": { "renderer_layout": "worked-example", "basic_layout": "concept" },
-    "practice-prompt": { "renderer_layout": "question-prompt", "basic_layout": "practice" },
+    "practice-prompt": { "renderer_layout": "practice-sequence", "basic_layout": "practice" },
     "practice-feedback": { "renderer_layout": "practice-feedback", "basic_layout": "practice" },
     "evidence-code": { "renderer_layout": "code", "basic_layout": "code" },
     "evidence-formula": { "renderer_layout": "formula-explanation", "basic_layout": "concept" },
@@ -21,7 +21,7 @@
         "split_variant": "table-with-interpretation",
         "full_variant": "table-full",
         "continuation_variant": "table-continuation",
-        "wide_min_columns": "4",
+        "wide_min_columns": "3",
         "wide_variant": "table-wide-with-summary",
         "wide_support_mode": "band"
       }

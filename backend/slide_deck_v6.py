@@ -20,7 +20,7 @@ from course_presentation_graph import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v1"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v2"
 
 
 class _StrictModel(BaseModel):
@@ -159,7 +159,8 @@ VisualDecisionKind = Literal[
 class SlideVisualDecisionV2(_StrictModel):
     page_id: str
     decision: VisualDecisionKind
-    source_block_ids: list[str] = Field(min_length=1)
+    source_block_ids: list[str] = Field(default_factory=list)
+    source_section_ids: list[str] = Field(default_factory=list)
     source_asset_ids: list[str] = Field(default_factory=list)
     visual_payload: dict[str, Any] = Field(default_factory=dict)
     resolved_template_layout_id: str
@@ -169,6 +170,12 @@ class SlideVisualDecisionV2(_StrictModel):
     attempts: int = Field(default=1, ge=1)
     degraded: bool = False
     degradation_reason: str = ""
+
+    @model_validator(mode="after")
+    def require_source_binding(self) -> SlideVisualDecisionV2:
+        if not self.source_block_ids and not self.source_section_ids:
+            raise ValueError("visual_source_binding_missing")
+        return self
 
 
 class SlideVisualPlanV2(_StrictModel):
@@ -191,7 +198,14 @@ class SlideSpeakerNotesV2(_StrictModel):
     schema_version: Literal["slide_speaker_notes_v2"] = "slide_speaker_notes_v2"
     source_document_revision: str
     teaching_unit_id: str
-    source_blocks: list[SourceNoteBlockV2] = Field(min_length=1)
+    source_blocks: list[SourceNoteBlockV2] = Field(default_factory=list)
+    source_section_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_source_binding(self) -> SlideSpeakerNotesV2:
+        if not self.source_blocks and not self.source_section_ids:
+            raise ValueError("speaker_note_source_binding_missing")
+        return self
 
 
 class SlideRegionV6(_StrictModel):
@@ -200,7 +214,14 @@ class SlideRegionV6(_StrictModel):
     content_kind: str
     content: str
     source_block_ids: list[str] = Field(default_factory=list)
+    source_section_ids: list[str] = Field(default_factory=list)
     source_asset_refs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_source_binding(self) -> SlideRegionV6:
+        if not self.source_block_ids and not self.source_section_ids:
+            raise ValueError("region_source_binding_missing")
+        return self
 
 
 class SlidePageV6(_StrictModel):
@@ -214,13 +235,20 @@ class SlidePageV6(_StrictModel):
     web_renderer_adapter: str
     pptx_renderer_adapter: str
     regions: list[SlideRegionV6] = Field(min_length=1)
-    source_block_ids: list[str] = Field(min_length=1)
+    source_block_ids: list[str] = Field(default_factory=list)
+    source_section_ids: list[str] = Field(default_factory=list)
     artifact_kinds: list[str] = Field(default_factory=list)
     visual_decision: SlideVisualDecisionV2
     speaker_notes: SlideSpeakerNotesV2
     continuation_of_page_id: str = ""
     continuation_index: int = Field(default=1, ge=1, le=3)
     continuation_count: int = Field(default=1, ge=1, le=3)
+
+    @model_validator(mode="after")
+    def require_source_binding(self) -> SlidePageV6:
+        if not self.source_block_ids and not self.source_section_ids:
+            raise ValueError("page_source_binding_missing")
+        return self
 
 
 class SlideDeckV6Quality(_StrictModel):
@@ -907,6 +935,31 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
     return f"{excerpt}…"
 
 
+def _semantic_prose_excerpt(text: str, capacity: int) -> str:
+    """Keep source paragraph/list boundaries while selecting a safe excerpt."""
+
+    visible = _visible_prose_text(text)
+    groups = [
+        "\n".join(line.rstrip() for line in group.splitlines()).strip()
+        for group in re.split(r"\n\s*\n", visible)
+        if group.strip()
+    ]
+    if not groups or capacity <= 0:
+        return ""
+    complete = "\n\n".join(groups)
+    if len(complete) <= capacity:
+        return complete
+    selected: list[str] = []
+    for group in groups:
+        candidate = "\n\n".join([*selected, group])
+        if len(candidate) > capacity:
+            break
+        selected.append(group)
+    if selected:
+        return "\n\n".join(selected)
+    return _complete_sentence_excerpt(groups[0], capacity)
+
+
 def _visible_prose_text(value: str) -> str:
     """Compile source Markdown into audience-facing text without changing facts."""
 
@@ -1332,11 +1385,11 @@ def _bounded_slot_content(
             raise ValueError("template_slot_capacity_exceeded")
         return content
     if len(texts) == 1:
-        return _complete_sentence_excerpt(texts[0], capacity)
+        return _semantic_prose_excerpt(texts[0], capacity)
     separator_cost = 2 * (len(texts) - 1)
     per_block_capacity = max(24, (capacity - separator_cost) // len(texts))
     excerpts = [
-        _complete_sentence_excerpt(text, per_block_capacity)
+        _semantic_prose_excerpt(text, per_block_capacity)
         for text in texts
     ]
     content = "\n\n".join(excerpts)
@@ -1560,29 +1613,17 @@ def _split_table_block_for_layout_variants(
             min(declared, round(declared * 3 / max(3, len(headers)))),
         )
 
-    def compacted(candidate_rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
-        cell_budget = max(1, page_column_capacity() * 2)
-        return (
-            [_display_excerpt(cell, cell_budget) for cell in headers],
-            [
-                [_display_excerpt(cell, cell_budget) for cell in row]
-                for row in candidate_rows
-            ],
-        )
-
     def rendered_text(candidate_rows: list[list[str]]) -> str:
-        compact_headers, compact_rows = compacted(candidate_rows)
-        return _markdown_table_text(compact_headers, compact_rows)
+        return _markdown_table_text(headers, candidate_rows)
 
     def wrapped_cost(candidate_rows: list[list[str]]) -> int:
         capacity = page_column_capacity()
-        compact_headers, compact_rows = compacted(candidate_rows)
         header_cost = max(
             1,
             max(
                 (
                     (_display_width_units(cell) + capacity - 1) // capacity
-                    for cell in compact_headers
+                    for cell in headers
                 ),
                 default=1,
             ),
@@ -1598,7 +1639,7 @@ def _split_table_block_for_layout_variants(
                     default=1,
                 ),
             )
-            for row in compact_rows
+            for row in candidate_rows
         )
 
     def wrapped_budget() -> int:
@@ -2211,6 +2252,130 @@ def story_safe_partition_options(
     return options
 
 
+def _course_agenda_sections(document: CourseDocument) -> list[Any]:
+    """Return ordered top-level sections that own formal source content."""
+
+    section_by_id = {section.section_id: section for section in document.sections}
+    relevant_ids = {
+        block.section_id
+        for block in _formal_blocks(document)
+        if block.section_id in section_by_id
+    }
+    pending = list(relevant_ids)
+    while pending:
+        section = section_by_id.get(pending.pop())
+        parent_id = str(section.parent_section_id or "") if section else ""
+        if parent_id and parent_id in section_by_id and parent_id not in relevant_ids:
+            relevant_ids.add(parent_id)
+            pending.append(parent_id)
+    ordered = sorted(
+        (section_by_id[section_id] for section_id in relevant_ids),
+        key=lambda section: (section.position, section.level, section.section_id),
+    )
+    return [
+        section
+        for section in ordered
+        if not section.parent_section_id or section.parent_section_id not in relevant_ids
+    ]
+
+
+def _compile_course_agenda_pages(
+    document: CourseDocument,
+    template: TemplateLayoutPackContractV1,
+) -> list[SlidePageV6]:
+    sections = _course_agenda_sections(document)
+    if len(sections) < 2:
+        return []
+    layout = template.get_layout(template.layout_id("agenda-path"))
+    if layout is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message="The published template does not provide a course agenda layout",
+        )
+    item_slot = next(
+        (slot for slot in layout.slots if slot.slot_kind == "items"),
+        None,
+    )
+    if item_slot is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_required_slot_unfilled",
+            message="The course agenda layout has no ordered item slot",
+        )
+    max_items = int(item_slot.max_items or 6)
+    max_chars = int(item_slot.max_chars or 180)
+    chunks: list[list[Any]] = []
+    current: list[Any] = []
+    for section in sections:
+        title = _visible_prose_text(section.title).strip()
+        if not title:
+            raise V6BuildError(
+                stage="source",
+                code="course_section_title_missing",
+                message="A course section cannot be represented in the agenda",
+                chapter_id=section.section_id,
+            )
+        candidate = [*current, section]
+        candidate_text = "\n".join(
+            _visible_prose_text(item.title).strip() for item in candidate
+        )
+        if current and (
+            len(candidate) > max_items
+            or (max_chars and len(candidate_text) > max_chars)
+        ):
+            chunks.append(current)
+            current = [section]
+        else:
+            current = candidate
+        if max_chars and len(title) > max_chars:
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_capacity_exceeded",
+                message="A course section title exceeds the agenda item capacity",
+                chapter_id=section.section_id,
+            )
+    if current:
+        chunks.append(current)
+
+    pages: list[SlidePageV6] = []
+    for index, chunk in enumerate(chunks, start=1):
+        page_id = f"course-agenda-{index}"
+        section_ids = [section.section_id for section in chunk]
+        content = "\n".join(
+            _visible_prose_text(section.title).strip() for section in chunk
+        )
+        pages.append(SlidePageV6(
+            page_id=page_id,
+            page_ordinal=0,
+            teaching_unit_id="course-agenda",
+            title="课程目录" if index == 1 else f"课程目录（续 {index}）",
+            resolved_layout=layout.template_layout_id,
+            web_renderer_adapter=layout.web_renderer_adapter,
+            pptx_renderer_adapter=layout.pptx_renderer_adapter,
+            regions=[SlideRegionV6(
+                region_id=f"{page_id}:{item_slot.slot_id}",
+                slot_id=item_slot.slot_id,
+                content_kind=item_slot.slot_kind,
+                content=content,
+                source_section_ids=section_ids,
+            )],
+            source_section_ids=section_ids,
+            visual_decision=SlideVisualDecisionV2(
+                page_id=page_id,
+                decision="text_native",
+                source_section_ids=section_ids,
+                resolved_template_layout_id=layout.template_layout_id,
+            ),
+            speaker_notes=SlideSpeakerNotesV2(
+                source_document_revision=document.document_revision,
+                teaching_unit_id="course-agenda",
+                source_section_ids=section_ids,
+            ),
+        ))
+    return pages
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -2324,6 +2489,17 @@ def compile_slide_deck_v6(
                     continuation_count=continuation_count,
                 )
             )
+    agenda_pages = _compile_course_agenda_pages(document, template)
+    insertion_index = 0
+    while (
+        insertion_index < len(pages)
+        and pages[insertion_index].resolved_layout.endswith("/cover-minimal")
+    ):
+        insertion_index += 1
+    if agenda_pages:
+        pages[insertion_index:insertion_index] = agenda_pages
+    for page_ordinal, page in enumerate(pages):
+        page.page_ordinal = page_ordinal
     formal_ids = graph.formal_block_ids
     visible = {
         block_id

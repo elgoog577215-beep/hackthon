@@ -481,9 +481,9 @@ def test_v6_ordered_steps_render_as_numbered_lines_in_pptx(tmp_path: Path) -> No
         if hasattr(shape, "text_frame") and shape.text.strip()
     )
 
-    assert "1. Verify the specimen" in visible_text
-    assert "2. Close the container" in visible_text
-    assert "3. Record the handoff" in visible_text
+    assert "01\nVerify the specimen" in visible_text
+    assert "02\nClose the container" in visible_text
+    assert "03\nRecord the handoff" in visible_text
 
 
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
@@ -557,7 +557,7 @@ def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Pat
         assert report["passed"], report["blockers"]
 
 
-def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_its_own_frame(
+def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_summary_band(
     tmp_path: Path,
 ) -> None:
     deck = _dense_table_deck()
@@ -571,8 +571,8 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_its_o
             len([line for line in table_region.content.splitlines() if line.strip()]) - 2
         )
 
-    assert split_slide.quality["v6_layout_variant"] == "table-with-interpretation"
-    assert split_slide.quality["v6_artifact_support_mode"] == "split"
+    assert split_slide.quality["v6_layout_variant"] == "table-wide-with-summary"
+    assert split_slide.quality["v6_artifact_support_mode"] == "band"
     for page in deck.pages[1:]:
         continuation_slide = adapt_v6_page_to_slide_spec(page)
         assert continuation_slide.quality["v6_layout_variant"] == "table-continuation"
@@ -612,17 +612,10 @@ def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     assert len(rendered_rows[0]) == 5
     assert "site | time" in rendered_text
     assert not any(marker in rendered_text for marker in ("**", "`", "<br>"))
+    assert "Record the site | time, weather, and observer before sampling begins" in rendered_text
+    assert "restore it from the signed field note" in rendered_text
+    assert "…" not in rendered_text
     assert not any(set(cell.replace(" ", "")) <= {":", "-"} for cell in rendered_rows[1])
-
-    layout = template.get_layout(template.layout_id("evidence-table"))
-    assert layout is not None
-    table_slot = next(slot for slot in layout.slots if slot.slot_kind == "table")
-    effective_wide_column_chars = round(
-        table_slot.full_column_chars * 3 / len(rendered_rows[0])
-    )
-    assert max(len(cell) for row in rendered_rows[1:] for cell in row) <= (
-        effective_wide_column_chars * 2
-    )
 
 
 def test_three_column_table_with_long_cells_is_split_before_export_overflow(

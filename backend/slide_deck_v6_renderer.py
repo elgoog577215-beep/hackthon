@@ -102,6 +102,10 @@ def _speaker_notes(page: SlidePageV6) -> str:
     sections = [
         f"source_document_revision: {page.speaker_notes.source_document_revision}",
         f"teaching_unit_id: {page.speaker_notes.teaching_unit_id}",
+        "source_section_ids: " + json.dumps(
+            page.speaker_notes.source_section_ids,
+            ensure_ascii=False,
+        ),
     ]
     sections.extend(
         "\n".join([
@@ -267,6 +271,8 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
             "v6_continuation_count": resolved_page.continuation_count,
             "v6_title_max_lines": resolved_page.title_max_lines,
             "resolved_layout": renderer_layout,
+            "task_prompt_mode": "action" if slug == "practice-prompt" else "",
+            "prompt_label": "执行步骤" if slug == "practice-prompt" else "",
         },
     )
 

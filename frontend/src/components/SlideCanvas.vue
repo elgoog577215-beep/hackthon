@@ -421,7 +421,7 @@ const sectionLabel = computed(() => {
 const showsStandaloneMessage = computed(() => {
   const message = String(props.slide.key_message || '').trim()
   if (!message || message === sectionLabel.value) return false
-  if (['hero-claim', 'question-prompt', 'practice-feedback'].includes(visualLayout.value)) {
+  if (['hero-claim', 'question-prompt', 'practice-sequence', 'practice-feedback'].includes(visualLayout.value)) {
     return false
   }
   return !['objective', 'misconception', 'practice'].includes(props.slide.layout)
@@ -734,6 +734,7 @@ function layoutLabel(value: string) {
     'course-synthesis': '课程总结',
     'parallel-examples': '并列应用',
     'question-prompt': '理解检查',
+    'practice-sequence': '操作步骤',
     'case-study': '案例',
     question: '思考',
     summary: '回顾',
@@ -923,6 +924,7 @@ function layoutLabel(value: string) {
   [data-layout="practice"],
   [data-layout="question"],
   [data-layout="question-prompt"],
+  [data-layout="practice-sequence"],
   [data-layout="practice-feedback"],
   [data-layout="misconception"],
   [data-layout="misconception-repair"]
@@ -1873,21 +1875,21 @@ function layoutLabel(value: string) {
   background:var(--deck-blue);
   font-size:.88em;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks {
   inset:25% 5.5% 10.5%;
   grid-template-columns:1fr;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks section {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks section {
   padding:2.5% 3%;
   border:0;
   border-radius:0;
   background:transparent;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol {
   height:100%;
   gap:0;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol li {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol li {
   display:grid;
   grid-template-columns:3.2cqw minmax(0,1fr);
   align-items:center;
@@ -1896,7 +1898,7 @@ function layoutLabel(value: string) {
   padding:.8cqw 0;
   border-bottom:1px solid var(--deck-line);
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol li:last-child {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol li:last-child {
   border-bottom:0;
 }
 .deck-canvas__blocks pre {

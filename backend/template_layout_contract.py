@@ -230,7 +230,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
                 full_wrapped_lines=10,
                 split_column_chars=18,
                 full_column_chars=36,
-                wide_min_columns=4,
+                wide_min_columns=3,
             ),
             _slot("interpretation", "body", required=False, chars=140),
             _NOTES,

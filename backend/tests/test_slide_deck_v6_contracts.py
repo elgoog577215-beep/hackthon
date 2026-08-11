@@ -345,7 +345,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         ),
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v1"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v2"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
 
@@ -713,7 +713,10 @@ def test_final_deck_has_full_notes_and_template_native_layout_ids() -> None:
     assert deck.quality.formal_block_visible_coverage == 1.0
     assert deck.quality.full_text_note_binding == 1.0
     assert all(page.resolved_layout.startswith("qizhi-classroom-v2@") for page in deck.pages)
-    assert all(page.speaker_notes.source_blocks for page in deck.pages)
+    assert all(
+        page.speaker_notes.source_blocks or page.speaker_notes.source_section_ids
+        for page in deck.pages
+    )
     assert {item.block_id for page in deck.pages for item in page.speaker_notes.source_blocks} == {
         "b1", "b2", "b3", "b4", "b5", "b6", "b7",
     }

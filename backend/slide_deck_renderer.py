@@ -822,6 +822,7 @@ V5_LAYOUT_RENDERER_NAMES = {
     "worked-example": "_render_worked_example",
     "parallel-examples": "_render_parallel_examples",
     "question-prompt": "_render_question_prompt",
+    "practice-sequence": "_render_process",
     "practice-feedback": "_render_practice_feedback",
     "chapter-recap": "_render_chapter_recap",
     "course-synthesis": "_render_course_synthesis",
@@ -1429,7 +1430,7 @@ def _render_table_visual(
         split_support = bool(supporting_blocks and support_mode == "split")
         band_support = bool(supporting_blocks and support_mode == "band")
         table_width = 7.18 if split_support else 11.78
-        table_height = 3.22 if band_support else 4.62
+        table_height = 3.55 if band_support else 4.62
         _table(
             slide,
             [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
@@ -1475,9 +1476,9 @@ def _render_table_visual(
             _shape(
                 slide,
                 0.78,
-                5.34,
+                5.62,
                 11.78,
-                1.2,
+                0.92,
                 theme["surface"],
                 radius=True,
                 line=theme["chart_bg"],
@@ -1486,7 +1487,7 @@ def _render_table_visual(
                 slide,
                 support_label.upper(),
                 1.08,
-                5.59,
+                5.86,
                 1.45,
                 0.28,
                 10,
@@ -1499,9 +1500,9 @@ def _render_table_visual(
                 slide,
                 support_text,
                 2.6,
-                5.48,
+                5.75,
                 9.55,
-                0.78,
+                0.58,
                 16,
                 theme["ink"],
                 font=theme["body_font"],
@@ -3473,6 +3474,45 @@ def _table(
     for column in table.columns:
         column.width = Inches(width / column_count)
     values = [headers or ["比较项"], *rows]
+    font_size = 16
+    cell_horizontal_margin = 0.1
+    cell_vertical_margin = 0.07
+    column_text_width_pt = max(
+        12.0,
+        (width / column_count - cell_horizontal_margin * 2) * 72.0,
+    )
+    required_row_heights_pt: list[float] = []
+    for row_index in range(row_count):
+        row_values = values[row_index] if row_index < len(values) else []
+        maximum_lines = max(
+            1,
+            max(
+                (
+                    _wrapped_line_count(
+                        _display_text(str(row_values[column_index])),
+                        width_pt=column_text_width_pt,
+                        font_size_pt=font_size,
+                    )
+                    for column_index in range(min(column_count, len(row_values)))
+                ),
+                default=1,
+            ),
+        )
+        required_row_heights_pt.append(
+            maximum_lines * font_size * 1.22 + cell_vertical_margin * 2 * 72.0
+        )
+    available_height_pt = height * 72.0
+    required_height_pt = sum(required_row_heights_pt)
+    if required_height_pt <= available_height_pt:
+        extra_per_row = (available_height_pt - required_height_pt) / row_count
+        row_heights_pt = [value + extra_per_row for value in required_row_heights_pt]
+    else:
+        row_heights_pt = [
+            available_height_pt * value / required_height_pt
+            for value in required_row_heights_pt
+        ]
+    for row, row_height_pt in zip(table.rows, row_heights_pt):
+        row.height = Pt(row_height_pt)
     for row_index in range(row_count):
         for column_index in range(column_count):
             cell = table.cell(row_index, column_index)
@@ -3487,11 +3527,11 @@ def _table(
                 if row_index == 0
                 else (theme["surface"] if row_index % 2 else theme["canvas"])
             )
-            cell.margin_left = cell.margin_right = Inches(0.1)
-            cell.margin_top = cell.margin_bottom = Inches(0.07)
+            cell.margin_left = cell.margin_right = Inches(cell_horizontal_margin)
+            cell.margin_top = cell.margin_bottom = Inches(cell_vertical_margin)
             paragraph = cell.text_frame.paragraphs[0]
             _configure_font(paragraph.font, BODY_FONT)
-            paragraph.font.size = Pt(16)
+            paragraph.font.size = Pt(font_size)
             paragraph.font.bold = row_index == 0
             paragraph.font.color.rgb = RGBColor.from_string(theme["accent"] if row_index == 0 else theme["ink"])
             paragraph.alignment = PP_ALIGN.LEFT

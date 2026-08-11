@@ -126,6 +126,22 @@ The system SHALL compile `slide_deck_v6` with resolved template layout IDs, type
 - **THEN** the canvas contains a semantically closed source-faithful expression
 - **AND** complete source text and full code remain in speaker notes with block and revision bindings
 
+#### Scenario: A full course contains multiple top-level sections
+- **WHEN** the final V6 deck is compiled from the frozen full-course document
+- **THEN** one or more `agenda-path` pages are inserted from the ordered source section titles
+- **AND** agenda pages bind section IDs without claiming visible `CourseBlock` coverage
+- **AND** chapter-only shadow documents with one top-level section do not receive a false course agenda
+
+#### Scenario: Source prose contains semantic paragraphs
+- **WHEN** a body slot projects multiple source paragraphs or list groups
+- **THEN** paragraph and list boundaries remain visible rather than being flattened into an arbitrary sentence stream
+- **AND** capacity selection ends at a complete semantic group or complete source sentence
+
+#### Scenario: A task contains explicit ordered steps
+- **WHEN** the source declares two or more ordered actions
+- **THEN** the final layout uses the published vertical numbered-sequence composition
+- **AND** Web and PPTX preserve one source step per numbered row in source order
+
 #### Scenario: A source table exceeds one slide's readable capacity
 - **WHEN** wrapped cell height, row count or protected identifiers cannot fit the selected table variant without semantic loss
 - **THEN** the compiler selects a declared full-width or wide table variant, or paginates complete rows across continuation pages with the header repeated

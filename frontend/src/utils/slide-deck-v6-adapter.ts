@@ -7,6 +7,7 @@ interface V6Region {
   content_kind: string
   content: string
   source_block_ids?: string[]
+  source_section_ids?: string[]
   source_asset_refs?: string[]
 }
 
@@ -26,6 +27,7 @@ interface V6Page {
   title_max_lines?: number
   resolved_layout: string
   source_block_ids: string[]
+  source_section_ids?: string[]
   continuation_of_page_id?: string
   continuation_index?: number
   continuation_count?: number
@@ -39,6 +41,7 @@ interface V6Page {
     source_document_revision: string
     teaching_unit_id: string
     source_blocks: V6NoteBlock[]
+    source_section_ids?: string[]
   }
 }
 
@@ -74,6 +77,7 @@ function notesText(page: V6Page): string {
   return [
     `source_document_revision: ${page.speaker_notes.source_document_revision}`,
     `teaching_unit_id: ${page.speaker_notes.teaching_unit_id}`,
+    `source_section_ids: ${JSON.stringify(page.speaker_notes.source_section_ids || [])}`,
     ...page.speaker_notes.source_blocks.map(block => (
       [
         `[${block.block_id} @ ${block.block_revision}]`,
@@ -152,6 +156,7 @@ function regionBlock(region: V6Region): Record<string, unknown> {
       v6_slot_id: region.slot_id,
       v6_region_id: region.region_id,
       source_block_ids: region.source_block_ids || [],
+      source_section_ids: region.source_section_ids || [],
       source_asset_refs: region.source_asset_refs || [],
       formula: region.content_kind === 'formula',
       table_source: region.content_kind === 'table',
@@ -249,6 +254,8 @@ function adaptPage(
       v6_continuation_count: Number(page.continuation_count || 1),
       v6_title_max_lines: Math.max(1, Number(page.title_max_lines || 1)),
       resolved_layout: adapter.renderer_layout,
+      task_prompt_mode: slug === 'practice-prompt' ? 'action' : '',
+      prompt_label: slug === 'practice-prompt' ? '执行步骤' : '',
       template_theme_overrides: { ...templateThemeOverrides },
     },
   }
