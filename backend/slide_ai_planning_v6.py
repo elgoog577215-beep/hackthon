@@ -35,6 +35,8 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    graph_page_source_blocks,
+    validate_story_template_text_slots,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
 )
@@ -182,6 +184,8 @@ def _normalize_versioned_response(
 def _normalize_story_batch_response(
     raw: dict[str, Any],
     request: dict[str, Any],
+    graph: CoursePresentationGraphV1,
+    template: TemplateLayoutPackContractV1,
 ) -> dict[str, Any]:
     payload = _normalize_versioned_response(
         raw,
@@ -193,6 +197,10 @@ def _normalize_story_batch_response(
         str(unit.get("teaching_unit_id") or ""): unit
         for unit in request.get("teaching_units") or []
         if isinstance(unit, dict)
+    }
+    graph_units = {
+        unit.teaching_unit_id: unit
+        for unit in graph.units
     }
     pages = payload.get("pages")
     if not isinstance(pages, list):
@@ -307,6 +315,23 @@ def _normalize_story_batch_response(
                     remaining_roles.pop(matching_index)
                 if not satisfiable:
                     continue
+            graph_unit = graph_units.get(
+                str(unit.get("teaching_unit_id") or "")
+            )
+            layout_contract = template.get_layout(layout_id)
+            if graph_unit is None or layout_contract is None:
+                continue
+            try:
+                validate_story_template_text_slots(
+                    page_id=str(page.get("page_id") or "story-preflight"),
+                    layout=layout_contract,
+                    source_blocks=graph_page_source_blocks(
+                        graph_unit,
+                        source_ids,
+                    ),
+                )
+            except V6BuildError:
+                continue
             result.append(layout_id)
         return result
     normalized_pages: list[Any] = []
@@ -1298,6 +1323,8 @@ async def plan_slide_story_v3(
                     previous_response_payload = _normalize_story_batch_response(
                         raw,
                         attempt_request,
+                        graph,
+                        template,
                     )
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload

@@ -476,6 +476,26 @@ def _unit_map(graph: CoursePresentationGraphV1) -> dict[str, CoursePresentationU
     return {unit.teaching_unit_id: unit for unit in graph.units}
 
 
+def graph_page_source_blocks(
+    unit: CoursePresentationUnitV1,
+    source_block_ids: list[str],
+) -> list[CourseBlock]:
+    """Rehydrate the frozen block facts needed by the template allocator."""
+
+    return [
+        CourseBlock(
+            block_id=block_id,
+            section_id=unit.section_id,
+            position=index,
+            kind=unit.primary_block_kinds.get(block_id, "rich_text"),
+            role=unit.primary_block_roles.get(block_id, "concept"),
+            payload={"text": unit.primary_block_texts.get(block_id, "")},
+            asset_refs=list(unit.primary_block_asset_refs.get(block_id, [])),
+        )
+        for index, block_id in enumerate(source_block_ids)
+    ]
+
+
 def validate_slide_story_plan_v3(
     plan: SlideStoryPlanV3,
     graph: CoursePresentationGraphV1,
@@ -535,6 +555,11 @@ def validate_slide_story_plan_v3(
                 message="Story title exceeds the selected template title capacity",
                 page_id=page.page_id,
             )
+        validate_story_template_text_slots(
+            page_id=page.page_id,
+            layout=layout,
+            source_blocks=graph_page_source_blocks(unit, page.source_block_ids),
+        )
         if unit.source_ordinal < previous_unit_ordinal:
             raise V6BuildError(stage="story", code="story_dependency_order_invalid", message="Story reverses course teaching-unit order", page_id=page.page_id)
         previous_unit_ordinal = unit.source_ordinal
@@ -1231,6 +1256,90 @@ def _materialize_template_regions(
     return regions
 
 
+def validate_story_template_text_slots(
+    *,
+    page_id: str,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> None:
+    """Reject story layouts whose required prose slots cannot bind source."""
+
+    content_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind not in {"title", "eyebrow", "notes"}
+    ]
+    remaining = list(source_blocks)
+    assigned_artifact_blocks: list[CourseBlock] = []
+    for slot in content_slots:
+        if slot.slot_kind not in {"code", "formula", "table", "visual"}:
+            continue
+        matches = [
+            block
+            for block in remaining
+            if _block_matches_slot(block, slot.slot_kind)
+        ]
+        if matches:
+            assigned_artifact_blocks.extend(matches)
+            remaining = [block for block in remaining if block not in matches]
+    remaining.extend(
+        block
+        for block in assigned_artifact_blocks
+        if _prose_source_text(block) and block not in remaining
+    )
+
+    text_slots = [
+        slot
+        for slot in content_slots
+        if slot.slot_kind in {"body", "items"}
+    ]
+    assigned: dict[str, list[CourseBlock]] = {}
+    for index, slot in enumerate(text_slots):
+        if not remaining:
+            break
+        preferred_roles = set(slot.source_roles)
+        preferred = [block for block in remaining if block.role in preferred_roles]
+        is_last_text_slot = index == len(text_slots) - 1
+        if preferred:
+            selected = preferred if is_last_text_slot else [preferred[0]]
+        elif is_last_text_slot:
+            selected = list(remaining)
+        else:
+            selected = [remaining[0]]
+        assigned[slot.slot_id] = selected
+        remaining = [block for block in remaining if block not in selected]
+    if remaining and text_slots:
+        assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
+
+    for slot in text_slots:
+        try:
+            content = _bounded_slot_content(
+                assigned.get(slot.slot_id, []),
+                slot_kind=slot.slot_kind,
+                max_chars=slot.max_chars,
+                max_items=slot.max_items,
+                max_lines=slot.max_lines,
+                max_rows=slot.max_rows,
+            )
+        except ValueError as error:
+            raise V6BuildError(
+                stage="template",
+                code="template_slot_capacity_exceeded",
+                message=f"Source-backed content exceeds template slot {slot.slot_id}",
+                page_id=page_id,
+            ) from error
+        if slot.required and not content:
+            raise V6BuildError(
+                stage="template",
+                code="template_required_slot_unfilled",
+                message=(
+                    f"Required template slot {slot.slot_id} "
+                    "has no source-backed content"
+                ),
+                page_id=page_id,
+            )
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -1402,6 +1511,8 @@ __all__ = [
     "compile_ppt_source_contract_v2",
     "compile_shadow_chapter_document",
     "compile_slide_deck_v6",
+    "graph_page_source_blocks",
+    "validate_story_template_text_slots",
     "validate_slide_story_plan_v3",
     "validate_slide_visual_plan_v2",
 ]
