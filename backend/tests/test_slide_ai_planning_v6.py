@@ -1368,6 +1368,53 @@ async def test_story_contract_restores_source_order_for_complete_repair_pages() 
 
 
 @pytest.mark.asyncio
+async def test_story_contract_uses_verified_initial_coverage_during_layout_repair() -> None:
+    """A layout-only repair cannot lose coverage already verified in the AI plan."""
+
+    document = _mixed_table_and_code_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        table_id, code_id = unit["primary_block_ids"]
+        table_layout = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/evidence-table")
+        )
+        source_block_ids = (
+            [table_id, code_id]
+            if len(calls) == 1
+            else [code_id]
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"layout-repair-page-{len(calls)}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": table_layout,
+                "title": _title_for_request_blocks(unit, source_block_ids),
+                "summary": "",
+                "source_block_ids": source_block_ids,
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert target["source_coverage_verified"] is True
+    assert [page.source_block_ids for page in story.pages] == [
+        ["observation-record"],
+        ["reproduction-procedure"],
+    ]
+
+
+@pytest.mark.asyncio
 async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> None:
     document = _dense_mixed_evidence_document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
