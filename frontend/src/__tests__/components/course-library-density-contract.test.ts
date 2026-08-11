@@ -58,11 +58,13 @@ describe('course library density contract', () => {
     expect(coverSource).not.toMatch(/course-cover__(?:artwork|pattern|symbol|detail)/)
   })
 
-  it('keeps the primary action on one line and uses a compact overflow menu', () => {
+  it('gives the header create action a substantial branded split-button treatment', () => {
     expect(librarySource).toMatch(/class="create-course-trigger-group"/)
-    expect(librarySource).toMatch(/\.create-course-trigger-group\s*\{[^}]*height:\s*38px[^}]*border:\s*1px\s+solid[^}]*border-radius:\s*9px[^}]*background:\s*#fff/s)
-    expect(librarySource).toMatch(/\.create-course-primary\s*\{[^}]*white-space:\s*nowrap/s)
-    expect(librarySource).toMatch(/\.create-course-menu-toggle\s*\{[^}]*width:\s*34px[^}]*border-left:\s*1px\s+solid/s)
+    expect(librarySource).toMatch(/class="create-course-primary__icon"/)
+    expect(librarySource).toMatch(/\.create-course-trigger-group\s*\{[^}]*height:\s*48px[^}]*border:\s*1px\s+solid[^}]*border-radius:\s*13px[^}]*background:\s*#4f46e5[^}]*box-shadow:/s)
+    expect(librarySource).toMatch(/\.create-course-primary\s*\{[^}]*padding:\s*0\s+17px[^}]*font-size:\s*13px[^}]*white-space:\s*nowrap/s)
+    expect(librarySource).toMatch(/\.create-course-primary__icon\s*\{[^}]*width:\s*24px[^}]*height:\s*24px[^}]*background:\s*rgba\(255,255,255,\.14\)/s)
+    expect(librarySource).toMatch(/\.create-course-menu-toggle\s*\{[^}]*width:\s*42px[^}]*border-left:\s*1px\s+solid\s+rgba\(255,255,255,\.22\)/s)
     expect(librarySource).toMatch(/\.course-primary-action\s*\{[^}]*white-space:\s*nowrap/s)
     expect(librarySource).toMatch(/\.course-menu\s*\{[^}]*width:\s*160px[^}]*padding:\s*4px[^}]*border-radius:\s*10px/s)
     expect(librarySource).toMatch(/\.course-menu__item\s*\{[^}]*min-height:\s*36px[^}]*gap:\s*8px[^}]*padding:\s*0\s+9px/s)
