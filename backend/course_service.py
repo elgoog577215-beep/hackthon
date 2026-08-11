@@ -2468,6 +2468,23 @@ class CourseService(AIBase):
                                 model_blocking_codes
                             ),
                         })
+                        # fallback_units is cleared once a retry rescues the
+                        # batch, which loses the evidence for the common case
+                        # (fails once, then recovers).  Keep an append-only
+                        # history so failure codes can be studied without
+                        # having to reproduce a whole-course failure.
+                        history = teaching_stage.setdefault(
+                            "batch_failure_history", []
+                        )
+                        if len(history) < 200:
+                            history.append({
+                                "unit": batch_id,
+                                "attempt": semantic_retry_count + 1,
+                                "reason": fallback_reason,
+                                "model_blocking_codes": list(
+                                    model_blocking_codes
+                                ),
+                            })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {
                         "status": "completed",

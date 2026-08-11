@@ -2377,3 +2377,64 @@ async def test_failed_batch_records_why_the_model_output_was_rejected(
         isinstance(code, str) and code
         for code in failed[0]["model_blocking_codes"]
     )
+
+
+@pytest.mark.asyncio
+async def test_batch_failure_history_survives_a_successful_retry(monkeypatch):
+    """被重试救回的失败也必须留下证据。
+
+    fallback_units 在重试成功后会被清空，而"失败一次又救回来"才是最常见的
+    情况。若只依赖 fallback_units，最常见的失败样本恰恰采集不到。
+    """
+    labels = [f"证据留存{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="证据留存课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-failure-history",
+        "course_name": "证据留存课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    seen: dict[str, int] = {}
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        match = re.search(r"TP-B\d{2}", prompt)
+        if match:
+            batch_id = match.group(0)
+            seen[batch_id] = seen.get(batch_id, 0) + 1
+            # TP-B02 第一轮全部失败，重试后恢复。
+            if batch_id == "TP-B02" and seen[batch_id] <= 2:
+                return json.dumps({"sections": []}, ensure_ascii=False)
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    # 整体成功、fallback_units 已清空。
+    assert stage["semantic_status"] == "ai_complete"
+    assert stage["fallback_units"] == []
+    # 但那次失败的证据必须还在。
+    history = stage["batch_failure_history"]
+    assert history
+    failed = [item for item in history if item["unit"] == "TP-B02"]
+    assert failed
+    assert failed[0]["model_blocking_codes"]
+    assert failed[0]["attempt"] >= 1
