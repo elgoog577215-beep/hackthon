@@ -14,8 +14,18 @@ DEFAULT_PRACTICE_BATCH_SIZE = 3
 DEFAULT_PRACTICE_QUESTION_TYPE = "single_choice"
 
 
+# 注意：这个 INPUT_MODES 与 assessment_blueprint / assessment_compiler 里的同名
+# 常量**不是一回事**——那两个是「合法输入模式的集合」，这里是
+# 「question_type -> 输入模式」的映射。同名不同义，读代码时别当成一份东西。
+# 三份的差异与各自职责见 NOTES_TO_OWNER。
 INPUT_MODES = {
     "single_choice": "choice",
+    # 三个新作答形态（H1a/H1b）。缺了它们，一道没带 input_contract 的多选/判断题
+    # 会退化成 rich_text（大题），学生看到的是一个文本框而不是选项——静默降级，
+    # 不报错。由 lz-course-gen 的契约核查发现。
+    "multiple_choice": "choice",
+    "true_false": "choice",
+    "fill_blank": "short_text",
     "worked_solution": "rich_text",
     "implementation_task": "code_and_text",
     "evidence_analysis": "structured_text",

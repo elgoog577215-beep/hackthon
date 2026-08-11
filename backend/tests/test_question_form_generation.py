@@ -445,3 +445,92 @@ def test_local_solver_still_applies_to_numeric_questions() -> None:
     assert _local_solver_applicable({
         "input_contract": {"mode": "structured_fields"},
     }) is True
+
+
+# --- 跨线核查：lz-course-gen 报的三条契约缺陷 ------------------------------
+
+
+def test_multi_answer_item_is_not_blocked_as_unexecutable() -> None:
+    """多选的正确答案是复数键，只认单数键会把合法多选题硬阻断。
+
+    V2 题因为能读到 canonical_answer 而侥幸逃过（这就是我的多选生成率能到
+    10/10 的原因），但**非 V2 的多选题（旧题、教师导入）会被直接误杀**。
+    """
+    from question_bank import evaluate_question_item_quality
+
+    legacy_multi = {
+        "prompt": "下列关于热力学第一定律的说法中，选出全部成立的项并说明依据。",
+        "options": [{"id": "A"}, {"id": "B"}, {"id": "C"}],
+        "answer_spec": {"type": "choice", "correct_option_ids": ["A", "C"]},
+        "source_type": "generated",
+        "course_knowledge_refs": ["ckp_1"],
+        "source_records": [{"source_type": "course_knowledge_base"}],
+    }
+    codes = [
+        issue["code"]
+        for issue in evaluate_question_item_quality(legacy_multi).get("issues", [])
+    ]
+    assert "question:answer_not_executable" not in codes
+
+
+def test_answerless_item_is_still_blocked() -> None:
+    """放宽是为了认复数键，不是把这道门关掉。"""
+    from question_bank import evaluate_question_item_quality
+
+    codes = [
+        issue["code"]
+        for issue in evaluate_question_item_quality({
+            "prompt": "下列关于热力学第一定律的说法中，选出全部成立的项。",
+            "options": [{"id": "A"}, {"id": "B"}],
+            "answer_spec": {"type": "choice"},
+            "source_type": "generated",
+            "course_knowledge_refs": ["ckp_1"],
+            "source_records": [{"source_type": "course_knowledge_base"}],
+        }).get("issues", [])
+    ]
+    assert "question:answer_not_executable" in codes
+
+
+def test_new_forms_do_not_degrade_to_rich_text_without_a_contract() -> None:
+    """没带 input_contract 的多选/判断会退化成 rich_text——学生看到文本框而非选项。
+
+    静默降级，不报错。practice_contracts.INPUT_MODES 是
+    「question_type -> 输入模式」的映射，三个新形态此前不在里面。
+    """
+    from practice_contracts import INPUT_MODES, enrich_question_contract
+
+    assert INPUT_MODES["multiple_choice"] == "choice"
+    assert INPUT_MODES["true_false"] == "choice"
+    assert INPUT_MODES["fill_blank"] == "short_text"
+
+    enriched = enrich_question_contract({
+        "question_type": "multiple_choice",
+        "prompt": "选出全部正确项",
+        "answer_spec": {"correct_option_ids": ["A", "C"]},
+        "options": [{"id": "A"}, {"id": "B"}],
+    })
+    assert enriched["input_contract"]["mode"] == "choice"
+
+
+def test_three_input_modes_constants_are_not_the_same_thing() -> None:
+    """同名不同义的三份 INPUT_MODES——这条守卫是防止有人把它们"统一"掉。
+
+    - assessment_blueprint.INPUT_MODES：蓝图侧**合法输入模式的集合**
+    - assessment_compiler.INPUT_MODES：编译侧集合，多三个历史模式
+    - practice_contracts.INPUT_MODES：**question_type -> 输入模式的映射**（dict）
+
+    第三个与前两个连类型都不同。合并它们会把「题型」和「作答模式」两个维度
+    压成一个，正是 H1d 当初要拆开的东西。
+    """
+    from assessment_blueprint import INPUT_MODES as blueprint_modes
+    from assessment_compiler import INPUT_MODES as compiler_modes
+    from practice_contracts import INPUT_MODES as contract_map
+
+    assert isinstance(blueprint_modes, set)
+    assert isinstance(compiler_modes, set)
+    assert isinstance(contract_map, dict), "第三个是映射，不是集合"
+
+    # 编译侧比蓝图侧多出的是历史模式，蓝图不该产出它们
+    assert blueprint_modes <= compiler_modes
+    # 映射的取值必须都是编译侧认识的模式，否则会产出编译器不认的合同
+    assert set(contract_map.values()) <= compiler_modes

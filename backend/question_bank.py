@@ -1398,6 +1398,11 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         criteria
         or answer_spec.get("correct_answer") is not None
         or answer_spec.get("correct_option_id") is not None
+        # 多选的正确答案是**复数键**。只认单数键会把一道合法多选题判成
+        # 「答案不可执行」并硬阻断——V2 题因为下面 is_v2 分支能读到
+        # canonical_answer 而侥幸逃过，**非 V2（旧题、教师导入）的多选题
+        # 会被直接误杀**。由 lz-course-gen 的质量门核查发现。
+        or bool(answer_spec.get("correct_option_ids"))
         or (
             is_v2
             and (
