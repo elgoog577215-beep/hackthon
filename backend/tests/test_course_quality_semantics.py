@@ -468,3 +468,26 @@ def test_every_emitted_code_belongs_to_exactly_one_dimension():
         assert _issue_dimension(code) in {"render", "content", "hygiene"}
     # No code may be claimed by two explicit sets at once.
     assert not (RENDER_ISSUE_CODES & HYGIENE_ISSUE_CODES)
+
+
+def test_nested_ordered_lists_are_not_reported_as_renumbering():
+    """A nested list legitimately restarts at 1.
+
+    Measured against real generated course text, this was the single
+    false-positive source in `list_numbering_restart`: grouping every marker
+    into one flat run made every nested list look like a mid-list restart, and
+    nested lists are common in teaching content.
+    """
+    for content in (
+        "\n\n1. 第一\n   1. 子项\n   2. 子项\n2. 第二",
+        "\n\n1. A\n   1. B\n      1. C\n2. D",
+        "\n\n1. A\n    1. a\n    2. b\n2. B",
+    ):
+        codes = _codes(_content(content))
+        assert "list_numbering_restart" not in codes, content
+
+
+def test_a_genuine_same_level_restart_is_still_reported():
+    """The fix must not disarm the rule it was narrowing."""
+    codes = _codes(_content("\n\n1. 第一\n2. 第二\n1. 又从头开始\n2. 继续"))
+    assert "list_numbering_restart" in codes

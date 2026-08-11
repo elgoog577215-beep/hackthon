@@ -1239,22 +1239,42 @@ def _table_columns(line: str) -> int:
 
 
 def _ordered_list_runs(body: list[str]) -> list[list[int]]:
-    """Group consecutive ordered-list markers into runs of their numbers."""
+    """Group consecutive ordered-list markers into runs, one run per level.
+
+    Indentation matters: a nested list legitimately starts again at 1, so
+    grouping every marker into one flat run reports every nested list as a
+    numbering restart. Measured against real generated course text, that was
+    the single false-positive source in this rule — nested ordered lists are
+    common in teaching content. Runs are therefore keyed by indent width, and
+    only markers at the same level are compared with each other.
+    """
     runs: list[list[int]] = []
-    current: list[int] = []
+    by_indent: dict[int, list[int]] = {}
+
+    def flush() -> None:
+        for numbers in by_indent.values():
+            if numbers:
+                runs.append(numbers)
+        by_indent.clear()
+
     for line in body:
-        match = re.match(r"^\s*(\d+)\.\s+\S", line)
+        match = re.match(r"^(\s*)(\d+)\.\s+\S", line)
         if match:
-            current.append(int(match.group(1)))
+            indent = len(match.group(1).expandtabs(4))
+            by_indent.setdefault(indent, []).append(int(match.group(2)))
+            # A deeper level restarting is normal; drop any deeper levels once
+            # an outer item appears again so a second sub-list is its own run.
+            for deeper in [key for key in by_indent if key > indent]:
+                if by_indent[deeper]:
+                    runs.append(by_indent.pop(deeper))
+                else:
+                    by_indent.pop(deeper)
             continue
         if line.strip():
-            # Non-blank, non-list line ends the run; blank lines inside a list
-            # are normal spacing and must not split it.
-            if current:
-                runs.append(current)
-                current = []
-    if current:
-        runs.append(current)
+            # Non-blank, non-list line ends every open run; blank lines inside a
+            # list are normal spacing and must not split it.
+            flush()
+    flush()
     return runs
 
 
