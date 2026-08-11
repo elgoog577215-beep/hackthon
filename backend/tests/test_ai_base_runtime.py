@@ -48,6 +48,8 @@ def _clear_model_environment(monkeypatch):
         "AI_ASSESSMENT_GENERATOR_MODELS",
         "AI_ASSESSMENT_SOLVER_MODELS",
         "AI_ASSESSMENT_REVIEWER_MODELS",
+        "AI_PPT_STORY_MODELS",
+        "AI_PPT_VISUAL_MODELS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -240,6 +242,37 @@ def test_assessment_roles_use_isolated_model_order(monkeypatch):
         True,
         "assessment_reviewer",
     ) == ["reviewer-a", "reviewer-b"]
+
+
+def test_ppt_roles_use_configured_cross_course_model_routes(monkeypatch):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "AI_MODEL_CANDIDATES",
+        "shared-default",
+    )
+    monkeypatch.setenv(
+        "AI_PPT_STORY_MODELS",
+        "deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B",
+    )
+    monkeypatch.setenv(
+        "AI_PPT_VISUAL_MODELS",
+        "deepseek-ai/DeepSeek-V4-Flash-0731,ZhipuAI/GLM-5.2",
+    )
+
+    service = AIBase()
+
+    assert service._models_for(False, "ppt_story") == [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "Qwen/Qwen3.5-122B-A10B",
+    ]
+    assert service._models_for(True, "ppt_visual") == [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "ZhipuAI/GLM-5.2",
+    ]
+    assert service._models_for(False, "unrelated_role") == [
+        "shared-default",
+    ]
 
 
 @pytest.mark.asyncio

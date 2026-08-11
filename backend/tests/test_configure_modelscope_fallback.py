@@ -33,6 +33,14 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
             "api_key": secret,
             "base_url": "https://api-inference.modelscope.cn/v1/",
             "model": "Qwen/Qwen3.5-35B-A3B",
+            "ppt_story_models": (
+                "deepseek-ai/DeepSeek-V4-Flash-0731,"
+                "Qwen/Qwen3.5-122B-A10B"
+            ),
+            "ppt_visual_models": (
+                "deepseek-ai/DeepSeek-V4-Flash-0731,"
+                "Qwen/Qwen3.5-122B-A10B"
+            ),
         }),
         text=True,
         capture_output=True,
@@ -50,6 +58,14 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
         in content
     )
     assert "MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B" in content
+    assert (
+        "AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
+        "Qwen/Qwen3.5-122B-A10B"
+    ) in content
+    assert (
+        "AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
+        "Qwen/Qwen3.5-122B-A10B"
+    ) in content
     assert "MODELSCOPE_MODEL_CANDIDATES=" not in content
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES=" not in content
     assert secret not in result.stdout
@@ -109,9 +125,19 @@ def test_configure_modelscope_fallback_rejects_invalid_model_atomically(
     assert env_file.read_text(encoding="utf-8") == original
 
 
-def test_deploy_workflow_provisions_one_qwen_model():
+def test_deploy_workflow_provisions_verified_ppt_role_routes():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
     assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-35B-A3B" in workflow
+    assert (
+        "AI_PPT_STORY_MODELS: deepseek-ai/DeepSeek-V4-Flash-0731,"
+        "Qwen/Qwen3.5-122B-A10B"
+    ) in workflow
+    assert (
+        "AI_PPT_VISUAL_MODELS: deepseek-ai/DeepSeek-V4-Flash-0731,"
+        "Qwen/Qwen3.5-122B-A10B"
+    ) in workflow
+    assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
+    assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
     assert "MODELSCOPE_MODEL_CANDIDATES" not in workflow
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
