@@ -1,0 +1,51 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+const librarySource = readFileSync(
+  resolve(process.cwd(), 'src/views/CourseLibraryView.vue'),
+  'utf8',
+)
+const coverSource = readFileSync(
+  resolve(process.cwd(), 'src/components/CourseCover.vue'),
+  'utf8',
+)
+
+describe('course library density contract', () => {
+  it('preserves the original course library shell measurements', () => {
+    expect(librarySource).toMatch(/--course-content-width:\s*1280px/)
+    expect(librarySource).toMatch(/padding:\s*30px\s+clamp\(18px,4vw,54px\)\s+48px/)
+    expect(librarySource).toMatch(/\.resume-card\s*\{[^}]*margin:\s*24px\s+auto\s+0/s)
+    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*28px\s+auto\s+14px/s)
+    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*min\(360px,100%\)/s)
+  })
+
+  it('tightens only the course grid and cards inside the original shell', () => {
+    expect(librarySource).toMatch(/--course-grid-width:\s*1040px/)
+    expect(librarySource).toMatch(/--course-card-height:\s*150px/)
+    expect(librarySource).toMatch(/--course-grid-gap:\s*18px/)
+    expect(librarySource).toMatch(/\.course-grid\s*\{[^}]*max-width:\s*var\(--course-grid-width\)[^}]*margin:\s*0[^}]*margin-inline-start:\s*max\(0px,calc\(\(100%\s*-\s*var\(--course-content-width\)\)\s*\/\s*2\)\)[^}]*justify-content:\s*start/s)
+    expect(librarySource).not.toMatch(/\.course-grid\s*\{[^}]*margin:\s*0\s+auto/s)
+    expect(librarySource).toMatch(/\.course-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,1fr\)\s+112px/s)
+    expect(librarySource).toMatch(/\.course-main\s*\{[^}]*gap:\s*16px[^}]*padding:\s*16px\s+8px\s+16px\s+18px/s)
+    expect(librarySource).toMatch(/\.course-copy\s*\{[^}]*min-width:\s*0[^}]*display:\s*flex/s)
+    expect(librarySource).not.toMatch(/\.course-copy\s*\{[^}]*max-width:/s)
+    expect(librarySource).toMatch(/\.course-copy h2\s*\{[^}]*font-size:\s*16px/s)
+    expect(librarySource).toMatch(/\.course-status\s*\{[^}]*font-size:\s*12px/s)
+  })
+
+  it('uses one shared three-dimensional book shell with category cover artwork', () => {
+    expect(librarySource).toMatch(/--course-cover-width:\s*78px/)
+    expect(coverSource).toMatch(/width:\s*var\(--course-cover-width,\s*78px\)/)
+    expect(coverSource).toMatch(/aspect-ratio:\s*2\s*\/\s*3/)
+    expect(coverSource.match(/course-book-master\.png/g)).toHaveLength(1)
+    expect(coverSource).not.toMatch(/course-cover-[a-z-]+-3d\.png/)
+    expect(coverSource).not.toMatch(/course-artwork-[a-z-]+\.svg/)
+    expect(coverSource).toMatch(/import\s*\{\s*Atom,\s*BookMarked,\s*BookOpen,\s*Box,\s*Grid3X3,\s*Network\s*\}\s*from\s*'lucide-vue-next'/)
+    expect(coverSource.match(/class="course-cover__book"/g)).toHaveLength(1)
+    expect(coverSource.match(/class="course-cover__art"/g)).toHaveLength(1)
+    expect(coverSource).toMatch(/:src="bookMaster"/)
+    expect(coverSource).toMatch(/<component\s+:is="artworkIcon"/)
+    expect(coverSource).toMatch(/const artworkIcons:\s*Record<CourseCoverPreset,\s*Component>/)
+  })
+})
