@@ -59,6 +59,52 @@ def _document(*, with_code: bool = False) -> CourseDocument:
     )
 
 
+def _mixed_artifact_document(
+    artifact_kind: str,
+    artifact_markdown: str,
+) -> CourseDocument:
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-mixed-artifact-course",
+            title="Evidence and representation",
+            sections=[
+                CourseSection(
+                    section_id="chapter-artifact",
+                    title="Evidence workflow",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="context",
+                    section_id="chapter-artifact",
+                    position=0,
+                    role="concept",
+                    payload={
+                        "markdown": (
+                            "## Observe the evidence\n"
+                            "Explain the surrounding context before applying a representation."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="artifact",
+                    section_id="chapter-artifact",
+                    position=1,
+                    role="example",
+                    kind=artifact_kind,
+                    payload={
+                        "markdown": (
+                            "## Apply the representation\n"
+                            f"{artifact_markdown}"
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
 def _layout_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
     block_metadata = {
         block["block_id"]: block for block in unit["primary_blocks"]
@@ -1190,6 +1236,164 @@ async def test_visual_ai_repairs_required_subject_representation_per_batch() -> 
     assert repair_target["allowed_decisions"] == ["code"]
     assert repair_target["required_template_layout_id"] == story.pages[0].template_layout_id
     assert visual.decisions[0].decision == "code"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("artifact_kind", "artifact_markdown", "visual_decision"),
+    [
+        ("code", "```python\nprint('evidence')\n```", "code"),
+        ("formula", "$$E = mc^2$$", "formula"),
+        ("table", "| Input | Result |\n|---|---|\n| A | Pass |", "table"),
+    ],
+)
+async def test_visual_artifact_contract_is_scoped_to_page_source_blocks(
+    artifact_kind: str,
+    artifact_markdown: str,
+    visual_decision: str,
+) -> None:
+    document = _mixed_artifact_document(artifact_kind, artifact_markdown)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "context-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        ["context"],
+                    ),
+                    "title": "Observe the evidence",
+                    "summary": "",
+                    "source_block_ids": ["context"],
+                },
+                {
+                    "page_id": "artifact-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        ["artifact"],
+                    ),
+                    "title": "Apply the representation",
+                    "summary": "",
+                    "source_block_ids": ["artifact"],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    requests = []
+
+    async def visual_planner(request):
+        requests.append(request)
+        pages = {page["page_id"]: page for page in request["pages"]}
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [
+                {
+                    "page_id": "context-page",
+                    "decision": "text_native",
+                    "source_block_ids": pages["context-page"]["source_block_ids"],
+                    "resolved_template_layout_id": pages["context-page"][
+                        "template_layout_id"
+                    ],
+                },
+                {
+                    "page_id": "artifact-page",
+                    "decision": visual_decision,
+                    "source_block_ids": pages["artifact-page"]["source_block_ids"],
+                    "resolved_template_layout_id": pages["artifact-page"][
+                        "template_layout_id"
+                    ],
+                },
+            ],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    requested_pages = {
+        page["page_id"]: page for page in requests[0]["pages"]
+    }
+    assert requested_pages["context-page"]["artifact_kinds"] == []
+    assert requested_pages["context-page"]["allowed_decisions"] == [
+        "text_native"
+    ]
+    assert requested_pages["artifact-page"]["artifact_kinds"] == [
+        artifact_kind
+    ]
+    assert visual.decisions[0].decision == "text_native"
+    assert visual.decisions[1].decision == visual_decision
+
+
+@pytest.mark.asyncio
+async def test_non_artifact_course_keeps_text_native_as_a_valid_visual_language() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "generic-prose-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    requests = []
+
+    async def visual_planner(request):
+        requests.append(request)
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "text_native",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    assert requests[0]["pages"][0]["artifact_kinds"] == []
+    assert requests[0]["pages"][0]["allowed_decisions"] == ["text_native"]
+    assert visual.decisions[0].decision == "text_native"
 
 
 @pytest.mark.asyncio
