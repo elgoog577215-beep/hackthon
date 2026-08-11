@@ -58,6 +58,48 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.library-state').text()).toContain('还没有课程')
   })
 
+  it('将继续学习入口合并进搜索工具栏并保留正确跳转', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{
+      course_id: 'course-resume',
+      course_name: 'Python 高级编程',
+      node_count: 12,
+      resume: {
+        kind: 'practice',
+        node_id: 'node-3-3',
+        node_name: '3.3 默认参数与函数重载',
+        activity_at: '2026-08-11T10:00:00Z',
+      },
+    } as any]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseTaskCenter: true,
+          QuestionBankReviewCenter: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.resume-card').exists()).toBe(false)
+    expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索课程')
+    expect(wrapper.get('.library-toolbar .library-resume__title').text()).toBe('Python 高级编程')
+    expect(wrapper.get('.library-resume__location').text()).toBe('3.3 默认参数与函数重载')
+
+    await wrapper.get('[data-testid="resume-course"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params.courseId).toBe('course-resume')
+  })
+
   it('已发布的质量建议不占用待处理任务角标', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
