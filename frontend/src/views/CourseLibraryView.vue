@@ -239,7 +239,7 @@
                 :data-testid="`open-question-bank-review-${course.course_id}`"
                 @click="openQuestionBankReview(course.course_id)"
               >
-                <ShieldCheck :size="17" />
+                <ShieldCheck :size="15" />
                 <span>{{ t('questionBank.reviewEntry', '题库管理') }}</span>
               </button>
               <button
@@ -249,7 +249,7 @@
                 :data-testid="`delete-course-${course.course_id}`"
                 @click="deleteCourse(course.course_id, formatCourseTitle(course.course_name))"
               >
-                <Trash2 :size="17" />
+                <Trash2 :size="15" />
                 <span>{{ t('courseLibrary.delete', '删除课程') }}</span>
               </button>
             </div>
@@ -679,14 +679,14 @@ async function deleteCourse(courseId: string, courseName: string) {
 .progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
 .course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
 .course-actions { position:relative; min-width:0; display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-end; padding:14px 16px; }
-.course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 4px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; cursor:pointer; }
+.course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 4px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; white-space:nowrap; cursor:pointer; }
 .course-primary-action:hover,.course-primary-action:focus-visible { color:#4f46e5; background:var(--lz-brand-soft); outline:none; }
 .course-menu-trigger { position:absolute; top:14px; right:14px; width:34px; height:34px; display:grid; place-items:center; border:1px solid rgba(203,213,225,.72); border-radius:9px; color:var(--lz-text-secondary); background:rgba(255,255,255,.84); cursor:pointer; }
 .course-menu-trigger:hover,.course-menu-trigger:focus-visible,.course-menu-trigger[aria-expanded='true'] { border-color:#c7d2fe; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
-.course-menu { position:absolute; z-index:50; top:52px; right:14px; width:188px; overflow:hidden; padding:6px; border:1px solid rgba(203,213,225,.82); border-radius:12px; background:#fff; box-shadow:0 18px 38px rgba(51,65,85,.18),0 4px 10px rgba(79,70,229,.08); }
-.course-menu__item { width:100%; min-height:42px; display:flex; align-items:center; gap:10px; padding:0 11px; border:0; border-radius:8px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
+.course-menu { position:absolute; z-index:50; top:52px; right:14px; width:160px; overflow:hidden; padding:4px; border:1px solid rgba(203,213,225,.82); border-radius:10px; background:#fff; box-shadow:0 12px 28px rgba(51,65,85,.16),0 3px 8px rgba(79,70,229,.07); }
+.course-menu__item { width:100%; min-height:36px; display:flex; align-items:center; gap:8px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
 .course-menu__item:hover,.course-menu__item:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
-.course-menu__item--danger { margin-top:4px; border-top:1px solid rgba(226,232,240,.9); border-radius:0 0 8px 8px; color:var(--lz-danger); }
+.course-menu__item--danger { margin-top:3px; border-top:1px solid rgba(226,232,240,.9); border-radius:0 0 7px 7px; color:var(--lz-danger); }
 .course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
 .course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
