@@ -187,7 +187,7 @@ class UniversalAssessmentModel(AIBase):
                 "只提取事实、数据、题型结构与课程依据。"
                 "题面必须包含可作答输入、明确产物、限制和检查要求。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=(
                 call_policy.enable_thinking
                 if call_policy is not None
@@ -233,7 +233,7 @@ class UniversalAssessmentModel(AIBase):
                 "每个题目必须独立、可作答、可评分，答案只能出现在"
                 "对应candidate.solution中。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=(
                 call_policy.enable_thinking
                 if call_policy is not None
@@ -319,7 +319,7 @@ class UniversalAssessmentModel(AIBase):
                 "不得使用任何标准答案、隐藏测试或评分参数。"
                 "你的解析将直接展示给学生，必须具体、完整且可复核。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=(
                 call_policy.enable_thinking
                 if call_policy is not None
@@ -362,7 +362,7 @@ class UniversalAssessmentModel(AIBase):
                 "不得猜测生成器答案、隐藏测试或评分参数。"
                 "只输出一个JSON对象，不输出私有思维过程。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=bool(
                 call_policy and call_policy.enable_thinking
             ),
@@ -428,7 +428,7 @@ class UniversalAssessmentModel(AIBase):
                 "根据不一致报告修复题面或解答，不能降低题目要求，"
                 "不能删除关键条件。只输出完整JSON对象。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=(
                 call_policy.enable_thinking
                 if call_policy is not None
@@ -466,7 +466,7 @@ class UniversalAssessmentModel(AIBase):
                 "只能修复对应质量报告指出的问题，不能交换slot_id，"
                 "不能降低题目要求。只输出一个完整JSON对象。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=bool(
                 call_policy and call_policy.enable_thinking
             ),
@@ -549,7 +549,7 @@ class UniversalAssessmentModel(AIBase):
                 "标准答案、隐藏测试或评分参数。只依据公开题面、独立作答、"
                 "章节目标和蓝图给出结构化结论。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=bool(
                 call_policy and call_policy.enable_thinking
             ),
@@ -583,7 +583,7 @@ class UniversalAssessmentModel(AIBase):
                 "你看不到生成器解释、标准答案、隐藏测试或评分参数。"
                 "只输出JSON，不输出思维过程。"
             ),
-            retry_count=1,
+            retry_count=_assessment_retry_count(),
             enable_thinking=bool(
                 call_policy and call_policy.enable_thinking
             ),
@@ -2968,6 +2968,20 @@ async def _notify_progress(
     result = callback(deepcopy(event))
     if inspect.isawaitable(result):
         await result
+
+
+def _assessment_retry_count() -> int:
+    """Provider retries for one assessment model call.
+
+    These call sites used to hardcode 1, i.e. no retry at all, while the base
+    layer defaults to 3.  A single network blip therefore discarded a whole
+    generation round.  Keep it configurable so the value can be tuned without
+    touching eight call sites.
+    """
+    try:
+        return max(1, int(os.getenv("AI_ASSESSMENT_RETRY_COUNT", "3")))
+    except (TypeError, ValueError):
+        return 3
 
 
 async def _timed_model_call(

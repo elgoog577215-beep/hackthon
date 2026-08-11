@@ -74,7 +74,7 @@ class CourseGenerationBudget:
                 "COURSE_CONTENT_MAX_OUTPUT_TOKENS",
                 8192,
                 minimum=2048,
-                maximum=12000,
+                maximum=32000,
             ),
             provider_max_attempts=_env_int(
                 "COURSE_GENERATION_PROVIDER_MAX_ATTEMPTS",

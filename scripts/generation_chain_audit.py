@@ -403,6 +403,8 @@ def _node_summaries(course_data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _collect_report(
     *,
+    requested_chapters: int = 0,
+    requested_sections: int = 0,
     started_at: float,
     audit_root: Path,
     report_path: Path,
@@ -501,8 +503,8 @@ def _collect_report(
             "pedagogy_mode": request.get("pedagogy_mode"),
             "course_purpose": request.get("course_purpose"),
             "requirements_chars": len(str(request.get("requirements") or "")),
-            "requested_chapters": 6,
-            "requested_sections": 12,
+            "requested_chapters": requested_chapters,
+            "requested_sections": requested_sections,
             "material_count": len(request.get("material_bindings") or []),
         },
         "identity": {"task_id": task_id, "course_id": course_id},
@@ -615,6 +617,7 @@ async def run_audit(
     subject: str,
     timeout_seconds: int,
     report_path: Path,
+    sections: int = 12,
 ) -> dict[str, Any]:
     started_at = time.monotonic()
     audit_root = Path(tempfile.mkdtemp(prefix="lingzhi-generation-audit-"))
@@ -635,6 +638,20 @@ async def run_audit(
     ai_logger = logging.getLogger("ai_base")
     ai_logger.addHandler(provider_handler)
 
+    if sections <= 2:
+        shape_requirement = (
+            f"请生成一门正式、完整、可发布的 1 章 {sections} 节课程。"
+            "内容从随机事件与概率公理开始，"
+            f"用 {sections} 节完成从样本空间到条件概率的最小闭环。"
+        )
+    else:
+        chapters = max(1, sections // 2)
+        shape_requirement = (
+            f"请生成一门正式、完整、可发布的 {chapters} 章 {sections} 节课程，"
+            "每章严格 2 节。"
+            "内容从随机事件与概率公理开始，依次覆盖条件概率与独立性、随机变量与分布、"
+            "数字特征、常用极限定理，最后完成中心极限定理及一个综合建模应用。"
+        )
     request = {
         "subject": subject,
         "target_audience": "大学一年级学生",
@@ -642,10 +659,8 @@ async def run_audit(
         "style": "academic",
         "composition_style": "theory_driven",
         "requirements": (
-            "请生成一门正式、完整、可发布的6章12节课程，每章严格2节。"
-            "内容从随机事件与概率公理开始，依次覆盖条件概率与独立性、随机变量与分布、"
-            "数字特征、常用极限定理，最后完成中心极限定理及一个综合建模应用。"
-            "章节之间必须递进且不能重复；每节都要有明确学习目标、适用边界、关键定义或定理、"
+            shape_requirement
+            + "章节之间必须递进且不能重复；每节都要有明确学习目标、适用边界、关键定义或定理、"
             "至少一个推导或例题、一个常见误区、一个可验收任务，并为后续练习和知识关系提供稳定依据。"
             "数学符号使用LaTeX，不能为了凑字数重复目录或泛泛总结。"
         ),
@@ -751,7 +766,7 @@ async def run_audit(
                 if not reviews or reviews[-1] != review_summary:
                     reviews.append(review_summary)
                     print(json.dumps({"audit_review": review_summary}, ensure_ascii=False), flush=True)
-                if step not in {"outline", "release"}:
+                if step not in {"outline", "teaching", "release"}:
                     stop_reason = f"unexpected_review_step:{step}"
                     break
                 if not review.get("can_confirm"):
@@ -775,6 +790,8 @@ async def run_audit(
         stop_reason = stop_reason or f"exception:{type(exc).__name__}"
     finally:
         report = _collect_report(
+            requested_chapters=(1 if sections <= 2 else max(1, sections // 2)),
+            requested_sections=sections,
             started_at=started_at,
             audit_root=audit_root,
             report_path=report_path,
@@ -812,6 +829,12 @@ def main() -> int:
     )
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument(
+        "--sections",
+        type=int,
+        default=12,
+        help="课程小节数；小规模用于验证链路能否走通",
+    )
+    parser.add_argument(
         "--report",
         type=Path,
         default=Path("/tmp/lingzhi-course-generation-chain-audit.json"),
@@ -820,6 +843,7 @@ def main() -> int:
     report = asyncio.run(run_audit(
         subject=args.subject,
         timeout_seconds=args.timeout,
+        sections=args.sections,
         report_path=args.report.resolve(),
     ))
     print(json.dumps({

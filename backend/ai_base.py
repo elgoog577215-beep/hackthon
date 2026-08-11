@@ -110,6 +110,13 @@ class AIResponseTruncated(AIProviderRequestError):
     retryable = True
 
 
+def _env_int_min1(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return max(1, default)
+
+
 def _parse_model_list(value: Optional[str]) -> List[str]:
     return [item.strip() for item in (value or "").replace("\n", ",").split(",") if item.strip()]
 
@@ -128,6 +135,8 @@ class AIBase:
     _model_failure_cache: dict[tuple[str, str], float] = {}
     # (hostname, model_id) pairs that rejected response_format with a 400.
     _json_mode_unsupported: set[tuple[str, str]] = set()
+    # Consecutive transient failures per (provider, model); reset on success.
+    _model_transient_failures: dict[tuple[str, str], int] = {}
 
     def __init__(self):
         # 通过环境变量配置 API 密钥
@@ -366,6 +375,9 @@ class AIBase:
             )
         ] = model_id
         self._model_failure_cache.pop((self.api_base, model_id), None)
+        # A success means the model is healthy again: drop any partial
+        # transient streak so unrelated blips never accumulate into a trip.
+        self._model_transient_failures.pop((self.api_base, model_id), None)
 
     @staticmethod
     def estimate_request_tokens(prompt: str, system_prompt: str) -> int:
@@ -469,9 +481,36 @@ class AIBase:
         error: Exception,
         api_base: str | None = None,
     ) -> None:
+        """Open the circuit for one provider/model pair.
+
+        The cache is a class attribute, so opening the circuit stops every
+        concurrent slot in the process at once.  That is the right response to
+        rate limiting or an exhausted quota, but far too blunt for a single
+        transient error: one timeout would otherwise idle the whole run for
+        the full cooldown.  Transient failures therefore have to repeat
+        consecutively before the circuit opens, while a success clears the
+        streak.
+        """
         cooldown = self._model_failure_cooldown_seconds(error)
         provider_base = api_base or self.api_base
-        self._model_failure_cache[(provider_base, model_id)] = (
+        failure_key = (provider_base, model_id)
+        if self._capacity_failure_kind(error) == "transient":
+            threshold = _env_int_min1(
+                "AI_MODEL_TRANSIENT_FAILURES_TO_OPEN", 3
+            )
+            streak = self._model_transient_failures.get(failure_key, 0) + 1
+            self._model_transient_failures[failure_key] = streak
+            if streak < threshold:
+                logger.warning(
+                    "AI model transient failure %d/%d (Model: %s); "
+                    "circuit stays closed",
+                    streak,
+                    threshold,
+                    model_id,
+                )
+                return
+        self._model_transient_failures.pop(failure_key, None)
+        self._model_failure_cache[failure_key] = (
             time.monotonic() + cooldown
         )
         logger.warning(

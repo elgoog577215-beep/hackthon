@@ -688,3 +688,70 @@ async def test_json_mode_rejection_is_cached_per_provider_model(monkeypatch):
     assert len(completions.requests) == 3
     assert "response_format" not in completions.requests[2]
     AIBase._json_mode_unsupported.clear()
+
+
+@pytest.mark.asyncio
+async def test_single_transient_failure_does_not_open_the_circuit(monkeypatch):
+    """一次瞬时错误不该让全进程停摆。
+
+    _model_failure_cache 是类属性：熔断一开，进程内所有并发槽位同时失效。
+    对限流/配额耗尽这是对的，但一次网络抖动就熔断 30 秒代价过高。
+    """
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+    service = _make_service(
+        monkeypatch, SuccessfulCompletions(), models=("model-a",)
+    )
+    timeout = openai.APITimeoutError(
+        request=httpx.Request("POST", "https://example.test")
+    )
+
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == ["model-a"]  # 仍可用
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == ["model-a"]
+    # 连续第 3 次才熔断。
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == []
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_opens_the_circuit_immediately(monkeypatch):
+    """限流/配额仍必须立刻熔断——放宽这个会打爆上游。"""
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+    service = _make_service(
+        monkeypatch, SuccessfulCompletions(), models=("model-a",)
+    )
+
+    service._cool_down_model("model-a", _make_status_error(429, "rate limit"))
+    assert service._models_for(False) == []
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_success_clears_a_partial_transient_streak(monkeypatch):
+    """成功一次就应清零累计，避免互不相关的抖动攒成熔断。"""
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+    completions = SuccessfulCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+    timeout = openai.APITimeoutError(
+        request=httpx.Request("POST", "https://example.test")
+    )
+
+    service._cool_down_model("model-a", timeout)
+    service._cool_down_model("model-a", timeout)
+    await service._call_llm("p", "s", retry_count=1, raise_on_failure=True)
+    # 成功清零后，再来两次瞬时错误仍不该熔断。
+    service._cool_down_model("model-a", timeout)
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == ["model-a"]
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()

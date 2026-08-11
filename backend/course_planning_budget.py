@@ -72,7 +72,7 @@ class CoursePlanningBudget:
             ),
             max_output_tokens=_env_int(
                 "COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", 8000,
-                minimum=2000, maximum=12000,
+                minimum=2000, maximum=32000,
             ),
             concurrency=_env_int(
                 "COURSE_TEACHING_PLAN_CONCURRENCY", 4,
