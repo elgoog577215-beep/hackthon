@@ -1164,16 +1164,11 @@ async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> 
         calls.append(request)
         unit = request["teaching_units"][0]
         assert unit["allowed_page_count_range"] == [3, 4]
-        safe_slices = {
-            tuple(item["source_block_ids"]): item["template_layout_ids"]
-            for item in unit["safe_page_slices"]
-        }
-        partition = [
-            unit["primary_block_ids"][:3],
-            unit["primary_block_ids"][3:4],
-            unit["primary_block_ids"][4:5],
-            unit["primary_block_ids"][5:],
-        ]
+        option = next(
+            option
+            for option in unit["safe_partition_options"]
+            if len(option["pages"]) == 4
+        )
         titles = unit["title_candidates"]
         return {
             "schema_version": "slide_story_batch_response_v3",
@@ -1185,12 +1180,12 @@ async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> 
                 {
                     "page_id": f"field-page-{index + 1}",
                     "teaching_unit_id": unit["teaching_unit_id"],
-                    "template_layout_id": safe_slices[tuple(source_ids)][0],
+                    "template_layout_id": page["template_layout_ids"][0],
                     "title": titles[index],
                     "summary": "",
-                    "source_block_ids": source_ids,
+                    "source_block_ids": page["source_block_ids"],
                 }
-                for index, source_ids in enumerate(partition)
+                for index, page in enumerate(option["pages"])
             ],
         }
 
