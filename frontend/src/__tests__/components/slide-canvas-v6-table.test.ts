@@ -9,7 +9,10 @@ function tableSlide(variant: 'table-with-interpretation' | 'table-continuation')
     layout: 'concept',
     title: 'Compare the field evidence',
     visuals: [{
+      visual_id: 'table-visual',
       kind: 'table',
+      purpose: 'evidence',
+      alt_text: 'Field evidence table',
       parameters: { headers: ['Check', 'Evidence'], rows: [['Input', 'Recorded']] },
     }],
     blocks: [
@@ -29,6 +32,7 @@ function tableSlide(variant: 'table-with-interpretation' | 'table-continuation')
     quality: {
       resolved_layout: 'data-highlight',
       v6_layout_variant: variant,
+      v6_artifact_support_mode: (variant === 'table-with-interpretation' ? 'split' : 'full') as 'split' | 'full',
     },
   }
 }

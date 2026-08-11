@@ -1351,17 +1351,33 @@ def _render_table_visual(
     parameters = visual.get("parameters") or {}
     parameter_rows = parameters.get("rows") or []
     if parameter_rows:
+        supporting_blocks = [
+            block for block in unit.blocks
+            if not block.metadata.get("table_source")
+        ]
+        split_support = bool(
+            supporting_blocks
+            and unit.quality.get("v6_artifact_support_mode") != "full"
+        )
+        table_width = 7.18 if split_support else 11.78
         _table(
             slide,
             [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
             [[str(value) for value in row] for row in parameter_rows],
             0.78,
             1.92,
-            7.18,
+            table_width,
             4.62,
             theme,
         )
-        _source_panel(slide, unit, 8.2, 1.92, 4.36, 4.62, theme)
+        if split_support:
+            supporting = SlideSpec.model_validate({
+                **unit.model_dump(mode="json"),
+                "blocks": [
+                    block.model_dump(mode="json") for block in supporting_blocks
+                ],
+            })
+            _source_panel(slide, supporting, 8.2, 1.92, 4.36, 4.62, theme)
         return
     block = next(
         (

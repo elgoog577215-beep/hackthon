@@ -26,6 +26,9 @@ interface V6Page {
   title_max_lines?: number
   resolved_layout: string
   source_block_ids: string[]
+  continuation_of_page_id?: string
+  continuation_index?: number
+  continuation_count?: number
   regions: V6Region[]
   visual_decision?: {
     decision?: string
@@ -48,6 +51,12 @@ interface V6DeckLike {
 interface AdapterDefinition {
   renderer_layout: string
   basic_layout: string
+  variant_policy?: {
+    artifact_content_kind: string
+    split_variant: string
+    full_variant: string
+    continuation_variant: string
+  }
 }
 
 const layouts = adapterContract.layouts as Record<string, AdapterDefinition>
@@ -72,6 +81,33 @@ function notesText(page: V6Page): string {
       ].join('\n')
     )),
   ].join('\n\n')
+}
+
+function parseMarkdownTable(value: string): { headers: string[]; rows: string[][] } {
+  const rows = String(value || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('|') && line.endsWith('|'))
+    .map(line => line.slice(1, -1).split('|').map(cell => cell.trim()))
+    .filter(cells => !cells.every(cell => /^:?-{3,}:?$/.test(cell)))
+  return { headers: rows[0] || [], rows: rows.slice(1) }
+}
+
+function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
+  const policy = adapter.variant_policy
+  if (!policy?.artifact_content_kind) return { variant: '', supportMode: '' }
+  if (Number(page.continuation_index || 1) > 1) {
+    return { variant: policy.continuation_variant, supportMode: 'full' }
+  }
+  const hasArtifact = page.regions.some(
+    region => region.content_kind === policy.artifact_content_kind,
+  )
+  const hasSupport = page.regions.some(
+    region => region.content_kind !== policy.artifact_content_kind,
+  )
+  return hasArtifact && hasSupport
+    ? { variant: policy.split_variant, supportMode: 'split' }
+    : { variant: policy.full_variant, supportMode: 'full' }
 }
 
 function regionBlock(region: V6Region): Record<string, unknown> {
@@ -107,7 +143,10 @@ function pageVisuals(page: V6Page): Array<Record<string, unknown>> {
     parameters: { formula: formula.content },
   }]
   const table = page.regions.find(region => region.content_kind === 'table')
-  if (table) return [{ kind: 'table', caption: table.slot_id, parameters: {} }]
+  if (table) {
+    const parameters = parseMarkdownTable(table.content)
+    return [{ kind: 'table', caption: table.slot_id, parameters }]
+  }
   if (String(page.visual_decision?.decision || '') === 'diagram') {
     const payload = page.visual_decision?.visual_payload || {}
     const nodes = Array.isArray(payload.nodes) ? payload.nodes : []
@@ -157,6 +196,7 @@ function adaptPage(
   const slug = layoutSlug(page.resolved_layout)
   const adapter = layouts[slug]
   if (!adapter) throw new Error(`v6_template_layout_adapter_missing:${page.resolved_layout}`)
+  const variant = layoutVariant(page, adapter)
   return {
     unit_id: page.page_id,
     position: page.page_ordinal,
@@ -179,6 +219,10 @@ function adaptPage(
       render_contract: 'template_layout_contract_v1',
       v6_template_layout_id: page.resolved_layout,
       v6_layout_slug: slug,
+      v6_layout_variant: variant.variant,
+      v6_artifact_support_mode: variant.supportMode,
+      v6_continuation_index: Number(page.continuation_index || 1),
+      v6_continuation_count: Number(page.continuation_count || 1),
       v6_title_max_lines: Math.max(1, Number(page.title_max_lines || 1)),
       resolved_layout: adapter.renderer_layout,
       template_theme_overrides: { ...templateThemeOverrides },

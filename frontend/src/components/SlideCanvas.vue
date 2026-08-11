@@ -59,6 +59,7 @@
         v-if="showsVisualStory"
         class="deck-canvas__story"
         :data-composition="resolvedComposition"
+        :data-layout-variant="slide.quality?.v6_layout_variant || undefined"
         :data-source-empty="sourceBlocks.length === 0"
         :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
         :data-has-message="showsStandaloneMessage"
@@ -376,6 +377,8 @@ interface Slide {
     final_page_contract_v2?: Record<string, any>
     manual_edit_required?: boolean
     manual_edit_reasons?: Array<Record<string, any>>
+    v6_layout_variant?: string
+    v6_artifact_support_mode?: 'split' | 'full' | ''
   }
 }
 
@@ -433,10 +436,15 @@ const resolvedComposition = computed(() => (
 ))
 const sourceBlocks = computed(() => {
   const visualKind = props.slide.visuals?.[0]?.kind
-  if (visualKind !== 'formula') return props.slide.blocks || []
-  return (props.slide.blocks || []).filter(
-    block => block.type !== 'formula' && !block.metadata?.formula,
-  )
+  const blocks = props.slide.blocks || []
+  if (visualKind === 'formula') {
+    return blocks.filter(block => block.type !== 'formula' && !block.metadata?.formula)
+  }
+  if (visualKind === 'table') {
+    if (props.slide.quality?.v6_artifact_support_mode === 'full') return []
+    return blocks.filter(block => !block.metadata?.table_source)
+  }
+  return blocks
 })
 const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
   (total, block) => total
@@ -472,6 +480,7 @@ const visualDirectedLayouts = new Set([
   'figure-text',
   'diagram-full',
   'formula-explanation',
+  'data-highlight',
 ])
 const showsVisualStory = computed(() => Boolean(
   props.slide.visuals?.length
@@ -1590,6 +1599,11 @@ function layoutLabel(value: string) {
 .deck-canvas__story[data-source-empty="true"] {
   grid-template-columns:minmax(0,1fr);
 }
+.deck-canvas__story[data-layout-variant="table-with-interpretation"] {
+  grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);
+}
+.deck-canvas__story[data-layout-variant="table-with-interpretation"] > .slide-visual { order:1; }
+.deck-canvas__story[data-layout-variant="table-with-interpretation"] > .deck-canvas__source { order:2; }
 .deck-canvas__source {
   min-width:0;
   overflow:hidden;

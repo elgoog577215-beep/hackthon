@@ -28,21 +28,28 @@ _LAYOUT_ADAPTER_PATH = (
 
 
 @lru_cache(maxsize=1)
-def _layout_adapters() -> dict[str, dict[str, str]]:
+def _layout_adapters() -> dict[str, dict[str, Any]]:
     payload = json.loads(_LAYOUT_ADAPTER_PATH.read_text(encoding="utf-8"))
     if payload.get("schema_version") != "slide_deck_v6_layout_adapters_v1":
         raise ValueError("Unsupported V6 layout adapter contract")
     layouts = payload.get("layouts") or {}
     if not isinstance(layouts, dict) or not layouts:
         raise ValueError("V6 layout adapter contract is empty")
-    return {
-        str(slug): {
+    adapters: dict[str, dict[str, Any]] = {}
+    for slug, value in layouts.items():
+        if not isinstance(value, dict):
+            continue
+        adapter: dict[str, Any] = {
             "renderer_layout": str(value.get("renderer_layout") or ""),
             "basic_layout": str(value.get("basic_layout") or ""),
         }
-        for slug, value in layouts.items()
-        if isinstance(value, dict)
-    }
+        policy = value.get("variant_policy")
+        if isinstance(policy, dict):
+            adapter["variant_policy"] = {
+                str(key): str(item or "") for key, item in policy.items()
+            }
+        adapters[str(slug)] = adapter
+    return adapters
 
 
 def _layout_slug(template_layout_id: str) -> str:
@@ -50,6 +57,25 @@ def _layout_slug(template_layout_id: str) -> str:
     if slug not in _layout_adapters():
         raise ValueError(f"v6_template_layout_adapter_missing:{template_layout_id}")
     return slug
+
+
+def _layout_variant(
+    page: SlidePageV6,
+    adapter: dict[str, Any],
+) -> tuple[str, str]:
+    policy = adapter.get("variant_policy")
+    if not isinstance(policy, dict):
+        return "", ""
+    artifact_kind = str(policy.get("artifact_content_kind") or "")
+    if not artifact_kind:
+        return "", ""
+    if page.continuation_index > 1:
+        return str(policy.get("continuation_variant") or ""), "full"
+    has_artifact = any(region.content_kind == artifact_kind for region in page.regions)
+    has_support = any(region.content_kind != artifact_kind for region in page.regions)
+    if has_artifact and has_support:
+        return str(policy.get("split_variant") or ""), "split"
+    return str(policy.get("full_variant") or ""), "full"
 
 
 def _speaker_notes(page: SlidePageV6) -> str:
@@ -189,6 +215,7 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
     slug = _layout_slug(resolved_page.resolved_layout)
     adapter = _layout_adapters()[slug]
     renderer_layout = adapter["renderer_layout"]
+    layout_variant, artifact_support_mode = _layout_variant(resolved_page, adapter)
     return SlideSpec(
         unit_id=resolved_page.page_id,
         position=resolved_page.page_ordinal,
@@ -206,6 +233,10 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
             "render_contract": "template_layout_contract_v1",
             "v6_template_layout_id": resolved_page.resolved_layout,
             "v6_layout_slug": slug,
+            "v6_layout_variant": layout_variant,
+            "v6_artifact_support_mode": artifact_support_mode,
+            "v6_continuation_index": resolved_page.continuation_index,
+            "v6_continuation_count": resolved_page.continuation_count,
             "v6_title_max_lines": resolved_page.title_max_lines,
             "resolved_layout": renderer_layout,
         },

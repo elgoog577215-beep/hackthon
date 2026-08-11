@@ -13,7 +13,16 @@
     "practice-feedback": { "renderer_layout": "practice-feedback", "basic_layout": "practice" },
     "evidence-code": { "renderer_layout": "code", "basic_layout": "code" },
     "evidence-formula": { "renderer_layout": "formula-explanation", "basic_layout": "concept" },
-    "evidence-table": { "renderer_layout": "data-highlight", "basic_layout": "concept" },
+    "evidence-table": {
+      "renderer_layout": "data-highlight",
+      "basic_layout": "concept",
+      "variant_policy": {
+        "artifact_content_kind": "table",
+        "split_variant": "table-with-interpretation",
+        "full_variant": "table-full",
+        "continuation_variant": "table-continuation"
+      }
+    },
     "evidence-figure": { "renderer_layout": "figure-text", "basic_layout": "concept" },
     "evidence-diagram": { "renderer_layout": "diagram-full", "basic_layout": "concept" },
     "misconception-repair": { "renderer_layout": "misconception-repair", "basic_layout": "misconception" },
