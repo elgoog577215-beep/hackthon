@@ -13,8 +13,10 @@ describe('course presentation', () => {
     ['机器学习：原理、算法与实践', 'ai'],
     ['Unity 游戏编程进阶实战', 'programming'],
     ['线性代数：理论与应用', 'mathematics'],
+    ['局部解剖学', 'medicine'],
+    ['控制学：从原理到系统设计', 'engineering'],
     ['大学物理', 'science'],
-    ['中国文学史', 'humanities'],
+    ['辩论：逻辑构建与实战技巧', 'humanities'],
     ['职业发展', 'general'],
   ])('maps %s to the %s preset cover', (title, preset) => {
     expect(courseCoverPreset(title)).toBe(preset)

@@ -44,12 +44,19 @@ describe('course library density contract', () => {
     expect(coverSource.match(/course-book-master\.png/g)).toHaveLength(1)
     expect(coverSource).not.toMatch(/course-cover-[a-z-]+-3d\.png/)
     expect(coverSource).not.toMatch(/course-artwork-[a-z-]+\.svg/)
-    expect(coverSource).toMatch(/import\s*\{\s*Atom,\s*BookMarked,\s*BookOpen,\s*Box,\s*Grid3X3,\s*Network\s*\}\s*from\s*'lucide-vue-next'/)
     expect(coverSource.match(/class="course-cover__book"/g)).toHaveLength(1)
-    expect(coverSource.match(/class="course-cover__art"/g)).toHaveLength(1)
+    expect(coverSource.match(/class="course-cover__artwork"/g)).toHaveLength(1)
+    expect(coverSource.match(/class="course-cover__pattern"/g)).toHaveLength(1)
+    expect(coverSource.match(/class="course-cover__symbol"/g)).toHaveLength(1)
+    expect(coverSource.match(/class="course-cover__detail"/g)).toHaveLength(1)
     expect(coverSource).toMatch(/:src="bookMaster"/)
-    expect(coverSource).toMatch(/<component\s+:is="artworkIcon"/)
-    expect(coverSource).toMatch(/const artworkIcons:\s*Record<CourseCoverPreset,\s*Component>/)
+    expect(coverSource).toMatch(/const coverArtwork:\s*Record<CourseCoverPreset,\s*CoverArtwork>/)
+    expect(coverSource).toMatch(/medicine:\s*\{\s*symbol:\s*HeartPulse,\s*detail:\s*Stethoscope\s*\}/)
+    expect(coverSource).toMatch(/engineering:\s*\{\s*symbol:\s*Cog,\s*detail:\s*CircuitBoard\s*\}/)
+    expect(coverSource).toMatch(/humanities:\s*\{\s*symbol:\s*MessagesSquare,\s*detail:\s*Quote\s*\}/)
+    for (const preset of ['ai', 'programming', 'mathematics', 'medicine', 'engineering', 'science', 'humanities', 'general']) {
+      expect(coverSource).toContain(`data-cover-preset='${preset}'`)
+    }
   })
 
   it('keeps the primary action on one line and uses a compact overflow menu', () => {

@@ -297,22 +297,22 @@ describe('CourseLibraryView generation lifecycle', () => {
     const generation = useGenerationStore()
     courses.courseList = [
       {
-        course_id: 'course-ai',
-        course_name: '机器学习：原理、算法与实践',
+        course_id: 'course-humanities',
+        course_name: '辩论：逻辑构建与实战技巧',
         node_count: 10,
         resume: {
           kind: 'practice',
           status: 'in_progress',
           node_id: 'node-1',
-          node_name: '模型评估',
+          node_name: '论点组织',
           activity_at: '2026-08-10T09:00:00Z',
         },
       },
-      { course_id: 'course-programming', course_name: '《Unity 游戏编程进阶实战》', node_count: 8 },
-      { course_id: 'course-math', course_name: '微积分', node_count: 6 },
-      { course_id: 'course-science', course_name: '大学物理', node_count: 6 },
-      { course_id: 'course-humanities', course_name: '中国文学史', node_count: 6 },
-      { course_id: 'course-general', course_name: '职业发展', node_count: 6 },
+      { course_id: 'course-medicine', course_name: '局部解剖学', node_count: 8 },
+      { course_id: 'course-engineering', course_name: '控制学：从原理到系统设计', node_count: 6 },
+      { course_id: 'course-math', course_name: '线性代数：理论与应用', node_count: 6 },
+      { course_id: 'course-programming', course_name: 'Java：从原理到工业级实践', node_count: 6 },
+      { course_id: 'course-general', course_name: 'Test Basic Course：理论框架与实践', node_count: 6 },
     ]
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
     vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
@@ -332,21 +332,21 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.resume-card__copy strong').text()).toBe('《机器学习：原理、算法与实践》')
+    expect(wrapper.get('.resume-card__copy strong').text()).toBe('《辩论：逻辑构建与实战技巧》')
     expect(wrapper.findAll('.course-copy h2').map(title => title.text())).toEqual([
-      '《机器学习：原理、算法与实践》',
-      '《Unity 游戏编程进阶实战》',
-      '《微积分》',
-      '《大学物理》',
-      '《中国文学史》',
-      '《职业发展》',
+      '《辩论：逻辑构建与实战技巧》',
+      '《局部解剖学》',
+      '《控制学：从原理到系统设计》',
+      '《线性代数：理论与应用》',
+      '《Java：从原理到工业级实践》',
+      '《Test Basic Course：理论框架与实践》',
     ])
     expect(wrapper.text()).not.toContain('《《')
-    expect(wrapper.get('[data-testid="course-cover-course-ai"]').attributes('data-cover-preset')).toBe('ai')
-    expect(wrapper.get('[data-testid="course-cover-course-programming"]').attributes('data-cover-preset')).toBe('programming')
-    expect(wrapper.get('[data-testid="course-cover-course-math"]').attributes('data-cover-preset')).toBe('mathematics')
-    expect(wrapper.get('[data-testid="course-cover-course-science"]').attributes('data-cover-preset')).toBe('science')
     expect(wrapper.get('[data-testid="course-cover-course-humanities"]').attributes('data-cover-preset')).toBe('humanities')
+    expect(wrapper.get('[data-testid="course-cover-course-medicine"]').attributes('data-cover-preset')).toBe('medicine')
+    expect(wrapper.get('[data-testid="course-cover-course-engineering"]').attributes('data-cover-preset')).toBe('engineering')
+    expect(wrapper.get('[data-testid="course-cover-course-math"]').attributes('data-cover-preset')).toBe('mathematics')
+    expect(wrapper.get('[data-testid="course-cover-course-programming"]').attributes('data-cover-preset')).toBe('programming')
     expect(wrapper.get('[data-testid="course-cover-course-general"]').attributes('data-cover-preset')).toBe('general')
   })
 
