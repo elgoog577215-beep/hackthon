@@ -2041,6 +2041,8 @@ async def test_visual_ai_projects_source_bound_aliases_and_discards_draft_code()
             "decisions": [{
                 "page_id": page["page_id"],
                 "decision_type": "code",
+                "source_block_ids": ["provider-must-not-rebind-source"],
+                "resolved_template_layout_id": "provider-must-not-rebind-layout",
                 "code_payload": {
                     "language": "python",
                     "code": "invented_code_must_not_be_consumed()",
