@@ -897,7 +897,7 @@ async def test_story_batches_reserve_titles_accepted_by_prior_chapters() -> None
 
 
 @pytest.mark.asyncio
-async def test_story_repair_names_all_pages_when_unit_exceeds_page_limit() -> None:
+async def test_story_coalesces_repeated_pages_without_another_ai_call() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-page-limit",
         title="Observable workflow",
@@ -955,15 +955,130 @@ async def test_story_repair_names_all_pages_when_unit_exceeds_page_limit() -> No
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert repair_target["allowed_page_count_range"] == [1, 3]
-    assert repair_target["observed_unit_page_ids"] == [
-        "too-many-1",
-        "too-many-2",
-        "too-many-3",
-        "too-many-4",
+    assert len(calls) == 1
+    assert [page.page_id for page in story.pages] == ["too-many-1"]
+    assert story.pages[0].source_block_ids == ["workflow"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_coalesces_only_the_oversplit_unit_and_preserves_source_order() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-editorial-workflow",
+        title="Editorial evidence workflow",
+        sections=[CourseSection(
+            section_id="chapter-review",
+            title="Review workflow",
+            position=0,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id="observe",
+                section_id="chapter-review",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Observe the submitted evidence"},
+            ),
+            CourseBlock(
+                block_id="compare",
+                section_id="chapter-review",
+                position=1,
+                role="reasoning",
+                payload={"markdown": "## Compare the record with the review criteria"},
+            ),
+            CourseBlock(
+                block_id="decide",
+                section_id="chapter-review",
+                position=2,
+                role="example",
+                payload={"markdown": "## Decide whether the evidence is complete"},
+            ),
+            CourseBlock(
+                block_id="report",
+                section_id="chapter-review",
+                position=3,
+                role="feedback",
+                payload={"markdown": "## Report the verified finding"},
+            ),
+            CourseBlock(
+                block_id="archive",
+                section_id="chapter-review",
+                position=4,
+                role="concept",
+                payload={"markdown": "## Archive the approved observation"},
+            ),
+            CourseBlock(
+                block_id="confirm",
+                section_id="chapter-review",
+                position=5,
+                role="feedback",
+                payload={"markdown": "## Confirm the retention record"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        first, second = request["teaching_units"]
+        pages = [
+            {
+                "page_id": f"review-{index + 1}",
+                "teaching_unit_id": first["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(
+                    first,
+                    [block_id],
+                ),
+                "title": first["title_candidates"][index],
+                "summary": "",
+                "source_block_ids": [block_id],
+            }
+            for index, block_id in enumerate(first["primary_block_ids"])
+        ]
+        pages.append({
+            "page_id": "archive-page",
+            "teaching_unit_id": second["teaching_unit_id"],
+            "template_layout_id": _layout_for_request_blocks(
+                second,
+                second["primary_block_ids"],
+            ),
+            "title": second["title_candidates"][0],
+            "summary": "",
+            "source_block_ids": second["primary_block_ids"],
+        })
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": pages,
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert len(calls) == 1
+    first_unit, second_unit = graph.units
+    first_pages = [
+        page for page in story.pages
+        if page.teaching_unit_id == first_unit.teaching_unit_id
     ]
+    second_pages = [
+        page for page in story.pages
+        if page.teaching_unit_id == second_unit.teaching_unit_id
+    ]
+    assert 1 <= len(first_pages) <= 3
+    assert [
+        block_id for page in first_pages for block_id in page.source_block_ids
+    ] == first_unit.primary_block_ids
+    assert [page.page_id for page in second_pages] == ["archive-page"]
+    assert second_pages[0].source_block_ids == second_unit.primary_block_ids
+    assert [
+        block_id for page in story.pages for block_id in page.source_block_ids
+    ] == graph.formal_block_ids
     validate_slide_story_plan_v3(story, graph, template)
 
 
