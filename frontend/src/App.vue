@@ -1,6 +1,6 @@
 <template>
-  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
-    <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
+  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute, 'is-public-concept': isPublicConceptRoute }">
+    <header v-if="!isPptRoute && !isPublicConceptRoute" class="app-header glass-panel-elevated">
       <button class="brand-button" type="button" :aria-label="t('app.backToLibrary', '返回课程库')" @click="router.push('/courses')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
         <span class="brand-name">启智</span>
@@ -85,7 +85,7 @@
       <router-view />
     </main>
 
-    <KnowledgeLibrary />
+    <KnowledgeLibrary v-if="!isPublicConceptRoute" />
   </div>
 </template>
 
@@ -114,6 +114,7 @@ const reconcileVisibleGenerationTasks = () => {
 }
 
 onMounted(() => {
+  if (window.location.pathname.startsWith('/workspace-concept')) return
   generationStore.restoreGenerationState()
   generationStore.startGlobalMonitor()
   window.addEventListener('storage', reconcileGenerationTasksFromStorage)
@@ -129,6 +130,7 @@ onBeforeUnmount(() => {
 
 const isLearningRoute = computed(() => route.name === 'learning')
 const isPptRoute = computed(() => route.name === 'ppt-workspace')
+const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -168,6 +170,8 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .app-shell.is-ppt-workspace { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
 .app-shell.is-ppt-workspace .app-main { border-radius:0; }
+.app-shell.is-public-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#f5f6f9; }
+.app-shell.is-public-concept .app-main { border-radius:0; }
 
 .app-header {
   position: relative;
