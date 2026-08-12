@@ -15,6 +15,7 @@ from slide_deck_v6 import (
     SlideStoryPlanV3,
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
+    _compile_course_cover_page,
     compile_slide_deck_v6,
 )
 from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_deck_v6_pptx
@@ -722,6 +723,18 @@ def test_v6_web_and_pptx_adapters_resolve_the_same_template_page(tmp_path: Path)
     assert document.document_revision in notes
     assert "The handler runs only after the event is emitted." in notes
     assert "A rejected value remains visible" in notes
+
+
+def test_course_cover_adapter_exposes_source_subtitle_without_internal_slug() -> None:
+    document, _deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = _compile_course_cover_page(document, template)
+
+    adapted = adapt_v6_page_to_slide_spec(page)
+
+    assert adapted.eyebrow == "COURSE DECK"
+    assert adapted.subtitle == page.regions[0].content
+    assert adapted.subtitle
 
 
 def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Path) -> None:

@@ -666,7 +666,10 @@ def validate_slide_story_plan_v3(
         summary_body_slots = [
             slot for slot in layout.slots if slot.slot_kind == "body"
         ]
-        if page.summary and _visible_prose_text(page.summary) != page.summary.strip():
+        if page.summary and (
+            _visible_prose_text(page.summary) != page.summary.strip()
+            or _looks_like_markdown_table(page.summary)
+        ):
             raise V6BuildError(
                 stage="story",
                 code="story_summary_markdown_invalid",
@@ -1020,6 +1023,24 @@ def _visible_prose_text(value: str) -> str:
         text,
     )
     return text.replace(r"\*", "*").replace(r"\_", "_").strip()
+
+
+def _looks_like_markdown_table(value: str) -> bool:
+    """Return true when prose is actually a Markdown table serialization."""
+
+    table_lines = [
+        line.strip()
+        for line in str(value or "").splitlines()
+        if line.strip().startswith("|")
+        and line.strip().endswith("|")
+        and line.count("|") >= 3
+    ]
+    if len(table_lines) < 2:
+        return False
+    return any(
+        re.fullmatch(r"[|:\-\s]+", line) and "-" in line
+        for line in table_lines
+    )
 
 
 def _display_excerpt(value: str, display_units: int) -> str:
@@ -2632,6 +2653,97 @@ def _compile_course_agenda_pages(
     return pages
 
 
+def _compile_course_cover_page(
+    document: CourseDocument,
+    template: TemplateLayoutPackContractV1,
+) -> SlidePageV6:
+    """Build the source-bound course cover that owns the agenda entry point."""
+
+    sections = _course_agenda_sections(document)
+    if not sections:
+        raise V6BuildError(
+            stage="source",
+            code="course_cover_source_binding_missing",
+            message="The course cover requires at least one source section",
+        )
+    layout = template.get_layout(template.layout_id("cover-minimal"))
+    if layout is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message="The published template does not provide a course cover layout",
+        )
+    title_slot = next(
+        (slot for slot in layout.slots if slot.slot_kind == "title"),
+        None,
+    )
+    subtitle_slot = next(
+        (slot for slot in layout.slots if slot.slot_id == "subtitle"),
+        None,
+    )
+    if title_slot is None or subtitle_slot is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_required_slot_unfilled",
+            message="The course cover layout is missing its title or subtitle slot",
+        )
+    course_title = _visible_prose_text(document.title).strip()
+    if not course_title:
+        raise V6BuildError(
+            stage="source",
+            code="course_title_missing",
+            message="The course cover requires a source course title",
+        )
+    if title_slot.max_chars and len(course_title) > title_slot.max_chars:
+        course_title = _display_excerpt(course_title, int(title_slot.max_chars))
+    section_ids = [section.section_id for section in sections]
+    objective = next(
+        (
+            _visible_prose_text(section.learning_objective).strip()
+            for section in sections
+            if _visible_prose_text(section.learning_objective).strip()
+        ),
+        "",
+    )
+    subtitle_source = objective or " · ".join(
+        _visible_prose_text(section.title).strip() for section in sections
+    )
+    subtitle = _complete_sentence_excerpt(
+        subtitle_source,
+        int(subtitle_slot.max_chars or len(subtitle_source)),
+    )
+    page_id = "course-cover"
+    return SlidePageV6(
+        page_id=page_id,
+        page_ordinal=0,
+        teaching_unit_id="course-cover",
+        title=course_title,
+        title_max_lines=int(title_slot.max_lines or 3),
+        resolved_layout=layout.template_layout_id,
+        web_renderer_adapter=layout.web_renderer_adapter,
+        pptx_renderer_adapter=layout.pptx_renderer_adapter,
+        regions=[SlideRegionV6(
+            region_id=f"{page_id}:{subtitle_slot.slot_id}",
+            slot_id=subtitle_slot.slot_id,
+            content_kind=subtitle_slot.slot_kind,
+            content=subtitle,
+            source_section_ids=section_ids,
+        )],
+        source_section_ids=section_ids,
+        visual_decision=SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_section_ids=section_ids,
+            resolved_template_layout_id=layout.template_layout_id,
+        ),
+        speaker_notes=SlideSpeakerNotesV2(
+            source_document_revision=document.document_revision,
+            teaching_unit_id="course-cover",
+            source_section_ids=section_ids,
+        ),
+    )
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -2738,6 +2850,10 @@ def compile_slide_deck_v6(
                 )
             )
     agenda_pages = _compile_course_agenda_pages(document, template)
+    if agenda_pages and not (
+        pages and pages[0].resolved_layout.endswith("/cover-minimal")
+    ):
+        pages.insert(0, _compile_course_cover_page(document, template))
     insertion_index = 0
     while (
         insertion_index < len(pages)

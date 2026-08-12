@@ -6,7 +6,6 @@ from slide_theme import (
     slide_theme_asset_path,
 )
 
-
 COMPLETE_THEME_NAMES = (
     "qizhi-classroom",
     "academic-editorial",

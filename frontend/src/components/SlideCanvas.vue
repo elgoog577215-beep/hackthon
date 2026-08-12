@@ -294,6 +294,7 @@
         v-else-if="visualLayout === 'editorial-body' && slide.blocks?.length"
         class="deck-editorial-body"
         :data-has-message="showsStandaloneMessage"
+        :data-count="slide.blocks?.length || 0"
       >
         <section
           v-for="block in slide.blocks"
@@ -301,7 +302,7 @@
           class="deck-editorial-body__group"
           :data-type="block.type"
         >
-          <small v-if="block.title">{{ block.title }}</small>
+          <small v-if="block.title && (slide.blocks?.length || 0) > 1">{{ block.title }}</small>
           <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
           <ul v-else-if="block.items?.length">
             <li v-for="item in block.items" :key="item">
@@ -1062,6 +1063,7 @@ function layoutLabel(value: string) {
   [data-layout="figure-text"],
   [data-layout="diagram-full"],
   [data-layout="table-evidence"],
+  [data-layout="data-highlight"],
   [data-layout="code-focus"],
   [data-layout="formula-focus"]
 ) {
@@ -1185,6 +1187,27 @@ function layoutLabel(value: string) {
   border-radius:var(--deck-card-radius);
   background:color-mix(in srgb,var(--deck-box-note) 92%,transparent);
   box-shadow:.26cqw .3cqw 0 var(--deck-box-note-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
+}
+.deck-canvas[data-template-rich="true"] .deck-editorial-body[data-count="1"] .deck-editorial-body__group {
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.deck-canvas[data-template-rich="true"] .deck-editorial-body[data-count="1"] .deck-editorial-body__group :deep(.markdown-body) {
+  color:var(--deck-title);
+  font:700 2.05cqw/1.58 var(--deck-title-font);
+}
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="code"] {
+  padding:5%;
+  border-color:#17202c;
+  color:#ecf1f8;
+  background:#17202c;
+  box-shadow:.32cqw .38cqw 0 #09182a,0 .9cqw 2.2cqw rgba(23,54,93,.12),inset 0 .12cqw 0 rgba(255,255,255,.08);
+}
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks section[data-type="code"] code {
+  color:#f5f7fb;
 }
 .deck-canvas[data-theme="academic-editorial"] {
   --deck-bg:#FBFAF7;

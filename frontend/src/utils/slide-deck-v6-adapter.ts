@@ -250,14 +250,15 @@ function adaptPage(
   const practiceArtifactKind = ['practice-code', 'practice-formula', 'practice-table'].includes(slug)
     ? slug.replace('practice-', '')
     : ''
+  const subtitle = page.regions.find(region => region.slot_id === 'subtitle')?.content || ''
   return {
     unit_id: page.page_id,
     position: page.page_ordinal,
     layout: adapter.basic_layout,
     slide_purpose: slug,
-    eyebrow: slug.replace(/-/g, ' ').toUpperCase(),
+    eyebrow: slug === 'cover-minimal' ? 'COURSE DECK' : slug.replace(/-/g, ' ').toUpperCase(),
     title: page.title,
-    subtitle: '',
+    subtitle,
     key_message: '',
     teaching_job: '',
     takeaway: '',
