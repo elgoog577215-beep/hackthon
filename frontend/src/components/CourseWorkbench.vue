@@ -173,17 +173,20 @@ function handleDialogKeydown(event: KeyboardEvent) {
 .course-workbench__identity h2 { margin:0; color:var(--lz-text-strong); font-size:17px; }
 .course-workbench__tabs { display:flex; align-items:center; gap:5px; padding:4px; border:1px solid var(--lz-border); border-radius:11px; background:var(--lz-surface-muted); }
 .course-workbench__tabs button { min-height:38px; display:inline-flex; align-items:center; gap:7px; padding:0 13px; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; }
-.course-workbench__tabs button:hover { color:var(--lz-text-strong); background:rgba(255,255,255,.72); }
+.course-workbench__tabs button:hover,.course-workbench__tabs button:focus-visible { color:var(--lz-text-strong); background:rgba(255,255,255,.72); outline:none; }
 .course-workbench__tabs button.active { color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 8px rgba(79,70,229,.1); }
 .course-workbench__tabs small { min-width:18px; height:18px; display:grid; place-items:center; padding:0 5px; border-radius:999px; color:#fff; background:var(--lz-warning); font-size:9px; }
 .course-workbench__close { width:38px; height:38px; display:grid; justify-self:end; place-items:center; border:0; border-radius:9px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
-.course-workbench__close:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }
+.course-workbench__close:hover,.course-workbench__close:focus-visible { color:var(--lz-text-strong); background:var(--lz-surface-muted); outline:none; }
 .course-workbench__body { min-height:0; overflow:hidden; }
 @media (max-width:760px) {
   .course-workbench-layer { align-items:end; padding:0; }
   .course-workbench { width:100%; height:calc(100vh - 40px); grid-template-rows:auto minmax(0,1fr); border-radius:14px 14px 0 0; }
-  .course-workbench__header { grid-template-columns:minmax(0,1fr) auto; gap:10px; padding:12px 12px 10px 14px; }
+  .course-workbench__header { grid-template-columns:minmax(0,1fr) auto; gap:7px 10px; padding:8px 10px 8px 14px; }
+  .course-workbench__mark,.course-workbench__identity p { display:none; }
+  .course-workbench__identity h2 { font-size:16px; }
   .course-workbench__tabs { grid-column:1 / -1; grid-row:2; width:100%; }
-  .course-workbench__tabs button { flex:1; justify-content:center; }
+  .course-workbench__tabs button { min-height:34px; flex:1; justify-content:center; }
+  .course-workbench__close { width:34px; height:34px; }
 }
 </style>
