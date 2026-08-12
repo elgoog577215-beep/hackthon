@@ -1,0 +1,64 @@
+name: Course Layout Acceptance
+
+# L3f — page-level layout acceptance in a real browser.
+#
+# Manual dispatch only, deliberately. It needs a browser, takes seconds per
+# viewport, and answers a question ("does this fit on screen?") that no unit
+# test can. Making it a PR gate would slow every change for a check that is
+# meant to be a pre-release sweep; L3a/L3b already sit on the publication path.
+#
+# Playwright is not a project dependency (see NOTES / the script header), so
+# this workflow installs playwright-core into a scratch directory rather than
+# adding ~300MB to everyone's node_modules.
+
+on:
+  workflow_dispatch:
+    inputs:
+      html_path:
+        description: "Optional rendered HTML to check; blank uses the built-in fixture"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lingzhi-layout-acceptance
+  cancel-in-progress: true
+
+jobs:
+  layout-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install playwright-core and a browser
+        run: |
+          mkdir -p /tmp/layout-smoke && cd /tmp/layout-smoke
+          npm init -y >/dev/null 2>&1
+          npm install playwright-core --no-save --silent
+          npx --yes playwright install chromium
+
+      - name: Run layout acceptance
+        env:
+          NODE_PATH: /tmp/layout-smoke/node_modules
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.html_path }}" ]; then
+            ARGS="--html ${{ inputs.html_path }}"
+          fi
+          node scripts/course_layout_smoke.mjs $ARGS --out "$RUNNER_TEMP/layout-evidence"
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-evidence
+          path: ${{ runner.temp }}/layout-evidence
+          if-no-files-found: ignore

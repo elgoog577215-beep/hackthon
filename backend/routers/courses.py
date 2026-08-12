@@ -41,6 +41,17 @@ class CustomInstructionRequest(BaseModel):
     instruction: str
 
 
+class RenderDiagnosticsRequest(BaseModel):
+    """What the browser saw when it rendered a node's body.
+
+    Posted by the frontend after it validates content with the real renderer
+    (``utils/render-validation.ts``). The backend cannot run KaTeX, so this is
+    the only way a genuine render failure reaches the publication gate.
+    """
+    math_failure_count: int = 0
+    block_failure_count: int = 0
+
+
 class NodeConfigUpdateRequest(BaseModel):
     """Request body for updating a node's generation config."""
     difficulty: Optional[str] = None
@@ -188,6 +199,29 @@ async def skip_node(
         raise HTTPException(status_code=404, detail="No active task for this course")
     await tm.skip_node(task_id, node_id)
     return {"status": "skipped"}
+
+
+@router.post("/courses/{course_id}/nodes/{node_id}/render-diagnostics")
+async def report_node_render_diagnostics(
+    course_id: str,
+    node_id: str,
+    req: RenderDiagnosticsRequest,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    """Accept the browser's real-render verdict for one node.
+
+    Idempotent by design: re-reporting overwrites, so a fixed node clears its
+    render issues instead of accumulating stale ones.
+    """
+    task_id = tm._find_active_task(course_id)
+    if not task_id:
+        raise HTTPException(status_code=404, detail="No active task for this course")
+    stored = await tm.record_node_render_diagnostics(
+        task_id,
+        node_id,
+        req.model_dump(),
+    )
+    return {"status": "recorded", "render_diagnostics": stored}
 
 
 @router.post("/courses/{course_id}/nodes/{node_id}/retry")

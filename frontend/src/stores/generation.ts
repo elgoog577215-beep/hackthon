@@ -11,6 +11,7 @@ import {
 } from '@/shared/prompt-config'
 import type { Node, Task, WSMessage, FailureReport } from './types'
 import { t } from '@/shared/i18n'
+import { renderDiagnosticsFor, validateRenderedContent } from '@/utils/render-validation'
 
 // vue-tsc + Pinia Options API: re-export to suppress TS6133
 export { ElMessage, TEACHING_STYLES }
@@ -363,8 +364,35 @@ export const useGenerationStore = defineStore('generation', {
         node.node_content = payload.node_content as string
         node.generation_status = 'completed'
         node.generated_chars = (payload.generated_chars as number) ?? node.generated_chars
+        // L3b: a finalized node is the first moment its full body exists, and
+        // the browser is the only place that can actually render it. Validate
+        // here and report back, so a formula KaTeX refuses to draw reaches the
+        // publication gate instead of degrading silently.
+        void this.reportNodeRenderDiagnostics(course_id, nodeId, node.node_content)
       }
       delete this.streamingContent[nodeId]
+    },
+
+    /**
+     * Render one node for real and tell the backend what broke.
+     *
+     * Never throws: validation is a diagnostic, and a reporting failure must
+     * not interfere with generation. A clean node is reported too — that is
+     * what lets a previously broken node clear its issues after a retry.
+     */
+    async reportNodeRenderDiagnostics(courseId: string, nodeId: string, content: string) {
+      if (!courseId || !nodeId || !content.trim()) return
+      try {
+        const result = validateRenderedContent([{ id: nodeId, content }])
+        const diagnostics = renderDiagnosticsFor(result, nodeId)
+        await http.post(
+          `/api/courses/${courseId}/nodes/${nodeId}/render-diagnostics`,
+          diagnostics,
+        )
+      } catch (error) {
+        // A 404 here is normal: the task may already have finished.
+        console.debug('render diagnostics not reported', error)
+      }
     },
 
     handleWSStreamChunk(message: WSMessage) {
