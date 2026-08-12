@@ -654,6 +654,36 @@ def test_table_renderer_rejects_row_compression_that_would_clip_content() -> Non
         )
 
 
+def test_v6_summary_band_yields_safe_space_to_a_tall_source_table(
+    tmp_path: Path,
+) -> None:
+    deck, _template, _summary = _wide_markdown_table_deck()
+    first_page = deck.pages[0]
+    table_region = next(
+        region for region in first_page.regions if region.slot_id == "table"
+    )
+    table_region.content = "\n".join([
+        "| Task | Acceptance | Evidence | Rationale | Errors and correction |",
+        "| --- | --- | --- | --- | --- |",
+        (
+            "| Field review | Preserve the signed observation and declared threshold | "
+            "The record contains time, location, measurement, and reviewer | "
+            "Source evidence must remain visible before interpretation | "
+            "Error: a conclusion replaces the original evidence. Correction: restore "
+            "the signed record, compare every declared condition, document each mismatch, "
+            "and repeat the review before publishing the result. |"
+        ),
+    ])
+
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "adaptive-table-summary-band.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert report["passed"], report["blockers"]
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
