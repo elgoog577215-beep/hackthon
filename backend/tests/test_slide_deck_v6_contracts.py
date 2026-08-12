@@ -1373,6 +1373,86 @@ def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None
     assert "…" not in table_regions[0]
 
 
+def test_template_safe_table_continuations_do_not_consume_the_story_page_budget() -> None:
+    headers = "| Stage | Standard | Evidence | Basis | Repair |\n|---|---|---|---|---|"
+    rows = "\n".join(
+        (
+            f"| Stage {index} | "
+            + "Preserve the complete signed field record before analysis begins. " * 2
+            + "| Retain place, time, observer, instrument, and sampling window. " * 2
+            + "| Compare the record against the declared acceptance condition. " * 2
+            + "| Keep evidence separate from interpretation and restore every missing field. " * 2
+            + "|"
+        )
+        for index in range(1, 4)
+    )
+    document, graph, template, _story, _visual = _artifact_deck_fixture(
+        artifact_kind="table",
+        artifact_text=f"{headers}\n{rows}",
+    )
+    unit = graph.units[0]
+    pages = [
+        SlideStoryPageV3(
+            page_id="context-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=template.layout_id("content-stack"),
+            title="Read the evidence",
+            source_block_ids=["context"],
+            page_ordinal=0,
+        ),
+        SlideStoryPageV3(
+            page_id="table-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=template.layout_id("evidence-table"),
+            title="Inspect the complete evidence",
+            source_block_ids=["artifact"],
+            page_ordinal=1,
+        ),
+        SlideStoryPageV3(
+            page_id="interpretation-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=template.layout_id("content-stack"),
+            title="Check the stated condition",
+            source_block_ids=["interpretation"],
+            page_ordinal=2,
+        ),
+    ]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=pages,
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[
+            SlideVisualDecisionV2(
+                page_id=page.page_id,
+                decision="table" if page.page_id == "table-page" else "text_native",
+                source_block_ids=page.source_block_ids,
+                resolved_template_layout_id=page.template_layout_id,
+            )
+            for page in pages
+        ],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    table_pages = [page for page in deck.pages if page.page_id.startswith("table-page")]
+    assert len(deck.pages) == 5
+    assert len(table_pages) == 3
+    assert all(page.continuation_count == 3 for page in table_pages)
+
+
 def test_full_course_compilation_inserts_a_source_bound_course_agenda() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-community-research",
