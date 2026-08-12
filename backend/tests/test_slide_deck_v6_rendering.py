@@ -624,6 +624,24 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
     assert report["passed"], report["blockers"]
 
 
+def test_wide_table_summary_band_fits_three_lines_at_readable_size(tmp_path: Path) -> None:
+    deck = _dense_table_deck()
+    interpretation = next(
+        region
+        for region in deck.pages[0].regions
+        if region.slot_id == "interpretation"
+    )
+    interpretation.content = ((
+        "核对观察条件、原始记录、推导依据与异常修订，确认每个结论都能回溯到签字证据；"
+        "同时保留地点、时间、观察者、仪器与采样窗口，避免把解释误写成事实。"
+    ) * 2)[:120]
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "wide-table-summary-band.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert report["passed"], report["blockers"]
+
+
 def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     tmp_path: Path,
 ) -> None:
