@@ -1503,7 +1503,7 @@ def _render_table_visual(
         split_support = bool(supporting_blocks and support_mode == "split")
         band_support = bool(supporting_blocks and support_mode == "band")
         table_width = 7.18 if split_support else 11.78
-        table_height = 3.55 if band_support else 4.62
+        table_height = 3.28 if band_support else 4.62
         _table(
             slide,
             [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
@@ -1549,9 +1549,9 @@ def _render_table_visual(
             _shape(
                 slide,
                 0.78,
-                5.62,
+                5.34,
                 11.78,
-                0.92,
+                1.20,
                 theme["surface"],
                 radius=True,
                 line=theme["chart_bg"],
@@ -1560,7 +1560,7 @@ def _render_table_visual(
                 slide,
                 support_label.upper(),
                 1.08,
-                5.86,
+                5.76,
                 1.45,
                 0.28,
                 10,
@@ -1573,9 +1573,9 @@ def _render_table_visual(
                 slide,
                 support_text,
                 2.6,
-                5.75,
+                5.48,
                 9.55,
-                0.58,
+                0.86,
                 16,
                 theme["ink"],
                 font=theme["body_font"],
