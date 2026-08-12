@@ -776,6 +776,13 @@
     "reject": "Not now",
     "applied": "A new course version is active",
     "applying": "Writing to the course…",
+    "knowledgeDrift": {
+      "title": "Course knowledge changed",
+      "detail": "The course knowledge this plan was built from has been edited, so the plan no longer matches what the knowledge now means. Regenerate it before confirming.",
+      "changed": "Changed knowledge points: {labels}",
+      "changedUnnamed": "The changed knowledge points cannot be named (they may have been split, merged, or removed)",
+      "regenerate": "Regenerate plan"
+    },
     "reverification": {
       "title": "Independent re-verification",
       "open": "Re-verification window open",

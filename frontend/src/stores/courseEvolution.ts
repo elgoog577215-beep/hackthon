@@ -124,6 +124,12 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
   getters: {
     pendingPlans: state => state.plans.filter(item => item.status === 'pending'),
     appliedPlans: state => state.plans.filter(item => item.status === 'applied'),
+    // 因知识语义变化而失效的方案：必须让用户看到"为什么失效"，
+    // 否则候选只是从列表里消失，看起来像系统吞了它。
+    knowledgeStalePlans: state => state.plans.filter(
+      item => item.status === 'stale'
+        && item.impact_summary?.knowledge_drift?.verdict === 'conflict',
+    ),
   },
   actions: {
     applyPayload(courseId: string, payload: Record<string, any>) {

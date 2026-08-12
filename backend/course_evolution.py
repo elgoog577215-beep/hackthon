@@ -23,6 +23,8 @@ from pydantic import BaseModel, Field
 from course_commands import CourseCommandService
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
+from course_knowledge_impact import dependent_knowledge_ids
+from course_knowledge_revisions import knowledge_revision_vector
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 from course_revisions import revision_vector_for_document
 from learning_asset_storage import learning_asset_repository
@@ -38,6 +40,9 @@ COURSE_EVOLUTION_REPRESENTATION_IMPACT_SCHEMA = (
     "course_evolution_representation_impact_v1"
 )
 COURSE_REVERIFICATION_WINDOW_SCHEMA = "course_evolution_reverification_window_v1"
+COURSE_KNOWLEDGE_PINS_SCHEMA = "course_evolution_knowledge_pins_v1"
+COURSE_KNOWLEDGE_DRIFT_SCHEMA = "course_evolution_knowledge_drift_v1"
+COURSE_KNOWLEDGE_SEMANTICS_SCHEMA = "course_evolution_knowledge_semantics_v1"
 HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
@@ -556,6 +561,24 @@ def accept_change_set(
             change_set.updated_at = _now()
             repository.save(state)
             raise ValueError("Course changed after this candidate was generated")
+
+    # Knowledge semantics are a second, independent source of staleness: the
+    # course text can be untouched while the knowledge the plan explains has been
+    # renamed, redefined or retired underneath it.
+    drift = _knowledge_drift(
+        change_set,
+        compile_course_knowledge_base(deepcopy(course_data)),
+    )
+    change_set.impact_summary["knowledge_drift"] = drift
+    if drift["verdict"] == "conflict":
+        change_set.status = "stale"
+        change_set.updated_at = _now()
+        repository.save(state)
+        labels = "、".join(drift.get("changed_labels") or [])
+        raise ValueError(
+            "Course knowledge changed after this candidate was generated"
+            + (f"：{labels}" if labels else "")
+        )
 
     replaced: CourseEvolutionPlan | None = None
     replaced_retire_block_ids: list[str] = []
@@ -1770,15 +1793,51 @@ def _build_change_set(
             payload=payload,
         ))
 
+    target_semantics = _knowledge_semantics_for(
+        knowledge_base,
+        misconception_ids=target_binding["misconception_ids"],
+        skill_ids=target_binding["skill_ids"],
+    )
+    # The authored repair strategy is the teacher's own instruction for this
+    # misconception; lead the support with it instead of a generic template.
+    repair_strategies = [
+        item["repair_strategy"]
+        for item in target_semantics["misconceptions"]
+        if item["repair_strategy"]
+    ]
+    discriminations = [
+        item["discrimination"]
+        for item in target_semantics["misconceptions"]
+        if item["discrimination"]
+    ]
+    support_body = (
+        f"先不要只记步骤。围绕“{target_title}”，把它看成一次关系或过程："
+        "先说明为什么需要这一步，再说明每一步改变了什么，最后回到原结论。"
+    )
+    if repair_strategies:
+        support_body += "\n\n" + "；".join(_unique(repair_strategies)) + "。"
+    if discriminations:
+        support_body += f"\n\n重点区分：{'；'.join(_unique(discriminations))}。"
+    default_objective = "能够解释步骤背后的原因，并把原因迁移到下一处推导。"
+    authored_behavior = next(
+        (
+            item["observable_behavior"]
+            for item in target_semantics["abilities"]
+            if item["observable_behavior"]
+        ),
+        "",
+    )
+    support_objective = authored_behavior or default_objective
     append_operation(
         "INSERT_COURSE_SUPPORT",
         target.block_id,
         "current",
         "当前证据指向概念原因与计算步骤之间的断裂。",
         {
-            "body": f"先不要只记步骤。围绕“{target_title}”，把它看成一次关系或过程：先说明为什么需要这一步，再说明每一步改变了什么，最后回到原结论。",
+            "body": support_body,
             "contrast": f"原内容保留不变；这段课程补充只负责连接“怎么做”和“为什么”。原段核心：{target_text[:120]}",
-            "objective": "能够解释步骤背后的原因，并把原因迁移到下一处推导。",
+            "objective": support_objective,
+            "knowledge_semantics": target_semantics,
         },
     )
     append_operation(
@@ -1935,6 +1994,15 @@ def _build_change_set(
                 hypothesis.affected_block_ids,
                 sorted(affected_section_ids),
             ),
+            "knowledge_revision_pins": _knowledge_revision_pins(
+                knowledge_base,
+                knowledge_ids=[
+                    *knowledge_ids,
+                    *target_binding["knowledge_ids"],
+                ],
+                block_ids=hypothesis.affected_block_ids,
+                section_ids=sorted(affected_section_ids),
+            ),
         },
         expected_effect="减少同类概念求助，并提高后续独立解释与正式练习表现。",
         created_at=now,
@@ -2004,6 +2072,202 @@ def _representation_impacts(
         ),
         "impacted": impacted,
         "impacted_count": len(impacted),
+    }
+
+
+def _knowledge_semantics_for(
+    knowledge_base: dict[str, Any] | None,
+    *,
+    misconception_ids: list[str],
+    skill_ids: list[str],
+) -> dict[str, Any]:
+    """Carry the authored teaching semantics for the knowledge a plan targets.
+
+    A misconception in the knowledge base already states its observable error
+    pattern, how to tell it apart, and how to repair it; a skill unit states the
+    behaviour that counts as success. Using only their names to compose a
+    sentence throws away the part a teacher actually wrote. Nothing is invented
+    here — a course without authored semantics yields empty lists and says so.
+    """
+    misconception_targets = set(_unique(misconception_ids))
+    skill_targets = set(_unique(skill_ids))
+    misconceptions = [
+        {
+            "misconception_id": str(item.get("misconception_id") or ""),
+            "name": str(item.get("name") or ""),
+            "error_pattern": str(item.get("observable_error_pattern") or ""),
+            "discrimination": str(item.get("discrimination") or ""),
+            "repair_strategy": str(item.get("repair_strategy") or ""),
+        }
+        for item in (knowledge_base or {}).get("misconceptions") or []
+        if isinstance(item, dict)
+        and str(item.get("misconception_id") or "") in misconception_targets
+    ]
+    abilities = [
+        {
+            "skill_id": str(item.get("skill_id") or ""),
+            "name": str(item.get("name") or ""),
+            "observable_behavior": str(item.get("observable_behavior") or ""),
+        }
+        for item in (knowledge_base or {}).get("skill_units") or []
+        if isinstance(item, dict)
+        and str(item.get("skill_id") or "") in skill_targets
+    ]
+    return {
+        "schema_version": COURSE_KNOWLEDGE_SEMANTICS_SCHEMA,
+        "available": bool(misconceptions or abilities),
+        "misconceptions": misconceptions,
+        "abilities": abilities,
+    }
+
+
+def _knowledge_revision_pins(
+    knowledge_base: dict[str, Any] | None,
+    *,
+    knowledge_ids: list[str],
+    block_ids: list[str],
+    section_ids: list[str],
+) -> dict[str, Any]:
+    """Pin the knowledge entities a plan was actually reasoned from.
+
+    Block and section revisions say nothing about the knowledge a plan explains,
+    so a rename or redefinition of that knowledge would otherwise land silently.
+    The pin is deliberately bounded to the plan's own knowledge — its points,
+    their relation-reachable dependents, and the bindings that tie them to the
+    course positions being changed. Pinning the whole base would be simpler and
+    wrong: every unrelated maintenance edit would discard reviewed work.
+
+    Relation traversal is delegated to ``dependent_knowledge_ids`` rather than
+    re-walked here; a second, weaker traversal is exactly the parallel analyzer
+    this domain must not grow.
+    """
+    seeds = _unique(knowledge_ids)
+    if not knowledge_base or not seeds:
+        return {
+            "schema_version": COURSE_KNOWLEDGE_PINS_SCHEMA,
+            "available": False,
+            "reason": (
+                "course_knowledge_base_unavailable"
+                if not knowledge_base
+                else "plan_has_no_knowledge_anchor"
+            ),
+            "pinned_knowledge_ids": [],
+            "revisions": {},
+        }
+
+    dependents = dependent_knowledge_ids(knowledge_base, seeds)
+    pinned_ids = _unique([*seeds, *dependents])
+    vector = knowledge_revision_vector(knowledge_base).revisions
+    # A binding is relevant when it reaches a position this plan touches. Course
+    # knowledge binds blocks, sections and their objectives, so all three count.
+    target_ids = {
+        value
+        for value in (*block_ids, *section_ids)
+        if value
+    }
+    relevant_binding_ids = {
+        str(binding.get("binding_id") or "")
+        for binding in knowledge_base.get("bindings") or []
+        if isinstance(binding, dict)
+        and set(binding.get("knowledge_ids") or []) & set(pinned_ids)
+        and (
+            not target_ids
+            or str(binding.get("target_id") or "") in target_ids
+            # An objective/criterion binding has no course-position id of its own;
+            # it is relevant through the knowledge point it carries.
+            or str(binding.get("target_type") or "") in {"objective", "criterion"}
+        )
+    }
+    relevant_relation_ids = {
+        str(relation.get("relation_id") or "")
+        for relation in knowledge_base.get("relations") or []
+        if isinstance(relation, dict)
+        and {
+            str(relation.get("source_knowledge_id") or ""),
+            str(relation.get("target_knowledge_id") or ""),
+        } & set(pinned_ids)
+    }
+    allowed = {
+        *(f"point:{value}" for value in pinned_ids),
+        *(f"binding:{value}" for value in relevant_binding_ids if value),
+        *(f"relation:{value}" for value in relevant_relation_ids if value),
+    }
+    revisions = {key: value for key, value in vector.items() if key in allowed}
+    return {
+        "schema_version": COURSE_KNOWLEDGE_PINS_SCHEMA,
+        "available": bool(revisions),
+        "reason": "" if revisions else "knowledge_entities_not_found",
+        "pinned_knowledge_ids": pinned_ids,
+        "seed_knowledge_ids": seeds,
+        "dependent_knowledge_ids": sorted(dependents),
+        "revisions": revisions,
+    }
+
+
+def _knowledge_drift(
+    change_set: CourseEvolutionPlan,
+    knowledge_base: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Compare a plan's pinned knowledge against the knowledge base today.
+
+    An unverifiable pin degrades to ``unknown`` rather than ``unchanged``: a
+    course with no compiled knowledge base must not read as "checked, nothing
+    changed", which would quietly weaken the guard exactly where it is weakest.
+    """
+    pins = change_set.impact_summary.get("knowledge_revision_pins") or {}
+    pinned = pins.get("revisions") or {}
+    if not pins.get("available") or not pinned:
+        return {
+            "schema_version": COURSE_KNOWLEDGE_DRIFT_SCHEMA,
+            "verdict": "unknown",
+            "reason": "knowledge_pins_unavailable",
+            "changed_keys": [],
+            "removed_keys": [],
+        }
+    if not knowledge_base:
+        return {
+            "schema_version": COURSE_KNOWLEDGE_DRIFT_SCHEMA,
+            "verdict": "unknown",
+            "reason": "course_knowledge_base_unavailable",
+            "changed_keys": [],
+            "removed_keys": [],
+        }
+
+    current = knowledge_revision_vector(knowledge_base).revisions
+    changed_keys = sorted(
+        key for key, revision in pinned.items()
+        if key in current and current[key] != revision
+    )
+    removed_keys = sorted(key for key in pinned if key not in current)
+    if not changed_keys and not removed_keys:
+        return {
+            "schema_version": COURSE_KNOWLEDGE_DRIFT_SCHEMA,
+            "verdict": "unchanged",
+            "reason": "",
+            "changed_keys": [],
+            "removed_keys": [],
+        }
+    return {
+        "schema_version": COURSE_KNOWLEDGE_DRIFT_SCHEMA,
+        "verdict": "conflict",
+        "reason": (
+            "pinned_knowledge_removed"
+            if removed_keys
+            else "pinned_knowledge_revision_changed"
+        ),
+        "changed_keys": changed_keys,
+        "removed_keys": removed_keys,
+        # Course knowledge IDs are derived from the point's name, so a rename
+        # reads as remove + add. Label whatever still resolves; a removed point
+        # has no current name to show, and inventing one would misreport it.
+        "changed_labels": _knowledge_labels(
+            knowledge_base,
+            {key.split(":", 1)[1] for key in changed_keys if key.startswith("point:")},
+        ),
+        # A split or merge should relocate rather than discard, but that needs the
+        # successor map lz-knowledge owns; until it is public this stays a
+        # conflict the user resolves rather than a silent rebase.
+        "requires_user_resolution": True,
     }
 
 
@@ -3035,16 +3299,32 @@ def _affected_blocks(
         block_id=block_id,
     )
     source_knowledge_ids = set(source_binding["knowledge_ids"])
+    # Relation traversal belongs to the knowledge domain. The local walk this
+    # replaced was depth-1, forward-only, ignored ``status == "rejected"`` and
+    # missed symmetric relations; keeping a second, weaker copy of a shared
+    # analyzer is how the two drift apart.
     related_knowledge_ids = set(source_knowledge_ids)
+    related_knowledge_ids.update(
+        dependent_knowledge_ids(knowledge_base, sorted(source_knowledge_ids))
+    )
+    # A prerequisite pointing *at* this knowledge is also in scope: adjusting a
+    # concept can require revisiting what it was built on. ``dependent_*`` walks
+    # forward only, so that one edge is added here explicitly.
     for relation in (knowledge_base or {}).get("relations") or []:
-        source_id = str(relation.get("source_knowledge_id") or relation.get("source_id") or "")
-        target_id = str(relation.get("target_knowledge_id") or relation.get("target_id") or "")
-        relation_type = str(relation.get("relation_type") or "")
-        if relation_type in {"prerequisite", "derives", "applies_to", "generalizes"}:
-            if source_id in source_knowledge_ids and target_id:
-                related_knowledge_ids.add(target_id)
-            if relation_type == "prerequisite" and target_id in source_knowledge_ids and source_id:
-                related_knowledge_ids.add(source_id)
+        if not isinstance(relation, dict):
+            continue
+        if str(relation.get("status") or "accepted") == "rejected":
+            continue
+        if str(relation.get("relation_type") or "") != "prerequisite":
+            continue
+        source_id = str(
+            relation.get("source_knowledge_id") or relation.get("source_id") or ""
+        )
+        target_id = str(
+            relation.get("target_knowledge_id") or relation.get("target_id") or ""
+        )
+        if target_id in source_knowledge_ids and source_id:
+            related_knowledge_ids.add(source_id)
 
     related_block_ids = {
         str(binding.get("target_id") or "")

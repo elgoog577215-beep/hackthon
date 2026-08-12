@@ -776,6 +776,13 @@
     "reject": "暂不调整",
     "applied": "课程新版本已应用",
     "applying": "正在写入课程…",
+    "knowledgeDrift": {
+      "title": "课程知识已变化",
+      "detail": "生成这个方案时依据的课程知识已经被修改，方案不再对应当前知识含义，需要重新生成后再确认。",
+      "changed": "已变化的知识点：{labels}",
+      "changedUnnamed": "已变化的知识点无法命名（可能已被拆分、合并或删除）",
+      "regenerate": "重新生成方案"
+    },
     "reverification": {
       "title": "独立复验",
       "open": "复验窗口进行中",
