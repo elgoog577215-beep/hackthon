@@ -118,6 +118,27 @@ export interface SendAIMessagePayload {
 
 export type AIAnswerFeedback = 'resolved' | 'unclear'
 
+/**
+ * Natural pauses at which a proactive suggestion may be offered. Deliberately
+ * excludes reading — the owner's decision (2026-08-12) is that the AI never
+ * interrupts mid-paragraph.
+ */
+export type SuggestionMoment = 'section_completed' | 'practice_submitted' | 'course_entered'
+
+export interface AISuggestion {
+  trigger_id: string
+  trigger_type: string
+  moment: SuggestionMoment
+  node_id: string
+  scope_ref: Record<string, any>
+  severity: 'high' | 'medium'
+  eligible_action: string
+  runtime_action: Record<string, any>
+  dedupe_key: string
+  runtime_revision_id: string
+  expires_at?: string
+}
+
 export interface SubmitAIAnswerFeedbackPayload {
   nodeId?: string
   nodeName?: string
@@ -126,6 +147,25 @@ export interface SubmitAIAnswerFeedbackPayload {
 }
 
 const cacheKey = (courseId: string) => `ai_teacher_cache_v1:${courseId}`
+
+/**
+ * The learning session the interruption budget is counted against. Shared with
+ * `learningSession.ts` so "2 per session" means the same session the rest of
+ * the learning shell uses. The budget itself lives on the server; this is only
+ * the key it is counted under.
+ */
+function learningSessionId() {
+  try {
+    const key = 'learning_session_id'
+    const current = sessionStorage.getItem(key)
+    if (current) return current
+    const created = `session-${crypto.randomUUID()}`
+    sessionStorage.setItem(key, created)
+    return created
+  } catch {
+    return ''
+  }
+}
 
 export const useAITeacherStore = defineStore('aiTeacher', () => {
   const courseId = ref('')
@@ -136,6 +176,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   const retrievalUpdating = ref(false)
   const error = ref<string | null>(null)
   const currentContext = ref<Record<string, any> | null>(null)
+  const suggestion = ref<AISuggestion | null>(null)
   const abortController = ref<AbortController | null>(null)
   let requestSequence = 0
 
@@ -554,6 +595,81 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     return receipt
   }
 
+  /**
+   * Ask the server whether a proactive suggestion is justified at this moment.
+   *
+   * `moment` must be a natural pause — finishing a section, submitting a
+   * practice attempt, or entering the course. Reading is deliberately not one:
+   * every candidate here is a strong runtime action that keeps until the
+   * learner comes up for air, so interrupting a paragraph buys nothing.
+   *
+   * All three gates (timing, frequency budget, refusal window) are enforced
+   * server-side. This function only asks; it never decides.
+   */
+  async function checkSuggestion(moment: SuggestionMoment, nodeId?: string) {
+    if (!courseId.value) return null
+    try {
+      const response = await http.get('/api/ai-teacher/trigger', {
+        params: {
+          course_id: courseId.value,
+          node_id: nodeId || '',
+          moment,
+          session_id: learningSessionId(),
+        },
+      })
+      const candidate = (response.data?.candidate || null) as AISuggestion | null
+      suggestion.value = candidate
+      return candidate
+    } catch (suggestionError) {
+      // A proactive suggestion is a nicety; never surface its failure.
+      logger.warn('Failed to check AI teacher suggestion', suggestionError)
+      return null
+    }
+  }
+
+  /** Spend one unit of the interruption budget once the card is really visible. */
+  async function markSuggestionShown(candidate: AISuggestion) {
+    if (!candidate?.trigger_id || !courseId.value) return
+    try {
+      await http.post('/api/ai-teacher/trigger/shown', {
+        course_id: courseId.value,
+        trigger_id: candidate.trigger_id,
+        dedupe_key: candidate.dedupe_key || '',
+        node_id: candidate.node_id || '',
+        session_id: learningSessionId(),
+        moment: candidate.moment || '',
+      })
+    } catch (shownError) {
+      logger.warn('Failed to record AI teacher suggestion delivery', shownError)
+    }
+  }
+
+  /** Clear the local card. Persistent suppression is the reject endpoint's job. */
+  function dismissSuggestion() {
+    suggestion.value = null
+  }
+
+  /**
+   * Tell the server the learner refused this suggestion.
+   *
+   * Must be persisted, not just cleared locally: the archived action protocol
+   * requires a refusal to survive a refresh and follow the learner to another
+   * device. `not_now` additionally gets a 24-hour floor server-side.
+   */
+  async function suppressSuggestion(candidate: AISuggestion, reason: 'not_now' | 'never') {
+    if (!candidate?.dedupe_key || !courseId.value) return
+    try {
+      await http.post('/api/ai-teacher/trigger/suppress', {
+        course_id: courseId.value,
+        dedupe_key: candidate.dedupe_key,
+        runtime_revision_id: candidate.runtime_revision_id || '',
+        reason,
+      })
+    } catch (suppressError) {
+      logger.warn('Failed to record AI teacher suggestion refusal', suppressError)
+    }
+  }
+
   return {
     courseId,
     conversations,
@@ -565,6 +681,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     retrievalUpdating,
     error,
     currentContext,
+    suggestion,
     load,
     createConversation,
     selectConversation,
@@ -577,5 +694,9 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     submitAnswerFeedback,
     rejectProposal,
     undoReceipt,
+    checkSuggestion,
+    markSuggestionShown,
+    dismissSuggestion,
+    suppressSuggestion,
   }
 })

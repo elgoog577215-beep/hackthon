@@ -710,7 +710,9 @@
       "wholeCourseHint": "AI interprets the request and matches relevant nodes",
       "matchedSummary": "AI identified {roles} and matched {count} nodes",
       "blockSummary": "AI changes only the current content and does not expand elsewhere",
-      "currentSummary": "AI will only handle these roles in this section: {roles}"
+      "currentSummary": "AI will only handle these roles in this section: {roles}",
+      "currentChapter": "Affect related content in this chapter",
+      "currentChapterHint": "The AI matches nodes within this chapter only. Nothing changes until you confirm."
     },
     "review": {
       "eyebrow": "Course adjustment review",
@@ -878,7 +880,8 @@
         "example": "Worked example",
         "checkpoint": "Understanding check",
         "concept": "Core concept"
-      }
+      },
+      "generateChapter": "Analyze and preview this chapter's impact"
     },
     "effects": {
       "effective": "New evidence supports the diagnosis; transfer will keep being observed",
@@ -2996,6 +2999,25 @@
         "cancelled": "Generation stopped",
         "retryHint": "Your course and formal learning tasks are unaffected. You can retry.",
         "noRetryHint": "Retrying will not help; please contact an administrator. Your course and formal learning tasks are unaffected."
+      },
+      "suggestion": {
+        "title": "AI tutor suggestion",
+        "eyebrow": "Your AI tutor noticed",
+        "body": "This is based on your formal learning record. Nothing changes until you confirm.",
+        "explain": "Show me why",
+        "notNow": "Not now",
+        "never": "Stop reminding me",
+        "neverHint": "Never remind me about this again",
+        "actions": {
+          "confirmVersionChange": "A course update is waiting for your confirmation",
+          "resumeDiagnostic": "You have an unfinished diagnostic",
+          "resumeRemediation": "You have an unfinished remediation exercise",
+          "resumeValidation": "You have an unfinished independent check",
+          "resolveDiagnosticSupport": "A diagnostic result is waiting for you",
+          "resolveBlockingIssue": "An open question is blocking what comes next",
+          "startDueReview": "A review is due",
+          "generic": "A learning task is waiting to continue"
+        }
       }
     },
     "sources": {
@@ -3178,6 +3200,12 @@
         "reviewAgain": "Review again",
         "complete": "Complete"
       }
+    },
+    "impactPreview": {
+      "count": "Affects {count} sections",
+      "countOne": "Affects {count} section",
+      "unknownSection": "not in the current outline",
+      "note": "Nothing in the published course changes until you confirm."
     }
   },
   "courseAvailability": {

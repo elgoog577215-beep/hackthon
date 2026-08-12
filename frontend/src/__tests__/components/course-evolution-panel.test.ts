@@ -577,7 +577,11 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.get('.apply-selected').text()).toContain('应用所选 2 项')
   })
 
-  it('在输入旁让用户先选择当前小节或全课程硬范围', async () => {
+  it('学生侧范围上限是本章，不提供全课程入口', async () => {
+    // Owner decision 2026-08-12 (Q6): AI-initiated change tops out at the
+    // current chapter. Whole-course edits go through the teacher authoring
+    // chain instead, so the student-side entry is removed — the backend
+    // capability itself is untouched.
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -590,15 +594,43 @@ describe('CourseEvolutionPanel', () => {
     })
 
     expect(wrapper.get('[data-scope="current_section"]').attributes('aria-checked')).toBe('true')
-    await wrapper.get('[data-scope="whole_course"]').trigger('click')
-    await wrapper.get('.section-growth-request input').setValue('以后所有例子都讲得详细一点')
+    expect(wrapper.find('[data-scope="current_chapter"]').exists()).toBe(true)
+    expect(wrapper.find('[data-scope="whole_course"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('应用到全课程')
+
+    await wrapper.get('[data-scope="current_chapter"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('这一章的例子都讲得详细一点')
     await wrapper.get('.generate-plan').trigger('click')
 
     expect(createPlan).toHaveBeenCalledWith(
       's1',
-      '以后所有例子都讲得详细一点',
-      'whole_course',
+      '这一章的例子都讲得详细一点',
+      'current_chapter',
     )
+  })
+
+  it('没有任何免确认直接应用的小范围路径', async () => {
+    // Owner decision Q5 explicitly excluded option (c): there is no scope,
+    // however narrow, that applies without the learner confirming.
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    vi.spyOn(store, 'createSectionPlan').mockResolvedValue({} as any)
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    await wrapper.get('[data-scope="current_section"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('把这一节讲清楚')
+    await wrapper.get('.generate-plan').trigger('click')
+    await flushPromises()
+
+    // Generating a candidate must never apply it.
+    expect(accept).not.toHaveBeenCalled()
   })
 
   it('从块级优化转入全课程方案时自动打开逐项影响审阅', () => {
@@ -800,7 +832,10 @@ describe('CourseEvolutionPanel', () => {
       })
 
       expect(wrapper.text()).toContain('Current section only')
-      expect(wrapper.text()).toContain('Apply across course')
+      expect(wrapper.text()).toContain('Affect related content in this chapter')
+      // The whole-course entry is no longer offered to students (owner
+      // decision 2026-08-12 Q6); an existing whole-course plan still renders.
+      expect(wrapper.text()).not.toContain('Apply across course')
       expect(wrapper.get('.whole-course-scan-summary').text()).toContain('Review, include, or exclude 2 nodes')
       await wrapper.get('.whole-course-scan-summary').trigger('click')
       expect(wrapper.get('.review-workbench').text()).toContain('Course adjustment review')
@@ -870,7 +905,7 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.source-requirement').exists()).toBe(false)
   })
 
-  it('点击全课程生成后立即打开实时扫描弹窗，而不是等待完整结果返回', async () => {
+  it('点击本章生成后立即打开实时扫描弹窗，而不是等待完整结果返回', async () => {
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -886,8 +921,8 @@ describe('CourseEvolutionPanel', () => {
       global: { stubs: { Teleport: true } },
     })
 
-    await wrapper.get('[data-scope="whole_course"]').trigger('click')
-    await wrapper.get('.section-growth-request input').setValue('以后所有例子都讲得详细一点')
+    await wrapper.get('[data-scope="current_chapter"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('这一章的例子都讲得详细一点')
     void wrapper.get('.generate-plan').trigger('click')
     await flushPromises()
 
@@ -900,7 +935,7 @@ describe('CourseEvolutionPanel', () => {
     wrapper.unmount()
   })
 
-  it('全课程入口遇到强学习证据时绑定真实生长方案，不让审阅弹窗停在扫描态', async () => {
+  it('广域入口遇到强学习证据时绑定真实生长方案，不让审阅弹窗停在扫描态', async () => {
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -921,7 +956,7 @@ describe('CourseEvolutionPanel', () => {
       global: { stubs: { Teleport: true } },
     })
 
-    await wrapper.get('[data-scope="whole_course"]').trigger('click')
+    await wrapper.get('[data-scope="current_chapter"]').trigger('click')
     await wrapper.get('.section-growth-request input').setValue(strongEvidence[0].summary)
     await wrapper.get('.generate-plan').trigger('click')
     await flushPromises()

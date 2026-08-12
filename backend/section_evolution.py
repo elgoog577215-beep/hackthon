@@ -86,6 +86,46 @@ def _difficulty_delta(direction: str, roles: list[str]) -> dict[str, int]:
     }
 
 
+def _chapter_section_ids(document: Any, section_id: str) -> set[str]:
+    """Section ids belonging to the same chapter as `section_id`.
+
+    "Chapter" is the top-level ancestor: sections hang off a level-1 node, so
+    walking up to the last parent before the root gives the chapter, and its
+    descendants are the widest range a learner-initiated change may reach.
+    A section with no parent is its own chapter, which keeps a flat course
+    from silently widening to the entire document.
+    """
+    sections = {section.section_id: section for section in document.sections}
+    current = sections.get(section_id)
+    if current is None:
+        return {section_id}
+    chapter_id = section_id
+    seen: set[str] = set()
+    while current is not None:
+        parent_id = str(getattr(current, "parent_section_id", "") or "")
+        if not parent_id or parent_id in {"root", "None"} or parent_id in seen:
+            chapter_id = current.section_id
+            break
+        seen.add(parent_id)
+        parent = sections.get(parent_id)
+        if parent is None:
+            chapter_id = current.section_id
+            break
+        current = parent
+        chapter_id = current.section_id
+
+    members = {chapter_id}
+    changed = True
+    while changed:
+        changed = False
+        for section in document.sections:
+            parent_id = str(getattr(section, "parent_section_id", "") or "")
+            if parent_id in members and section.section_id not in members:
+                members.add(section.section_id)
+                changed = True
+    return members
+
+
 def analyze_section_request(instruction: str) -> dict[str, Any]:
     """Deterministic fallback when semantic scene analysis is unavailable."""
     text = str(instruction or "").strip()
@@ -717,7 +757,7 @@ async def generate_section_evolution_plan(
     section_id: str,
     instruction: str,
     request_id: str,
-    scope_selection: Literal["current_section", "whole_course"] = "current_section",
+    scope_selection: Literal["current_section", "current_chapter", "whole_course"] = "current_section",
     anchor_role: str | None = None,
     repository: CourseEvolutionRepository,
     document_repository: CourseDocumentRepository,
@@ -725,7 +765,7 @@ async def generate_section_evolution_plan(
     existing_change_set_id: str = "",
 ) -> CourseEvolutionState:
     """Generate and checkpoint a reviewable section change without mutating the course."""
-    if scope_selection not in {"current_section", "whole_course"}:
+    if scope_selection not in {"current_section", "current_chapter", "whole_course"}:
         raise ValueError("Unsupported course evolution scope")
     if anchor_role is not None and anchor_role not in ROLE_TITLES:
         raise ValueError("Unsupported course evolution anchor role")
@@ -881,12 +921,26 @@ async def generate_section_evolution_plan(
     }
     generation_targets: list[dict[str, Any]] = []
     knowledge_refs_by_section: dict[str, list[str]] = {}
-    if scope_selection == "whole_course":
+    if scope_selection in {"whole_course", "current_chapter"}:
+        # A chapter-scoped request may widen past the section the learner is
+        # standing in, but must not leave the chapter that contains it. Role
+        # matching alone would happily cross chapters, so the candidate set is
+        # narrowed first and matched second.
+        candidate_section_ids = (
+            _chapter_section_ids(document, section_id)
+            if scope_selection == "current_chapter"
+            else None
+        )
         matched_blocks = sorted(
             (
                 block
                 for block in document.blocks
-                if block.status != "retired" and block.role in analysis["roles"]
+                if block.status != "retired"
+                and block.role in analysis["roles"]
+                and (
+                    candidate_section_ids is None
+                    or block.section_id in candidate_section_ids
+                )
             ),
             key=lambda block: (
                 section_order.get(block.section_id, len(section_order)),

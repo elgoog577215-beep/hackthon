@@ -33,6 +33,7 @@ export type CourseEvolutionAnchorRole =
 export type CourseAdjustmentScope =
   | 'current_block'
   | 'current_section'
+  | 'current_chapter'
   | 'whole_course'
 
 export interface CreateCourseAdjustmentInput {
@@ -228,7 +229,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     async createSectionPlan(
       sectionId: string,
       instruction: string,
-      scopeSelection: 'current_section' | 'whole_course' = 'current_section',
+      scopeSelection: 'current_section' | 'current_chapter' | 'whole_course' = 'current_section',
       anchorRole?: CourseEvolutionAnchorRole,
     ) {
       return this.createPlan({

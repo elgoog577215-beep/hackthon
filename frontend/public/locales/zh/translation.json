@@ -710,7 +710,9 @@
       "wholeCourseHint": "AI 解析语义后匹配相关节点",
       "matchedSummary": "AI 识别 {roles}，匹配 {count} 个节点",
       "blockSummary": "AI 只处理当前内容，不扩展到其他位置",
-      "currentSummary": "AI 只在本节内处理：{roles}"
+      "currentSummary": "AI 只在本节内处理：{roles}",
+      "currentChapter": "影响本章相关内容",
+      "currentChapterHint": "AI 在本章范围内匹配相关节点；确认前不会修改课程"
     },
     "review": {
       "eyebrow": "课程调整审阅",
@@ -878,7 +880,8 @@
         "example": "例子讲解",
         "checkpoint": "理解检查",
         "concept": "核心概念"
-      }
+      },
+      "generateChapter": "解析并生成本章影响预览"
     },
     "effects": {
       "effective": "原判断获得新证据支持，继续观察后续迁移",
@@ -2996,6 +2999,25 @@
         "cancelled": "已停止生成",
         "retryHint": "课程与正式学习任务不受影响，可以重试。",
         "noRetryHint": "重试无法解决，请联系管理员；课程与正式学习任务不受影响。"
+      },
+      "suggestion": {
+        "title": "AI 老师建议",
+        "eyebrow": "AI 老师注意到",
+        "body": "这一步依据你的正式学习记录，确认前不会改变任何内容。",
+        "explain": "看看为什么",
+        "notNow": "暂时不要",
+        "never": "不再提醒",
+        "neverHint": "不再就这件事提醒我",
+        "actions": {
+          "confirmVersionChange": "课程有更新等待你确认",
+          "resumeDiagnostic": "你有一次诊断没有完成",
+          "resumeRemediation": "你有一次补救练习没有完成",
+          "resumeValidation": "你有一次独立验证没有完成",
+          "resolveDiagnosticSupport": "有一条诊断结论等待你处理",
+          "resolveBlockingIssue": "有一个问题正挡住后面的学习",
+          "startDueReview": "有一项复习到期了",
+          "generic": "有一个学习任务等待继续"
+        }
       }
     },
     "sources": {
@@ -3178,6 +3200,12 @@
         "reviewAgain": "再次复习",
         "complete": "完成复习"
       }
+    },
+    "impactPreview": {
+      "count": "将影响 {count} 个小节",
+      "countOne": "将影响 {count} 个小节",
+      "unknownSection": "不在当前目录中",
+      "note": "确认前不会修改正式课程。"
     }
   },
   "courseAvailability": {
