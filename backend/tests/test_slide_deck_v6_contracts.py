@@ -423,6 +423,33 @@ def test_story_plan_rejects_untraceable_factual_tokens() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_accepts_a_source_file_identifier_without_its_extension() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-automation",
+        title="Field evidence automation",
+        sections=[CourseSection(section_id="field", title="Audit records", position=0)],
+        blocks=[_block(
+            "runner-source",
+            "field",
+            0,
+            role="example",
+            text=(
+                "Save FieldAuditRunner.py before the audit. "
+                "FieldAuditRunner.py checks every source row and reports missing evidence."
+            ),
+            kind="code",
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].template_layout_id = template.layout_id("evidence-code")
+    story.batches[0].pages[0].title = "FieldAuditRunner checks every source row"
+    story.batches[0].pages[0].summary = (
+        "FieldAuditRunner checks every source row and reports missing evidence."
+    )
+
+    validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_story_plan_rejects_ungrounded_semantic_claim_without_numbers() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
