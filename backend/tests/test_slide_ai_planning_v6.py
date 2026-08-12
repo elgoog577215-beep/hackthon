@@ -221,6 +221,62 @@ def _ordered_field_task_with_table_feedback_document() -> CourseDocument:
     )
 
 
+def _field_misconception_repair_document() -> CourseDocument:
+    """A non-code, non-math unit whose three roles must stay together."""
+
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-field-misconception",
+            title="Field specimen labeling",
+            sections=[
+                CourseSection(
+                    section_id="label-repair",
+                    title="Diagnose and repair the label",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="label-symptom",
+                    section_id="label-repair",
+                    position=0,
+                    role="misconception",
+                    payload={
+                        "markdown": (
+                            "The sealed specimen label remains blank after the "
+                            "field record is attached."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="label-cause",
+                    section_id="label-repair",
+                    position=1,
+                    role="reasoning",
+                    payload={
+                        "markdown": (
+                            "The label was applied before the container surface "
+                            "dried, so the adhesive lost contact."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="label-repair",
+                    section_id="label-repair",
+                    position=2,
+                    role="remediation",
+                    payload={
+                        "markdown": (
+                            "Dry the container, apply a new label, and verify that "
+                            "the identifier remains readable."
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
 def _mixed_table_and_code_document() -> CourseDocument:
     """A generic evidence unit that needs separate table and code expressions."""
 
@@ -1436,6 +1492,55 @@ async def test_story_contract_projects_repeated_invalid_grouping_to_one_safe_par
     ]
     assert story.pages[0].template_layout_id.endswith("/evidence-table")
     assert story.pages[1].template_layout_id.endswith("/evidence-code")
+
+
+@pytest.mark.asyncio
+async def test_story_repartitions_when_required_template_slots_lack_source_roles() -> None:
+    """A role-complete template cannot be used for isolated semantic fragments."""
+
+    document = _field_misconception_repair_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        layout_id = next(
+            layout.template_layout_id
+            for layout in template.layouts
+            if layout.layout_slug == "misconception-repair"
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": f"isolated-role-{index + 1}",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": layout_id,
+                    "title": _title_for_request_blocks(unit, [block_id]),
+                    "summary": "",
+                    "source_block_ids": [block_id],
+                }
+                for index, block_id in enumerate(unit["primary_block_ids"])
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    repair = calls[1]["repair_feedback"]
+    assert repair["code"] == "template_required_slot_unfilled"
+    target = repair["repair_targets"][0]
+    assert target["repartition_required"] is True
+    assert target["required_safe_partition"]["pages"]
+    assert [page.source_block_ids for page in story.pages] == [[
+        "label-symptom",
+        "label-cause",
+        "label-repair",
+    ]]
+    assert story.pages[0].template_layout_id.endswith("/misconception-repair")
 
 
 @pytest.mark.asyncio
