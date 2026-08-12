@@ -429,7 +429,7 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
     ) -> dict[str, Any]:
         """经团队检索网关取回联网资料；任何失败都降级为不联网，不阻断生成。"""
-        from web_material_search import discover_web_materials
+        from web_material_search import discover_web_materials, ui_source_summaries
         from web_retrieval import resolve_retrieval_policy
 
         policy = resolve_retrieval_policy(generation_request or {})
@@ -462,7 +462,7 @@ class CourseService(AIBase):
             )
         except Exception as exc:  # 联网是增强项，失败必须降级而不是失败生成
             logger.warning("web material search failed, degrading to offline: %s", exc)
-            return {
+            degraded_report = {
                 "enabled": True,
                 "status": "degraded",
                 "degraded": True,
@@ -471,6 +471,19 @@ class CourseService(AIBase):
                 "rejected": [],
                 "message_code": "web_search_unavailable",
             }
+            # 降级必须**告知**，不能静默：原来这里直接 return，前端拿不到
+            # web_search 明细，教师看不到任何"本次未用联网资料"的提示。
+            await self._notify_phase(
+                on_phase,
+                "material_processing",
+                8,
+                "联网检索失败，本次仅使用已有资料",
+                phase_progress=10,
+                phase_detail={
+                    "web_search": {**degraded_report, "sources": []},
+                },
+            )
+            return degraded_report
 
         accepted = len(report.get("candidates") or [])
         await self._notify_phase(
@@ -483,7 +496,15 @@ class CourseService(AIBase):
                 else "联网检索未找到可用资料，将仅使用已有资料"
             ),
             phase_progress=10,
-            phase_detail={"web_search": {k: v for k, v in report.items() if k != "candidates"}},
+            # 正文（candidates[].text）不外发，但采纳来源必须以 `sources` 出去：
+            # 前端复核面板读的就是这个键，缺了它教师只能看到关键词和被拒项，
+            # 采纳列表永远是空的，也就无从逐条剔除。
+            phase_detail={
+                "web_search": {
+                    **{k: v for k, v in report.items() if k != "candidates"},
+                    "sources": ui_source_summaries(report.get("candidates") or []),
+                }
+            },
         )
         return report
 

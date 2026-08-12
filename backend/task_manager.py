@@ -151,6 +151,10 @@ from learning_assets import (
 )
 from markdown_parser import parse_markdown_to_nodes
 from material_pipeline import ingest_legacy_material_inputs
+from web_material_curation import (
+    load_course_exclusions,
+    merge_ingest_exclusions,
+)
 from material_storage import material_repository
 from models import (
     NodeGenerationConfig,
@@ -5900,7 +5904,10 @@ class TaskManager:
                 course_purpose=str(request.get("course_purpose") or "systematic"),
                 asset_preferences=request.get("asset_preferences") or {},
                 web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
-                web_material_ingest=request.get("web_material_ingest") or {},
+                web_material_ingest=merge_ingest_exclusions(
+                    request.get("web_material_ingest") or {},
+                    load_course_exclusions(course_data),
+                ),
                 existing_course_data=course_data,
                 stop_after_outline=stop_after_outline,
                 on_phase=on_phase,
