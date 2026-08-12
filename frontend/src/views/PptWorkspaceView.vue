@@ -4,9 +4,18 @@
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
       <h1>{{ courseTitle }}</h1>
-      <p>{{ store.building ? stageLabel : t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
-      <div class="ppt-workspace-state__progress"><i :style="{ width: `${store.buildProgress}%` }"></i></div>
-      <b>{{ store.building ? `${store.buildProgress}%` : '···' }}</b>
+      <p v-if="!store.building">{{ t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
+      <SlideDeckBuildProgress
+        v-if="store.building"
+        :progress="store.buildProgress"
+        :stage="store.buildStage"
+        :step-index="store.buildDisplayStep"
+        :detail="store.buildDetail"
+        :progress-v2="store.slideBuildProgressV2"
+        :estimated-slide-count="store.buildEstimatedSlideCount"
+        variant="initial"
+      />
+      <b v-else>···</b>
       <div v-if="store.buildTaskId" class="ppt-workspace-state__task-actions">
         <button v-if="store.building" type="button" @click="pauseBuild">暂停</button>
         <button type="button" @click="cancelBuild">取消</button>
@@ -71,6 +80,10 @@
         :building="store.building"
         :progress="store.buildProgress"
         :stage="store.buildStage"
+        :build-step-index="store.buildDisplayStep"
+        :build-detail="store.buildDetail"
+        :build-progress-v2="store.slideBuildProgressV2"
+        :estimated-slide-count="store.buildEstimatedSlideCount"
         :error="store.buildError"
         :build-failure="effectiveBuildFailure"
         :logic-upgrading="logicUpgrading"
@@ -79,10 +92,16 @@
         :preview-source="store.slidePreviewSource"
         :mode="selectedMode"
         :theme="selectedTheme"
+        :theme-overrides="content?.template_theme_overrides || {}"
         :variants="slideVariants"
         :bundle-parts="activeBundleParts"
         :active-bundle-part-id="slideRepresentation?.representation_id || ''"
         :engine-status="slideEngineStatus"
+        :target-schema="store.slideTargetSchema || String(store.registry?.slide_deck_target_schema || '')"
+        :candidate-schema="store.slideCandidateSchema || String(content?.schema_version || '')"
+        :published-schema="store.slidePublishedSchema || String(content?.schema_version || '')"
+        :candidate-status="store.slideCandidateStatus || String(content?.candidate_status || '')"
+        :planning-status="content?.planning_status || null"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -123,11 +142,14 @@
       :open="generatorOpen"
       :mode="selectedMode"
       :theme="selectedTheme"
+      :web-image-retrieval="selectedWebImageRetrieval"
       :busy="store.building"
       :closable="Boolean(slideRepresentation)"
       :fragment-count="estimatedFragmentCount"
+      :personal-templates="templatePacksStore.personal"
       @close="closeGenerator"
       @confirm="generateVariant"
+      @load-templates="templatePacksStore.load()"
     />
   </section>
 </template>
@@ -137,11 +159,13 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
+import { usePptTemplatePacksStore } from '../stores/pptTemplatePacks'
 import {
   normalizedBuildFailure,
   useTeachingRepresentationsStore,
@@ -154,11 +178,13 @@ import type {
 } from '../stores/teachingRepresentations'
 import type { CourseDocumentEnvelope } from '../stores/types'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
+import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
 import http from '../utils/http'
 
 const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
+const templatePacksStore = usePptTemplatePacksStore()
 const store = useTeachingRepresentationsStore()
 const initializing = ref(true)
 const aiVisible = ref(false)
@@ -177,6 +203,7 @@ const generatorOpen = ref(false)
 const forceGeneratorBuild = ref(false)
 const selectedMode = ref<SlideDeckMode>('teaching')
 const selectedTheme = ref<V3Theme>('qizhi-classroom')
+const selectedWebImageRetrieval = ref(false)
 let workspaceAttempt = 0
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
@@ -224,15 +251,16 @@ const slideRepresentation = computed(() => (
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const slideEngineStatus = computed<
-  'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
+  'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
 >(() => {
   const target = String(store.registry?.slide_deck_target_schema || '')
-  if (['slide_deck_v5', 'slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
-    return target as 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
+  if (['slide_deck_v6', 'slide_deck_v5', 'slide_deck_v4', 'slide_deck_v3', 'blocked'].includes(target)) {
+    return target as 'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked'
   }
   const publishedSchema = String(content.value?.schema_version || '')
   if (
-    publishedSchema === 'slide_deck_v5'
+    publishedSchema === 'slide_deck_v6'
+    || publishedSchema === 'slide_deck_v5'
     || publishedSchema === 'slide_deck_v4'
     || publishedSchema === 'slide_deck_v3'
   ) {
@@ -241,6 +269,7 @@ const slideEngineStatus = computed<
   return 'unknown'
 })
 const slideEngineStatusLabel = computed(() => ({
+  slide_deck_v6: '将使用课程忠实型故事、视觉与最新模板合同 V6 生成',
   slide_deck_v5: '将使用课程叙事与语义版式 V5 生成',
   slide_deck_v4: '将使用新版课程逻辑 V4 生成',
   slide_deck_v3: '当前使用兼容模式 V3',
@@ -251,7 +280,8 @@ const slideEngineStatusLabel = computed(() => ({
 function representationMatchesTargetEngine(item: TeachingRepresentation) {
   const target = String(store.registry?.slide_deck_target_schema || '')
   if (
-    target !== 'slide_deck_v5'
+    target !== 'slide_deck_v6'
+    && target !== 'slide_deck_v5'
     && target !== 'slide_deck_v4'
     && target !== 'slide_deck_v3'
   ) return true
@@ -273,7 +303,9 @@ function representationMatchesTargetEngine(item: TeachingRepresentation) {
 const displaySlides = computed(() => (
   store.liveSlides.length && store.slidePreviewSource === 'draft'
     ? store.liveSlides
-    : (content.value?.slides || [])
+    : content.value?.schema_version === 'slide_deck_v6'
+      ? adaptSlideDeckV6ForWeb(content.value)
+      : (content.value?.slides || [])
 ))
 const estimatedFragmentCount = computed(() => (
   Number(content.value?.fragment_manifest?.length)
@@ -308,33 +340,6 @@ const buildErrorLabel = computed(() => (
       ? t('pptWorkspace.qualityBlocked', '课件未通过课堂可用性检查，系统没有发布问题版本。请调整课程内容后重试。')
       : store.buildError
 ))
-const stageLabel = computed(() => ({
-  fragmenting: '正在切分并校验课程原文',
-  planning: t('teachingRepresentations.slides.stages.planning', '正在准备课程结构'),
-  story_plan: '正在读取课程逻辑',
-  chapter_plan: '正在编排章节叙事',
-  episode_progress: '正在生成教学场景',
-  layout_plan: '正在匹配语义版式',
-  slide_plan: t('teachingRepresentations.slides.stages.slidePlan', '正在规划整套页面'),
-  visual_plan: '正在规划课件视觉',
-  asset_compilation: '正在编译课件素材',
-  slide_build: t('teachingRepresentations.slides.stages.slideBuild', '正在逐页生成教学内容'),
-  reviewing: '正在审核页面分配',
-  quality: t('teachingRepresentations.slides.stages.quality', '正在检查课堂可用性'),
-  render_review: '正在渲染复核成品',
-  semantic_repair: '正在修复内容完整性与分页',
-  image_search: '正在检索并核验教学图片',
-  render_repair: '正在修复导出版式问题',
-  repair_progress: '正在定向修复问题页面',
-  bundle_plan: '正在按章节拆分课件',
-  bundle_part_build: '正在逐册生成课件',
-  paused: '已暂停，可从保存点继续',
-  resuming: '正在从保存点继续',
-  build_blocked: '生成已停止',
-  cancelled: '生成已取消',
-  complete: t('teachingRepresentations.slides.stages.complete', '生成完成'),
-}[store.buildStage] || t('teachingRepresentations.slides.stages.building', '正在生成课件')))
-
 async function loadWorkspace() {
   const id = courseId.value
   if (!id) return
@@ -454,7 +459,7 @@ async function upgradeCourseLogic() {
     const targetSchema = String(
       store.registry?.slide_deck_target_schema || '',
     )
-    if (targetSchema === 'slide_deck_v5' || targetSchema === 'slide_deck_v4') {
+    if (['slide_deck_v6', 'slide_deck_v5', 'slide_deck_v4'].includes(targetSchema)) {
       generatorOpen.value = true
       return
     }
@@ -482,6 +487,10 @@ async function rebuild() {
       mode: selectedMode.value,
       theme: selectedTheme.value,
       forceRebuild: true,
+      webImageRetrieval: {
+        enabled: selectedWebImageRetrieval.value,
+        mode: 'wide_safe',
+      },
     })
   } catch {
     return
@@ -506,7 +515,13 @@ function closeGenerator() {
   }
 }
 
-async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
+async function generateVariant(value: {
+  mode: SlideDeckMode
+  theme: V3Theme
+  webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+  templatePackId?: string
+  templatePackVersion?: number
+}) {
   if (!courseId.value || store.building) return
   if (slideEngineStatus.value === 'blocked') {
     generatorOpen.value = false
@@ -515,12 +530,17 @@ async function generateVariant(value: { mode: SlideDeckMode; theme: V3Theme }) {
   }
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
+  selectedWebImageRetrieval.value = value.webImageRetrieval.enabled
   generatorOpen.value = false
   try {
     await store.buildSlideDeckVariant(courseId.value, {
       mode: value.mode,
       theme: value.theme,
+      engineVersion: slideEngineStatus.value === 'slide_deck_v6' ? 'v6' : undefined,
+      templatePackId: value.templatePackId,
+      templatePackVersion: value.templatePackVersion,
       forceRebuild: forceGeneratorBuild.value,
+      webImageRetrieval: value.webImageRetrieval,
     })
   } catch {
     return
@@ -646,8 +666,6 @@ onMounted(loadWorkspace)
 .ppt-workspace-state > small { color:#2556d8; font-size:11px; font-weight:800; letter-spacing:.16em; }
 .ppt-workspace-state h1 { max-width:760px; margin:12px 0 0; font-family:"Songti SC","STSong","Noto Serif CJK SC",serif; font-size:clamp(28px,4vw,52px); line-height:1.15; }
 .ppt-workspace-state p { max-width:620px; margin:16px 0 0; color:#667085; font-size:14px; line-height:1.7; }
-.ppt-workspace-state__progress { width:min(360px,70vw); height:5px; overflow:hidden; margin-top:26px; border-radius:99px; background:#dfe5ee; }
-.ppt-workspace-state__progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#2556d8,#087f74); transition:width .25s ease; }
 .ppt-workspace-state > b { margin-top:10px; color:#6f7c8d; font:700 11px/1 "Aptos Mono","SFMono-Regular",monospace; }
 .ppt-workspace-state__task-actions { display:flex; gap:8px; margin-top:14px; }
 .ppt-workspace-state__task-actions button { min-height:34px; padding:0 14px; border:1px solid #cbd5e1; border-radius:9px; color:#334155; background:#fff; cursor:pointer; }

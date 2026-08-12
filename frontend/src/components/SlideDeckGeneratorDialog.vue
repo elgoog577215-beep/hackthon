@@ -36,14 +36,28 @@
           <div><span>02</span><strong>选择视觉风格</strong></div>
           <small>切换风格会重新排版并单独缓存</small>
         </div>
-        <div class="deck-generator__themes">
+        <div class="deck-generator__theme-tabs" role="tablist">
+          <button
+            type="button"
+            data-testid="builtin-template-tab"
+            :class="{ active: templateTab === 'builtin' }"
+            @click="templateTab = 'builtin'"
+          >{{ t('pptTemplatePacks.builtinTab', '内置模板') }}</button>
+          <button
+            type="button"
+            data-testid="personal-template-tab"
+            :class="{ active: templateTab === 'personal' }"
+            @click="templateTab = 'personal'; emit('load-templates')"
+          >{{ t('pptTemplatePacks.personalTab', '我的模板') }}</button>
+        </div>
+        <div v-if="templateTab === 'builtin'" class="deck-generator__themes">
           <button
             v-for="item in themes"
             :key="item.value"
             type="button"
             :data-theme="item.value"
             :class="{ active: modelTheme === item.value }"
-            @click="modelTheme = item.value"
+            @click="selectBuiltinTheme(item.value)"
           >
             <div class="deck-theme-preview-real">
               <SlideCanvas
@@ -60,6 +74,53 @@
             <small>{{ item.description }}</small>
           </button>
         </div>
+        <div v-else class="deck-generator__personal-templates">
+          <button
+            type="button"
+            class="deck-generator__create-template"
+            data-testid="create-template-pack"
+            @click="emit('create-template')"
+          >
+            <span>+</span>
+            <strong>{{ t('pptTemplatePacks.create', '创建模板') }}</strong>
+            <small>{{ t('pptTemplatePacks.createHint', '上传参考 PPTX，或填写品牌颜色和 Logo') }}</small>
+          </button>
+          <button
+            v-for="item in personalTemplates"
+            :key="item.pack_id"
+            type="button"
+            :data-template-pack-id="item.pack_id"
+            :class="{ active: selectedTemplatePack?.pack_id === item.pack_id }"
+            :disabled="!item.latest_version || !item.v6_eligible"
+            @click="selectPersonalTemplate(item)"
+          >
+            <span>{{ item.name.slice(0, 1) }}</span>
+            <strong>{{ item.name }}</strong>
+            <small>{{ item.latest_version ? `v${item.latest_version}` : t('pptTemplatePacks.draft', '草稿') }}</small>
+          </button>
+          <p v-if="!personalTemplates.length" class="deck-generator__personal-empty">
+            {{ t('pptTemplatePacks.empty', '还没有个人模板；上传一份参考 PPTX 即可开始。') }}
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="deck-generator__section-title">
+          <div><span>03</span><strong>联网教学图片</strong></div>
+          <small>可选；默认关闭</small>
+        </div>
+        <label class="deck-generator__web-images">
+          <input
+            v-model="modelWebImageRetrieval"
+            data-testid="ppt-web-image-retrieval"
+            type="checkbox"
+            :disabled="busy"
+          />
+          <span>
+            <strong>检索可授权复用的教学图片</strong>
+            <small>仅使用公共领域、CC0 或 CC BY 图片；没有安全匹配时继续使用可编辑图示。</small>
+          </span>
+        </label>
       </section>
 
       <footer>
@@ -82,8 +143,19 @@ import { computed, ref, watch } from 'vue'
 import { BookOpenText, Layers3, LoaderCircle, Presentation, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
 import type { SlideDeckMode, SlideDeckTheme } from '../stores/teachingRepresentations'
 import SlideCanvas from './SlideCanvas.vue'
+import { t } from '../shared/i18n'
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
+
+export interface PersonalPptTemplatePack {
+  pack_id: string
+  name: string
+  base_theme: V3Theme
+  status: 'draft' | 'published'
+  latest_version: number
+  v6_eligible?: boolean
+  preview?: Record<string, unknown>
+}
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -92,26 +164,44 @@ const props = withDefaults(defineProps<{
   busy?: boolean
   closable?: boolean
   fragmentCount?: number
+  webImageRetrieval?: boolean
+  personalTemplates?: PersonalPptTemplatePack[]
 }>(), {
   mode: 'teaching',
   theme: 'qizhi-classroom',
   busy: false,
   closable: true,
   fragmentCount: 0,
+  webImageRetrieval: false,
+  personalTemplates: () => [],
 })
 
 const emit = defineEmits<{
   (event: 'close'): void
-  (event: 'confirm', value: { mode: SlideDeckMode; theme: V3Theme }): void
+  (event: 'confirm', value: {
+    mode: SlideDeckMode
+    theme: V3Theme
+    webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+    templatePackId?: string
+    templatePackVersion?: number
+  }): void
+  (event: 'create-template'): void
+  (event: 'load-templates'): void
 }>()
 
 const modelMode = ref<SlideDeckMode>(props.mode)
 const modelTheme = ref<V3Theme>(props.theme)
+const modelWebImageRetrieval = ref(props.webImageRetrieval)
+const templateTab = ref<'builtin' | 'personal'>('builtin')
+const selectedTemplatePack = ref<PersonalPptTemplatePack | null>(null)
 
 watch(() => props.open, open => {
   if (!open) return
   modelMode.value = props.mode
   modelTheme.value = props.theme
+  modelWebImageRetrieval.value = props.webImageRetrieval
+  templateTab.value = 'builtin'
+  selectedTemplatePack.value = null
 })
 
 const modes = [
@@ -189,8 +279,37 @@ const pageEstimate = computed(() => {
   return `预计 ${Math.max(5, Math.round(base * .55))}–${Math.max(7, Math.round(base * .72))} 页`
 })
 
+function selectBuiltinTheme(theme: V3Theme) {
+  modelTheme.value = theme
+  selectedTemplatePack.value = null
+}
+
+function selectPersonalTemplate(template: PersonalPptTemplatePack) {
+  if (!template.latest_version || !template.v6_eligible) return
+  selectedTemplatePack.value = template
+  modelTheme.value = template.base_theme
+}
+
 function confirm() {
-  emit('confirm', { mode: modelMode.value, theme: modelTheme.value })
+  const value: {
+    mode: SlideDeckMode
+    theme: V3Theme
+    webImageRetrieval: { enabled: boolean; mode: 'wide_safe' }
+    templatePackId?: string
+    templatePackVersion?: number
+  } = {
+    mode: modelMode.value,
+    theme: modelTheme.value,
+    webImageRetrieval: {
+      enabled: modelWebImageRetrieval.value,
+      mode: 'wide_safe',
+    },
+  }
+  if (selectedTemplatePack.value) {
+    value.templatePackId = selectedTemplatePack.value.pack_id
+    value.templatePackVersion = selectedTemplatePack.value.latest_version
+  }
+  emit('confirm', value)
 }
 </script>
 
@@ -217,6 +336,18 @@ function confirm() {
 .deck-generator__modes small { color:#738094; font-size:12px; line-height:1.45; }
 .deck-generator__modes i { align-self:end; color:#2f62d8; font-size:11px; font-style:normal; font-weight:750; }
 .deck-generator__themes { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+.deck-generator__theme-tabs { width:max-content; display:flex; gap:4px; margin:0 0 12px; padding:4px; border-radius:11px; background:#e9eef5; }
+.deck-generator__theme-tabs button { min-height:32px; padding:0 15px; border:0; border-radius:8px; color:#69788c; background:transparent; font-size:12px; font-weight:750; }
+.deck-generator__theme-tabs button.active { color:#214fae; background:#fff; box-shadow:0 3px 10px rgba(34,62,105,.1); }
+.deck-generator__personal-templates { position:relative; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; min-height:112px; }
+.deck-generator__personal-templates > button { min-height:106px; display:grid; grid-template-columns:38px minmax(0,1fr); align-content:center; gap:4px 10px; padding:14px; text-align:left; border:1px solid #dce3eb; border-radius:15px; color:#263448; background:#fff; }
+.deck-generator__personal-templates > button:hover,.deck-generator__personal-templates > button.active { border-color:#6c91ec; box-shadow:inset 0 0 0 1px #4d78df,0 9px 24px rgba(42,76,141,.1); }
+.deck-generator__personal-templates > button:disabled { opacity:.58; cursor:not-allowed; }
+.deck-generator__personal-templates > button > span { grid-row:1/3; width:38px; height:38px; display:grid; place-items:center; border-radius:11px; color:#315fca; background:#eaf0ff; font-weight:850; }
+.deck-generator__personal-templates > button > strong { align-self:end; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.deck-generator__personal-templates > button > small { color:#7b8797; font-size:10px; }
+.deck-generator__personal-templates .deck-generator__create-template { border-style:dashed; }
+.deck-generator__personal-empty { position:absolute; left:25%; right:0; top:36px; margin:0; color:#7b8797; text-align:center; font-size:12px; pointer-events:none; }
 .deck-generator__themes > button { padding:8px 8px 12px; text-align:left; border:1px solid #dce3eb; border-radius:15px; color:#263448; background:#fff; transition:.18s ease; }
 .deck-generator__themes > button:hover,.deck-generator__themes > button.active { border-color:#6c91ec; box-shadow:0 9px 24px rgba(42,76,141,.1); transform:translateY(-1px); }
 .deck-generator__themes > button.active { box-shadow:inset 0 0 0 1px #4d78df,0 9px 24px rgba(42,76,141,.11); }
@@ -225,6 +356,11 @@ function confirm() {
 .deck-generator__themes strong,.deck-generator__themes small { display:block; padding:0 4px; }
 .deck-generator__themes strong { margin-top:9px; font-size:13px; }
 .deck-generator__themes small { margin-top:3px; color:#7a8797; font-size:10px; }
+.deck-generator__web-images { display:flex; align-items:flex-start; gap:12px; padding:16px 18px; border:1px solid #dce3eb; border-radius:15px; background:#fff; cursor:pointer; }
+.deck-generator__web-images input { width:18px; height:18px; margin:2px 0 0; accent-color:#2f63da; }
+.deck-generator__web-images span { display:grid; gap:4px; }
+.deck-generator__web-images strong { color:#263448; font-size:14px; }
+.deck-generator__web-images small { color:#738094; font-size:12px; line-height:1.5; }
 .deck-theme-preview { position:relative; aspect-ratio:16/9; display:grid; grid-template-columns:1.18fr .82fr; grid-template-rows:1fr 1fr; gap:3px; padding:4px; overflow:hidden; border-radius:9px; color:var(--i); background:color-mix(in srgb,var(--p) 84%,var(--s)); box-shadow:inset 0 0 0 1px rgba(20,30,45,.08); }
 .deck-theme-preview > div { position:relative; overflow:hidden; border-radius:4px; background:var(--p); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--m) 13%,transparent); }
 .deck-theme-preview__cover { grid-row:1/3; padding:10px 7px; }
@@ -253,6 +389,7 @@ button[data-theme="grid-notebook"] .deck-theme-preview { background-image:linear
   .deck-generator { padding:14px; }
   .deck-generator__modes { grid-template-columns:1fr; }
   .deck-generator__themes { grid-template-columns:repeat(2,1fr); }
+  .deck-generator__personal-templates { grid-template-columns:repeat(2,1fr); }
   .deck-generator__panel > footer { align-items:flex-start; flex-direction:column; }
 }
 </style>

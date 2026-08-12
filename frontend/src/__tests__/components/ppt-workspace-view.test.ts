@@ -410,7 +410,7 @@ describe('PptWorkspaceView', () => {
 
     expect(wrapper.find('.deck-canvas').text()).toContain('上一版本')
     expect(wrapper.text()).toContain('本次生成失败，当前展示上一可用版本')
-    expect(wrapper.text()).toContain('正文过密 · 2 页')
+    expect(wrapper.text()).toContain('质量检查阻断 · 2 项：正文过密 2')
     expect(wrapper.text()).toContain('body_density_overflow')
     expect(wrapper.text()).not.toContain('未发布问题预览')
     expect(wrapper.find('.slide-workbench__export').attributes('disabled')).toBeUndefined()

@@ -9,12 +9,12 @@ from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from queue import Queue
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_base import AIBase
 from change_proposals import change_proposal_repository, create_authoring_change
@@ -32,6 +32,7 @@ from dependencies import (
 )
 from learner_context import require_user_id
 from product_runtime_policy import demo_overrides_enabled
+from ppt_template_packs import TemplatePackError, ppt_template_pack_repository
 from representation_compiler import (
     export_slide_deck_pptx,
     rebuild_core_representations_safely,
@@ -64,10 +65,14 @@ from slide_deck_v4 import (
     build_signature_v4,
 )
 from slide_deck_v5 import (
+    SlideDeckV5BuildError,
     allocation_from_story_plan_v5,
     build_signature_v5,
     compact_story_plan_v5,
 )
+from slide_deck_v6 import build_signature_v6
+from slide_deck_v6_orchestrator import SlideDeckV6CandidateRepository
+from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from slide_story_plan import (
     SlideStoryPlanPrerequisiteError,
     SlideStoryPlanV2,
@@ -81,6 +86,10 @@ from slide_theme import slide_theme_version
 from slide_visuals import build_signature
 from slide_web_images import WebImageRetrievalConfig
 from storage import DATA_DIR
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
+)
 from teaching_representations import (
     RepresentationConflict,
     TeachingRepresentationRepository,
@@ -142,10 +151,26 @@ class SlideDeckVariantBuildRequest(BaseModel):
 
     mode: SlideDeckMode = "teaching"
     theme: SlideDeckTheme = "qizhi-classroom"
+    engine_version: Literal["v5", "v6"] | None = None
+    template_pack_id: str = ""
+    template_version: int | None = Field(default=None, ge=1)
+    shadow_only: bool = False
+    chapter_id: str = Field(default="", max_length=200)
     force_rebuild: bool = False
     web_image_retrieval: WebImageRetrievalConfig = Field(
         default_factory=WebImageRetrievalConfig
     )
+
+    @model_validator(mode="after")
+    def validate_shadow_scope(self) -> "SlideDeckVariantBuildRequest":
+        self.chapter_id = self.chapter_id.strip()
+        if self.shadow_only and self.engine_version != "v6":
+            raise ValueError("Shadow chapter builds require engine_version=v6")
+        if self.shadow_only and not self.chapter_id:
+            raise ValueError("Shadow chapter builds require chapter_id")
+        if self.chapter_id and not self.shadow_only:
+            raise ValueError("chapter_id is only valid for shadow_only builds")
+        return self
 
 
 def _reconciled_registry(course_id: str) -> dict:
@@ -171,6 +196,8 @@ def _reconciled_registry(course_id: str) -> dict:
     payload["slide_deck_target_schema"] = (
         "slide_deck_v3"
         if not story_engine_enabled
+        else "slide_deck_v6"
+        if v4_eligible and _v6_enabled() and _v6_default_enabled()
         else "slide_deck_v5"
         if v4_eligible and _v5_enabled()
         else "slide_deck_v4"
@@ -187,6 +214,48 @@ def _reconciled_registry(course_id: str) -> dict:
         item["spec_id"]: item
         for item in payload.get("specs") or []
     }
+    slide_representations = [
+        item
+        for item in payload.get("representations") or []
+        if item.get("representation_type") == "slide_deck"
+        and item.get("status") == "ready"
+        and item.get("status") != "archived"
+    ]
+    published = max(
+        slide_representations,
+        key=lambda item: str(item.get("updated_at") or ""),
+        default=None,
+    )
+    published_content = (
+        (specs.get((published or {}).get("spec_id")) or {}).get("payload") or {}
+    ).get("content") or {}
+    target_schema = str(payload["slide_deck_target_schema"] or "")
+    candidate = max(
+        [
+            item
+            for item in slide_representations
+            if str(
+                (((specs.get(item.get("spec_id")) or {}).get("payload") or {}).get("content") or {}).get("schema_version")
+                or ""
+            ) == target_schema
+        ],
+        key=lambda item: str(item.get("updated_at") or ""),
+        default=None,
+    )
+    candidate_content = (
+        (specs.get((candidate or {}).get("spec_id")) or {}).get("payload") or {}
+    ).get("content") or {}
+    payload["slide_deck_published_schema"] = str(
+        published_content.get("schema_version") or ""
+    )
+    payload["slide_deck_candidate_schema"] = str(
+        candidate_content.get("schema_version") or ""
+    )
+    payload["slide_deck_candidate_status"] = str(
+        candidate_content.get("candidate_status")
+        or candidate_content.get("status")
+        or ""
+    )
     for representation in payload.get("representations") or []:
         if representation.get("representation_type") != "slide_deck":
             continue
@@ -236,6 +305,101 @@ def _v5_enabled() -> bool:
     ).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _v6_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_DECK_V6_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _v6_default_enabled() -> bool:
+    return os.getenv(
+        "SLIDE_DECK_V6_DEFAULT_ENABLED",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_requested_slide_schema(
+    course_view: dict[str, Any],
+    request: SlideDeckVariantBuildRequest,
+) -> str:
+    request_v6 = request.engine_version == "v6" or (
+        request.engine_version is None and _v6_default_enabled()
+    )
+    if request_v6 and not _v6_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "slide_deck_v6_disabled",
+                "message": "V6 shadow builds are not enabled on this service.",
+                "action": "enable_slide_deck_v6",
+                "retryable": False,
+            },
+        )
+    if request_v6 and not _story_engine_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "v6_story_ai_disabled",
+                "message": "V6 requires the story AI planning service.",
+                "action": "enable_story_ai",
+                "retryable": False,
+                "stage": "story",
+            },
+        )
+    return resolve_slide_deck_schema(
+        course_view,
+        story_engine_enabled=_story_engine_enabled(),
+        v5_enabled=_v5_enabled(),
+        v6_enabled=request_v6,
+    )
+
+
+def _resolve_v6_template_contract(
+    request: SlideDeckVariantBuildRequest,
+    *,
+    owner_id: str,
+    theme: str,
+) -> TemplateLayoutPackContractV1:
+    if not request.template_pack_id:
+        return compile_builtin_template_layout_contract_v1(theme)
+    try:
+        return ppt_template_pack_repository.resolve_v6_layout_contract(
+            request.template_pack_id,
+            request.template_version,
+            owner_id,
+        )
+    except (FileNotFoundError, TemplatePackError, ValueError, KeyError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "template_layout_unavailable",
+                "message": str(exc),
+                "action": "publish_a_v6_eligible_template_version",
+                "retryable": False,
+                "stage": "template",
+            },
+        ) from exc
+
+
+def _require_durable_v6_orchestrator(
+    target_schema: str,
+    task_manager: Any | None,
+) -> None:
+    if target_schema != "slide_deck_v6" or task_manager is not None:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "code": "v6_orchestrator_unavailable",
+            "message": "V6 requires the durable AI planning service; the last published deck remains available.",
+            "action": "retry_after_service_recovery",
+            "retryable": True,
+            "stage": "orchestration",
+        },
+    )
+
+
 def _expected_slide_signature(
     document: Any,
     course_view: dict[str, Any],
@@ -243,7 +407,17 @@ def _expected_slide_signature(
     mode: str,
     theme: str,
     force_schema: str = "",
+    template_contract: TemplateLayoutPackContractV1 | None = None,
 ) -> dict[str, Any]:
+    if force_schema == "slide_deck_v6":
+        resolved_template = template_contract or compile_builtin_template_layout_contract_v1(theme)
+        return build_signature_v6(
+            document=document,
+            course_data=course_view,
+            mode=mode,
+            theme=theme,
+            template_contract=resolved_template,
+        )
     if force_schema == "slide_deck_v4":
         return build_signature_v4(
             document=document,
@@ -313,10 +487,14 @@ def _compile_registry(
     }
 
 
-def _load_registry_slide_source(course_id: str) -> tuple[Any, dict[str, Any]]:
+def _load_registry_slide_source(
+    course_id: str,
+    *,
+    allow_legacy_projection: bool = False,
+) -> tuple[Any, dict[str, Any]]:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
-    if not canonical:
+    if not canonical and not allow_legacy_projection:
         raise RepresentationConflict("Course must be migrated before compiling representations")
     return document, course_repository.load_course_view(course_id)
 
@@ -339,6 +517,7 @@ def _compile_slide_variant_registry(
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Any | None = None,
     web_image_retrieval: dict[str, Any] | None = None,
+    requested_schema: str | None = None,
 ) -> dict[str, Any]:
     course_repository = get_course_document_repository()
     document, canonical = course_repository.load_document(course_id)
@@ -364,6 +543,10 @@ def _compile_slide_variant_registry(
         allocation_plan=allocation_plan,
         story_plan=story_plan,
         progress_callback=progress_callback,
+        requested_schema=requested_schema,
+        source_revision_provider=lambda: str(
+            course_repository.load_document(course_id)[0].document_revision or ""
+        ),
     )
     registry = repository.reconcile_course_operation_log(
         course_id,
@@ -389,6 +572,96 @@ async def get_teaching_representations(course_id: str, request: Request) -> dict
             "message": str(exc),
         }) from exc
     return {"status": "success", "registry": registry}
+
+
+@router.get("/slide-decks/v6/metrics")
+async def get_slide_deck_v6_metrics(course_id: str, request: Request) -> dict:
+    """Return source-free operational health metrics for terminal V6 builds."""
+
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    repository = SlideDeckV6CandidateRepository(
+        Path(DATA_DIR) / "slide_deck_v6_candidates"
+    )
+    metrics = await run_in_threadpool(
+        repository.summarize,
+        course_id=course_id,
+        progress_root=Path(DATA_DIR) / "slide_build_progress_v2",
+    )
+    return {"status": "success", "metrics": metrics}
+
+
+def _load_v6_shadow_candidate(course_id: str, task_id: str) -> dict[str, Any]:
+    repository = SlideDeckV6CandidateRepository(
+        Path(DATA_DIR) / "slide_deck_v6_candidates"
+    )
+    try:
+        candidate = repository.load(task_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail={
+            "code": "v6_shadow_candidate_not_found",
+            "message": "The requested V6 shadow candidate does not exist.",
+        }) from exc
+    if (
+        candidate.get("schema_version") != "slide_deck_v6_candidate_v1"
+        or candidate.get("course_id") != course_id
+        or candidate.get("published") is not False
+        or not candidate.get("shadow_context")
+    ):
+        raise HTTPException(status_code=404, detail={
+            "code": "v6_shadow_candidate_not_found",
+            "message": "The requested task is not a shadow candidate for this course.",
+        })
+    return candidate
+
+
+@router.get("/slide-decks/v6/shadows/{task_id}")
+async def get_slide_deck_v6_shadow_candidate(
+    course_id: str,
+    task_id: str,
+    request: Request,
+) -> dict:
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    candidate = await run_in_threadpool(
+        _load_v6_shadow_candidate,
+        course_id,
+        task_id,
+    )
+    return {"status": "success", "candidate": candidate}
+
+
+@router.get("/slide-decks/v6/shadows/{task_id}/export")
+async def export_slide_deck_v6_shadow_candidate(
+    course_id: str,
+    task_id: str,
+    request: Request,
+) -> FileResponse:
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    candidate = await run_in_threadpool(
+        _load_v6_shadow_candidate,
+        course_id,
+        task_id,
+    )
+    if not candidate.get("deck"):
+        raise HTTPException(status_code=409, detail={
+            "code": "v6_shadow_candidate_failed",
+            "message": "The V6 shadow candidate did not reach an exportable state.",
+            "failure": candidate.get("failure") or {},
+        })
+    output = Path(DATA_DIR) / "teaching_exports" / f"v6-shadow-{task_id}.pptx"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    await run_in_threadpool(
+        export_slide_deck_v6_pptx,
+        candidate["deck"],
+        output,
+    )
+    return FileResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        filename=f"v6-shadow-{task_id}.pptx",
+    )
 
 
 @router.post("/course-logic/upgrade")
@@ -513,8 +786,8 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     name = str(payload.get("event") or "message")
                     yield f"id: {sequence}\nevent: {name}\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
                 status = str(task.get("status") or "")
-                if status in {"completed", "failed", "cancelled", "paused"}:
-                    if status != "completed" and not any(
+                if status in {"completed", "completed_with_warnings", "failed", "cancelled", "paused"}:
+                    if status not in {"completed", "completed_with_warnings"} and not any(
                         str(item.get("event") or "") == "error" for item in history
                     ):
                         failure_detail = task.get("error_detail") or {}
@@ -583,10 +856,16 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
                     str((result.get("build") or {}).get("status") or "") != "synchronized"
                     or not (result.get("quality") or {}).get("passed", False)
                 )
+                failure = (result.get("build") or {}).get("failure") or {}
                 publish({
                     "event": "build_blocked" if blocked else "build_complete",
                     "progress": 100,
                     **result,
+                    **(
+                        {"failure": deepcopy(failure), **failure}
+                        if blocked and failure
+                        else {}
+                    ),
                 })
             except Exception as exc:
                 publish({
@@ -625,24 +904,36 @@ async def stream_slide_deck_variant_build(
     request: Request,
 ) -> StreamingResponse:
     """Build one mode/theme PPT variant and stream page-level progress."""
-    require_user_id(request.headers.get("X-User-Id"))
+    owner_id = require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
     theme = normalize_slide_deck_theme(body.theme)
     variant_key = slide_deck_variant_key(body.mode, theme)
-    document, course_view = await run_in_threadpool(_load_registry_slide_source, course_id)
+    document, course_view = await run_in_threadpool(
+        _load_registry_slide_source,
+        course_id,
+        allow_legacy_projection=body.shadow_only,
+    )
     course_view = deepcopy(course_view)
     course_view["generation_request"] = {
         **(course_view.get("generation_request") or {}),
         "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
     }
     try:
-        resolve_slide_deck_schema(
-            course_view,
-            story_engine_enabled=_story_engine_enabled(),
-            v5_enabled=_v5_enabled(),
-        )
+        target_schema = _resolve_requested_slide_schema(course_view, body)
     except SlideStoryPlanPrerequisiteError as exc:
         raise HTTPException(status_code=409, detail=exc.public_detail()) from exc
+    template_contract = (
+        _resolve_v6_template_contract(
+            body,
+            owner_id=owner_id,
+            theme=theme,
+        )
+        if target_schema == "slide_deck_v6"
+        else None
+    )
+    if template_contract is not None:
+        theme = normalize_slide_deck_theme(template_contract.theme_id)
+        variant_key = slide_deck_variant_key(body.mode, theme)
     registry = get_teaching_representation_repository().load(course_id)
     cached = next((
         item for item in registry.representations
@@ -709,6 +1000,8 @@ async def stream_slide_deck_variant_build(
             course_view,
             mode=body.mode,
             theme=theme,
+            force_schema=target_schema,
+            template_contract=template_contract,
         )["signature"]
     )
     cached_bundle_complete = (
@@ -724,6 +1017,7 @@ async def stream_slide_deck_variant_build(
     )
     cached_current = bool(
         cached_spec
+        and str((cached_content or {}).get("schema_version") or "") == target_schema
         and cached_source_revision == str(document.document_revision or "")
         and str(
             cached_signature.get("signature")
@@ -732,7 +1026,7 @@ async def stream_slide_deck_variant_build(
         == expected_signature
         and cached_bundle_complete
     )
-    if cached_current and not body.force_rebuild:
+    if cached_current and not body.force_rebuild and not body.shadow_only:
         async def cached_event_stream():
             payload = {
                 "event": "build_complete",
@@ -741,7 +1035,15 @@ async def stream_slide_deck_variant_build(
                 "cached": True,
                 "variant_key": variant_key,
                 "quality": (cached_spec.payload.get("content") or {}).get("quality_report") or {},
+                "build": {
+                    "status": "synchronized",
+                    "candidate_status": str(
+                        (cached_spec.payload.get("content") or {}).get("candidate_status")
+                        or ("v5_ready" if target_schema == "slide_deck_v5" else "")
+                    ),
+                },
                 "registry": registry.model_dump(mode="json"),
+                "target_schema": target_schema,
             }
             yield f"id: 1\nevent: build_complete\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -752,6 +1054,7 @@ async def stream_slide_deck_variant_build(
         )
 
     task_manager = get_task_manager_optional()
+    _require_durable_v6_orchestrator(target_schema, task_manager)
     if task_manager is not None:
         task_id = await task_manager.create_task(
             course_id,
@@ -761,7 +1064,25 @@ async def stream_slide_deck_variant_build(
                 "mode": body.mode,
                 "theme": theme,
                 "variant_key": variant_key,
+                "target_schema": target_schema,
+                "template_contract": (
+                    template_contract.model_dump(mode="json")
+                    if template_contract is not None
+                    else None
+                ),
+                "template_selector": {
+                    "pack_id": body.template_pack_id,
+                    "version": (
+                        int(template_contract.template_version)
+                        if body.template_pack_id and template_contract is not None
+                        else body.template_version
+                    ),
+                    "owner_id": owner_id,
+                },
                 "force_rebuild": body.force_rebuild,
+                "shadow_only": body.shadow_only,
+                "chapter_id": body.chapter_id,
+                "source_course_document_revision": str(document.document_revision or ""),
                 "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
             },
             base_document_revision=str(document.document_revision or ""),
@@ -800,8 +1121,8 @@ async def stream_slide_deck_variant_build(
                         f"data: {json.dumps(event_body, ensure_ascii=False)}\n\n"
                     )
                 status = str(task.get("status") or "")
-                if status in {"completed", "failed", "cancelled", "paused"}:
-                    if status != "completed" and not any(
+                if status in {"completed", "completed_with_warnings", "failed", "cancelled", "paused"}:
+                    if status not in {"completed", "completed_with_warnings"} and not any(
                         str(item.get("event") or "") == "error" for item in history
                     ):
                         failure_detail = task.get("error_detail") or {}
@@ -818,6 +1139,16 @@ async def stream_slide_deck_variant_build(
                             "action": str(failure_detail.get("action") or ""),
                             "retryable": failure_detail.get("retryable"),
                             "task_id": task_id,
+                            **{
+                                key: failure_detail[key]
+                                for key in (
+                                    "stage",
+                                    "source_revision",
+                                    "chapter_id",
+                                    "page_id",
+                                )
+                                if failure_detail.get(key) not in (None, "")
+                            },
                         }
                         yield f"event: {payload['event']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     return
@@ -836,10 +1167,11 @@ async def stream_slide_deck_variant_build(
             "progress": 1,
             "sequence": sequence,
             "variant_key": variant_key,
+            "target_schema": target_schema,
         }
         yield f"id: {sequence}\nevent: planner_started\ndata: {json.dumps(started, ensure_ascii=False)}\n\n"
         story_plan: SlideStoryPlanV2 | None = None
-        if _story_engine_enabled() and course_supports_slide_deck_v4(course_view):
+        if target_schema in {"slide_deck_v4", "slide_deck_v5"}:
             source_fragments = fragment_course_document(document)
             story_plan = compile_slide_story_plan_v2(
                 document,
@@ -848,7 +1180,7 @@ async def stream_slide_deck_variant_build(
                 mode=body.mode,
                 theme=theme,  # type: ignore[arg-type]
             )
-            if _v5_enabled():
+            if target_schema == "slide_deck_v5":
                 story_plan = compact_story_plan_v5(
                     document,
                     story_plan,
@@ -856,7 +1188,7 @@ async def stream_slide_deck_variant_build(
                 )
             allocation_compiler = (
                 allocation_from_story_plan_v5
-                if _v5_enabled()
+                if target_schema == "slide_deck_v5"
                 else allocation_from_story_plan_v2
             )
             allocation_plan, _ = allocation_compiler(
@@ -886,6 +1218,7 @@ async def stream_slide_deck_variant_build(
                     story_plan=story_plan,
                     progress_callback=publish,
                     web_image_retrieval=body.web_image_retrieval.model_dump(mode="json"),
+                    requested_schema=target_schema,
                 )
                 blocked = (
                     str((result.get("build") or {}).get("status") or "") != "synchronized"
@@ -897,7 +1230,17 @@ async def stream_slide_deck_variant_build(
                     **result,
                 })
             except Exception as exc:
-                publish({"event": "error", "progress": 100, "message": str(exc)})
+                detail = (
+                    exc.public_detail()
+                    if isinstance(exc, SlideDeckV5BuildError)
+                    else {}
+                )
+                publish({
+                    "event": "error",
+                    "progress": 100,
+                    "message": str(detail.get("message") or exc),
+                    **detail,
+                })
             finally:
                 events.put(None)
 

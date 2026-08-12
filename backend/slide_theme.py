@@ -15,6 +15,7 @@ THEME_PACK_PATH = (
     / "data"
     / "slide-themes.json"
 )
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 @lru_cache(maxsize=1)
@@ -45,9 +46,28 @@ def slide_theme(theme: str) -> dict[str, Any]:
     return dict(themes[normalized])
 
 
+def slide_theme_asset_path(
+    theme: dict[str, Any],
+    asset_name: str,
+) -> Path | None:
+    """Resolve a bundled theme asset without allowing paths outside the repo."""
+    assets = theme.get("visual_assets") or {}
+    asset = assets.get(asset_name) or {}
+    source_path = str(asset.get("source_path") or "").strip()
+    if not source_path:
+        return None
+    candidate = (REPOSITORY_ROOT / source_path).resolve()
+    try:
+        candidate.relative_to(REPOSITORY_ROOT)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 __all__ = [
     "THEME_PACK_PATH",
     "load_slide_theme_pack",
     "slide_theme",
+    "slide_theme_asset_path",
     "slide_theme_version",
 ]

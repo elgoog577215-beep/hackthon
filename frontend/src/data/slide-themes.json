@@ -1,6 +1,6 @@
 {
   "schema_version": "slide_theme_pack_v1",
-  "version": "2026.07.23.2",
+  "version": "2026.08.10.4",
   "themes": {
     "qizhi-classroom": {
       "label": "启智课堂",
@@ -25,8 +25,229 @@
       "body_east_asian_font": "Microsoft YaHei",
       "math_font": "Times New Roman",
       "image_treatment": "warm-natural",
-      "prompt_style": "bright editorial educational scene, warm daylight, clean geometric forms, subject-focused composition",
-      "layout_weights": {"figure-first": 1.2, "split-visual": 1.1, "diagram-full": 1.0}
+      "prompt_style": "bright premium educational editorial illustration, warm ivory paper texture, confident blue geometry, mint learning paths, small amber discovery accents, generous negative space, subject-focused composition",
+      "layout_weights": {
+        "figure-first": 1.2,
+        "split-visual": 1.1,
+        "diagram-full": 1
+      },
+      "template": {
+        "template_id": "qizhi-classroom-v2",
+        "template_version": "2026.08.10.4",
+        "aspect_ratio": "16:9",
+        "design_intent": "明亮、亲和、结构清楚的通用课堂演示",
+        "reference_deck": "/presentation-templates/qizhi-classroom-v2.pptx",
+        "preview_path": "/presentation-assets/qizhi-classroom/cover-learning-journey.jpg",
+        "accent_rail_owner": "card-shell"
+      },
+      "typography": {
+        "deck_title_pt": 50,
+        "slide_title_pt": 35,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 20,
+        "caption_pt": 10,
+        "line_height": 1.45
+      },
+      "geometry": {
+        "page_margin_in": 0.78,
+        "content_gutter_in": 0.28,
+        "card_radius_in": 0.14,
+        "card_border": "DDE5EE",
+        "card_surface": "FFFFFF",
+        "card_shadow": "soft",
+        "accent_rule_in": 0.08
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": [
+            "roadmap",
+            "agenda-linear",
+            "objective",
+            "concept",
+            "hero-statement",
+            "hero-claim",
+            "editorial-body",
+            "balanced-two-column",
+            "two-column",
+            "classification-3",
+            "parallel-examples",
+            "case-study",
+            "comparison"
+          ]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": [
+            "process",
+            "process-sequence",
+            "worked-example",
+            "derivation-steps",
+            "method-flow",
+            "application-mapping"
+          ]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": [
+            "practice",
+            "question",
+            "question-prompt",
+            "practice-feedback",
+            "misconception",
+            "misconception-repair"
+          ]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": [
+            "code",
+            "formula",
+            "formula-explanation",
+            "figure-text",
+            "diagram-full",
+            "table-evidence",
+            "code-focus",
+            "formula-focus"
+          ]
+        }
+      },
+      "text_box_styles": {
+        "standard": {
+          "fill": "FFFFFF",
+          "border": "DDE5EE",
+          "depth": "D4DFEC",
+          "accent": "2F6FE4",
+          "text": "34465C"
+        },
+        "message": {
+          "fill": "EAF1FF",
+          "border": "C9DBFA",
+          "depth": "BFD2F2",
+          "accent": "2F6FE4",
+          "text": "17365D"
+        },
+        "definition": {
+          "fill": "FFFFFF",
+          "border": "D7E4F5",
+          "depth": "C8D8ED",
+          "accent": "2F6FE4",
+          "text": "17365D"
+        },
+        "boundary": {
+          "fill": "EAF8F3",
+          "border": "C7E9DD",
+          "depth": "B6DDD0",
+          "accent": "16856B",
+          "text": "34465C"
+        },
+        "reasoning": {
+          "fill": "F4F8FE",
+          "border": "D7E4F5",
+          "depth": "C6D8EF",
+          "accent": "2F6FE4",
+          "text": "34465C"
+        },
+        "practice": {
+          "fill": "FFF7E9",
+          "border": "F2DDBA",
+          "depth": "EBCF9D",
+          "accent": "F29D38",
+          "text": "34465C"
+        },
+        "feedback": {
+          "fill": "EAF8F3",
+          "border": "C7E9DD",
+          "depth": "B4DCCD",
+          "accent": "16856B",
+          "text": "34465C"
+        },
+        "misconception": {
+          "fill": "FDEDE9",
+          "border": "F2CFC8",
+          "depth": "E9BEB5",
+          "accent": "C45443",
+          "text": "34465C"
+        },
+        "evidence": {
+          "fill": "14243B",
+          "border": "203A5B",
+          "depth": "09182A",
+          "accent": "74B4FF",
+          "text": "F5F8FC"
+        },
+        "note": {
+          "fill": "F7F9FC",
+          "border": "DDE5EE",
+          "depth": "D0DAE6",
+          "accent": "6D7D91",
+          "text": "34465C"
+        }
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.3,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.05,
+        "positive-negative": 1.1,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.05,
+        "method-flow": 1.15,
+        "decision-branch": 1.05,
+        "example-prompt": 1.15,
+        "example-strategy": 1.1,
+        "example-reveal": 1.1,
+        "result-validation": 1.05,
+        "practice-prompt": 1.18,
+        "feedback-mastery": 1.15,
+        "misconception-repair": 1.1,
+        "application-mapping": 1.18,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.25,
+        "formula-focus": 1,
+        "code-focus": 1,
+        "table-evidence": 1,
+        "figure-text": 1.2
+      },
+      "visual_assets": {
+        "cover": {
+          "web_path": "/presentation-assets/qizhi-classroom/cover-learning-journey.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/cover-learning-journey.jpg",
+          "alt": "抽象的知识旅程、书本与上升路径"
+        },
+        "chapter": {
+          "web_path": "/presentation-assets/qizhi-classroom/chapter-opening.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/chapter-opening.jpg",
+          "alt": "从层叠纸张中展开的新章节路径"
+        },
+        "recap": {
+          "web_path": "/presentation-assets/qizhi-classroom/recap-convergence.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/recap-convergence.jpg",
+          "alt": "多条学习路径汇聚为清晰结论"
+        },
+        "interior_content": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-content.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-content.jpg",
+          "alt": "层叠纸张与学习节点构成的通用内容页背景"
+        },
+        "interior_reasoning": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-reasoning.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-reasoning.jpg",
+          "alt": "沿底部展开的浅色推演路径背景"
+        },
+        "interior_practice": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-practice.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-practice.jpg",
+          "alt": "蓝绿与琥珀纸张弧线构成的练习页背景"
+        },
+        "interior_evidence": {
+          "web_path": "/presentation-assets/qizhi-classroom/interior-evidence.jpg",
+          "source_path": "frontend/public/presentation-assets/qizhi-classroom/interior-evidence.jpg",
+          "alt": "带有精确轨迹和纸张层次的证据页背景"
+        }
+      }
     },
     "academic-editorial": {
       "label": "学术编辑",
@@ -52,7 +273,250 @@
       "math_font": "Times New Roman",
       "image_treatment": "muted-documentary",
       "prompt_style": "restrained academic editorial illustration, natural materials, generous negative space",
-      "layout_weights": {"figure-first": 0.9, "split-visual": 1.1, "diagram-full": 1.0}
+      "layout_weights": {
+        "figure-first": 0.9,
+        "split-visual": 1.1,
+        "diagram-full": 1
+      },
+      "template": {
+        "template_id": "academic-editorial-v2",
+        "template_version": "2026.08.10.4",
+        "aspect_ratio": "16:9",
+        "design_intent": "????????????????????",
+        "reference_deck": "/presentation-templates/academic-editorial-v2.pptx",
+        "preview_path": "/presentation-assets/academic-editorial/cover-editorial.jpg",
+        "accent_rail_owner": "card-shell"
+      },
+      "typography": {
+        "deck_title_pt": 50,
+        "slide_title_pt": 36,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 20,
+        "caption_pt": 10,
+        "line_height": 1.5
+      },
+      "geometry": {
+        "page_margin_in": 0.82,
+        "content_gutter_in": 0.3,
+        "card_radius_in": 0.08,
+        "card_border": "D7D9D6",
+        "card_surface": "FFFFFF",
+        "card_shadow": "print",
+        "accent_rule_in": 0.055
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": [
+            "roadmap",
+            "agenda-linear",
+            "objective",
+            "concept",
+            "hero-statement",
+            "hero-claim",
+            "editorial-body",
+            "balanced-two-column",
+            "two-column",
+            "classification-3",
+            "parallel-examples",
+            "case-study",
+            "comparison"
+          ]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": [
+            "process",
+            "process-sequence",
+            "worked-example",
+            "derivation-steps",
+            "method-flow",
+            "application-mapping"
+          ]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": [
+            "practice",
+            "question",
+            "question-prompt",
+            "practice-feedback",
+            "misconception",
+            "misconception-repair"
+          ]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": [
+            "code",
+            "formula",
+            "formula-explanation",
+            "figure-text",
+            "diagram-full",
+            "table-evidence",
+            "code-focus",
+            "formula-focus"
+          ]
+        }
+      },
+      "text_box_styles": {
+        "standard": {
+          "fill": "FFFFFF",
+          "border": "D7D9D6",
+          "depth": "CFD2D0",
+          "accent": "315E7D",
+          "text": "45515D"
+        },
+        "message": {
+          "fill": "EDF2F4",
+          "border": "CBD8DE",
+          "depth": "BECBD2",
+          "accent": "315E7D",
+          "text": "273340"
+        },
+        "definition": {
+          "fill": "FFFDF8",
+          "border": "D8D3C8",
+          "depth": "CAC4B8",
+          "accent": "315E7D",
+          "text": "273340"
+        },
+        "boundary": {
+          "fill": "EEF3F0",
+          "border": "CBDAD4",
+          "depth": "BDCFC8",
+          "accent": "4F6D64",
+          "text": "45515D"
+        },
+        "reasoning": {
+          "fill": "F3F5F5",
+          "border": "D5DCDF",
+          "depth": "C6CFD3",
+          "accent": "315E7D",
+          "text": "45515D"
+        },
+        "practice": {
+          "fill": "F7F1E6",
+          "border": "E2D3B9",
+          "depth": "D5C39F",
+          "accent": "8B6B3E",
+          "text": "45515D"
+        },
+        "feedback": {
+          "fill": "EAF0ED",
+          "border": "C9D8D2",
+          "depth": "B9CCC4",
+          "accent": "4F6D64",
+          "text": "45515D"
+        },
+        "misconception": {
+          "fill": "F5E9E6",
+          "border": "E1C6C1",
+          "depth": "D4B5AE",
+          "accent": "824C45",
+          "text": "45515D"
+        },
+        "evidence": {
+          "fill": "252E35",
+          "border": "384650",
+          "depth": "151D23",
+          "accent": "7FB2D0",
+          "text": "F4F6F7"
+        },
+        "note": {
+          "fill": "F3F2EE",
+          "border": "D8D7D1",
+          "depth": "CBCAC4",
+          "accent": "727A82",
+          "text": "45515D"
+        }
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.22,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.08,
+        "positive-negative": 1.1,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.08,
+        "method-flow": 1.14,
+        "decision-branch": 1.08,
+        "example-prompt": 1.12,
+        "example-strategy": 1.1,
+        "example-reveal": 1.1,
+        "result-validation": 1.08,
+        "practice-prompt": 1.15,
+        "feedback-mastery": 1.14,
+        "misconception-repair": 1.12,
+        "application-mapping": 1.14,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.2,
+        "formula-focus": 1.06,
+        "code-focus": 1.06,
+        "table-evidence": 1.25,
+        "figure-text": 1.05
+      },
+      "visual_assets": {
+        "cover": {
+          "web_path": "/presentation-assets/academic-editorial/cover-editorial.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/cover-editorial.jpg",
+          "alt": "?????????????????"
+        },
+        "chapter": {
+          "web_path": "/presentation-assets/academic-editorial/chapter-editorial.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/chapter-editorial.jpg",
+          "alt": "????????????????"
+        },
+        "recap": {
+          "web_path": "/presentation-assets/academic-editorial/recap-editorial.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/recap-editorial.jpg",
+          "alt": "??????????????"
+        },
+        "interior_content": {
+          "web_path": "/presentation-assets/academic-editorial/interior-content.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/interior-content.jpg",
+          "alt": "???????????????????????????"
+        },
+        "interior_reasoning": {
+          "web_path": "/presentation-assets/academic-editorial/interior-reasoning.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/interior-reasoning.jpg",
+          "alt": "?????????????????????????"
+        },
+        "interior_practice": {
+          "web_path": "/presentation-assets/academic-editorial/interior-practice.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/interior-practice.jpg",
+          "alt": "?????????????????????????"
+        },
+        "interior_evidence": {
+          "web_path": "/presentation-assets/academic-editorial/interior-evidence.jpg",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/interior-evidence.jpg",
+          "alt": "?????????????????????????"
+        }
+      },
+      "decorative_assets": {
+        "card_depth": {
+          "web_path": "/presentation-assets/academic-editorial/card-depth.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/card-depth.png",
+          "alt": "???????"
+        },
+        "section_tab": {
+          "web_path": "/presentation-assets/academic-editorial/section-tab.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/section-tab.png",
+          "alt": "????"
+        },
+        "corner_accent": {
+          "web_path": "/presentation-assets/academic-editorial/corner-accent.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/corner-accent.png",
+          "alt": "??????"
+        },
+        "motif_cluster": {
+          "web_path": "/presentation-assets/academic-editorial/motif-cluster.png",
+          "source_path": "frontend/public/presentation-assets/academic-editorial/motif-cluster.png",
+          "alt": "??????"
+        }
+      }
     },
     "grid-notebook": {
       "label": "网格笔记",
@@ -78,7 +542,250 @@
       "math_font": "Times New Roman",
       "image_treatment": "paper-cutout",
       "prompt_style": "editorial notebook cutout illustration, paper texture, ink annotations without text",
-      "layout_weights": {"figure-first": 0.9, "split-visual": 1.0, "diagram-full": 1.2}
+      "layout_weights": {
+        "figure-first": 0.9,
+        "split-visual": 1,
+        "diagram-full": 1.2
+      },
+      "template": {
+        "template_id": "grid-notebook-v2",
+        "template_version": "2026.08.10.4",
+        "aspect_ratio": "16:9",
+        "design_intent": "?????????????????????",
+        "reference_deck": "/presentation-templates/grid-notebook-v2.pptx",
+        "preview_path": "/presentation-assets/grid-notebook/cover-notebook.jpg",
+        "accent_rail_owner": "card-shell"
+      },
+      "typography": {
+        "deck_title_pt": 50,
+        "slide_title_pt": 35,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 20,
+        "caption_pt": 10,
+        "line_height": 1.45
+      },
+      "geometry": {
+        "page_margin_in": 0.75,
+        "content_gutter_in": 0.28,
+        "card_radius_in": 0.1,
+        "card_border": "D9D5C7",
+        "card_surface": "FFFDF6",
+        "card_shadow": "paper-offset",
+        "accent_rule_in": 0.065
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": [
+            "roadmap",
+            "agenda-linear",
+            "objective",
+            "concept",
+            "hero-statement",
+            "hero-claim",
+            "editorial-body",
+            "balanced-two-column",
+            "two-column",
+            "classification-3",
+            "parallel-examples",
+            "case-study",
+            "comparison"
+          ]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": [
+            "process",
+            "process-sequence",
+            "worked-example",
+            "derivation-steps",
+            "method-flow",
+            "application-mapping"
+          ]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": [
+            "practice",
+            "question",
+            "question-prompt",
+            "practice-feedback",
+            "misconception",
+            "misconception-repair"
+          ]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": [
+            "code",
+            "formula",
+            "formula-explanation",
+            "figure-text",
+            "diagram-full",
+            "table-evidence",
+            "code-focus",
+            "formula-focus"
+          ]
+        }
+      },
+      "text_box_styles": {
+        "standard": {
+          "fill": "FFFDF6",
+          "border": "D9D5C7",
+          "depth": "C9C3B2",
+          "accent": "2D7464",
+          "text": "40524D"
+        },
+        "message": {
+          "fill": "E8F2EE",
+          "border": "BDD8CE",
+          "depth": "AECBBF",
+          "accent": "2D7464",
+          "text": "283B36"
+        },
+        "definition": {
+          "fill": "FFFDF2",
+          "border": "DDD5BD",
+          "depth": "CEC5AB",
+          "accent": "2D7464",
+          "text": "283B36"
+        },
+        "boundary": {
+          "fill": "EAF2E6",
+          "border": "CADBC4",
+          "depth": "B8CEB1",
+          "accent": "648B57",
+          "text": "40524D"
+        },
+        "reasoning": {
+          "fill": "EFF6F2",
+          "border": "CBDDD6",
+          "depth": "B9D0C7",
+          "accent": "2D7464",
+          "text": "40524D"
+        },
+        "practice": {
+          "fill": "FFF3DC",
+          "border": "E9CFA4",
+          "depth": "DCBC88",
+          "accent": "D18A32",
+          "text": "40524D"
+        },
+        "feedback": {
+          "fill": "EAF2E6",
+          "border": "C7D9C0",
+          "depth": "B4CDAA",
+          "accent": "648B57",
+          "text": "40524D"
+        },
+        "misconception": {
+          "fill": "F8E7E2",
+          "border": "E7C3BA",
+          "depth": "D9ADA2",
+          "accent": "B75A48",
+          "text": "40524D"
+        },
+        "evidence": {
+          "fill": "253D38",
+          "border": "376056",
+          "depth": "142824",
+          "accent": "77C3AD",
+          "text": "F4FAF7"
+        },
+        "note": {
+          "fill": "F4F0E4",
+          "border": "D9D2BF",
+          "depth": "C8C0AA",
+          "accent": "73817C",
+          "text": "40524D"
+        }
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.22,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.08,
+        "positive-negative": 1.1,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.08,
+        "method-flow": 1.14,
+        "decision-branch": 1.08,
+        "example-prompt": 1.12,
+        "example-strategy": 1.1,
+        "example-reveal": 1.1,
+        "result-validation": 1.08,
+        "practice-prompt": 1.28,
+        "feedback-mastery": 1.14,
+        "misconception-repair": 1.22,
+        "application-mapping": 1.14,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.2,
+        "formula-focus": 1.06,
+        "code-focus": 1.06,
+        "table-evidence": 1.08,
+        "figure-text": 1.12
+      },
+      "visual_assets": {
+        "cover": {
+          "web_path": "/presentation-assets/grid-notebook/cover-notebook.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/cover-notebook.jpg",
+          "alt": "grid notebook cover background"
+        },
+        "chapter": {
+          "web_path": "/presentation-assets/grid-notebook/chapter-notebook.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/chapter-notebook.jpg",
+          "alt": "????????????????"
+        },
+        "recap": {
+          "web_path": "/presentation-assets/grid-notebook/recap-notebook.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/recap-notebook.jpg",
+          "alt": "????????????????"
+        },
+        "interior_content": {
+          "web_path": "/presentation-assets/grid-notebook/interior-content.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/interior-content.jpg",
+          "alt": "????????????????????????????"
+        },
+        "interior_reasoning": {
+          "web_path": "/presentation-assets/grid-notebook/interior-reasoning.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/interior-reasoning.jpg",
+          "alt": "??????????????????????????"
+        },
+        "interior_practice": {
+          "web_path": "/presentation-assets/grid-notebook/interior-practice.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/interior-practice.jpg",
+          "alt": "??????????????????????????"
+        },
+        "interior_evidence": {
+          "web_path": "/presentation-assets/grid-notebook/interior-evidence.jpg",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/interior-evidence.jpg",
+          "alt": "??????????????????????????"
+        }
+      },
+      "decorative_assets": {
+        "card_depth": {
+          "web_path": "/presentation-assets/grid-notebook/card-depth.png",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/card-depth.png",
+          "alt": "???????"
+        },
+        "section_tab": {
+          "web_path": "/presentation-assets/grid-notebook/section-tab.png",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/section-tab.png",
+          "alt": "????"
+        },
+        "corner_accent": {
+          "web_path": "/presentation-assets/grid-notebook/corner-accent.png",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/corner-accent.png",
+          "alt": "??????"
+        },
+        "motif_cluster": {
+          "web_path": "/presentation-assets/grid-notebook/motif-cluster.png",
+          "source_path": "frontend/public/presentation-assets/grid-notebook/motif-cluster.png",
+          "alt": "??????"
+        }
+      }
     },
     "modern-geometric": {
       "label": "现代几何",
@@ -104,7 +811,251 @@
       "math_font": "Times New Roman",
       "image_treatment": "bold-geometric",
       "prompt_style": "bold modern geometric editorial illustration, dramatic cropping, no lettering",
-      "layout_weights": {"figure-first": 1.3, "split-visual": 1.0, "diagram-full": 1.1}
+      "layout_weights": {
+        "figure-first": 1.3,
+        "split-visual": 1,
+        "diagram-full": 1.1
+      },
+      "template": {
+        "template_id": "modern-geometric-v2",
+        "template_version": "2026.08.10.4",
+        "aspect_ratio": "16:9",
+        "design_intent": "?????????????????????",
+        "reference_deck": "/presentation-templates/modern-geometric-v2.pptx",
+        "preview_path": "/presentation-assets/modern-geometric/cover-geometric.jpg",
+        "accent_rail_owner": "card-shell"
+      },
+      "typography": {
+        "deck_title_pt": 52,
+        "slide_title_pt": 36,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 21,
+        "caption_pt": 10,
+        "line_height": 1.4
+      },
+      "geometry": {
+        "page_margin_in": 0.72,
+        "content_gutter_in": 0.3,
+        "card_radius_in": 0.16,
+        "card_border": "DED8F2",
+        "card_surface": "FFFFFF",
+        "card_shadow": "floating",
+        "accent_rule_in": 0.075
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": [
+            "roadmap",
+            "agenda-linear",
+            "objective",
+            "concept",
+            "hero-statement",
+            "hero-claim",
+            "editorial-body",
+            "balanced-two-column",
+            "two-column",
+            "classification-3",
+            "parallel-examples",
+            "case-study",
+            "comparison"
+          ]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": [
+            "process",
+            "process-sequence",
+            "worked-example",
+            "derivation-steps",
+            "method-flow",
+            "application-mapping"
+          ]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": [
+            "practice",
+            "question",
+            "question-prompt",
+            "practice-feedback",
+            "misconception",
+            "misconception-repair"
+          ]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": [
+            "code",
+            "formula",
+            "formula-explanation",
+            "figure-text",
+            "diagram-full",
+            "table-evidence",
+            "code-focus",
+            "formula-focus"
+          ]
+        }
+      },
+      "text_box_styles": {
+        "standard": {
+          "fill": "FFFFFF",
+          "border": "DED8F2",
+          "depth": "CFC6EA",
+          "accent": "6548E8",
+          "text": "463D62"
+        },
+        "message": {
+          "fill": "EEE9FF",
+          "border": "D5CBFA",
+          "depth": "C5B9F2",
+          "accent": "6548E8",
+          "text": "231A4A"
+        },
+        "definition": {
+          "fill": "FFFFFF",
+          "border": "DDD6F2",
+          "depth": "CCC2EA",
+          "accent": "6548E8",
+          "text": "231A4A"
+        },
+        "boundary": {
+          "fill": "E7F7F4",
+          "border": "C4E7E1",
+          "depth": "AEDBD3",
+          "accent": "138D85",
+          "text": "463D62"
+        },
+        "reasoning": {
+          "fill": "F1EDFF",
+          "border": "D9D0FA",
+          "depth": "C7BAF1",
+          "accent": "6548E8",
+          "text": "463D62"
+        },
+        "practice": {
+          "fill": "FFF0E5",
+          "border": "F6D1B6",
+          "depth": "EDBD99",
+          "accent": "F08B3E",
+          "text": "463D62"
+        },
+        "feedback": {
+          "fill": "E4F7F3",
+          "border": "BFE5DE",
+          "depth": "A9D8CF",
+          "accent": "138D85",
+          "text": "463D62"
+        },
+        "misconception": {
+          "fill": "FBE7EB",
+          "border": "F0C5CE",
+          "depth": "E5ADB9",
+          "accent": "D45168",
+          "text": "463D62"
+        },
+        "evidence": {
+          "fill": "211B3A",
+          "border": "40356A",
+          "depth": "110C27",
+          "accent": "8A75FF",
+          "text": "F7F5FF"
+        },
+        "note": {
+          "fill": "F2F0F8",
+          "border": "DDD9E8",
+          "depth": "CEC8DD",
+          "accent": "746C8B",
+          "text": "463D62"
+        }
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.22,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.08,
+        "positive-negative": 1.1,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.08,
+        "method-flow": 1.14,
+        "decision-branch": 1.08,
+        "example-prompt": 1.12,
+        "example-strategy": 1.1,
+        "example-reveal": 1.1,
+        "result-validation": 1.08,
+        "practice-prompt": 1.15,
+        "feedback-mastery": 1.14,
+        "misconception-repair": 1.12,
+        "application-mapping": 1.14,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.2,
+        "formula-focus": 1.06,
+        "code-focus": 1.06,
+        "table-evidence": 1.08,
+        "figure-text": 1.3,
+        "classification-3": 1.18
+      },
+      "visual_assets": {
+        "cover": {
+          "web_path": "/presentation-assets/modern-geometric/cover-geometric.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/cover-geometric.jpg",
+          "alt": "?????????????????"
+        },
+        "chapter": {
+          "web_path": "/presentation-assets/modern-geometric/chapter-geometric.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/chapter-geometric.jpg",
+          "alt": "??????????????"
+        },
+        "recap": {
+          "web_path": "/presentation-assets/modern-geometric/recap-geometric.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/recap-geometric.jpg",
+          "alt": "????????????????"
+        },
+        "interior_content": {
+          "web_path": "/presentation-assets/modern-geometric/interior-content.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/interior-content.jpg",
+          "alt": "????????????????????????????"
+        },
+        "interior_reasoning": {
+          "web_path": "/presentation-assets/modern-geometric/interior-reasoning.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/interior-reasoning.jpg",
+          "alt": "??????????????????????????"
+        },
+        "interior_practice": {
+          "web_path": "/presentation-assets/modern-geometric/interior-practice.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/interior-practice.jpg",
+          "alt": "??????????????????????????"
+        },
+        "interior_evidence": {
+          "web_path": "/presentation-assets/modern-geometric/interior-evidence.jpg",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/interior-evidence.jpg",
+          "alt": "??????????????????????????"
+        }
+      },
+      "decorative_assets": {
+        "card_depth": {
+          "web_path": "/presentation-assets/modern-geometric/card-depth.png",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/card-depth.png",
+          "alt": "???????"
+        },
+        "section_tab": {
+          "web_path": "/presentation-assets/modern-geometric/section-tab.png",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/section-tab.png",
+          "alt": "????"
+        },
+        "corner_accent": {
+          "web_path": "/presentation-assets/modern-geometric/corner-accent.png",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/corner-accent.png",
+          "alt": "??????"
+        },
+        "motif_cluster": {
+          "web_path": "/presentation-assets/modern-geometric/motif-cluster.png",
+          "source_path": "frontend/public/presentation-assets/modern-geometric/motif-cluster.png",
+          "alt": "??????"
+        }
+      }
     },
     "dark-tech": {
       "label": "深色科技",
@@ -130,7 +1081,251 @@
       "math_font": "Times New Roman",
       "image_treatment": "cinematic-tech",
       "prompt_style": "cinematic technical editorial illustration, luminous edges, deep navy field, no text",
-      "layout_weights": {"figure-first": 1.2, "split-visual": 1.0, "diagram-full": 1.2}
+      "layout_weights": {
+        "figure-first": 1.2,
+        "split-visual": 1,
+        "diagram-full": 1.2
+      },
+      "template": {
+        "template_id": "dark-tech-v2",
+        "template_version": "2026.08.10.4",
+        "aspect_ratio": "16:9",
+        "design_intent": "???????????????????????",
+        "reference_deck": "/presentation-templates/dark-tech-v2.pptx",
+        "preview_path": "/presentation-assets/dark-tech/cover-tech.jpg",
+        "accent_rail_owner": "card-shell"
+      },
+      "typography": {
+        "deck_title_pt": 52,
+        "slide_title_pt": 36,
+        "section_label_pt": 11,
+        "body_pt": 17,
+        "body_dense_pt": 16,
+        "callout_pt": 21,
+        "caption_pt": 10,
+        "line_height": 1.42
+      },
+      "geometry": {
+        "page_margin_in": 0.76,
+        "content_gutter_in": 0.28,
+        "card_radius_in": 0.14,
+        "card_border": "2B4565",
+        "card_surface": "16243A",
+        "card_shadow": "glow",
+        "accent_rule_in": 0.07
+      },
+      "background_profiles": {
+        "content": {
+          "asset": "interior_content",
+          "layouts": [
+            "roadmap",
+            "agenda-linear",
+            "objective",
+            "concept",
+            "hero-statement",
+            "hero-claim",
+            "editorial-body",
+            "balanced-two-column",
+            "two-column",
+            "classification-3",
+            "parallel-examples",
+            "case-study",
+            "comparison"
+          ]
+        },
+        "reasoning": {
+          "asset": "interior_reasoning",
+          "layouts": [
+            "process",
+            "process-sequence",
+            "worked-example",
+            "derivation-steps",
+            "method-flow",
+            "application-mapping"
+          ]
+        },
+        "practice": {
+          "asset": "interior_practice",
+          "layouts": [
+            "practice",
+            "question",
+            "question-prompt",
+            "practice-feedback",
+            "misconception",
+            "misconception-repair"
+          ]
+        },
+        "evidence": {
+          "asset": "interior_evidence",
+          "layouts": [
+            "code",
+            "formula",
+            "formula-explanation",
+            "figure-text",
+            "diagram-full",
+            "table-evidence",
+            "code-focus",
+            "formula-focus"
+          ]
+        }
+      },
+      "text_box_styles": {
+        "standard": {
+          "fill": "16243A",
+          "border": "2B4565",
+          "depth": "091522",
+          "accent": "4DB5FF",
+          "text": "D7E3F2"
+        },
+        "message": {
+          "fill": "17334C",
+          "border": "285578",
+          "depth": "0B2033",
+          "accent": "4DB5FF",
+          "text": "F3F8FF"
+        },
+        "definition": {
+          "fill": "142A42",
+          "border": "28506E",
+          "depth": "091A2A",
+          "accent": "4DB5FF",
+          "text": "F3F8FF"
+        },
+        "boundary": {
+          "fill": "153C3A",
+          "border": "27635D",
+          "depth": "092724",
+          "accent": "40D6B1",
+          "text": "D7E3F2"
+        },
+        "reasoning": {
+          "fill": "142D49",
+          "border": "285271",
+          "depth": "091B2D",
+          "accent": "4DB5FF",
+          "text": "D7E3F2"
+        },
+        "practice": {
+          "fill": "49351F",
+          "border": "76522D",
+          "depth": "281A0C",
+          "accent": "FFB35A",
+          "text": "F3F8FF"
+        },
+        "feedback": {
+          "fill": "173D3A",
+          "border": "28655F",
+          "depth": "092725",
+          "accent": "40D6B1",
+          "text": "D7E3F2"
+        },
+        "misconception": {
+          "fill": "482631",
+          "border": "75404E",
+          "depth": "271019",
+          "accent": "FF7385",
+          "text": "F3F8FF"
+        },
+        "evidence": {
+          "fill": "070D16",
+          "border": "24415C",
+          "depth": "02070D",
+          "accent": "65C5FF",
+          "text": "F3F8FF"
+        },
+        "note": {
+          "fill": "172337",
+          "border": "2C415C",
+          "depth": "09131F",
+          "accent": "91A6BE",
+          "text": "D7E3F2"
+        }
+      },
+      "semantic_layout_weights": {
+        "chapter-question": 1.22,
+        "prerequisite-recall": 1.08,
+        "definition-focus": 1.12,
+        "definition-boundary": 1.08,
+        "positive-negative": 1.1,
+        "reasoning-route": 1.12,
+        "derivation-steps": 1.08,
+        "method-flow": 1.14,
+        "decision-branch": 1.08,
+        "example-prompt": 1.12,
+        "example-strategy": 1.1,
+        "example-reveal": 1.1,
+        "result-validation": 1.08,
+        "practice-prompt": 1.15,
+        "feedback-mastery": 1.14,
+        "misconception-repair": 1.12,
+        "application-mapping": 1.14,
+        "chapter-knowledge-map": 1.12,
+        "chapter-closure": 1.2,
+        "formula-focus": 1.06,
+        "code-focus": 1.3,
+        "table-evidence": 1.08,
+        "figure-text": 1.12,
+        "diagram-full": 1.22
+      },
+      "visual_assets": {
+        "cover": {
+          "web_path": "/presentation-assets/dark-tech/cover-tech.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/cover-tech.jpg",
+          "alt": "?????????????????????"
+        },
+        "chapter": {
+          "web_path": "/presentation-assets/dark-tech/chapter-tech.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/chapter-tech.jpg",
+          "alt": "??????????????"
+        },
+        "recap": {
+          "web_path": "/presentation-assets/dark-tech/recap-tech.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/recap-tech.jpg",
+          "alt": "????????????????"
+        },
+        "interior_content": {
+          "web_path": "/presentation-assets/dark-tech/interior-content.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/interior-content.jpg",
+          "alt": "??????????????????????????????"
+        },
+        "interior_reasoning": {
+          "web_path": "/presentation-assets/dark-tech/interior-reasoning.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/interior-reasoning.jpg",
+          "alt": "????????????????????????????"
+        },
+        "interior_practice": {
+          "web_path": "/presentation-assets/dark-tech/interior-practice.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/interior-practice.jpg",
+          "alt": "????????????????????????????"
+        },
+        "interior_evidence": {
+          "web_path": "/presentation-assets/dark-tech/interior-evidence.jpg",
+          "source_path": "frontend/public/presentation-assets/dark-tech/interior-evidence.jpg",
+          "alt": "????????????????????????????"
+        }
+      },
+      "decorative_assets": {
+        "card_depth": {
+          "web_path": "/presentation-assets/dark-tech/card-depth.png",
+          "source_path": "frontend/public/presentation-assets/dark-tech/card-depth.png",
+          "alt": "???????"
+        },
+        "section_tab": {
+          "web_path": "/presentation-assets/dark-tech/section-tab.png",
+          "source_path": "frontend/public/presentation-assets/dark-tech/section-tab.png",
+          "alt": "????"
+        },
+        "corner_accent": {
+          "web_path": "/presentation-assets/dark-tech/corner-accent.png",
+          "source_path": "frontend/public/presentation-assets/dark-tech/corner-accent.png",
+          "alt": "??????"
+        },
+        "motif_cluster": {
+          "web_path": "/presentation-assets/dark-tech/motif-cluster.png",
+          "source_path": "frontend/public/presentation-assets/dark-tech/motif-cluster.png",
+          "alt": "??????"
+        }
+      }
     }
   }
 }

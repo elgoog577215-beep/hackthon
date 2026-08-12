@@ -21,6 +21,7 @@ from storage import storage
 from ai_service import ai_service
 from course_service import get_course_service
 from content_blocks import blocks_to_markdown, normalize_blocks
+from canonical_content_repair import persist_generated_node_content
 from dependencies import get_course_document_repository, get_course_or_404, get_node_or_404
 from learner_context import require_user_id
 from learning_events import record_learning_event, summarize_text
@@ -96,6 +97,9 @@ async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesR
 async def redefine_node_stream(course_id: str, node_id: str, req: RedefineContentRequest, request: Request):
     tree_data = await get_course_or_404(course_id)
     node = get_node_or_404(tree_data, node_id)
+    course_repository = get_course_document_repository()
+    raw_course = await run_in_threadpool(course_repository.load_raw, course_id)
+    is_canonical = course_repository.is_canonical(raw_course)
     course_service = get_course_service()
     course_service.register_course_generation_metadata(course_id, tree_data)
     user_id = require_user_id(request.headers.get("X-User-Id"))
@@ -121,17 +125,35 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
             yield f"\n[Error: {e}]"
 
         try:
-            current_data = await run_in_threadpool(storage.load_course, course_id)
-            if "nodes" in current_data:
-                for node in current_data["nodes"]:
-                    if node["node_id"] == node_id:
-                        node["node_content"] = ai_service.clean_response_text(full_content)
-                        node["content_blocks"] = []
-                        node["node_type"] = "custom"
-                        break
-                await save_course_compat(storage, course_id, current_data)
+            cleaned = ai_service.clean_response_text(full_content)
+            if is_canonical:
+                await persist_generated_node_content(
+                    repository=course_repository,
+                    course_id=course_id,
+                    section_id=node_id,
+                    markdown=cleaned,
+                    actor=user_id,
+                )
+            else:
+                current_data = await run_in_threadpool(
+                    storage.load_course,
+                    course_id,
+                )
+                if "nodes" in current_data:
+                    for current_node in current_data["nodes"]:
+                        if current_node["node_id"] == node_id:
+                            current_node["node_content"] = cleaned
+                            current_node["content_blocks"] = []
+                            current_node["node_type"] = "custom"
+                            break
+                    await save_course_compat(
+                        storage,
+                        course_id,
+                        current_data,
+                    )
         except Exception as e:
             logger.error(f"Error saving stream result: {e}")
+            yield f"\n[Persistence Error: {e}]"
 
     return StreamingResponse(stream_generator(), media_type="text/plain")
 

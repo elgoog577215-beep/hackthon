@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElMessage } from 'element-plus'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
+import { setLocale } from '@/shared/i18n'
 import http from '@/utils/http'
+import enMessages from '../../../public/locales/en/translation.json'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 
 describe('course generation lifecycle reconciliation', () => {
@@ -12,6 +15,10 @@ describe('course generation lifecycle reconciliation', () => {
     vi.useRealTimers()
     localStorage.clear()
     setActivePinia(createPinia())
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
   })
 
   it('创建与恢复生成任务时保留课程类型', () => {
@@ -495,5 +502,129 @@ describe('course generation lifecycle reconciliation', () => {
     expect(http.delete).toHaveBeenCalledWith('/api/courses/course-delete')
     expect(generation.getTask('course-delete')).toBeUndefined()
     expect(generation.taskProgress['course-delete']).toBeUndefined()
+  })
+
+  it('WebSocket 进度事件保留后端心跳与更新时间，供停滞判断使用', () => {
+    const generation = useGenerationStore()
+    generation.createTask('job-beat', 'course-beat', '世界模型')
+
+    generation.handleWSMessage({
+      type: 'progress_update',
+      course_id: 'course-beat',
+      task_id: 'job-beat',
+      payload: {
+        status: 'running',
+        progress: 40,
+        current_phase: 'course_teaching_plan_batch',
+        heartbeat_at: '2026-08-05T10:00:00',
+        updated_at: '2026-08-05T10:00:05',
+      },
+    } as any)
+
+    const task = generation.getTask('course-beat')
+    expect(task?.heartbeatAt).toBe('2026-08-05T10:00:00')
+    expect(task?.updatedAt).toBe('2026-08-05T10:00:05')
+  })
+
+  it('任务错误事件保留后端错误码与可读原因，不只留技术堆栈', () => {
+    const generation = useGenerationStore()
+    generation.createTask('job-fail', 'course-fail', '世界模型')
+
+    generation.handleWSMessage({
+      type: 'task_error',
+      course_id: 'course-fail',
+      task_id: 'job-fail',
+      payload: {
+        error: 'RateLimitError: 429 too_many_requests',
+        error_code: 'provider_rate_limited',
+        error_user_message: '服务请求过于频繁，已保留当前进度。',
+      },
+    } as any)
+
+    const task = generation.getTask('course-fail')
+    expect(task?.status).toBe('error')
+    expect(task?.errorCode).toBe('provider_rate_limited')
+    expect(task?.errorUserMessage).toBe('服务请求过于频繁，已保留当前进度。')
+    expect(task?.error).toBe('RateLimitError: 429 too_many_requests')
+  })
+
+  it('HTTP 对账同样接通错误码、可读原因与心跳', async () => {
+    const generation = useGenerationStore()
+    const localTask = generation.createTask('job-poll', 'course-poll', '世界模型')
+    localTask.status = 'running'
+
+    vi.spyOn(http, 'get').mockResolvedValue({
+      data: [{
+        id: 'job-poll', course_id: 'course-poll', course_name: '世界模型', status: 'error',
+        progress: 62, phase: 'content_generation', current_phase: 'content_generation',
+        error: 'ProviderTimeout: upstream timed out',
+        error_code: 'provider_timeout',
+        error_user_message: 'AI 服务响应超时，已完成正文不会丢失。',
+        heartbeat_at: '2026-08-05T10:00:00',
+        updated_at: '2026-08-05T10:00:05',
+      }],
+    })
+
+    await generation.fetchGlobalTasks()
+
+    const task = generation.getTask('course-poll')
+    expect(task?.errorCode).toBe('provider_timeout')
+    expect(task?.errorUserMessage).toBe('AI 服务响应超时，已完成正文不会丢失。')
+    expect(task?.heartbeatAt).toBe('2026-08-05T10:00:00')
+    expect(task?.updatedAt).toBe('2026-08-05T10:00:05')
+  })
+
+  it('正在生成的节点提示走 i18n，英文模式不残留中文', async () => {
+    const generation = useGenerationStore()
+    generation.createTask('job-i18n', 'course-i18n', '线性代数')
+
+    const emit = () => generation.handleWSMessage({
+      type: 'progress_update',
+      course_id: 'course-i18n',
+      task_id: 'job-i18n',
+      payload: { status: 'running', progress: 20, current_node_name: '向量空间' },
+    } as any)
+
+    emit()
+    expect(generation.getTask('course-i18n')?.currentStep).toBe('正在生成：向量空间')
+
+    await setLocale('en')
+    emit()
+    const englishStep = generation.getTask('course-i18n')?.currentStep || ''
+    expect(englishStep).toBe('Generating: 向量空间')
+    expect(englishStep).not.toContain('正在生成')
+    await setLocale('zh')
+  })
+
+  it('节点失败事件保留错误码与可重试标志，不只留截断的原始串', () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-node'
+    courses.nodes = [{
+      node_id: 'L2-1-1', parent_node_id: 'root', node_name: '波函数', node_level: 2,
+      node_content: '', node_type: 'original', generation_status: 'generating',
+      generated_chars: 0,
+    }] as any
+    generation.createTask('job-node', 'course-node', '量子力学')
+
+    generation.handleWSMessage({
+      type: 'task_error',
+      course_id: 'course-node',
+      task_id: 'job-node',
+      payload: {
+        node_id: 'L2-1-1',
+        node_name: '波函数',
+        error: 'RateLimitError: 429 too_many_requests',
+        error_code: 'provider_rate_limited',
+        retryable: true,
+        retry_count: 3,
+      },
+    } as any)
+
+    const node = courses.nodes[0] as any
+    expect(node.generation_status).toBe('error')
+    expect(node.error_code).toBe('provider_rate_limited')
+    expect(node.error_retryable).toBe(true)
+    expect(node.error_summary).toBe('RateLimitError: 429 too_many_requests')
   })
 })

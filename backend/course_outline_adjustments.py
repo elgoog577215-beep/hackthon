@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Any, Iterable
-
+from typing import Any
 
 ALLOWED_OPERATIONS = {"add_node", "remove_node", "move_node", "update_node"}
 
@@ -506,14 +506,14 @@ def _compile_draft(
         node["node_id"] = id_map[ref]
         node["node_level"] = level
         if level == 1:
-            node["node_name"] = _canonical_node_name(
+            node["node_name"] = canonical_outline_node_name(
                 str(raw.get("node_name") or ""),
                 level=1,
                 chapter_number=chapter_numbers[ref],
             )
         else:
             chapter_number, section_number = section_numbers[ref]
-            node["node_name"] = _canonical_node_name(
+            node["node_name"] = canonical_outline_node_name(
                 str(raw.get("node_name") or ""),
                 level=2,
                 chapter_number=chapter_number,
@@ -585,7 +585,19 @@ def _compile_draft(
     return compiled, id_map
 
 
-def _canonical_node_name(
+def _strip_outline_number_prefix(value: str, *, level: int) -> str:
+    """Remove every repeated chapter/section prefix from one outline title."""
+    pattern = _CHAPTER_NUMBER_PREFIX if level == 1 else _SECTION_NUMBER_PREFIX
+    title = value.strip()
+    while title:
+        stripped = pattern.sub("", title, count=1).strip()
+        if stripped == title:
+            break
+        title = stripped
+    return title
+
+
+def canonical_outline_node_name(
     value: str,
     *,
     level: int,
@@ -593,10 +605,14 @@ def _canonical_node_name(
     section_number: int | None = None,
 ) -> str:
     if level == 1:
-        title = _CHAPTER_NUMBER_PREFIX.sub("", value.strip(), count=1).strip()
+        title = _strip_outline_number_prefix(value, level=1)
         return f"第{chapter_number}章 {title}".strip()
-    title = _SECTION_NUMBER_PREFIX.sub("", value.strip(), count=1).strip()
+    title = _strip_outline_number_prefix(value, level=2)
     return f"{chapter_number}.{section_number or 1} {title}".strip()
+
+
+# Compatibility for historical imports while callers migrate to the public helper.
+_canonical_node_name = canonical_outline_node_name
 
 
 def _constraint_report(draft: dict[str, Any]) -> dict[str, Any]:

@@ -74,14 +74,13 @@ from course_generation_strategy import (
     build_course_generation_strategy_prompt,
     classify_generation_use_case,
 )
-from course_type_contracts import apply_course_type_brief, resolve_course_type
 from course_generation_workflow import (
     PIPELINE_VERSION,
     _resolve_course_shape_constraints,
+    apply_course_learning_path_contract,
+    apply_course_teaching_plan,
     apply_teacher_classroom_contract,
     apply_teacher_course_brief,
-    apply_course_teaching_plan,
-    apply_course_learning_path_contract,
     attach_difficulty_artifacts,
     attach_generation_artifacts_to_plan,
     attach_pedagogy_profile,
@@ -107,6 +106,7 @@ from course_knowledge_map import (
     compile_course_knowledge_map,
     normalize_knowledge_structure,
 )
+from course_outline_adjustments import canonical_outline_node_name
 from course_outline_planning import (
     CourseOutlinePlanningBudget,
     assemble_course_outline,
@@ -140,6 +140,7 @@ from course_prompt_composer import (
 )
 from course_quality import evaluate_node_content, validate_blueprint
 from course_retrieval import build_course_source_context
+from course_teaching_guidance import compile_overall_teaching_guidance
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
     normalize_teaching_plan_batch_v3,
@@ -148,7 +149,7 @@ from course_teaching_plan_v3 import (
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
-from course_teaching_guidance import compile_overall_teaching_guidance
+from course_type_contracts import apply_course_type_brief, resolve_course_type
 from learner_context import DEFAULT_USER_ID
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
@@ -360,6 +361,8 @@ class CourseService(AIBase):
             "course_purpose",
             "asset_preferences",
             "web_question_enrichment",
+            "web_material_ingest",
+            "web_material_search",
             "requirements",
             "subject_pedagogy_profile",
             "difficulty_profile",
@@ -394,6 +397,76 @@ class CourseService(AIBase):
         """Drop process-local generation projections for a deleted or reset course."""
         self._course_generation_artifacts.pop(course_id, None)
         self._context_manager.clear_context(course_id)
+
+    async def _run_web_material_search(
+        self,
+        *,
+        topic: str,
+        requirements: str,
+        target_audience: str,
+        generation_request: dict[str, Any] | None = None,
+        ingest_settings: dict[str, Any] | None = None,
+        user_id: str | None = None,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+    ) -> dict[str, Any]:
+        """经团队检索网关取回联网资料；任何失败都降级为不联网，不阻断生成。"""
+        from web_material_search import discover_web_materials
+        from web_retrieval import resolve_retrieval_policy
+
+        policy = resolve_retrieval_policy(generation_request or {})
+        if not policy.get("enabled") or "course" not in (policy.get("scopes") or []):
+            return {
+                "enabled": False,
+                "status": "disabled",
+                "degraded": True,
+                "candidates": [],
+                "queries": [],
+                "rejected": [],
+                "message_code": "web_search_disabled",
+            }
+
+        await self._notify_phase(
+            on_phase,
+            "material_processing",
+            6,
+            "正在联网检索公开资料",
+            phase_progress=5,
+        )
+        try:
+            report = await discover_web_materials(
+                topic=topic,
+                requirements=requirements,
+                target_audience=target_audience,
+                generation_request=generation_request,
+                ingest_settings=ingest_settings,
+                user_id=user_id,
+            )
+        except Exception as exc:  # 联网是增强项，失败必须降级而不是失败生成
+            logger.warning("web material search failed, degrading to offline: %s", exc)
+            return {
+                "enabled": True,
+                "status": "degraded",
+                "degraded": True,
+                "candidates": [],
+                "queries": [],
+                "rejected": [],
+                "message_code": "web_search_unavailable",
+            }
+
+        accepted = len(report.get("candidates") or [])
+        await self._notify_phase(
+            on_phase,
+            "material_processing",
+            8,
+            (
+                f"联网检索完成，采纳 {accepted} 条公开资料"
+                if accepted
+                else "联网检索未找到可用资料，将仅使用已有资料"
+            ),
+            phase_progress=10,
+            phase_detail={"web_search": {k: v for k, v in report.items() if k != "candidates"}},
+        )
+        return report
 
     def _load_evidence_catalog(self, bindings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         catalog: list[dict[str, Any]] = []
@@ -455,6 +528,7 @@ class CourseService(AIBase):
         course_purpose: str = "systematic",
         asset_preferences: dict[str, bool] | None = None,
         web_question_enrichment: dict[str, Any] | None = None,
+        web_material_ingest: dict[str, Any] | None = None,
         existing_course_data: dict[str, Any] | None = None,
         stop_after_outline: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
@@ -571,12 +645,22 @@ class CourseService(AIBase):
                     phase_detail=detail,
                 )
 
+            web_search_report = await self._run_web_material_search(
+                topic=topic,
+                requirements=requirements,
+                target_audience=target_audience,
+                generation_request=(existing.get("generation_request") or {}),
+                ingest_settings=web_material_ingest,
+                on_phase=on_phase,
+            )
+
             prepared_materials = await prepare_course_materials(
                 course_id=course_id,
                 material_bindings=material_bindings,
                 legacy_materials=material_inputs or existing.get("material_cards") or [],
                 repository=self._material_repository,
                 on_progress=on_material_progress,
+                web_search_report=web_search_report,
             )
             artifacts = build_course_generation_artifacts(
                 course_id=course_id,
@@ -666,6 +750,9 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": artifacts.get("evidence_coverage_plan", {}),
+            "web_material_search": artifacts.get(
+                "web_material_search", {"enabled": False}
+            ),
             "subject_pedagogy_profile": profile.to_dict(),
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
@@ -880,7 +967,10 @@ class CourseService(AIBase):
             ),
             "nodes": nodes,
             "course_plan": plan,
-            "course_outline": outline_plan,
+            "course_outline": self._select_output_course_outline(
+                existing,
+                outline_plan,
+            ),
             "knowledge_relations": deepcopy(existing.get("knowledge_relations") or []),
             "material_cards": artifacts["material_cards"],
             "course_generation_brief": artifacts["course_generation_brief"],
@@ -892,6 +982,10 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": evidence_coverage_plan,
+            # 教师端审阅面板消费这份汇总；不带过来会导致真实生成后面板无数据。
+            "web_material_search": artifacts.get(
+                "web_material_search", {"enabled": False}
+            ),
             "course_blueprint": outline_blueprint,
             "course_outline_constraint_report": plan_constraint_report,
             "blueprint_validation_report": validate_blueprint(outline_blueprint),
@@ -2808,6 +2902,21 @@ class CourseService(AIBase):
         return planned_course
 
     @staticmethod
+    def _select_output_course_outline(
+        existing: dict[str, Any],
+        generated_outline: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Keep the exact user-confirmed outline immutable downstream."""
+        confirmed_outline = existing.get("course_outline")
+        if (
+            existing.get("course_outline_revision_id")
+            and isinstance(confirmed_outline, dict)
+            and confirmed_outline.get("chapters")
+        ):
+            return deepcopy(confirmed_outline)
+        return deepcopy(generated_outline)
+
+    @staticmethod
     def _outline_only_plan(plan: dict[str, Any]) -> dict[str, Any]:
         outline = deepcopy(plan)
         outline["knowledge_relations"] = []
@@ -3293,6 +3402,7 @@ class CourseService(AIBase):
             skeleton,
             shape_constraints=shape_constraints,
             request_fingerprint=request_fingerprint,
+            course_type_contract=brief.get("course_type_contract") or {},
         )
         skeleton_is_current = bool(
             isinstance(raw_skeleton, dict)
@@ -3399,6 +3509,7 @@ class CourseService(AIBase):
                 skeleton,
                 shape_constraints=shape_constraints,
                 request_fingerprint=request_fingerprint,
+                course_type_contract=brief.get("course_type_contract") or {},
             )
             if (
                 not skeleton_report.get("passed")
@@ -3485,6 +3596,7 @@ class CourseService(AIBase):
                         skeleton,
                         shape_constraints=shape_constraints,
                         request_fingerprint=request_fingerprint,
+                        course_type_contract=brief.get("course_type_contract") or {},
                     )
             skeleton_failure_reason = (
                 failure_reason
@@ -4157,7 +4269,11 @@ class CourseService(AIBase):
             nodes.append({
                 "node_id": f"L1-{chapter_num}",
                 "parent_node_id": "root",
-                "node_name": f"第{chapter_num}章 {chapter.get('title', '')}",
+                "node_name": canonical_outline_node_name(
+                    str(chapter.get("title") or ""),
+                    level=1,
+                    chapter_number=int(chapter_num),
+                ),
                 "node_level": 1,
                 "node_content": "",
                 "content_blocks": [],
@@ -4173,11 +4289,22 @@ class CourseService(AIBase):
             })
 
             for section in chapter.get("sections", []):
-                section_num = section.get("section_number", f"{chapter_num}.1")
+                section_num = str(
+                    section.get("section_number") or f"{chapter_num}.1"
+                )
+                try:
+                    section_index = int(section_num.rsplit(".", 1)[-1])
+                except ValueError:
+                    section_index = 1
                 nodes.append({
                     "node_id": f"L2-{section_num.replace('.', '-')}",
                     "parent_node_id": f"L1-{chapter_num}",
-                    "node_name": f"{section_num} {section.get('title', '')}",
+                    "node_name": canonical_outline_node_name(
+                        str(section.get("title") or ""),
+                        level=2,
+                        chapter_number=int(chapter_num),
+                        section_number=section_index,
+                    ),
                     "node_level": 2,
                     "node_content": "",
                     "content_blocks": [],

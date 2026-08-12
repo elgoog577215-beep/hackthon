@@ -37,6 +37,131 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
+  it('shows verified V6 story completion and visual degradation truthfully', () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'generic-course',
+        representationId: 'slides-v6',
+        deckTitle: 'Evidence workflow',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        quality: { passed: true },
+        candidateStatus: 'v6_needs_manual_edit',
+        planningStatus: {
+          story_ai: { status: 'completed', batch_count: 2 },
+          visual_ai: { status: 'partial_degraded', degraded_page_count: 1 },
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
+    expect(wrapper.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
+    expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
+  })
+
+  it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-1',
+        deckTitle: '数据结构',
+        slides,
+        staleUnitIds: [],
+        building: true,
+        progress: 46,
+        stage: 'slide_build',
+        buildStepIndex: 6,
+        error: '',
+        quality: null,
+        standalone: true,
+        buildDetail: {
+          event: 'slide_upsert',
+          itemTitle: '向量的定义',
+          completed: 2,
+          total: 12,
+        },
+        estimatedSlideCount: 12,
+      },
+    })
+
+    const panel = wrapper.find('[data-testid="slide-build-progress"]')
+    expect(panel.exists()).toBe(true)
+    expect(panel.attributes('aria-live')).toBe('polite')
+    expect(panel.text()).toContain('正在逐页生成教学内容')
+    expect(panel.text()).toContain('第 2 / 12 页')
+    expect(panel.text()).toContain('向量的定义')
+    expect(panel.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('46')
+    expect(panel.findAll('[data-build-step]')).toHaveLength(10)
+    expect(panel.findAll('[data-step-description]')).toHaveLength(10)
+    expect(panel.text()).toContain('设计教学主线')
+    expect(panel.text()).toContain('编排章节场景')
+    expect(panel.text()).toContain('规划页面结构')
+    expect(panel.text()).toContain('匹配语义版式')
+    expect(panel.text()).toContain('准备视觉素材')
+    expect(panel.text()).toContain('补图与语义修复')
+    expect(panel.text()).toContain('内容视觉质检')
+    expect(panel.text()).toContain('渲染与发布')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(6)
+    expect(panel.findAll('[data-build-step][data-state="active"]')).toHaveLength(1)
+    const taskList = panel.find('[data-testid="build-task-list"]')
+    expect(taskList.exists()).toBe(true)
+    expect(taskList.findAll('[data-build-task]')).toHaveLength(3)
+    expect(taskList.text()).toContain('读取当前页面计划')
+    expect(taskList.text()).toContain('生成页面内容与讲者备注')
+    expect(taskList.text()).toContain('写入并校验全部页面')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="pending"]')).toHaveLength(1)
+    expect(taskList.find('[data-current-activity]').text()).toContain('第 2 / 12 页 · 向量的定义')
+
+    await wrapper.setProps({
+      progress: 97,
+      stage: 'image_search',
+      buildStepIndex: 8,
+      buildDetail: {
+        event: 'image_search',
+        completed: 2,
+        total: 4,
+        itemTitle: '向量的几何意义',
+      },
+    })
+    expect(panel.text()).toContain('正在检索并核验教学图片')
+    expect(panel.text()).toContain('正在为「向量的几何意义」查找可用教学图片')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(8)
+    expect(taskList.text()).toContain('检查知识点与目标覆盖')
+    expect(taskList.text()).toContain('检查文字密度和可读性')
+    expect(taskList.text()).toContain('修复问题页并重新质检')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(2)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+    expect(taskList.find('[data-current-activity]').text()).toContain('向量的几何意义')
+
+    await wrapper.setProps({
+      progress: 99,
+      stage: 'render_repair',
+      buildStepIndex: 9,
+      buildDetail: {
+        event: 'render_repair',
+        completed: 12,
+        total: 12,
+        repairAttempt: 2,
+      },
+    })
+    expect(panel.text()).toContain('正在执行第 2 轮版式修复')
+    expect(panel.findAll('[data-build-step][data-state="done"]')).toHaveLength(9)
+    expect(taskList.text()).toContain('渲染全部页面')
+    expect(taskList.text()).toContain('修复溢出、遮挡与错位')
+    expect(taskList.text()).toContain('发布可下载课件')
+    expect(taskList.findAll('[data-build-task][data-state="done"]')).toHaveLength(1)
+    expect(taskList.findAll('[data-build-task][data-state="active"]')).toHaveLength(1)
+
+    await wrapper.setProps({ building: false })
+    expect(wrapper.find('[data-testid="slide-build-progress"]').exists()).toBe(false)
+  })
+
   it('keeps the toolbar focused on teaching materials and opens the material overview', async () => {
     const store = useTeachingRepresentationsStore()
     const build = vi.spyOn(store, 'buildProgressive')
@@ -173,6 +298,67 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.emitted('upgrade-course-logic')).toHaveLength(1)
   })
 
+  it('shows V5 schema facts, manual-edit guidance, and structured hard failures', async () => {
+    const manualSlides = [
+      slides[0]!,
+      {
+        ...slides[1]!,
+        quality: {
+          ...slides[1]!.quality,
+          manual_edit_required: true,
+          manual_edit_reasons: [{
+            code: 'render_review_manual_adjustment',
+            message: '本页内容完整，但建议人工微调视觉间距。',
+          }],
+        },
+      },
+    ]
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-v5',
+        deckTitle: '高等代数',
+        slides: manualSlides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'source_commit',
+        error: 'v5_source_revision_conflict',
+        previewSource: 'published',
+        buildFailure: {
+          stage: 'source_commit',
+          code: 'v5_source_revision_conflict',
+          message: '课程内容在 PPT 生成期间发生变化。',
+          retryable: true,
+          source_revision: 'revision-1',
+        },
+        quality: { passed: true },
+        targetSchema: 'slide_deck_v5',
+        candidateSchema: 'slide_deck_v5',
+        publishedSchema: 'slide_deck_v3',
+        candidateStatus: 'v5_needs_manual_edit',
+      },
+    })
+
+    expect(wrapper.get('[data-testid="ppt-schema-facts"]').text()).toContain(
+      '目标 V5 · 候选 V5 · 已发布 V3',
+    )
+    expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain(
+      '部分页面需要人工调整',
+    )
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain(
+      'v5_source_revision_conflict',
+    )
+    expect(wrapper.find('.slide-inspector__receipt').text()).toContain(
+      '失败阶段：source_commit · 可以重试',
+    )
+
+    await wrapper.findAll('.slide-thumbnails > button')[1]!.trigger('click')
+    expect(wrapper.find('[data-state="manual_edit_required"]').text()).toContain(
+      '本页内容完整，但建议人工微调视觉间距。',
+    )
+  })
+
   it('uses the same structured slide spec for thumbnails, canvas, and source inspection', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
@@ -292,6 +478,33 @@ describe('SlideDeckWorkbench', () => {
     expect(preview.findAll('li[data-severity="critical"]')).toHaveLength(1)
     expect(preview.findAll('li[data-severity="minor"]')).toHaveLength(1)
     expect(preview.find('.slide-workbench__failed-preview-advisories').exists()).toBe(true)
+  })
+
+  it('shows the backend blocker total instead of presenting the first issue code as the whole failure', () => {
+    const blockers = [
+      ...Array.from({ length: 9 }, (_, index) => ({
+        severity: 'critical', code: 'dangling_fragment', page_id: `slide:dangling:${index}`,
+        message: 'Page ends with an incomplete fragment.',
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        severity: 'critical', code: 'continuation_sequence_missing', page_id: `slide:continuation:${index}`,
+        message: 'Continuation numbering is missing.',
+      })),
+    ]
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1', representationId: 'slides-1', deckTitle: 'Quality summary', slides,
+        staleUnitIds: [], building: false, progress: 100, stage: 'build_blocked',
+        error: 'quality_gate_failed', previewSource: 'published',
+        quality: { passed: false, blocker_count: 99, blockers },
+      },
+    })
+
+    const receipt = wrapper.find('.slide-inspector__receipt').text()
+    expect(receipt).toContain('99')
+    expect(receipt).toContain('15')
+    expect(receipt).toContain('9')
+    expect(receipt).toContain('6')
   })
 
   it('restores export when a successful rebuild changes the preview from draft to published', async () => {

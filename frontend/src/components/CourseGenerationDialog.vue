@@ -47,6 +47,8 @@
                   :class="{ active: form.courseType === item.value }"
                   :data-course-type="item.value"
                   :aria-pressed="form.courseType === item.value"
+                  :aria-label="`${item.label}：${item.detail}`"
+                  :title="item.detail"
                   :disabled="busy || !item.available"
                   @click="selectCourseType(item.value)"
                 >
@@ -54,13 +56,12 @@
                   <span class="course-type-option__copy">
                     <span class="course-type-option__heading">
                       <strong>{{ item.label }}</strong>
-                      <small v-if="!item.available">{{ t('courseGeneration.courseTypes.comingSoon', '即将开放') }}</small>
                     </span>
                     <span>{{ item.detail }}</span>
                   </span>
-                  <span v-if="item.available" class="course-type-option__check"><Check :size="11" /></span>
                 </button>
               </div>
+              <p class="course-type-summary" aria-live="polite">{{ selectedCourseTypeOption?.detail }}</p>
             </fieldset>
           </section>
 
@@ -82,7 +83,7 @@
             <p class="field-help">{{ t('courseGeneration.dialog.topicHelp', '写清楚学习对象；难度、结构和资料边界在下方单独控制。') }}</p>
           </section>
 
-          <section v-else class="form-section intent-section project-intent" data-testid="project-intent-form">
+          <section v-else-if="form.courseType === 'project'" class="form-section intent-section project-intent" data-testid="project-intent-form">
             <div class="project-intent__heading">
               <div>
                 <strong>{{ t('courseGeneration.project.title', '定义你的实战项目') }}</strong>
@@ -153,6 +154,143 @@
             </p>
           </section>
 
+          <section v-else-if="form.courseType === 'inquiry'" class="form-section intent-section project-intent" data-testid="inquiry-intent-form">
+            <div class="project-intent__heading">
+              <div>
+                <strong>{{ t('courseGeneration.inquiry.title', '定义要探究的问题') }}</strong>
+                <span>{{ t('courseGeneration.inquiry.help', '先明确核心问题和结论形态，课程会沿子问题、证据与反例逐步推进。') }}</span>
+              </div>
+              <MessageCircleQuestion :size="18" />
+            </div>
+            <div class="project-fields">
+              <label class="project-field project-field--wide" for="inquiry-core-question">
+                <span class="field-label">{{ t('courseGeneration.inquiry.questionLabel', '你真正想回答什么问题？') }}</span>
+                <input
+                  id="inquiry-core-question"
+                  v-model="form.coreQuestion"
+                  class="text-input text-input--large"
+                  type="text"
+                  autocomplete="off"
+                  required
+                  maxlength="200"
+                  :placeholder="t('courseGeneration.inquiry.questionPlaceholder', '例如：生成式 AI 会如何改变大学的教学与评价？')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field project-field--wide" for="inquiry-desired-output">
+                <span class="field-label">{{ t('courseGeneration.inquiry.outputLabel', '最终希望形成什么结论？') }}</span>
+                <input
+                  id="inquiry-desired-output"
+                  v-model="form.desiredOutput"
+                  class="text-input"
+                  type="text"
+                  autocomplete="off"
+                  required
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.inquiry.outputPlaceholder', '例如：一份区分适用条件、风险与证据强度的判断报告')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field" for="inquiry-understanding">
+                <span class="field-label">{{ t('courseGeneration.inquiry.understandingLabel', '你目前怎么看？') }}</span>
+                <textarea
+                  id="inquiry-understanding"
+                  v-model="form.existingUnderstanding"
+                  class="textarea-input textarea-input--compact"
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.inquiry.understandingPlaceholder', '写下当前判断或尚未验证的假设')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field" for="inquiry-evidence-scope">
+                <span class="field-label">{{ t('courseGeneration.inquiry.evidenceLabel', '证据范围与边界') }}</span>
+                <textarea
+                  id="inquiry-evidence-scope"
+                  v-model="form.evidenceScope"
+                  class="textarea-input textarea-input--compact"
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.inquiry.evidencePlaceholder', '例如：优先使用近三年的高校实践、研究论文与公开政策')"
+                  :disabled="busy"
+                />
+              </label>
+            </div>
+            <p class="starting-point-note">
+              <Info :size="15" />
+              <span>
+                <strong>{{ t('courseGeneration.inquiry.noteTitle', '已有认识会作为待检验假设') }}</strong>
+                {{ t('courseGeneration.inquiry.noteHelp', '系统不会把你的初始观点当成事实；目录会保留证据搜集、反例检验和结论边界。') }}
+              </span>
+            </p>
+          </section>
+
+          <section v-else class="form-section intent-section project-intent" data-testid="exam-intent-form">
+            <div class="project-intent__heading">
+              <div>
+                <strong>{{ t('courseGeneration.exam.title', '定义你的冲刺目标') }}</strong>
+                <span>{{ t('courseGeneration.exam.help', '明确考试、日期和范围，课程会按剩余时间与薄弱点安排优先级。') }}</span>
+              </div>
+              <Timer :size="18" />
+            </div>
+            <div class="project-fields">
+              <label class="project-field" for="exam-name">
+                <span class="field-label">{{ t('courseGeneration.exam.nameLabel', '准备什么考试？') }}</span>
+                <input
+                  id="exam-name"
+                  v-model="form.examName"
+                  class="text-input text-input--large"
+                  type="text"
+                  autocomplete="off"
+                  required
+                  maxlength="200"
+                  :placeholder="t('courseGeneration.exam.namePlaceholder', '例如：大学英语六级考试')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field" for="exam-date">
+                <span class="field-label">{{ t('courseGeneration.exam.dateLabel', '考试日期') }}</span>
+                <input
+                  id="exam-date"
+                  v-model="form.examDate"
+                  class="text-input text-input--large"
+                  type="date"
+                  required
+                  :min="todayIso"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field project-field--wide" for="exam-scope">
+                <span class="field-label">{{ t('courseGeneration.exam.scopeLabel', '考纲与考试范围') }}</span>
+                <textarea
+                  id="exam-scope"
+                  v-model="form.examScope"
+                  class="textarea-input textarea-input--compact"
+                  required
+                  maxlength="5000"
+                  :placeholder="t('courseGeneration.exam.scopePlaceholder', '例如：听力、阅读、翻译和写作；重点覆盖历年高频题型')"
+                  :disabled="busy"
+                />
+              </label>
+              <label class="project-field project-field--wide" for="exam-preparation">
+                <span class="field-label">{{ t('courseGeneration.exam.preparationLabel', '当前准备情况与薄弱点') }}</span>
+                <textarea
+                  id="exam-preparation"
+                  v-model="form.currentPreparation"
+                  class="textarea-input textarea-input--compact"
+                  maxlength="3000"
+                  :placeholder="t('courseGeneration.exam.preparationPlaceholder', '例如：阅读稳定，听力长对话和写作论证较弱，每周可投入 8 小时')"
+                  :disabled="busy"
+                />
+              </label>
+            </div>
+            <p class="starting-point-note">
+              <Info :size="15" />
+              <span>
+                <strong>{{ t('courseGeneration.exam.noteTitle', '先定优先级，再用练习校准') }}</strong>
+                {{ t('courseGeneration.exam.noteHelp', '自述薄弱点只决定首轮安排；诊断题和模拟任务会继续修正复习重点。') }}
+              </span>
+            </p>
+          </section>
+
           <section class="form-section teaching-settings">
             <div class="teaching-settings__core teaching-settings__core--common">
               <fieldset class="choice-group difficulty-group">
@@ -169,17 +307,17 @@
                   :class="{ active: form.difficulty === item.value }"
                   :data-tone="item.tone"
                   :aria-pressed="form.difficulty === item.value"
+                  :aria-label="`${item.label}：${item.detail}`"
+                  :title="item.detail"
                   :disabled="busy"
                   @click="form.difficulty = item.value"
                 >
-                  <span class="difficulty-option__rail" />
                   <span class="difficulty-option__copy">
                     <strong>{{ item.label }}</strong>
-                    <small>{{ item.detail }}</small>
                   </span>
-                  <span class="difficulty-option__check"><Check :size="12" /></span>
                 </button>
                 </div>
+                <p class="difficulty-summary" aria-live="polite">{{ selectedDifficultyOption?.detail }}</p>
               </fieldset>
 
               <div class="strategy-settings">
@@ -286,6 +424,13 @@
             </ol>
           </section>
 
+          <section class="form-section">
+            <AssessmentGenerationProfileSelector
+              v-model="form.assessmentGenerationProfile"
+              :disabled="busy"
+            />
+          </section>
+
           <section class="form-section web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
@@ -297,6 +442,21 @@
               <span>
                 <strong>{{ t('courseGeneration.retrieval.label', '联网研究') }}</strong>
                 <small>{{ t('courseGeneration.retrieval.help', '用于新课程蓝图、正文和题库的同源资料核验；默认关闭，不会发送学生画像、作答或个人记录。') }}</small>
+              </span>
+            </label>
+          </section>
+
+          <section v-if="form.retrievalEnabled" class="form-section web-enrichment-setting">
+            <label class="web-enrichment-setting__control">
+              <input
+                v-model="form.webMaterialIngest"
+                data-testid="web-material-ingest"
+                type="checkbox"
+                :disabled="busy"
+              />
+              <span>
+                <strong>{{ t('courseGeneration.materials.webSearch.ingestLabel', '把联网资料并入课程资料库') }}</strong>
+                <small>{{ t('courseGeneration.materials.webSearch.ingestHint', '联网结果会与导入资料同路解析并保留出处；关闭则只作为本次生成的引用，不落库。') }}</small>
               </span>
             </label>
           </section>
@@ -343,7 +503,6 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import {
   BookMarked,
   BookOpen,
-  Check,
   Hammer,
   Info,
   Library,
@@ -358,7 +517,8 @@ import {
   X,
 } from 'lucide-vue-next'
 import MaterialInputPanel from './MaterialInputPanel.vue'
-import { t } from '@/shared/i18n'
+import { activeLocale, t } from '@/shared/i18n'
+import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
@@ -384,6 +544,11 @@ const uploading = ref(false)
 const submissionRequestId = ref('')
 const submissionIdentity = ref('')
 const busy = computed(() => props.busy || uploading.value)
+const defaultAudience = () => t(
+  'courseGeneration.teacherBrief.defaultAudience',
+  activeLocale.value === 'en' ? 'University students' : '大学生',
+)
+let lastDefaultAudience = defaultAudience()
 const form = reactive({
   courseType: 'systematic' as CourseType,
   systematicTopic: '',
@@ -391,13 +556,23 @@ const form = reactive({
   expectedDeliverable: '',
   priorExperience: '',
   currentUncertainty: '',
+  coreQuestion: '',
+  existingUnderstanding: '',
+  evidenceScope: '',
+  desiredOutput: '',
+  examName: '',
+  examDate: '',
+  examScope: '',
+  currentPreparation: '',
   difficulty: 'intermediate' as DifficultyLevel,
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
+  assessmentGenerationProfile: 'fast' as 'fast' | 'deliberate',
   retrievalEnabled: false,
+  webMaterialIngest: true,
   requirements: '',
-  targetAudience: '大学生',
+  targetAudience: lastDefaultAudience,
   academicTerm: '',
   totalClassHours: 16,
   lessonDurationMinutes: 45,
@@ -433,16 +608,18 @@ const courseTypeOptions = computed(() => ([
     icon: MessageCircleQuestion,
     label: t('courseGeneration.courseTypes.inquiry.label', '问题探究'),
     detail: t('courseGeneration.courseTypes.inquiry.detail', '沿子问题、证据与推理形成有依据的判断'),
-    available: false,
+    available: true,
   },
   {
     value: 'exam' as const,
     icon: Timer,
     label: t('courseGeneration.courseTypes.exam.label', '考试冲刺'),
     detail: t('courseGeneration.courseTypes.exam.detail', '根据考纲、薄弱点和剩余时间安排复习'),
-    available: false,
+    available: true,
   },
 ]))
+const selectedCourseTypeOption = computed(() => courseTypeOptions.value.find(item => item.value === form.courseType))
+const selectedDifficultyOption = computed(() => difficultyOptions.value.find(item => item.value === form.difficulty))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
 const secondaryPedagogyOptions = computed(() => [
   { value: '' as const, label: t('courseGeneration.pedagogy.secondaryNone', '无辅助学科') },
@@ -450,46 +627,57 @@ const secondaryPedagogyOptions = computed(() => [
     .filter(item => item.value !== 'auto' && item.value !== form.pedagogyMode)
     .map(item => ({ value: item.value as PedagogyMode, label: t(item.labelKey, item.value) })),
 ])
-const activeSubject = computed(() => form.courseType === 'project' ? form.projectGoal.trim() : form.systematicTopic.trim())
-const projectIntentComplete = computed(() => [
-  form.projectGoal,
-  form.expectedDeliverable,
-].every(value => value.trim()))
+const todayIso = new Date().toLocaleDateString('en-CA')
+const activeSubject = computed(() => ({
+  systematic: form.systematicTopic,
+  project: form.projectGoal,
+  inquiry: form.coreQuestion,
+  exam: form.examName,
+}[form.courseType].trim()))
+const typeIntentComplete = computed(() => ({
+  systematic: Boolean(form.systematicTopic.trim()),
+  project: Boolean(form.projectGoal.trim() && form.expectedDeliverable.trim()),
+  inquiry: Boolean(form.coreQuestion.trim() && form.desiredOutput.trim()),
+  exam: Boolean(form.examName.trim() && form.examDate.trim() && form.examScope.trim()),
+}[form.courseType]))
 const hasStartingPointInput = computed(() => Boolean(form.priorExperience.trim() || form.currentUncertainty.trim()))
-const canSubmit = computed(() => !busy.value && (
-  form.courseType === 'systematic'
-    ? Boolean(activeSubject.value)
-    : projectIntentComplete.value
-) && Boolean(form.targetAudience.trim())
+const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Boolean(form.targetAudience.trim())
   && Number.isInteger(form.totalClassHours) && form.totalClassHours >= 1 && form.totalClassHours <= 1000
   && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
   && (!form.chapterCount || !form.sectionCount || form.sectionCount >= form.chapterCount)
 )
-const guidedTitle = computed(() => form.courseType === 'project'
-  ? t('courseGeneration.guided.projectTitle', '提交项目后，四步形成个人课程')
-  : t('courseGeneration.guided.title', '提交需求后，四步完成课程'))
-const guidedHelp = computed(() => form.courseType === 'project'
-  ? t('courseGeneration.guided.projectHelp', '先确认个人路径和能力安排；课程沿项目节点生成，最后确认进入学习。')
-  : t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。'))
-const guidedStepLabels = computed(() => form.courseType === 'project'
-  ? [
-      t('courseGeneration.guided.projectOutline', '个人路径'),
-      t('courseGeneration.guided.projectTeaching', '能力与知识'),
-      t('courseGeneration.guided.projectContent', '项目课程'),
-      t('courseGeneration.guided.projectRelease', '确认课程'),
-    ]
-  : [
-      t('courseGeneration.guided.outline', '目录确认'),
-      t('courseGeneration.guided.teaching', '教案确认'),
-      t('courseGeneration.guided.content', '正文生成'),
-      t('courseGeneration.guided.release', '确认发布'),
-    ])
+const guidedTitle = computed(() => t(
+  `courseGeneration.guided.${form.courseType}Title`,
+  t('courseGeneration.guided.title', '提交需求后，四步完成课程'),
+))
+const guidedHelp = computed(() => t(
+  `courseGeneration.guided.${form.courseType}Help`,
+  t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。'),
+))
+const guidedStepLabels = computed(() => {
+  const prefixes = form.courseType === 'systematic' ? ['', '', '', ''] : Array(4).fill(form.courseType)
+  const keys = ['Outline', 'Teaching', 'Content', 'Release']
+  const fallbacks = [
+    t('courseGeneration.guided.outline', '目录确认'),
+    t('courseGeneration.guided.teaching', '教案确认'),
+    t('courseGeneration.guided.content', '正文生成'),
+    t('courseGeneration.guided.release', '确认发布'),
+  ]
+  return keys.map((key, index) => t(
+    `courseGeneration.guided.${prefixes[index]}${prefixes[index] ? key : key.toLowerCase()}`,
+    fallbacks[index],
+  ))
+})
 
 watch(() => props.modelValue, async open => {
   if (!open) {
     submissionRequestId.value = ''
     submissionIdentity.value = ''
     return
+  }
+  if (form.targetAudience === lastDefaultAudience) {
+    lastDefaultAudience = defaultAudience()
+    form.targetAudience = lastDefaultAudience
   }
   await nextTick()
   dialogRef.value?.focus()
@@ -518,13 +706,19 @@ async function submit() {
       : []
     const options: CourseGenerationOptions = {
       difficulty: form.difficulty,
-      composition_style: form.courseType === 'project' ? 'project_driven' : 'balanced',
+      composition_style: ({
+        systematic: 'balanced',
+        project: 'project_driven',
+        inquiry: 'inquiry_driven',
+        exam: 'example_driven',
+      } as const)[form.courseType],
       pedagogy_mode: form.pedagogyMode,
       ...(form.secondaryMode
         ? { secondary_mode: form.secondaryMode, secondary_intensity: 'collaborative' as const }
         : {}),
       generation_mode: 'review_blueprint',
-      course_purpose: 'systematic',
+      assessment_generation_profile: form.assessmentGenerationProfile,
+      course_purpose: form.courseType === 'exam' ? 'exam_sprint' : 'systematic',
       course_type: form.courseType,
       course_intent: form.courseType === 'project'
         ? {
@@ -536,15 +730,36 @@ async function submit() {
             current_uncertainty: form.currentUncertainty.trim(),
             project_constraints: form.requirements.trim(),
           }
-        : {
-            schema_version: 'course_intent_v1',
-            type: 'systematic',
-            learning_goal: subject,
-            desired_outcome: form.requirements.trim(),
-          },
+        : form.courseType === 'inquiry'
+          ? {
+              schema_version: 'course_intent_v1',
+              type: 'inquiry',
+              core_question: form.coreQuestion.trim(),
+              existing_understanding: form.existingUnderstanding.trim(),
+              evidence_scope: form.evidenceScope.trim(),
+              desired_output: form.desiredOutput.trim(),
+            }
+          : form.courseType === 'exam'
+            ? {
+                schema_version: 'course_intent_v1',
+                type: 'exam',
+                exam_name: form.examName.trim(),
+                exam_date: form.examDate,
+                exam_scope: form.examScope.trim(),
+                current_preparation: form.currentPreparation.trim(),
+              }
+            : {
+                schema_version: 'course_intent_v1',
+                type: 'systematic',
+                learning_goal: subject,
+                desired_outcome: form.requirements.trim(),
+              },
       grounding_strategy: form.groundingStrategy,
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
+      ...(form.retrievalEnabled && !form.webMaterialIngest
+        ? { web_material_ingest: { skip_ingest: true } }
+        : {}),
       target_audience: form.targetAudience.trim(),
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1',
@@ -599,21 +814,20 @@ async function submit() {
 .form-section:last-child { border-bottom: 0; }
 .form-section--lead { padding-top: 22px; }
 .course-type-section { padding-bottom: 18px; }
-.course-type-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
-.course-type-option { position: relative; min-width: 0; min-height: 92px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 17px; align-items: start; gap: 9px; padding: 12px 10px; border: 1px solid rgba(226,232,240,.92); border-radius: 10px; color: var(--lz-text-secondary); background: #fff; text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
-.course-type-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
-.course-type-option.active { border-color: var(--lz-brand); color: var(--lz-brand-strong); background: rgba(238,242,255,.72); box-shadow: inset 0 0 0 1px rgba(99,102,241,.08); }
+.course-type-options { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:11px; background:var(--lz-surface-muted); }
+.course-type-option { min-width:0; min-height:48px; display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,box-shadow .16s ease; }
+.course-type-option:hover:not(:disabled) { border-color:rgba(165,180,252,.62); color:var(--lz-brand-strong); background:rgba(255,255,255,.72); }
+.course-type-option.active { border-color:rgba(165,180,252,.72); color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(79,70,229,.07); }
 .course-type-option:focus-visible { outline: 2px solid var(--lz-brand); outline-offset: 2px; }
 .course-type-option:disabled { cursor: not-allowed; color: var(--lz-text-muted); background: var(--lz-surface-muted); opacity: .72; }
-.course-type-option__icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--lz-brand); background: var(--lz-brand-soft); }
+.course-type-option__icon { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:7px; color:var(--lz-brand); background:var(--lz-brand-soft); }
 .course-type-option:disabled .course-type-option__icon { color: var(--lz-text-muted); background: #fff; }
-.course-type-option__copy { min-width: 0; display: grid; gap: 5px; }
-.course-type-option__copy > span:last-child { overflow-wrap: anywhere; color: var(--lz-text-muted); font-size: 9px; line-height: 1.45; }
+.course-type-option__copy { min-width:0; display:block; }
+.course-type-option__copy > span:last-child { display:none; }
 .course-type-option__heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.course-type-option__heading strong { color: inherit; font-size: 11px; }
+.course-type-option__heading strong { color:inherit; font-size:11px; line-height:1.3; }
 .course-type-option__heading small { padding: 2px 5px; border-radius: 4px; color: var(--lz-text-muted); background: #fff; font-size: 8px; font-weight: 650; }
-.course-type-option__check { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); }
-.course-type-option.active .course-type-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); }
+.course-type-summary,.difficulty-summary { margin:8px 0 0; color:var(--lz-text-muted); font-size:10px; line-height:1.45; }
 .intent-section { padding-top: 18px; }
 .project-intent { display: grid; gap: 16px; }
 .project-intent__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; color: var(--lz-brand-strong); }
@@ -652,21 +866,12 @@ async function submit() {
 .field-icon { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid; border-radius: 8px; box-shadow: 0 2px 7px rgba(15,23,42,.04); }
 .field-icon--amber { border-color: #fde7b0; color: #d97706; background: #fffbeb; }
 .field-icon--rose { border-color: #fbcfe8; color: #db2777; background: #fdf2f8; }
-.difficulty-options { display: grid; gap: 9px; }
-.difficulty-option { --choice-accent: #60a5fa; min-width: 0; min-height: 58px; display: grid; grid-template-columns: 5px minmax(0, 1fr) 20px; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid rgba(226,232,240,.92); border-radius: 12px; color: var(--lz-text-secondary); background: #fff; text-align: left; box-shadow: 0 2px 8px rgba(15,23,42,.025); cursor: pointer; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease; }
-.difficulty-option[data-tone="emerald"] { --choice-accent: #34d399; }
-.difficulty-option[data-tone="blue"] { --choice-accent: #60a5fa; }
-.difficulty-option[data-tone="violet"] { --choice-accent: #a78bfa; }
-.difficulty-option:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(165,180,252,.72); box-shadow: 0 7px 16px rgba(79,70,229,.07); }
-.difficulty-option.active { border-color: var(--lz-brand); background: linear-gradient(135deg,#fff,rgba(238,242,255,.72)); box-shadow: 0 8px 18px rgba(79,70,229,.09), inset 0 0 0 1px rgba(99,102,241,.08); }
-.difficulty-option__rail { width: 5px; height: 34px; border-radius: 4px; background: #e2e8f0; transition: background .16s ease; }
-.difficulty-option.active .difficulty-option__rail { background: var(--choice-accent); }
+.difficulty-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:10px; background:var(--lz-surface-muted); }
+.difficulty-option { min-width:0; min-height:40px; display:grid; place-items:center; padding:6px 8px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:center; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,box-shadow .16s ease; }
+.difficulty-option:hover:not(:disabled) { border-color:rgba(165,180,252,.62); color:var(--lz-brand-strong); background:rgba(255,255,255,.72); }
+.difficulty-option.active { border-color:rgba(165,180,252,.72); color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(79,70,229,.07); }
 .difficulty-option__copy { min-width: 0; display: block; }
-.difficulty-option__copy strong { display: block; color: var(--lz-text); font-size: 12px; }
-.difficulty-option__copy small { display: block; margin-top: 2px; overflow: hidden; color: var(--lz-text-muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.difficulty-option__check { display: grid; place-items: center; border: 1px solid var(--lz-border); border-radius: 50%; color: transparent; background: var(--lz-surface-muted); transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
-.difficulty-option__check { width: 20px; height: 20px; }
-.difficulty-option.active .difficulty-option__check { border-color: var(--lz-brand); color: #fff; background: var(--lz-brand); transform: scale(1.06); }
+.difficulty-option__copy strong { display:block; color:inherit; font-size:11px; }
 .difficulty-option:disabled { cursor: not-allowed; opacity: .6; }
 .strategy-settings { padding-top: 18px; border-top: 1px dashed rgba(203,213,225,.72); }
 .strategy-settings__heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 11px; }
@@ -730,7 +935,11 @@ async function submit() {
   .guided-intro__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
   .guided-intro__steps li:nth-child(3n)::after { display: none; }
   .segmented-options--three,.segmented-options--two,.compact-grid { grid-template-columns: 1fr; }
-  .course-type-options,.project-fields { grid-template-columns: 1fr; }
+  .course-type-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .course-type-option { min-height:44px; }
+  .choice-group__title small { display:none; }
+  .course-type-summary { min-height:29px; }
+  .project-fields { grid-template-columns: 1fr; }
   .project-field--wide { grid-column: auto; }
   .segmented-options button { min-height: 52px; }
   .strategy-settings__heading { align-items: flex-start; flex-direction: column; gap: 3px; }

@@ -93,7 +93,7 @@ notepad .env
 
 ## AI 提供方配置
 
-从 `.env.example` 创建 `.env`，只选择一个提供方并填写自己的密钥。不要提交 `.env` 或真实密钥。
+从 `.env.example` 创建 `.env`，选择一个主提供方并填写自己的密钥。可以额外配置一个仅在主模型池全部失败后启用的 ModelScope 兜底。不要提交 `.env` 或真实密钥。
 
 ### 官方 DeepSeek
 
@@ -120,6 +120,18 @@ AI_SLIDE_PLANNER_ENABLED=true
 # AI_MODEL_CANDIDATES=Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B,deepseek-ai/DeepSeek-V4-Flash
 # AI_MODEL_FAST_CANDIDATES=deepseek-ai/DeepSeek-V4-Flash,Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B
 ```
+
+### ModelScope 最后兜底
+
+主提供方仍使用上面的 `AI_*` 配置；以下凭据只在主模型池因额度、限流、连接故障或提供方鉴权故障而不可用时调用：
+
+```dotenv
+MODELSCOPE_API_KEY=your_modelscope_fallback_key
+MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/
+MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B
+```
+
+Fast 与思考版共用 `MODELSCOPE_MODEL` 指定的同一个模型。Fast 会关闭所有模型思考请求，将同一章节的三道题合并生成，共享课程上下文只发送一次；本地校验后，失败题最多执行一次原子批量修复。Fast 的生成、修复、独立求解和评审调用分别限制在 45、35、35、30 秒，且每个逻辑调用只允许一次供应商请求。思考版保留更完整的候选内容、独立求解和选择性思考，以换取复杂题质量。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 

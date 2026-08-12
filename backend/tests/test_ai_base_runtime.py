@@ -71,6 +71,36 @@ async def test_call_llm_does_not_print_reasoning_content(monkeypatch, capsys, ca
     assert "内部思考不应进入运行输出" not in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_call_llm_emits_safe_physical_call_telemetry(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+    service.smart_models = ["test-model"]
+    service.fast_models = ["test-model"]
+    service._working_model_cache.clear()
+    telemetry: list[dict] = []
+
+    result = await service._call_llm(
+        "test",
+        retry_count=1,
+        enable_thinking=True,
+        telemetry_sink=telemetry.append,
+    )
+
+    assert result == "正式答案"
+    assert len(telemetry) == 1
+    assert telemetry[0]["model_id"] == "test-model"
+    assert telemetry[0]["provider_attempt"] == 1
+    assert telemetry[0]["physical_request_count"] == 1
+    assert telemetry[0]["status"] == "completed"
+    assert telemetry[0]["estimated_input_tokens"] > 0
+    assert telemetry[0]["estimated_output_tokens"] > 0
+    assert "reasoning" not in telemetry[0]
+
+
 def test_provider_client_disables_hidden_retries_and_bounds_timeouts(monkeypatch):
     captured = {}
 

@@ -1,0 +1,471 @@
+import asyncio
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
+from slide_deck_v6 import V6BuildError
+from slide_build_progress_v2 import (
+    SlideBuildProgressManifestV2,
+    SlideBuildProgressRepositoryV2,
+    SlideWorkItemV2,
+)
+from slide_deck_v6_orchestrator import (
+    SlideDeckV6CandidateRepository,
+    SlideDeckV6Orchestrator,
+)
+from teaching_representations import TeachingRepresentationRepository
+
+
+def _document() -> CourseDocument:
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="course-v6-fixture",
+            title="证据驱动的现场观察",
+            sections=[CourseSection(section_id="chapter-1", title="观察闭环", position=0)],
+            blocks=[
+                CourseBlock(
+                    block_id="concept",
+                    section_id="chapter-1",
+                    position=0,
+                    role="concept",
+                    payload={"markdown": "观察记录必须包含对象、时间和环境条件。"},
+                ),
+                CourseBlock(
+                    block_id="feedback",
+                    section_id="chapter-1",
+                    position=1,
+                    role="feedback",
+                    payload={"markdown": "核对时区分观察事实与后续解释。"},
+                ),
+            ],
+        )
+    )
+
+
+def _two_chapter_document() -> CourseDocument:
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="course-v6-restart-fixture",
+            title="跨章节现场观察",
+            sections=[
+                CourseSection(section_id="chapter-1", title="记录", position=0),
+                CourseSection(section_id="chapter-2", title="核对", position=1),
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="record",
+                    section_id="chapter-1",
+                    position=0,
+                    role="concept",
+                    payload={"markdown": "记录对象、时间与环境。"},
+                ),
+                CourseBlock(
+                    block_id="verify",
+                    section_id="chapter-2",
+                    position=0,
+                    role="concept",
+                    payload={"markdown": "核对事实、解释与结论。"},
+                ),
+            ],
+        )
+    )
+
+
+async def _story_planner(request):
+    unit = request["teaching_units"][0]
+    return {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": request["chapter_id"],
+        "provider": "fixture-pool",
+        "model": "fixture-story",
+        "attempts": 1,
+        "pages": [{
+            "page_id": "page-1",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": next(
+                item
+                for item in unit["allowed_template_layout_ids"]
+                if item.endswith("/practice-feedback")
+            ),
+            "title": "完成观察与核对闭环",
+            "summary": "",
+            "source_block_ids": unit["primary_block_ids"],
+        }],
+    }
+
+
+async def _visual_planner(request):
+    return {
+        "schema_version": "slide_visual_batch_response_v2",
+        "provider": "fixture-pool",
+        "model": "fixture-visual",
+        "attempts": 1,
+        "decisions": [{
+            "page_id": page["page_id"],
+            "decision": "text_native",
+            "source_block_ids": page["source_block_ids"],
+            "resolved_template_layout_id": page["template_layout_id"],
+        } for page in request["pages"]],
+    }
+
+
+def _orchestrator(tmp_path: Path) -> tuple[SlideDeckV6Orchestrator, TeachingRepresentationRepository, SlideDeckV6CandidateRepository]:
+    representations = TeachingRepresentationRepository(tmp_path / "representations")
+    candidates = SlideDeckV6CandidateRepository(tmp_path / "candidates")
+    orchestrator = SlideDeckV6Orchestrator(
+        representation_repository=representations,
+        candidate_repository=candidates,
+        progress_root=tmp_path / "progress",
+    )
+    return orchestrator, representations, candidates
+
+
+def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_path: Path) -> None:
+    candidates = SlideDeckV6CandidateRepository(tmp_path / "candidates")
+    progress_root = tmp_path / "progress"
+    common = {"schema_version": "slide_deck_v6_candidate_v1", "course_id": "generic-course"}
+    candidates.save("ready", {
+        **common,
+        "task_id": "ready",
+        "status": "v6_ready",
+        "visual_plan": {"decisions": [{"degraded": False}, {"degraded": False}]},
+        "failure": None,
+    })
+    candidates.save("manual", {
+        **common,
+        "task_id": "manual",
+        "status": "v6_needs_manual_edit",
+        "visual_plan": {"decisions": [{"degraded": True}, {"degraded": False}]},
+        "failure": None,
+    })
+    candidates.save("story-failed", {
+        **common,
+        "task_id": "story-failed",
+        "status": "v6_failed",
+        "failure": {"stage": "story", "code": "story_ai_batch_timeout"},
+    })
+    candidates.save("template-failed", {
+        **common,
+        "task_id": "template-failed",
+        "status": "v6_failed",
+        "failure": {"stage": "template", "code": "template_layout_unavailable"},
+    })
+    now = datetime.now(timezone.utc).isoformat()
+    SlideBuildProgressRepositoryV2(progress_root).save(SlideBuildProgressManifestV2(
+        task_id="ready",
+        status="completed",
+        items=[SlideWorkItemV2(
+            item_id="source",
+            kind="local",
+            stage="source",
+            label="Freeze source",
+            status="completed",
+            discovered_at=now,
+            started_at="2026-01-01T00:00:00+00:00",
+            completed_at="2026-01-01T00:00:02+00:00",
+        )],
+        started_at=now,
+        updated_at=now,
+        last_event_at=now,
+    ))
+
+    metrics = candidates.summarize(
+        course_id="generic-course",
+        progress_root=progress_root,
+    )
+
+    assert metrics["total_builds"] == 4
+    assert metrics["success_rate"] == 0.5
+    assert metrics["story_ai_failure_rate"] == 0.25
+    assert metrics["visual_degradation_rate"] == 0.25
+    assert metrics["manual_edit_rate"] == 0.25
+    assert metrics["template_conflict_rate"] == 0.25
+    assert metrics["average_stage_duration_ms"] == {"source": 2000}
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    result = await orchestrator.build(
+        task_id="task-v6-success",
+        document=document,
+        course_data={
+            "course_teaching_plan": {"revision": "plan-r1"},
+            "course_knowledge_base": {"revision": "knowledge-r1"},
+        },
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert result["status"] == "v6_ready"
+    assert result["progress"]["percent"] == 100
+    assert result["progress"]["published"] is True
+    candidate = candidates.load("task-v6-success")
+    assert candidate["status"] == "v6_ready"
+    assert candidate["story_plan"]["batches"][0]["provider"] == "fixture-pool"
+    registry = representations.load(document.course_id)
+    representation = next(item for item in registry.representations if item.variant_key == "teaching:qizhi-classroom")
+    spec = next(item for item in registry.specs if item.spec_id == representation.spec_id)
+    assert spec.payload["content"]["schema_version"] == "slide_deck_v6"
+    assert spec.payload["content"]["status"] == "v6_ready"
+    assert spec.payload["content"]["planning_status"] == {
+        "story_ai": {
+            "status": "completed",
+            "batch_count": 1,
+            "providers": ["fixture-pool"],
+        },
+        "visual_ai": {
+            "status": "completed",
+            "page_count": 1,
+            "degraded_page_count": 0,
+            "providers": ["fixture-pool"],
+        },
+    }
+    assert spec.payload["content"]["build_signature"]["signature"].startswith(
+        "slidebuildv6_"
+    )
+
+
+@pytest.mark.asyncio
+async def test_progress_discovers_known_ai_and_render_work_before_reporting_99(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    events: list[dict] = []
+
+    await orchestrator.build(
+        task_id="task-v6-progress-discovery",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+        progress_callback=lambda event: events.append(event),
+    )
+
+    assert all(
+        event["percent"] < 99
+        for event in events
+        if event["stage"] in {"source", "course_graph", "story", "visual"}
+    )
+    assert [event["percent"] for event in events] == sorted(
+        event["percent"] for event in events
+    )
+    assert events[-1]["percent"] == 100
+    assert events[-1]["finalized"] is True
+
+
+@pytest.mark.asyncio
+async def test_shadow_candidate_runs_all_gates_without_replacing_the_public_registry(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    result = await orchestrator.build(
+        task_id="task-v6-shadow",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+        publish_result=False,
+        shadow_context={
+            "chapter_id": "chapter-1",
+            "source_course_document_revision": "source-course-revision",
+        },
+    )
+
+    assert result["status"] == "v6_ready"
+    assert result["published"] is False
+    assert result["registry"] == {}
+    assert result["progress"]["percent"] == 100
+    assert result["progress"]["finalized"] is True
+    assert result["progress"]["published"] is False
+    assert representations.load(document.course_id).representations == []
+    candidate = candidates.load("task-v6-shadow")
+    assert candidate["shadow_context"]["chapter_id"] == "chapter-1"
+    assert candidate["published"] is False
+
+
+@pytest.mark.asyncio
+async def test_failed_v6_candidate_keeps_last_published_representation(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    await orchestrator.build(
+        task_id="task-v6-first",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+    before = next(
+        item for item in representations.load(document.course_id).representations
+        if item.variant_key == "teaching:qizhi-classroom"
+    )
+
+    async def failed_story(_request):
+        raise TimeoutError("provider timeout")
+
+    with pytest.raises(V6BuildError, match="story_ai_batch_timeout"):
+        await orchestrator.build(
+            task_id="task-v6-failed",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=failed_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    after = next(
+        item for item in representations.load(document.course_id).representations
+        if item.variant_key == "teaching:qizhi-classroom"
+    )
+    assert after.spec_id == before.spec_id
+    assert candidates.load("task-v6-failed")["status"] == "v6_failed"
+
+
+@pytest.mark.asyncio
+async def test_source_revision_drift_fails_before_registry_publish(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    with pytest.raises(V6BuildError, match="source_revision_changed"):
+        await orchestrator.build(
+            task_id="task-v6-drift",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=_story_planner,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: "newer-revision",
+        )
+
+    assert not representations.load(document.course_id).representations
+    failure = candidates.load("task-v6-drift")["failure"]
+    assert failure["stage"] == "publish"
+    assert failure["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_render_audit_failure_keeps_the_previous_published_deck(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import slide_deck_v6_orchestrator as orchestrator_module
+
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    await orchestrator.build(
+        task_id="task-v6-render-baseline",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+    before = next(item for item in representations.load(document.course_id).representations)
+    monkeypatch.setattr(orchestrator_module, "audit_exported_pptx", lambda *_args, **_kwargs: {
+        "schema_version": "slide_render_review_v1",
+        "passed": False,
+        "issues": [{"severity": "critical", "code": "exported_text_frame_overflow", "page": 1}],
+        "blockers": [{"severity": "critical", "code": "exported_text_frame_overflow", "page": 1}],
+    })
+
+    with pytest.raises(V6BuildError, match="render_quality_gate_failed"):
+        await orchestrator.build(
+            task_id="task-v6-render-failed",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=_story_planner,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    after = next(item for item in representations.load(document.course_id).representations)
+    assert after.spec_id == before.spec_id
+    assert candidates.load("task-v6-render-failed")["failure"]["stage"] == "render"
+
+
+@pytest.mark.asyncio
+async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_again(
+    tmp_path: Path,
+) -> None:
+    document = _two_chapter_document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    calls: list[str] = []
+    interrupted = True
+
+    async def restartable_story(request):
+        nonlocal interrupted
+        chapter_id = request["chapter_id"]
+        calls.append(chapter_id)
+        if chapter_id == "chapter-2" and interrupted:
+            interrupted = False
+            raise asyncio.CancelledError()
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": chapter_id,
+            "provider": "fixture-pool",
+            "model": "fixture-story",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"page-{chapter_id}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    item for item in unit["allowed_template_layout_ids"]
+                    if item.endswith("/content-stack")
+                ),
+                "title": unit["source_text"][:40],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(asyncio.CancelledError):
+        await orchestrator.build(
+            task_id="task-v6-restart",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=restartable_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    result = await orchestrator.build(
+        task_id="task-v6-restart",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=restartable_story,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert result["status"] == "v6_ready"
+    assert calls.count("chapter-1") == 1
+    assert calls.count("chapter-2") == 2

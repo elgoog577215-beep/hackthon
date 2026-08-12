@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+
 import pytest
 
 from ai_base import AIProviderRequestError
 from assessment_orchestrator import (
     AssessmentGenerationOrchestrator,
     UniversalAssessmentModel,
+    _batch_generation_prompt,
     _SemanticEvaluationBatcher,
 )
-from question_bank import build_question_bank
+from question_bank import approved_formal_tasks, build_question_bank
 
 
 def _course() -> dict:
@@ -249,6 +251,105 @@ class LongTaskThenRepairModel(RepairingModel):
                 "rendered_text"
             ] = "过长任务说明" * 80
         return proposal
+
+
+class ProfileAwareBatchModel(BatchRepairingModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.generation_batch_sizes: list[int] = []
+        self.solve_batch_sizes: list[int] = []
+        self.call_policies: list[object] = []
+
+    async def generate_candidate_batch(
+        self,
+        contexts: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        self.batch_generate_calls += 1
+        self.generation_batch_sizes.append(len(contexts))
+        self.call_policies.append(call_policy)
+        return {
+            context["assessment_slot"]["slot_id"]: _proposal(
+                12,
+                context,
+            )
+            for context in contexts
+        }
+
+    async def solve_candidate(
+        self,
+        public_question_spec: dict,
+        *,
+        call_policy=None,
+    ) -> dict:
+        self.call_policies.append(call_policy)
+        return await super().solve_candidate(public_question_spec)
+
+    async def solve_candidate_batch(
+        self,
+        items: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        self.solve_batch_sizes.append(len(items))
+        self.call_policies.append(call_policy)
+        return {
+            str(item["slot_id"]): await super().solve_candidate(
+                item["question_spec"]
+            )
+            for item in items
+        }
+
+
+class BatchRepairAwareModel(ProfileAwareBatchModel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.repair_batch_sizes: list[int] = []
+
+    async def generate_candidate_batch(
+        self,
+        contexts: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        generated = await super().generate_candidate_batch(
+            contexts,
+            call_policy=call_policy,
+        )
+        for candidate in generated.values():
+            candidate["question_spec"]["task"]["rendered_text"] = (
+                "过长任务说明" * 80
+            )
+        return generated
+
+    async def repair_candidate_batch(
+        self,
+        items: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        self.repair_batch_sizes.append(len(items))
+        self.call_policies.append(call_policy)
+        return {
+            str(item["slot_id"]): _proposal(12, item["context"])
+            for item in items
+        }
+
+
+class PartialBatchRepairModel(BatchRepairAwareModel):
+    async def repair_candidate_batch(
+        self,
+        items: list[dict],
+        *,
+        call_policy=None,
+    ) -> dict[str, dict]:
+        repaired = await super().repair_candidate_batch(
+            items,
+            call_policy=call_policy,
+        )
+        first_slot_id = str(items[0]["slot_id"])
+        return {first_slot_id: repaired[first_slot_id]}
 
 
 def _proposal(answer: float, context: dict) -> dict:
@@ -563,6 +664,95 @@ async def test_slots_generate_with_bounded_concurrency(monkeypatch):
     ] == 0
 
 
+async def test_multiple_repair_nodes_generate_concurrently(monkeypatch):
+    monkeypatch.setenv("ASSESSMENT_NODE_CONCURRENCY", "2")
+    started_nodes: set[str] = set()
+    both_started = asyncio.Event()
+
+    class CrossNodeModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            objective_id = str(
+                (context.get("assessment_slot") or {}).get("objective_id") or ""
+            )
+            started_nodes.add(objective_id)
+            if len(started_nodes) == 2:
+                both_started.set()
+            await both_started.wait()
+            return await super().generate_candidate(context)
+
+    course = _course()
+    second = deepcopy(course["nodes"][0])
+    second["node_id"] = "thermo-2"
+    second["node_name"] = "热力学第二小节"
+    course["nodes"].append(second)
+    chapter_events: list[dict] = []
+
+    prepared = await asyncio.wait_for(
+        AssessmentGenerationOrchestrator(
+            model=CrossNodeModel(),
+        ).prepare_course(
+            course,
+            node_ids=["thermo-1", "thermo-2"],
+            on_chapter_complete=chapter_events.append,
+        ),
+        timeout=1,
+    )
+
+    assert len(started_nodes) == 2
+    assert {event["node_id"] for event in chapter_events} == {
+        "thermo-1",
+        "thermo-2",
+    }
+    assert set(prepared["_assessment_generated_contracts"]) == {
+        "thermo-1",
+        "thermo-2",
+    }
+    assert all(
+        set(contracts) == {
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        }
+        for contracts in prepared["_assessment_generated_contracts"].values()
+    )
+
+
+async def test_provider_quota_fallback_is_not_auto_published():
+    class QuotaFailureModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            raise AIProviderRequestError("429 insufficient balance")
+
+    chapter_events: list[dict] = []
+    prepared = await AssessmentGenerationOrchestrator(
+        model=QuotaFailureModel(),
+    ).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+        on_chapter_complete=chapter_events.append,
+    )
+
+    contract = prepared["_assessment_generated_contracts"]["thermo-1"][
+        "concept_check"
+    ]
+    audit = prepared["_assessment_generation_audit"]
+    assert contract["generation_status"] == "discarded"
+    assert contract["review_required"] is False
+    assert "ai_validation_unavailable" in contract["risk_flags"]
+    assert contract["solution_validation"]["passed"] is False
+    assert contract["solution_validation"]["auto_publish_eligible"] is False
+    assert contract["generation_degradation"]["teacher_review_recommended"] is True
+    assert audit["fallback_count"] == 1
+    assert audit["items"][0]["final_decision"] == "discard"
+    assert chapter_events[0]["passed"] is False
+    bank = build_question_bank(prepared)
+    assert not any(
+        item.get("generation_status") == "published"
+        for item in bank["items"]
+    )
+    assert approved_formal_tasks(bank, assessment_role="practice") == []
+
+
 async def test_node_uses_one_batch_generation_call_when_supported():
     model = BatchRepairingModel()
 
@@ -708,7 +898,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         "learning_objective": "判断热过程方向并说明熵变依据",
     })
     course["nodes"].append(second)
-    model = RepairingModel()
+    model = BatchRepairingModel()
     progress_events: list[dict] = []
     chapter_events: list[dict] = []
 
@@ -730,6 +920,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert set(prepared["_assessment_generated_contracts"]) == {
         "thermo-2",
     }
+    assert model.batch_generate_calls == 0
     assert model.generate_calls == 3
     assert model.solve_calls == 4
     assert model.repair_calls == 1
@@ -752,3 +943,136 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         "mastery_check",
     }
     assert len(chapter_events[0]["audit_items"]) == 3
+    assert chapter_events[0]["audit_snapshot"][
+        "assessment_generation_profile"
+    ] == "deliberate"
+    assert chapter_events[0]["audit_snapshot"][
+        "assessment_generation_policy_version"
+    ]
+    assert chapter_events[0]["audit_snapshot"]["logical_call_count"] >= 1
+    assert chapter_events[0]["audit_snapshot"]["wall_clock_ms"] >= 0
+
+
+async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
+    model = ProfileAwareBatchModel()
+
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+
+    audit = prepared["_assessment_generation_audit"]
+    assert model.generation_batch_sizes == [3]
+    assert 2 in model.solve_batch_sizes
+    assert model.generate_calls == 0
+    assert audit["assessment_generation_profile"] == "fast"
+    assert audit["assessment_generation_policy_version"]
+    assert audit["max_generation_attempts_per_question"] == 2
+    assert audit["max_repairs_per_question"] == 1
+    assert audit["thinking_requested_call_count"] == 0
+    assert all(
+        timing.get("thinking_requested") is False
+        for timing in audit["call_timings"]
+    )
+
+
+async def test_fast_profile_batches_all_failed_repairs_once():
+    model = BatchRepairAwareModel()
+
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+
+    audit = prepared["_assessment_generation_audit"]
+    assert model.repair_batch_sizes == [3]
+    assert model.repair_calls == 0
+    assert audit["repair_calls"] == 1
+    assert audit["batch_repair_calls"] == 1
+    assert audit["batch_repair_fallback_count"] == 0
+    assert any(
+        timing.get("operation") == "repair_batch"
+        and timing.get("batch_size") == 3
+        for timing in audit["call_timings"]
+    )
+    assert audit["failure_count"] == 0
+
+
+async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
+    prepared = await AssessmentGenerationOrchestrator(
+        model=PartialBatchRepairModel()
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+
+    contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
+    audit = prepared["_assessment_generation_audit"]
+    assert {
+        contract["generation_status"]
+        for contract in contracts.values()
+    } == {"discarded"}
+    assert audit["failure_count"] == 3
+    assert audit["batch_repair_fallback_count"] == 1
+    assert all(
+        item["final_decision"] == "discard"
+        for item in audit["items"]
+    )
+
+
+def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
+    shared_marker = "SHARED_COURSE_FACTS_MARKER"
+    contexts = [
+        {
+            "profile": {"course_purpose": "systematic"},
+            "objective": {"objective_id": "objective-1"},
+            "assessment_slot": {"slot_id": f"slot-{index}"},
+            "question_design_brief": {"brief": f"brief-{index}"},
+            "practice_level": f"level-{index}",
+            "variant_index": index,
+            "reference_patterns": [],
+            "content_evidence": [],
+            "reference_coverage": {},
+            "untrusted_source_package": {
+                "source_excerpt": shared_marker,
+            },
+        }
+        for index in range(3)
+    ]
+
+    prompt = _batch_generation_prompt(contexts, compact=True)
+
+    assert prompt.count(shared_marker) == 1
+    for index in range(3):
+        assert prompt.count(f"slot-{index}") == 1
+
+
+async def test_fast_profile_stops_after_one_repair_attempt():
+    model = DisagreeingModel()
+
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        generation_profile="fast",
+        generation_scope="scoped_repair",
+    )
+
+    contract = prepared["_assessment_generated_contracts"][
+        "thermo-1"
+    ]["objective_practice"]
+    audit_item = next(
+        item
+        for item in prepared["_assessment_generation_audit"]["items"]
+        if item["practice_level"] == "objective_practice"
+    )
+    assert model.repair_calls == 1
+    assert len(audit_item["attempts"]) == 2
+    assert contract["generation_status"] == "discarded"

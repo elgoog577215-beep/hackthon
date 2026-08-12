@@ -42,6 +42,23 @@ describe('CourseTaskCenter', () => {
     courses.courseList = [{ course_id: 'course-1', course_name: '线性代数', node_count: 4 }]
   })
 
+  it('零任务时收起双栏工作台，只保留紧凑状态', async () => {
+    const generation = useGenerationStore()
+    generation.globalTasks = []
+
+    const wrapper = mountCenter()
+    await flushPromises()
+
+    expect(wrapper.get('.task-center').classes()).toContain('task-center--empty')
+    expect(wrapper.find('.task-list').exists()).toBe(false)
+    expect(wrapper.find('.task-detail').exists()).toBe(false)
+    expect(wrapper.get('.task-center-empty').text()).toContain('暂无课程任务')
+
+    await setLocale('en')
+    await flushPromises()
+    expect(wrapper.get('.task-center-empty').text()).toContain('No course tasks')
+  })
+
   it('对运行任务提供暂停，并保留进入课程的直接入口', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [{
