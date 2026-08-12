@@ -1324,15 +1324,21 @@ def _bounded_ordered_step_item(
     cjk = bool(re.search(r"[\u3400-\u9fff]", clean_heading))
     detail_separator = "；" if cjk else "; "
     relation_separator = "：" if cjk else ": "
+    def normalize_detail(value: str) -> str:
+        return value.rstrip(" .。;；:：")
+
     selected: list[str] = []
     for detail in details:
+        normalized_detail = normalize_detail(detail)
+        if not normalized_detail:
+            continue
         candidate = (
             f"{clean_heading}{relation_separator}"
-            f"{detail_separator.join([*selected, detail])}"
+            f"{detail_separator.join([*selected, normalized_detail])}"
         )
         if len(candidate) > capacity:
             break
-        selected.append(detail)
+        selected.append(normalized_detail)
     if selected:
         return (
             f"{clean_heading}{relation_separator}"
