@@ -407,6 +407,8 @@ def _collect_report(
     audit_root: Path,
     report_path: Path,
     request: dict[str, Any],
+    requested_chapters: int,
+    requested_sections: int,
     manager: TaskManager | None,
     service: AuditedCourseService | None,
     provider_handler: ProviderAuditHandler,
@@ -501,8 +503,8 @@ def _collect_report(
             "pedagogy_mode": request.get("pedagogy_mode"),
             "course_purpose": request.get("course_purpose"),
             "requirements_chars": len(str(request.get("requirements") or "")),
-            "requested_chapters": 6,
-            "requested_sections": 12,
+            "requested_chapters": requested_chapters,
+            "requested_sections": requested_sections,
             "material_count": len(request.get("material_bindings") or []),
         },
         "identity": {"task_id": task_id, "course_id": course_id},
@@ -615,6 +617,8 @@ async def run_audit(
     subject: str,
     timeout_seconds: int,
     report_path: Path,
+    chapters: int = 6,
+    sections: int = 12,
 ) -> dict[str, Any]:
     started_at = time.monotonic()
     audit_root = Path(tempfile.mkdtemp(prefix="lingzhi-generation-audit-"))
@@ -642,7 +646,8 @@ async def run_audit(
         "style": "academic",
         "composition_style": "theory_driven",
         "requirements": (
-            "请生成一门正式、完整、可发布的6章12节课程，每章严格2节。"
+            f"请生成一门正式、完整、可发布的{chapters}章{sections}节课程，"
+            f"每章严格{max(1, sections // max(1, chapters))}节。"
             "内容从随机事件与概率公理开始，依次覆盖条件概率与独立性、随机变量与分布、"
             "数字特征、常用极限定理，最后完成中心极限定理及一个综合建模应用。"
             "章节之间必须递进且不能重复；每节都要有明确学习目标、适用边界、关键定义或定理、"
@@ -751,9 +756,6 @@ async def run_audit(
                 if not reviews or reviews[-1] != review_summary:
                     reviews.append(review_summary)
                     print(json.dumps({"audit_review": review_summary}, ensure_ascii=False), flush=True)
-                if step not in {"outline", "release"}:
-                    stop_reason = f"unexpected_review_step:{step}"
-                    break
                 if not review.get("can_confirm"):
                     stop_reason = f"review_blocked:{step}"
                     break
@@ -779,6 +781,8 @@ async def run_audit(
             audit_root=audit_root,
             report_path=report_path,
             request=request,
+            requested_chapters=chapters,
+            requested_sections=sections,
             manager=manager,
             service=service,
             provider_handler=provider_handler,
@@ -811,6 +815,8 @@ def main() -> int:
         default="概率论基础：从随机事件到中心极限定理",
     )
     parser.add_argument("--timeout", type=int, default=1800)
+    parser.add_argument("--chapters", type=int, default=6)
+    parser.add_argument("--sections", type=int, default=12)
     parser.add_argument(
         "--report",
         type=Path,
@@ -821,6 +827,8 @@ def main() -> int:
         subject=args.subject,
         timeout_seconds=args.timeout,
         report_path=args.report.resolve(),
+        chapters=args.chapters,
+        sections=args.sections,
     ))
     print(json.dumps({
         "audit": "finished",

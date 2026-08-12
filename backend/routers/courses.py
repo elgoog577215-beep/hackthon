@@ -28,6 +28,11 @@ from storage_utils import save_course_compat
 from task_manager import TaskManager
 from learner_context import resolve_user_id
 from learning_snapshots import learning_snapshot_repository
+from web_material_curation import (
+    CURATION_METADATA_KEY,
+    load_course_exclusions,
+    normalize_exclusions,
+)
 
 router = APIRouter(tags=["courses"])
 
@@ -65,6 +70,12 @@ class NodeConfigUpdateRequest(BaseModel):
 class CourseDocumentMigrationRequest(BaseModel):
     source_checksum: str
     confirm: bool = False
+
+
+class WebMaterialCurationRequest(BaseModel):
+    """教师剔除的联网来源，按课程持久保存。"""
+    excluded_source_ids: list[str] = []
+    excluded_urls: list[str] = []
 
 
 # =============================================================================
@@ -303,3 +314,30 @@ async def update_node_config(
 
     await save_course_compat(storage, course_id, tree_data)
     return {"status": "config_updated", "config": config}
+
+
+@router.get("/courses/{course_id}/web-material-curation")
+async def get_web_material_curation(
+    course_id: str,
+    repository=Depends(get_course_document_repository),
+):
+    """读回该课程已持久化的联网来源剔除名单。"""
+    await get_course_or_404(course_id)
+    raw = await run_in_threadpool(repository.load_raw, course_id)
+    return load_course_exclusions(raw)
+
+
+@router.put("/courses/{course_id}/web-material-curation")
+async def update_web_material_curation(
+    course_id: str,
+    body: WebMaterialCurationRequest,
+    repository=Depends(get_course_document_repository),
+):
+    """保存剔除名单；下一轮生成会自动带上，不必教师每次重勾。"""
+    await get_course_or_404(course_id)
+    exclusions = normalize_exclusions(body.model_dump())
+    await repository.update_metadata(
+        course_id,
+        {CURATION_METADATA_KEY: exclusions},
+    )
+    return {"status": "curation_updated", **exclusions}
