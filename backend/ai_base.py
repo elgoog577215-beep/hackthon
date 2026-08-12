@@ -21,7 +21,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -249,10 +249,51 @@ class AIBase:
         enable_thinking: bool,
         api_base: str | None = None,
     ) -> Dict:
+        """Build the provider-specific switch for reasoning output.
+
+        Three shapes are in play:
+
+        * official DeepSeek wants a nested ``thinking`` object;
+        * vLLM (e.g. a self-hosted Qwen) only honours the flag when it is
+          nested under ``chat_template_kwargs`` -- a top-level
+          ``enable_thinking`` is accepted and then silently ignored, so
+          thinking stays on, ``message.content`` comes back null and the
+          whole response looks empty and truncated;
+        * other OpenAI-compatible providers use the flat form.
+
+        The flat form is kept alongside the nested one so providers that only
+        understand it keep working.
+        """
         thinking_enabled = enable_thinking and self.thinking_enabled
         if self._is_official_deepseek_base(api_base or self.api_base):
             return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-        return {"enable_thinking": thinking_enabled}
+        return {
+            "enable_thinking": thinking_enabled,
+            "chat_template_kwargs": {"enable_thinking": thinking_enabled},
+        }
+
+    @staticmethod
+    def _delta_reasoning(delta: Any) -> str:
+        """Read one streaming delta's reasoning text.
+
+        vLLM names the field ``reasoning`` while DeepSeek-style providers use
+        ``reasoning_content``.  Reading only one of them makes a provider look
+        like it is streaming nothing.
+        """
+        for field in ("reasoning_content", "reasoning"):
+            value = getattr(delta, field, None)
+            if value:
+                return str(value)
+        return ""
+
+    @staticmethod
+    def _message_reasoning(message: Any) -> str:
+        """Read a non-streaming message's reasoning text (same two names)."""
+        for field in ("reasoning_content", "reasoning"):
+            value = getattr(message, field, None)
+            if value:
+                return str(value)
+        return ""
 
     def _supports_json_response_format(
         self,
@@ -1201,7 +1242,7 @@ class AIBase:
                             if not chunk.choices:
                                 continue
                             delta = chunk.choices[0].delta
-                            reasoning = getattr(delta, "reasoning_content", None)
+                            reasoning = self._delta_reasoning(delta)
                             if reasoning and on_stream_activity:
                                 on_stream_activity()
                             if delta.content:
@@ -1354,7 +1395,7 @@ class AIBase:
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
-                        reasoning = getattr(delta, "reasoning_content", None)
+                        reasoning = self._delta_reasoning(delta)
                         if reasoning and on_stream_activity:
                             on_stream_activity()
                         if delta.content:
@@ -1619,12 +1660,13 @@ class AIBase:
                         truncated = False
                         async for chunk in response:
                             if chunk.choices:
-                                if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                    reasoning = chunk.choices[0].delta.reasoning_content
-                                    if reasoning:
-                                        reasoning_chars += len(reasoning)
-                                        if on_stream_activity:
-                                            on_stream_activity()
+                                reasoning = self._delta_reasoning(
+                                    chunk.choices[0].delta
+                                )
+                                if reasoning:
+                                    reasoning_chars += len(reasoning)
+                                    if on_stream_activity:
+                                        on_stream_activity()
 
                                 delta = chunk.choices[0].delta
                                 if delta.content:
@@ -1663,16 +1705,46 @@ class AIBase:
 
                     if not full_content:
                         fallback_eligible = True
-                        emit_telemetry(status="empty_response")
+                        # An empty answer with a large reasoning trace is not a
+                        # dead provider: thinking consumed the whole
+                        # max_tokens budget and left nothing for the answer.
+                        # Reported as a plain empty_response it looks like a
+                        # provider outage (and trips the breaker), so name it.
+                        thinking_starved = reasoning_chars > 0
+                        emit_telemetry(
+                            status=(
+                                "thinking_consumed_budget"
+                                if thinking_starved
+                                else "empty_response"
+                            )
+                        )
                         empty_error = AIProviderRequestError(
-                            f"empty_response:{model_id}"
+                            (
+                                "thinking_consumed_budget:"
+                                f"{model_id}:reasoning_chars={reasoning_chars}"
+                                f":max_tokens={effective_max_tokens}"
+                            )
+                            if thinking_starved
+                            else f"empty_response:{model_id}"
                         )
                         last_error = empty_error
-                        logger.warning(
-                            "Empty response from AI "
-                            f"(Model: {model_id}, "
-                            f"Attempt {attempt+1}/{retry_count})"
-                        )
+                        if thinking_starved:
+                            logger.warning(
+                                "Model returned only reasoning and no answer "
+                                "(Model: %s, reasoning_chars=%d, "
+                                "max_tokens=%d): thinking used the whole "
+                                "output budget; disable thinking for this "
+                                "call or raise AI_MAX_TOKENS.",
+                                model_id,
+                                reasoning_chars,
+                                effective_max_tokens,
+                            )
+                        else:
+                            logger.warning(
+                                "Empty response from AI "
+                                f"(Model: {model_id}, "
+                                f"Attempt {attempt+1}/{retry_count})"
+                            )
                         if attempt < retry_count - 1:
                             await asyncio.sleep(1)
                             continue
@@ -1859,9 +1931,10 @@ class AIBase:
                     truncated = False
                     async for chunk in response:
                         if chunk.choices:
-                            if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                reasoning = chunk.choices[0].delta.reasoning_content
-                                if reasoning:
+                            reasoning = self._delta_reasoning(
+                                chunk.choices[0].delta
+                            )
+                            if reasoning:
                                     if on_stream_activity:
                                         on_stream_activity()
 
