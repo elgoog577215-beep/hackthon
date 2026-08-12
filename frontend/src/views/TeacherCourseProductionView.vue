@@ -187,7 +187,7 @@
           </section>
 
           <aside v-if="showAiDock" id="teacher-course-ai-dock" class="ai-dock" aria-label="AI 教案协作区">
-            <template v-if="!aiPanelOpen">
+            <div v-show="!aiPanelOpen" class="ai-dock__idle">
               <header class="ai-dock__header">
                 <div><Sparkles :size="17" /><strong>AI 教案助手</strong></div>
                 <span>真实候选</span>
@@ -216,7 +216,7 @@
               <button v-else type="button" class="ai-dock__primary" :disabled="isGenerationPreview" @click="openTeachingAi">
                 <Sparkles :size="16" />AI 优化当前教案
               </button>
-            </template>
+            </div>
           </aside>
         </div>
       </main>
@@ -460,6 +460,7 @@ button { font:inherit; }
 .lesson-heading { height:34px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; border-top:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-secondary); font-size:10px; }.lesson-list { display:grid; padding:5px; }.lesson-list button { min-height:43px; display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:6px; padding:5px 7px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; }.lesson-list button.active { border-color:var(--lz-brand-border); background:var(--lz-brand-soft); }.lesson-list button > span:first-child { color:var(--lz-brand); font-size:9px; font-weight:800; }.lesson-list button > span:last-child { min-width:0; display:grid; gap:2px; }.lesson-list strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.lesson-list small { color:var(--lz-text-muted); font-size:9px; }
 .stage-workspace { min-width:0; min-height:0; overflow:auto; background:var(--lz-surface); }.workspace-state { height:100%; display:grid; place-content:center; justify-items:center; gap:9px; color:var(--lz-text-muted); }.workspace-state.is-error { color:var(--lz-danger); }.workspace-state button { padding:7px 14px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface); cursor:pointer; }
 .ai-dock { min-width:0; min-height:0; overflow:auto; border-left:1px solid var(--lz-border); background:var(--lz-surface); }
+.ai-dock__idle { min-height:100%; }
 .ai-dock__header { height:48px; display:flex; align-items:center; justify-content:space-between; padding:0 15px; border-bottom:1px solid var(--lz-border); }
 .ai-dock__header div { display:flex; align-items:center; gap:8px; color:var(--lz-brand-strong); }
 .ai-dock__header strong { color:var(--lz-text-primary); font-size:12px; }

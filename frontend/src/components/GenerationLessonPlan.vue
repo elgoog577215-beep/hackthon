@@ -304,7 +304,7 @@
       </footer>
     </section>
 
-    <Teleport :to="aiDockTarget || 'body'" :disabled="!aiDockTarget || !aiOpen">
+    <Teleport defer :to="aiDockTarget || 'body'" :disabled="!aiDockTarget">
     <section v-if="aiOpen && editing" class="generation-lesson-plan__ai-panel" :class="{ 'is-docked': aiDockTarget }" aria-live="polite">
       <header>
         <div>
@@ -2086,6 +2086,8 @@ function openKnowledge(knowledgeId: string): void {
 
 <style scoped>
 .generation-lesson-plan {
+  container-name:lesson-plan;
+  container-type:inline-size;
   min-height:0;
   flex:1;
   overflow:auto;
@@ -2445,6 +2447,16 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__section-execution-editor label:first-child { grid-column:1 / -1; max-width:220px; }
 @keyframes lesson-plan-spin { to { transform:rotate(360deg); } }
 @keyframes lesson-plan-shimmer { to { background-position:-220% 0; } }
+@container lesson-plan (max-width:820px) {
+  .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:10px; }
+  .generation-lesson-plan__title-line { flex-wrap:wrap; }
+  .generation-lesson-plan__header h2 { white-space:nowrap; }
+  .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }
+  .generation-lesson-plan__workbench-controls { justify-content:flex-start; }
+  .generation-lesson-plan__overview-hero { grid-template-columns:minmax(0,1fr) minmax(170px,.32fr); gap:20px; padding:28px 30px 26px; }
+  .generation-lesson-plan__overview-hero::before { left:30px; }
+  .generation-lesson-plan__overview-hero h3 { font-size:23px; }
+}
 @media (max-width:900px) {
   .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:10px; }
   .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }
