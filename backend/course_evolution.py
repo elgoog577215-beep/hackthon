@@ -367,7 +367,9 @@ def synchronize_and_evaluate_course_evolution(
     document = _course_document(course_data)
     # Knowledge compilation normalizes legacy fields in-place. Personal
     # adaptation is a read-only consumer, so compile from an isolated snapshot.
-    knowledge_base = compile_course_knowledge_base(deepcopy(course_data))
+    knowledge_base = compile_course_knowledge_base(
+        deepcopy(_knowledge_compilation_source(course_data)),
+    )
     asset_bundle = learning_asset_repository.load_bundle(course_id) or {}
     learning_assets = asset_bundle.get("assets") if isinstance(asset_bundle, dict) else {}
     state = repository.load(user_id, course_id)
@@ -388,6 +390,31 @@ def synchronize_and_evaluate_course_evolution(
     ensure_challenge_suggestions(state, document)
     _evaluate_applied_effects(state, user_id=user_id)
     return repository.save(state)
+
+
+def _knowledge_compilation_source(course_data: dict[str, Any]) -> dict[str, Any]:
+    """Return a course shape the knowledge compiler can read bindings from.
+
+    Callers pass whichever shape they hold: routes use the projected course view,
+    while the learning-event hook passes the raw stored course. A migrated course
+    persists ``course_document`` and no ``nodes``, and the knowledge compiler
+    reads its per-section structure from ``nodes`` — so the raw shape compiles to
+    zero bindings and a plan silently freezes with no knowledge anchor. Normalize
+    here rather than making every caller know which shape to hand over.
+    """
+    if course_data.get("nodes"):
+        return course_data
+    document = course_data.get("course_document")
+    if not isinstance(document, dict):
+        return course_data
+    try:
+        from course_document import course_view_from_document
+
+        return course_view_from_document(course_data, document)
+    except Exception:
+        # Projection is a convenience, never a precondition for evaluating
+        # evidence; fall back to the caller's shape rather than failing the sync.
+        return course_data
 
 
 def _reconcile_command_group(

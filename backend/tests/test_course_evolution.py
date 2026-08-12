@@ -1096,6 +1096,51 @@ def test_knowledge_semantics_absent_stays_empty_rather_than_invented(
     assert semantics["available"] is False
 
 
+def test_knowledge_pins_survive_a_canonical_course_without_legacy_nodes(
+    tmp_path,
+    monkeypatch,
+):
+    """A migrated course persists no ``nodes``; knowledge must still be found.
+
+    Regression from real-machine evidence: ``learning_events`` triggers this
+    sync with ``storage.load_course()``, which for a canonical course carries
+    ``course_document`` but no ``nodes``. Knowledge then compiled to zero
+    bindings, the plan was frozen with no knowledge anchor, and — because plans
+    are never rebuilt — the knowledge guard stayed inert for the whole life of
+    every evidence-driven plan. Callers must not have to know which shape to pass.
+    """
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    # Exactly what storage returns for a migrated course: document, no nodes.
+    canonical = deepcopy(course)
+    canonical["course_document"] = document.model_dump(mode="json")
+    canonical["course_schema_version"] = "course_document_v1"
+    canonical["course_document_authoritative"] = True
+    canonical.pop("nodes", None)
+    assert "nodes" not in canonical
+
+    state = synchronize_and_evaluate_course_evolution(
+        canonical,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path),
+    )
+    plan = next(item for item in state.change_sets if item.status == "pending")
+    pins = plan.impact_summary["knowledge_revision_pins"]
+
+    assert pins["available"] is True, (
+        "a canonical course without nodes must still resolve its knowledge; "
+        f"got reason={pins.get('reason')!r}"
+    )
+    assert pins["revisions"]
+    assert any(key.startswith("point:") for key in pins["revisions"])
+
+
 def test_plan_pins_the_knowledge_semantics_it_depends_on(tmp_path, monkeypatch):
     """A plan must pin the knowledge entities it was reasoned from.
 
