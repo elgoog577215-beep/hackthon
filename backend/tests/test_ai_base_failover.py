@@ -88,6 +88,17 @@ class SuccessfulCompletions:
         return _success_stream()
 
 
+class RateLimitedThenSuccessCompletions:
+    def __init__(self):
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs["model"])
+        if len(self.calls) == 1:
+            raise _make_status_error(429, "limit_burst_rate")
+        return _success_stream()
+
+
 def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.setenv("AI_API_KEY", "test-key")
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
@@ -120,6 +131,11 @@ def _make_service_with_modelscope_fallback(
         "https://api-inference.modelscope.cn/v1/",
     )
     monkeypatch.setenv("MODELSCOPE_MODEL", fallback_model)
+    # Unit tests exercise routing, not production pacing. Individual pacing
+    # tests override the instance values they need explicitly.
+    monkeypatch.setenv("AI_LAST_RESORT_START_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_LAST_RESORT_POST_REQUEST_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_LAST_RESORT_RATE_LIMIT_RETRIES", "0")
     monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
     service = AIBase()
@@ -321,6 +337,39 @@ async def test_call_llm_can_run_with_only_modelscope_fallback_configured(
     assert result == "ok-answer"
     assert primary.calls == []
     assert fallback.calls == ["deepseek-ai/DeepSeek-V4-Pro"]
+
+
+@pytest.mark.asyncio
+async def test_modelscope_last_resort_waits_and_retries_burst_rate_limit(
+    monkeypatch,
+):
+    fallback = RateLimitedThenSuccessCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        SuccessfulCompletions(),
+        fallback,
+    )
+    service.api_key = None
+    service.client = None
+    service._last_resort_rate_limit_retries = 1
+    monkeypatch.setattr(
+        service,
+        "_model_failure_cooldown_seconds",
+        lambda _error: 0.01,
+    )
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert fallback.calls == [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Pro",
+    ]
 
 
 @pytest.mark.asyncio

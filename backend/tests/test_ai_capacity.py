@@ -123,3 +123,65 @@ async def test_queued_request_leaves_model_when_concurrent_call_opens_circuit(
 
     with pytest.raises(ModelCapacityCoolingDown):
         await asyncio.wait_for(waiting, timeout=0.2)
+
+
+@pytest.mark.asyncio
+async def test_last_resort_profile_serializes_and_spaces_after_completion(
+    monkeypatch,
+):
+    monkeypatch.setenv("AI_PROVIDER_INITIAL_CONCURRENCY", "2")
+    monkeypatch.setenv("AI_PROVIDER_MAX_CONCURRENCY", "4")
+    monkeypatch.setenv("AI_PROVIDER_START_INTERVAL_SECONDS", "0")
+    reset_provider_capacity_controllers()
+    controller = get_provider_capacity_controller("provider-last-resort")
+
+    await controller.configure_last_resort(
+        max_concurrency=1,
+        start_interval_seconds=0,
+        post_request_interval_seconds=0.04,
+    )
+    first = await controller.acquire("model-a")
+    waiting = asyncio.create_task(controller.acquire("model-b"))
+    await asyncio.sleep(0)
+    assert waiting.done() is False
+
+    await first.release()
+    await asyncio.sleep(0.01)
+    assert waiting.done() is False
+
+    second = await asyncio.wait_for(waiting, timeout=0.2)
+    await second.release()
+    snapshot = controller.snapshot()
+    assert snapshot["limit"] == 1
+    assert snapshot["post_request_interval_seconds"] == 0.04
+
+
+@pytest.mark.asyncio
+async def test_last_resort_waiter_survives_shared_rate_limit_cooldown(
+    monkeypatch,
+):
+    monkeypatch.setenv("AI_PROVIDER_INITIAL_CONCURRENCY", "2")
+    monkeypatch.setenv("AI_PROVIDER_START_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_PROVIDER_RATE_LIMIT_BACKOFF_SECONDS", "0.1")
+    reset_provider_capacity_controllers()
+    controller = get_provider_capacity_controller("last-resort-cooldown")
+    await controller.configure_last_resort(
+        max_concurrency=1,
+        start_interval_seconds=0,
+        post_request_interval_seconds=0,
+    )
+
+    first = await controller.acquire("model-a")
+    waiting = asyncio.create_task(controller.acquire("model-a"))
+    await asyncio.sleep(0)
+    await controller.report_failure(
+        "model-a",
+        failure_kind="rate_limited",
+        cooldown_seconds=0.04,
+    )
+    await first.release()
+
+    await asyncio.sleep(0.02)
+    assert waiting.done() is False
+    second = await asyncio.wait_for(waiting, timeout=0.3)
+    await second.release()
