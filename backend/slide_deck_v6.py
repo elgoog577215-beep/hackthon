@@ -2057,6 +2057,27 @@ def validate_story_template_text_slots(
         for slot in content_slots
         if slot.slot_kind in {"body", "items", "steps"}
     ]
+    if any(slot.slot_kind == "steps" for slot in text_slots) and all(
+        slot.source_roles for slot in text_slots
+    ):
+        expressible_roles = {
+            role for slot in text_slots for role in slot.source_roles
+        }
+        incompatible = [
+            block.block_id
+            for block in source_blocks
+            if block.role not in expressible_roles
+        ]
+        if incompatible:
+            raise V6BuildError(
+                stage="template",
+                code="template_source_slot_role_mismatch",
+                message=(
+                    "Structured template slots cannot express source roles for blocks: "
+                    + ", ".join(incompatible)
+                ),
+                page_id=page_id,
+            )
     assigned: dict[str, list[CourseBlock]] = {}
     for index, slot in enumerate(text_slots):
         if not remaining:

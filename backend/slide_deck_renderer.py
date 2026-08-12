@@ -2788,13 +2788,40 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             bold=True,
         )
         step_parts = [_split_ordered_step(item) for item in items]
-        weights = [max(1, min(3, math.ceil(len(item) / 90))) for item in items]
-        total_weight = max(1, sum(weights))
+        title_fonts = [18 if len(title) <= 28 else 16 for title, _detail in step_parts]
+        detail_font = 16
+        required_heights: list[float] = []
+        for (title, detail), title_font in zip(step_parts, title_fonts):
+            title_width = 3.08 if detail else 10.2
+            title_lines = _wrapped_line_count(
+                _display_text(title),
+                width_pt=title_width * 72.0,
+                font_size_pt=title_font,
+            )
+            detail_lines = (
+                _wrapped_line_count(
+                    _display_text(detail),
+                    width_pt=7.05 * 72.0,
+                    font_size_pt=detail_font,
+                )
+                if detail
+                else 0
+            )
+            required_heights.append(max(
+                0.58,
+                title_lines * title_font * 1.22 / 72.0 + 0.16,
+                detail_lines * detail_font * 1.22 / 72.0 + 0.16,
+            ))
         available_height = 4.08
         gap = 0.04
         usable_height = available_height - gap * max(0, len(items) - 1)
         y = 2.20
-        heights = [usable_height * weight / total_weight for weight in weights]
+        required_total = max(0.01, sum(required_heights))
+        if required_total <= usable_height:
+            extra_height = (usable_height - required_total) / max(1, len(items))
+            heights = [height + extra_height for height in required_heights]
+        else:
+            heights = [usable_height * height / required_total for height in required_heights]
         centers: list[float] = []
         cursor = y
         for height in heights:
@@ -2810,8 +2837,8 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 theme["chart_bg"],
                 radius=False,
             )
-        for index, ((title, detail), height) in enumerate(
-            zip(step_parts, heights),
+        for index, ((title, detail), height, title_font) in enumerate(
+            zip(step_parts, heights, title_fonts),
             start=1,
         ):
             center_y = y + height / 2
@@ -2843,10 +2870,10 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 slide,
                 title,
                 1.78,
-                y + max(0.1, (height - 0.46) / 2),
+                y + 0.08,
                 3.08 if detail else 10.2,
-                0.46,
-                18 if len(title) <= 28 else 16,
+                max(0.46, height - 0.14),
+                title_font,
                 theme["ink"],
                 bold=True,
             )
@@ -2855,10 +2882,10 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                     slide,
                     detail,
                     5.02,
-                    y + max(0.08, (height - 0.52) / 2),
+                    y + 0.08,
                     7.05,
-                    max(0.52, height - 0.16),
-                    16,
+                    max(0.48, height - 0.14),
+                    detail_font,
                     theme["muted"],
                 )
             y += height + gap
