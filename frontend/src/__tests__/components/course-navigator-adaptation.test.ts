@@ -38,6 +38,16 @@ describe('course navigator personal adaptation markers', () => {
     useCourseStore().currentCourseProjection = 'published'
   })
 
+  it('首次收到当前节点后只展开命中路径', async () => {
+    const wrapper = mount(CourseNavigatorNode, {
+      props: { node, depth: 0, activeId: '' },
+    })
+
+    expect(wrapper.get('.node-button').attributes('aria-expanded')).toBe('true')
+    await wrapper.setProps({ activeId: 'section-outside-current-chapter' })
+    expect(wrapper.get('.node-button').attributes('aria-expanded')).toBe('false')
+  })
+
   it('在受影响章节和小节显示轻量 AI 建议标记', () => {
     useLearningProgressStore().runtime = {
       course_evolution: {

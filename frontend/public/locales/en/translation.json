@@ -1432,6 +1432,7 @@
     "teacherBrief": {
       "title": "Classroom delivery constraints",
       "help": "These details become part of the generation contract and reviewable fields in the whole-course lesson plan.",
+      "defaultAudience": "University students",
       "targetAudience": "Learners",
       "academicTerm": "Academic term",
       "academicTermPlaceholder": "For example: Fall 2026",
@@ -3275,6 +3276,21 @@
     "shortcut": "Ctrl / ⌘ + Enter to save",
     "cancel": "Cancel",
     "save": "Save note"
+  },
+  "questionBank": {
+    "centerTitle": "Course question-bank quality",
+    "courseList": "Courses",
+    "searchCourse": "Search courses",
+    "noCourses": "No courses available",
+    "currentCourse": "Current course",
+    "title": "Course question-bank quality",
+    "refreshCourses": "Refresh courses",
+    "regenerateHelp": "New questions replace the current bank only after passing quality checks.",
+    "notBuilt": "This course does not have a prepared question bank yet. Build it to continue.",
+    "loadFailed": "The question bank could not be loaded. Try again shortly.",
+    "rebuildMissing": "Build question bank",
+    "regeneratingCourse": "Rebuilding course questions",
+    "regenerateCourse": "Regenerate course questions"
   },
   "units": {
     "seconds": " sec",

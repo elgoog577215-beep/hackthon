@@ -131,6 +131,7 @@ describe('课程教案工作台', () => {
     })
 
     expect(wrapper.text()).toContain('建立可编辑教案')
+    expect(wrapper.find('.generation-lesson-plan__workbench-controls').exists()).toBe(false)
     await wrapper.get('.generation-lesson-plan__workbench-notice button').trigger('click')
     await flushPromises()
 
@@ -148,6 +149,7 @@ describe('课程教案工作台', () => {
     )
     expect(wrapper.text()).toContain('正式修订 #1')
     expect(wrapper.text()).toContain('草稿已保存')
+    expect(wrapper.find('.generation-lesson-plan__workbench-controls').exists()).toBe(true)
     expect(wrapper.find('.generation-lesson-plan__inline-editor').exists()).toBe(true)
   })
 

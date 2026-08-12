@@ -1432,6 +1432,7 @@
     "teacherBrief": {
       "title": "课堂交付约束",
       "help": "这些信息会写入课程生成契约，并成为全课教案的可审阅字段。",
+      "defaultAudience": "大学生",
       "targetAudience": "教学对象",
       "academicTerm": "开课学期",
       "academicTermPlaceholder": "例如：2026-2027 学年第一学期",
@@ -3275,6 +3276,21 @@
     "shortcut": "Ctrl / ⌘ + Enter 保存",
     "cancel": "取消",
     "save": "保存笔记"
+  },
+  "questionBank": {
+    "centerTitle": "课程题库质量管理",
+    "courseList": "课程列表",
+    "searchCourse": "搜索课程",
+    "noCourses": "没有可管理的课程",
+    "currentCourse": "当前课程",
+    "title": "课程题库质量管理",
+    "refreshCourses": "刷新课程",
+    "regenerateHelp": "新题通过质量检查后才会替换当前题库",
+    "notBuilt": "该课程尚未整理题库，请点击“重新整理”。",
+    "loadFailed": "题库读取失败，请稍后重试。",
+    "rebuildMissing": "重新整理题库",
+    "regeneratingCourse": "正在重新生成课程题目",
+    "regenerateCourse": "重新生成整门课程题目"
   },
   "units": {
     "seconds": "秒",

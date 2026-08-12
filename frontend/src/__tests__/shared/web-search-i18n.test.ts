@@ -17,7 +17,7 @@ const BACKEND = resolve(__dirname, '../../../../backend')
 const readBackend = (name: string): string =>
   readFileSync(resolve(BACKEND, name), 'utf8')
 
-type WebSearchTranslations = {
+interface WebSearchTranslations {
   messageCode: Record<string, string>
   reason: Record<string, string>
   status: Record<string, string>
