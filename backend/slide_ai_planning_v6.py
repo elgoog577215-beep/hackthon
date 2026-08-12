@@ -1200,6 +1200,62 @@ def _story_repair_targets(
         if isinstance(item, dict)
     }
 
+    def grounded_density_excerpt(
+        source: str,
+        *,
+        minimum: int,
+        maximum: int,
+    ) -> str:
+        """Fill a summary from ordered source even when its next sentence is long."""
+
+        normalized = " ".join(_visible_prose_text(source).split())
+        if not normalized or maximum <= 0:
+            return ""
+        preferred_capacity = min(
+            maximum,
+            max(minimum, minimum + 80),
+        )
+        if len(normalized) <= preferred_capacity:
+            return normalized
+
+        def bounded_excerpt(value: str, capacity: int) -> str:
+            excerpt = _complete_sentence_excerpt(value, capacity)
+            if len(excerpt) <= capacity:
+                return excerpt
+            if capacity <= 1:
+                return excerpt[:capacity]
+            clipped = excerpt[: capacity - 1].rstrip(" ,;:")
+            if (
+                clipped
+                and clipped[-1].isalnum()
+                and len(excerpt) > len(clipped)
+                and excerpt[len(clipped)].isalnum()
+                and " " in clipped
+            ):
+                clipped = clipped.rsplit(" ", 1)[0].rstrip(" ,;:")
+            return f"{clipped}…"
+
+        def extend_to(capacity: int) -> str:
+            head = bounded_excerpt(normalized, capacity)
+            if len(head) >= min(minimum, len(normalized)):
+                return head
+            if not head or not normalized.startswith(head):
+                return head
+            remaining_capacity = capacity - len(head) - 1
+            if remaining_capacity <= 1:
+                return head
+            tail = normalized[len(head):].lstrip()
+            continuation = bounded_excerpt(
+                tail,
+                remaining_capacity,
+            )
+            return " ".join(part for part in (head, continuation) if part)
+
+        result = extend_to(preferred_capacity)
+        if len(result) < min(minimum, len(normalized)):
+            result = extend_to(maximum)
+        return result
+
     def target_for(
         unit: dict[str, Any],
         *,
@@ -1394,10 +1450,10 @@ def _story_repair_targets(
                 effective_max,
                 max(summary_min_chars, summary_min_chars + 80),
             )
-            required_summary = (
-                grounded_source
-                if len(grounded_source) <= preferred_max
-                else _complete_sentence_excerpt(grounded_source, preferred_max)
+            required_summary = grounded_density_excerpt(
+                grounded_source,
+                minimum=summary_min_chars,
+                maximum=effective_max,
             )
             if len(required_summary) < min(summary_min_chars, len(grounded_source)):
                 expanded = _complete_sentence_excerpt(grounded_source, effective_max)
