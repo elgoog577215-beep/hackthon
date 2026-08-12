@@ -742,8 +742,8 @@ def test_ordered_activity_keeps_complete_source_details_without_ellipsis() -> No
             payload={"markdown": (
                 "Follow these operations in order:\n\n"
                 "1. **Prepare the station**\n"
-                "   - Record the site, time, weather, observer, instrument and batch identifier.\n"
-                "   - Confirm the clean surface before opening the specimen container.\n"
+                "   - Record the site.\n"
+                "   - Confirm the clean surface.\n"
                 "2. **Collect the sample**\n"
                 "   - Match the field label to the signed source record before collection begins.\n"
                 "   - Preserve the original sequence while transferring the sample.\n"
@@ -800,6 +800,8 @@ def test_ordered_activity_keeps_complete_source_details_without_ellipsis() -> No
 
     assert len(task.content.splitlines()) == 5
     assert "…" not in task.content
+    assert ".;" not in task.content
+    assert "。；" not in task.content
     assert all(not line.rstrip().endswith((";", "；", ":", "：")) for line in task.content.splitlines())
 
 
