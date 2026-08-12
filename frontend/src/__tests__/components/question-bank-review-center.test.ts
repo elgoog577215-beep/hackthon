@@ -38,6 +38,7 @@ describe('QuestionBankReviewCenter', () => {
     expect(wrapper.text()).toContain('高级数据结构')
     expect(wrapper.text()).toContain('微积分')
     expect(wrapper.text()).toContain('热力学')
+    expect(wrapper.text()).not.toContain('点击查看题库')
     expect(wrapper.get('[data-testid="review-panel"]').text()).toBe('course-calculus')
 
     await wrapper.get('[data-testid="question-bank-course-course-thermo"]').trigger('click')
