@@ -243,7 +243,23 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             for code in attempt.get("issue_codes") or []:
                 if code and code not in codes:
                     codes.append(str(code))
+        # 逐轮明细：哪一轮报了什么码、决定做什么。
+        # 只有聚合计数时无法回答「这道题为什么没成」——归因必须能落到单题单轮。
+        attempt_trail = [
+            {
+                "attempt": a.get("attempt"),
+                "decision": a.get("decision"),
+                "issue_codes": list(a.get("issue_codes") or []),
+            }
+            for a in attempts
+        ]
         outcomes[str(entry.get("node_id") or "")] = {
+            "attempt_trail": attempt_trail,
+            "semantic_preflight_issues": [
+                str(i.get("code") or "")
+                for i in (entry.get("semantic_preflight") or {}).get("issues") or []
+                if i.get("code")
+            ],
             "final_decision": str(entry.get("final_decision") or ""),
             "attempt_count": len(attempts),
             "issue_codes": codes,
@@ -353,6 +369,8 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             "requested": requested,
             "generated": generated,
             "discarded": len(discarded),
+            # 逐条失败明细，供归因用
+            "discarded_detail": deepcopy(discarded),
             "failure_issue_codes": dict(
                 sorted(failure_codes.items(), key=lambda kv: -kv[1])
             ),
