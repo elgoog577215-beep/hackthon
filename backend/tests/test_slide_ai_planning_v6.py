@@ -1070,6 +1070,65 @@ async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_se
 
 
 @pytest.mark.asyncio
+async def test_story_clears_markdown_summary_when_layout_has_no_summary_slot() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-practice",
+        title="Field sampling practice",
+        sections=[
+            CourseSection(
+                section_id="field-practice",
+                title="Collect the sample",
+                position=0,
+            )
+        ],
+        blocks=[CourseBlock(
+            block_id="field-activity",
+            section_id="field-practice",
+            position=0,
+            role="activity",
+            payload={
+                "markdown": (
+                    "## Sampling task\n"
+                    "1. Mark the observation boundary.\n"
+                    "2. Record the sampling time.\n"
+                    "3. Bind the evidence identifier."
+                )
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        if len(calls) > 1:
+            raise AssertionError("An empty grounded repair must be applied locally")
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "field-practice-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/practice-prompt")
+                ),
+                "title": "Sampling task",
+                "summary": "**Complete the field record.**",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert story.pages[0].summary == ""
+
+
+@pytest.mark.asyncio
 async def test_story_batch_repairs_all_underfilled_pages_in_one_retry() -> None:
     source_a = (
         "潮间带记录必须包含样区、潮位、时间、观察者和原始编号，并说明记录条件。"

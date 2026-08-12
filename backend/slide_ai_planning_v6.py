@@ -1461,6 +1461,10 @@ def _story_repair_targets(
                 if required_summary and required_summary[-1] not in "。！？.!?":
                     if len(required_summary) < preferred_max:
                         required_summary += "。"
+        clear_summary = bool(
+            summary_repair_required
+            and summary_max_chars <= 0
+        )
         safe_partition_options = [
             option
             for option in unit.get("safe_partition_options") or []
@@ -1580,6 +1584,7 @@ def _story_repair_targets(
             "summary_min_chars": summary_min_chars,
             "summary_max_chars": summary_max_chars,
             "required_summary": required_summary,
+            "clear_summary": clear_summary,
             "summary_policy": (
                 "source_grounded_semantic_closure_for_all_bound_blocks_"
                 "complete_sentence_no_markdown"
@@ -1821,19 +1826,29 @@ def _apply_grounded_story_repairs(
 ) -> dict[str, Any]:
     """Apply repairs whose exact visible text is already frozen in the request."""
 
-    if error.failure.code != "story_page_underfilled":
+    if error.failure.code not in {
+        "story_page_underfilled",
+        "story_summary_markdown_invalid",
+        "story_unsupported_fact",
+        "story_unsupported_semantic_claim",
+    }:
         return response_payload
     pages = response_payload.get("pages")
     if not isinstance(pages, list):
         return response_payload
     targets = _story_repair_targets(request, response_payload, error)
     replacements = {
-        str(target.get("page_id") or ""): str(
-            target.get("required_summary") or ""
-        ).strip()
+        str(target.get("page_id") or ""): (
+            ""
+            if target.get("clear_summary") is True
+            else str(target.get("required_summary") or "").strip()
+        )
         for target in targets
         if str(target.get("page_id") or "")
-        and str(target.get("required_summary") or "").strip()
+        and (
+            target.get("clear_summary") is True
+            or str(target.get("required_summary") or "").strip()
+        )
     }
     if not replacements:
         return response_payload
@@ -1844,9 +1859,9 @@ def _apply_grounded_story_repairs(
             repaired.append(value)
             continue
         page = dict(value)
-        summary = replacements.get(str(page.get("page_id") or ""))
-        if summary:
-            page["summary"] = summary
+        page_id = str(page.get("page_id") or "")
+        if page_id in replacements:
+            page["summary"] = replacements[page_id]
             changed = True
         repaired.append(page)
     return {**response_payload, "pages": repaired} if changed else response_payload
