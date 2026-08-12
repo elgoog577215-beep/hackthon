@@ -222,6 +222,38 @@ async def test_call_llm_uses_modelscope_only_after_primary_pool_is_exhausted(
 
 
 @pytest.mark.asyncio
+async def test_distinct_credentials_do_not_share_model_cooldown_on_same_endpoint(
+    monkeypatch,
+):
+    shared_endpoint = "https://api-inference.modelscope.cn/v1"
+    shared_model = "Qwen/Qwen3.5-27B"
+    primary = AlwaysFailingCompletions(
+        lambda: _make_status_error(429, "insufficient balance")
+    )
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        models=(shared_model,),
+        fallback_model=shared_model,
+    )
+    service.api_base = shared_endpoint
+    service.modelscope_fallback_api_base = shared_endpoint
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert primary.calls == [shared_model]
+    assert fallback.calls == [shared_model]
+
+
+@pytest.mark.asyncio
 async def test_call_llm_does_not_touch_modelscope_when_primary_succeeds(
     monkeypatch,
 ):
