@@ -19,7 +19,7 @@ from question_fill_blank import (
 
 def _contract(**overrides):
     payload = {
-        "prompt": "封闭系统吸热 Q=20 kJ、对外做功 W=8 kJ，则 ΔU={{1}}，判据是{{2}}。",
+        "prompt": "封闭系统吸热 Q=20 kJ、对外做功 W=8 kJ，则 ΔU={{1}}，内能{{2}}。",
         "blanks": [
             {
                 "blank_id": "1",
@@ -29,8 +29,8 @@ def _contract(**overrides):
             {
                 "blank_id": "2",
                 "match_mode": "exact",
-                "answer": "热力学第一定律",
-                "acceptable_answers": ["能量守恒定律"],
+                "answer": "增加",
+                "acceptable_answers": ["增大"],
             },
         ],
     }
@@ -128,7 +128,7 @@ def test_numeric_blank_accepts_equivalent_units() -> None:
     contract = _contract()
     graded = grade_fill_blank(contract, {"blanks": {
         "1": {"value": 12000, "unit": "J"},
-        "2": "热力学第一定律",
+        "2": "增加",
     }})
     assert graded["all_correct"] is True
     assert graded["score"] == 100.0
@@ -137,9 +137,9 @@ def test_numeric_blank_accepts_equivalent_units() -> None:
 def test_exact_blank_ignores_case_and_whitespace() -> None:
     contract = compile_fill_blank_contract(
         prompt="{{1}}",
-        blanks=[{"blank_id": "1", "match_mode": "exact", "answer": "Gibbs Free Energy"}],
+        blanks=[{"blank_id": "1", "match_mode": "exact", "answer": "Gibbs"}],
     )
-    graded = grade_fill_blank(contract, {"blanks": {"1": "  gibbs   free energy "}})
+    graded = grade_fill_blank(contract, {"blanks": {"1": "  gibbs "}})
     assert graded["all_correct"] is True
 
 
@@ -147,7 +147,7 @@ def test_acceptable_answers_cover_multiple_valid_wordings() -> None:
     contract = _contract()
     graded = grade_fill_blank(contract, {"blanks": {
         "1": {"value": 12, "unit": "kJ"},
-        "2": "能量守恒定律",
+        "2": "增大",
     }})
     assert graded["all_correct"] is True
 
@@ -165,7 +165,7 @@ def test_wrong_answer_is_still_wrong() -> None:
     contract = _contract()
     graded = grade_fill_blank(contract, {"blanks": {
         "1": {"value": 28, "unit": "kJ"},
-        "2": "热力学第二定律",
+        "2": "减少",
     }})
     assert graded["correct_count"] == 0
     assert graded["score"] == 0.0
@@ -178,7 +178,7 @@ def test_partial_credit_is_per_blank() -> None:
     contract = _contract()
     graded = grade_fill_blank(contract, {"blanks": {
         "1": {"value": 12, "unit": "kJ"},
-        "2": "热力学第二定律",
+        "2": "减少",
     }})
     assert graded["correct_count"] == 1
     assert graded["all_correct"] is False
@@ -246,7 +246,7 @@ def test_public_view_never_carries_answers() -> None:
 
     assert_no_answer_leak(view)
     serialized = repr(view)
-    assert "热力学第一定律" not in serialized
+    assert "增加" not in serialized
     assert "能量守恒定律" not in serialized
     assert "12" not in serialized
     assert [blank["blank_id"] for blank in view["blanks"]] == ["1", "2"]
@@ -337,12 +337,82 @@ def test_multiple_blanks_are_derived_in_order() -> None:
 
     blanks = [
         {"blank_id": "1", "answer": "23", "match_mode": "exact"},
-        {"blank_id": "2", "answer": "热力学第一定律", "match_mode": "exact"},
+        {"blank_id": "2", "answer": "守恒", "match_mode": "exact"},
     ]
     text, unresolved = derive_blank_placeholders(
-        "ΔU 为 23，判据是热力学第一定律。", blanks,
+        "ΔU 为 23，判据是守恒。", blanks,
     )
     assert unresolved == []
     # 挖出来的题面必须能直接编译成契约
     contract = compile_fill_blank_contract(prompt=text, blanks=blanks)
     assert contract["blank_ids"] == ["1", "2"]
+
+
+# --- A 方案：空位类型收敛到短词空与数值空（用户 2026-08-13 拍板）---------
+
+
+def test_blank_kind_classification_is_rule_based_and_testable() -> None:
+    """类型判定只看 match_mode 与答案本身，不看题干上下文——可测。"""
+    from question_fill_blank import classify_blank_kind
+
+    assert classify_blank_kind("numeric", {"value": 23, "unit": "kJ"}) == "numeric"
+    assert classify_blank_kind("symbolic", "Q - W") == "symbolic"
+    # 纯数字即使标成 exact 也算数值
+    assert classify_blank_kind("exact", "23") == "numeric"
+    assert classify_blank_kind("exact", "-15.5") == "numeric"
+    # dict 形态即使标成 exact 也算数值
+    assert classify_blank_kind("exact", {"value": 1, "unit": "m"}) == "numeric"
+
+
+def test_threshold_separates_known_real_samples() -> None:
+    """阈值不是拍脑袋定的：分界取自真机数据。
+
+    历轮**成功题**的文本空最长 4 字（封闭系统）；**失败样本**最短 6 字
+    （系统内能增加）。5 是唯一能把这两组分开的位置。
+    """
+    from question_fill_blank import classify_blank_kind
+
+    for answer in ("负", "增加", "增大", "减少", "封闭系统"):
+        assert classify_blank_kind("exact", answer) == "short_term", answer
+    for answer in ("系统内能增加", "热力学第一定律", "系统内能增加并对外做功"):
+        assert classify_blank_kind("exact", answer) == "long_text", answer
+
+
+def test_long_free_text_blank_is_rejected_at_compile_time() -> None:
+    """长句空在**出题期**就挡掉，不是生成完再筛。
+
+    这类空判等依赖字面一致，措辞一变就判错；而语义判等会把填空从确定性判分
+    变成模型判分，与 H1b 立项前提冲突（已被明确否决）。既然不引入语义判等，
+    就只能不出这类空。
+    """
+    with pytest.raises(ValueError, match="long free-text blank"):
+        compile_fill_blank_contract(
+            prompt="该过程中系统{{1}}。",
+            blanks=[{
+                "blank_id": "1",
+                "answer": "内能增加并对外做功",
+                "match_mode": "exact",
+            }],
+        )
+
+
+def test_short_term_and_numeric_blanks_still_compile() -> None:
+    contract = compile_fill_blank_contract(
+        prompt="ΔU = {{1}} kJ，系统内能{{2}}。",
+        blanks=[
+            {"blank_id": "1", "answer": {"value": 23, "unit": "kJ"},
+             "match_mode": "numeric"},
+            {"blank_id": "2", "answer": "增加", "match_mode": "exact"},
+        ],
+    )
+    kinds = [blank["blank_kind"] for blank in contract["blanks"]]
+    assert kinds == ["numeric", "short_term"]
+
+
+def test_compiled_blanks_record_their_kind() -> None:
+    """契约里带上 blank_kind，便于题库统计与后续复核。"""
+    contract = compile_fill_blank_contract(
+        prompt="判据是{{1}}。",
+        blanks=[{"blank_id": "1", "answer": "守恒", "match_mode": "exact"}],
+    )
+    assert contract["blanks"][0]["blank_kind"] == "short_term"
