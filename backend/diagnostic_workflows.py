@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import threading
@@ -14,7 +15,15 @@ import uuid
 
 from assessment_tasks import project_assessment_task
 from course_versioning import stable_hash
+from diagnostic_probes import (
+    build_probe_spec,
+    find_misconception,
+    probe_leaks_answer,
+)
 from storage import storage
+
+
+logger = logging.getLogger(__name__)
 
 
 SCHEMA_VERSION = 1
@@ -362,21 +371,55 @@ def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: l
     ]
     results = []
     for index, hypothesis in enumerate(hypotheses[:3]):
-        base = deepcopy(templates[index]) if index < len(templates) else {
-            "question_type": "short_answer",
-            "learning_objective": task.get("learning_objective"),
-            "objective_id": task.get("objective_id"),
-            "objective_revision_id": task.get("objective_revision_id"),
-            "node_id": task.get("node_id"),
-            "prompt": f"只针对下面这一点作答，不展开其他内容：{hypothesis['claim']}。说明你的判断、必要条件和一个最小例子。",
-            "answer_spec": {
-                "type": "rubric",
-                "expected_keywords": (task.get("answer_spec") or {}).get("expected_keywords") or [task.get("learning_objective")],
-                "criteria": [hypothesis["claim"], "说明必要条件或边界", "给出可检查的最小例子"],
-                "pass_score": 70,
-            },
-            "practice_level": "diagnostic_probe",
-        }
+        misconception = find_misconception(
+            course,
+            list(hypothesis.get("candidate_mistake_point_ids") or []),
+        )
+        if index < len(templates):
+            base = deepcopy(templates[index])
+            probe_spec = {}
+        else:
+            # No authored template: build a probe shaped by *what kind* of error
+            # is hypothesised, instead of one generic prompt for every category.
+            probe_spec = build_probe_spec(
+                hypothesis,
+                task=task,
+                misconception=misconception,
+            )
+            leaked = probe_leaks_answer(probe_spec, misconception)
+            if leaked:
+                # A probe that contains its own answer proves nothing and would
+                # wrongly reject the hypothesis; fall back to the neutral form.
+                logger.warning(
+                    "diagnostic probe rejected for leaking %s; using neutral prompt",
+                    leaked,
+                )
+                probe_spec = {}
+            base = {
+                "question_type": "short_answer",
+                "learning_objective": task.get("learning_objective"),
+                "objective_id": task.get("objective_id"),
+                "objective_revision_id": task.get("objective_revision_id"),
+                "node_id": task.get("node_id"),
+                "prompt": probe_spec.get("prompt") or (
+                    f"只针对下面这一点作答，不展开其他内容：{hypothesis['claim']}。"
+                    "说明你的判断、必要条件和一个最小例子。"
+                ),
+                "answer_spec": {
+                    "type": "rubric",
+                    "expected_keywords": (task.get("answer_spec") or {}).get("expected_keywords") or [task.get("learning_objective")],
+                    "criteria": probe_spec.get("criteria") or [
+                        hypothesis["claim"],
+                        "说明必要条件或边界",
+                        "给出可检查的最小例子",
+                    ],
+                    "pass_score": 70,
+                },
+                "practice_level": "diagnostic_probe",
+            }
+        if probe_spec:
+            base["probe_strategy"] = probe_spec.get("probe_strategy")
+            base["probe_category"] = probe_spec.get("probe_category")
         base["target_hypothesis_ids"] = [hypothesis["hypothesis_id"]]
         base["concept_ids"] = list(base.get("concept_ids") or hypothesis.get("concept_ids") or [])
         base["skill_unit_ids"] = list(base.get("skill_unit_ids") or hypothesis.get("skill_unit_ids") or [])
