@@ -955,7 +955,26 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
         return result
     if capacity == 1:
         return normalized[:1]
-    excerpt = normalized[: capacity - 1].rstrip("，。！？,;: ")
+    excerpt_end = min(len(normalized), capacity - 1)
+    protected_spans = [
+        match.span()
+        for pattern in (_PROTECTED_NUMBER_RE, _PROTECTED_IDENTIFIER_RE)
+        for match in pattern.finditer(normalized)
+    ]
+    containing_span = next(
+        (
+            (start, end)
+            for start, end in protected_spans
+            if start < excerpt_end < end
+        ),
+        None,
+    )
+    if containing_span is not None:
+        excerpt_end = containing_span[0]
+    excerpt = normalized[:excerpt_end].rstrip("，。！？,;: ")
+    for opening, closing in (("(", ")"), ("（", "）"), ("[", "]"), ("【", "】"), ("{", "}")):
+        if excerpt.rfind(opening) > excerpt.rfind(closing):
+            excerpt = excerpt[:excerpt.rfind(opening)].rstrip("，。！？,;: ")
     return f"{excerpt}…"
 
 

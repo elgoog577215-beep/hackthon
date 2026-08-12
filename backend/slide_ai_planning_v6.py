@@ -36,6 +36,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     _complete_sentence_excerpt,
+    _protected_tokens,
     _title_is_incomplete,
     _visible_prose_text,
     graph_page_source_blocks,
@@ -998,6 +999,9 @@ def _story_unit_request(
                 )),
                 "page_intent": page_teaching_intent(unit, [block_id]),
                 "source_text": unit.primary_block_texts.get(block_id, ""),
+                "allowed_protected_tokens": sorted(_protected_tokens(
+                    unit.primary_block_texts.get(block_id, "")
+                )),
                 "title_candidates": _grounded_title_candidates(
                     unit.primary_block_texts.get(block_id, ""),
                     max_chars=title_max_chars,
@@ -1014,6 +1018,7 @@ def _story_unit_request(
         "teaching_plan_context": unit.teaching_plan_context,
         "prerequisite_unit_ids": unit.prerequisite_unit_ids,
         "source_text": unit.source_text,
+        "allowed_protected_tokens": sorted(_protected_tokens(unit.source_text)),
         "title_max_chars": title_max_chars,
         "title_policy": (
             "copy_a_complete_specific_candidate_grounded_in_bound_blocks"
@@ -1066,6 +1071,10 @@ def _story_requests(
                 ),
                 "allow_new_facts": False,
                 "allow_unknown_ids": False,
+                "protected_token_policy": (
+                    "copy_identifiers_and_numbers_exactly_from_each_unit_or_"
+                    "bound_block_allowed_protected_tokens"
+                ),
             },
             "response_contract": {
                 "schema_version": "slide_story_batch_response_v3",
@@ -1340,6 +1349,18 @@ def _story_repair_targets(
             "story_unsupported_fact",
             "story_unsupported_semantic_claim",
         }
+        allowed_protected_tokens = sorted({
+            str(token)
+            for block_id in current_source_block_ids
+            for token in block_metadata.get(block_id, {}).get(
+                "allowed_protected_tokens",
+                [],
+            )
+            if str(token)
+        })
+        unsupported_protected_tokens = sorted(
+            _protected_tokens(current_summary) - set(allowed_protected_tokens)
+        )
         required_summary = ""
         if summary_repair_required and (summary_min_chars or summary_max_chars):
             grounded_source = _visible_prose_text("\n\n".join(
@@ -1358,11 +1379,7 @@ def _story_repair_targets(
             )
             if len(required_summary) < min(summary_min_chars, len(grounded_source)):
                 expanded = _complete_sentence_excerpt(grounded_source, effective_max)
-                required_summary = (
-                    expanded
-                    if len(expanded) >= min(summary_min_chars, len(grounded_source))
-                    else grounded_source[:preferred_max].rstrip(" ,，。；;：:、")
-                )
+                required_summary = expanded
                 if required_summary and required_summary[-1] not in "。！？.!?":
                     if len(required_summary) < preferred_max:
                         required_summary += "。"
@@ -1480,6 +1497,8 @@ def _story_repair_targets(
             "conflicting_page_ids": conflicting_page_ids,
             "forbidden_titles": forbidden_titles,
             "current_summary": current_summary,
+            "allowed_protected_tokens": allowed_protected_tokens,
+            "unsupported_protected_tokens": unsupported_protected_tokens,
             "summary_min_chars": summary_min_chars,
             "summary_max_chars": summary_max_chars,
             "required_summary": required_summary,
@@ -1852,7 +1871,10 @@ async def plan_slide_story_v3(
                                 "whose length remains between summary_min_chars_by_layout_id and "
                                 "summary_max_chars_by_layout_id for the selected layout when the frozen "
                                     "source is long enough. Use an empty summary only when the maximum is zero or "
-                                    "no faithful synthesis is possible; never add identifiers or facts. Set a "
+                                    "no faithful synthesis is possible; never add identifiers or facts. Copy "
+                                    "identifiers and numbers only from allowed_protected_tokens and preserve "
+                                    "their exact spelling; remove every unsupported_protected_token rather "
+                                    "than abbreviating or autocorrecting it. Set a "
                                     "repair target's summary exactly to required_summary when provided."
                             ),
                         },
@@ -2704,7 +2726,9 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "keeps complete source text in speaker notes, so canvas pages should express a "
                 "semantically closed teaching step rather than repeat all source prose. Titles, "
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
-                "by that unit's source_text. Every page must contain exactly page_id, "
+                "by that unit's source_text. Copy every identifier and number exactly from the "
+                "allowed_protected_tokens of its bound primary_blocks; never shorten, approximate, "
+                "autocorrect or synthesize a protected token. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
                  "page level; never emit a nested content object. Copy a complete title from candidates "
                  "supplied by the primary_blocks bound to that page, keep it within title_max_chars, "

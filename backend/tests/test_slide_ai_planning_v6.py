@@ -1866,6 +1866,20 @@ async def test_story_repair_names_missing_blocks_without_weakening_coverage() ->
 @pytest.mark.asyncio
 async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
     document = _document()
+    document = refresh_document_revision(document.model_copy(update={
+        "blocks": [
+            block.model_copy(update={
+                "payload": {
+                    "markdown": (
+                        f"{block.payload.get('markdown', '')}\n\n"
+                        "Field observers use SpecimenRegistry.ResolveObservation "
+                        "to verify the frozen observation record."
+                    )
+                }
+            }) if index == 0 else block
+            for index, block in enumerate(document.blocks)
+        ]
+    }))
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     calls = []
@@ -1893,6 +1907,10 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
     unit = calls[0]["teaching_units"][0]
     assert unit["allowed_protected_tokens"]
     assert all(
+        "allowed_protected_tokens" in block
+        for block in unit["primary_blocks"]
+    )
+    assert any(
         block["allowed_protected_tokens"]
         for block in unit["primary_blocks"]
     )
