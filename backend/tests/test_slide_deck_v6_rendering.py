@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR
 
@@ -625,6 +626,32 @@ def test_v6_ordered_steps_are_safe_across_provider_font_metrics(
     report = audit_exported_pptx(output, expected_slide_count=1)
 
     assert report["passed"], report["blockers"]
+
+
+def test_table_renderer_rejects_row_compression_that_would_clip_content() -> None:
+    import slide_deck_renderer as renderer
+
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+
+    with pytest.raises(ValueError, match="table_render_capacity_exceeded"):
+        renderer._table(
+            slide,
+            ["Observation", "Evidence", "Decision"],
+            [
+                [
+                    f"Field sample {index}",
+                    "Preserve the source condition, recorded value, and reviewer note.",
+                    "Review required",
+                ]
+                for index in range(1, 7)
+            ],
+            0.78,
+            1.92,
+            11.78,
+            0.72,
+            renderer.THEMES["qizhi-classroom"],
+        )
 
 
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:

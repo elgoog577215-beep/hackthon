@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
@@ -324,23 +325,61 @@ def _wrapped_line_count(text: str, *, width_pt: float, font_size_pt: float) -> i
     dpi_scale = 96 / 72
     font = _audit_font(max(8, round(font_size_pt * dpi_scale)))
     maximum_width = max(1.0, width_pt * dpi_scale)
-    lines = 0
+    measured_lines = 0
     for logical_line in str(text).splitlines() or [""]:
         if not logical_line:
-            lines += 1
+            measured_lines += 1
             continue
         current_width = 0.0
-        lines += 1
+        measured_lines += 1
         for character in logical_line:
             try:
                 character_width = float(font.getlength(character))
             except AttributeError:
                 character_width = float(font.getbbox(character)[2])
             if current_width and current_width + character_width > maximum_width:
-                lines += 1
+                measured_lines += 1
                 current_width = 0.0
             current_width += character_width
-    return lines
+    # Planning can run on Linux while the exported deck is opened with a
+    # Windows CJK font.  Font files with the same nominal size do not have the
+    # same advances, so a provider-specific measurement alone can understate
+    # wrapping.  Keep a portable lower bound based on Unicode character classes
+    # and use the stricter result.  This is deliberately independent of course,
+    # language, provider, and installed font names.
+    portable_lines = 0
+    maximum_width_em = max(1.0, width_pt / max(1.0, font_size_pt))
+    for logical_line in str(text).splitlines() or [""]:
+        if not logical_line:
+            portable_lines += 1
+            continue
+        current_width_em = 0.0
+        portable_lines += 1
+        for character in logical_line:
+            east_asian_width = unicodedata.east_asian_width(character)
+            category = unicodedata.category(character)
+            if east_asian_width in {"W", "F"}:
+                character_width_em = 1.0
+            elif character.isspace():
+                character_width_em = 0.34
+            elif category.startswith("P"):
+                character_width_em = 0.52
+            elif character.isupper():
+                character_width_em = 0.66
+            elif character.islower():
+                character_width_em = 0.56
+            elif character.isdigit():
+                character_width_em = 0.58
+            else:
+                character_width_em = 0.62
+            if (
+                current_width_em
+                and current_width_em + character_width_em > maximum_width_em
+            ):
+                portable_lines += 1
+                current_width_em = 0.0
+            current_width_em += character_width_em
+    return max(measured_lines, portable_lines)
 
 
 def _text_frame_audit(shape: Any) -> dict[str, Any]:
@@ -2813,7 +2852,10 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 title_lines * title_font * 1.22 / 72.0 + 0.16,
                 detail_lines * detail_font * 1.22 / 72.0 + 0.16,
             ))
-        available_height = 4.08
+        # Use the full template-safe content area.  The former 4.08-inch limit
+        # left unused space above the footer and then compressed valid multi-line
+        # steps into frames shorter than their text on wider CJK fonts.
+        available_height = 4.60
         gap = 0.04
         usable_height = available_height - gap * max(0, len(items) - 1)
         y = 2.20
@@ -2822,7 +2864,7 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             extra_height = (usable_height - required_total) / max(1, len(items))
             heights = [height + extra_height for height in required_heights]
         else:
-            heights = [usable_height * height / required_total for height in required_heights]
+            raise ValueError("ordered_process_render_capacity_exceeded")
         centers: list[float] = []
         cursor = y
         for height in heights:
@@ -3802,10 +3844,10 @@ def _table(
         extra_per_row = (available_height_pt - required_height_pt) / row_count
         row_heights_pt = [value + extra_per_row for value in required_row_heights_pt]
     else:
-        row_heights_pt = [
-            available_height_pt * value / required_height_pt
-            for value in required_row_heights_pt
-        ]
+        # Shrinking rows below their measured requirement creates a valid PPTX
+        # file with clipped cells.  Capacity must instead be handled by the V6
+        # compiler's safe pagination contract and surfaced if it is violated.
+        raise ValueError("table_render_capacity_exceeded")
     for row, row_height_pt in zip(table.rows, row_heights_pt):
         row.height = Pt(row_height_pt)
     for row_index in range(row_count):
