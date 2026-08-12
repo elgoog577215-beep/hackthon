@@ -714,6 +714,37 @@ def test_wide_table_summary_band_fits_three_lines_at_readable_size(tmp_path: Pat
     assert report["passed"], report["blockers"]
 
 
+def test_wide_table_summary_band_fits_declared_multilingual_capacity(
+    tmp_path: Path,
+) -> None:
+    deck = _dense_table_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-table"))
+    assert layout is not None
+    interpretation_slot = next(
+        slot for slot in layout.slots if slot.slot_id == "interpretation"
+    )
+    interpretation = next(
+        region
+        for region in deck.pages[0].regions
+        if region.slot_id == "interpretation"
+    )
+    interpretation.content = (
+        "正确的观察结果应呈现如下特征：初始状态下所有字段使用默认值，并显示稳定结果。\n\n"
+        "请对照以下标准自查练习成果：地点、时间、观察者、仪器和采样窗口均已保留。\n\n"
+        "场景描述：学习者发现修改采样窗口后结果没有变化，应核对条件、日志与签字证据。"
+    )
+
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "wide-table-multilingual-summary-capacity.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert len(interpretation.content) <= interpretation_slot.max_chars
+    assert report["passed"], report["blockers"]
+
+
 def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     tmp_path: Path,
 ) -> None:
