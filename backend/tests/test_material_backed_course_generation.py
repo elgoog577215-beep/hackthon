@@ -259,23 +259,18 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
 
 
 def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
-    section_match = re.search(
-        r"## 当前小节（已去重）\n(\[.*?\])\n\n"
-        r"## 当前批次知识与直接依赖闭包",
-        system_prompt,
-        re.S,
-    )
-    registry_match = re.search(
-        r"## 当前批次知识与直接依赖闭包（只读）\n"
-        r"(\[.*?\])\n\n## 当前批次知识职责",
-        system_prompt,
-        re.S,
-    )
-    identity_match = re.search(
-        r"## 当前批次知识职责（只读）\n(\[.*?\])\n\n## 共享课程块目录",
-        system_prompt,
-        re.S,
-    )
+    # 只锚定各块自身的标题，不锚定它后面跟着哪一块，
+    # 这样 prompt 的分块顺序调整（稳定前缀优化）不会连累这些桩。
+    def _json_block(heading):
+        return re.search(
+            rf"## {heading}\n(\[.*?\])\n\n## ",
+            system_prompt,
+            re.S,
+        )
+
+    section_match = _json_block("当前小节（已去重）")
+    registry_match = _json_block("当前批次知识与直接依赖闭包（只读）")
+    identity_match = _json_block("当前批次知识职责（只读）")
     assert section_match and registry_match and identity_match, system_prompt
     sections = json.loads(section_match.group(1))
     registry = json.loads(registry_match.group(1))
@@ -1477,11 +1472,11 @@ async def test_course_service_corrects_outline_once_and_keeps_exact_shape(monkey
         pedagogy_mode="math_formal",
     )
 
-    assert len(prompts) == 6
+    # 同章 2 节在一批教案里生成（batch_max_sections=3），所以只有 1 次批次调用。
+    assert len(prompts) == 5
     assert prompts[1].startswith("只修复全课章节骨架")
     assert prompts[3].startswith("规划全课知识职责骨架 V3")
     assert prompts[4].startswith("生成详细小节教案批次")
-    assert prompts[5].startswith("生成详细小节教案批次")
     assert data["course_plan_constraint_report"]["passed"] is True
     assert data["course_plan_constraint_report"]["actual"] == {
         "chapter_count": 1,
@@ -1545,9 +1540,12 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
     calls: list[str] = []
     active_batches = 0
     max_active_batches = 0
+    active_skeleton_chunks = 0
+    max_active_skeleton_chunks = 0
 
     async def fake_call_llm(prompt, system_prompt, **_kwargs):
         nonlocal active_batches, max_active_batches
+        nonlocal active_skeleton_chunks, max_active_skeleton_chunks
         calls.append(prompt)
         if "全课章节骨架 V2" in system_prompt:
                 return json.dumps({
@@ -1584,9 +1582,17 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
                 ],
             }, ensure_ascii=False)
         if prompt.startswith("规划全课知识职责骨架 V3"):
-            return _teaching_skeleton_v3_response(
+            active_skeleton_chunks += 1
+            max_active_skeleton_chunks = max(
+                max_active_skeleton_chunks,
+                active_skeleton_chunks,
+            )
+            await asyncio.sleep(0.003)
+            response = _teaching_skeleton_v3_response(
                 system_prompt, title_to_label,
             )
+            active_skeleton_chunks -= 1
+            return response
         if prompt.startswith("生成详细小节教案批次"):
             active_batches += 1
             max_active_batches = max(max_active_batches, active_batches)
@@ -1648,6 +1654,10 @@ async def test_course_teaching_plan_always_uses_bounded_complete_pipeline(
         + expected_batches
     )
     assert max_active_batches == min(4, expected_batches)
+    assert max_active_skeleton_chunks == min(
+        service._teaching_plan_budget.concurrency,
+        expected_skeleton_chunks,
+    )
     assert stage["knowledge_compilation_model_call_count"] == 0
     assert stage["graph_compilation_model_call_count"] == 0
     assert stage["section_count"] == section_count
@@ -1823,13 +1833,8 @@ async def test_total_timeout_fallback_preserves_completed_skeleton_and_batch():
     assert stage["batches"]["TP-B02"]["generation_source"] == (
         "deterministic_local_fallback"
     )
-    assert [item["unit"] for item in stage["fallback_units"]] == [
-        "TP-B02",
-        "TP-B03",
-        "TP-B04",
-        "TP-B05",
-        "TP-B06",
-    ]
+    # 6 节按每批 3 节切分：TP-B01 已完成并保留，只剩 TP-B02 需要本地兜底。
+    assert [item["unit"] for item in stage["fallback_units"]] == ["TP-B02"]
 
 
 @pytest.mark.asyncio
@@ -2002,7 +2007,8 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
     assert stage["status"] == "retry_required"
     assert stage["semantic_status"] == "retry_required"
     assert stage["degraded"] is True
-    assert stage["completed_batch_count"] == 6
+    # 6 节按每批 3 节切分成 2 批。
+    assert stage["completed_batch_count"] == 2
     assert stage["completed_section_count"] == 6
     assert stage["batches"]["TP-B01"]["status"] == "completed"
     assert stage["batches"]["TP-B01"]["generation_source"] == "model"
@@ -2028,7 +2034,7 @@ async def test_teaching_plan_local_fallback_preserves_successful_batches(monkeyp
     assert stage["batches"]["TP-B01"]["revision_id"] == first_batch_revision
     assert stage["status"] == "completed"
     assert stage["semantic_status"] == "ai_complete"
-    assert stage["completed_batch_count"] == 6
+    assert stage["completed_batch_count"] == 2
     assert course_data["course_teaching_plan"]["schema_version"] == "course_teaching_plan_v3"
     assert len([
         section for chapter in resumed["chapters"] for section in chapter["sections"]
@@ -2252,3 +2258,183 @@ async def test_concurrent_batch_failures_degrade_only_failed_batches(monkeypatch
     )
     assert stage["batches"]["TP-B01"]["status"] == "completed"
     assert stage["batches"]["TP-B03"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_teaching_plan_retries_failed_unit_more_than_once(monkeypatch):
+    """一个批次连续两轮不过时，仍应继续重试，而不是整门课直接失败。
+
+    重试只重跑失败批次，所以多给几次的成本很低；只给 1 次会让批次多的课程
+    在单批成功率不变的情况下整体失败率显著上升。
+    """
+    labels = [f"多轮恢复{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="多轮恢复课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-multi-retry",
+        "course_name": "多轮恢复课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    batch_calls: dict[str, int] = {}
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        match = re.search(r"TP-B\d{2}", prompt)
+        if match:
+            batch_id = match.group(0)
+            batch_calls[batch_id] = batch_calls.get(batch_id, 0) + 1
+            # TP-B02 头两轮都产不出可用结果，第三轮才恢复。
+            if batch_id == "TP-B02" and batch_calls[batch_id] <= 4:
+                return "{}"
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    assert stage["semantic_status"] == "ai_complete"
+    assert stage["fallback_units"] == []
+    # 超过一轮的重试确实发生了。
+    assert stage["semantic_retry_count"] >= 2
+    # 其余批次不因为 TP-B02 反复失败而被重跑。
+    assert all(
+        count == 1
+        for batch_id, count in batch_calls.items()
+        if batch_id != "TP-B02"
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_batch_records_why_the_model_output_was_rejected(
+    monkeypatch,
+):
+    """批次退兜底时必须留下模型被拒的具体校验码，否则事后无法诊断。"""
+    labels = [f"可观测{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="可观测课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-observability",
+        "course_name": "可观测课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        match = re.search(r"TP-B\d{2}", prompt)
+        if match and match.group(0) == "TP-B01":
+            # 结构合法但知识点缺失：会被批次校验以具体码拒绝。
+            return json.dumps({"sections": []}, ensure_ascii=False)
+        if match:
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    with pytest.raises(AIProviderRequestError):
+        await service._prepare_course_teaching_plan(
+            course_data=course_data,
+            plan=plan,
+            artifacts=None,
+            on_phase=None,
+            on_checkpoint=None,
+        )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    failed = [
+        unit for unit in stage["fallback_units"]
+        if unit.get("unit") == "TP-B01"
+    ]
+    assert failed, stage["fallback_units"]
+    # 关键：不能只留下笼统的 model_output_failed_validation。
+    assert failed[0]["model_blocking_codes"]
+    assert all(
+        isinstance(code, str) and code
+        for code in failed[0]["model_blocking_codes"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_batch_failure_history_survives_a_successful_retry(monkeypatch):
+    """被重试救回的失败也必须留下证据。
+
+    fallback_units 在重试成功后会被清空，而"失败一次又救回来"才是最常见的
+    情况。若只依赖 fallback_units，最常见的失败样本恰恰采集不到。
+    """
+    labels = [f"证据留存{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="证据留存课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    course_data = {
+        "course_id": "course-failure-history",
+        "course_name": "证据留存课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    seen: dict[str, int] = {}
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        match = re.search(r"TP-B\d{2}", prompt)
+        if match:
+            batch_id = match.group(0)
+            seen[batch_id] = seen.get(batch_id, 0) + 1
+            # TP-B02 第一轮全部失败，重试后恢复。
+            if batch_id == "TP-B02" and seen[batch_id] <= 2:
+                return json.dumps({"sections": []}, ensure_ascii=False)
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    monkeypatch.setattr(service, "_call_llm", fake_call_llm)
+    await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    # 整体成功、fallback_units 已清空。
+    assert stage["semantic_status"] == "ai_complete"
+    assert stage["fallback_units"] == []
+    # 但那次失败的证据必须还在。
+    history = stage["batch_failure_history"]
+    assert history
+    failed = [item for item in history if item["unit"] == "TP-B02"]
+    assert failed
+    assert failed[0]["model_blocking_codes"]
+    assert failed[0]["attempt"] >= 1

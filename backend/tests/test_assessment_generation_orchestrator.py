@@ -1173,3 +1173,42 @@ async def test_multi_node_repair_keeps_sections_interleaved(monkeypatch):
         timeout=2,
     )
     assert len(started_nodes) == 2
+
+async def test_settled_questions_survive_a_failing_sibling_in_same_section():
+    """同一小节里某道题失败，不能连累已经成功的其他题（按题检查点）。"""
+
+    class OneLevelFailsModel(RepairingModel):
+        async def generate_candidate(self, context: dict) -> dict:
+            level = str(context.get("practice_level") or "")
+            if level == "mastery_check":
+                raise AIProviderRequestError("429 insufficient balance")
+            return await super().generate_candidate(context)
+
+    chapter_events: list[dict] = []
+    prepared = await AssessmentGenerationOrchestrator(
+        model=OneLevelFailsModel(),
+    ).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={
+            "thermo-1": [
+                "concept_check",
+                "objective_practice",
+                "mastery_check",
+            ],
+        },
+        on_chapter_complete=chapter_events.append,
+    )
+
+    event = chapter_events[0]
+    # 整节仍然不算通过——失败的那道题必须重来。
+    assert event["passed"] is False
+    # 但成功的两道题必须被单独结算出来，供调用方落盘。
+    assert set(event["settled_practice_levels"]) == {
+        "concept_check",
+        "objective_practice",
+    }
+    assert "mastery_check" not in event["settled_practice_levels"]
+    contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
+    for level in ("concept_check", "objective_practice"):
+        assert contracts[level]["generation_status"] != "discarded"

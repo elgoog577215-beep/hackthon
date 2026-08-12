@@ -315,11 +315,13 @@ def test_archetype_contract_reaches_content_prompt_and_teacher_plan():
         },
     }
 
-    _user, prompt = CoursePromptComposer().build_content_prompt(
+    _user, _system = CoursePromptComposer().build_content_prompt(
         course_data=course,
         node=node,
         context="无额外资料",
     )
+    # 节点专属内容现在在 user 消息里，模型收到的是两段拼接。
+    prompt = _system + _user
 
     assert "## 本节学科课型" in prompt
     assert "测试与重构" in prompt

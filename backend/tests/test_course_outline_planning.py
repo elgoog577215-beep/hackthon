@@ -397,13 +397,13 @@ async def test_forty_eight_section_outline_uses_parallel_bounded_batches(
         "learning_objective": "独立完成 L2-1-1",
     }
     for user_prompt, system_prompt, kwargs in payloads:
-        assert len(user_prompt) + len(system_prompt) <= 20_000
+        assert len(user_prompt) + len(system_prompt) <= 32_000
         assert AIBase.estimate_request_tokens(
             user_prompt,
             system_prompt,
-        ) <= 7_000
-        assert kwargs["max_input_chars"] == 20_000
-        assert kwargs["max_input_tokens"] == 7_000
+        ) <= 16_000
+        assert kwargs["max_input_chars"] == 32_000
+        assert kwargs["max_input_tokens"] == 16_000
 
 
 @pytest.mark.asyncio

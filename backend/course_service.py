@@ -37,6 +37,7 @@ from content_blocks import (
 from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
+    remove_incorrect_next_section_claim,
 )
 from course_composition import (
     attach_composition_to_plan,
@@ -216,6 +217,22 @@ def _stamp_evidence_revision(
     if revision:
         target["evidence_package_revision_id"] = revision
     return target
+
+
+def _semantic_retry_budget() -> int:
+    """How many times the teaching plan may retry its failed units.
+
+    A retry only re-runs the batches that fell back to local compilation, so
+    each extra pass is cheap.  One retry was too few: a course fails as a
+    whole when any single batch is still non-AI after that pass, and the odds
+    of one clean pass drop as the batch count grows, which is why larger
+    courses failed far more often than the per-batch success rate suggests.
+    """
+    try:
+        value = int(os.getenv("COURSE_TEACHING_PLAN_SEMANTIC_RETRIES", "3"))
+    except (TypeError, ValueError):
+        value = 3
+    return max(1, min(6, value))
 
 
 def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
@@ -1662,9 +1679,17 @@ class CourseService(AIBase):
                     accumulated = normalized_checkpoint
                     processed_sections = list(checkpoint_sections)
                     resumed_chunk_count = checkpoint_chunk_count
-            for chunk_index, chunk_sections in enumerate(chunks, start=1):
-                if chunk_index <= resumed_chunk_count:
-                    continue
+            async def request_skeleton_chunk(
+                chunk_index: int,
+                chunk_sections: list[dict[str, Any]],
+                prior_snapshot: dict[str, Any],
+            ) -> dict[str, Any]:
+                """Build and fire one shard against a frozen prior snapshot.
+
+                Shards inside one wave cannot see each other, so this only
+                reads ``prior_snapshot``.  Key minting stays authoritative in
+                the local merge, which runs later in directory order.
+                """
                 chunk_context = build_compact_planning_context(
                     chunk_sections,
                     composition_style=str(
@@ -1676,7 +1701,7 @@ class CourseService(AIBase):
                     ),
                 )
                 prior_registry = list(
-                    accumulated.get("knowledge_registry") or []
+                    prior_snapshot.get("knowledge_registry") or []
                 )
                 chunk_context["new_knowledge_key_start"] = (
                     len(prior_registry) + 1
@@ -1751,7 +1776,6 @@ class CourseService(AIBase):
                 failure_reason = ""
                 part: dict[str, Any] = {}
                 if selected is not None:
-                    prompt_detail_levels.append(selected.detail_level)
                     await self._notify_phase(
                         on_phase,
                         "course_teaching_plan_skeleton",
@@ -1805,7 +1829,30 @@ class CourseService(AIBase):
                     )
                 else:
                     failure_reason = "chunk_prompt_did_not_fit"
+                return {
+                    "chunk_index": chunk_index,
+                    "chunk_sections": chunk_sections,
+                    "chunk_levels": chunk_levels,
+                    "prompts": prompts,
+                    "selected": selected,
+                    "part": part,
+                    "failure_reason": failure_reason,
+                }
 
+            async def settle_skeleton_chunk(
+                result: dict[str, Any],
+            ) -> None:
+                """Merge one shard, then correct or locally compile it."""
+                nonlocal accumulated
+                chunk_index = int(result["chunk_index"])
+                chunk_sections = result["chunk_sections"]
+                chunk_levels = result["chunk_levels"]
+                prompts = result["prompts"]
+                selected = result["selected"]
+                part = result["part"]
+                failure_reason = str(result["failure_reason"] or "")
+                if selected is not None:
+                    prompt_detail_levels.append(selected.detail_level)
                 candidate = merge_teaching_skeleton_part(
                     accumulated,
                     part,
@@ -1951,6 +1998,42 @@ class CourseService(AIBase):
                     "fallback_units": deepcopy(fallback_units),
                 })
                 await self._notify_checkpoint(on_checkpoint, course_data)
+
+            pending_chunks = [
+                (index, sections)
+                for index, sections in enumerate(chunks, start=1)
+                if index > resumed_chunk_count
+            ]
+            # Shards inside one wave run concurrently; each wave still starts
+            # from every earlier wave's frozen knowledge, so cross-shard reuse
+            # and prerequisites keep their directory-order meaning.
+            wave_size = max(1, self._teaching_plan_budget.concurrency)
+            for offset in range(0, len(pending_chunks), wave_size):
+                wave = pending_chunks[offset:offset + wave_size]
+                prior_snapshot = deepcopy(accumulated)
+                wave_results = await asyncio.gather(
+                    *(
+                        request_skeleton_chunk(
+                            index,
+                            sections,
+                            prior_snapshot,
+                        )
+                        for index, sections in wave
+                    ),
+                    return_exceptions=True,
+                )
+                failure = next(
+                    (
+                        item
+                        for item in wave_results
+                        if isinstance(item, BaseException)
+                    ),
+                    None,
+                )
+                if failure is not None:
+                    raise failure
+                for result in wave_results:
+                    await settle_skeleton_chunk(result)
             final_report = validate_teaching_plan_skeleton_v3(
                 accumulated,
                 sections=planning_sections,
@@ -2399,11 +2482,24 @@ class CourseService(AIBase):
                                 skeleton=skeleton,
                                 sections=planning_sections,
                             )
+                model_blocking_codes: list[str] = []
                 if not batch_report.get("passed"):
                     generation_source = "deterministic_local_fallback"
                     fallback_reason = (
                         fallback_reason or "model_output_failed_validation"
                     )
+                    # Capture why the model output was rejected before the
+                    # local fallback report overwrites it.  Without this the
+                    # only surviving trace is the generic
+                    # "model_output_failed_validation", which makes a batch
+                    # that keeps failing impossible to diagnose after the run.
+                    model_blocking_codes = [
+                        str(issue.get("code") or "")
+                        for issue in (
+                            batch_report.get("blocking_issues") or []
+                        )
+                        if isinstance(issue, dict) and issue.get("code")
+                    ][:8]
                     batch = compile_fallback_teaching_batch(
                         batch_spec=spec,
                         skeleton=skeleton,
@@ -2426,7 +2522,27 @@ class CourseService(AIBase):
                             "unit": batch_id,
                             "reason": fallback_reason,
                             "section_ids": list(section_ids),
+                            "model_blocking_codes": list(
+                                model_blocking_codes
+                            ),
                         })
+                        # fallback_units is cleared once a retry rescues the
+                        # batch, which loses the evidence for the common case
+                        # (fails once, then recovers).  Keep an append-only
+                        # history so failure codes can be studied without
+                        # having to reproduce a whole-course failure.
+                        history = teaching_stage.setdefault(
+                            "batch_failure_history", []
+                        )
+                        if len(history) < 200:
+                            history.append({
+                                "unit": batch_id,
+                                "attempt": semantic_retry_count + 1,
+                                "reason": fallback_reason,
+                                "model_blocking_codes": list(
+                                    model_blocking_codes
+                                ),
+                            })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {
                         "status": "completed",
@@ -2664,7 +2780,7 @@ class CourseService(AIBase):
             )
         await self._notify_checkpoint(on_checkpoint, course_data)
         if fallback_units:
-            if semantic_retry_count < 1:
+            if semantic_retry_count < _semantic_retry_budget():
                 teaching_stage["semantic_retry_count"] = (
                     semantic_retry_count + 1
                 )
@@ -3094,7 +3210,11 @@ class CourseService(AIBase):
         call_task = asyncio.create_task(self._call_llm(
             user_prompt,
             system_prompt,
-            retry_count=1,
+            # One retry inside the call: a single provider hiccup (truncated
+            # output, empty stream) otherwise discards the whole course run,
+            # and every stage above this only recovers at checkpoint level.
+            # `max_attempts` still caps the real number of provider requests.
+            retry_count=2,
             enable_thinking=enable_thinking,
             max_tokens=max_output_tokens,
             max_input_tokens=max_input_tokens,
@@ -4650,17 +4770,29 @@ class CourseService(AIBase):
                 **issue,
                 "suggestion": _coherence_repair_suggestion(issue),
             }
-            repair_user, repair_system = self._prompt_composer.build_repair_prompt(
-                course_data=working,
-                node=node,
-                content=str(node.get("node_content") or ""),
-                issues=[repair_issue],
-            )
-            repaired = await self._call_llm(
-                repair_user,
-                repair_system,
-                enable_thinking=True,
-            )
+            # Deleting one mis-stated "下一节" sentence is a pure text edit the
+            # detector already located; only pay for a model rewrite when the
+            # local edit cannot resolve it.
+            repaired = ""
+            if issue.get("code") == "coherence:incorrect_next_section_handoff":
+                locally_repaired = remove_incorrect_next_section_claim(
+                    str(node.get("node_content") or ""),
+                    str(issue.get("excerpt") or ""),
+                )
+                if locally_repaired != str(node.get("node_content") or ""):
+                    repaired = locally_repaired
+            if not repaired:
+                repair_user, repair_system = self._prompt_composer.build_repair_prompt(
+                    course_data=working,
+                    node=node,
+                    content=str(node.get("node_content") or ""),
+                    issues=[repair_issue],
+                )
+                repaired = await self._call_llm(
+                    repair_user,
+                    repair_system,
+                    enable_thinking=True,
+                )
             if not repaired:
                 continue
             repaired_raw = self.clean_response_text(repaired)
