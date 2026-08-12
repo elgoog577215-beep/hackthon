@@ -993,17 +993,10 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    feedback = calls[1]["repair_feedback"]
-    target = feedback["repair_targets"][0]
-    assert feedback["code"] == "story_page_underfilled"
-    assert target["summary_min_chars"] > len("记录地点、时间和天气。")
-    assert target["required_template_layout_id"].endswith("/content-stack")
-    assert target["required_summary"]
-    assert len(target["required_summary"]) >= target["summary_min_chars"]
-    assert len(target["required_summary"]) <= target["summary_min_chars"] + 80
-    assert story.pages[0].summary == target["required_summary"]
-    assert len(story.pages[0].summary) >= target["summary_min_chars"]
+    assert len(calls) == 1
+    assert len(story.pages[0].summary) >= 120
+    assert len(story.pages[0].summary) <= 200
+    assert "湿地观察" in story.pages[0].summary
 
 
 @pytest.mark.asyncio
@@ -1033,11 +1026,11 @@ async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_se
             position=0,
             role="concept",
             payload={
-                "markdown": (
-                    "## Evidence record\n"
-                    "Record the context. "
-                    f"{long_observation}"
-                )
+                    "markdown": (
+                        "## Evidence record\n"
+                        "Record the context."
+                        f"{long_observation}"
+                    )
             },
         )],
     ))
@@ -1047,12 +1040,11 @@ async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_se
 
     async def planner(request):
         calls.append(request)
+        if len(calls) > 1:
+            raise AssertionError(
+                "A source-grounded density repair must not spend another provider call"
+            )
         unit = request["teaching_units"][0]
-        summary = (
-            "Record the context."
-            if len(calls) == 1
-            else request["repair_feedback"]["repair_targets"][0]["required_summary"]
-        )
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -1065,17 +1057,15 @@ async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_se
                     if layout_id.endswith("/content-stack")
                 ),
                 "title": "Evidence record",
-                "summary": summary,
+                "summary": "Record the context.",
                 "source_block_ids": unit["primary_block_ids"],
             }],
         }
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert len(target["required_summary"]) >= target["summary_min_chars"]
-    assert len(story.pages[0].summary) >= target["summary_min_chars"]
+    assert len(calls) == 1
+    assert len(story.pages[0].summary) >= 120
     assert "habitat boundaries" in story.pages[0].summary
 
 
@@ -1147,16 +1137,12 @@ async def test_story_batch_repairs_all_underfilled_pages_in_one_retry() -> None:
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    targets = calls[1]["repair_feedback"]["repair_targets"]
-    assert {target["page_id"] for target in targets} == {"shore-page", "forest-page"}
-    required_by_page = {
-        target["page_id"]: target["required_summary"] for target in targets
+    assert len(calls) == 1
+    assert {page.page_id for page in story.pages} == {
+        "shore-page",
+        "forest-page",
     }
-    assert all(required_by_page.values())
-    assert {
-        page.page_id: page.summary for page in story.pages
-    } == required_by_page
+    assert all(len(page.summary) >= 120 for page in story.pages)
 
 
 @pytest.mark.asyncio
@@ -2081,7 +2067,7 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     unit = calls[0]["teaching_units"][0]
     assert unit["allowed_protected_tokens"]
     assert all(
@@ -2092,20 +2078,8 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
         block["allowed_protected_tokens"]
         for block in unit["primary_blocks"]
     )
-    target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert target["current_summary"] == "UnsupportedIdentifier_999"
-    assert target["unsupported_protected_tokens"] == [
-        "unsupportedidentifier_999"
-    ]
-    assert target["allowed_protected_tokens"]
-    assert "unsupportedidentifier_999" not in target["allowed_protected_tokens"]
-    assert target["summary_policy"] == (
-        "source_grounded_semantic_closure_for_all_bound_blocks_"
-        "complete_sentence_no_markdown"
-    )
-    assert target["required_summary"]
-    assert story.pages[0].summary == target["required_summary"]
     assert "UnsupportedIdentifier_999" not in story.pages[0].summary
+    assert "SpecimenRegistry.ResolveObservation" in story.pages[0].summary
     validate_slide_story_plan_v3(story, graph, template)
 
 

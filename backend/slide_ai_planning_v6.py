@@ -1814,6 +1814,44 @@ def _coalesce_oversplit_story_unit(
     return {**response_payload, "pages": rebuilt_pages}
 
 
+def _apply_grounded_story_repairs(
+    response_payload: dict[str, Any],
+    request: dict[str, Any],
+    error: V6BuildError,
+) -> dict[str, Any]:
+    """Apply repairs whose exact visible text is already frozen in the request."""
+
+    if error.failure.code != "story_page_underfilled":
+        return response_payload
+    pages = response_payload.get("pages")
+    if not isinstance(pages, list):
+        return response_payload
+    targets = _story_repair_targets(request, response_payload, error)
+    replacements = {
+        str(target.get("page_id") or ""): str(
+            target.get("required_summary") or ""
+        ).strip()
+        for target in targets
+        if str(target.get("page_id") or "")
+        and str(target.get("required_summary") or "").strip()
+    }
+    if not replacements:
+        return response_payload
+    repaired = []
+    changed = False
+    for value in pages:
+        if not isinstance(value, dict):
+            repaired.append(value)
+            continue
+        page = dict(value)
+        summary = replacements.get(str(page.get("page_id") or ""))
+        if summary:
+            page["summary"] = summary
+            changed = True
+        repaired.append(page)
+    return {**response_payload, "pages": repaired} if changed else response_payload
+
+
 async def plan_slide_story_v3(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -2016,11 +2054,17 @@ async def plan_slide_story_v3(
                             batch=candidate_batch,
                         )
                     except V6BuildError as validation_error:
-                        repaired_payload = _coalesce_oversplit_story_unit(
+                        repaired_payload = _apply_grounded_story_repairs(
                             previous_response_payload,
                             request,
                             validation_error,
                         )
+                        if repaired_payload is previous_response_payload:
+                            repaired_payload = _coalesce_oversplit_story_unit(
+                                previous_response_payload,
+                                request,
+                                validation_error,
+                            )
                         if repaired_payload is previous_response_payload:
                             raise
                         previous_response_payload = repaired_payload
