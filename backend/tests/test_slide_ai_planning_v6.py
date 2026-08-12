@@ -1890,8 +1890,19 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
     assert len(calls) == 2
+    unit = calls[0]["teaching_units"][0]
+    assert unit["allowed_protected_tokens"]
+    assert all(
+        block["allowed_protected_tokens"]
+        for block in unit["primary_blocks"]
+    )
     target = calls[1]["repair_feedback"]["repair_targets"][0]
     assert target["current_summary"] == "UnsupportedIdentifier_999"
+    assert target["unsupported_protected_tokens"] == [
+        "unsupportedidentifier_999"
+    ]
+    assert target["allowed_protected_tokens"]
+    assert "unsupportedidentifier_999" not in target["allowed_protected_tokens"]
     assert target["summary_policy"] == (
         "source_grounded_semantic_closure_for_all_bound_blocks_"
         "complete_sentence_no_markdown"

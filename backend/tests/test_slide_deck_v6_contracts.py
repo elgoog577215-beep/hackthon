@@ -15,6 +15,7 @@ from slide_deck_v6 import (
     _bounded_slot_content,
     _complete_sentence_excerpt,
     _display_excerpt,
+    _protected_tokens,
     build_signature_v6,
     compile_ppt_source_contract_v2,
     compile_shadow_chapter_document,
@@ -35,6 +36,21 @@ def test_sentence_excerpt_never_exceeds_its_template_budget():
     assert len(excerpt) <= 35
     assert excerpt.endswith("…")
     assert excerpt[:-1] in source
+
+
+def test_sentence_excerpt_never_invents_a_partial_protected_source_token():
+    source = (
+        "Field observers call SpecimenRegistry.ResolveObservation and record "
+        "a 75% confidence threshold before accepting the evidence."
+    )
+    capacity = source.index("SpecimenRegistry") + len("SpecimenRegis") + 1
+
+    excerpt = _complete_sentence_excerpt(source, capacity)
+
+    assert len(excerpt) <= capacity
+    assert excerpt.endswith("…")
+    assert "SpecimenRegis" not in excerpt
+    assert _protected_tokens(excerpt).issubset(_protected_tokens(source))
 
 
 def test_visible_prose_removes_markdown_and_never_ends_on_a_bare_list_marker():
