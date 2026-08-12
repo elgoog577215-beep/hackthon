@@ -132,14 +132,14 @@ def test_configure_modelscope_fallback_rejects_invalid_model_atomically(
 def test_deploy_workflow_provisions_verified_ppt_role_routes():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-35B-A3B" in workflow
+    assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-27B" in workflow
     assert (
-        "AI_PPT_STORY_MODELS: deepseek-ai/DeepSeek-V4-Flash-0731,"
-        "Qwen/Qwen3.5-122B-A10B"
+        "AI_PPT_STORY_MODELS: Qwen/Qwen3.5-397B-A17B,"
+        "Qwen/Qwen3.5-27B"
     ) in workflow
     assert (
-        "AI_PPT_VISUAL_MODELS: deepseek-ai/DeepSeek-V4-Flash-0731,"
-        "Qwen/Qwen3.5-122B-A10B"
+        "AI_PPT_VISUAL_MODELS: Qwen/Qwen3.5-27B,"
+        "Qwen/Qwen3.5-397B-A17B"
     ) in workflow
     assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
     assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
