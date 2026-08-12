@@ -356,7 +356,7 @@ async function loadWorkspace() {
     if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
     store.deferMissingSlideBuild = true
     try {
-      await store.ensure(id)
+      await store.ensure(id, { loadSelectedSpec: false })
     } finally {
       store.deferMissingSlideBuild = false
     }
@@ -414,7 +414,7 @@ async function migrateCourse() {
     if (response.data.source_format !== 'canonical') return
     store.deferMissingSlideBuild = true
     try {
-      await store.ensure(id)
+      await store.ensure(id, { loadSelectedSpec: false })
     } finally {
       store.deferMissingSlideBuild = false
     }

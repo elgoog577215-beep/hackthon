@@ -66,6 +66,10 @@ export interface TeachingRepresentationSpec {
   revision: string
 }
 
+export interface TeachingRepresentationLoadOptions {
+  loadSelectedSpec?: boolean
+}
+
 export function preferredRepresentationForType(
   representations: TeachingRepresentation[],
   type: RepresentationType,
@@ -518,7 +522,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.loading = false
       this.building = false
     },
-    async load(courseId: string) {
+    async load(courseId: string, options: TeachingRepresentationLoadOptions = {}) {
       this.switchCourse(courseId)
       const courseToken = this.courseRequestToken
       const requestToken = ++this.loadRequestToken
@@ -543,7 +547,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         if (!this.selectedId || !available.some(item => item.representation_id === this.selectedId)) {
           this.selectedId = available[0]?.representation_id || ''
         }
-        if (this.selectedId) await this.loadSpec(this.selectedId)
+        if (this.selectedId && options.loadSelectedSpec !== false) {
+          await this.loadSpec(this.selectedId)
+        }
         if (!isCurrentRequest()) return null
         return this.registry
       } finally {
@@ -1152,8 +1158,8 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildStreamActive = false
       this.buildStage = 'cancelled'
     },
-    async ensure(courseId: string) {
-      const registry = await this.load(courseId)
+    async ensure(courseId: string, options: TeachingRepresentationLoadOptions = {}) {
+      const registry = await this.load(courseId, options)
       if (!registry || this.courseId !== courseId) return
       if (!this.representations.length) {
         if (this.deferMissingSlideBuild) {

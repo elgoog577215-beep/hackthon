@@ -103,7 +103,16 @@ describe('preferredRepresentationForType', () => {
 
 describe('teaching representation progressive build', () => {
   it('can load compact registry state without eagerly fetching a selected spec', async () => {
-    const registry = slideRegistry('slides-v6', 'r1')
+    const registry: any = slideRegistry('slides-v6', 'r1')
+    registry.specs = [{
+      spec_id: 'spec-slides-v6',
+      representation_type: 'slide_deck',
+      revision: 'r1',
+      payload: {
+        compiler_version: 'same_source_compiler_v6',
+        content: { schema_version: 'slide_deck_v6' },
+      },
+    }]
     httpMock.get.mockResolvedValueOnce({ data: { registry } })
     const store = useTeachingRepresentationsStore()
 

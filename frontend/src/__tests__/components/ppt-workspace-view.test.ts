@@ -308,7 +308,7 @@ describe('PptWorkspaceView', () => {
       { confirm: true, source_checksum: 'checksum-legacy' },
     )
     expect(courseStore.currentCourseSourceFormat).toBe('canonical')
-    expect(ensure).toHaveBeenCalledWith('course-1')
+    expect(ensure).toHaveBeenCalledWith('course-1', { loadSelectedSpec: false })
   })
 
   it('reloads the migration preview after a 409 and shows an actionable retry hint', async () => {

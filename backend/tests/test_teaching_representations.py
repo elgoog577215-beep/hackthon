@@ -369,6 +369,10 @@ def test_registry_endpoint_returns_routing_summaries_without_full_spec_payload(m
                 "representation_type": "slide_deck",
                 "spec_id": "spec-v6",
                 "status": "ready",
+                "source_bindings": [{"large": "x" * 5_000}],
+                "source_revision_vector": {
+                    f"block:{index}": "revision" for index in range(100)
+                },
             }],
             "specs": [{
                 "spec_id": "spec-v6",
@@ -391,6 +395,11 @@ def test_registry_endpoint_returns_routing_summaries_without_full_spec_payload(m
                 "source_bindings": [{"large": "binding"}],
                 "unit_bindings": {"large": [{"binding": "payload"}]},
             }],
+            "derivation_graph": {
+                "graph_id": "graph-1",
+                "nodes": [{"large": "x" * 5_000}],
+                "edges": [{"large": "x" * 5_000}],
+            },
             "slide_deck_target_schema": "slide_deck_v6",
         },
     )
@@ -419,6 +428,10 @@ def test_registry_endpoint_returns_routing_summaries_without_full_spec_payload(m
             },
         },
     }
+    representation = response.json()["registry"]["representations"][0]
+    assert "source_bindings" not in representation
+    assert "source_revision_vector" not in representation
+    assert "derivation_graph" not in response.json()["registry"]
     assert len(response.content) < 2_000
 
 

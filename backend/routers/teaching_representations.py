@@ -18,12 +18,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_base import AIBase
 from change_proposals import change_proposal_repository, create_authoring_change
-from course_document import stable_hash
+from course_document import (
+    CourseDocument,
+    course_view_from_document,
+    document_from_legacy_course,
+    stable_hash,
+)
 from course_logic_upgrade import (
     CourseLogicUpgradeError,
     compile_course_logic_upgrade,
 )
-from course_repository import CourseDocumentConflict
+from course_repository import CourseDocumentConflict, CourseDocumentNotFound
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from dependencies import (
     get_course_document_repository,
@@ -31,8 +36,8 @@ from dependencies import (
     get_task_manager_optional,
 )
 from learner_context import require_user_id
-from product_runtime_policy import demo_overrides_enabled
 from ppt_template_packs import TemplatePackError, ppt_template_pack_repository
+from product_runtime_policy import demo_overrides_enabled
 from representation_compiler import (
     export_slide_deck_pptx,
     rebuild_core_representations_safely,
@@ -86,14 +91,14 @@ from slide_theme import slide_theme_version
 from slide_visuals import build_signature
 from slide_web_images import WebImageRetrievalConfig
 from storage import DATA_DIR
-from template_layout_contract import (
-    TemplateLayoutPackContractV1,
-    compile_builtin_template_layout_contract_v1,
-)
 from teaching_representations import (
     RepresentationConflict,
     TeachingRepresentationRepository,
     teaching_representation_repository,
+)
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
 )
 
 router = APIRouter(
@@ -173,21 +178,60 @@ class SlideDeckVariantBuildRequest(BaseModel):
         return self
 
 
-def _reconciled_registry(course_id: str) -> dict:
-    course_repository = get_course_document_repository()
-    raw = course_repository.load_raw(course_id)
-    document, _canonical = course_repository.load_document(course_id)
-    course_view = course_repository.load_course_view(course_id)
-    repository = get_teaching_representation_repository()
-    repository.reconcile_course_operation_log(
-        course_id,
-        list(raw.get("course_operation_log") or []),
-    )
-    registry = repository.reconcile_source_revision_vector(
-        course_id,
-        revision_vector_for_course(document, course_view),
-    )
-    payload = registry.model_dump(mode="json")
+_SPEC_ROUTING_CONTENT_KEYS = (
+    "schema_version",
+    "candidate_status",
+    "status",
+    "title",
+)
+_REGISTRY_SUMMARY_KEYS = (
+    "schema_version",
+    "course_id",
+    "registry_revision",
+    "updated_at",
+    "slide_deck_v4_eligible",
+    "slide_deck_v4_upgrade_required",
+    "slide_deck_story_engine_enabled",
+    "slide_deck_target_schema",
+    "slide_deck_v4_blockers",
+    "slide_deck_v4_blocker_details",
+    "slide_deck_published_schema",
+    "slide_deck_candidate_schema",
+    "slide_deck_candidate_status",
+)
+_REPRESENTATION_SUMMARY_KEYS = (
+    "representation_id",
+    "representation_type",
+    "variant_key",
+    "spec_id",
+    "status",
+    "stale_unit_ids",
+    "stale_reasons",
+    "revision",
+    "updated_at",
+    "visual_engine_update_available",
+    "visual_engine_update_reason",
+    "course_logic_upgrade_required",
+    "course_logic_upgrade_reason",
+)
+
+
+def _course_source_from_raw(
+    course_repository: Any,
+    raw: dict[str, Any],
+) -> tuple[Any, dict[str, Any]]:
+    if course_repository.is_canonical(raw):
+        document = CourseDocument.model_validate(raw["course_document"])
+        return document, course_view_from_document(raw, document)
+    return document_from_legacy_course(raw), raw
+
+
+def _decorate_registry_payload(
+    payload: dict[str, Any],
+    *,
+    document: Any,
+    course_view: dict[str, Any],
+) -> dict[str, Any]:
     story_engine_enabled = _story_engine_enabled()
     v4_eligible = course_supports_slide_deck_v4(course_view)
     payload["slide_deck_v4_eligible"] = v4_eligible
@@ -289,6 +333,88 @@ def _reconciled_registry(course_id: str) -> dict:
             representation["visual_engine_update_available"] = True
             representation["visual_engine_update_reason"] = "视觉引擎已更新"
     return payload
+
+
+def _compact_registry_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep routing facts while omitting immutable, heavyweight spec bodies."""
+
+    compact = {
+        key: payload[key]
+        for key in _REGISTRY_SUMMARY_KEYS
+        if key in payload
+    }
+    compact["representations"] = [
+        {
+            **{
+                key: representation[key]
+                for key in _REPRESENTATION_SUMMARY_KEYS
+                if key in representation
+            },
+            "stale_unit_ids": list(representation.get("stale_unit_ids") or []),
+            "stale_reasons": list(representation.get("stale_reasons") or []),
+        }
+        for representation in payload.get("representations") or []
+    ]
+    compact["specs"] = [
+        {
+            "spec_id": str(spec.get("spec_id") or ""),
+            "representation_type": str(spec.get("representation_type") or ""),
+            "variant_key": str(spec.get("variant_key") or ""),
+            "revision": str(spec.get("revision") or ""),
+            "payload": {
+                "compiler_version": str(
+                    (spec.get("payload") or {}).get("compiler_version") or ""
+                ),
+                "content": {
+                    key: content[key]
+                    for key in _SPEC_ROUTING_CONTENT_KEYS
+                    if key in content
+                },
+            },
+        }
+        for spec in payload.get("specs") or []
+        for content in [((spec.get("payload") or {}).get("content") or {})]
+    ]
+    return compact
+
+
+def _reconciled_registry(course_id: str) -> dict:
+    """Read the persisted registry projection used by the interactive UI.
+
+    Revision events update this file on write. Avoid validating every retained
+    slide and source binding again merely to list available representations.
+    Explicit reconcile and quality routes use the defensive full path below.
+    """
+
+    course_repository = get_course_document_repository()
+    raw = course_repository.load_raw(course_id)
+    document, course_view = _course_source_from_raw(course_repository, raw)
+    payload = get_teaching_representation_repository().load_payload(course_id)
+    return _decorate_registry_payload(
+        payload,
+        document=document,
+        course_view=course_view,
+    )
+
+
+def _fully_reconciled_registry(course_id: str) -> dict:
+    course_repository = get_course_document_repository()
+    raw = course_repository.load_raw(course_id)
+    document, course_view = _course_source_from_raw(course_repository, raw)
+    repository = get_teaching_representation_repository()
+    repository.reconcile_course_operation_log(
+        course_id,
+        list(raw.get("course_operation_log") or []),
+    )
+    registry = repository.reconcile_source_revision_vector(
+        course_id,
+        revision_vector_for_course(document, course_view),
+    )
+    return _decorate_registry_payload(
+        registry.model_dump(mode="json"),
+        document=document,
+        course_view=course_view,
+    )
 
 
 def _story_engine_enabled() -> bool:
@@ -563,15 +689,16 @@ def _compile_slide_variant_registry(
 @router.get("")
 async def get_teaching_representations(course_id: str, request: Request) -> dict:
     require_user_id(request.headers.get("X-User-Id"))
-    await get_course_or_404(course_id)
     try:
         registry = await run_in_threadpool(_reconciled_registry, course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
     except RepresentationConflict as exc:
         raise HTTPException(status_code=409, detail={
             "code": "teaching_representation_conflict",
             "message": str(exc),
         }) from exc
-    return {"status": "success", "registry": registry}
+    return {"status": "success", "registry": _compact_registry_payload(registry)}
 
 
 @router.get("/slide-decks/v6/metrics")
@@ -707,8 +834,16 @@ async def upgrade_course_logic(course_id: str, request: Request) -> dict:
 
 @router.get("/derivation-graph")
 async def get_teaching_representation_graph(course_id: str, request: Request) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    try:
+        registry = await run_in_threadpool(_reconciled_registry, course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    except RepresentationConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "teaching_representation_conflict",
+            "message": str(exc),
+        }) from exc
     return {
         "status": "success",
         "course_id": course_id,
@@ -719,8 +854,9 @@ async def get_teaching_representation_graph(course_id: str, request: Request) ->
 
 @router.post("/reconcile")
 async def reconcile_teaching_representations(course_id: str, request: Request) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    registry = await run_in_threadpool(_fully_reconciled_registry, course_id)
     return {
         "status": "reconciled",
         "course_id": course_id,
@@ -1264,8 +1400,9 @@ async def stream_slide_deck_variant_build(
 
 @router.get("/quality")
 async def get_teaching_representation_quality(course_id: str, request: Request) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    registry = await run_in_threadpool(_fully_reconciled_registry, course_id)
     current_spec_ids = {item["spec_id"] for item in registry["representations"]}
     current_specs = [
         item for item in registry.get("specs") or []
@@ -1300,7 +1437,7 @@ def _representation_and_spec_reconciled(course_id: str, representation_id: str):
         # A representation request can race with an atomic registry publish.
         # Reconcile once from the canonical operation log before treating a
         # previously visible representation as missing.
-        _reconciled_registry(course_id)
+        _fully_reconciled_registry(course_id)
         return _representation_and_spec(course_id, representation_id)
 
 
@@ -1562,8 +1699,17 @@ async def get_teaching_representation_spec(
     representation_id: str,
     request: Request,
 ) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    try:
+        registry = await run_in_threadpool(
+            get_teaching_representation_repository().load_payload,
+            course_id,
+        )
+    except RepresentationConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "teaching_representation_conflict",
+            "message": str(exc),
+        }) from exc
     representation = next((
         item for item in registry["representations"]
         if item["representation_id"] == representation_id
