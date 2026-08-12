@@ -1894,7 +1894,9 @@ async def test_story_repair_clears_an_unsupported_summary_fact() -> None:
         "source_grounded_semantic_closure_for_all_bound_blocks_"
         "complete_sentence_no_markdown"
     )
-    assert story.pages[0].summary == ""
+    assert target["required_summary"]
+    assert story.pages[0].summary == target["required_summary"]
+    assert "UnsupportedIdentifier_999" not in story.pages[0].summary
     validate_slide_story_plan_v3(story, graph, template)
 
 

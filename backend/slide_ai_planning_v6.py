@@ -564,10 +564,15 @@ def _normalize_story_batch_response(
             required_layout_id = str(
                 repair_target.get("required_template_layout_id") or ""
             ).strip()
+            required_summary = str(
+                repair_target.get("required_summary") or ""
+            ).strip()
             if required_title:
                 page["title"] = required_title
             if required_layout_id:
                 page["template_layout_id"] = required_layout_id
+            if required_summary:
+                page["summary"] = required_summary
         normalized_title = re.sub(
             r"\s+",
             "",
@@ -1330,14 +1335,15 @@ def _story_repair_targets(
         )
         required_summary = ""
         if error.failure.code == "story_page_underfilled" and summary_min_chars:
-            grounded_source = _visible_prose_text("\n".join(
+            grounded_source = _visible_prose_text("\n\n".join(
                 str(block_metadata.get(block_id, {}).get("source_text") or "")
                 for block_id in current_source_block_ids
             ))
             effective_max = summary_max_chars or len(grounded_source)
-            required_summary = _complete_sentence_excerpt(
-                grounded_source,
-                effective_max,
+            required_summary = (
+                grounded_source
+                if len(grounded_source) <= effective_max
+                else _complete_sentence_excerpt(grounded_source, effective_max)
             )
             if len(required_summary) < min(summary_min_chars, len(grounded_source)):
                 required_summary = grounded_source[:effective_max].rstrip(
@@ -1466,6 +1472,23 @@ def _story_repair_targets(
                 "complete_sentence_no_markdown"
             ),
         }
+
+    if error.failure.code == "story_page_underfilled":
+        underfilled_targets: list[dict[str, Any]] = []
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            page_id = str(page.get("page_id") or "")
+            unit = units.get(str(page.get("teaching_unit_id") or ""))
+            if not page_id or unit is None:
+                continue
+            target = target_for(unit, page_id=page_id)
+            minimum = int(target.get("summary_min_chars") or 0)
+            current = _visible_prose_text(str(page.get("summary") or ""))
+            if minimum and len(current) < minimum and target.get("required_summary"):
+                underfilled_targets.append(target)
+        if underfilled_targets:
+            return underfilled_targets
 
     failed_page_id = str(error.failure.page_id or "")
     if not failed_page_id:
