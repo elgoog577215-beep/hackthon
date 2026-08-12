@@ -141,8 +141,10 @@ def test_assets_have_stable_revisions_and_five_passing_gates():
     assert knowledge_view["course_knowledge_base_revision_id"].startswith("ckbr_")
     assert knowledge_view["nodes"]
     assert knowledge_view["schema_version"] == "knowledge_library_view_v3"
+    # 路径节点仍是课程路径投影；知识记录的来源状态改为按 source_refs 如实计算，
+    # 本用例的课程没有挂资料证据，所以应当是 course_generated 而不是旧的 course_source。
     assert all(
-        node["source_status"] in {"course_path", "course_source"}
+        node["source_status"] in {"course_path", "material_grounded", "course_generated"}
         for node in knowledge_view["nodes"]
     )
     assert all(

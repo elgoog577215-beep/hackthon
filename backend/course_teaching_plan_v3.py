@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from course_knowledge_base import RELATION_TYPES
 from course_versioning import stable_hash
 
 
@@ -43,8 +44,28 @@ def _module_execution(raw: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if value not in (None, "")}
 
 
-def _issue(code: str, message: str) -> dict[str, str]:
-    return {"code": code, "message": message, "severity": "blocking"}
+def _issue(code: str, message: str, *, severity: str = "blocking") -> dict[str, str]:
+    return {"code": code, "message": message, "severity": severity}
+
+
+# 每类关系的必填字段，与 `_compile_relations` 的丢弃规则一一对应。
+RELATION_REQUIRED_FIELDS = {
+    "derives": ("derivation_steps",),
+    "contrasts_with": ("distinction",),
+}
+
+
+def _missing_relation_fields(relation: dict[str, Any], relation_type: str) -> list[str]:
+    """列出该类型缺失的必填字段。空数组与空串都算缺失，编译层同样丢弃。"""
+    missing = []
+    for field in RELATION_REQUIRED_FIELDS.get(relation_type, ()):
+        value = relation.get(field)
+        if isinstance(value, str):
+            if not value.strip():
+                missing.append(field)
+        elif not value:
+            missing.append(field)
+    return missing
 
 
 def promote_course_teaching_plan_v3(
@@ -451,6 +472,7 @@ def validate_teaching_plan_batch_v3(
     expected_ids = list(batch_spec.get("section_ids") or [])
     actual_ids = [str(item.get("node_id") or "") for item in batch.get("sections") or []]
     issues: list[dict[str, str]] = []
+    review_issues: list[dict[str, str]] = []
     if actual_ids != expected_ids:
         issues.append(_issue("teaching_batch:section_mismatch", f"批次 {batch.get('batch_id')} 必须精确覆盖指定小节"))
     identity_by_id = {
@@ -517,7 +539,31 @@ def validate_teaching_plan_batch_v3(
                     or not str(misconception.get("repair_strategy") or "").strip()
                 ):
                     issues.append(_issue("teaching_batch:invalid_misconception", f"知识键 {key} 的易错点必须包含错误表现、判别与修复策略"))
+        # 只统计"能活过编译层"的关系类型。非法类型或缺必填字段的关系会被
+        # `_compile_relations` 整条丢弃，把它们算进多样性会让软门槛被一条注定
+        # 消失的关系骗过去，结果知识网照样退化成线性链。
+        surviving_types: list[str] = []
         for relation in actual.get("knowledge_relations") or []:
+            relation_type = str(relation.get("relation_type") or "").strip()
+            # 类型门与必填字段门镜像 `_compile_relations`（course_knowledge_base.py
+            # :1470-1481）的丢弃规则。编译层丢弃发生在校验通过之后，修正轮看不到，
+            # 所以这里必须提前报成 blocking，让模型有机会改。
+            if relation_type not in RELATION_TYPES:
+                issues.append(_issue(
+                    "teaching_batch:unknown_relation_type",
+                    f"小节 {node_id} 的关系类型 {relation_type or '(空)'} 不在允许的六类内："
+                    f"{'、'.join(sorted(RELATION_TYPES))}",
+                ))
+            else:
+                missing = _missing_relation_fields(relation, relation_type)
+                if missing:
+                    issues.append(_issue(
+                        "teaching_batch:relation_missing_required_field",
+                        f"小节 {node_id} 的 {relation_type} 关系缺少必填字段 "
+                        f"{'、'.join(missing)}，缺字段会导致整条关系被丢弃",
+                    ))
+                else:
+                    surviving_types.append(relation_type)
             if relation.get("source_key") not in registry_keys or relation.get("target_key") not in registry_keys:
                 issues.append(_issue("teaching_batch:unknown_relation_endpoint", f"小节 {node_id} 的知识关系引用了未知知识键"))
             elif (
@@ -527,6 +573,15 @@ def validate_teaching_plan_batch_v3(
                 issues.append(_issue("teaching_batch:future_relation_endpoint", f"小节 {node_id} 的知识关系引用了未来批次保留的知识键"))
             elif not ({relation.get("source_key"), relation.get("target_key")} & set(expected_keys)):
                 issues.append(_issue("teaching_batch:unrelated_relation", f"小节 {node_id} 只能返回至少连接一个本节新知识的关系"))
+        # 多样性是质量问题而不是结构错误：一节里全是前置关系仍然是可发布的课程，
+        # 只是知识网退化成了一条链。所以进复核队列，不进 blocking。
+        if not [name for name in surviving_types if name != "prerequisite"]:
+            review_issues.append(_issue(
+                "teaching_batch:relation_diversity_low",
+                f"小节 {node_id} 没有任何非前置关系，知识网退化为线性链，建议复核"
+                f"是否存在推导、易混、应用或迁移关系",
+                severity="review",
+            ))
         for module in actual.get("teaching_modules") or []:
             if module.get("module_id") not in allowed_modules:
                 issues.append(_issue("teaching_batch:unknown_module", f"小节 {node_id} 返回了不允许的课程块"))
@@ -534,9 +589,11 @@ def validate_teaching_plan_batch_v3(
                 issues.append(_issue("teaching_batch:unknown_module_knowledge", f"小节 {node_id} 的课程块越过了冻结知识边界"))
     return {
         "schema_version": "course_teaching_plan_batch_validation_v3",
+        # 软门槛不参与 passed：复核提示不能阻断发布。
         "passed": not issues,
-        "issues": issues,
+        "issues": issues + review_issues,
         "blocking_issues": issues,
+        "review_issues": review_issues,
         "actual": {"section_count": len(actual_ids)},
     }
 

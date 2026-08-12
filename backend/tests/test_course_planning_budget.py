@@ -416,7 +416,20 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
         for spec in batches
     )
     assert max(prompt_tokens) <= budget.max_input_tokens
-    assert prompt_chars < 100_000
+    # 上一行是真正的准入门（单请求），这一行只是"没把整门课塞进每个批次"的总量代理。
+    # 需求 A1/B1/C2 给批次 prompt 加了三段契约（六类关系与多类型样例、概念组聚合
+    # 规则、掌握标准的独立度与迁移层级取值），A1 真机验收后又补了三类关系的触发
+    # 引导；最后按 lz-web-search 的六次对照实验把 JSON 样例补齐到六类
+    # （实验证明模型跟样例走、不跟散文枚举走：样例 1 类 -> 产出 1 类，
+    # 4 类 -> 3 类，6 类 -> 4 类，同主题同规模唯一变量就是样例覆盖的类数）。
+    # 以上都是静态前言，按批次重复 21 次：
+    # 最后一次增长来自 Gap A2：真机实测发现 prompt 从未列出 `knowledge_type`
+    # 的合法取值，模型因此自造了 `relationship`（词表外，会被静默改写成
+    # `definition`），也从不产出 `representation`。补上七类取值表。
+    # 实测总量 96_996 -> 114_804 -> 129_000 -> 136_308 -> 142_335 -> 151_386 字符，
+    # 而单请求仍是 2_399 -> 4_127 token / 预算 7_000，只用到准入门的六成。
+    # 因此放宽的是代理上限而不是准入门：整课上下文回灌会是数倍量级，仍会被这条拦住。
+    assert prompt_chars < 158_000
 
 
 def test_twenty_four_section_rich_skeleton_stays_under_final_input_gate():
