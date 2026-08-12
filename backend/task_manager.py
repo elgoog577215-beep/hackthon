@@ -3611,6 +3611,84 @@ class TaskManager:
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             if task.get("status") not in {"pending", "running"}:
                 return False
+            if task.get("type") == "slide_deck_variant_build":
+                restart_count = int(task.get("restart_recovery_count") or 0)
+                if restart_count >= 3:
+                    task["status"] = "failed"
+                    task["phase"] = "recovery_unavailable"
+                    task["current_phase"] = "recovery_unavailable"
+                    task["message"] = (
+                        "Slide build exceeded the bounded restart recovery limit"
+                    )
+                    task["error"] = task["message"]
+                    task["error_detail"] = {
+                        "stage": "recovery",
+                        "code": "restart_recovery_limit_exceeded",
+                        "message": task["message"],
+                        "retryable": True,
+                        "chapter_id": "",
+                        "page_id": "",
+                        "batch_id": "",
+                    }
+                    task["updated_at"] = datetime.now().isoformat()
+                    return False
+                request = task.get("request_snapshot") or {}
+                selector = request.get("template_selector") or {}
+                recovery_key = (
+                    str(task.get("course_id") or ""),
+                    str(request.get("mode") or "teaching"),
+                    str(request.get("theme") or "qizhi-classroom"),
+                    str(request.get("target_schema") or ""),
+                    bool(request.get("shadow_only")),
+                    str(request.get("chapter_id") or ""),
+                    str(selector.get("pack_id") or ""),
+                    str(selector.get("version") or ""),
+                )
+                newer_equivalent = next(
+                    (
+                        candidate
+                        for candidate_id, candidate in self.tasks.items()
+                        if candidate_id != task_id
+                        and candidate.get("type") == "slide_deck_variant_build"
+                        and candidate.get("status") in {"pending", "running"}
+                        and (
+                            str(candidate.get("course_id") or ""),
+                            str((candidate.get("request_snapshot") or {}).get("mode") or "teaching"),
+                            str((candidate.get("request_snapshot") or {}).get("theme") or "qizhi-classroom"),
+                            str((candidate.get("request_snapshot") or {}).get("target_schema") or ""),
+                            bool((candidate.get("request_snapshot") or {}).get("shadow_only")),
+                            str((candidate.get("request_snapshot") or {}).get("chapter_id") or ""),
+                            str(((candidate.get("request_snapshot") or {}).get("template_selector") or {}).get("pack_id") or ""),
+                            str(((candidate.get("request_snapshot") or {}).get("template_selector") or {}).get("version") or ""),
+                        ) == recovery_key
+                        and (
+                            str(candidate.get("created_at") or ""),
+                            str(candidate_id),
+                        ) > (
+                            str(task.get("created_at") or ""),
+                            str(task_id),
+                        )
+                    ),
+                    None,
+                )
+                if newer_equivalent is not None:
+                    task["status"] = "cancelled"
+                    task["phase"] = "superseded"
+                    task["current_phase"] = "superseded"
+                    task["message"] = (
+                        "A newer equivalent slide build owns restart recovery"
+                    )
+                    task["error_detail"] = {
+                        "stage": "recovery",
+                        "code": "superseded_build_not_recovered",
+                        "message": task["message"],
+                        "retryable": False,
+                        "chapter_id": "",
+                        "page_id": "",
+                        "batch_id": "",
+                    }
+                    task["updated_at"] = datetime.now().isoformat()
+                    return False
             task["status"] = "pending"
             task["phase"] = "resuming"
             task["current_phase"] = "resuming"
