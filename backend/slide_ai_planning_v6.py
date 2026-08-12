@@ -1333,8 +1333,15 @@ def _story_repair_targets(
             )
             or 0
         )
+        summary_repair_required = error.failure.code in {
+            "story_page_underfilled",
+            "story_summary_capacity_exceeded",
+            "story_summary_markdown_invalid",
+            "story_unsupported_fact",
+            "story_unsupported_semantic_claim",
+        }
         required_summary = ""
-        if error.failure.code == "story_page_underfilled" and summary_min_chars:
+        if summary_repair_required and (summary_min_chars or summary_max_chars):
             grounded_source = _visible_prose_text("\n\n".join(
                 str(block_metadata.get(block_id, {}).get("source_text") or "")
                 for block_id in current_source_block_ids
@@ -1437,7 +1444,9 @@ def _story_repair_targets(
             "primary_blocks": list(unit.get("primary_blocks") or []),
             "page_intent": page_intent,
             "allowed_template_layout_ids": page_allowed_layout_ids,
-            "required_template_layout_id": "",
+            "required_template_layout_id": (
+                current_layout_id if summary_repair_required else ""
+            ),
             "required_artifact_kinds": sorted(current_artifacts),
             "current_layout_artifact_kinds": sorted(current_layout_artifacts),
             "missing_artifact_kinds": sorted(
