@@ -599,6 +599,48 @@ def test_story_plan_rejects_a_layout_before_its_required_text_slot_materializes_
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_practice_layout_rejects_unrelated_concept_and_misconception_blocks() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-practice-boundary",
+        title="Field evidence review",
+        sections=[CourseSection(section_id="field", title="Inspect evidence", position=0)],
+        blocks=[
+            _block("concept", "field", 0, role="concept", text="A signed record preserves the observation context."),
+            _block("reasoning", "field", 1, role="reasoning", text="Separate the observation from its interpretation."),
+            _block("activity", "field", 2, role="activity", text="1. Inspect the record.\n2. Verify the signature."),
+            _block("misconception", "field", 3, role="misconception", text="Do not replace missing evidence with an assumption."),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="overloaded-practice",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("practice-prompt"),
+        title="Inspect the record",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field",
+            chapter_id="field",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="template_source_slot_role_mismatch"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_ordered_activity_materializes_as_distinct_source_bound_steps() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-field-procedure",

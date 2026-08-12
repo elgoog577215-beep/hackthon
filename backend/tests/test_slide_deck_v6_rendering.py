@@ -505,6 +505,23 @@ def test_v6_ordered_steps_separate_action_titles_from_explanations(tmp_path: Pat
     assert "Capture the receiver name." in text_shapes
 
 
+def test_v6_dense_ordered_steps_pass_the_export_frame_audit(tmp_path: Path) -> None:
+    deck = _ordered_step_deck()
+    task = next(region for region in deck.pages[0].regions if region.slot_id == "task")
+    task.content = "\n".join([
+        "采集样本：在指定样区的观测窗口内记录采集时间、地点、观察者和完整的仪器编号。",
+        "密封容器：检查盖体是否牢固，并确认防拆标记在整个交接过程里保持清晰可见。",
+        "标注证据：逐字复制完整样本标识、采样窗口和现场记录编号，不能省略来源字段。",
+        "转移包裹：在放行前记录接收人、交接时间、运输路线和当前保管条件。",
+        "异常证据模拟与交接记录修正（可选核验）：把签字回执与原始记录逐项比较，并在发布结论前补齐所有缺失字段。",
+    ])
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "ordered-step-dense.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
