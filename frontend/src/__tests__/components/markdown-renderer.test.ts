@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 
 vi.mock('mermaid', () => ({
   default: {
@@ -12,6 +13,17 @@ vi.mock('highlight.js/styles/atom-one-dark.css', () => ({}))
 
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 
+/**
+ * Rendering is aligned to animation frames so a streamed answer paints as its
+ * chunks arrive, so a frame has to elapse before the DOM is inspected.
+ */
+async function flushFrames() {
+  for (let i = 0; i < 3; i += 1) {
+    await new Promise(resolve => requestAnimationFrame(() => resolve(null)))
+    await nextTick()
+  }
+}
+
 describe('MarkdownRenderer', () => {
   it('搜索高亮只修改可见文本，不破坏链接属性', async () => {
     const wrapper = mount(MarkdownRenderer, {
@@ -20,6 +32,7 @@ describe('MarkdownRenderer', () => {
         searchWords: ['class'],
       },
     })
+    await flushFrames()
     await flushPromises()
 
     const link = wrapper.find('a')
