@@ -1183,7 +1183,11 @@ def resolve_pedagogy_profile(
         evidence = ["未发现稳定学科行为信号，使用通用课程兜底"]
 
     primary_label = TEMPLATES[primary].label
-    subject_variant = resolve_subject_variant(primary.value, text)
+    subject_variant = resolve_subject_variant(
+        primary.value,
+        text,
+        subject=subject_text,
+    )
     if secondary:
         rationale = (
             f"以{primary_label}的“{subject_variant.label}”组织课程主线，"

@@ -4,6 +4,9 @@ from pathlib import Path
 
 from models import CourseGenerationRequest
 from scripts.course_generation_benchmark import load_manifest, summarize_runs
+from scripts.course_prompt_contract_benchmark import (
+    build_report as build_prompt_contract_report,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,3 +52,30 @@ def test_benchmark_summary_does_not_claim_release_before_twenty_12_section_runs(
     assert summary["release_gate"]["success_rate_passed"] is True
     assert summary["release_gate"]["sample_size_passed"] is False
     assert summary["release_gate"]["status"] == "not_claimable_until_all_gates_pass"
+
+
+def test_offline_prompt_benchmark_separates_contract_coverage_from_model_quality():
+    manifest = load_manifest(MANIFEST)
+    report = build_prompt_contract_report(manifest)
+
+    assert report["all_production_contracts_passed"] is True
+    assert "不代表真实模型内容质量或延迟" in report["scope"]
+    assert len(report["comparisons"]) == (
+        len(manifest["scenarios"])
+        + len(manifest["prompt_contract_scenarios"])
+    )
+    assert {item["subject_variant_id"] for item in report["comparisons"]} >= {
+        "engineering_computing_foundations",
+        "science_physical_engineering_design",
+    }
+    for comparison in report["comparisons"]:
+        generic = comparison["variants"]["generic_role_only"]
+        structured = comparison["variants"][
+            "structured_without_execution_control"
+        ]
+        production = comparison["variants"]["production_contract"]
+        assert production["budget_passed"] is True
+        assert production["passed_dimensions"] == production["dimension_count"]
+        assert generic["passed_dimensions"] < structured["passed_dimensions"]
+        assert structured["passed_dimensions"] < production["passed_dimensions"]
+        assert production["passed_dimensions"] > generic["passed_dimensions"]

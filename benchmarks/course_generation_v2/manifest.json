@@ -52,6 +52,54 @@
     {"code": "lesson_plan_missing_evidence", "target": "教师活动、学生活动或形成性检查不可观察"},
     {"code": "relation_direction_conflict", "target": "关系方向与前置、推导或对比理由相反"}
   ],
+  "prompt_contract_scenarios": [
+    {
+      "id": "data_structures_prompt_4x8",
+      "discipline": "programming_engineering",
+      "expected_chapters": 4,
+      "expected_sections": 8,
+      "request": {
+        "subject": "数据结构：从表示不变量到算法正确性与复杂度",
+        "course_type": "systematic",
+        "difficulty": "intermediate",
+        "requirements": "覆盖线性表、树、图、查找与排序；每个核心结构必须说明操作契约、表示不变量、正确性依据、复杂度条件和边界用例。",
+        "target_audience": "已掌握一门编程语言的大学一年级学生",
+        "teacher_course_brief": {
+          "schema_version": "teacher_course_brief_v1",
+          "target_audience": "大学一年级学生",
+          "academic_term": "大一下学期",
+          "total_class_hours": 8,
+          "lesson_duration_minutes": 50,
+          "teaching_context": "blended",
+          "chapter_count": 4,
+          "section_count": 8
+        }
+      }
+    },
+    {
+      "id": "mechanical_design_prompt_4x8",
+      "discipline": "natural_science",
+      "expected_chapters": 4,
+      "expected_sections": 8,
+      "request": {
+        "subject": "机械设计：轴系结构的需求、载荷、失效与验证",
+        "course_type": "project",
+        "difficulty": "advanced",
+        "requirements": "从需求和约束出发，建立物理模型、比较方案、分析强度与失效模式，并用计算、仿真或实验完成验证；禁止把课程套成通用编程项目。",
+        "target_audience": "已学习理论力学与材料力学的机械类本科生",
+        "teacher_course_brief": {
+          "schema_version": "teacher_course_brief_v1",
+          "target_audience": "机械类本科生",
+          "academic_term": "本科二年级",
+          "total_class_hours": 8,
+          "lesson_duration_minutes": 50,
+          "teaching_context": "project_studio",
+          "chapter_count": 4,
+          "section_count": 8
+        }
+      }
+    }
+  ],
   "scenarios": [
     {
       "id": "math_4x8",

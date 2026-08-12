@@ -44,6 +44,7 @@
 - [x] 5.0a 升级为 `SubjectGenerationTemplateV2`，分别定义课程架构、知识、教案、正文和评估的可执行合同，并让目录/知识/教案 Prompt 消费对应合同。
 - [x] 5.0b 编译版本化 `CourseDesignContractV1`，把课程类型、学科模板、难度与资料边界统一投影给目录、小节目录、知识、教案和正文，并让任务阶段保存同一合同修订。
 - [x] 5.0c 升级为 `SubjectGenerationTemplateV3` 与 `CourseDesignContractV2`：补齐计算机核心基础、物理工程设计和历史分型；为阶段声明读/写/禁改/完成证据，并保证 compact/minimal 不压缩质量内核。
+- [x] 5.0d 升级为 `CourseDesignContractV3` 与 `course_prompt_v31`：增加执行优先级、输入隔离、阶段决策顺序和提交前静默核验；用固定多学科场景横向对比角色式基线、消融版与生产版，并修复显式学科名称被通用活动词覆盖的模板路由。
 - [x] 5.1 扩展节点/关系 schema，覆盖条件、边界、正反例、能力、易错辨别/修复、掌握、来源和置信度。
 - [x] 5.2 并行生成分节知识候选，串行完成全课去重、稳定 ID、所有权和前置 DAG，再并行补全详情并冻结；将原混合批次拆为独立 `knowledge_batches` 与 `teaching_batches`，教案批次只消费冻结知识，不再同时生成 `knowledge_details`。
 - [x] 5.3 增加关系方向、孤立节点、循环、引用端点、易错/掌握/来源覆盖和低置信质量门。

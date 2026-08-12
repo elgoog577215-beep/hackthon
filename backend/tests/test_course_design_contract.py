@@ -1,6 +1,7 @@
 from course_design_contract import (
     COURSE_DESIGN_CONTRACT_VERSION,
     compile_course_design_contract,
+    format_course_design_stage_brief,
     project_course_design_contract,
 )
 from course_pedagogy import (
@@ -80,6 +81,30 @@ def test_stage_projection_keeps_shared_identity_without_leaking_other_jobs():
     assert "subject_assessment_contract" not in content["stage_contract"]
 
 
+def test_every_stage_declares_decision_sequence_and_silent_preflight():
+    contract = _contract()
+
+    for stage in (
+        "outline",
+        "outline_expansion",
+        "knowledge_identity",
+        "knowledge_enrichment",
+        "teaching",
+        "content",
+        "assessment",
+    ):
+        projection = project_course_design_contract(contract, stage)
+        stage_contract = projection["stage_contract"]
+        rendered = format_course_design_stage_brief(projection)
+
+        assert len(stage_contract["decision_sequence"]) >= 3
+        assert len(stage_contract["silent_checks"]) >= 3
+        assert "执行优先级" in rendered
+        assert "输入隔离" in rendered
+        assert "决策顺序" in rendered
+        assert "提交前静默核验" in rendered
+
+
 def test_outline_batch_receives_course_type_and_subject_contract_after_split():
     contract = _contract("project")
     prompt = CoursePromptComposer().build_outline_batch_v2_prompt(
@@ -127,6 +152,10 @@ def test_compact_prompt_preserves_non_compressible_stage_quality_kernel():
 
     assert "唯一允许输出" in prompt
     assert "禁止修改" in prompt
+    assert "执行优先级" in prompt
+    assert "输入隔离" in prompt
+    assert "决策顺序" in prompt
+    assert "提交前静默核验" in prompt
     assert "直觉不能替代定义" in prompt
     assert "章节能推进到最终成果" in prompt
     assert contract["revision_id"] in prompt

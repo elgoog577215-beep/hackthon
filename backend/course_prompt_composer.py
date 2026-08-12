@@ -36,7 +36,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v30"
+PROMPT_CONTRACT_VERSION = "course_prompt_v31"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:

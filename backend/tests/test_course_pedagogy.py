@@ -109,6 +109,22 @@ def test_static_routing_distinguishes_computing_physical_engineering_and_history
     assert modern_history.subject_variant_id == "humanities_historical"
 
 
+def test_specific_subject_variant_outweighs_generic_requirement_activities():
+    mechanical_design = resolve_pedagogy_profile(
+        subject="机械设计：轴系结构的需求、载荷、失效与验证",
+        requirements=(
+            "建立物理模型，完成力学分析、测量、实验、计算与仿真，"
+            "并比较方案和设计验证。"
+        ),
+    )
+
+    assert mechanical_design.primary_mode is PedagogyMode.NATURAL_SCIENCE
+    assert (
+        mechanical_design.subject_variant_id
+        == "science_physical_engineering_design"
+    )
+
+
 def test_subject_title_outweighs_generic_application_wording():
     profile = resolve_pedagogy_profile(subject="线性代数：理论与应用")
 

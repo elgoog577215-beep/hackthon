@@ -656,8 +656,21 @@ def course_stage(index: int, count: int) -> str:
     return "integration"
 
 
-def resolve_subject_variant(mode: str, text: str) -> SubjectVariantSpec:
+def resolve_subject_variant(
+    mode: str,
+    text: str,
+    *,
+    subject: str = "",
+) -> SubjectVariantSpec:
+    """Resolve a specialist variant with title signals taking precedence.
+
+    Requirements naturally contain generic activity words such as model,
+    experiment, system or analysis.  Those words may refine a course but must
+    not steal routing from an explicit discipline phrase in the course title,
+    such as mechanical design or data structures.
+    """
     lowered = str(text or "").lower()
+    subject_lowered = str(subject or "").lower()
     candidates = [
         item
         for item in SUBJECT_VARIANTS.values()
@@ -666,18 +679,38 @@ def resolve_subject_variant(mode: str, text: str) -> SubjectVariantSpec:
     scored = [
         (
             sum(
+                max(4, len(signal) * 3)
+                for signal in item.signals
+                if signal.lower() in subject_lowered
+            )
+            + sum(
                 1
                 for signal in item.signals
                 if signal.lower() in lowered
+            ),
+            sum(
+                1
+                for signal in item.signals
+                if signal.lower() in subject_lowered
+            ),
+            sum(
+                len(signal)
+                for signal in item.signals
+                if signal.lower() in subject_lowered
+                or signal.lower() in lowered
             ),
             -index,
             item,
         )
         for index, item in enumerate(candidates)
     ]
-    best = max(scored, default=(0, 0, None), key=lambda item: (item[0], item[1]))
-    if best[0] > 0 and best[2] is not None:
-        return best[2]
+    best = max(
+        scored,
+        default=(0, 0, 0, 0, None),
+        key=lambda item: (item[0], item[1], item[2], item[3]),
+    )
+    if best[0] > 0 and best[4] is not None:
+        return best[4]
     fallback = SUBJECT_VARIANTS.get(DEFAULT_VARIANT_IDS[mode])
     if fallback is None:
         raise ValueError(f"Missing default subject variant for {mode}")
