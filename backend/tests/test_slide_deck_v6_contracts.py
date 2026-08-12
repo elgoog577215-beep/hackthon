@@ -437,14 +437,13 @@ def test_story_plan_accepts_a_source_file_identifier_without_its_extension() -> 
                 "Save FieldAuditRunner.py before the audit. "
                 "FieldAuditRunner.py checks every source row and reports missing evidence."
             ),
-            kind="code",
         )],
     ))
     graph, template, story = _valid_story(document)
-    story.batches[0].pages[0].template_layout_id = template.layout_id("evidence-code")
     story.batches[0].pages[0].title = "FieldAuditRunner checks every source row"
     story.batches[0].pages[0].summary = (
-        "FieldAuditRunner checks every source row and reports missing evidence."
+        "Save FieldAuditRunner before the audit. FieldAuditRunner checks every "
+        "source row and reports missing evidence before the audit."
     )
 
     validate_slide_story_plan_v3(story, graph, template)
