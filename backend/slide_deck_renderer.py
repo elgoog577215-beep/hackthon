@@ -2787,39 +2787,80 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             theme["accent"],
             bold=True,
         )
-        weights = [max(1, min(3, math.ceil(len(item) / 70))) for item in items]
+        step_parts = [_split_ordered_step(item) for item in items]
+        weights = [max(1, min(3, math.ceil(len(item) / 90))) for item in items]
         total_weight = max(1, sum(weights))
-        available_height = 4.0
-        gap = 0.08
+        available_height = 4.08
+        gap = 0.04
         usable_height = available_height - gap * max(0, len(items) - 1)
-        y = 2.22
-        for index, (item, weight) in enumerate(zip(items, weights), start=1):
-            height = usable_height * weight / total_weight
-            _shape(slide, 0.86, y, 0.58, height, theme["accent_soft"], radius=True)
+        y = 2.20
+        heights = [usable_height * weight / total_weight for weight in weights]
+        centers: list[float] = []
+        cursor = y
+        for height in heights:
+            centers.append(cursor + height / 2)
+            cursor += height + gap
+        if len(centers) > 1:
+            _shape(
+                slide,
+                1.16,
+                centers[0],
+                0.035,
+                centers[-1] - centers[0],
+                theme["chart_bg"],
+                radius=False,
+            )
+        for index, ((title, detail), height) in enumerate(
+            zip(step_parts, heights),
+            start=1,
+        ):
+            center_y = y + height / 2
+            if index < len(items):
+                _shape(
+                    slide,
+                    1.72,
+                    y + height - 0.015,
+                    10.38,
+                    0.015,
+                    theme["chart_bg"],
+                    radius=False,
+                )
+            _circle(slide, 0.88, center_y - 0.28, 0.56, theme["accent"])
             _text(
                 slide,
                 f"{index:02d}",
-                0.86,
-                y + max(0.08, (height - 0.22) / 2),
-                0.58,
+                0.88,
+                center_y - 0.10,
+                0.56,
                 0.22,
                 11,
-                theme["accent"],
+                "FFFFFF",
                 bold=True,
                 align="center",
                 font="Aptos Mono",
             )
             _text(
                 slide,
-                item,
-                1.72,
-                y + 0.08,
-                10.25,
-                max(0.36, height - 0.16),
-                17 if len(item) <= 80 else 16,
+                title,
+                1.78,
+                y + max(0.1, (height - 0.46) / 2),
+                3.08 if detail else 10.2,
+                0.46,
+                18 if len(title) <= 28 else 16,
                 theme["ink"],
-                bold=len(item) <= 80,
+                bold=True,
             )
+            if detail:
+                _text(
+                    slide,
+                    detail,
+                    5.02,
+                    y + max(0.08, (height - 0.52) / 2),
+                    7.05,
+                    max(0.52, height - 0.16),
+                    16,
+                    theme["muted"],
+                )
             y += height + gap
         return
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
@@ -2841,6 +2882,14 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 16, style["text"], bold=True)
         if index < len(items) - 1:
             _text(slide, "→", x + width + 0.01, 3.68, 0.22, 0.35, 17, theme["muted"], bold=True, align="center")
+
+
+def _split_ordered_step(value: str) -> tuple[str, str]:
+    clean = str(value or "").strip()
+    parts = re.split(r"\s*[:：]\s*", clean, maxsplit=1)
+    if len(parts) == 2 and parts[0] and parts[1] and len(parts[0]) <= 42:
+        return parts[0].strip(), parts[1].strip()
+    return clean, ""
 
 
 def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -3449,6 +3498,24 @@ def _shape(
         shape.line.fill.background()
     if radius and hasattr(shape, "adjustments") and len(shape.adjustments):
         shape.adjustments[0] = 0.08
+    return shape
+
+
+def _circle(slide: Any, x: float, y: float, size: float, fill: str) -> Any:
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.OVAL,
+        Inches(x),
+        Inches(y),
+        Inches(size),
+        Inches(size),
+    )
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = RGBColor.from_string(fill)
+    shape.line.fill.background()
     return shape
 
 

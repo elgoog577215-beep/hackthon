@@ -149,6 +149,26 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'practice-sequence' && slide.quality?.task_prompt_mode === 'action'"
+        class="deck-practice-sequence"
+      >
+        <small>{{ taskPromptLabel }}</small>
+        <ol>
+          <li v-for="(step, index) in practiceSequenceItems" :key="`${index}-${step.title}`">
+            <b>{{ String(index + 1).padStart(2, '0') }}</b>
+            <div :data-has-detail="step.detail ? 'true' : 'false'">
+              <strong>{{ step.title }}</strong>
+              <MarkdownRenderer
+                v-if="step.detail"
+                :content="step.detail"
+                :enable-code-run="false"
+              />
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <div
         v-else-if="visualLayout === 'worked-example'"
         class="deck-worked-example"
         :data-has-message="showsStandaloneMessage"
@@ -493,6 +513,14 @@ const questionPromptItems = computed(() => (
 const taskPromptLabel = computed(() => (
   String(props.slide.quality?.prompt_label || '先独立判断')
 ))
+const practiceSequenceItems = computed(() => semanticItems.value.slice(0, 5).map((item) => {
+  const clean = String(item || '').trim()
+  const parts = clean.split(/\s*[:：]\s*/, 2)
+  if (parts.length === 2 && parts[0] && parts[1] && parts[0].length <= 42) {
+    return { title: parts[0].trim(), detail: parts[1].trim() }
+  }
+  return { title: clean, detail: '' }
+}))
 const practicePromptBlock = computed(() => (
   (props.slide.blocks || []).find(block => (
     block.metadata?.semantic_role === 'prompt'
@@ -1952,6 +1980,78 @@ function layoutLabel(value: string) {
 }
 .deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol li:last-child {
   border-bottom:0;
+}
+.deck-practice-sequence {
+  position:absolute;
+  inset:24.5% 6.5% 10.5%;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  min-height:0;
+}
+.deck-practice-sequence > small {
+  color:var(--deck-blue);
+  font-size:1.02cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-practice-sequence ol {
+  position:relative;
+  display:grid;
+  grid-auto-rows:1fr;
+  min-height:0;
+  margin:.6cqw 0 0;
+  padding:0;
+  list-style:none;
+}
+.deck-practice-sequence ol::before {
+  content:"";
+  position:absolute;
+  top:10%;
+  bottom:10%;
+  left:2.05cqw;
+  width:.14cqw;
+  background:var(--deck-line);
+}
+.deck-practice-sequence li {
+  position:relative;
+  display:grid;
+  grid-template-columns:4.1cqw minmax(0,1fr);
+  align-items:center;
+  min-height:0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-sequence li:last-child { border-bottom:0; }
+.deck-practice-sequence li > b {
+  z-index:1;
+  width:3.05cqw;
+  height:3.05cqw;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font:800 .86cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-practice-sequence li > div {
+  display:grid;
+  grid-template-columns:minmax(0,3fr) minmax(0,7fr);
+  align-items:center;
+  gap:2.2cqw;
+  min-width:0;
+}
+.deck-practice-sequence li > div[data-has-detail="false"] strong {
+  grid-column:1/3;
+}
+.deck-practice-sequence strong {
+  color:var(--deck-title);
+  font-size:1.62cqw;
+  line-height:1.25;
+}
+.deck-practice-sequence li > div > :deep(.markdown-body) {
+  margin:0;
+  color:var(--deck-muted);
+  font-size:1.42cqw;
+  line-height:1.45;
 }
 .deck-canvas__blocks pre {
   height:100%;
