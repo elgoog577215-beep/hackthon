@@ -254,6 +254,10 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             for a in attempts
         ]
         outcomes[str(entry.get("node_id") or "")] = {
+            # 整槽异常（一次 attempt 都没发生）的真实原因就存在这两个字段里。
+            # 不采它们，`attempts: []` 的题在报告里只剩一个空壳，看不出为什么。
+            "error_code": str(entry.get("error_code") or ""),
+            "error_message": str(entry.get("error_message") or "")[:300],
             "attempt_trail": attempt_trail,
             "semantic_preflight_issues": [
                 str(i.get("code") or "")
