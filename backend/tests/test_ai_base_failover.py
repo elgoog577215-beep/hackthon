@@ -384,7 +384,7 @@ async def test_call_llm_cools_down_empty_model_and_fails_over(monkeypatch):
     assert result == "ok-answer"
     assert completions.calls == ["model-a", "model-b"]
     assert (
-        service.api_base,
+        service._primary_provider_scope(),
         "model-a",
     ) in service._model_failure_cache
 
@@ -568,7 +568,7 @@ async def test_quota_failed_model_is_skipped_by_later_calls(monkeypatch):
 
     assert completions.calls == ["model-a", "model-b", "model-b"]
     assert (
-        service.api_base,
+        service._primary_provider_scope(),
         "model-a",
     ) in service._model_failure_cache
 
