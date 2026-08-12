@@ -147,8 +147,8 @@ describe('SlideCanvas V5 final page contract', () => {
     const steps = path.findAll('li')
     expect(steps).toHaveLength(3)
     expect(steps.map(step => step.get('b').text())).toEqual(['01', '02', '03'])
-    expect(steps[0].get('strong').text()).toBe('核对样本')
-    expect(steps[0].text()).toContain('确认编号与记录一致。')
+    expect(steps[0]?.get('strong').text()).toBe('核对样本')
+    expect(steps[0]?.text()).toContain('确认编号与记录一致。')
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
   })
 
