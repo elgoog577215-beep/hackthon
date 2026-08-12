@@ -54,6 +54,15 @@
           </dl>
         </div>
 
+        <!-- Broad-intent blast radius, in the unit a learner judges scope by.
+             Counted from the plan's own `affected_section_ids` so the number
+             matches the range confirming will actually change. -->
+        <CourseImpactPreview
+          class="review-impact-preview"
+          :affected-section-ids="affectedSectionIds"
+          :sections="courseStore.nodes"
+        />
+
         <section class="live-scan-status" :data-state="dialogState" aria-live="polite">
           <div class="scan-status-icon">
             <LoaderCircle v-if="isGenerating" :size="18" class="spinning" />
@@ -223,6 +232,8 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { ArrowRight, BookOpen, Check, CheckCircle2, Layers3, LoaderCircle, ScanSearch, ShieldCheck, Sparkles, Target, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import { useCourseStore } from '../stores/course'
+import CourseImpactPreview from './CourseImpactPreview.vue'
 import type { CourseEvolutionPlan, EvolutionOperation } from '../stores/courseEvolution'
 
 const props = withDefaults(defineProps<{
@@ -247,9 +258,27 @@ const emit = defineEmits<{
 }>()
 
 const titleId = computed(() => `course-evolution-review-${props.plan?.change_set_id || 'live-scan'}`)
+
+const courseStore = useCourseStore()
+
 const operations = computed(() => (props.plan?.operations || []).filter(
   operation => operation.operation_type !== 'ADJUST_COURSE_DIFFICULTY',
 ))
+
+/**
+ * Sections this plan will change, from the field the domain derives when it
+ * applies. Falls back to the operations' target sections only when the plan
+ * omits it, so a plan that does modify something never previews as zero.
+ */
+const affectedSectionIds = computed(() => {
+  const declared = (props.plan?.impact_summary?.affected_section_ids || [])
+    .map(String)
+    .filter(Boolean)
+  if (declared.length) return declared
+  return operations.value
+    .map(operation => String(operation.target_section_id || ''))
+    .filter(Boolean)
+})
 const generationError = computed(() => String(
   props.error
   || props.plan?.impact_summary?.generation_error

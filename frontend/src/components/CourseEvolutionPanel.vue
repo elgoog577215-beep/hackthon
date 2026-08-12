@@ -268,6 +268,14 @@
             {{ t('courseEvolution.dependentBlocks', '关联后续 {count} 个教学块').replace('{count}', String(plan.impact_summary.dependent_block_ids.length)) }}
           </small>
         </div>
+        <!-- Section-level blast radius. A broad request ("this chapter is too
+             fast") is judged in sections, not blocks, and the count comes from
+             the plan's own `affected_section_ids` so it matches what confirming
+             will actually change. -->
+        <CourseImpactPreview
+          :affected-section-ids="affectedSectionIdsFor(plan)"
+          :sections="courseStore.nodes"
+        />
         <p class="evolution-effect"><Sparkles :size="13" />{{ plan.expected_effect }}</p>
         <button type="button" class="evolution-details-toggle" @click="expandedId = expandedId === plan.change_set_id ? '' : plan.change_set_id">
           <ChevronUp v-if="expandedId === plan.change_set_id" :size="13" /><ChevronDown v-else :size="13" />
@@ -400,6 +408,7 @@ import {
 } from '../stores/courseEvolution'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
+import CourseImpactPreview from './CourseImpactPreview.vue'
 import { t } from '../shared/i18n'
 
 const props = defineProps<{ courseId: string; sectionId?: string; focusPlanId?: string }>()
@@ -644,6 +653,20 @@ function targetRoleLabels(plan: CourseEvolutionPlan) {
   return labels.length ? labels : (plan.requested_roles || []).map(roleLabel)
 }
 function impactLabels(plan: CourseEvolutionPlan) { return [...(plan.impact_summary?.knowledge_labels || []), ...(plan.impact_summary?.ability_labels || []), ...(plan.impact_summary?.misconception_labels || [])].slice(0, 4) }
+
+/**
+ * Sections this plan will touch, taken from the field the domain itself derives
+ * when applying the change. Falls back to the operations' target sections only
+ * when the plan omits it, so the preview never silently reports zero for a plan
+ * that does modify something.
+ */
+function affectedSectionIdsFor(plan: CourseEvolutionPlan) {
+  const declared = (plan.impact_summary?.affected_section_ids || []).map(String).filter(Boolean)
+  if (declared.length) return declared
+  return contentOperations(plan)
+    .map(operation => String(operation.target_section_id || ''))
+    .filter(Boolean)
+}
 function evidenceAssessment(plan: CourseEvolutionPlan) { return plan.impact_summary?.evidence_assessment || hypothesisFor(plan)?.evidence_assessment || {} }
 function isStrongScopedPlan(plan: CourseEvolutionPlan) {
   const assessment = evidenceAssessment(plan)

@@ -3127,6 +3127,12 @@
         "reviewAgain": "Review again",
         "complete": "Complete"
       }
+    },
+    "impactPreview": {
+      "count": "Affects {count} sections",
+      "countOne": "Affects {count} section",
+      "unknownSection": "not in the current outline",
+      "note": "Nothing in the published course changes until you confirm."
     }
   },
   "courseAvailability": {

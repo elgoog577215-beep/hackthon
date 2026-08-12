@@ -3127,6 +3127,12 @@
         "reviewAgain": "再次复习",
         "complete": "完成复习"
       }
+    },
+    "impactPreview": {
+      "count": "将影响 {count} 个小节",
+      "countOne": "将影响 {count} 个小节",
+      "unknownSection": "不在当前目录中",
+      "note": "确认前不会修改正式课程。"
     }
   },
   "courseAvailability": {

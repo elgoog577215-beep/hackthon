@@ -422,6 +422,15 @@
             <span>{{ t('courseWorkspace.personalization.reviewCount', '请核对 {count} 个受影响课程块').replace('{count}', String(personalizationOperations.length)) }}</span>
           </div>
 
+          <!-- Section-level blast radius, derived from the plan's own
+               `affected_section_ids` so the number cannot drift from what the
+               domain will actually change on confirm. -->
+          <CourseImpactPreview
+            v-if="personalizationOperations.length"
+            :affected-section-ids="personalizationAffectedSectionIds"
+            :sections="courseStore.nodes"
+          />
+
           <div v-if="personalizationOperations.length" class="personalization-diff-list">
             <article
               v-for="(operation, index) in personalizationOperations"
@@ -670,6 +679,7 @@ import {
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
+import CourseImpactPreview from './CourseImpactPreview.vue'
 import { useAITeacherStore, type AIActionReceipt, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
@@ -782,6 +792,24 @@ const personalizationOperations = computed(() => (
   ) || []
 ))
 const personalizationApplied = computed(() => personalizationPlan.value?.status === 'applied')
+
+/**
+ * Sections the pending plan will touch.
+ *
+ * Prefers the plan's own `affected_section_ids` — the field the domain derives
+ * when it applies the change — so the preview and the write agree. Falls back
+ * to the operations' target sections only when the plan omits it, and never
+ * invents a section that no operation targets.
+ */
+const personalizationAffectedSectionIds = computed(() => {
+  const declared = (personalizationPlan.value?.impact_summary?.affected_section_ids || [])
+    .map(String)
+    .filter(Boolean)
+  if (declared.length) return declared
+  return personalizationOperations.value
+    .map(operation => String(operation.target_section_id || ''))
+    .filter(Boolean)
+})
 const representationSyncUnitCount = computed(() => (
   (changeProposalsStore.lastRepresentationSync?.rebuilt || []).reduce(
     (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),

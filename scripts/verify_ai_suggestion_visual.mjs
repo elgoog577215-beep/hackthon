@@ -1,5 +1,6 @@
 /**
- * Real-browser check for the proactive AI-teacher suggestion card.
+ * Real-browser check for the proactive AI-teacher suggestion card and the
+ * course impact preview.
  *
  * Covers the four combinations the owner asked for — zh/en × desktop/mobile —
  * with the narrow viewport treated as the important one, since that is where a
@@ -9,6 +10,8 @@
  * CSS, fonts and layout are the shipped ones rather than jsdom approximations.
  *
  * Usage: node scripts/verify_ai_suggestion_visual.mjs [outputDir]
+ *
+ * Run from anywhere; pass an absolute path to the script.
  */
 import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -73,6 +76,7 @@ const harness = `
 <script type="module">
   import { createApp, h, ref } from 'vue'
   import Suggestion from '/src/components/AITeacherSuggestion.vue'
+  import ImpactPreview from '/src/components/CourseImpactPreview.vue'
   import { setLocale } from '/src/shared/i18n'
 
   const params = new URLSearchParams(location.search)
@@ -89,12 +93,21 @@ const harness = `
   createApp({
     setup() {
       const current = ref(suggestion)
+      const sections = [
+        { node_id: 's1', node_name: '1.2 矩阵：线性映射与矩阵运算' },
+        { node_id: 's2', node_name: '1.3 复合变换的几何意义' },
+        { node_id: 's3', node_name: '1.4 逆变换与可逆条件' },
+      ]
       return () => h('div', { class: 'probe-frame' }, [
         h(Suggestion, {
           suggestion: current.value,
           onAccept: () => {},
           onDecline: () => {},
           onShown: () => {},
+        }),
+        h(ImpactPreview, {
+          affectedSectionIds: ['s1', 's2', 's3'],
+          sections,
         }),
         h('div', { class: 'probe-body' },
           '正文占位：这段文字用来确认建议卡不会遮挡正在阅读的内容，' +
@@ -190,6 +203,47 @@ async function main() {
           // 5. No raw i18n keys or action codes on screen.
           if (metrics.text.includes('courseWorkspace.') || metrics.text.includes(action)) {
             failures.push(`${tag}: raw key or action code visible: ${metrics.text.slice(0, 80)}`)
+          }
+
+          // The impact preview shares the same surface and the same narrow
+          // viewport, and its number is what a learner judges scope by — so it
+          // gets the same overflow and language checks.
+          const preview = await page.locator('[data-testid="course-impact-preview"]').evaluate(
+            (element) => {
+              const rect = element.getBoundingClientRect()
+              return {
+                left: rect.left, right: rect.right,
+                scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+                text: element.innerText,
+                rows: element.querySelectorAll('[data-testid="impact-section"]').length,
+              }
+            },
+          )
+          if (preview.scrollWidth > preview.clientWidth + 1) {
+            failures.push(`${tag}: impact preview overflows horizontally`)
+          }
+          if (preview.left < -1 || preview.right > viewport.width + 1) {
+            failures.push(`${tag}: impact preview escapes viewport`)
+          }
+          // The probe feeds it three sections; the rendered count and the
+          // stated number must both be 3, in both languages.
+          if (preview.rows !== 3) {
+            failures.push(`${tag}: impact preview listed ${preview.rows} sections, expected 3`)
+          }
+          const expectedCount = locale === 'en' ? 'Affects 3 sections' : '将影响 3 个小节'
+          if (!preview.text.includes(expectedCount)) {
+            failures.push(`${tag}: impact preview missing "${expectedCount}": ${preview.text.slice(0, 80)}`)
+          }
+          // Section names are course content, not UI chrome — a Chinese course
+          // keeps Chinese titles in an English UI. So the language check applies
+          // to the preview's own strings only.
+          const previewChrome = preview.text
+            .split('\n')
+            .filter(line => !/^[\u2022\s]*\d+\.\d+\s/.test(line))
+            .join('\n')
+          if (locale === 'en' && /[一-鿿]/.test(previewChrome)) {
+            failures.push(`${tag}: Chinese leaked into English impact-preview chrome: `
+              + previewChrome.slice(0, 80))
           }
 
           notes.push(`${tag}: ${Math.round(metrics.width)}x${Math.round(metrics.height)}px, `
