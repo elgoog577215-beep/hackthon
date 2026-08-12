@@ -78,6 +78,7 @@
         :task="generationTask"
         @select="selectNode"
         @open-knowledge="openKnowledgeFromLessonPlan"
+        @open-outline-editor="openOutlineEditorFromLessonPlan"
         @applied="handleTeachingPlanApplied"
       />
       <CourseOutlineReview
@@ -890,6 +891,22 @@ function openKnowledgeFromLessonPlan(knowledgeId: string) {
   }
   courseStore.focusKnowledgeId = knowledgeId
   openKnowledgeLibrary()
+}
+
+// 教案侧拒绝章节操作时把教师送到目录编辑器。
+// 生成现场里目录审阅本来就在同一页，切回「课程」即可；已发布课程目前
+// 还没有常驻的目录编辑入口（团队的 /blueprint 只在生成阶段挂载），
+// 这里明说而不是假装跳过去了。
+function openOutlineEditorFromLessonPlan(target: { endpoint: string; revisionField: string }) {
+  if (!target?.endpoint) return
+  if (showOutlineReview.value || isGenerationPreview.value) {
+    selectWorkspace('course')
+    return
+  }
+  ElMessage.info(t(
+    'courseGeneration.lessonPlan.outlineEditorUnavailable',
+    '章节结构由课程目录维护。这门课程已发布，请在课程目录审阅阶段调整章节。',
+  ))
 }
 
 function openTeachingResource(type: 'outline' | 'lesson_plan') {

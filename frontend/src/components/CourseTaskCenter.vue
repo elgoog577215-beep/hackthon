@@ -1,9 +1,18 @@
 <template>
-  <Teleport to="body">
-    <div v-if="modelValue" class="task-center-layer" @keydown="handleDialogKeydown">
-      <button type="button" class="task-center-backdrop" :aria-label="t('common.cancel', '取消')" @click="close" />
-      <section ref="panelRef" class="task-center" role="dialog" aria-modal="true" :aria-labelledby="titleId" tabindex="-1">
-        <header class="task-center__header">
+  <Teleport to="body" :disabled="embedded">
+    <div v-if="modelValue" class="task-center-layer" :class="{ 'task-center-layer--embedded': embedded }" @keydown="handleDialogKeydown">
+      <button v-if="!embedded" type="button" class="task-center-backdrop" :aria-label="t('common.cancel', '取消')" @click="close" />
+      <section
+        ref="panelRef"
+        class="task-center"
+        :class="{ 'task-center--embedded': embedded }"
+        :role="embedded ? 'region' : 'dialog'"
+        :aria-modal="embedded ? undefined : true"
+        :aria-labelledby="embedded ? undefined : titleId"
+        :aria-label="embedded ? t('courseTasks.title', '课程任务中心') : undefined"
+        tabindex="-1"
+      >
+        <header v-if="!embedded" class="task-center__header">
           <div>
             <span><ListChecks :size="16" /></span>
             <div>
@@ -19,13 +28,17 @@
           </div>
         </header>
 
-        <div class="task-center__body">
-          <aside class="task-list" :aria-label="t('courseTasks.listLabel', '课程任务列表')">
-            <div v-if="!tasks.length" class="task-list__empty">
+        <div class="task-center__body" :class="{ 'task-center__body--empty': !tasks.length }">
+          <main v-if="!tasks.length" class="task-center-empty">
+            <span class="task-center-empty__icon">
               <Inbox :size="23" />
-              <strong>{{ t('courseTasks.empty', '暂无课程任务') }}</strong>
-              <span>{{ t('courseTasks.emptyHelp', '新建或导入课程后，处理状态会出现在这里。') }}</span>
-            </div>
+            </span>
+            <strong>{{ t('courseTasks.empty', '暂无课程任务') }}</strong>
+            <p>{{ t('courseTasks.emptyHelp', '新建或导入课程后，处理状态会出现在这里。') }}</p>
+          </main>
+
+          <template v-else>
+          <aside class="task-list" :aria-label="t('courseTasks.listLabel', '课程任务列表')">
             <button
               v-for="task in tasks"
               :key="task.id"
@@ -68,7 +81,7 @@
                 aria-valuemax="100"
                 :aria-valuetext="`${taskPhaseLabel(selectedTask)}，${selectedDisplayProgress}%`"
               >
-                <span :style="{ width: `${selectedDisplayProgress}%` }" />
+                <span :style="{ transform: `scaleX(${selectedDisplayProgress / 100})` }" />
               </div>
               <dl>
                 <div><dt>{{ t('courseTasks.phase', '当前阶段') }}</dt><dd>{{ taskPhaseLabel(selectedTask) }}</dd></div>
@@ -104,6 +117,80 @@
                 <Clock3 :size="15" />
                 {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
               </p>
+            </section>
+
+            <section
+              v-if="webSearchSummary"
+              class="web-search-summary"
+              data-testid="web-search-summary"
+              :aria-label="t('courseGeneration.materials.webSearch.reviewTitle', '联网资料审阅')"
+            >
+              <header class="web-search-summary__head">
+                <strong>{{ t('courseGeneration.materials.webSearch.label', '联网资料') }}</strong>
+                <span class="web-search-summary__status" :data-degraded="webSearchSummary.degraded">
+                  {{ webSearchSummary.statusLabel }}
+                </span>
+              </header>
+              <p v-if="webSearchSummary.degraded" class="web-search-summary__degraded" role="status">
+                {{ webSearchSummary.message || t('courseGeneration.materials.webSearch.degraded', '本次未获取联网资料，仅使用已有资料') }}
+              </p>
+              <p class="web-search-summary__hint">
+                {{ t('courseGeneration.materials.webSearch.reviewHint', '采用前请确认出处与内容适用性；引用内容会保留出处，不作为原创产物。') }}
+              </p>
+              <div v-if="webSearchSummary.queries.length" class="web-search-summary__queries">
+                <dt>{{ t('courseGeneration.materials.webSearch.queries', '检索关键词') }}</dt>
+                <dd>
+                  <span v-for="query in webSearchSummary.queries" :key="query">{{ query }}</span>
+                </dd>
+              </div>
+              <ul v-if="webSearchSummary.sources.length" class="web-search-summary__sources">
+                <li
+                  v-for="source in webSearchSummary.sources"
+                  :key="source.sourceId || source.url"
+                  :data-excluded="source.excluded"
+                >
+                  <div class="web-search-summary__source-line">
+                    <a :href="source.url" target="_blank" rel="noopener noreferrer nofollow">{{ source.title }}</a>
+                    <button
+                      type="button"
+                      class="web-search-summary__exclude"
+                      :data-testid="`web-source-toggle-${source.sourceId || source.url}`"
+                      :aria-pressed="source.excluded"
+                      @click="toggleWebSourceExclusion(source)"
+                    >
+                      {{ source.excluded
+                        ? t('courseGeneration.materials.webSearch.restore', '恢复')
+                        : t('courseGeneration.materials.webSearch.exclude', '剔除这条') }}
+                    </button>
+                  </div>
+                  <small>
+                    <template v-if="source.excluded">
+                      {{ t('courseGeneration.materials.webSearch.excluded', '已剔除') }} ·
+                    </template>
+                    {{ t('courseGeneration.materials.webSearch.trustValue', '可信度：{value}')
+                        .replace('{value}', t(`courseGeneration.materials.webSearch.trustLevel.${source.credibility}`, source.credibility)) }}
+                    · {{ t('courseGeneration.materials.webSearch.fetchedAtValue', '抓取时间：{value}')
+                        .replace('{value}', source.retrievedAt) }}
+                  </small>
+                </li>
+              </ul>
+              <p v-if="excludedWebSourceIds.length" class="web-search-summary__pending" role="status">
+                {{ t('courseGeneration.materials.webSearch.excludePending', '剔除将在下次生成时生效').replace('{count}', String(excludedWebSourceIds.length)) }}
+              </p>
+              <p v-else-if="!webSearchSummary.degraded" class="web-search-summary__empty">
+                {{ t('courseGeneration.materials.webSearch.none', '本次没有联网资料') }}
+              </p>
+              <details v-if="webSearchSummary.rejected.length" class="web-search-summary__rejected">
+                <summary>
+                  {{ t('courseGeneration.materials.webSearch.rejectedCount', '已排除 {count} 条').replace('{count}', String(webSearchSummary.rejected.length)) }}
+                </summary>
+                <ul>
+                  <li v-for="item in webSearchSummary.rejected" :key="item.url">
+                    <span>{{ item.url }}</span>
+                    <small>{{ item.reasonLabel }}</small>
+                  </li>
+                </ul>
+              </details>
             </section>
 
             <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
@@ -310,6 +397,7 @@
             <ListChecks :size="28" />
             <p>{{ t('courseTasks.select', '选择一个任务查看处理详情。') }}</p>
           </main>
+          </template>
         </div>
       </section>
     </div>
@@ -330,6 +418,13 @@ import { useCourseWorkspaceStore } from '@/stores/courseWorkspace'
 import { useGenerationStore } from '@/stores/generation'
 import type { GuidedGenerationStepKey, Task } from '@/stores/types'
 import { activeLocale, t } from '@/shared/i18n'
+import {
+  qualityIssueKey,
+  reviewBlockingIssues,
+  reviewIssueMessage,
+  reviewIssueSuggestion,
+  reviewIssueTarget,
+} from '@/utils/review-issues'
 import { courseProductionTaskDetail } from '@/utils/course-production'
 import {
   observableTaskPhase,
@@ -342,7 +437,10 @@ import {
 
 type TaskView = Task
 
-const props = withDefaults(defineProps<{ modelValue: boolean; courseId?: string }>(), { courseId: '' })
+const props = withDefaults(defineProps<{ modelValue: boolean; courseId?: string; embedded?: boolean }>(), {
+  courseId: '',
+  embedded: false,
+})
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const router = useRouter()
 const courseStore = useCourseStore()
@@ -431,6 +529,69 @@ const phaseItemProgress = computed(() => {
     label,
   }
 })
+// 教师逐条剔除的联网来源。后端目前没有"看到结果后剔除"的写入端点，
+// 因此这里只保留前端态，随下次生成请求的 web_material_ingest.excluded_source_ids
+// 一起下发。按 courseId 分组，避免不同课程之间串味。
+const excludedWebSources = ref<Record<string, string[]>>({})
+const excludedWebSourceIds = computed(() => {
+  const courseId = String(selectedTask.value?.courseId || '')
+  return courseId ? (excludedWebSources.value[courseId] || []) : []
+})
+
+function toggleWebSourceExclusion(source: { sourceId: string; url: string }) {
+  const courseId = String(selectedTask.value?.courseId || '')
+  if (!courseId) return
+  const key = source.sourceId || source.url
+  if (!key) return
+  const current = excludedWebSources.value[courseId] || []
+  excludedWebSources.value = {
+    ...excludedWebSources.value,
+    [courseId]: current.includes(key)
+      ? current.filter(item => item !== key)
+      : [...current, key],
+  }
+}
+
+defineExpose({ excludedWebSourceIds })
+
+const webSearchSummary = computed(() => {
+  const detail = selectedTask.value?.phaseDetail || {}
+  const raw = (detail as Record<string, any>).web_search
+  if (!raw || typeof raw !== 'object') return null
+  if (!raw.enabled) return null
+  const sources = Array.isArray(raw.sources) ? raw.sources : []
+  const rejected = Array.isArray(raw.rejected) ? raw.rejected : []
+  const status = String(raw.status || '')
+  return {
+    status,
+    statusLabel: t(`courseGeneration.materials.webSearch.status.${status}`, status),
+    // degraded 时明确告诉教师本次没有联网资料，而不是静默留白。
+    degraded: Boolean(raw.degraded),
+    messageCode: String(raw.message_code || ''),
+    message: raw.message_code
+      ? t(`courseGeneration.materials.webSearch.messageCode.${raw.message_code}`, '')
+      : '',
+    queries: (Array.isArray(raw.queries) ? raw.queries : []).map((item: unknown) => String(item)),
+    sources: sources.map((item: Record<string, any>) => {
+      const sourceId = String(item.source_id || '')
+      const url = String(item.url || '')
+      return {
+        sourceId,
+        url,
+        title: String(item.title || item.domain || url),
+        domain: String(item.domain || ''),
+        credibility: String(item.credibility || 'low'),
+        retrievedAt: String(item.retrieved_at || ''),
+        excluded: excludedWebSourceIds.value.includes(sourceId || url),
+      }
+    }),
+    rejected: rejected.map((item: Record<string, any>) => ({
+      url: String(item.url || ''),
+      reason: String(item.reason || ''),
+      reasonLabel: t(`courseGeneration.materials.webSearch.reason.${item.reason}`, String(item.reason || '')),
+    })),
+  }
+})
 const blueprintNodes = computed<any[]>(() => Array.isArray(blueprintDraft.value?.nodes)
   ? blueprintDraft.value.nodes
   : Array.isArray(blueprintDraft.value?.course_blueprint?.nodes) ? blueprintDraft.value.course_blueprint.nodes : [])
@@ -497,10 +658,7 @@ const confirmCurrentStepLabel = computed(() => (
     ? t('courseTasks.review.publish', '确认并发布课程')
     : t('courseTasks.review.confirm', '确认这一步，继续生成')
 ))
-const releaseIssues = computed<any[]>(() => dedupeReviewIssues([
-  ...(reviewArtifact.value?.blocking_issues || []),
-  ...(reviewArtifact.value?.source_chain?.issues || []),
-]))
+const releaseIssues = computed<any[]>(() => reviewBlockingIssues(reviewArtifact.value))
 const assetCountEntries = computed(() => (
   Object.entries(reviewArtifact.value?.asset_counts || {})
     .map(([type, count]) => ({ type, count: Number(count || 0) }))
@@ -525,14 +683,14 @@ const contentQualityLabel = computed(() => {
 
 watch(() => props.modelValue, async open => {
   if (!open) return
-  previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (!props.embedded) previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await refresh()
   if (!tasks.value.some(task => task.id === selectedTaskId.value)) {
     selectedTaskId.value = preferredTaskId(props.courseId)
   }
   await loadSelectedReview()
   await nextTick()
-  panelRef.value?.focus()
+  if (!props.embedded) panelRef.value?.focus()
 }, { immediate: true })
 watch(() => props.courseId, value => {
   if (value) selectedTaskId.value = preferredTaskId(value)
@@ -557,9 +715,10 @@ function normalizeStatus(status: string): Task['status'] {
 }
 function close() {
   emit('update:modelValue', false)
-  nextTick(() => previousFocus.value?.focus())
+  if (!props.embedded) nextTick(() => previousFocus.value?.focus())
 }
 function handleDialogKeydown(event: KeyboardEvent) {
+  if (props.embedded) return
   if (event.key === 'Escape') {
     event.preventDefault()
     close()
@@ -804,46 +963,6 @@ function learningAssetLabel(type: string) {
     chapter_progression_contracts: '章节进阶规则',
   }[type] || type)
 }
-function reviewIssueMessage(issue: any) {
-  if (String(issue?.code || '') === 'teaching_plan:local_fallback') {
-    return t(
-      'courseTasks.review.teachingPlanFallback',
-      '部分教案单元使用本地保底生成，请重点复核标记小节的教学语义。',
-    )
-  }
-  return String(issue?.message || issue || '')
-}
-function reviewIssueTarget(issue: any) {
-  return String(issue?.target_id || issue?.node_id || issue?.asset_id || '')
-}
-function reviewIssueSuggestion(issue: any) {
-  return String(issue?.suggestion || '')
-}
-function qualityIssueKey(issue: any, index: number) {
-  return `${String(issue?.code || issue?.issue_id || 'issue')}-${reviewIssueTarget(issue)}-${index}`
-}
-function dedupeReviewIssues(issues: any[]) {
-  const result: any[] = []
-  const positions = new Map<string, number>()
-  for (const raw of issues) {
-    if (!raw) continue
-    const issue = typeof raw === 'object' ? { ...raw } : { message: String(raw) }
-    const message = reviewIssueMessage(issue).trim()
-    const target = reviewIssueTarget(issue).trim()
-    const key = `${message}\u0000${target}\u0000${String(issue.severity || '')}`
-    const position = positions.get(key)
-    if (position === undefined) {
-      positions.set(key, result.length)
-      result.push(issue)
-      continue
-    }
-    const existing = result[position]
-    for (const [field, value] of Object.entries(issue)) {
-      if (value !== undefined && value !== null && value !== '' && !existing[field]) existing[field] = value
-    }
-  }
-  return result
-}
 function shouldShowGenerationReview(task: TaskView) {
   return task.status === 'waiting_for_review' || task.recovery?.state === 'quality_blocked'
 }
@@ -1068,8 +1187,10 @@ function formatDuration(seconds: number) {
 
 <style scoped>
 .task-center-layer { position: fixed; inset: 0; z-index: 520; display: grid; place-items: center; padding: 20px; }
+.task-center-layer--embedded { position:relative; inset:auto; z-index:auto; width:100%; height:100%; display:block; padding:0; }
 .task-center-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30,41,59,.34); backdrop-filter: blur(5px); cursor: default; }
 .task-center { position: relative; width: min(980px,100%); height: min(720px,calc(100vh - 40px)); display: grid; grid-template-rows: 62px minmax(0,1fr); overflow: hidden; border: 1px solid rgba(255,255,255,.92); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: rgba(255,255,255,.98); box-shadow: var(--lz-shadow-overlay); outline: none; }
+.task-center--embedded { width:100%; height:100%; grid-template-rows:minmax(0,1fr); border:0; border-radius:0; box-shadow:none; }
 .task-center__header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 14px 0 20px; border-bottom:1px solid var(--lz-border); }
 .task-center__header > div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }
 .task-center__header > div:first-child > span { width:34px; height:34px; display:grid; place-items:center; border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
@@ -1079,9 +1200,13 @@ function formatDuration(seconds: number) {
 .icon-button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .icon-button:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }
 .task-center__body { min-height:0; display:grid; grid-template-columns:280px minmax(0,1fr); }
+.task-center__body--empty { display:block; }
 .task-list { min-height:0; overflow:auto; padding:9px; border-right:1px solid var(--lz-border); background:rgba(248,250,252,.76); }
-.task-list__empty,.task-detail--empty { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }
-.task-list__empty strong { color:var(--lz-text); font-size:12px; }.task-list__empty span { max-width:190px; font-size:10px; line-height:1.5; }
+.task-center-empty { min-height:208px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:28px; color:var(--lz-text-muted); text-align:center; }
+.task-center-empty__icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.task-center-empty strong { color:var(--lz-text-strong); font-size:14px; }
+.task-center-empty p { max-width:360px; margin:0; font-size:11px; line-height:1.6; }
+.task-detail--empty { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }
 .task-row { width:100%; min-height:62px; display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:8px; padding:8px 9px; border:1px solid transparent; border-radius:8px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
 .task-row:hover { background:#fff; }.task-row.active { border-color:rgba(99,102,241,.24); background:var(--lz-brand-soft); }
 .task-row__state { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; color:var(--lz-text-muted); background:#fff; }
@@ -1096,9 +1221,36 @@ function formatDuration(seconds: number) {
 .task-kind-chip { display:inline-flex; min-height:24px; align-items:center; padding:0 8px; border:1px solid var(--lz-border); border-radius:999px; color:var(--lz-text-secondary); background:var(--lz-surface-muted); font-size:10px; font-weight:700; }
 .status-chip { display:inline-flex; min-height:24px; align-items:center; padding:0 8px; border-radius:5px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:10px; font-weight:700; }.status-chip[data-status="completed"] { color:var(--lz-success); background:var(--lz-success-soft); }.status-chip[data-status="error"],.status-chip[data-status="conflict"],.status-chip[data-status="completed_with_warnings"] { color:var(--lz-warning); background:var(--lz-warning-soft); }
 .task-summary h3 { margin:11px 0 5px; color:var(--lz-text-strong); font-size:21px; }.task-summary p { margin:0; color:var(--lz-text-secondary); font-size:12px; line-height:1.55; }
-.task-progress { height:6px; margin:20px 0 17px; overflow:hidden; border-radius:3px; background:var(--lz-surface-muted); }.task-progress span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); transition:width .2s ease; }
+.task-progress { height:6px; margin:20px 0 17px; overflow:hidden; border-radius:3px; background:var(--lz-surface-muted); }.task-progress span { display:block; width:100%; height:100%; border-radius:inherit; background:var(--lz-brand); transform-origin:left center; transition:transform .2s ease; }
 .task-summary dl { margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.task-summary dl div { min-width:0; }.task-summary dt { color:var(--lz-text-muted); font-size:10px; }.task-summary dd { margin:4px 0 0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
 .task-observability { padding:22px 0; border-bottom:1px solid var(--lz-border); }
+.web-search-summary { padding:18px 0; border-bottom:1px solid var(--lz-border); display:grid; gap:9px; }
+.web-search-summary__head { display:flex; align-items:center; gap:10px; }
+.web-search-summary__head strong { font-size:13px; color:var(--lz-text-strong); }
+.web-search-summary__status { font-size:11px; padding:2px 8px; border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.web-search-summary__status[data-degraded="true"] { color:#92400e; background:#fef3c7; }
+.web-search-summary__degraded { margin:0; font-size:12px; color:#92400e; }
+.web-search-summary__hint,.web-search-summary__empty { margin:0; font-size:11px; color:var(--lz-text-muted); }
+.web-search-summary__queries { display:grid; gap:5px; }
+.web-search-summary__queries dt { font-size:11px; color:var(--lz-text-muted); }
+.web-search-summary__queries dd { margin:0; display:flex; flex-wrap:wrap; gap:6px; }
+.web-search-summary__queries dd span { font-size:11px; padding:2px 8px; border-radius:6px; color:var(--lz-text); background:var(--lz-surface-muted,#f1f5f9); }
+.web-search-summary__sources { margin:0; padding:0; list-style:none; display:grid; gap:8px; }
+.web-search-summary__sources li { display:grid; gap:2px; min-width:0; }
+.web-search-summary__sources li[data-excluded="true"] { opacity:.55; }
+.web-search-summary__sources li[data-excluded="true"] a { text-decoration:line-through; }
+.web-search-summary__source-line { display:flex; align-items:baseline; gap:8px; min-width:0; }
+.web-search-summary__source-line a { min-width:0; flex:1 1 auto; }
+.web-search-summary__exclude { flex:0 0 auto; padding:1px 8px; border:1px solid var(--lz-border); border-radius:999px; background:transparent; color:var(--lz-text-muted); font-size:11px; line-height:1.7; cursor:pointer; }
+.web-search-summary__exclude:hover { color:var(--lz-text-strong); border-color:var(--lz-text-muted); }
+.web-search-summary__exclude[aria-pressed="true"] { color:var(--lz-brand-strong); border-color:var(--lz-brand-strong); }
+.web-search-summary__pending { margin:0; font-size:11px; color:#92400e; }
+.web-search-summary__sources a { font-size:12px; color:var(--lz-brand-strong); overflow-wrap:anywhere; }
+.web-search-summary__sources small,.web-search-summary__rejected small { font-size:11px; color:var(--lz-text-muted); }
+.web-search-summary__rejected summary { font-size:11px; color:var(--lz-text-muted); cursor:pointer; }
+.web-search-summary__rejected ul { margin:8px 0 0; padding:0; list-style:none; display:grid; gap:6px; }
+.web-search-summary__rejected li { display:grid; gap:2px; font-size:11px; overflow-wrap:anywhere; word-break:break-all; min-width:0; }
+.web-search-summary__rejected li span { min-width:0; overflow-wrap:anywhere; word-break:break-all; }
 .task-observability ol { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); margin:0; padding:0; list-style:none; }
 .task-observability__stage { position:relative; min-width:0; display:grid; justify-items:center; gap:5px; padding:0 3px; color:var(--lz-text-muted); text-align:center; }
 .task-observability__stage:not(:last-child)::after { content:""; position:absolute; z-index:0; top:12px; left:calc(50% + 15px); right:calc(-50% + 15px); height:1px; background:var(--lz-border); }
@@ -1135,15 +1287,16 @@ function formatDuration(seconds: number) {
 .knowledge-relations { margin-top:16px; }.knowledge-relations > strong { color:var(--lz-text-strong); font-size:11px; }.knowledge-relations ul { margin:8px 0 0; padding:0; display:grid; gap:6px; list-style:none; }.knowledge-relations li { display:grid; grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr); align-items:center; gap:5px; padding:8px 9px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:var(--lz-surface-muted); font-size:9px; }.knowledge-relations li b { color:var(--lz-brand-strong); text-align:center; }.knowledge-relations li small { grid-column:1 / -1; color:var(--lz-text-muted); line-height:1.4; }
 .composition-review { margin-bottom:16px; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; background:var(--lz-brand-soft); }.composition-review__heading > span,.composition-review__rhythm > span { display:block; margin-bottom:3px; color:var(--lz-text-muted); font-size:9px; }.composition-review__heading strong { color:var(--lz-text-strong); font-size:14px; }.composition-review__heading p,.composition-review__rhythm p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.composition-review__rhythm { margin-top:10px; padding-top:10px; border-top:1px solid rgba(99,102,241,.12); }.role-distribution { display:flex; flex-wrap:wrap; gap:6px; margin:11px 0 0; }.role-distribution div { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-text-secondary); background:#fff; }.role-distribution dt,.role-distribution dd { margin:0; font-size:9px; }.role-distribution dd { color:var(--lz-brand-strong); font-weight:800; }
 .review-cards { border-top:1px solid var(--lz-border); }.review-cards article { display:grid; grid-template-columns:30px minmax(0,1fr); gap:10px; padding:12px 0; border-bottom:1px solid rgba(226,232,240,.75); }.review-cards article > span { color:var(--lz-text-muted); font-family:ui-monospace,monospace; font-size:9px; }.review-cards strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-cards p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }.review-cards small { display:block; margin-top:6px; color:var(--lz-brand-strong); font-size:9px; line-height:1.45; }.review-cards--compact article { padding:9px 0; }
-.module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border-left:2px solid var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-left-color:var(--lz-brand); background:var(--lz-brand-soft); }.module-sequence__item[data-source="difficulty_level"] { border-left-color:var(--lz-warning); background:var(--lz-warning-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }.module-sequence__item[data-source="difficulty_level"] i { color:var(--lz-warning); }
+.module-sequence { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }.module-sequence__item { position:relative; min-width:130px; max-width:220px; display:grid; gap:2px; padding:7px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:var(--lz-surface-muted); }.module-sequence__item[data-added="true"] { border-color:rgba(99,102,241,.28); background:var(--lz-brand-soft); }.module-sequence__item[data-source="difficulty_level"] { border-color:rgba(217,119,6,.28); background:var(--lz-warning-soft); }.module-sequence__item b { overflow:hidden; color:var(--lz-text-strong); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.module-sequence__item em { color:var(--lz-text-muted); font-size:8px; font-style:normal; line-height:1.35; }.module-sequence__item i { color:var(--lz-brand-strong); font-size:8px; font-style:normal; font-weight:700; }.module-sequence__item[data-source="difficulty_level"] i { color:var(--lz-warning); }
 .review-callout,.release-verdict { display:flex; gap:11px; align-items:flex-start; padding:14px; border:1px solid rgba(99,102,241,.18); border-radius:10px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.review-callout strong,.release-verdict strong { display:block; color:var(--lz-text-strong); font-size:12px; }.review-callout p,.release-verdict p { margin:4px 0 0; color:var(--lz-text-secondary); font-size:10px; line-height:1.5; }
 .content-evidence { margin:10px 0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }.content-evidence > div { padding:10px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface-muted); }.content-evidence span,.content-evidence strong { display:block; }.content-evidence span { color:var(--lz-text-muted); font-size:9px; }.content-evidence strong { margin-top:4px; color:var(--lz-text-strong); font-size:13px; }.asset-counts { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }.asset-counts span { padding:4px 7px; border:1px solid rgba(99,102,241,.14); border-radius:999px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:8px; font-weight:650; }
 .question-review { margin:14px 0; padding:14px; border:1px solid rgba(14,116,144,.16); border-radius:10px; background:rgba(236,254,255,.42); }.question-review>header { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }.question-review>header strong { color:var(--lz-text-strong); font-size:12px; }.question-review>header p { margin:4px 0 0; max-width:460px; color:var(--lz-text-secondary); font-size:9px; line-height:1.5; }.question-review>header>span { flex:0 0 auto; padding:5px 8px; border-radius:999px; color:#047857; background:#ecfdf5; font-size:9px; font-weight:800; }.question-review>header>span[data-blocked="true"] { color:var(--lz-warning); background:var(--lz-warning-soft); }.question-review__list { margin-top:12px; display:grid; gap:8px; }.question-review__list>article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:10px; border:1px solid rgba(14,116,144,.12); border-radius:8px; background:#fff; }.question-review__list>article[data-status="blocked"] { border-color:rgba(217,119,6,.28); }.question-review__index { color:#0e7490; font-family:ui-monospace,monospace; font-size:9px; font-weight:800; }.question-review__meta { display:flex; justify-content:space-between; gap:8px; margin-bottom:5px; color:var(--lz-text-muted); font-size:8px; }.question-review__meta b { color:#0e7490; }.question-review__list article>div>strong { display:block; color:var(--lz-text-strong); font-size:10px; line-height:1.5; }.question-review dl { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:9px 0; }.question-review dt { color:var(--lz-text-muted); font-size:8px; }.question-review dd { margin:3px 0 0; color:var(--lz-text-secondary); font-size:9px; line-height:1.45; }.question-review__targets { display:flex; flex-wrap:wrap; gap:4px; }.question-review__targets span { padding:3px 6px; border-radius:999px; color:#0e7490; background:#ecfeff; font-size:8px; }.question-review__targets span[data-kind="mistake"] { color:#c2410c; background:#fff7ed; }.question-review ul { margin:8px 0 0; padding-left:16px; color:var(--lz-warning); font-size:9px; line-height:1.5; }
 .release-verdict[data-pass="false"] { border-color:rgba(217,119,6,.2); color:var(--lz-warning); background:var(--lz-warning-soft); }.release-issues { margin:12px 0 0; padding:0 0 0 18px; color:var(--lz-warning); font-size:10px; line-height:1.6; }
-.quality-blockers { margin-top:12px; padding:13px; border:1px solid rgba(217,119,6,.22); border-radius:10px; background:#fffbeb; }.quality-blockers>header { display:flex; align-items:center; justify-content:space-between; gap:12px; }.quality-blockers h5 { margin:0; color:#92400e; font-size:12px; }.quality-blockers>header span { color:#b45309; font-size:9px; font-weight:700; }.quality-blocker-list { margin:10px 0 0; padding:0; display:grid; gap:8px; list-style:none; }.quality-blocker-list>li { padding:10px; border-left:3px solid rgba(217,119,6,.5); color:var(--lz-text-secondary); background:#fff; }.quality-blocker-list__meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px; margin-bottom:5px; }.quality-blocker-list__meta code { color:#92400e; font-family:ui-monospace,monospace; font-size:8px; }.quality-blocker-list__meta span { color:var(--lz-text-muted); font-size:8px; }.quality-blocker-list strong { display:block; color:var(--lz-text-strong); font-size:10px; line-height:1.5; }.quality-blocker-list p { margin:4px 0 0; color:#9a4d13; font-size:9px; line-height:1.5; }
-.task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border-left:3px solid var(--lz-warning); color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }
+.quality-blockers { margin-top:12px; padding:13px; border:1px solid rgba(217,119,6,.22); border-radius:10px; background:#fffbeb; }.quality-blockers>header { display:flex; align-items:center; justify-content:space-between; gap:12px; }.quality-blockers h5 { margin:0; color:#92400e; font-size:12px; }.quality-blockers>header span { color:#b45309; font-size:9px; font-weight:700; }.quality-blocker-list { margin:10px 0 0; padding:0; display:grid; gap:8px; list-style:none; }.quality-blocker-list>li { padding:10px; border:1px solid rgba(217,119,6,.24); border-radius:8px; color:var(--lz-text-secondary); background:#fff; }.quality-blocker-list__meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px; margin-bottom:5px; }.quality-blocker-list__meta code { color:#92400e; font-family:ui-monospace,monospace; font-size:8px; }.quality-blocker-list__meta span { color:var(--lz-text-muted); font-size:8px; }.quality-blocker-list strong { display:block; color:var(--lz-text-strong); font-size:10px; line-height:1.5; }.quality-blocker-list p { margin:4px 0 0; color:#9a4d13; font-size:9px; line-height:1.5; }
+.task-notice { margin-top:20px; display:flex; gap:10px; padding:13px 14px; border:1px solid rgba(217,119,6,.22); border-radius:9px; color:var(--lz-warning); background:var(--lz-warning-soft); }.task-notice strong { display:block; font-size:12px; }.task-notice p { margin:4px 0 0; font-size:11px; line-height:1.5; }.task-error-detail,.recovery-checkpoint { display:block; margin-top:7px; color:inherit; font-size:9px; line-height:1.5; opacity:.88; }
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100vh - 56px); border-radius:14px 14px 0 0; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-detail__scroll { padding:20px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:18px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--empty { height:auto; min-height:280px; }.task-center__body { grid-template-columns:1fr; grid-template-rows:auto minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { max-height:168px; border-right:0; border-bottom:1px solid var(--lz-border); }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:20px 16px 14px; }.task-actions { padding:12px 16px calc(12px + env(safe-area-inset-bottom)); }.task-summary dl { grid-template-columns:1fr 1fr; }.task-actions__open { margin-left:0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:18px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (prefers-reduced-motion: reduce) { .task-center { animation:none; }.spin { animation:none; } }
 </style>

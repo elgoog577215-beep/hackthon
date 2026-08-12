@@ -23,7 +23,7 @@ describe('课程教案阅读尺度', () => {
     expect(component).toContain('.generation-lesson-plan__knowledge-detail')
   })
 
-  it('用总体教案与分小节教案承载同一份全课计划', async () => {
+  it('用教学大纲与教学设计承载同一份全课计划', async () => {
     const nodes: Node[] = [{
       node_id: 'section-1',
       node_name: '一次函数斜率',
@@ -106,7 +106,16 @@ describe('课程教案阅读尺度', () => {
       props: { nodes, plan, activeNodeId: 'section-1' },
     })
 
-    expect(wrapper.text()).toContain('总体教案')
+    expect(wrapper.get('.generation-lesson-plan__header h2').text()).toBe('课程教案')
+    expect(wrapper.get('.generation-lesson-plan__status').text()).toBe('全课已汇编')
+    expect(wrapper.find('.generation-lesson-plan__intro > p').exists()).toBe(false)
+    expect(wrapper.find('.generation-lesson-plan__context-row').exists()).toBe(true)
+    expect(wrapper.findAll('.generation-lesson-plan__metrics dt').map(item => item.text())).toEqual([
+      '小节',
+      '知识点',
+      '教学环节',
+    ])
+    expect(wrapper.text()).toContain('教学大纲')
     expect(wrapper.text()).toContain('从变化率出发理解一次函数')
     expect(wrapper.text()).toContain('建立斜率的几何与情境直觉')
     expect(wrapper.text()).toContain('一次函数斜率')
@@ -127,6 +136,21 @@ describe('课程教案阅读尺度', () => {
     await wrapper.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
     expect(wrapper.text()).toContain('本节知识标签')
     expect(wrapper.text()).toContain('用生活情境建立变化率直觉')
+
+    const sparsePlan = {
+      ...plan,
+      knowledge_point_count: 0,
+      teaching_module_count: 0,
+      sections: plan.sections.map(section => ({
+        ...section,
+        key_points: [],
+        teaching_modules: [],
+      })),
+    }
+    const sparseWrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan: sparsePlan, activeNodeId: 'section-1' },
+    })
+    expect(sparseWrapper.findAll('.generation-lesson-plan__metrics dt').map(item => item.text())).toEqual(['小节'])
   })
 
   it('把教学流程、掌握证据、易错纠偏与知识衔接放在同一份小节教案中', async () => {

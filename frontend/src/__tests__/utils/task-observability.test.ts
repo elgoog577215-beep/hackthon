@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '@/stores/types'
+import { setLocale } from '@/shared/i18n'
+import enMessages from '../../../public/locales/en/translation.json'
+import zhMessages from '../../../public/locales/zh/translation.json'
 import {
   OBSERVABLE_TASK_STAGE_KEYS,
   observableTaskPhase,
@@ -25,6 +28,14 @@ function task(overrides: Partial<Task> = {}): Task {
 }
 
 describe('D-05 task observability projection', () => {
+  beforeEach(async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
+    await setLocale('zh')
+  })
+
   it('稳定公开资料接收、解析、检索、生成、检查和导出六个阶段', () => {
     expect(OBSERVABLE_TASK_STAGE_KEYS).toEqual([
       'receive', 'parse', 'retrieve', 'generate', 'validate', 'export',
@@ -132,5 +143,83 @@ describe('D-05 task observability projection', () => {
     }))
     expect(detail.message).toContain('质量检查未通过')
     expect(detail.technicalDetail).toBe('slide_deck_variant_quality_gate_failed')
+  })
+
+  it('识别模型超时与网络中断，给出各自的下一步动作', () => {
+    const timeout = taskUserError(task({
+      status: 'error',
+      error: 'ProviderTimeout: request timed out after 120s',
+    }))
+    expect(timeout.message).toContain('超时')
+    expect(timeout.technicalDetail).toBe('ProviderTimeout: request timed out after 120s')
+
+    const network = taskUserError(task({
+      status: 'error',
+      error: 'ServiceUnavailable: upstream connection reset',
+    }))
+    expect(network.message).toContain('暂时不可用')
+  })
+
+  it('后端给出的可读原因优先于本地正则推断', () => {
+    const detail = taskUserError(task({
+      status: 'error',
+      error: 'ProviderTimeout: request timed out',
+      errorCode: 'provider_timeout',
+      errorUserMessage: '教案批次超时，已完成批次不会重做。',
+    }))
+    expect(detail.message).toBe('教案批次超时，已完成批次不会重做。')
+    expect(detail.technicalDetail).toBe('ProviderTimeout: request timed out')
+  })
+
+  it('后端分类过的错误码直接解析为对应文案，胜过字符串猜测', () => {
+    // The raw text says "429", which the heuristics would map to the generic
+    // rate-limit sentence. The classified code is more precise than that guess.
+    const quota = taskUserError(task({
+      status: 'error',
+      errorCode: 'provider_quota_exhausted',
+      error: 'AIProviderRequestError: 429 insufficient_quota',
+    }))
+    expect(quota.message).toContain('额度已用尽')
+    expect(quota.message).toContain('继续重试不会成功')
+    expect(quota.technicalDetail).toBe('AIProviderRequestError: 429 insufficient_quota')
+
+    const budget = taskUserError(task({
+      status: 'error',
+      errorCode: 'generation_budget_exceeded',
+      error: 'payload 210000 tokens > budget',
+    }))
+    expect(budget.message).toContain('超出单次生成的安全上限')
+  })
+
+  it('每个后端错误码都有可读文案，不留空、不漏翻译键', () => {
+    const codes = [
+      'provider_rate_limited', 'provider_quota_exhausted', 'provider_auth_failed',
+      'provider_unavailable', 'provider_timeout', 'generation_budget_exceeded',
+      'generation_deadline_exceeded', 'response_truncated', 'workspace_missing',
+      'revision_conflict', 'course_missing', 'generation_failed',
+    ]
+    for (const code of codes) {
+      const detail = taskUserError(task({ status: 'error', errorCode: code, error: 'raw' }))
+      expect(detail.message, code).not.toBe('')
+      expect(detail.message, code).not.toContain('taskObservability.')
+      expect(detail.message.length, code).toBeGreaterThan(10)
+    }
+  })
+
+  it('英文模式下每个错误码都有英文文案，不残留中文', async () => {
+    await setLocale('en')
+    const codes = [
+      'provider_rate_limited', 'provider_quota_exhausted', 'provider_auth_failed',
+      'provider_unavailable', 'provider_timeout', 'generation_budget_exceeded',
+      'generation_deadline_exceeded', 'response_truncated', 'workspace_missing',
+      'revision_conflict', 'course_missing', 'generation_failed',
+    ]
+    for (const code of codes) {
+      const detail = taskUserError(task({ status: 'error', errorCode: code, error: 'raw' }))
+      expect(detail.message, code).not.toContain('taskObservability.')
+      expect(detail.message, code).not.toMatch(/[一-龥]/)
+      expect(detail.message.length, code).toBeGreaterThan(10)
+    }
+    await setLocale('zh')
   })
 })

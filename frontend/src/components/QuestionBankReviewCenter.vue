@@ -1,7 +1,13 @@
 <template>
-  <Teleport to="body">
-    <div v-if="modelValue" class="review-center-layer" @keydown.esc="close">
+  <Teleport to="body" :disabled="embedded">
+    <div
+      v-if="modelValue"
+      class="review-center-layer"
+      :class="{ 'review-center-layer--embedded': embedded }"
+      @keydown.esc="handleEscape"
+    >
       <button
+        v-if="!embedded"
         type="button"
         class="review-center-backdrop"
         :aria-label="t('common.cancel', '关闭')"
@@ -10,12 +16,14 @@
       <section
         ref="panelRef"
         class="review-center"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="titleId"
+        :class="{ 'review-center--embedded': embedded }"
+        :role="embedded ? 'region' : 'dialog'"
+        :aria-modal="embedded ? undefined : true"
+        :aria-labelledby="embedded ? undefined : titleId"
+        :aria-label="embedded ? t('questionBank.centerTitle', '课程题库质量管理') : undefined"
         tabindex="-1"
       >
-        <header class="review-center__header">
+        <header v-if="!embedded" class="review-center__header">
           <div>
             <span><ShieldCheck :size="17" /></span>
             <div>
@@ -135,8 +143,10 @@ import { t } from '@/shared/i18n'
 const props = withDefaults(defineProps<{
   modelValue: boolean
   courseId?: string
+  embedded?: boolean
 }>(), {
   courseId: '',
+  embedded: false,
 })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -167,7 +177,7 @@ watch(() => props.modelValue, async open => {
   await refresh()
   selectInitialCourse()
   await nextTick()
-  panelRef.value?.focus()
+  if (!props.embedded) panelRef.value?.focus()
 }, { immediate: true })
 
 watch(() => props.courseId, value => {
@@ -182,6 +192,10 @@ watch(courses, () => {
 
 function close() {
   emit('update:modelValue', false)
+}
+
+function handleEscape() {
+  if (!props.embedded) close()
 }
 
 function selectCourse(courseId: string) {
@@ -213,8 +227,10 @@ async function refresh() {
 
 <style scoped>
 .review-center-layer { position:fixed; inset:0; z-index:530; display:grid; place-items:center; padding:20px; }
+.review-center-layer--embedded { position:relative; inset:auto; z-index:auto; width:100%; height:100%; display:block; padding:0; }
 .review-center-backdrop { position:absolute; inset:0; width:100%; height:100%; border:0; background:rgba(30,41,59,.36); backdrop-filter:blur(5px); cursor:default; }
 .review-center { position:relative; width:min(1180px,100%); height:min(820px,calc(100vh - 40px)); display:grid; grid-template-rows:62px minmax(0,1fr); overflow:hidden; border:1px solid rgba(255,255,255,.92); border-radius:var(--lz-radius-surface); color:var(--lz-text); background:rgba(255,255,255,.98); box-shadow:var(--lz-shadow-overlay); outline:none; }
+.review-center--embedded { width:100%; height:100%; grid-template-rows:minmax(0,1fr); border:0; border-radius:0; box-shadow:none; }
 .review-center__header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 14px 0 20px; border-bottom:1px solid var(--lz-border); }
 .review-center__header>div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }
 .review-center__header>div:first-child>span { width:34px; height:34px; display:grid; place-items:center; border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }

@@ -361,6 +361,8 @@ class CourseService(AIBase):
             "course_purpose",
             "asset_preferences",
             "web_question_enrichment",
+            "web_material_ingest",
+            "web_material_search",
             "requirements",
             "subject_pedagogy_profile",
             "difficulty_profile",
@@ -395,6 +397,76 @@ class CourseService(AIBase):
         """Drop process-local generation projections for a deleted or reset course."""
         self._course_generation_artifacts.pop(course_id, None)
         self._context_manager.clear_context(course_id)
+
+    async def _run_web_material_search(
+        self,
+        *,
+        topic: str,
+        requirements: str,
+        target_audience: str,
+        generation_request: dict[str, Any] | None = None,
+        ingest_settings: dict[str, Any] | None = None,
+        user_id: str | None = None,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+    ) -> dict[str, Any]:
+        """经团队检索网关取回联网资料；任何失败都降级为不联网，不阻断生成。"""
+        from web_material_search import discover_web_materials
+        from web_retrieval import resolve_retrieval_policy
+
+        policy = resolve_retrieval_policy(generation_request or {})
+        if not policy.get("enabled") or "course" not in (policy.get("scopes") or []):
+            return {
+                "enabled": False,
+                "status": "disabled",
+                "degraded": True,
+                "candidates": [],
+                "queries": [],
+                "rejected": [],
+                "message_code": "web_search_disabled",
+            }
+
+        await self._notify_phase(
+            on_phase,
+            "material_processing",
+            6,
+            "正在联网检索公开资料",
+            phase_progress=5,
+        )
+        try:
+            report = await discover_web_materials(
+                topic=topic,
+                requirements=requirements,
+                target_audience=target_audience,
+                generation_request=generation_request,
+                ingest_settings=ingest_settings,
+                user_id=user_id,
+            )
+        except Exception as exc:  # 联网是增强项，失败必须降级而不是失败生成
+            logger.warning("web material search failed, degrading to offline: %s", exc)
+            return {
+                "enabled": True,
+                "status": "degraded",
+                "degraded": True,
+                "candidates": [],
+                "queries": [],
+                "rejected": [],
+                "message_code": "web_search_unavailable",
+            }
+
+        accepted = len(report.get("candidates") or [])
+        await self._notify_phase(
+            on_phase,
+            "material_processing",
+            8,
+            (
+                f"联网检索完成，采纳 {accepted} 条公开资料"
+                if accepted
+                else "联网检索未找到可用资料，将仅使用已有资料"
+            ),
+            phase_progress=10,
+            phase_detail={"web_search": {k: v for k, v in report.items() if k != "candidates"}},
+        )
+        return report
 
     def _load_evidence_catalog(self, bindings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         catalog: list[dict[str, Any]] = []
@@ -456,6 +528,7 @@ class CourseService(AIBase):
         course_purpose: str = "systematic",
         asset_preferences: dict[str, bool] | None = None,
         web_question_enrichment: dict[str, Any] | None = None,
+        web_material_ingest: dict[str, Any] | None = None,
         existing_course_data: dict[str, Any] | None = None,
         stop_after_outline: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
@@ -572,12 +645,22 @@ class CourseService(AIBase):
                     phase_detail=detail,
                 )
 
+            web_search_report = await self._run_web_material_search(
+                topic=topic,
+                requirements=requirements,
+                target_audience=target_audience,
+                generation_request=(existing.get("generation_request") or {}),
+                ingest_settings=web_material_ingest,
+                on_phase=on_phase,
+            )
+
             prepared_materials = await prepare_course_materials(
                 course_id=course_id,
                 material_bindings=material_bindings,
                 legacy_materials=material_inputs or existing.get("material_cards") or [],
                 repository=self._material_repository,
                 on_progress=on_material_progress,
+                web_search_report=web_search_report,
             )
             artifacts = build_course_generation_artifacts(
                 course_id=course_id,
@@ -667,6 +750,9 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": artifacts.get("evidence_coverage_plan", {}),
+            "web_material_search": artifacts.get(
+                "web_material_search", {"enabled": False}
+            ),
             "subject_pedagogy_profile": profile.to_dict(),
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
@@ -896,6 +982,10 @@ class CourseService(AIBase):
             "parsed_documents": artifacts.get("parsed_documents", []),
             "evidence_index": _compact_evidence_index(artifacts.get("evidence_catalog", [])),
             "evidence_coverage_plan": evidence_coverage_plan,
+            # 教师端审阅面板消费这份汇总；不带过来会导致真实生成后面板无数据。
+            "web_material_search": artifacts.get(
+                "web_material_search", {"enabled": False}
+            ),
             "course_blueprint": outline_blueprint,
             "course_outline_constraint_report": plan_constraint_report,
             "blueprint_validation_report": validate_blueprint(outline_blueprint),
