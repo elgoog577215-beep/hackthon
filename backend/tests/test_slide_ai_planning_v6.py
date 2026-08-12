@@ -949,6 +949,86 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
 
 
 @pytest.mark.asyncio
+async def test_story_batch_repairs_all_underfilled_pages_in_one_retry() -> None:
+    source_a = (
+        "潮间带记录必须包含样区、潮位、时间、观察者和原始编号，并说明记录条件。"
+        "审核时逐项核对签名、仪器、天气和异常说明，不能用推测替代缺失证据。"
+    )
+    source_b = (
+        "林缘样方记录必须保留位置、时段、观察者、物种和数量，并绑定原始表单。"
+        "复核时比较采样条件、签名、修订记录和异常原因，确保结论可以回溯。"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-multi-page-density-repair",
+        title="Field evidence review",
+        sections=[CourseSection(section_id="field", title="Review evidence", position=0)],
+        blocks=[
+            CourseBlock(
+                block_id="shore-record",
+                section_id="field",
+                position=0,
+                role="concept",
+                payload={"markdown": f"## 潮间带证据记录\n{source_a * 3}"},
+            ),
+            CourseBlock(
+                block_id="forest-record",
+                section_id="field",
+                position=1,
+                role="reasoning",
+                payload={"markdown": f"## 林缘样方复核\n{source_b * 3}"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        layout_id = next(
+            layout_id
+            for layout_id in unit["allowed_template_layout_ids"]
+            if layout_id.endswith("/content-stack")
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "shore-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": layout_id,
+                    "title": "潮间带证据记录",
+                    "summary": "记录潮位和时间。",
+                    "source_block_ids": ["shore-record"],
+                },
+                {
+                    "page_id": "forest-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": layout_id,
+                    "title": "林缘样方复核",
+                    "summary": "复核样方记录。",
+                    "source_block_ids": ["forest-record"],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    targets = calls[1]["repair_feedback"]["repair_targets"]
+    assert {target["page_id"] for target in targets} == {"shore-page", "forest-page"}
+    required_by_page = {
+        target["page_id"]: target["required_summary"] for target in targets
+    }
+    assert all(required_by_page.values())
+    assert {
+        page.page_id: page.summary for page in story.pages
+    } == required_by_page
+
+
+@pytest.mark.asyncio
 async def test_story_batch_resolves_known_layout_from_page_level_source_intent() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
