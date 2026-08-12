@@ -17,6 +17,10 @@ def _service(monkeypatch, base="http://qwen.internal.test/v1"):
     monkeypatch.setenv("AI_API_KEY", "EMPTY")
     monkeypatch.setenv("AI_API_BASE", base)
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
+    # 用例断言的是"每次调用传入的开关如何编码"，不能被运行环境的全局
+    # AI_THINKING_ENABLED 影响（部署切到千问后该值为 false）。
+    monkeypatch.setenv("AI_THINKING_ENABLED", "true")
+    monkeypatch.delenv("AI_ENABLE_THINKING", raising=False)
     return AIBase()
 
 

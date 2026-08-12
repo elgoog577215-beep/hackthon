@@ -2901,6 +2901,14 @@ class CourseService(AIBase):
                 preserved_batch_count += 1
             else:
                 generation_source = "deterministic_local_fallback"
+                # 在本地兜底报告覆盖之前，先留下模型被拒的具体校验码。
+                # 与批次生成路径同样的盲区：不留就只剩一个笼统 reason，
+                # 事后无法回答"模型到底违反了哪条校验"。
+                model_blocking_codes = [
+                    str(issue.get("code") or "")
+                    for issue in (batch_report.get("blocking_issues") or [])
+                    if isinstance(issue, dict) and issue.get("code")
+                ][:8]
                 batch = compile_fallback_teaching_batch(
                     batch_spec=spec,
                     skeleton=skeleton,
@@ -2916,7 +2924,17 @@ class CourseService(AIBase):
                     "unit": batch_id,
                     "reason": reason,
                     "section_ids": list(spec.get("section_ids") or []),
+                    "model_blocking_codes": list(model_blocking_codes),
                 })
+                history = teaching_stage.setdefault(
+                    "batch_failure_history", []
+                )
+                if len(history) < 200:
+                    history.append({
+                        "unit": batch_id,
+                        "reason": reason,
+                        "model_blocking_codes": list(model_blocking_codes),
+                    })
             if not batch_report.get("passed"):
                 raise AIProviderRequestError(
                     "本地详细教案编译失败；这是生成编排器错误"
