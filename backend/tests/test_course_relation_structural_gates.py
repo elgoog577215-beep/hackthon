@@ -197,13 +197,16 @@ def test_relation_cycle_is_intercepted() -> None:
     assert "prerequisite_cycle" in codes
 
 
-def test_cycle_is_reported_but_does_not_block_publication() -> None:
-    """环路是 major 而非 critical —— 锁住这个差异，别让人以为它拦得住发布。
+def test_cycle_blocks_publication() -> None:
+    """前置成环必须阻断发布（D4，2026-08-12 升级）。
 
-    `_find_relation_cycle` 只对 prerequisite / generalizes 生效，且产出 major。
-    也就是说一门课带着前置环路仍然可以 `passed is True` 发布。是否该升为
-    critical 是产品判断（升级会让存量课程大面积转红），不在本轮范围；这里先
-    把现状钉住，让它可见。
+    此前是 `major`，也就是带环课程仍可 `passed is True` 发布。升 critical 的
+    依据是实测：`scripts/measure_relation_cycles.py` 扫遍 `~/lingzhi` 全部真实
+    课程（11 门、其中 6 门有编译知识库），**成环 0 门**——升级不会卡住任何
+    现存课程，风险已被证据消掉。
+
+    语义上也应当阻断：前置成环意味着"学 A 要先学 B、学 B 要先学 A"，学习顺序
+    根本排不出来，这是结构错误而非质量瑕疵。
     """
     base, course = _compiled()
     first, second = (item["knowledge_id"] for item in base["knowledge_points"][:2])
@@ -219,8 +222,19 @@ def test_cycle_is_reported_but_does_not_block_publication() -> None:
     report = validate_course_knowledge_base(base, course_data=course)
     cycle = next(item for item in report["issues"] if item["code"] == "prerequisite_cycle")
 
-    assert cycle["severity"] == "major"
+    assert cycle["severity"] == "critical"
+    assert report["passed"] is False
+    assert cycle in report["blocking_issues"]
+
+
+def test_acyclic_course_still_passes() -> None:
+    """反向断言：无环课程不受影响，否则升级就变成了误伤。"""
+    base, course = _compiled()
+
+    report = validate_course_knowledge_base(base, course_data=course)
+
     assert report["passed"] is True
+    assert not [i for i in report["issues"] if i["code"].endswith("_cycle")]
 
 
 @pytest.mark.parametrize("mutate,expected", [
