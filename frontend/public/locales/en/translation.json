@@ -3156,6 +3156,21 @@
     "cancel": "Cancel",
     "save": "Save note"
   },
+  "questionBank": {
+    "centerTitle": "Course question-bank quality",
+    "courseList": "Courses",
+    "searchCourse": "Search courses",
+    "noCourses": "No courses available",
+    "currentCourse": "Current course",
+    "title": "Course question-bank quality",
+    "refreshCourses": "Refresh courses",
+    "regenerateHelp": "New questions replace the current bank only after passing quality checks.",
+    "notBuilt": "This course does not have a prepared question bank yet. Build it to continue.",
+    "loadFailed": "The question bank could not be loaded. Try again shortly.",
+    "rebuildMissing": "Build question bank",
+    "regeneratingCourse": "Rebuilding course questions",
+    "regenerateCourse": "Regenerate course questions"
+  },
   "assessmentGeneration": {
     "label": "Question generation mode",
     "fastLabel": "Fast",
