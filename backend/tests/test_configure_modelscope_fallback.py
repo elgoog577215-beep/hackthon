@@ -41,6 +41,8 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
                 "deepseek-ai/DeepSeek-V4-Flash-0731,"
                 "Qwen/Qwen3.5-122B-A10B"
             ),
+            "slide_deck_v6_enabled": True,
+            "slide_deck_v6_default_enabled": True,
         }),
         text=True,
         capture_output=True,
@@ -66,6 +68,8 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
         "AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
         "Qwen/Qwen3.5-122B-A10B"
     ) in content
+    assert "SLIDE_DECK_V6_ENABLED=true" in content
+    assert "SLIDE_DECK_V6_DEFAULT_ENABLED=true" in content
     assert "MODELSCOPE_MODEL_CANDIDATES=" not in content
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES=" not in content
     assert secret not in result.stdout
@@ -139,5 +143,12 @@ def test_deploy_workflow_provisions_verified_ppt_role_routes():
     ) in workflow
     assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
     assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
+    assert "SLIDE_DECK_V6_ENABLED: true" in workflow
+    assert "SLIDE_DECK_V6_DEFAULT_ENABLED: true" in workflow
+    assert '"slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"]' in workflow
+    assert (
+        '"slide_deck_v6_default_enabled": '
+        'os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]'
+    ) in workflow
     assert "MODELSCOPE_MODEL_CANDIDATES" not in workflow
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
