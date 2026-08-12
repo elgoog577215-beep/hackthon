@@ -1514,6 +1514,61 @@ def _render_table_row_detail(
         y += height + gap
 
 
+def _table_support_text(blocks: list[SlideBlockSpec]) -> str:
+    return "\n".join(
+        [
+            *(
+                item
+                for block in blocks
+                for item in block.items
+                if str(item).strip()
+            ),
+            *(
+                block.content
+                for block in blocks
+                if str(block.content or "").strip()
+            ),
+        ]
+    ).strip()
+
+
+def _required_table_height_inches(
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    width: float,
+    font_size: int = 16,
+    cell_horizontal_margin: float = 0.1,
+    cell_vertical_margin: float = 0.07,
+) -> float:
+    column_count = max(1, len(headers), max((len(row) for row in rows), default=0))
+    values = [headers or ["Comparison"], *rows]
+    column_text_width_pt = max(
+        12.0,
+        (width / column_count - cell_horizontal_margin * 2) * 72.0,
+    )
+    required_height_pt = 0.0
+    for row_values in values:
+        maximum_lines = max(
+            1,
+            max(
+                (
+                    _wrapped_line_count(
+                        _display_text(str(row_values[column_index])),
+                        width_pt=column_text_width_pt,
+                        font_size_pt=font_size,
+                    )
+                    for column_index in range(min(column_count, len(row_values)))
+                ),
+                default=1,
+            ),
+        )
+        required_height_pt += (
+            maximum_lines * font_size * 1.22 + cell_vertical_margin * 2 * 72.0
+        )
+    return required_height_pt / 72.0
+
+
 def _render_table_visual(
     slide: Any,
     unit: SlideSpec,
@@ -1544,6 +1599,32 @@ def _render_table_visual(
         band_support = bool(supporting_blocks and support_mode == "band")
         table_width = 7.18 if split_support else 11.78
         table_height = 3.28 if band_support else 4.62
+        support_band_y = 5.30
+        support_band_height = 1.58
+        if band_support:
+            required_table_height = _required_table_height_inches(
+                [str(value) for value in parameters.get("headers") or []],
+                [[str(value) for value in row] for row in parameter_rows],
+                width=table_width,
+            )
+            # The template's summary band has more vertical capacity than most
+            # summaries need.  Lend only that verified slack to the table while
+            # preserving a gap and the fixed footer-safe lower boundary.
+            support_text = _table_support_text(supporting_blocks)
+            required_support_height = max(
+                0.72,
+                _wrapped_line_count(
+                    support_text,
+                    width_pt=9.55 * 72.0,
+                    font_size_pt=16,
+                ) * 16 * 1.22 / 72.0 + 0.20,
+            )
+            support_band_height = min(1.58, max(0.78, required_support_height))
+            support_band_y = 6.88 - support_band_height
+            table_height = min(
+                required_table_height + 0.02,
+                support_band_y - 1.92 - 0.10,
+            )
         _table(
             slide,
             [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
@@ -1563,21 +1644,7 @@ def _render_table_visual(
             })
             _source_panel(slide, supporting, 8.2, 1.92, 4.36, 4.62, theme)
         elif band_support:
-            support_text = "\n".join(
-                [
-                    *(
-                        item
-                        for block in supporting_blocks
-                        for item in block.items
-                        if str(item).strip()
-                    ),
-                    *(
-                        block.content
-                        for block in supporting_blocks
-                        if str(block.content or "").strip()
-                    ),
-                ]
-            ).strip()
+            support_text = _table_support_text(supporting_blocks)
             support_label = next(
                 (
                     str(block.title or "").strip()
@@ -1589,9 +1656,9 @@ def _render_table_visual(
             _shape(
                 slide,
                 0.78,
-                5.30,
+                support_band_y,
                 11.78,
-                1.58,
+                support_band_height,
                 theme["surface"],
                 radius=True,
                 line=theme["chart_bg"],
@@ -1600,7 +1667,7 @@ def _render_table_visual(
                 slide,
                 support_label.upper(),
                 1.08,
-                5.84,
+                support_band_y + support_band_height / 2 - 0.14,
                 1.45,
                 0.28,
                 10,
@@ -1613,9 +1680,9 @@ def _render_table_visual(
                 slide,
                 support_text,
                 2.6,
-                5.40,
+                support_band_y + 0.10,
                 9.55,
-                1.40,
+                support_band_height - 0.18,
                 16,
                 theme["ink"],
                 font=theme["body_font"],
