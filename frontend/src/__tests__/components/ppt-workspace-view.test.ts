@@ -68,6 +68,42 @@ describe('PptWorkspaceView', () => {
     expect(calls).toEqual(['document', 'ensure'])
   })
 
+  it('loads registry summaries first and fetches the selected PPT spec only once', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    const representation = {
+      representation_id: 'slides-v6',
+      representation_type: 'slide_deck',
+      variant_key: 'teaching:qizhi-classroom',
+      spec_id: 'spec-v6',
+      status: 'ready',
+      stale_unit_ids: [],
+      stale_reasons: [],
+      revision: 'r1',
+      updated_at: 'now',
+    }
+    const ensure = vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = {
+        slide_deck_target_schema: 'slide_deck_v6',
+        representations: [representation],
+        specs: [{
+          spec_id: 'spec-v6',
+          representation_type: 'slide_deck',
+          payload: { content: { schema_version: 'slide_deck_v6' } },
+        }],
+      }
+    })
+    const select = vi.spyOn(store, 'select').mockResolvedValue(undefined)
+
+    mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    expect(ensure).toHaveBeenCalledWith('course-1', { loadSelectedSpec: false })
+    expect(select).toHaveBeenCalledTimes(1)
+    expect(select).toHaveBeenCalledWith('slides-v6')
+  })
+
   it('blocks a new PPT build when the course is not eligible for V4', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'

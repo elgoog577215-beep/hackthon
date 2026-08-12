@@ -39,6 +39,7 @@ from teaching_representations import (
     SourceBinding,
     TeachingRepresentation,
     TeachingRepresentationRepository,
+    TeachingRepresentationSpec,
     source_binding_for_document,
 )
 
@@ -349,6 +350,133 @@ def test_representation_router_reconciles_and_returns_graph(tmp_path, monkeypatc
     payload = response.json()
     assert payload["course_id"] == "course-1"
     assert payload["derivation_graph"]["nodes"]
+
+
+def test_registry_endpoint_returns_routing_summaries_without_full_spec_payload(monkeypatch):
+    from routers import teaching_representations as representation_router
+
+    async def existing_course(_course_id: str):
+        return legacy_course()
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    monkeypatch.setattr(
+        representation_router,
+        "_reconciled_registry",
+        lambda _course_id: {
+            "course_id": "course-1",
+            "representations": [{
+                "representation_id": "slides-v6",
+                "representation_type": "slide_deck",
+                "spec_id": "spec-v6",
+                "status": "ready",
+            }],
+            "specs": [{
+                "spec_id": "spec-v6",
+                "course_id": "course-1",
+                "representation_type": "slide_deck",
+                "variant_key": "teaching:qizhi-classroom",
+                "revision": "spec-r1",
+                "created_at": "now",
+                "updated_at": "now",
+                "payload": {
+                    "compiler_version": "same_source_compiler_v6",
+                    "content": {
+                        "schema_version": "slide_deck_v6",
+                        "candidate_status": "v6_ready",
+                        "title": "Large deck",
+                        "pages": [{"page_id": f"page-{index}", "body": "x" * 5000}
+                                  for index in range(80)],
+                    },
+                },
+                "source_bindings": [{"large": "binding"}],
+                "unit_bindings": {"large": [{"binding": "payload"}]},
+            }],
+            "slide_deck_target_schema": "slide_deck_v6",
+        },
+    )
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/courses/course-1/teaching-representations",
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code == 200
+    spec = response.json()["registry"]["specs"][0]
+    assert spec == {
+        "spec_id": "spec-v6",
+        "representation_type": "slide_deck",
+        "variant_key": "teaching:qizhi-classroom",
+        "revision": "spec-r1",
+        "payload": {
+            "compiler_version": "same_source_compiler_v6",
+            "content": {
+                "schema_version": "slide_deck_v6",
+                "candidate_status": "v6_ready",
+                "title": "Large deck",
+            },
+        },
+    }
+    assert len(response.content) < 2_000
+
+
+def test_spec_endpoint_reads_the_course_registry_without_full_reconciliation(tmp_path, monkeypatch):
+    from routers import teaching_representations as representation_router
+
+    document = document_from_legacy_course(legacy_course())
+    binding = source_binding_for_document(document)
+    now = datetime.now(timezone.utc).isoformat()
+    repository = TeachingRepresentationRepository(tmp_path)
+    spec = TeachingRepresentationSpec(
+        spec_id="spec-slides-v6",
+        course_id=document.course_id,
+        representation_type="slide_deck",
+        variant_key="teaching:qizhi-classroom",
+        source_bindings=[binding],
+        payload={
+            "compiler_version": "same_source_compiler_v6",
+            "content": {"schema_version": "slide_deck_v6", "pages": []},
+        },
+        revision="spec-r1",
+        created_at=now,
+        updated_at=now,
+    )
+    item = representation(document, representation_id="slides-v6")
+    item.spec_id = spec.spec_id
+    item.variant_key = spec.variant_key
+    repository.publish_spec_and_representation(spec, item)
+
+    monkeypatch.setattr(
+        representation_router,
+        "get_teaching_representation_repository",
+        lambda: repository,
+    )
+
+    async def unexpected_course_load(_course_id: str):
+        raise AssertionError("single-spec reads must not load the full course")
+
+    monkeypatch.setattr(representation_router, "get_course_or_404", unexpected_course_load)
+    monkeypatch.setattr(
+        representation_router,
+        "_reconciled_registry",
+        lambda _course_id: (_ for _ in ()).throw(
+            AssertionError("single-spec reads must not reconcile the full registry")
+        ),
+    )
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/courses/course-1/teaching-representations/slides-v6/spec",
+        headers={"X-User-Id": "user-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["spec"]["spec_id"] == "spec-slides-v6"
+    assert response.json()["spec"]["payload"]["content"]["schema_version"] == "slide_deck_v6"
 
 
 def test_compiler_builds_five_bound_representations_and_exports_pptx(tmp_path):

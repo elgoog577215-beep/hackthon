@@ -102,6 +102,21 @@ describe('preferredRepresentationForType', () => {
 })
 
 describe('teaching representation progressive build', () => {
+  it('can load compact registry state without eagerly fetching a selected spec', async () => {
+    const registry = slideRegistry('slides-v6', 'r1')
+    httpMock.get.mockResolvedValueOnce({ data: { registry } })
+    const store = useTeachingRepresentationsStore()
+
+    await store.ensure('course-1', { loadSelectedSpec: false })
+
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-representations',
+    )
+    expect(store.selectedId).toBe('slides-v6')
+    expect(store.selectedSpec).toBeNull()
+  })
+
   it('rebuilds the material suite and then regenerates PPT through the scoped V5 route', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(streamResponse([{
