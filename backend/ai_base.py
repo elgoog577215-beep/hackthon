@@ -208,6 +208,32 @@ class AIBase:
                 )
             ),
         )
+        self._last_resort_max_concurrency = max(
+            1,
+            int(os.getenv("AI_LAST_RESORT_MAX_CONCURRENCY", "1")),
+        )
+        self._last_resort_start_interval_seconds = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_LAST_RESORT_START_INTERVAL_SECONDS",
+                    "5",
+                )
+            ),
+        )
+        self._last_resort_post_request_interval_seconds = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_LAST_RESORT_POST_REQUEST_INTERVAL_SECONDS",
+                    "15",
+                )
+            ),
+        )
+        self._last_resort_rate_limit_retries = max(
+            0,
+            int(os.getenv("AI_LAST_RESORT_RATE_LIMIT_RETRIES", "2")),
+        )
         
         request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
         connect_timeout = max(1.0, float(os.getenv("AI_CONNECT_TIMEOUT_SECONDS", "10")))
@@ -1080,13 +1106,28 @@ class AIBase:
         record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
+        capacity = get_provider_capacity_controller(
+            self._fallback_provider_scope()
+        )
+        await capacity.configure_last_resort(
+            max_concurrency=self._last_resort_max_concurrency,
+            start_interval_seconds=(
+                self._last_resort_start_interval_seconds
+            ),
+            post_request_interval_seconds=(
+                self._last_resort_post_request_interval_seconds
+            ),
+        )
         for model_id in self._modelscope_fallback_models_for():
             if max_attempts is not None and attempts >= max_attempts:
                 break
-            for attempt in range(retry_count):
+            rate_limit_retries_left = self._last_resort_rate_limit_retries
+            attempt = 0
+            while attempt < retry_count + self._last_resort_rate_limit_retries:
                 if max_attempts is not None and attempts >= max_attempts:
                     break
                 attempts += 1
+                attempt += 1
                 attempt_started = time.perf_counter()
                 queue_wait_ms = 0
                 physical_request_count = 0
@@ -1129,9 +1170,6 @@ class AIBase:
                             exc_info=True,
                         )
 
-                capacity = get_provider_capacity_controller(
-                    self._fallback_provider_scope()
-                )
                 try:
                     request_options = {
                         "model": model_id,
@@ -1243,8 +1281,8 @@ class AIBase:
                     logger.error(
                         "ModelScope fallback error (Model: %s, Attempt %s/%s): %s",
                         model_id,
-                        attempt + 1,
-                        retry_count,
+                        attempt,
+                        retry_count + self._last_resort_rate_limit_retries,
                         error,
                     )
                     if isinstance(error, ModelCapacityCoolingDown):
@@ -1255,21 +1293,42 @@ class AIBase:
                         )
                         break
                     if self._should_try_next_model(error):
+                        failure_kind = self._capacity_failure_kind(error)
+                        cooldown_seconds = (
+                            self._model_failure_cooldown_seconds(error)
+                        )
                         await capacity.report_failure(
                             model_id,
-                            failure_kind=self._capacity_failure_kind(error),
-                            cooldown_seconds=(
-                                self._model_failure_cooldown_seconds(error)
-                            ),
+                            failure_kind=failure_kind,
+                            cooldown_seconds=cooldown_seconds,
                         )
                         self._cool_down_model(
                             model_id,
                             error,
                             self._fallback_provider_scope(),
                         )
+                        if (
+                            failure_kind == "rate_limited"
+                            and rate_limit_retries_left > 0
+                            and (
+                                max_attempts is None
+                                or attempts < max_attempts
+                            )
+                        ):
+                            rate_limit_retries_left -= 1
+                            wait_seconds = max(
+                                cooldown_seconds,
+                                capacity.rate_limit_backoff_seconds,
+                            )
+                            await self._wait_with_activity(
+                                wait_seconds,
+                                on_stream_activity,
+                            )
+                            self._modelscope_fallback_models_for()
+                            continue
                         break
-                    if attempt < retry_count - 1:
-                        await asyncio.sleep(2 ** attempt)
+                    if attempt < retry_count:
+                        await asyncio.sleep(2 ** (attempt - 1))
                     else:
                         break
             if self._modelscope_fallback_failure:
@@ -1284,6 +1343,20 @@ class AIBase:
                 raise AIProviderRequestError(str(last_error)) from last_error
             raise AIProviderRequestError("ModelScope fallback has no available model")
         return None
+
+    @staticmethod
+    async def _wait_with_activity(
+        seconds: float,
+        on_activity: Callable[[], None] | None,
+    ) -> None:
+        """Wait in heartbeat-sized slices so callers remain observable."""
+        remaining = max(0.0, float(seconds))
+        while remaining > 0:
+            if on_activity:
+                on_activity()
+            interval = min(5.0, remaining)
+            await asyncio.sleep(interval)
+            remaining -= interval
 
     async def _stream_modelscope_fallback(
         self,
@@ -1306,14 +1379,23 @@ class AIBase:
         record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
+        capacity = get_provider_capacity_controller(
+            self._fallback_provider_scope()
+        )
+        await capacity.configure_last_resort(
+            max_concurrency=self._last_resort_max_concurrency,
+            start_interval_seconds=(
+                self._last_resort_start_interval_seconds
+            ),
+            post_request_interval_seconds=(
+                self._last_resort_post_request_interval_seconds
+            ),
+        )
         for model_id in self._modelscope_fallback_models_for():
             if max_attempts is not None and attempts >= max_attempts:
                 break
             attempts += 1
             yielded = False
-            capacity = get_provider_capacity_controller(
-                self._fallback_provider_scope()
-            )
             try:
                 lease = await capacity.acquire(
                     model_id,
