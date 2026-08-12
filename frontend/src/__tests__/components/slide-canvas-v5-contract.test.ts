@@ -795,6 +795,42 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(slideCanvasSource).toMatch(/\.deck-editorial-body__group\s*\{[^}]*border:0/s)
   })
 
+  it('renders a single editorial body as an intentional statement without a body label card', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '内容主线',
+          title: 'MonoBehaviour',
+          blocks: [{
+            block_id: 'body',
+            type: 'statement',
+            title: 'body',
+            content: '通过创建规范脚本并挂载到场景对象，验证 Unity 生命周期的执行顺序。',
+          }],
+          quality: {
+            requested_layout: 'editorial-body',
+            resolved_layout: 'editorial-body',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    const body = wrapper.get('.deck-editorial-body')
+    expect(body.attributes('data-count')).toBe('1')
+    expect(body.find('.deck-editorial-body__group > small').exists()).toBe(false)
+    expect(slideCanvasSource).toMatch(
+      /\.deck-canvas\[data-template-rich="true"\] \.deck-editorial-body\[data-count="1"\] \.deck-editorial-body__group\s*\{[^}]*background:transparent[^}]*box-shadow:none/s,
+    )
+  })
+
   it('keeps metadata titles accessible without forcing a visible heading on continuation pages', () => {
     const wrapper = mount(SlideCanvas, {
       props: {

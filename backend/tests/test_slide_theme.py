@@ -87,6 +87,7 @@ def test_every_selectable_theme_is_a_complete_template_pack() -> None:
         }
         assert set(theme["text_box_styles"]) == set(TEXT_BOX_STYLE_NAMES)
         assert len(theme["semantic_layout_weights"]) >= 18
+        assert "data-highlight" in theme["background_profiles"]["evidence"]["layouts"]
         for asset_name in BACKGROUND_ASSET_NAMES:
             assert slide_theme_asset_path(theme, asset_name) is not None
 
