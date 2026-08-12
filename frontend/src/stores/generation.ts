@@ -829,6 +829,7 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     async fetchGlobalTasks() {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       try {
         const res = await http.get('/api/tasks?limit=100', { silentError: true })
         const listedTasks = Array.isArray(res.data) ? res.data : []
@@ -941,7 +942,9 @@ export const useGenerationStore = defineStore('generation', {
     startGlobalMonitor() {
       if (this.globalPollingTimer) return
       this.fetchGlobalTasks()
-      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 5000)
+      // WebSocket remains the primary live channel. Keep the fallback poll below
+      // the API's per-client read limit even when a teacher opens several tabs.
+      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 10_000)
     },
 
     stopGlobalMonitor() {

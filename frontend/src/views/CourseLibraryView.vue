@@ -98,7 +98,11 @@
           :placeholder="t('courseLibrary.search', '搜索课程')"
         />
       </label>
-      <span class="library-toolbar__count">{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
+      <div class="library-toolbar__summary" aria-label="课程状态摘要">
+        <span>全部 <strong>{{ filteredCourses.length }}</strong></span>
+        <span>待处理 <strong :class="{ attention: attentionCourseCount > 0 }">{{ attentionCourseCount }}</strong></span>
+        <span>已发布 <strong>{{ publishedCourseCount }}</strong></span>
+      </div>
     </div>
 
     <div v-if="courseStore.loading" class="library-state">
@@ -112,8 +116,13 @@
       <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程后，从教学大纲开始组织教学。') }}</span>
     </div>
 
-    <div v-else ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
-      <article
+    <section v-else class="course-collection">
+      <header class="course-collection__header">
+        <strong>{{ query ? '搜索结果' : '全部课程' }}</strong>
+        <span>{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }} · 按最近维护排序</span>
+      </header>
+      <div ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
+        <article
         v-for="{ course, status } in courseCards"
         :key="course.course_id"
         class="course-item glass-panel"
@@ -228,8 +237,9 @@
             </div>
           </Transition>
         </div>
-      </article>
-    </div>
+        </article>
+      </div>
+    </section>
 
     <Teleport to="body">
       <Transition name="pagination-dock">
@@ -364,6 +374,8 @@ const courseCards = computed(() => paginatedCourses.value.map(course => ({
   course,
   status: courseStatus(course.course_id),
 })))
+const attentionCourseCount = computed(() => filteredCourses.value.filter(course => courseStatus(course.course_id).active).length)
+const publishedCourseCount = computed(() => filteredCourses.value.filter(course => course.is_published).length)
 const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
   const pages = totalPages.value
   if (pages <= 7) return Array.from({ length: pages }, (_, index) => index + 1)
@@ -389,8 +401,7 @@ onMounted(async () => {
   courseStore.currentCourseVersionId = ''
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
-  await Promise.all([courseStore.fetchCourseList(), generationStore.fetchGlobalTasks()])
-  generationStore.startGlobalMonitor()
+  await courseStore.fetchCourseList()
 })
 
 onBeforeUnmount(() => {
@@ -649,9 +660,16 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-resume__action svg { transition:transform .18s ease; }
 .library-resume:hover .library-resume__action svg { transform:translateX(3px); }
 .library-resume:focus-visible .library-resume__action svg { transform:translateX(3px); }
-.library-toolbar__count { justify-self:end; color:var(--lz-text-muted); font-size:12px; white-space:nowrap; }
-.course-grid { width:100%; max-width:1040px; margin:0; margin-inline-start:max(0px,calc((100% - var(--course-content-width)) / 2)); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
-.course-grid:has(.course-item:only-child) { max-width:720px; grid-template-columns:minmax(0,720px); }
+.library-toolbar__summary { justify-self:end; display:flex; align-items:center; color:var(--lz-text-muted); font-size:12px; white-space:nowrap; }
+.library-toolbar__summary span { padding:0 11px; border-right:1px solid var(--lz-border); }
+.library-toolbar__summary span:last-child { padding-right:0; border-right:0; }
+.library-toolbar__summary strong { margin-left:4px; color:var(--lz-text-primary); font-size:13px; }
+.library-toolbar__summary strong.attention { color:var(--lz-warning); }
+.course-collection { width:100%; max-width:1040px; margin:0 auto; }
+.course-collection__header { height:36px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:11px; }
+.course-collection__header strong { color:var(--lz-text-primary); font-size:13px; }
+.course-grid { width:100%; margin:14px 0 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
+.course-grid:has(.course-item:only-child) { grid-template-columns:minmax(0,1fr); }
 .course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 96px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
 .course-item--menu-open { z-index:30; }
@@ -714,11 +732,12 @@ async function deleteCourse(courseId: string, courseName: string) {
 }
 @media (max-width:980px) {
   .library-toolbar { grid-template-columns:minmax(220px,320px) minmax(0,1fr); }
-  .library-toolbar__count { display:none; }
+  .library-toolbar__summary { display:none; }
   .library-resume__location,.library-resume__separator { display:none; }
 }
 @media (max-width:860px) {
-  .course-grid { max-width:511px; grid-template-columns:minmax(0,1fr); }
+  .course-collection { max-width:620px; }
+  .course-grid { grid-template-columns:minmax(0,1fr); }
 }
 @media (max-width:700px) {
   .course-library { --course-card-height:150px; --course-cover-width:72px; padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
@@ -727,6 +746,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
   .create-course-menu__panel { left:0; right:0; width:auto; }
   .library-toolbar { margin-top:18px; grid-template-columns:minmax(0,1fr); gap:10px; }
+  .course-collection__header { height:auto; min-height:36px; gap:12px; }
   .library-resume { width:100%; }
   .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }
   .course-main { min-height:calc(var(--course-card-height) - 2px); grid-template-columns:var(--course-cover-width) minmax(0,1fr); gap:13px; padding:16px 5px 16px 14px; }

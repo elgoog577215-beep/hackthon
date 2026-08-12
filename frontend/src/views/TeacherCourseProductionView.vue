@@ -124,20 +124,32 @@
                 <table data-testid="production-lesson-table">
                   <thead><tr><th>课次</th><th>教学主题</th><th>教案状态</th><th>PPT 状态</th><th>学生发布版</th><th>下一步</th></tr></thead>
                   <tbody>
-                    <tr v-for="(lesson, index) in lessons" :key="lesson.node_id" :class="{ selected: previewLesson?.node_id === lesson.node_id }">
+                    <tr
+                      v-for="(lesson, index) in lessons"
+                      :key="lesson.node_id"
+                      :class="{ selected: previewLesson?.node_id === lesson.node_id }"
+                      tabindex="0"
+                      :aria-label="`预览第 ${index + 1} 讲：${lesson.node_name}`"
+                      @click="previewLesson = lesson"
+                      @keydown.enter="previewLesson = lesson"
+                      @keydown.space.prevent="previewLesson = lesson"
+                    >
                       <td><strong>{{ String(index + 1).padStart(2, '0') }}</strong></td>
-                      <td><button type="button" class="lesson-link" @click="previewLesson = lesson">{{ lesson.node_name }}</button></td>
+                      <td><button type="button" class="lesson-link" @click.stop="previewLesson = lesson">{{ lesson.node_name }}</button></td>
                       <td><span :data-state="lessonState(lesson)">{{ lessonState(lesson) }}</span></td>
                       <td><span :data-state="pptAvailable ? 'ready' : 'locked'">{{ pptAvailable ? '可制作' : '等待正式课程' }}</span></td>
                       <td>{{ isPublished ? '已发布' : '未发布' }}</td>
-                      <td><button type="button" class="row-action" @click="previewLesson = lesson">快速预览</button></td>
+                      <td><button type="button" class="row-action" @click.stop="previewLesson = lesson">快速预览</button></td>
                     </tr>
                   </tbody>
                 </table>
                 <section v-if="previewLesson" class="lesson-preview" data-testid="production-lesson-preview">
-                  <header><div><small>第 {{ lessonNumber(previewLesson) }} 讲</small><h2>{{ previewLesson.node_name }}</h2></div><button type="button" aria-label="关闭预览" @click="previewLesson = null">×</button></header>
-                  <div class="preview-body"><strong>教学内容预览</strong><p>{{ nodeSummary(previewLesson) }}</p></div>
-                  <footer><button type="button" @click="continueTeaching(previewLesson)">继续制作教案</button><button type="button" :disabled="!pptAvailable" @click="continuePpt(previewLesson)">进入 PPT 工作台</button></footer>
+                  <header><div><small>第 {{ lessonNumber(previewLesson) }} 讲 · {{ previewLessonPosition }}</small><h2>{{ previewLesson.node_name }}</h2></div><button type="button" aria-label="关闭预览" @click="previewLesson = null">×</button></header>
+                  <div class="preview-body">
+                    <div class="preview-context"><span>教案 {{ lessonState(previewLesson) }}</span><span>PPT {{ pptAvailable ? '可制作' : '等待正式课程' }}</span><span>学生版 {{ isPublished ? '已发布' : '未发布' }}</span></div>
+                    <strong>教学内容预览</strong><p>{{ nodeSummary(previewLesson) }}</p>
+                  </div>
+                  <footer><div class="preview-navigation"><button type="button" :disabled="!previousPreviewLesson" @click="showPreviousLesson">上一讲</button><button type="button" :disabled="!nextPreviewLesson" @click="showNextLesson">下一讲</button></div><div class="preview-actions"><button type="button" @click="continueTeaching(previewLesson)">继续制作教案</button><button type="button" :disabled="!pptAvailable" @click="continuePpt(previewLesson)">进入 PPT 工作台</button></div></footer>
                 </section>
               </div>
             </template>
@@ -278,6 +290,10 @@ const selectedLessonLabel = computed(() => {
   return lesson ? `第 ${String(index + 1).padStart(2, '0')} 讲 · ${lesson.node_name}` : '全课教案'
 })
 const pptAvailable = computed(() => isPublished.value && Boolean(courseStore.currentDocumentRevision))
+const previewLessonIndex = computed(() => lessons.value.findIndex(item => item.node_id === previewLesson.value?.node_id))
+const previewLessonPosition = computed(() => previewLessonIndex.value >= 0 ? `${previewLessonIndex.value + 1} / ${lessons.value.length}` : '')
+const previousPreviewLesson = computed(() => previewLessonIndex.value > 0 ? lessons.value[previewLessonIndex.value - 1] : null)
+const nextPreviewLesson = computed(() => previewLessonIndex.value >= 0 && previewLessonIndex.value < lessons.value.length - 1 ? lessons.value[previewLessonIndex.value + 1] : null)
 const canResume = computed(() => Boolean(task.value?.recovery?.can_resume) && !actionBusy.value)
 const canPause = computed(() => ['running', 'pending'].includes(String(task.value?.status || '')) && !actionBusy.value)
 const taskStatusLabel = computed(() => ({ pending: '等待开始', running: '生成中', paused: '已暂停', waiting_for_review: '等待确认', completed: '已完成', completed_with_warnings: '已完成，有建议', error: '生成失败', conflict: '版本冲突', idle: '未开始' }[task.value?.status || 'idle']))
@@ -346,6 +362,8 @@ function nodeSummary(node: Node) {
   const firstBlock = node.content_blocks?.find(block => block.summary || block.content)
   return String(node.node_content || node.learning_objective || firstBlock?.summary || firstBlock?.content || '本讲已有教学结构，可进入教案工作区查看目标、策略、评价与课堂活动。').replace(/[#*_`]/g, '').slice(0, 420)
 }
+function showPreviousLesson() { if (previousPreviewLesson.value) previewLesson.value = previousPreviewLesson.value }
+function showNextLesson() { if (nextPreviewLesson.value) previewLesson.value = nextPreviewLesson.value }
 function continueTeaching(node: Node) { selectLesson(node); activeStage.value = 'teaching'; previewLesson.value = null }
 function openTeachingAi() { void lessonPlanRef.value?.openAiAssistant('section') }
 function continuePpt(node: Node) { selectLesson(node); openPpt() }
@@ -463,10 +481,11 @@ button { font:inherit; }
 .lesson-overview th { height:38px; padding:0 12px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); background:var(--lz-fill); text-align:left; font-size:10px; font-weight:650; }
 .lesson-overview th:nth-child(1) { width:64px; }.lesson-overview th:nth-child(3),.lesson-overview th:nth-child(4),.lesson-overview th:nth-child(5) { width:106px; }.lesson-overview th:last-child { width:92px; }
 .lesson-overview td { height:48px; padding:7px 12px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-secondary); vertical-align:middle; }
-.lesson-overview tr.selected td { background:var(--lz-brand-soft); }.lesson-overview td:first-child strong { color:var(--lz-brand); }
+.lesson-overview tbody tr { cursor:pointer; }.lesson-overview tbody tr:hover td,.lesson-overview tr.selected td { background:var(--lz-brand-soft); }.lesson-overview td:first-child strong { color:var(--lz-brand); }
 .lesson-link,.row-action { padding:0; border:0; color:var(--lz-text-primary); background:transparent; cursor:pointer; text-align:left; }.lesson-link { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:650; }.row-action { color:var(--lz-brand-strong); }
 .lesson-overview td span { display:inline-flex; padding:3px 7px; border-radius:7px; color:var(--lz-text-muted); background:var(--lz-fill); font-size:9px; }.lesson-overview td span[data-state="已有内容"],.lesson-overview td span[data-state="ready"] { color:var(--lz-success); background:var(--lz-success-soft); }.lesson-overview td span[data-state="需要处理"] { color:var(--lz-danger); background:var(--lz-danger-soft); }
 .lesson-preview { position:absolute; inset:0; z-index:3; display:grid; grid-template-rows:62px minmax(0,1fr) 54px; background:#fff; box-shadow:-8px 0 24px rgb(15 23 42 / 6%); }.lesson-preview > header { display:flex; align-items:center; justify-content:space-between; padding:0 22px; border-bottom:1px solid var(--lz-border); background:#fff; }.lesson-preview header div { display:grid; gap:3px; }.lesson-preview header small { color:var(--lz-brand); font-size:9px; font-weight:800; }.lesson-preview h2 { margin:0; font-size:17px; }.lesson-preview header button { width:30px; height:30px; border:0; border-radius:7px; color:var(--lz-text-muted); background:var(--lz-fill); cursor:pointer; font-size:20px; }.preview-body { max-width:780px; padding:28px 34px; background:#fff; }.preview-body strong { font-size:12px; }.preview-body p { margin:12px 0 0; color:var(--lz-text-secondary); font-size:12px; line-height:1.9; white-space:pre-wrap; }.lesson-preview footer { display:flex; justify-content:flex-end; gap:8px; padding:9px 18px; border-top:1px solid var(--lz-border); background:#fff; }.lesson-preview footer button { height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-secondary); background:var(--lz-surface); cursor:pointer; }.lesson-preview footer button:first-child { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }.lesson-preview footer button:disabled { opacity:.45; cursor:not-allowed; }
+.preview-context { min-height:34px; display:flex; align-items:center; margin-bottom:22px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; }.preview-context span { padding:0 12px; border-right:1px solid var(--lz-border); }.preview-context span:first-child { padding-left:0; }.lesson-preview footer { align-items:center; justify-content:space-between; }.preview-navigation,.preview-actions { display:flex; gap:8px; }.lesson-preview footer .preview-navigation button:first-child { border-color:var(--lz-border); color:var(--lz-text-secondary); background:var(--lz-surface); }.lesson-preview footer .preview-actions button:first-child { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-header { height:58px; display:flex; align-items:center; justify-content:space-between; padding:0 18px; border-bottom:1px solid var(--lz-border); }.workspace-header > div { display:grid; gap:2px; }.workspace-header small { color:var(--lz-brand); font-size:9px; font-weight:800; }.workspace-header h1 { margin:0; font-size:17px; }.workspace-header > span { padding:4px 8px; border-radius:8px; color:var(--lz-text-muted); background:var(--lz-fill); font-size:10px; }.workspace-header > span[data-state="confirmed"] { color:var(--lz-success); background:var(--lz-success-soft); }.workspace-header > span[data-state="failed"] { color:var(--lz-danger); background:var(--lz-danger-soft); }
 .brief-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin:0; padding:0 18px; }.brief-grid > div { min-height:62px; display:grid; align-content:center; gap:5px; border-bottom:1px solid var(--lz-border); }.brief-grid > div:nth-child(odd) { padding-right:18px; border-right:1px solid var(--lz-border); }.brief-grid > div:nth-child(even) { padding-left:18px; }.brief-grid .wide { grid-column:1/-1; padding:14px 0 !important; border-right:0 !important; }.brief-grid dt { color:var(--lz-text-muted); font-size:10px; }.brief-grid dd { margin:0; font-size:12px; font-weight:650; line-height:1.6; }.boundary-note { display:flex; align-items:flex-start; gap:8px; margin:16px 18px; padding:10px 12px; border:1px solid var(--lz-warning-border); border-radius:8px; color:var(--lz-text-secondary); background:var(--lz-warning-soft); font-size:11px; line-height:1.6; }.boundary-note svg { flex:0 0 auto; margin-top:1px; }
 .ppt-entry,.release-summary { min-height:86px; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:12px; margin:0 18px; border-bottom:1px solid var(--lz-border); }.ppt-entry > div,.release-summary > div { display:grid; gap:4px; }.ppt-entry span,.release-summary span { color:var(--lz-text-muted); font-size:10px; }.ppt-entry button,.release-summary button { height:34px; display:flex; align-items:center; gap:6px; padding:0 12px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface); cursor:pointer; }.ppt-entry .primary-button { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }.ppt-entry button:disabled { opacity:.45; cursor:not-allowed; }.production-content { min-height:100%; }

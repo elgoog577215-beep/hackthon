@@ -21,7 +21,7 @@
       </aside>
 
       <main class="create-main">
-        <div class="status-bar" role="status"><strong>{{ t('teacherCourseCreate.title', '新建课程') }}</strong><span>{{ t('teacherCourseCreate.step', '步骤') }} {{ step }}/3</span><span>{{ saveStateLabel }}</span><span class="spacer"></span><span>{{ t('teacherCourseCreate.createOnce', '提交时只创建一次真实生成任务') }}</span></div>
+        <div class="status-bar" role="status"><strong>{{ draft.title || t('teacherCourseCreate.title', '新建课程') }}</strong><span>{{ t('teacherCourseCreate.step', '步骤') }} {{ step }}/3</span><span>{{ saveStateLabel }}</span><span v-if="step > 1">{{ academicTerm || '未设置学期' }}</span><span v-if="step > 1">预计 {{ draft.expectedSessions }} 课次</span><span class="spacer"></span><span>{{ t('teacherCourseCreate.createOnce', '提交时只创建一次真实生成任务') }}</span></div>
 
         <form class="step-body" @submit.prevent="continueStep">
           <template v-if="step === 1">
@@ -36,19 +36,24 @@
 
           <template v-else-if="step === 2">
             <header><small>02</small><h1>{{ t('teacherCourseCreate.scheduleTitle', '补充排课基础') }}</h1></header>
-            <div class="form-grid schedule-grid">
-              <label><span>{{ t('teacherCourseCreate.academicYear', '学年') }}</span><input v-model.trim="draft.academicYear" placeholder="2026-2027" /></label>
-              <label><span>{{ t('teacherCourseCreate.term', '学期') }}</span><select v-model="draft.term"><option value="">{{ t('teacherCourseCreate.termUnset', '暂不设置') }}</option><option>{{ t('teacherCourseCreate.autumnWinter', '秋冬') }}</option><option>{{ t('teacherCourseCreate.springSummer', '春夏') }}</option></select></label>
-              <label><span>{{ t('teacherCourseCreate.totalHours', '总学时') }}</span><input v-model.number="draft.totalHours" type="number" min="1" max="300" /></label>
-              <label><span>{{ t('teacherCourseCreate.lessonDuration', '单次课时长（分钟）') }}</span><input v-model.number="draft.lessonDuration" type="number" min="15" max="300" step="5" /></label>
-              <label><span>{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span><input v-model.number="draft.expectedSessions" type="number" min="1" max="120" /></label>
-              <label><span>{{ t('teacherCourseCreate.defaultLocation', '常用地点（可后补）') }}</span><input v-model.trim="draft.defaultLocation" :placeholder="t('teacherCourseCreate.locationPlaceholder', '例如：紫金港西1-205')" /></label>
+            <div class="schedule-sections">
+              <section><h2>学期与课程容量</h2><div class="form-grid schedule-grid">
+                <label><span>{{ t('teacherCourseCreate.academicYear', '学年') }}</span><input v-model.trim="draft.academicYear" placeholder="2026-2027" /></label>
+                <label><span>{{ t('teacherCourseCreate.term', '学期') }}</span><select v-model="draft.term"><option value="">{{ t('teacherCourseCreate.termUnset', '暂不设置') }}</option><option>{{ t('teacherCourseCreate.autumnWinter', '秋冬') }}</option><option>{{ t('teacherCourseCreate.springSummer', '春夏') }}</option></select></label>
+                <label><span>{{ t('teacherCourseCreate.totalHours', '总学时') }}</span><input v-model.number="draft.totalHours" type="number" min="1" max="300" /></label>
+                <label><span>{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span><input v-model.number="draft.expectedSessions" type="number" min="1" max="120" /></label>
+              </div></section>
+              <section><h2>默认上课设置</h2><div class="form-grid schedule-grid">
+                <label><span>{{ t('teacherCourseCreate.lessonDuration', '单次课时长（分钟）') }}</span><input v-model.number="draft.lessonDuration" type="number" min="15" max="300" step="5" /></label>
+                <label><span>{{ t('teacherCourseCreate.defaultLocation', '常用地点（可后补）') }}</span><input v-model.trim="draft.defaultLocation" :placeholder="t('teacherCourseCreate.locationPlaceholder', '例如：紫金港西1-205')" /></label>
+              </div></section>
             </div>
             <div class="boundary-note"><Info :size="16" /><span>{{ t('teacherCourseCreate.scheduleBoundary', '这些字段用于后续教学日历。现在可以跳过；确认大纲后，教学日历与分讲教案可以并行。') }}</span></div>
           </template>
 
           <template v-else>
             <header><small>03</small><h1>{{ t('teacherCourseCreate.startTitle', '选择教学大纲起点') }}</h1></header>
+            <div class="starting-summary"><strong>{{ draft.title }}</strong><span>{{ draft.audience }}</span><span>{{ academicTerm || '学期可后补' }}</span><span>{{ draft.totalHours }} 学时 · 预计 {{ draft.expectedSessions }} 课次</span></div>
             <div class="starting-options">
               <button type="button" class="starting-option" data-testid="start-ai-course" @click="openGenerationDialog">
                 <Sparkles :size="20" /><span><strong>{{ t('teacherCourseCreate.aiStart', 'AI 规划大纲') }}</strong><small>{{ t('teacherCourseCreate.aiStartDetail', '使用现有真实生成流程，可加入参考资料和联网搜索。') }}</small></span><ArrowRight :size="17" />
@@ -199,7 +204,7 @@ onMounted(restoreDraft)
 .product-bar{grid-template-columns:188px minmax(0,1fr) auto}.product-bar nav{padding-inline:20px}.product-actions button{height:32px;border-radius:8px}
 .create-shell{grid-template-columns:188px minmax(0,1fr)}.step-title{min-height:68px;padding-inline:13px}.step-title>span{width:32px;height:32px;border-radius:9px}.step-sidebar nav{gap:3px;padding:10px 7px}.step-sidebar nav button{min-height:50px;grid-template-columns:25px minmax(0,1fr) 16px;gap:6px;padding:6px 8px}.discard-button{padding-inline:14px}
 .status-bar{padding-inline:14px}.status-bar>strong,.status-bar>span{padding-inline:10px}.status-bar>strong{padding-left:0}
-.step-body{display:block;padding:30px clamp(28px,5vw,64px) 48px}.step-body>header{max-width:760px;margin-bottom:22px}.step-body h1{font-size:21px;line-height:1.3}.form-grid,.starting-options,.boundary-note,.error-bar{max-width:760px}.form-grid{gap:16px 20px}.form-grid input,.form-grid select{height:40px;padding-inline:11px}.form-grid textarea{min-height:104px;padding:10px 11px}.boundary-note{margin-top:18px}.step-body>footer{position:static;width:100%;max-width:760px;display:flex;align-items:center;margin:24px auto 0;padding:14px 0 0}.step-body>footer>span{flex:1}
+.step-body{display:block;padding:30px clamp(28px,5vw,64px) 48px}.step-body>header{max-width:760px;margin-bottom:22px}.step-body h1{font-size:24px;line-height:1.3}.form-grid,.starting-options,.starting-summary,.schedule-sections,.boundary-note,.error-bar{max-width:760px}.form-grid{gap:16px 20px}.form-grid label{font-size:11px}.form-grid input,.form-grid select{height:42px;padding-inline:11px;font-size:12px}.form-grid textarea{min-height:104px;padding:10px 11px;font-size:12px}.schedule-sections{width:100%;margin:0 auto;display:grid;gap:20px}.schedule-sections section{display:grid;gap:12px}.schedule-sections section+section{padding-top:18px;border-top:1px solid var(--lz-border)}.schedule-sections h2{margin:0;color:var(--lz-text-primary);font-size:12px}.starting-summary{min-height:36px;display:flex;align-items:center;margin:-6px auto 12px;overflow-x:auto;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:10px;white-space:nowrap}.starting-summary strong,.starting-summary span{padding:0 10px;border-right:1px solid var(--lz-border)}.starting-summary strong{padding-left:0;color:var(--lz-text-primary);font-size:11px}.starting-option{min-height:72px;gap:11px;padding-block:11px}.starting-option strong{font-size:13px}.boundary-note{margin-top:18px}.step-body>footer{position:static;width:100%;max-width:760px;display:flex;align-items:center;margin:24px auto 0;padding:14px 0 0}.step-body>footer>span{flex:1}
 @media(max-width:900px){.product-bar{grid-template-columns:64px minmax(0,1fr) auto}.brand{justify-content:center;padding:0}.brand strong{display:none}.create-shell{grid-template-columns:64px minmax(0,1fr)}.step-title>div,.step-sidebar nav button>span:nth-child(2),.discard-button{display:none}.step-title{justify-content:center;padding:0}.step-sidebar nav button{grid-template-columns:1fr;justify-items:center;padding:0}.step-sidebar nav button>svg{display:none}.status-bar>span:last-child{display:none}.step-body{padding-inline:24px}}
 @media(max-width:680px){.course-create-page{height:auto;min-height:100vh;overflow:auto}.create-shell{height:auto;display:block}.step-sidebar{min-height:auto;border-right:0;border-bottom:1px solid var(--lz-border)}.step-title{display:none}.step-sidebar nav{display:flex;overflow-x:auto;padding:6px 8px}.step-sidebar nav button{flex:0 0 auto;width:auto;min-height:34px;display:inline-flex;gap:6px;padding:0 10px}.step-sidebar nav button>span:nth-child(2){display:block}.step-sidebar nav small{display:none}.create-main{min-height:calc(100vh - 94px);grid-template-rows:38px minmax(0,1fr)}.status-bar>span{display:none}.step-body{padding:18px 14px 0}.form-grid{grid-template-columns:1fr}.form-grid label.wide{grid-column:auto}.product-bar nav{padding:0 10px}.product-bar nav button,.product-bar nav svg{display:none}.product-actions button{width:34px;padding:0}.product-actions button{font-size:0}}
 </style>
