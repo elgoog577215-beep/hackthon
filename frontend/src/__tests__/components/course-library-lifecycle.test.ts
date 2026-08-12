@@ -436,7 +436,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(workbench.props('courseId')).toBe('course-import-1')
   })
 
-  it('将跨课程入口移入全局顶栏，并只在页面标题区保留新建课程菜单', async () => {
+  it('将跨课程入口移入全局顶栏，并在课程工具栏提供分段新建入口', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
@@ -452,7 +452,7 @@ describe('CourseLibraryView generation lifecycle', () => {
       global: {
         plugins: [router],
         stubs: {
-          CourseGenerationDialog: true,
+          CourseGenerationDialog: GenerationDialogStub,
           CourseWorkbench: true,
           CourseTaskCenter: true,
           QuestionBankReviewCenter: true,
@@ -467,7 +467,13 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.library-global-actions .task-center-button').exists()).toBe(true)
     expect(wrapper.get('[data-testid="open-course-workbench"]').text()).toContain('课程工作台')
     expect(wrapper.get('.library-global-actions .action-count').text()).toBe('1')
+    expect(wrapper.find('.library-header [data-testid="create-course-menu-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('.library-header [data-testid="create-blank-course-trigger"]').exists()).toBe(true)
+    expect(wrapper.find('.library-toolbar [data-testid="create-course-menu-trigger"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('false')
+
+    await wrapper.get('[data-testid="create-blank-course-trigger"]').trigger('click')
+    expect(wrapper.find('.generate-now').exists()).toBe(true)
 
     await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
 
