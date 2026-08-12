@@ -1325,24 +1325,33 @@ def _bounded_ordered_step_item(
     detail_separator = "；" if cjk else "; "
     relation_separator = "：" if cjk else ": "
     def normalize_detail(value: str) -> str:
-        return value.rstrip(" .。;；:：")
+        return value.rstrip(" .。！？!?;；:：")
+
+    def terminal_punctuation(value: str) -> str:
+        clean = value.rstrip()
+        return clean[-1] if clean and clean[-1] in ".。！？!?" else ""
 
     selected: list[str] = []
+    selected_terminal = ""
     for detail in details:
         normalized_detail = normalize_detail(detail)
         if not normalized_detail:
             continue
+        candidate_terminal = terminal_punctuation(detail)
         candidate = (
             f"{clean_heading}{relation_separator}"
             f"{detail_separator.join([*selected, normalized_detail])}"
+            f"{candidate_terminal}"
         )
         if len(candidate) > capacity:
             break
         selected.append(normalized_detail)
+        selected_terminal = candidate_terminal
     if selected:
         return (
             f"{clean_heading}{relation_separator}"
             f"{detail_separator.join(selected)}"
+            f"{selected_terminal}"
         ).rstrip(" ;；:：")
     return clean_heading
 
