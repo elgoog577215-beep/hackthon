@@ -211,6 +211,39 @@ async def test_restart_recovers_only_the_newest_equivalent_v6_build(
 
 
 @pytest.mark.asyncio
+async def test_restart_stops_a_slide_build_recovery_loop(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+    manager.tasks[task_id]["status"] = "running"
+    manager.tasks[task_id]["restart_recovery_count"] = 3
+
+    assert await manager._reconcile_task_after_restart(task_id) is False
+    assert manager.tasks[task_id]["status"] == "failed"
+    assert manager.tasks[task_id]["error_detail"]["code"] == (
+        "restart_recovery_limit_exceeded"
+    )
+
+
+@pytest.mark.asyncio
 async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmentation(
     tmp_path,
     monkeypatch,
