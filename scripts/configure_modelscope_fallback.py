@@ -18,6 +18,8 @@ ENVIRONMENT_KEYS = (
     "MODELSCOPE_MODEL",
     "AI_PPT_STORY_MODELS",
     "AI_PPT_VISUAL_MODELS",
+    "SLIDE_DECK_V6_ENABLED",
+    "SLIDE_DECK_V6_DEFAULT_ENABLED",
 )
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 TRUSTED_MODELSCOPE_HOST = "api-inference.modelscope.cn"
@@ -27,6 +29,15 @@ def _single_line(value: object, field: str) -> str:
     normalized = str(value or "").strip()
     if not normalized or "\n" in normalized or "\r" in normalized:
         raise ValueError(f"{field} must be a non-empty single-line value")
+    return normalized
+
+
+def _boolean_setting(value: object, field: str) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    normalized = _single_line(value, field).lower()
+    if normalized not in {"true", "false"}:
+        raise ValueError(f"{field} must be true or false")
     return normalized
 
 
@@ -44,6 +55,14 @@ def _validated_settings(payload: object) -> dict[str, str]:
     ppt_visual_models = _single_line(
         payload.get("ppt_visual_models"),
         "ppt_visual_models",
+    )
+    slide_deck_v6_enabled = _boolean_setting(
+        payload.get("slide_deck_v6_enabled"),
+        "slide_deck_v6_enabled",
+    )
+    slide_deck_v6_default_enabled = _boolean_setting(
+        payload.get("slide_deck_v6_default_enabled"),
+        "slide_deck_v6_default_enabled",
     )
 
     parsed = urlparse(base_url)
@@ -76,6 +95,8 @@ def _validated_settings(payload: object) -> dict[str, str]:
         "MODELSCOPE_MODEL": model,
         "AI_PPT_STORY_MODELS": ppt_story_models,
         "AI_PPT_VISUAL_MODELS": ppt_visual_models,
+        "SLIDE_DECK_V6_ENABLED": slide_deck_v6_enabled,
+        "SLIDE_DECK_V6_DEFAULT_ENABLED": slide_deck_v6_default_enabled,
     }
 
 
