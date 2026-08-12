@@ -110,6 +110,48 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
   })
 
+  it('renders ordered practice steps as a dedicated teaching path', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          eyebrow: '操作演练',
+          title: '完成样本交接',
+          blocks: [{
+            block_id: 'ordered-actions',
+            type: 'process',
+            items: [
+              '核对样本：确认编号与记录一致。',
+              '封闭容器：确认密封完整。',
+              '记录交接：填写接收人姓名。',
+            ],
+          }],
+          quality: {
+            requested_layout: 'practice-prompt',
+            resolved_layout: 'practice-sequence',
+            task_prompt_mode: 'action',
+            prompt_label: '执行步骤',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    const path = wrapper.get('.deck-practice-sequence')
+    const steps = path.findAll('li')
+    expect(steps).toHaveLength(3)
+    expect(steps.map(step => step.get('b').text())).toEqual(['01', '02', '03'])
+    expect(steps[0].get('strong').text()).toBe('核对样本')
+    expect(steps[0].text()).toContain('确认编号与记录一致。')
+    expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+  })
+
   it('does not fall back to a legacy layout when a final V5 layout is missing', () => {
     const wrapper = mount(SlideCanvas, {
       props: {

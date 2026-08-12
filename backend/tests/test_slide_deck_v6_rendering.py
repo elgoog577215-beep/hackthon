@@ -486,6 +486,25 @@ def test_v6_ordered_steps_render_as_numbered_lines_in_pptx(tmp_path: Path) -> No
     assert "03\nRecord the handoff" in visible_text
 
 
+def test_v6_ordered_steps_separate_action_titles_from_explanations(tmp_path: Path) -> None:
+    deck = _ordered_step_deck()
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "ordered-step-path.pptx")
+    presentation = Presentation(output)
+    text_shapes = [
+        shape.text.strip()
+        for shape in presentation.slides[0].shapes
+        if hasattr(shape, "text_frame") and shape.text.strip()
+    ]
+
+    assert "Verify the specimen" in text_shapes
+    assert "Match the identifier to the record." in text_shapes
+    assert "Close the container" in text_shapes
+    assert "Confirm the seal is intact." in text_shapes
+    assert "Record the handoff" in text_shapes
+    assert "Capture the receiver name." in text_shapes
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
