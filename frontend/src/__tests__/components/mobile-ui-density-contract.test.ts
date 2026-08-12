@@ -21,7 +21,10 @@ describe('mobile UI density contract', () => {
       /\.library-pagination-dock\s*\{[^}]*position:relative[^}]*margin:20px auto 0/s,
     )
     expect(librarySource).toMatch(
-      /@media\s*\(max-width:700px\)[\s\S]*?\.library-toolbar\s*\{[^}]*grid-template-columns:minmax\(112px,\.82fr\) minmax\(0,1\.18fr\)/,
+      /@media\s*\(max-width:700px\)[\s\S]*?\.library-toolbar\s*\{[^}]*flex-wrap:nowrap[^}]*gap:8px/,
+    )
+    expect(librarySource).toMatch(
+      /@media\s*\(max-width:700px\)[\s\S]*?\.library-toolbar label\s*\{[^}]*min-width:112px[^}]*flex:0 1 42%/,
     )
     expect(librarySource).toMatch(
       /@media\s*\(max-width:700px\)[\s\S]*?\.pagination-jump\s*\{\s*display:none/,
