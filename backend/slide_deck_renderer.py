@@ -3625,7 +3625,7 @@ def _table(
     theme: dict[str, str],
 ) -> None:
     from pptx.dml.color import RGBColor
-    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
     from pptx.util import Inches, Pt
 
     column_count = max(1, len(headers), max((len(row) for row in rows), default=0))
@@ -3696,6 +3696,7 @@ def _table(
             )
             cell.margin_left = cell.margin_right = Inches(cell_horizontal_margin)
             cell.margin_top = cell.margin_bottom = Inches(cell_vertical_margin)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             paragraph = cell.text_frame.paragraphs[0]
             _configure_font(paragraph.font, BODY_FONT)
             paragraph.font.size = Pt(font_size)

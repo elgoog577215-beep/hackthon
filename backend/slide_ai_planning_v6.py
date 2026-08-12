@@ -1347,17 +1347,24 @@ def _story_repair_targets(
                 for block_id in current_source_block_ids
             ))
             effective_max = summary_max_chars or len(grounded_source)
+            preferred_max = min(
+                effective_max,
+                max(summary_min_chars, summary_min_chars + 80),
+            )
             required_summary = (
                 grounded_source
-                if len(grounded_source) <= effective_max
-                else _complete_sentence_excerpt(grounded_source, effective_max)
+                if len(grounded_source) <= preferred_max
+                else _complete_sentence_excerpt(grounded_source, preferred_max)
             )
             if len(required_summary) < min(summary_min_chars, len(grounded_source)):
-                required_summary = grounded_source[:effective_max].rstrip(
-                    " ,，。；;：:、"
+                expanded = _complete_sentence_excerpt(grounded_source, effective_max)
+                required_summary = (
+                    expanded
+                    if len(expanded) >= min(summary_min_chars, len(grounded_source))
+                    else grounded_source[:preferred_max].rstrip(" ,，。；;：:、")
                 )
                 if required_summary and required_summary[-1] not in "。！？.!?":
-                    if len(required_summary) < effective_max:
+                    if len(required_summary) < preferred_max:
                         required_summary += "。"
         safe_partition_options = [
             option

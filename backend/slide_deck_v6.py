@@ -1264,8 +1264,8 @@ _ORDERED_STEP_PATTERN = re.compile(
 _NESTED_STEP_DETAIL_PATTERN = re.compile(r"^\s+[-*+]\s+(.+?)\s*$")
 
 
-def _ordered_step_items(value: str) -> list[str]:
-    """Preserve explicit source order while folding details into their parent step."""
+def _ordered_step_groups(value: str) -> list[tuple[str, list[str]]]:
+    """Parse explicit source order without flattening detail boundaries."""
 
     steps: list[tuple[str, list[str]]] = []
     for line in str(value or "").splitlines():
@@ -1280,6 +1280,13 @@ def _ordered_step_items(value: str) -> list[str]:
             detail = _visible_prose_text(detail_match.group(1)).strip()
             if detail:
                 steps[-1][1].append(detail)
+    return steps
+
+
+def _ordered_step_items(value: str) -> list[str]:
+    """Preserve explicit source order while folding details into their parent step."""
+
+    steps = _ordered_step_groups(value)
 
     if steps:
         result: list[str] = []
@@ -1302,6 +1309,36 @@ def _ordered_step_items(value: str) -> list[str]:
         if re.match(r"^\s*[-*+]\s+", line)
         and _visible_prose_text(re.sub(r"^\s*[-*+]\s+", "", line)).strip()
     ]
+
+
+def _bounded_ordered_step_item(
+    heading: str,
+    details: list[str],
+    capacity: int,
+) -> str:
+    """Select complete source details instead of clipping a step mid-thought."""
+
+    clean_heading = heading.rstrip(" :：")
+    if not details or capacity <= len(clean_heading):
+        return clean_heading[:capacity].rstrip(" :：;；")
+    cjk = bool(re.search(r"[\u3400-\u9fff]", clean_heading))
+    detail_separator = "；" if cjk else "; "
+    relation_separator = "：" if cjk else ": "
+    selected: list[str] = []
+    for detail in details:
+        candidate = (
+            f"{clean_heading}{relation_separator}"
+            f"{detail_separator.join([*selected, detail])}"
+        )
+        if len(candidate) > capacity:
+            break
+        selected.append(detail)
+    if selected:
+        return (
+            f"{clean_heading}{relation_separator}"
+            f"{detail_separator.join(selected)}"
+        ).rstrip(" ;；:：")
+    return clean_heading
 
 
 def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
@@ -1357,18 +1394,33 @@ def _bounded_slot_content(
             raise ValueError("template_slot_capacity_exceeded")
         return content.rstrip()
     if slot_kind == "steps":
-        steps = [step for text in texts for step in _ordered_step_items(text)]
-        if not steps:
-            steps = [_visible_prose_text(text).strip() for text in texts if text.strip()]
-        item_limit = max_items or len(steps)
-        if len(steps) > item_limit:
-            raise ValueError("template_slot_capacity_exceeded")
-        separator_cost = max(0, len(steps) - 1)
-        per_step_capacity = max(1, (capacity - separator_cost) // len(steps))
-        excerpts = [
-            _complete_sentence_excerpt(step, per_step_capacity)
-            for step in steps
+        ordered_groups = [
+            group
+            for text in texts
+            for group in _ordered_step_groups(text)
         ]
+        fallback_steps = (
+            []
+            if ordered_groups
+            else [_visible_prose_text(text).strip() for text in texts if text.strip()]
+        )
+        step_count = len(ordered_groups) or len(fallback_steps)
+        item_limit = max_items or step_count
+        if step_count > item_limit:
+            raise ValueError("template_slot_capacity_exceeded")
+        separator_cost = max(0, step_count - 1)
+        per_step_capacity = max(1, (capacity - separator_cost) // step_count)
+        excerpts = (
+            [
+                _bounded_ordered_step_item(heading, details, per_step_capacity)
+                for heading, details in ordered_groups
+            ]
+            if ordered_groups
+            else [
+                _complete_sentence_excerpt(step, per_step_capacity)
+                for step in fallback_steps
+            ]
+        )
         content = "\n".join(excerpts).rstrip()
         if len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
