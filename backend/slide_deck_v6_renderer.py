@@ -272,6 +272,11 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
     adapter = _layout_adapters()[slug]
     renderer_layout = adapter["renderer_layout"]
     layout_variant, artifact_support_mode = _layout_variant(resolved_page, adapter)
+    practice_artifact_kind = (
+        slug.removeprefix("practice-")
+        if slug in {"practice-code", "practice-formula", "practice-table"}
+        else ""
+    )
     return SlideSpec(
         unit_id=resolved_page.page_id,
         position=resolved_page.page_ordinal,
@@ -294,9 +299,18 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
             "v6_continuation_index": resolved_page.continuation_index,
             "v6_continuation_count": resolved_page.continuation_count,
             "v6_title_max_lines": resolved_page.title_max_lines,
+            "v6_practice_artifact_kind": practice_artifact_kind,
             "resolved_layout": renderer_layout,
-            "task_prompt_mode": "action" if slug == "practice-prompt" else "",
-            "prompt_label": "执行步骤" if slug == "practice-prompt" else "",
+            "task_prompt_mode": (
+                "artifact-guided" if practice_artifact_kind
+                else "action" if slug == "practice-prompt"
+                else ""
+            ),
+            "prompt_label": (
+                "执行并核验" if practice_artifact_kind
+                else "执行步骤" if slug == "practice-prompt"
+                else ""
+            ),
         },
     )
 

@@ -1257,6 +1257,36 @@ def _bounded_code_content(
     return content
 
 
+def _formula_candidates(text: str) -> list[str]:
+    displayed = [
+        match.group(0).strip()
+        for match in re.finditer(r"\$\$.+?\$\$|\\\[.+?\\\]", text, re.DOTALL)
+        if match.group(0).strip()
+    ]
+    return displayed or [text.strip()]
+
+
+def _bounded_formula_content(
+    blocks: list[CourseBlock],
+    *,
+    max_chars: int,
+) -> str:
+    """Keep formula slots atomic when source blocks also contain instructions."""
+
+    candidates = [
+        candidate
+        for block in blocks
+        for candidate in _formula_candidates(block_source_text(block))
+        if candidate
+    ]
+    if not candidates:
+        return ""
+    content = "\n\n".join(candidates)
+    if max_chars and len(content) > max_chars:
+        raise ValueError("template_slot_capacity_exceeded")
+    return content
+
+
 _ORDERED_STEP_PATTERN = re.compile(
     r"^\s*(?:(?:\d+)[.)、．]|[一二三四五六七八九十百]+[、.．)]|(?:step|步骤)\s*\d+\s*[:：.、-]?)\s*(.+?)\s*$",
     flags=re.IGNORECASE,
@@ -1320,7 +1350,7 @@ def _bounded_ordered_step_item(
 
     clean_heading = heading.rstrip(" :：")
     if not details or capacity <= len(clean_heading):
-        return clean_heading[:capacity].rstrip(" :：;；")
+        return _display_excerpt(clean_heading, capacity).rstrip(" :：;；")
     cjk = bool(re.search(r"[\u3400-\u9fff]", clean_heading))
     detail_separator = "；" if cjk else "; "
     relation_separator = "：" if cjk else ": "
@@ -1353,7 +1383,7 @@ def _bounded_ordered_step_item(
             f"{detail_separator.join(selected)}"
             f"{selected_terminal}"
         ).rstrip(" ;；:：")
-    return clean_heading
+    return _display_excerpt(clean_heading, capacity)
 
 
 def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
@@ -1385,6 +1415,8 @@ def _bounded_slot_content(
             max_chars=max_chars,
             max_lines=max_lines,
         )
+    if slot_kind == "formula":
+        return _bounded_formula_content(blocks, max_chars=max_chars)
     texts = []
     for block in blocks:
         text = (
@@ -1574,7 +1606,14 @@ def _split_artifact_block(
         )
     else:
         return [block]
-    return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
+    prose = _prose_source_text(block)
+    return [
+        _block_with_source_excerpt(
+            block,
+            f"{prose}\n\n{chunk}" if prose else chunk,
+        )
+        for chunk in chunks
+    ]
 
 
 def _display_width_units(value: str) -> int:
@@ -1786,7 +1825,14 @@ def _split_table_block_for_layout_variants(
         chunks.append(rendered_text(current))
     elif not chunks and len(_markdown_table_text(headers, [])) <= slot.max_chars:
         chunks.append(_markdown_table_text(headers, []))
-    return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
+    prose = _prose_source_text(block)
+    return [
+        _block_with_source_excerpt(
+            block,
+            f"{prose}\n\n{chunk}" if prose else chunk,
+        )
+        for chunk in chunks
+    ]
 
 
 def _safe_artifact_page_blocks(
@@ -1834,6 +1880,8 @@ def _safe_artifact_page_blocks(
                         ),
                     )
                 )
+            if len(artifact_blocks) == 1 and len(artifact_chunks) == 1:
+                return [source_blocks]
         else:
             _bounded_slot_content(
                 artifact_blocks,
@@ -1847,7 +1895,7 @@ def _safe_artifact_page_blocks(
     except ValueError as error:
         if str(error) != "template_slot_capacity_exceeded":
             raise
-        if adaptive_table:
+        if adaptive_table and not artifact_chunks:
             raise V6BuildError(
                 stage="template",
                 code="template_slot_capacity_exceeded",

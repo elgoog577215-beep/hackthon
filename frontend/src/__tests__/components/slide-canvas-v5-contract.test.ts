@@ -36,6 +36,7 @@ describe('SlideCanvas V5 final page contract', () => {
       'parallel-examples',
       'question-prompt',
       'practice-sequence',
+      'practice-artifact',
       'practice-feedback',
       'chapter-recap',
       'course-synthesis',

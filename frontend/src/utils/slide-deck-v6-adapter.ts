@@ -247,6 +247,9 @@ function adaptPage(
   const adapter = layouts[slug]
   if (!adapter) throw new Error(`v6_template_layout_adapter_missing:${page.resolved_layout}`)
   const variant = layoutVariant(page, adapter)
+  const practiceArtifactKind = ['practice-code', 'practice-formula', 'practice-table'].includes(slug)
+    ? slug.replace('practice-', '')
+    : ''
   return {
     unit_id: page.page_id,
     position: page.page_ordinal,
@@ -274,9 +277,14 @@ function adaptPage(
       v6_continuation_index: Number(page.continuation_index || 1),
       v6_continuation_count: Number(page.continuation_count || 1),
       v6_title_max_lines: Math.max(1, Number(page.title_max_lines || 1)),
+      v6_practice_artifact_kind: practiceArtifactKind,
       resolved_layout: adapter.renderer_layout,
-      task_prompt_mode: slug === 'practice-prompt' ? 'action' : '',
-      prompt_label: slug === 'practice-prompt' ? '执行步骤' : '',
+      task_prompt_mode: practiceArtifactKind
+        ? 'artifact-guided'
+        : slug === 'practice-prompt' ? 'action' : '',
+      prompt_label: practiceArtifactKind
+        ? '执行并核验'
+        : slug === 'practice-prompt' ? '执行步骤' : '',
       template_theme_overrides: { ...templateThemeOverrides },
     },
   }

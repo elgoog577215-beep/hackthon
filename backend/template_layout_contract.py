@@ -199,6 +199,52 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "slots": [_TITLE, _slot("task", "steps", items=5, chars=420), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
         "continuations": ["practice-prompt", "practice-feedback"],
     },
+    "practice-code": {
+        "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
+        "artifact_kinds": ["code"],
+        "slots": [
+            _TITLE,
+            _slot("code", "code", lines=12, chars=380),
+            _slot("task", "steps", items=7, chars=294),
+            _NOTES,
+        ],
+        "continuations": ["practice-code"],
+        "base_layout": "practice-prompt",
+    },
+    "practice-formula": {
+        "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
+        "artifact_kinds": ["formula"],
+        "slots": [
+            _TITLE,
+            _slot("formula", "formula", chars=300),
+            _slot("task", "steps", items=7, chars=294),
+            _NOTES,
+        ],
+        "continuations": ["practice-formula"],
+        "base_layout": "practice-prompt",
+    },
+    "practice-table": {
+        "intents": ["artifact_explanation", "practice_feedback", "comparison"],
+        "artifact_kinds": ["table"],
+        "slots": [
+            _TITLE,
+            _slot(
+                "table",
+                "table",
+                rows=5,
+                chars=560,
+                split_wrapped_lines=7,
+                full_wrapped_lines=7,
+                split_column_chars=14,
+                full_column_chars=20,
+                wide_min_columns=3,
+            ),
+            _slot("task", "steps", items=7, chars=294),
+            _NOTES,
+        ],
+        "continuations": ["practice-table"],
+        "base_layout": "practice-prompt",
+    },
     "practice-feedback": {
         "intents": ["practice_feedback", "misconception_repair"],
         "slots": [_TITLE, _slot("prompt", "body", chars=220), _slot("feedback", "body", chars=300), _NOTES],
@@ -285,6 +331,11 @@ def compile_builtin_template_layout_contract_v1(theme_id: str) -> TemplateLayout
             artifact_kinds=list(spec.get("artifact_kinds") or []),
             slots=[TemplateSlotContractV1.model_validate(item) for item in spec["slots"]],
             safe_continuation_layout_slugs=list(spec.get("continuations") or []),
+            base_layout_id=(
+                f"{prefix}/{spec['base_layout']}"
+                if spec.get("base_layout")
+                else ""
+            ),
         )
         for slug, spec in _LAYOUT_SPECS.items()
     ]

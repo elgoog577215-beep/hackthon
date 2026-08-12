@@ -66,6 +66,40 @@
       </div>
 
       <div
+        v-else-if="visualLayout === 'practice-artifact'"
+        class="deck-practice-artifact"
+        :data-artifact-kind="practiceArtifactKind"
+      >
+        <section class="deck-practice-artifact__steps">
+          <small>{{ taskPromptLabel }}</small>
+          <ol>
+            <li v-for="(step, index) in practiceArtifactSteps" :key="`${index}-${step}`">
+              <b>{{ String(index + 1).padStart(2, '0') }}</b>
+              <MarkdownRenderer :content="step" :enable-code-run="false" />
+            </li>
+          </ol>
+        </section>
+        <section class="deck-practice-artifact__evidence">
+          <small>{{ practiceArtifactLabel }}</small>
+          <pre v-if="practiceArtifactKind === 'code'"><code>{{ practiceArtifactCode }}</code></pre>
+          <MarkdownRenderer
+            v-else-if="practiceArtifactKind === 'formula'"
+            class="deck-practice-artifact__formula"
+            :content="practiceArtifactFormula"
+            :enable-code-run="false"
+          />
+          <table v-else-if="practiceArtifactKind === 'table'">
+            <thead><tr><th v-for="header in practiceArtifactTable.headers" :key="header">{{ header }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, rowIndex) in practiceArtifactTable.rows" :key="rowIndex">
+                <td v-for="(cell, cellIndex) in row" :key="`${rowIndex}-${cellIndex}`">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <div
         v-else-if="showsVisualStory"
         class="deck-canvas__story"
         :data-composition="resolvedComposition"
@@ -401,7 +435,7 @@ interface Slide {
     section_label?: string
     feedback_mode?: 'paired' | 'shared_evidence' | 'task_only'
     prompt_label?: string
-    task_prompt_mode?: 'action' | 'verification'
+    task_prompt_mode?: 'action' | 'verification' | 'artifact-guided'
     task_prompt_phase?: 'overview' | 'procedure' | 'verification'
     final_page_contract_version?: string
     final_page_contract_v2?: Record<string, any>
@@ -409,6 +443,7 @@ interface Slide {
     manual_edit_reasons?: Array<Record<string, any>>
     v6_layout_variant?: string
     v6_artifact_support_mode?: 'split' | 'full' | 'band' | ''
+    v6_practice_artifact_kind?: 'code' | 'formula' | 'table' | ''
   }
 }
 
@@ -521,6 +556,40 @@ const practiceSequenceItems = computed(() => semanticItems.value.slice(0, 5).map
   }
   return { title: clean, detail: '' }
 }))
+const practiceArtifactProcess = computed(() => (
+  (props.slide.blocks || []).find(block => block.type === 'process')
+))
+const practiceArtifactSteps = computed(() => blockItems(practiceArtifactProcess.value).slice(0, 7))
+const practiceArtifactKind = computed(() => {
+  const declared = String(props.slide.quality?.v6_practice_artifact_kind || '')
+  if (declared) return declared
+  if ((props.slide.blocks || []).some(block => block.type === 'code')) return 'code'
+  if ((props.slide.visuals || []).some(visual => visual.kind === 'formula')) return 'formula'
+  if ((props.slide.visuals || []).some(visual => visual.kind === 'table')) return 'table'
+  return ''
+})
+const practiceArtifactCode = computed(() => String(
+  (props.slide.blocks || []).find(block => block.type === 'code')?.content || '',
+))
+const practiceArtifactFormula = computed(() => String(
+  (props.slide.visuals || []).find(visual => visual.kind === 'formula')?.parameters?.formula
+  || (props.slide.blocks || []).find(block => block.metadata?.formula)?.content
+  || '',
+))
+const practiceArtifactTable = computed(() => {
+  const parameters = (props.slide.visuals || []).find(visual => visual.kind === 'table')?.parameters || {}
+  return {
+    headers: Array.isArray(parameters.headers) ? parameters.headers.map(String) : [],
+    rows: Array.isArray(parameters.rows)
+      ? parameters.rows.map(row => Array.isArray(row) ? row.map(String) : [])
+      : [],
+  }
+})
+const practiceArtifactLabel = computed(() => ({
+  code: '源代码',
+  formula: '关键公式',
+  table: '核验对照',
+}[practiceArtifactKind.value] || '来源证据'))
 const practicePromptBlock = computed(() => (
   (props.slide.blocks || []).find(block => (
     block.metadata?.semantic_role === 'prompt'
@@ -2052,6 +2121,118 @@ function layoutLabel(value: string) {
   color:var(--deck-muted);
   font-size:1.42cqw;
   line-height:1.45;
+}
+.deck-practice-artifact {
+  position:absolute;
+  inset:24.5% 6% 10.5%;
+  display:grid;
+  grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);
+  gap:2.2cqw;
+  min-height:0;
+}
+.deck-practice-artifact__steps,
+.deck-practice-artifact__evidence {
+  min-width:0;
+  min-height:0;
+}
+.deck-practice-artifact__steps {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  padding-right:2cqw;
+  border-right:.14cqw solid var(--deck-line);
+}
+.deck-practice-artifact__steps > small,
+.deck-practice-artifact__evidence > small {
+  color:var(--deck-blue);
+  font-size:1.02cqw;
+  font-weight:800;
+  letter-spacing:.06em;
+}
+.deck-practice-artifact__steps ol {
+  position:relative;
+  display:grid;
+  grid-auto-rows:1fr;
+  min-height:0;
+  margin:.55cqw 0 0;
+  padding:0;
+  list-style:none;
+}
+.deck-practice-artifact__steps ol::before {
+  content:"";
+  position:absolute;
+  top:8%;
+  bottom:8%;
+  left:1.42cqw;
+  width:.12cqw;
+  background:var(--deck-line);
+}
+.deck-practice-artifact__steps li {
+  position:relative;
+  display:grid;
+  grid-template-columns:3cqw minmax(0,1fr);
+  align-items:center;
+  gap:.9cqw;
+  min-height:0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-artifact__steps li:last-child { border-bottom:0; }
+.deck-practice-artifact__steps li > b {
+  z-index:1;
+  width:2.7cqw;
+  height:2.7cqw;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font:800 .8cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-practice-artifact__steps li :deep(.markdown-body) {
+  margin:0;
+  color:var(--deck-ink);
+  font-size:1.22cqw;
+  line-height:1.35;
+}
+.deck-practice-artifact__evidence {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  gap:.65cqw;
+}
+.deck-practice-artifact__evidence pre {
+  min-height:0;
+  margin:0;
+  overflow:hidden;
+  padding:1.5cqw;
+  border-radius:.85cqw;
+  color:#f5f7fb;
+  background:#17243b;
+  white-space:pre-wrap;
+}
+.deck-practice-artifact__evidence code {
+  font:1.12cqw/1.48 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-practice-artifact__formula {
+  display:grid;
+  place-items:center;
+  min-height:0;
+  padding:2cqw;
+  border:1px solid var(--deck-line);
+  border-radius:.85cqw;
+  background:var(--deck-canvas);
+  color:var(--deck-title);
+  font:400 2.05cqw/1.4 "Times New Roman",serif;
+  text-align:center;
+}
+.deck-practice-artifact__evidence table {
+  table-layout:fixed;
+  min-height:0;
+  font-size:1.17cqw;
+  line-height:1.3;
+}
+.deck-practice-artifact__evidence th,
+.deck-practice-artifact__evidence td {
+  overflow-wrap:anywhere;
+  padding:.48em .55em;
 }
 .deck-canvas__blocks pre {
   height:100%;

@@ -823,6 +823,7 @@ V5_LAYOUT_RENDERER_NAMES = {
     "parallel-examples": "_render_parallel_examples",
     "question-prompt": "_render_question_prompt",
     "practice-sequence": "_render_process",
+    "practice-artifact": "_render_practice_artifact",
     "practice-feedback": "_render_practice_feedback",
     "chapter-recap": "_render_chapter_recap",
     "course-synthesis": "_render_course_synthesis",
@@ -2909,6 +2910,133 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         _text(slide, item, x + 0.23, 3.25, width - 0.46, 1.95, 16, style["text"], bold=True)
         if index < len(items) - 1:
             _text(slide, "→", x + width + 0.01, 3.68, 0.22, 0.35, 17, theme["muted"], bold=True, align="center")
+
+
+def _render_practice_artifact(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render ordered actions beside their source-backed characteristic artifact."""
+
+    _heading(slide, unit, theme)
+    process = _find_block(unit, "process")
+    steps = list(process.items if process else [])[:7]
+    artifact_kind = str(unit.quality.get("v6_practice_artifact_kind") or "")
+
+    _text(
+        slide,
+        str(unit.quality.get("prompt_label") or "执行并核验"),
+        0.82,
+        1.90,
+        2.0,
+        0.25,
+        11,
+        theme["accent"],
+        bold=True,
+    )
+    row_height = 3.98 / max(1, len(steps))
+    first_center = 2.34 + row_height / 2
+    last_center = 2.34 + row_height * max(0, len(steps) - 1) + row_height / 2
+    if len(steps) > 1:
+        _shape(
+            slide,
+            1.06,
+            first_center,
+            0.025,
+            last_center - first_center,
+            theme["chart_bg"],
+            radius=False,
+        )
+    for index, value in enumerate(steps, start=1):
+        y = 2.34 + (index - 1) * row_height
+        center_y = y + row_height / 2
+        if index < len(steps):
+            _shape(
+                slide,
+                1.48,
+                y + row_height - 0.012,
+                3.72,
+                0.012,
+                theme["chart_bg"],
+                radius=False,
+            )
+        _circle(slide, 0.82, center_y - 0.22, 0.44, theme["accent"])
+        _text(
+            slide,
+            f"{index:02d}",
+            0.82,
+            center_y - 0.07,
+            0.44,
+            0.16,
+            9,
+            "FFFFFF",
+            bold=True,
+            align="center",
+            font="Aptos Mono",
+        )
+        _text(
+            slide,
+            value,
+            1.48,
+            y + 0.08,
+            3.72,
+            max(0.38, row_height - 0.06),
+            16,
+            theme["ink"],
+            bold=len(value) <= 28,
+        )
+
+    _shape(slide, 5.48, 1.94, 0.025, 4.48, theme["chart_bg"], radius=False)
+    artifact_x, artifact_y, artifact_w, artifact_h = 5.82, 1.94, 6.70, 4.48
+    if artifact_kind == "code":
+        code = _find_block(unit, "code")
+        _shape(slide, artifact_x, artifact_y, artifact_w, artifact_h, theme["code"], radius=True)
+        _text(slide, "SOURCE", 6.16, 2.20, 1.2, 0.25, 10, "AEB6D0", bold=True, font=CODE_FONT)
+        _text(
+            slide,
+            code.content if code else "",
+            6.16,
+            2.66,
+            6.02,
+            3.28,
+            16,
+            "F5F7FF",
+            font=CODE_FONT,
+            east_asian_font=theme["body_east_asian_font"],
+        )
+    elif artifact_kind == "formula":
+        visual = next((item for item in unit.visuals if item.get("kind") == "formula"), {})
+        formula = str((visual.get("parameters") or {}).get("formula") or "")
+        _shape(slide, artifact_x, artifact_y, artifact_w, artifact_h, theme["canvas"], radius=True, line=theme["chart_bg"])
+        _text(slide, "关键公式", 6.16, 2.20, 1.4, 0.25, 11, theme["accent"], bold=True)
+        _text(
+            slide,
+            _format_formula_text(formula),
+            6.16,
+            3.05,
+            6.02,
+            1.75,
+            26 if len(formula) <= 72 else 21,
+            theme["title"],
+            align="center",
+            font=theme["math_font"],
+            east_asian_font=theme["body_east_asian_font"],
+        )
+    elif artifact_kind == "table":
+        visual = next((item for item in unit.visuals if item.get("kind") == "table"), {})
+        parameters = visual.get("parameters") or {}
+        _text(slide, "核验对照", 5.86, 1.94, 1.4, 0.25, 11, theme["accent"], bold=True)
+        _table(
+            slide,
+            [str(value) for value in parameters.get("headers") or []],
+            [[str(value) for value in row] for row in parameters.get("rows") or []],
+            artifact_x,
+            2.34,
+            artifact_w,
+            4.08,
+            theme,
+        )
 
 
 def _split_ordered_step(value: str) -> tuple[str, str]:

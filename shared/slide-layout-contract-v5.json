@@ -89,6 +89,11 @@
       "pptx_renderer": "_render_process"
     },
     {
+      "layout": "practice-artifact",
+      "browser_composition": "practice-artifact",
+      "pptx_renderer": "_render_practice_artifact"
+    },
+    {
       "layout": "practice-feedback",
       "browser_composition": "practice-feedback",
       "pptx_renderer": "_render_practice_feedback"

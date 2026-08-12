@@ -104,6 +104,10 @@ def _practice_code_deck():
                 "1. Capture the sensor reading.\n"
                 "2. Compare it with the declared threshold.\n"
                 "3. Record the decision and evidence.\n\n"
+                "4. Repeat the check with a boundary value.\n"
+                "5. Preserve the original reading.\n"
+                "6. Explain any rejected result.\n"
+                "7. Submit the signed verification record.\n\n"
                 "```python\n"
                 "def accept(reading, threshold):\n"
                 "    return reading <= threshold\n"
@@ -950,6 +954,7 @@ def test_practice_code_layout_exports_numbered_steps_and_readable_code(
     )
     assert "01" in visible_text
     assert "02" in visible_text
+    assert "07" in visible_text
     assert "def accept" in visible_text
 
 

@@ -232,6 +232,46 @@ def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts
     assert template.layout_id(expected_layout_slug) in complete_slice["template_layout_ids"]
     assert complete_slice["required_slot_kinds"] == ["steps"]
 
+    layout_id = template.layout_id(expected_layout_slug)
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id=f"story-{artifact_kind}",
+            chapter_id="field",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id=f"practice-{artifact_kind}-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Verify the field result",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=f"practice-{artifact_kind}-page",
+            decision=artifact_kind,
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert {region.content_kind for region in deck.pages[0].regions} == {
+        "steps",
+        artifact_kind,
+    }
+
 
 def _cross_subject_document() -> CourseDocument:
     long_definition = "生态承载力描述环境在不发生不可逆退化时可持续支持的活动规模。" * 12
