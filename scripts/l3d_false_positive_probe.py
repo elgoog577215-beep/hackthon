@@ -48,6 +48,26 @@ L3D_CODES = {
 }
 
 
+_FILLER = re.compile(r"([\u4e00-\u9fff]{4,})")
+
+
+def _is_synthetic(text: str) -> bool:
+    """Reject test fixtures so the sample is not inflated with fake data.
+
+    `backend/data/question_banks` looked like 4780 extra fragments, but every
+    long string there is filler of the form "完整课程内容。" repeated dozens of
+    times. Counting those would make the sample look 200x larger while
+    measuring nothing real, which is worse than a small honest sample.
+    """
+    tokens = _FILLER.findall(text)
+    if not tokens:
+        return False
+    counts: dict[str, int] = {}
+    for token in tokens:
+        counts[token] = counts.get(token, 0) + 1
+    return max(counts.values()) >= 5
+
+
 def _fragments(pattern: str, min_chars: int) -> list[dict]:
     """Pull real generated prose out of stored representations."""
     seen: set[str] = set()
@@ -62,11 +82,27 @@ def _fragments(pattern: str, min_chars: int) -> list[dict]:
                 text = json.loads(f'"{match.group(1)}"')
             except json.JSONDecodeError:
                 continue
-            if len(text) < min_chars or text in seen:
+            if len(text) < min_chars or text in seen or _is_synthetic(text):
                 continue
             seen.add(text)
             out.append({"source": Path(path).name, "text": text})
     return out
+
+
+def _wilson_upper_bound(events: int, trials: int, z: float = 1.96) -> float:
+    """One-sided 95% upper bound on the true rate.
+
+    With zero observed events this reduces to roughly the rule of three (3/n):
+    26 clean samples cannot rule out a true rate around 11%. Reporting the bound
+    keeps "0%" from being read as "proven safe".
+    """
+    if trials <= 0:
+        return 1.0
+    phat = events / trials
+    denominator = 1 + z * z / trials
+    centre = phat + z * z / (2 * trials)
+    margin = z * ((phat * (1 - phat) / trials + z * z / (4 * trials * trials)) ** 0.5)
+    return round(min(1.0, (centre + margin) / denominator), 4)
 
 
 def _has_structure(text: str) -> dict[str, bool]:
@@ -123,6 +159,10 @@ def main() -> int:
             })
 
     rate = (len(flagged) / structural_total) if structural_total else 0.0
+    # A 0/N result is "not observed", never "does not happen". The one-sided
+    # 95% upper bound (rule of three for zero events) states what the sample can
+    # actually support, so nobody reads 0% as proof of safety.
+    upper_95 = _wilson_upper_bound(len(flagged), structural_total)
 
     # L3e: verify every code the module can emit lands in exactly one dimension,
     # and that the L3d codes are attributed to render (not content).
@@ -138,6 +178,12 @@ def main() -> int:
         "structure_counts": structure_counts,
         "flagged_fragments": len(flagged),
         "false_positive_rate": round(rate, 4),
+        "false_positive_rate_upper_95": upper_95,
+        "reading": (
+            f"{len(flagged)}/{structural_total} 未发现误报；"
+            f"样本量只能支持「真实误报率 ≤ {upper_95:.1%}（95% 单侧上界）」，"
+            "不能读作「不存在误报」"
+        ),
         "by_code": by_code,
         "l3e_dimension_of_l3d_codes": dimension_check,
         "l3e_misattributed": misattributed,
