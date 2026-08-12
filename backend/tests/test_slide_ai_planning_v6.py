@@ -913,7 +913,11 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
     async def planner(request):
         calls.append(request)
         unit = request["teaching_units"][0]
-        summary = "记录地点、时间和天气。" if len(calls) == 1 else source_sentence * 2
+        summary = (
+            "记录地点、时间和天气。"
+            if len(calls) == 1
+            else request["repair_feedback"]["repair_targets"][0]["required_summary"]
+        )
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -938,6 +942,9 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
     target = feedback["repair_targets"][0]
     assert feedback["code"] == "story_page_underfilled"
     assert target["summary_min_chars"] > len("记录地点、时间和天气。")
+    assert target["required_summary"]
+    assert len(target["required_summary"]) >= target["summary_min_chars"]
+    assert story.pages[0].summary == target["required_summary"]
     assert len(story.pages[0].summary) >= target["summary_min_chars"]
 
 
