@@ -134,6 +134,26 @@ def _answer_text(value: Any) -> str:
     return _text(value)
 
 
+def _requires_synonyms(match_mode: str, answer: Any) -> bool:
+    """这一空是否必须提供同义写法。
+
+    只针对**自由文本**空：`exact` 模式且答案不是纯数值/纯符号。
+    数值走 numeric（带容差与单位换算）、代数走 symbolic，它们的判等本身
+    就能吃下写法差异，不需要穷举。
+    """
+    if match_mode != "exact":
+        return False
+    text = _text(answer) if not isinstance(answer, dict) else ""
+    if not text:
+        return False
+    # 纯数字（含负号、小数点、单位）不算自由文本
+    stripped = text.replace("-", "").replace(".", "").replace(" ", "")
+    if stripped.isdigit():
+        return False
+    # 短到只有一两个字符的（如 "A"、"是"）判等歧义小，不强制
+    return len(text) > 2
+
+
 def compile_fill_blank_contract(
     *,
     prompt: str,
@@ -178,6 +198,18 @@ def compile_fill_blank_contract(
         answer = raw.get("answer")
         if answer is None or answer == "":
             raise ValueError(f"blank {blank_id} has no answer")
+        # 文本空必须自带同义写法（H1b 归因结论的落地）。
+        #
+        # 文本空的判等是「归一化后字符串相等」，措辞一变就判错——归因实测失败
+        # 几乎全是「系统内能增加」vs「内能增加」这类同义不同形。要么题目把
+        # 同义写法穷举出来，要么这道题本来就判不准。
+        #
+        # 这是**收紧**而不是放宽：判等规则一个字没动，只是要求出题时把
+        # 判等所需的信息给齐。给不齐就当场拒收，而不是留到学生作答时误判。
+        if _requires_synonyms(mode, answer) and len(accepted) < 1:
+            raise ValueError(
+                f"blank {blank_id} is free text and needs acceptable_answers"
+            )
         compiled.append({
             "blank_id": blank_id,
             "match_mode": mode,
