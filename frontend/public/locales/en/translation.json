@@ -2926,6 +2926,25 @@
         "cancelled": "Generation stopped",
         "retryHint": "Your course and formal learning tasks are unaffected. You can retry.",
         "noRetryHint": "Retrying will not help; please contact an administrator. Your course and formal learning tasks are unaffected."
+      },
+      "suggestion": {
+        "title": "AI tutor suggestion",
+        "eyebrow": "Your AI tutor noticed",
+        "body": "This is based on your formal learning record. Nothing changes until you confirm.",
+        "explain": "Show me why",
+        "notNow": "Not now",
+        "never": "Stop reminding me",
+        "neverHint": "Never remind me about this again",
+        "actions": {
+          "confirmVersionChange": "A course update is waiting for your confirmation",
+          "resumeDiagnostic": "You have an unfinished diagnostic",
+          "resumeRemediation": "You have an unfinished remediation exercise",
+          "resumeValidation": "You have an unfinished independent check",
+          "resolveDiagnosticSupport": "A diagnostic result is waiting for you",
+          "resolveBlockingIssue": "An open question is blocking what comes next",
+          "startDueReview": "A review is due",
+          "generic": "A learning task is waiting to continue"
+        }
       }
     },
     "sources": {

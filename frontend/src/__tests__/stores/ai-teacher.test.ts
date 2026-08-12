@@ -298,8 +298,7 @@ describe('AI teacher store', () => {
     expect(runtimeSpy).not.toHaveBeenCalled()
   })
 
-  it('拒绝的撤销保留原回执状态且不重载运行时', async () => {
-    const runtimeStore = useLearningProgressStore()
+  it('拒绝的撤销保留原回执状态且不重载运行时', async () => {    const runtimeStore = useLearningProgressStore()
     const runtimeSpy = vi.spyOn(runtimeStore, 'loadRuntime').mockResolvedValue(undefined as never)
     httpMock.post.mockResolvedValue({
       data: {
@@ -341,5 +340,89 @@ describe('AI teacher store', () => {
     expect(message.receipt?.receipt_id).toBe('air-undo-1')
     expect(message.receipt?.undo_capability).toBe('none')
     expect(runtimeSpy).not.toHaveBeenCalled()
+  })
+
+  describe('主动建议', () => {
+    const candidate = {
+      trigger_id: 'ait-1',
+      trigger_type: 'runtime_support',
+      moment: 'section_completed',
+      node_id: 'node-1',
+      scope_ref: { node_id: 'node-1' },
+      severity: 'high',
+      eligible_action: 'explain_runtime_action',
+      runtime_action: { action_type: 'resume_diagnostic' },
+      dedupe_key: 'dk-1',
+      runtime_revision_id: 'runtime-1',
+    }
+
+    it('只在自然停顿点向服务端询问，并带上会话标识', async () => {
+      httpMock.get.mockResolvedValue({ data: { candidate } })
+      const store = useAITeacherStore()
+      store.courseId = 'course-1'
+
+      const result = await store.checkSuggestion('section_completed', 'node-1')
+
+      expect(result?.trigger_id).toBe('ait-1')
+      expect(store.suggestion?.trigger_id).toBe('ait-1')
+      const params = httpMock.get.mock.calls.at(-1)![1].params
+      expect(params.moment).toBe('section_completed')
+      expect(params.course_id).toBe('course-1')
+      // The interruption budget is counted per learning session, so the
+      // session key has to reach the server or "2 per session" is unenforceable.
+      expect(params.session_id).toBeTruthy()
+    })
+
+    it('把三种停顿点原样传给服务端，由服务端决定是否放行', async () => {
+      httpMock.get.mockResolvedValue({ data: { candidate: null } })
+      const store = useAITeacherStore()
+      store.courseId = 'course-1'
+
+      for (const moment of ['section_completed', 'practice_submitted', 'course_entered'] as const) {
+        await store.checkSuggestion(moment, 'node-1')
+        expect(httpMock.get.mock.calls.at(-1)![1].params.moment).toBe(moment)
+      }
+    })
+
+    it('展示后才消费打扰预算，只是询问不消费', async () => {
+      httpMock.get.mockResolvedValue({ data: { candidate } })
+      httpMock.post.mockResolvedValue({ data: { status: 'recorded' } })
+      const store = useAITeacherStore()
+      store.courseId = 'course-1'
+
+      await store.checkSuggestion('section_completed', 'node-1')
+      expect(httpMock.post).not.toHaveBeenCalled()
+
+      await store.markSuggestionShown(store.suggestion!)
+      expect(httpMock.post).toHaveBeenCalledWith(
+        '/api/ai-teacher/trigger/shown',
+        expect.objectContaining({
+          course_id: 'course-1',
+          trigger_id: 'ait-1',
+          dedupe_key: 'dk-1',
+          node_id: 'node-1',
+          moment: 'section_completed',
+          session_id: expect.any(String),
+        }),
+      )
+    })
+
+    it('服务端判定不该打扰时不留下建议', async () => {
+      httpMock.get.mockResolvedValue({ data: { candidate: null } })
+      const store = useAITeacherStore()
+      store.courseId = 'course-1'
+
+      expect(await store.checkSuggestion('section_completed', 'node-1')).toBeNull()
+      expect(store.suggestion).toBeNull()
+    })
+
+    it('建议查询失败不影响学习现场，也不抛错', async () => {
+      httpMock.get.mockRejectedValue(new Error('network down'))
+      const store = useAITeacherStore()
+      store.courseId = 'course-1'
+
+      await expect(store.checkSuggestion('course_entered', 'node-1')).resolves.toBeNull()
+      expect(store.error).toBeNull()
+    })
   })
 })

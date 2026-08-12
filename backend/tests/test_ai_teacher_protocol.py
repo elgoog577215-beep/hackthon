@@ -400,18 +400,22 @@ def test_record_action_is_idempotent_and_undo_archives_without_erasing(monkeypat
 
 def test_trigger_requires_strong_runtime_action_and_respects_suppression(monkeypatch, tmp_path: Path):
     interactions = AITeacherRepository(tmp_path)
+    # A proactive suggestion is now also gated on *when* it would interrupt, so
+    # every call here passes a natural pause; the timing rule itself is covered
+    # in `test_ai_teacher_proactive_gating.py`.
+    pause = {"moment": "section_completed", "session_id": "sess-1"}
     monkeypatch.setattr(ai_teacher_actions, "build_learning_runtime", lambda *args, **kwargs: _runtime("complete_reading"))
-    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions) is None
+    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions, **pause) is None
 
     monkeypatch.setattr(ai_teacher_actions, "build_learning_runtime", lambda *args, **kwargs: _runtime("resume_diagnostic"))
-    candidate = build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions)
+    candidate = build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions, **pause)
     assert candidate["trigger_type"] == "runtime_support"
     interactions.save_suppression("u1", "course-ai", {
         "suppression_key": candidate["dedupe_key"],
         "evidence_revision": candidate["runtime_revision_id"],
         "mode": "not_now",
     })
-    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions) is None
+    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions, **pause) is None
 
 
 @pytest.mark.asyncio

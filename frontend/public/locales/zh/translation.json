@@ -2926,6 +2926,25 @@
         "cancelled": "已停止生成",
         "retryHint": "课程与正式学习任务不受影响，可以重试。",
         "noRetryHint": "重试无法解决，请联系管理员；课程与正式学习任务不受影响。"
+      },
+      "suggestion": {
+        "title": "AI 老师建议",
+        "eyebrow": "AI 老师注意到",
+        "body": "这一步依据你的正式学习记录，确认前不会改变任何内容。",
+        "explain": "看看为什么",
+        "notNow": "暂时不要",
+        "never": "不再提醒",
+        "neverHint": "不再就这件事提醒我",
+        "actions": {
+          "confirmVersionChange": "课程有更新等待你确认",
+          "resumeDiagnostic": "你有一次诊断没有完成",
+          "resumeRemediation": "你有一次补救练习没有完成",
+          "resumeValidation": "你有一次独立验证没有完成",
+          "resolveDiagnosticSupport": "有一条诊断结论等待你处理",
+          "resolveBlockingIssue": "有一个问题正挡住后面的学习",
+          "startDueReview": "有一项复习到期了",
+          "generic": "有一个学习任务等待继续"
+        }
       }
     },
     "sources": {

@@ -64,6 +64,27 @@ STRONG_RUNTIME_ACTIONS = {
     "start_due_review",
 }
 
+# Interrupting someone who is reading is expensive, and every candidate here is
+# a *strong* runtime action (blocked diagnostic, due review, ...) that stays
+# valid for a while. So a suggestion waits for the next natural pause rather
+# than cutting into the current paragraph.
+SUGGESTION_MOMENTS = {
+    "section_completed",
+    "practice_submitted",
+    "course_entered",
+}
+
+# Frequency ceilings, on top of (not instead of) the per-evidence dedupe key.
+# Without them a learner with three blocking issues is interrupted three times
+# in a row, each one individually "justified".
+SESSION_SUGGESTION_LIMIT = 2
+NODE_SUGGESTION_LIMIT = 1
+
+# "Not now" used to hold only until the evidence revision changed — but a due
+# review re-revises constantly, so the same suggestion could return minutes
+# later and read as if the refusal was ignored. `never` stays permanent.
+NOT_NOW_QUIET_HOURS = 24
+
 
 class ActionForbidden(Exception):
     pass
@@ -290,12 +311,22 @@ def reject_proposal(
     )
     mode = reason if reason in {"not_now", "irrelevant", "already_done", "never"} else "not_now"
     suppression = repository.save_suppression(user_id, course_id, {
-        "suppression_key": str(proposal.get("dedupe_key") or proposal_id),
+        # Keyed on what was refused, not on the evidence behind it — see
+        # `_suppression_key`. The proposal's own dedupe key folds in the runtime
+        # revision, so using it here silently expired every refusal.
+        "suppression_key": _suppression_key(
+            str(proposal.get("action_type") or ""),
+            proposal.get("target_ref") or {},
+        ),
         "action_type": proposal.get("action_type"),
         "target_ref": proposal.get("target_ref") or {},
         "evidence_revision": proposal.get("runtime_revision_id"),
         "mode": mode,
         "proposal_id": proposal_id,
+        # A time floor for the reversible refusals. `never` needs none — it is
+        # already permanent, and giving it a window would only invite the
+        # window to be treated as its expiry.
+        "quiet_until": "" if mode == "never" else _quiet_until(),
     })
     return {"proposal": updated, "suppression": suppression}
 
@@ -403,9 +434,21 @@ def build_trigger_candidate(
     *,
     user_id: str,
     node_id: str | None,
+    moment: str = "",
+    session_id: str = "",
     repository: AITeacherRepository | None = None,
 ) -> dict[str, Any] | None:
+    """Return a proactive suggestion only when interrupting is actually justified.
+
+    Four gates, in increasing cost order: the moment must be a natural pause,
+    the runtime action must be one of the strong ones, the frequency budget
+    must have room, and the learner must not have refused this suggestion
+    recently. All of it is server-side so a refresh or a second device cannot
+    hand the learner a fresh allowance.
+    """
     repository = repository or ai_teacher_repository
+    if moment not in SUGGESTION_MOMENTS:
+        return None
     course_id = str(course.get("course_id") or "")
     runtime = build_learning_runtime(course, user_id=user_id, node_id=node_id)
     action = (runtime.get("continuation") or {}).get("primary_action") or {}
@@ -416,16 +459,31 @@ def build_trigger_candidate(
         "node_id": (runtime.get("context") or {}).get("node_id"),
         "objective_revision_id": (runtime.get("context") or {}).get("objective_revision_id"),
     }
+    scope_node_id = str(node_id or target_ref.get("node_id") or (runtime.get("context") or {}).get("node_id") or "")
+    if _suggestion_budget_exhausted(
+        repository,
+        user_id=user_id,
+        course_id=course_id,
+        session_id=session_id,
+        node_id=scope_node_id,
+    ):
+        return None
     evidence_revision = str(runtime.get("runtime_revision_id") or "")
-    suppression_key = _dedupe_key("explain_runtime_action", target_ref, [], evidence_revision, "")
+    suppression_key = _suppression_key("explain_runtime_action", target_ref)
     for suppression in repository.list_suppressions(user_id, course_id):
         if suppression.get("suppression_key") != suppression_key:
             continue
-        if suppression.get("mode") == "never" or suppression.get("evidence_revision") == evidence_revision:
+        if suppression.get("mode") == "never":
+            return None
+        if suppression.get("evidence_revision") == evidence_revision:
+            return None
+        if _within_quiet_window(suppression):
             return None
     return {
         "trigger_id": f"ait_{suppression_key[:24]}",
         "trigger_type": "runtime_support",
+        "moment": moment,
+        "node_id": scope_node_id,
         "scope_ref": target_ref,
         "evidence_refs": action.get("evidence_refs") or [],
         "confidence": 1.0,
@@ -436,6 +494,91 @@ def build_trigger_candidate(
         "runtime_revision_id": evidence_revision,
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
     }
+
+
+def record_suggestion_shown(
+    *,
+    user_id: str,
+    course_id: str,
+    candidate: dict[str, Any],
+    session_id: str,
+    repository: AITeacherRepository | None = None,
+) -> dict[str, Any]:
+    """Spend one unit of the interruption budget.
+
+    Charged when the suggestion is actually put in front of the learner, not
+    when it is computed, so polling for a candidate is free.
+    """
+    repository = repository or ai_teacher_repository
+    return repository.record_suggestion_shown(user_id, course_id, {
+        "session_id": str(session_id or ""),
+        "node_id": str(candidate.get("node_id") or ""),
+        "trigger_id": str(candidate.get("trigger_id") or ""),
+        "dedupe_key": str(candidate.get("dedupe_key") or ""),
+        "moment": str(candidate.get("moment") or ""),
+    })
+
+
+def suppress_suggestion(
+    *,
+    user_id: str,
+    course_id: str,
+    dedupe_key: str,
+    runtime_revision_id: str = "",
+    reason: str = "not_now",
+    repository: AITeacherRepository | None = None,
+) -> dict[str, Any]:
+    """Record a refusal of a proactive suggestion.
+
+    `not_now` carries the 24-hour floor so a suggestion whose evidence keeps
+    re-revising (a due review, typically) cannot reappear minutes after being
+    dismissed. `never` is permanent and deliberately carries no window.
+    """
+    repository = repository or ai_teacher_repository
+    mode = reason if reason in {"not_now", "never"} else "not_now"
+    return repository.save_suppression(user_id, course_id, {
+        "suppression_key": dedupe_key,
+        "action_type": "explain_runtime_action",
+        "evidence_revision": runtime_revision_id,
+        "mode": mode,
+        "quiet_until": "" if mode == "never" else _quiet_until(),
+    })
+
+
+def _suggestion_budget_exhausted(
+    repository: AITeacherRepository,
+    *,
+    user_id: str,
+    course_id: str,
+    session_id: str,
+    node_id: str,
+) -> bool:
+    shown = repository.list_suggestions_shown(user_id, course_id)
+    if session_id:
+        in_session = [item for item in shown if str(item.get("session_id") or "") == session_id]
+        if len(in_session) >= SESSION_SUGGESTION_LIMIT:
+            return True
+        if node_id and len([
+            item for item in in_session
+            if str(item.get("node_id") or "") == node_id
+        ]) >= NODE_SUGGESTION_LIMIT:
+            return True
+    return False
+
+
+def _within_quiet_window(suppression: dict[str, Any]) -> bool:
+    quiet_until = str(suppression.get("quiet_until") or "")
+    if not quiet_until:
+        return False
+    try:
+        expires = datetime.fromisoformat(quiet_until.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return expires > datetime.now(timezone.utc)
+
+
+def _quiet_until() -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=NOT_NOW_QUIET_HOURS)).isoformat()
 
 
 def _execute_record_action(
@@ -611,6 +754,24 @@ def _dedupe_key(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _suppression_key(action_type: str, target_ref: dict[str, Any]) -> str:
+    """Identify a refusal by what was refused, not by the evidence behind it.
+
+    Suppression used to be keyed on the full dedupe key, which folds in the
+    runtime revision — so the moment new evidence arrived the key changed, no
+    stored suppression matched, and even `never` came back. Refusals are about
+    the action and its target, so the key must survive evidence churn; the
+    revision is kept as a *field* for the narrower "same revision" rule.
+    """
+    payload = json.dumps(
+        {"action_type": action_type, "target_ref": target_ref},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _payload_preview(action_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": str(payload.get("title") or "")[:200],
@@ -657,12 +818,18 @@ def _now() -> str:
 
 __all__ = [
     "ACTION_TYPES",
+    "NODE_SUGGESTION_LIMIT",
+    "NOT_NOW_QUIET_HOURS",
     "RECEIPT_RESULT_CODES",
     "RECEIPT_SCHEMA_VERSION",
+    "SESSION_SUGGESTION_LIMIT",
+    "SUGGESTION_MOMENTS",
     "ActionForbidden",
     "build_trigger_candidate",
     "execute_proposal",
     "propose_action",
+    "record_suggestion_shown",
     "reject_proposal",
+    "suppress_suggestion",
     "undo_receipt",
 ]
