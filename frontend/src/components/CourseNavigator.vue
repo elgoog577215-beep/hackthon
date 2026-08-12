@@ -97,7 +97,7 @@ const navigatorHelp = computed(() => {
 </script>
 
 <style scoped>
-.course-navigator { width:280px; height:100%; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; border:1px solid rgba(255,255,255,.88); border-radius:20px; background:linear-gradient(160deg,rgba(255,255,255,.96),rgba(247,248,255,.91)); box-shadow:0 10px 30px rgba(79,70,229,.07),inset 0 1px 0 #fff; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.course-navigator { width:min(292px,100%); height:100%; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; border:1px solid rgba(255,255,255,.88); border-radius:20px; background:linear-gradient(160deg,rgba(255,255,255,.96),rgba(247,248,255,.91)); box-shadow:0 10px 30px rgba(79,70,229,.07),inset 0 1px 0 #fff; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-navigator > header { min-width:0; display:grid; grid-template-columns:32px minmax(0,1fr) 32px; align-items:center; gap:7px; padding:11px 10px 10px; border-bottom:1px solid rgba(224,231,255,.72); background:rgba(255,255,255,.42); }
 .course-navigator header button { width:32px; height:32px; display:grid; place-items:center; border:1px solid transparent; border-radius:9px; color:var(--lz-text-muted); background:rgba(255,255,255,.36); cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .course-navigator header button:hover { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#fff; }

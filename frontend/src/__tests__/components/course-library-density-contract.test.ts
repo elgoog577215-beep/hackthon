@@ -12,13 +12,13 @@ const coverSource = readFileSync(
 )
 
 describe('course library density contract', () => {
-  it('preserves the original course library shell measurements', () => {
+  it('uses a compact desktop shell without weakening the resume path', () => {
     expect(librarySource).toMatch(/--course-content-width:\s*1280px/)
-    expect(librarySource).toMatch(/padding:\s*30px\s+clamp\(18px,4vw,54px\)\s+48px/)
+    expect(librarySource).toMatch(/padding:\s*24px\s+clamp\(18px,4vw,54px\)\s+38px/)
     expect(librarySource).not.toMatch(/class="resume-card"/)
-    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*24px\s+auto\s+14px[^}]*display:\s*flex[^}]*align-items:\s*center[^}]*gap:\s*12px/s)
-    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*100%[^}]*height:\s*44px[^}]*flex:\s*0\s+1\s+360px/s)
-    expect(librarySource).toMatch(/\.library-resume\s*\{[^}]*height:\s*44px[^}]*flex:\s*1\s+1\s+520px[^}]*grid-template-columns:\s*28px\s+minmax\(0,1fr\)\s+auto/s)
+    expect(librarySource).toMatch(/\.library-toolbar\s*\{[^}]*margin:\s*16px\s+auto\s+12px[^}]*display:\s*flex[^}]*align-items:\s*center[^}]*gap:\s*10px/s)
+    expect(librarySource).toMatch(/\.library-toolbar label\s*\{[^}]*width:\s*100%[^}]*height:\s*40px[^}]*flex:\s*0\s+1\s+330px/s)
+    expect(librarySource).toMatch(/\.library-resume\s*\{[^}]*height:\s*40px[^}]*flex:\s*1\s+1\s+520px[^}]*grid-template-columns:\s*26px\s+minmax\(0,1fr\)\s+auto/s)
     expect(librarySource).toMatch(/\.library-resume__action svg\s*\{[^}]*transition:\s*transform\s+\.18s\s+ease/s)
     expect(librarySource).toMatch(/\.library-resume:hover\s+\.library-resume__action svg\s*\{[^}]*transform:\s*translateX\(3px\)/s)
     expect(librarySource).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*\.library-resume[^}]*transition:\s*none/s)
@@ -26,15 +26,15 @@ describe('course library density contract', () => {
 
   it('fills wide screens with three readable cards and steps down responsively', () => {
     expect(librarySource).toMatch(/--course-grid-width:\s*1280px/)
-    expect(librarySource).toMatch(/--course-card-height:\s*150px/)
-    expect(librarySource).toMatch(/--course-grid-gap:\s*18px/)
+    expect(librarySource).toMatch(/--course-card-height:\s*140px/)
+    expect(librarySource).toMatch(/--course-grid-gap:\s*14px/)
     expect(librarySource).toMatch(/\.course-grid\s*\{[^}]*max-width:\s*var\(--course-grid-width\)[^}]*margin:\s*0[^}]*margin-inline-start:\s*max\(0px,calc\(\(100%\s*-\s*var\(--course-content-width\)\)\s*\/\s*2\)\)[^}]*justify-content:\s*start/s)
     expect(librarySource).toMatch(/\.course-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,minmax\(0,1fr\)\)/s)
     expect(librarySource).toMatch(/@media\s*\(max-width:1360px\)\s*\{[^}]*\.course-grid\s*\{[^}]*max-width:\s*1040px[^}]*grid-template-columns:\s*repeat\(2,minmax\(0,1fr\)\)/s)
     expect(librarySource).toMatch(/@media\s*\(max-width:860px\)\s*\{[^}]*\.course-grid\s*\{[^}]*max-width:\s*511px[^}]*grid-template-columns:\s*minmax\(0,1fr\)/s)
     expect(librarySource).not.toMatch(/\.course-grid\s*\{[^}]*margin:\s*0\s+auto/s)
     expect(librarySource).toMatch(/\.course-item\s*\{[^}]*grid-template-columns:\s*minmax\(0,1fr\)\s+96px/s)
-    expect(librarySource).toMatch(/\.course-main\s*\{[^}]*gap:\s*16px[^}]*padding:\s*16px\s+8px\s+16px\s+18px/s)
+    expect(librarySource).toMatch(/\.course-main\s*\{[^}]*gap:\s*14px[^}]*padding:\s*13px\s+8px\s+13px\s+16px/s)
     expect(librarySource).toMatch(/\.course-copy\s*\{[^}]*min-width:\s*0[^}]*display:\s*flex/s)
     expect(librarySource).not.toMatch(/\.course-copy\s*\{[^}]*max-width:/s)
     expect(librarySource).toMatch(/\.course-copy h2\s*\{[^}]*font-size:\s*16px/s)
@@ -42,7 +42,7 @@ describe('course library density contract', () => {
   })
 
   it('uses category texture variants of the same three-dimensional book model', () => {
-    expect(librarySource).toMatch(/--course-cover-width:\s*78px/)
+    expect(librarySource).toMatch(/--course-cover-width:\s*72px/)
     expect(coverSource).toMatch(/width:\s*var\(--course-cover-width,\s*78px\)/)
     expect(coverSource).toMatch(/aspect-ratio:\s*2\s*\/\s*3/)
     const presets = ['ai', 'programming', 'mathematics', 'medicine', 'engineering', 'science', 'humanities', 'general']

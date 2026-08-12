@@ -101,7 +101,6 @@
             <div v-if="selectedCourse" class="review-center__scroll">
               <header class="selected-course-heading">
                 <div>
-                  <span>{{ t('questionBank.currentCourse', '当前课程') }}</span>
                   <h3>{{ selectedCourse.course_name }}</h3>
                 </div>
                 <small>{{ selectedCourse.node_count || 0 }} {{ t('courseLibrary.nodes', '个学习节点') }}</small>
@@ -238,16 +237,16 @@ async function refresh() {
 .review-center__header-actions { display:flex; gap:4px; }
 .icon-button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .icon-button:hover,.icon-button:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
-.review-center__body { min-height:0; display:grid; grid-template-columns:310px minmax(0,1fr); }
-.review-course-list { min-height:0; display:flex; flex-direction:column; padding:14px 12px; border-right:1px solid var(--lz-border); background:var(--lz-surface-muted); }
+.review-center__body { min-height:0; display:grid; grid-template-columns:280px minmax(0,1fr); }
+.review-course-list { min-height:0; display:flex; flex-direction:column; padding:12px 10px; border-right:1px solid var(--lz-border); background:var(--lz-surface-muted); }
 .review-course-search { display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-muted); background:#fff; }
 .review-course-search input { min-width:0; flex:1; height:36px; border:0; outline:0; color:var(--lz-text); background:transparent; }
 .review-course-count { padding:9px 5px 7px; color:var(--lz-text-muted); font-size:10px; }
 .review-course-rows { min-height:0; display:grid; align-content:start; gap:5px; overflow:auto; }
-.review-course-row { width:100%; display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:9px; padding:10px; border:1px solid transparent; border-radius:10px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
+.review-course-row { width:100%; display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:8px; min-height:54px; padding:8px; border:1px solid transparent; border-radius:9px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
 .review-course-row:hover,.review-course-row:focus-visible { background:#fff; outline:none; }
 .review-course-row.active { border-color:rgba(99,102,241,.24); background:var(--lz-brand-soft); }
-.review-course-row__icon { width:32px; height:32px; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand-strong); background:#fff; }
+.review-course-row__icon { width:28px; height:28px; display:grid; place-items:center; border-radius:7px; color:var(--lz-brand-strong); background:#fff; }
 .review-course-row__copy { min-width:0; display:grid; gap:3px; }
 .review-course-row__copy strong { overflow:hidden; color:var(--lz-text-strong); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
 .review-course-row__copy small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
@@ -262,15 +261,15 @@ async function refresh() {
   scrollbar-color:#94a3b8 #e2e8f0;
   scrollbar-gutter:stable;
   scrollbar-width:auto;
-  padding:20px;
+  padding:16px 18px 18px;
 }
 .review-center__scroll::-webkit-scrollbar { width:12px; }
 .review-center__scroll::-webkit-scrollbar-track { border-radius:999px; background:#e2e8f0; }
 .review-center__scroll::-webkit-scrollbar-thumb { min-height:48px; border:3px solid #e2e8f0; border-radius:999px; background:#94a3b8; }
 .review-center__scroll::-webkit-scrollbar-thumb:hover { background:#64748b; }
-.selected-course-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:12px; padding:0 2px; }
+.selected-course-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:9px; padding:0 2px; }
 .selected-course-heading span,.selected-course-heading small { color:var(--lz-text-muted); font-size:10px; }
-.selected-course-heading h3 { margin:3px 0 0; color:var(--lz-text-strong); font-size:17px; }
+.selected-course-heading h3 { margin:0; overflow:hidden; color:var(--lz-text-strong); font-size:16px; text-overflow:ellipsis; white-space:nowrap; }
 .spin { animation:review-center-spin .9s linear infinite; }
 @keyframes review-center-spin { to { transform:rotate(360deg); } }
 @media (max-width:760px) {

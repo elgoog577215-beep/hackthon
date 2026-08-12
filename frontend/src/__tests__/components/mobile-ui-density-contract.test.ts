@@ -18,7 +18,7 @@ describe('mobile UI density contract', () => {
       /<Teleport to="body">[\s\S]*?class="library-pagination-dock"/,
     )
     expect(librarySource).toMatch(
-      /\.library-pagination-dock\s*\{[^}]*position:relative[^}]*margin:20px auto 0/s,
+      /\.library-pagination-dock\s*\{[^}]*position:relative[^}]*margin:14px auto 0/s,
     )
     expect(librarySource).toMatch(
       /@media\s*\(max-width:700px\)[\s\S]*?\.library-toolbar\s*\{[^}]*flex-wrap:nowrap[^}]*gap:8px/,
