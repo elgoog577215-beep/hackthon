@@ -942,6 +942,7 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
     target = feedback["repair_targets"][0]
     assert feedback["code"] == "story_page_underfilled"
     assert target["summary_min_chars"] > len("记录地点、时间和天气。")
+    assert target["required_template_layout_id"].endswith("/content-stack")
     assert target["required_summary"]
     assert len(target["required_summary"]) >= target["summary_min_chars"]
     assert story.pages[0].summary == target["required_summary"]
