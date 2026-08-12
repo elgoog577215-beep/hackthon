@@ -144,9 +144,11 @@ def evaluate_prompt_contract(
         ),
         "instruction_precedence": "执行优先级" in prompt,
         "data_instruction_isolation": "输入隔离" in prompt,
+        "result_density": "结果密度" in prompt,
         "domain_contract": bool(template_id and template_id in prompt),
         "decision_sequence": "决策顺序" in prompt,
         "silent_preflight": "提交前静默核验" in prompt,
+        "artifact_quality_bar": "产物质量门" in prompt,
         "grounding_boundary": "不得伪造" in prompt,
         "machine_output_contract": "JSON Schema" in prompt,
     }
@@ -170,8 +172,10 @@ def without_execution_control(prompt: str) -> str:
     omitted_labels = (
         "- 执行优先级：",
         "- 输入隔离：",
+        "- 结果密度：",
         "- 决策顺序：",
         "- 提交前静默核验：",
+        "- 产物质量门：",
     )
     return "\n".join(
         line for line in prompt.splitlines()

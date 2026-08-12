@@ -36,7 +36,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v31"
+PROMPT_CONTRACT_VERSION = "course_prompt_v32"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -629,21 +629,41 @@ class CoursePromptComposer:
 ## 约束
 1. `sections` 必须按批次顺序返回；`knowledge_details` 必须按本节
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键或创造新键。
-2. 每个知识详情必须达到可独立解释、练习和诊断的原子粒度，给出条件或边界、
-   可观察能力、可验证掌握标准；只有确有可信错误模式时才生成易错点，禁止模板易错。
+2. 每个知识详情必须达到可独立解释、练习和诊断的原子粒度，并满足“最小充分”。不要
+   为任何数组预设数量：先扫描不同的成立判断、边界机制、错误诊断和迁移证据，再合并
+   那些虽然措辞不同、但判别与修复方法相同的项目；只要判别方法不同就必须保留。每个
+   知识至少有一个真实易错点，不得生成“注意理解”等模板易错。
 3. 凡存在典型反例、不适用情境或相邻易混对象，必须给出具体反例或判别方式；不得
    使用“视情况而定”“注意理解”等空句。
 4. 正式关系只允许 `prerequisite|derives|equivalent_to|contrasts_with|applies_to|
-   generalizes`。前置不得改写冻结 DAG；推导必须附关键步骤，对比必须附判别维度，
+   generalizes`，方向统一为 `source_key -> target_key`：前置表示 source 是学习 target 的
+   必要基础；推导表示 source 经 `derivation_steps` 推出 target；应用表示用 source 处理
+   target；一般化表示 source 的规律覆盖 target 的特殊情形。前置不得改写冻结 DAG；
+   推导必须填写 `derivation_steps`，对比必须填写 `distinction`，
    应用必须附成立条件。每个本批次新知识的已冻结前置边必须原样返回并补充
    具体语义理由；课程先后、父子包含和泛泛相关不得写成关系。除冻结前置外，批次
    中只要存在真实的推导、易混、应用、等价或泛化关系，就必须至少返回一条相应
    语义关系；不得把有六个以上知识点的全课退化成只有 prerequisite 的目录顺序图。
-5. `source_refs` 只能引用当前小节 `evidence_hints` 中已经给出的证据标识；无证据时
-   留空并降低 `confidence`，不得伪造书名、链接、作者、页码或资料 ID。
+5. `source_refs` 只能引用当前小节 `evidence_hints` 中已经给出的证据标识。引用覆盖与
+   知识置信度分别判断：有准入证据且一致才可为 `high`；无资料但属于稳定、无争议的
+   学科常识可为 `medium`；时效、争议、精确外部事实或未经核实的推断无来源时必须为
+   `low`。不得伪造书名、链接、作者、页码或资料 ID。
 6. 严格执行课程设计契约中的学科知识重点、证据优先级和反模式；不能用同一套通用知识
    描述覆盖数学、工程、科学、人文、语言等不同知识形态。
 7. 本阶段禁止返回 `teaching_modules`、师生活动、课时流程、正文或练习。
+8. 冻结注册表已经保存规范 `name` 与 `statement`；`knowledge_details` 只补充 Schema
+   声明的字段，不得重复输出 `statement` 或任何未声明字段。
+9. 按 `knowledge_type` 完成差异化诊断覆盖，只保留适用项：
+   - 定义/概念：成立正例、不成立或边界机制、相邻概念辨别、有限观察等证据不足；若有
+     方向不一致与不收敛/振荡等本质不同的失败机制，应分别保留。`counterexamples` 必须
+     是使命题不成立或暴露适用边界的具体对象；有限样本不足等论证缺陷放入边界或易错；
+   - 定理/形式规则：前提条件、量词或方向、结论边界、能击穿错误表述的反例；
+   - 方法/程序：候选构造、正向验证、遗漏辅助条件或隐含假设、参数或情境变化后的迁移；
+     至少一个迁移案例必须改变解题结构并显式引入新的约束或辅助条件，只换数字、名称或
+     参数不算迁移；
+   - 模型/工程设计：输入与假设、竞争方案取舍、失效模式、计算/仿真/实验验证及外推边界；
+   - 人文/历史论证：时序、因果与相关辨别、证据类型、竞争性解释及反事实边界。
+   若一个知识同时承担定义和方法，不能因已覆盖定义错误就省略方法执行中的独立失败机制。
 
 ## JSON Schema
 {{
@@ -691,6 +711,8 @@ class CoursePromptComposer:
         "relation_type": "六类正式关系之一",
         "reason": "具体语义理由",
         "conditions": ["关系成立条件"],
+        "distinction": "仅 contrasts_with 必填的判别维度，否则为空字符串",
+        "derivation_steps": ["仅 derives 必填的关键推导步骤，否则为空数组"],
         "source_refs": ["evidence-unit-id"],
         "confidence": "high|medium|low"
       }}]
@@ -803,13 +825,18 @@ class CoursePromptComposer:
 ## 约束
 1. `sections` 必须按批次顺序完整返回。每节 `teaching_modules` 必须精确覆盖该节
    已选择的 `allowed_module_ids`，不得遗漏、重复或创造模块。
-2. 每个模块必须绑定本节负责或复用的冻结知识键，并写出不重复的具体教学目的、讲法、
-   教师动作、学生动作和检查证据。不得把学科模板原句复制成教案。
+2. 每个模块必须绑定本节负责或复用的冻结知识键，并形成一个可执行闭环：教师提供的
+   问题、材料或示范 -> 学生当场形成的可见产出 -> 教师依据什么检查并怎样反馈。
+   `teaching_guidance` 必须说明这一闭环，`teacher_activity` 和 `student_activity` 分别
+   写出真实动作，不得把学科模板原句复制成教案。
 3. 课堂流程必须落实当前 `lesson_archetype` 的目的与证据，并与前后小节职责衔接；
    不能让同一学科所有小节使用完全相同的导入、讲解、练习和总结。
 4. 每节必须给出重点难点、师生活动、课堂检查和作业或迁移任务；有课时合同时分钟数
-   必须守恒。资源只能引用已给定标识，不能编造来源。
-5. 教案中的检查和作业必须能够观察冻结 `mastery_criteria`，不能只问“是否理解”。
+   必须守恒。模块字段是课堂过程真源，汇总数组只概括跨模块主线和关键转折，不得逐项
+   复述模块。资源只能引用已给定标识，不能编造来源。
+5. 每条 `in_class_checks` 必须能观察冻结 `mastery_criteria`，并在同一字符串中写明
+   “知识键/掌握标准；任务；学生证据；最低通过表现”；不能只问“是否理解”。作业只
+   保留 1-2 个最能验证独立表现或迁移的任务，并标明预计用时，不能重复课堂例题。
 6. 本阶段禁止返回 `knowledge_details`、`knowledge_relations`、新知识键、正文或题目。
 
 ## JSON Schema

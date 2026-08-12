@@ -7,6 +7,7 @@ from scripts.course_generation_benchmark import load_manifest, summarize_runs
 from scripts.course_prompt_contract_benchmark import (
     build_report as build_prompt_contract_report,
 )
+from scripts.course_prompt_outcome_benchmark import build_fixed_prompts
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,3 +80,19 @@ def test_offline_prompt_benchmark_separates_contract_coverage_from_model_quality
         assert generic["passed_dimensions"] < structured["passed_dimensions"]
         assert structured["passed_dimensions"] < production["passed_dimensions"]
         assert production["passed_dimensions"] > generic["passed_dimensions"]
+
+
+def test_fixed_outcome_benchmark_compiles_real_production_stage_prompts():
+    prompts = build_fixed_prompts()
+
+    assert set(prompts) == {"outline", "knowledge", "teaching"}
+    assert "最小充分" in prompts["knowledge"]
+    assert "本质不同的失败机制" in prompts["knowledge"]
+    assert "只换数字、名称或" in prompts["knowledge"]
+    assert "学科常识可为 `medium`" in prompts["knowledge"]
+    assert "distinction" in prompts["knowledge"]
+    assert "derivation_steps" in prompts["knowledge"]
+    assert "学生证据；最低通过表现" in prompts["teaching"]
+    assert "预计用时" in prompts["teaching"]
+    assert "产物质量门" in prompts["outline"]
+    assert "每项显式课程要求" in prompts["outline"]

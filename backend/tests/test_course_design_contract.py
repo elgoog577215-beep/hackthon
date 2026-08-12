@@ -99,10 +99,13 @@ def test_every_stage_declares_decision_sequence_and_silent_preflight():
 
         assert len(stage_contract["decision_sequence"]) >= 3
         assert len(stage_contract["silent_checks"]) >= 3
+        assert len(stage_contract["artifact_quality_bar"]) >= 3
         assert "执行优先级" in rendered
         assert "输入隔离" in rendered
+        assert "结果密度" in rendered
         assert "决策顺序" in rendered
         assert "提交前静默核验" in rendered
+        assert "产物质量门" in rendered
 
 
 def test_outline_batch_receives_course_type_and_subject_contract_after_split():
@@ -154,8 +157,10 @@ def test_compact_prompt_preserves_non_compressible_stage_quality_kernel():
     assert "禁止修改" in prompt
     assert "执行优先级" in prompt
     assert "输入隔离" in prompt
+    assert "结果密度" in prompt
     assert "决策顺序" in prompt
     assert "提交前静默核验" in prompt
+    assert "产物质量门" in prompt
     assert "直觉不能替代定义" in prompt
     assert "章节能推进到最终成果" in prompt
     assert contract["revision_id"] in prompt
