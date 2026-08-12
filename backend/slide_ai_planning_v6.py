@@ -35,7 +35,9 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    _complete_sentence_excerpt,
     _title_is_incomplete,
+    _visible_prose_text,
     graph_page_source_blocks,
     source_required_slot_kinds,
     story_page_count_range,
@@ -1319,6 +1321,31 @@ def _story_repair_targets(
             )
             or 0
         )
+        summary_max_chars = int(
+            (unit.get("summary_max_chars_by_layout_id") or {}).get(
+                current_layout_id,
+                0,
+            )
+            or 0
+        )
+        required_summary = ""
+        if error.failure.code == "story_page_underfilled" and summary_min_chars:
+            grounded_source = _visible_prose_text("\n".join(
+                str(block_metadata.get(block_id, {}).get("source_text") or "")
+                for block_id in current_source_block_ids
+            ))
+            effective_max = summary_max_chars or len(grounded_source)
+            required_summary = _complete_sentence_excerpt(
+                grounded_source,
+                effective_max,
+            )
+            if len(required_summary) < min(summary_min_chars, len(grounded_source)):
+                required_summary = grounded_source[:effective_max].rstrip(
+                    " ,，。；;：:、"
+                )
+                if required_summary and required_summary[-1] not in "。！？.!?":
+                    if len(required_summary) < effective_max:
+                        required_summary += "。"
         safe_partition_options = [
             option
             for option in unit.get("safe_partition_options") or []
@@ -1432,6 +1459,8 @@ def _story_repair_targets(
             "forbidden_titles": forbidden_titles,
             "current_summary": current_summary,
             "summary_min_chars": summary_min_chars,
+            "summary_max_chars": summary_max_chars,
+            "required_summary": required_summary,
             "summary_policy": (
                 "source_grounded_semantic_closure_for_all_bound_blocks_"
                 "complete_sentence_no_markdown"
@@ -1779,12 +1808,13 @@ async def plan_slide_story_v3(
                                 "an artifact-bearing page to a text-only layout. The "
                                 "validator will reject the result instead of generating replacement story "
                                 "pages. Set "
-                                "summary to one complete, Markdown-free, source-grounded sentence "
+                                    "summary to one complete, Markdown-free, source-grounded sentence "
                                 "that expresses the semantic closure of every bound source_block_id "
                                 "whose length remains between summary_min_chars_by_layout_id and "
                                 "summary_max_chars_by_layout_id for the selected layout when the frozen "
-                                "source is long enough. Use an empty summary only when the maximum is zero or "
-                                "no faithful synthesis is possible; never add identifiers or facts."
+                                    "source is long enough. Use an empty summary only when the maximum is zero or "
+                                    "no faithful synthesis is possible; never add identifiers or facts. Set a "
+                                    "repair target's summary exactly to required_summary when provided."
                             ),
                         },
                     }
