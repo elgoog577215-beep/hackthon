@@ -162,6 +162,7 @@ def test_production_diagnostics_can_probe_ppt_story_route_without_content_output
 
     assert "probe_ai_model:" in workflow
     assert 'model_role="ppt_story"' in workflow
+    assert 'model_role="ppt_visual"' in workflow
     assert '"model_id"' in workflow
     assert '"status"' in workflow
     assert '"error_code"' in workflow
