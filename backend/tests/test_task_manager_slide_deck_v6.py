@@ -164,6 +164,53 @@ async def test_failed_v6_progress_event_atomically_terminates_the_outer_task(
 
 
 @pytest.mark.asyncio
+async def test_restart_recovers_only_the_newest_equivalent_v6_build(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    request = {
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "target_schema": "slide_deck_v6",
+        "template_selector": {"pack_id": "", "version": None},
+    }
+    old_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot=request,
+    )
+    new_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot=request,
+    )
+    manager.tasks[old_id]["status"] = "running"
+    manager.tasks[new_id]["status"] = "running"
+
+    assert await manager._reconcile_task_after_restart(old_id) is False
+    assert manager.tasks[old_id]["status"] == "cancelled"
+    assert manager.tasks[old_id]["error_detail"]["code"] == (
+        "superseded_build_not_recovered"
+    )
+    assert await manager._reconcile_task_after_restart(new_id) is True
+    assert manager.tasks[new_id]["status"] == "pending"
+
+
+@pytest.mark.asyncio
 async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmentation(
     tmp_path,
     monkeypatch,
