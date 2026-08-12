@@ -586,6 +586,47 @@ def test_v6_dense_ordered_steps_pass_the_export_frame_audit(tmp_path: Path) -> N
     assert report["passed"], report["blockers"]
 
 
+def test_v6_ordered_steps_are_safe_across_provider_font_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import slide_deck_renderer as renderer
+
+    class NarrowProviderFont:
+        def getlength(self, _character: str) -> float:
+            return 0.1
+
+    deck = _ordered_step_deck()
+    task = next(
+        region for region in deck.pages[0].regions if region.slot_id == "task"
+    )
+    task.content = "\n".join([
+        "Build scene: \u5728 Hierarchy \u7a97\u53e3\u521b\u5efa\u4e00\u4e2a\u540d\u4e3a SpaceStation \u7684\u7a7a\u7269\u4f53\u4f5c\u4e3a\u7236\u8282\u70b9\uff1b"
+        "\u5728\u5176\u4e0b\u521b\u5efa ModuleA\u3001ModuleB\u3001ModuleC\uff0c\u5e76\u8bbe\u7f6e\u4f4d\u7f6e\u3001\u65cb\u8f6c\u89d2\u5ea6\u548c\u5c40\u90e8\u5750\u6807\u3002",
+        "Write script: \u65b0\u5efa RelativeMover.cs \u5e76\u6302\u8f7d\u5230 ModuleC\uff1b\u8ba9 ModuleC \u5728 SpaceStation "
+        "\u7684\u5c40\u90e8\u5750\u6807\u7cfb\u4e2d\u6cbf Y \u8f74\u4e0a\u4e0b\u6d6e\u52a8\uff0c\u5e76\u8bb0\u5f55 Mathf.Sin \u8fd0\u884c\u72b6\u6001\u3002",
+        "Validate: \u8fd0\u884c\u573a\u666f\u5e76\u5728 Inspector \u4e2d\u65cb\u8f6c SpaceStation \u7684 Z \u8f74\uff1b\u89c2\u5bdf ModuleC "
+        "\u8f68\u8ff9\u662f\u5426\u59cb\u7ec8\u4fdd\u6301\u5728\u7236\u8282\u70b9\u5b9a\u4e49\u7684\u5e73\u9762\u5185\uff0c\u4e14\u6ca1\u6709\u79bb\u5fc3\u504f\u79fb\u3002",
+        "Check standard",
+        "Complete the extension task",
+    ])
+    original_font = renderer._audit_font
+    monkeypatch.setattr(
+        renderer,
+        "_audit_font",
+        lambda _font_size: NarrowProviderFont(),
+    )
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "ordered-step-cross-font.pptx",
+    )
+    monkeypatch.setattr(renderer, "_audit_font", original_font)
+
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+
+
 def test_v6_materializes_typed_template_slots_without_mixing_code_and_explanation() -> None:
     _document, deck = _code_deck()
     page = deck.pages[0]
