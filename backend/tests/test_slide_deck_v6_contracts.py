@@ -1691,7 +1691,7 @@ def test_template_safe_table_continuations_do_not_consume_the_story_page_budget(
     assert all(page.continuation_count == 3 for page in table_pages)
 
 
-def test_full_course_compilation_inserts_a_source_bound_course_agenda() -> None:
+def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-community-research",
         title="Community research methods",
@@ -1759,7 +1759,17 @@ def test_full_course_compilation_inserts_a_source_bound_course_agenda() -> None:
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
-    agenda = deck.pages[0]
+    cover = deck.pages[0]
+    assert cover.resolved_layout == template.layout_id("cover-minimal")
+    assert cover.title == document.title
+    assert cover.source_block_ids == []
+    assert cover.source_section_ids == ["observe", "explain"]
+    assert cover.speaker_notes.source_blocks == []
+    assert cover.speaker_notes.source_section_ids == ["observe", "explain"]
+    assert cover.regions[0].slot_id == "subtitle"
+    assert cover.regions[0].source_section_ids == ["observe", "explain"]
+
+    agenda = deck.pages[1]
     assert agenda.resolved_layout == template.layout_id("agenda-path")
     assert agenda.source_block_ids == []
     assert agenda.source_section_ids == ["observe", "explain"]
@@ -1769,6 +1779,19 @@ def test_full_course_compilation_inserts_a_source_bound_course_agenda() -> None:
     assert [page.page_ordinal for page in deck.pages] == list(range(len(deck.pages)))
     assert deck.quality.formal_block_visible_coverage == 1.0
     assert deck.quality.source_order_preserved is True
+
+
+def test_story_summary_rejects_raw_markdown_table_content() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].summary = (
+        "| 任务环节 | 核对标准 | 参考结论 | 推导依据 | 典型错误与修正 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| 观察 | 记录地点时间天气 | 保留原始证据 | 依据验收标准复核 | 区分事实与解释 |"
+    )
+
+    with pytest.raises(V6BuildError, match="story_summary_markdown_invalid"):
+        validate_slide_story_plan_v3(story, graph, template)
 
 
 def test_very_large_code_still_respects_page_limit_with_full_notes() -> None:
