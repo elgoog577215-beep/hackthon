@@ -1064,6 +1064,75 @@ def test_story_capacity_error_uses_the_frozen_source_summary_repair() -> None:
     assert repaired_summary.rstrip("…") in unit["source_text"]
 
 
+def test_story_capacity_repair_converges_all_overflow_pages_in_one_pass() -> None:
+    source_sentence = (
+        "Before publishing a wetland survey, the field team records the habitat "
+        "boundary, observation time, weather, instrument calibration, acceptance "
+        "criterion, review decision, and follow-up owner. "
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-batch-capacity",
+        title="Wetland field review",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Evidence workflow",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="field-evidence",
+            section_id="chapter-a",
+            position=0,
+            role="concept",
+            payload={"markdown": source_sentence * 5},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    unit = request["teaching_units"][0]
+    layout_id = next(
+        layout_id
+        for layout_id in unit["allowed_template_layout_ids"]
+        if layout_id.endswith("/chapter-entry")
+    )
+    maximum = unit["summary_max_chars_by_layout_id"][layout_id]
+    pages = [
+        {
+            "page_id": f"field-capacity-page-{index}",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": layout_id,
+            "title": unit["title_candidates"][0],
+            "summary": source_sentence * 4,
+            "source_block_ids": unit["primary_block_ids"],
+        }
+        for index in range(4)
+    ]
+    payload = {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": request["chapter_id"],
+        "pages": pages,
+    }
+    error = V6BuildError(
+        stage="story",
+        code="story_summary_capacity_exceeded",
+        message="Story summary exceeds the selected template support slot",
+        page_id=pages[-1]["page_id"],
+    )
+
+    repaired = planning_module._apply_grounded_story_repairs(
+        payload,
+        request,
+        error,
+    )
+
+    assert repaired is not payload
+    assert len(repaired["pages"]) == 4
+    assert all(
+        page["summary"] and len(page["summary"]) <= maximum
+        for page in repaired["pages"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_sentence() -> None:
     """A long grounded sentence must not strand a repair below its slot minimum."""

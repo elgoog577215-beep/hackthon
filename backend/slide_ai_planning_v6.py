@@ -36,6 +36,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     _complete_sentence_excerpt,
+    _looks_like_markdown_table,
     _protected_tokens,
     _title_is_incomplete,
     _visible_prose_text,
@@ -1445,18 +1446,26 @@ def _story_repair_targets(
                 str(block_metadata.get(block_id, {}).get("source_text") or "")
                 for block_id in current_source_block_ids
             ))
+            repair_source = grounded_source
+            if (
+                error.failure.code == "story_summary_capacity_exceeded"
+                and current_summary
+                and _visible_prose_text(current_summary) == current_summary.strip()
+                and not _looks_like_markdown_table(current_summary)
+            ):
+                repair_source = current_summary.strip()
             effective_max = summary_max_chars or len(grounded_source)
             preferred_max = min(
                 effective_max,
                 max(summary_min_chars, summary_min_chars + 80),
             )
             required_summary = grounded_density_excerpt(
-                grounded_source,
+                repair_source,
                 minimum=summary_min_chars,
                 maximum=effective_max,
             )
-            if len(required_summary) < min(summary_min_chars, len(grounded_source)):
-                expanded = _complete_sentence_excerpt(grounded_source, effective_max)
+            if len(required_summary) < min(summary_min_chars, len(repair_source)):
+                expanded = _complete_sentence_excerpt(repair_source, effective_max)
                 required_summary = expanded
                 if required_summary and required_summary[-1] not in "。！？.!?":
                     if len(required_summary) < preferred_max:
@@ -1591,7 +1600,11 @@ def _story_repair_targets(
             ),
         }
 
-    if error.failure.code == "story_page_underfilled":
+    if error.failure.code in {
+        "story_page_underfilled",
+        "story_summary_capacity_exceeded",
+    }:
+        capacity_exceeded = error.failure.code == "story_summary_capacity_exceeded"
         underfilled_targets: list[dict[str, Any]] = []
         for page in pages:
             if not isinstance(page, dict):
@@ -1602,8 +1615,14 @@ def _story_repair_targets(
                 continue
             target = target_for(unit, page_id=page_id)
             minimum = int(target.get("summary_min_chars") or 0)
+            maximum = int(target.get("summary_max_chars") or 0)
             current = _visible_prose_text(str(page.get("summary") or ""))
-            if minimum and len(current) < minimum and target.get("required_summary"):
+            needs_repair = (
+                maximum > 0 and len(current) > maximum
+                if capacity_exceeded
+                else minimum > 0 and len(current) < minimum
+            )
+            if needs_repair and target.get("required_summary"):
                 underfilled_targets.append(target)
         if underfilled_targets:
             return underfilled_targets
