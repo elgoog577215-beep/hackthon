@@ -339,6 +339,16 @@
         </div>
         </template>
       </template>
+      <template v-else-if="plan.status === 'stale' && knowledgeDriftFor(plan)">
+        <div class="knowledge-drift">
+          <TriangleAlert :size="15" />
+          <span>
+            <strong>{{ t('courseEvolution.knowledgeDrift.title', '课程知识已变化') }}</strong>
+            <small>{{ t('courseEvolution.knowledgeDrift.detail', '生成这个方案时依据的课程知识已经被修改，方案不再对应当前知识含义，需要重新生成后再确认。') }}</small>
+          </span>
+        </div>
+        <p class="knowledge-drift-changed">{{ knowledgeDriftLabel(plan) }}</p>
+      </template>
       <template v-else>
         <div class="applied-growth">
           <component :is="effectIcon(plan)" :size="15" />
@@ -438,6 +448,8 @@ const visiblePlans = computed(() => {
   )
   return [
     ...store.pendingPlans.filter(matchesSection),
+    // 因知识变化而失效的方案要留在视野里并说明原因，不能静默消失。
+    ...store.knowledgeStalePlans.filter(matchesSection).slice(-1),
     ...store.appliedPlans.filter(matchesSection).slice(-1),
   ]
 })
@@ -772,6 +784,20 @@ function effectTitle(plan: CourseEvolutionPlan) {
 function effectLabel(plan: CourseEvolutionPlan) { return ({ effective: t('courseEvolution.effects.effective', '原判断获得新证据支持，继续观察后续迁移'), ineffective: t('courseEvolution.effects.ineffective', '后续证据显示需要调整'), harmful: t('courseEvolution.effects.harmful', '后续证据显示有副作用，建议回退'), insufficient_evidence: t('courseEvolution.effects.insufficient', '等待独立复验：后续同能力正式题') } as Record<string, string>)[plan.effect_evaluation?.status || ''] || t('courseEvolution.effects.insufficient', '等待独立复验：后续同能力正式题') }
 function verificationFor(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.verification_summary || null }
 function reverificationFor(plan: CourseEvolutionPlan) { return plan.effect_evaluation?.reverification_window || null }
+function knowledgeDriftFor(plan: CourseEvolutionPlan) {
+  const drift = plan.impact_summary?.knowledge_drift
+  return drift && drift.verdict === 'conflict' ? drift : null
+}
+// 知识点被改名/拆分/合并后其 ID 也会变，此时拿不到当前名称——如实说明，不编造名字。
+function knowledgeDriftLabel(plan: CourseEvolutionPlan) {
+  const drift = knowledgeDriftFor(plan)
+  if (!drift) return ''
+  const labels = (drift.changed_labels || []).filter(Boolean)
+  if (!labels.length) {
+    return t('courseEvolution.knowledgeDrift.changedUnnamed', '已变化的知识点无法命名（可能已被拆分、合并或删除）')
+  }
+  return t('courseEvolution.knowledgeDrift.changed', '已变化的知识点：{labels}').replace('{labels}', labels.join('、'))
+}
 // 窗口到期只说明"需要人工判断"，绝不等于调整无效；无样本时如实写无样本。
 function reverificationLabel(plan: CourseEvolutionPlan) {
   const window = reverificationFor(plan)
@@ -1341,6 +1367,12 @@ article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"
 .verification-interpretation { display:flex; align-items:flex-start; gap:5px; margin:7px 0 0 27px; color:#475569; font-size:8px; line-height:1.5; }
 .verification-interpretation svg { flex:0 0 auto; margin-top:1px; color:#2563eb; }
 .reverification-window { display:flex; align-items:flex-start; gap:5px; margin:5px 0 0 27px; color:#475569; font-size:8px; line-height:1.5; }
+.knowledge-drift { display:flex; align-items:flex-start; gap:7px; color:#a16207; }
+.knowledge-drift svg { flex:0 0 auto; margin-top:1px; color:#ca8a04; }
+.knowledge-drift span { display:flex; flex-direction:column; gap:2px; }
+.knowledge-drift strong { font-size:9px; font-weight:650; }
+.knowledge-drift small { color:#475569; font-size:8px; line-height:1.5; }
+.knowledge-drift-changed { margin:6px 0 0 27px; color:#475569; font-size:8px; line-height:1.5; }
 .reverification-window svg { flex:0 0 auto; margin-top:1px; color:#64748b; }
 /* 到期是"需要人工判断"，用中性提醒色，不用表示失败的红色 */
 .reverification-window[data-window="expired"] { color:#a16207; }

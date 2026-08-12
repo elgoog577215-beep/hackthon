@@ -989,6 +989,281 @@ def test_personal_path_fold_and_reorder_are_reviewed_course_operations_and_undoa
     ]
 
 
+def _knowledge_linked_plan(tmp_path, monkeypatch, course):
+    """Create a real evidence-driven plan on a course that has knowledge semantics."""
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    question = (
+        "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
+        "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
+    )
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [{
+        "event_id": "event-strong-scoped-request",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": question},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-08-12T09:00:00+00:00",
+    }])
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_a: [])
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_a: [])
+    repository = CourseEvolutionRepository(tmp_path)
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    plan = next(item for item in state.change_sets if item.status == "pending")
+    return repository, plan
+
+
+def _rename_knowledge_point(course: dict, *, old_name: str, new_name: str) -> None:
+    """Redefine one knowledge point in place, as a knowledge maintainer would."""
+    for node in course["nodes"]:
+        for group in node.get("knowledge_structure") or []:
+            for point in group.get("knowledge_points") or []:
+                if point.get("name") == old_name:
+                    point["name"] = new_name
+                    point["statement"] = "矩阵乘法一般不满足交换律。"
+                    return
+    raise AssertionError(f"knowledge point {old_name} not found in fixture")
+
+
+def test_remediation_uses_the_misconception_repair_semantics_not_just_its_name(
+    tmp_path,
+    monkeypatch,
+):
+    """Knowledge semantics must shape the support, not only label it.
+
+    The knowledge base already states how to tell this misconception apart and
+    how to repair it. Reading only the point's `name` to compose a sentence
+    wastes the part a teacher actually authored, so the generated support has to
+    carry the discrimination and repair strategy.
+    """
+    course = _course_with_knowledge()
+    _repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+
+    support = next(
+        item for item in plan.operations
+        if item.operation_type == "INSERT_COURSE_SUPPORT"
+    )
+    semantics = support.payload["knowledge_semantics"]
+
+    assert semantics["schema_version"] == "course_evolution_knowledge_semantics_v1"
+    # Straight from the fixture's authored misconception.
+    assert semantics["misconceptions"], "no misconception semantics carried"
+    misconception = semantics["misconceptions"][0]
+    assert misconception["error_pattern"] == "只能复述计算规则，无法解释复合含义"
+    assert misconception["discrimination"] == "区分语义对象与坐标计算"
+    assert misconception["repair_strategy"] == "用连续变换过程重新解释乘法顺序"
+    # The authored repair strategy reaches the learner-visible body.
+    assert "用连续变换过程重新解释乘法顺序" in support.payload["body"]
+    # Ability semantics come along too, as the completion standard.
+    assert semantics["abilities"]
+    assert (
+        semantics["abilities"][0]["observable_behavior"]
+        == "能够解释矩阵乘法顺序与变换复合的关系"
+    )
+
+
+def test_knowledge_semantics_absent_stays_empty_rather_than_invented(
+    tmp_path,
+    monkeypatch,
+):
+    """A course without authored misconceptions must not get fabricated ones."""
+    course = _course()  # no knowledge_structure
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path),
+    )
+    support = next(
+        item for item in state.change_sets[0].operations
+        if item.operation_type == "INSERT_COURSE_SUPPORT"
+    )
+    semantics = support.payload["knowledge_semantics"]
+
+    assert semantics["misconceptions"] == []
+    assert semantics["abilities"] == []
+    assert semantics["available"] is False
+
+
+def test_plan_pins_the_knowledge_semantics_it_depends_on(tmp_path, monkeypatch):
+    """A plan must pin the knowledge entities it was reasoned from.
+
+    Pinning only block/section revisions leaves the plan blind to the knowledge
+    it is actually about, so the pinned vector has to carry per-entity knowledge
+    keys — and only the relevant ones, so an unrelated knowledge edit does not
+    invalidate good work.
+    """
+    course = _course_with_knowledge()
+    _repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+
+    pinned = plan.impact_summary["knowledge_revision_pins"]
+
+    assert pinned["schema_version"] == "course_evolution_knowledge_pins_v1"
+    assert pinned["available"] is True
+    keys = pinned["revisions"]
+    # The knowledge point the diagnosis was built from is pinned by identity.
+    assert any(key.startswith("point:") for key in keys)
+    # Its binding to the course block is pinned too: a rebind changes the meaning
+    # of "this block teaches that point".
+    assert any(key.startswith("binding:") for key in keys)
+    # Scope stays bounded: this is not a snapshot of the whole knowledge base.
+    assert "course_knowledge_base" not in keys
+    unrelated = [
+        key for key in keys
+        if pinned["pinned_knowledge_ids"]
+        and key.startswith("point:")
+        and key.split(":", 1)[1] not in pinned["pinned_knowledge_ids"]
+    ]
+    assert unrelated == []
+
+
+def test_renaming_the_knowledge_a_plan_depends_on_makes_it_stale(
+    tmp_path,
+    monkeypatch,
+):
+    """The gap this closes: a redefined knowledge point used to apply cleanly.
+
+    The plan explains "why compose right-to-left". If that knowledge point is
+    renamed and restated to be about commutativity instead, the plan is no longer
+    about what the course now says, so it must not land silently.
+    """
+    course = _course_with_knowledge()
+    repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    # A knowledge maintainer redefines the point after the plan was generated.
+    mutated = deepcopy(course)
+    _rename_knowledge_point(
+        mutated,
+        old_name="矩阵复合含义",
+        new_name="矩阵乘法的交换性",
+    )
+
+    with pytest.raises(ValueError) as failure:
+        accept_change_set(
+            mutated,
+            user_id="student-a",
+            change_set_id=plan.change_set_id,
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+
+    # The refusal has to name knowledge, not just say "the course changed".
+    assert "knowledge" in str(failure.value).lower()
+    stale = repository.load("student-a", course["course_id"]).change_sets[0]
+    assert stale.status == "stale"
+    drift = stale.impact_summary["knowledge_drift"]
+    # Course knowledge IDs are derived from the point's name, so a rename shows
+    # up as the pinned identity disappearing rather than its revision moving.
+    # Either way the plan must not apply.
+    assert drift["changed_keys"] or drift["removed_keys"]
+    assert any(
+        key.startswith("point:")
+        for key in [*drift["changed_keys"], *drift["removed_keys"]]
+    )
+    assert drift["verdict"] == "conflict"
+    assert drift["requires_user_resolution"] is True
+    # Nothing reached the course.
+    after_document, _ = document_repository.load_document(course["course_id"])
+    assert after_document.document_revision == before_document.document_revision
+
+
+def test_unrelated_knowledge_edit_does_not_invalidate_a_good_plan(
+    tmp_path,
+    monkeypatch,
+):
+    """Bounded pinning: editing a point this plan never used must not block it.
+
+    Pinning the whole knowledge base would be simpler and wrong — every unrelated
+    maintenance edit would throw away reviewed work.
+    """
+    course = _course_with_knowledge()
+    repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+    document_repository = _document_repository(course)
+
+    mutated = deepcopy(course)
+    # "坐标记号" lives in section-2 and is not part of this plan's reasoning.
+    _rename_knowledge_point(
+        mutated,
+        old_name="坐标记号",
+        new_name="坐标记号（改名）",
+    )
+
+    applied = accept_change_set(
+        mutated,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    result = next(
+        item for item in applied.change_sets
+        if item.change_set_id == plan.change_set_id
+    )
+    assert result.status == "applied"
+    assert result.impact_summary["knowledge_drift"]["verdict"] == "unchanged"
+
+
+def test_knowledge_pins_degrade_honestly_without_a_knowledge_base(
+    tmp_path,
+    monkeypatch,
+):
+    """No compiled knowledge base means "cannot tell", not "nothing changed".
+
+    Reporting a clean verdict when the index was unavailable would silently
+    weaken the guard for exactly the courses that need it most.
+    """
+    course = _course()  # no knowledge_structure at all
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    repository = CourseEvolutionRepository(tmp_path)
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    pinned = state.change_sets[0].impact_summary["knowledge_revision_pins"]
+
+    assert pinned["available"] is False
+    assert pinned["revisions"] == {}
+    # A course with no knowledge structure compiles to an empty base, so the
+    # honest reason is that the plan has nothing to anchor to.
+    assert pinned["reason"] == "plan_has_no_knowledge_anchor"
+
+    # An unverifiable pin must not block acceptance either; it degrades to
+    # "unknown" and says so.
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=state.change_sets[0].change_set_id,
+        selected_scope="current",
+        repository=repository,
+        document_repository=_document_repository(course),
+    )
+    drift = applied.change_sets[0].impact_summary["knowledge_drift"]
+    assert drift["verdict"] == "unknown"
+    assert drift["reason"] == "knowledge_pins_unavailable"
+
+
 def test_cross_section_resequence_moves_the_catalog_not_the_body(tmp_path):
     """Structural growth must go through the catalog's own section command.
 
@@ -1980,6 +2255,67 @@ def test_single_explicit_evidence_stays_local_instead_of_expanding_by_count(
     assert state.hypotheses[0].recommended_scope == "current"
     assert state.change_sets[0].allowed_scopes == ["current"]
     assert all(operation.scope == "current" for operation in state.change_sets[0].operations)
+
+
+def test_relation_scope_uses_the_shared_knowledge_traversal(tmp_path, monkeypatch):
+    """Scope must come from the shared traversal, not a local weaker copy.
+
+    Two properties the previous in-file walk lacked and this locks in: symmetric
+    relations (`contrasts_with`) reach their counterpart, and a relation the
+    knowledge domain has rejected is not followed at all.
+    """
+    from course_knowledge_impact import dependent_knowledge_ids
+
+    knowledge_base = {
+        "knowledge_points": [
+            {"knowledge_id": "k-source"},
+            {"knowledge_id": "k-contrast"},
+            {"knowledge_id": "k-rejected"},
+        ],
+        "bindings": [],
+        "relations": [
+            {
+                "relation_id": "r-contrast",
+                "source_knowledge_id": "k-source",
+                "target_knowledge_id": "k-contrast",
+                "relation_type": "contrasts_with",
+                "status": "accepted",
+            },
+            {
+                "relation_id": "r-rejected",
+                "source_knowledge_id": "k-source",
+                "target_knowledge_id": "k-rejected",
+                "relation_type": "derives",
+                "status": "rejected",
+            },
+        ],
+    }
+    reachable = dependent_knowledge_ids(knowledge_base, ["k-source"])
+
+    assert "k-contrast" in reachable
+    assert reachable["k-contrast"]["relation_type"] == "contrasts_with"
+    assert "k-rejected" not in reachable
+
+    # And the course-growth scope helper consumes exactly that traversal.
+    calls: list[list[str]] = []
+    real = course_evolution.dependent_knowledge_ids
+
+    def recording(base, seeds, **kwargs):
+        calls.append(sorted(seeds))
+        return real(base, seeds, **kwargs)
+
+    monkeypatch.setattr(course_evolution, "dependent_knowledge_ids", recording)
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    course_evolution._affected_blocks(
+        document,
+        target.block_id,
+        scope="current_and_next",
+        knowledge_base=course_evolution.compile_course_knowledge_base(deepcopy(course)),
+    )
+
+    assert calls, "_affected_blocks must delegate relation walking, not re-walk it"
 
 
 def test_ai_question_is_anchored_to_course_knowledge_and_relations_drive_scope(

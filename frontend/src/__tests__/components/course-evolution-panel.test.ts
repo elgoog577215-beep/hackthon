@@ -285,6 +285,65 @@ describe('CourseEvolutionPanel', () => {
     expect(undo).toHaveBeenCalledWith('plan-1')
   })
 
+  it('知识语义变化导致方案失效时说明原因，不让候选静默消失', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'stale',
+        impact_summary: {
+          ...plan.impact_summary,
+          knowledge_drift: {
+            verdict: 'conflict',
+            reason: 'pinned_knowledge_revision_changed',
+            changed_keys: ['point:ckp_abc'],
+            removed_keys: [],
+            changed_labels: ['矩阵复合含义'],
+            requires_user_resolution: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const drift = wrapper.get('.knowledge-drift').text()
+
+    expect(drift).toContain('课程知识已变化')
+    expect(drift).toContain('需要重新生成')
+    expect(wrapper.get('.knowledge-drift-changed').text()).toContain('矩阵复合含义')
+    // 失效不等于"已应用"，也不该出现撤销入口
+    expect(wrapper.find('.applied-growth').exists()).toBe(false)
+  })
+
+  it('知识点改名后拿不到当前名称时如实说明，不编造知识点名字', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'stale',
+        impact_summary: {
+          ...plan.impact_summary,
+          knowledge_drift: {
+            verdict: 'conflict',
+            reason: 'pinned_knowledge_removed',
+            changed_keys: [],
+            removed_keys: ['point:ckp_gone'],
+            changed_labels: [],
+            requires_user_resolution: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const changed = wrapper.get('.knowledge-drift-changed').text()
+
+    expect(changed).toContain('无法命名')
+    expect(changed).toContain('拆分')
+  })
+
   it('复验窗口到期时如实显示无样本，不呈现为调整无效', () => {
     useCourseEvolutionStore().applyPayload('course-1', {
       evidence_items: evidence,

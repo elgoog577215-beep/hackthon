@@ -21,6 +21,7 @@ from course_evolution import (
     CourseEvolutionPlan,
     CourseEvolutionRepository,
     CourseEvolutionState,
+    knowledge_revision_pins,
 )
 from course_feedback import default_block_kind_for_role
 from course_knowledge_base import (
@@ -1147,6 +1148,14 @@ async def generate_section_evolution_plan(
         "ability_point_ids": all_skill_refs,
         "misconception_point_ids": all_misconception_refs,
         "mastery_criterion_ids": all_mastery_refs,
+        # A teacher-requested plan reaches the course through the same commit as
+        # an evidence-driven one, so it gets the same knowledge-staleness guard.
+        "knowledge_revision_pins": knowledge_revision_pins(
+            knowledge_base,
+            knowledge_ids=all_knowledge_refs,
+            block_ids=affected_block_ids,
+            section_ids=affected_section_ids,
+        ),
         "validation_plan": (
             "保留旧难度的已掌握记录；应用后生成同知识点、更高认知要求的独立任务，"
             "验证理论解释和跨情境应用是否真正提升。"

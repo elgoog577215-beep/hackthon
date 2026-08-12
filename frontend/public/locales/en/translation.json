@@ -901,7 +901,14 @@
     "applyingDetail": "Confirmed and committing the course revision; it will not be proposed again until this finishes.",
     "declined": "Adjustments you excluded",
     "declinedDetail": "You excluded these items during review, so they will not be proposed again for now.",
-    "declinedCooldown": "On hold until {date}"
+    "declinedCooldown": "On hold until {date}",
+    "knowledgeDrift": {
+      "title": "Course knowledge changed",
+      "detail": "The course knowledge this plan was built from has been edited, so the plan no longer matches what the knowledge now means. Regenerate it before confirming.",
+      "changed": "Changed knowledge points: {labels}",
+      "changedUnnamed": "The changed knowledge points cannot be named (they may have been split, merged, or removed)",
+      "regenerate": "Regenerate plan"
+    }
   },
   "learningNavigator": {
     "title": "Course outline",

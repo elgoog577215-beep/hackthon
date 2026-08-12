@@ -901,7 +901,14 @@
     "applyingDetail": "已确认，正在提交课程修订；完成前不会重复提议。",
     "declined": "你已排除的调整",
     "declinedDetail": "这些条目在本次审阅中被你排除，短期内不会再次提议。",
-    "declinedCooldown": "冷却至 {date}"
+    "declinedCooldown": "冷却至 {date}",
+    "knowledgeDrift": {
+      "title": "课程知识已变化",
+      "detail": "生成这个方案时依据的课程知识已经被修改，方案不再对应当前知识含义，需要重新生成后再确认。",
+      "changed": "已变化的知识点：{labels}",
+      "changedUnnamed": "已变化的知识点无法命名（可能已被拆分、合并或删除）",
+      "regenerate": "重新生成方案"
+    }
   },
   "learningNavigator": {
     "title": "课程目录",
