@@ -2442,11 +2442,6 @@ def compile_slide_deck_v6(
     units = _unit_map(graph)
     visual_by_page = {decision.page_id: decision for decision in visual.decisions}
     pages: list[SlidePageV6] = []
-    unit_page_counts = Counter(page.teaching_unit_id for page in story.pages)
-    unit_page_count_ranges = {
-        unit.teaching_unit_id: story_page_count_range(unit, template)
-        for unit in graph.units
-    }
     for story_page in sorted(story.pages, key=lambda item: item.page_ordinal):
         layout = template.get_layout(visual_by_page[story_page.page_id].resolved_template_layout_id)
         if layout is None:
@@ -2459,25 +2454,20 @@ def compile_slide_deck_v6(
             source_blocks=source_blocks,
             story_summary=story_page.summary,
         )
-        expanded_unit_count = (
-            unit_page_counts[story_page.teaching_unit_id]
-            - 1
-            + len(materializations)
-        )
-        maximum_pages = unit_page_count_ranges[story_page.teaching_unit_id][1]
-        if layout.layout_slug in set(layout.safe_continuation_layout_slugs):
-            maximum_pages = max(maximum_pages, 3)
-        if expanded_unit_count > maximum_pages:
+        # Story planning already enforces the teaching-unit semantic page
+        # budget. Template pagination is a separate, bounded render concern:
+        # one planned artifact page may become at most three safe pages so
+        # source rows are not truncated merely to preserve the story count.
+        if len(materializations) > 3:
             raise V6BuildError(
                 stage="template",
-                code="teaching_unit_page_limit_exceeded",
+                code="template_artifact_continuation_limit_exceeded",
                 message=(
-                    "A teaching unit exceeds its template-safe page budget "
-                    f"of {maximum_pages} after pagination"
+                    "A planned artifact page requires more than three "
+                    "template-safe materializations"
                 ),
                 page_id=story_page.page_id,
             )
-        unit_page_counts[story_page.teaching_unit_id] = expanded_unit_count
         title_slot = next(
             (slot for slot in layout.slots if slot.slot_kind == "title"),
             None,
