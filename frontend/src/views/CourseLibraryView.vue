@@ -1,10 +1,7 @@
 <template>
   <section
     class="course-library glass-panel-elevated"
-    :class="{
-      'course-library--paginated': totalPages > 1,
-      'course-library--empty': !courseStore.loading && !courseStore.courseList.length,
-    }"
+    :class="{ 'course-library--paginated': totalPages > 1 }"
   >
     <Teleport to="#app-header-route-actions">
       <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
@@ -20,97 +17,122 @@
         <button
           type="button"
           class="global-action-button task-center-button"
-          :title="t('courseLibrary.tasks', '课程任务')"
-          :aria-label="t('courseLibrary.tasks', '课程任务')"
+          data-testid="open-course-workbench"
+          :title="workbenchLabel"
+          :aria-label="workbenchLabel"
           @click="openTaskCenter()"
         >
-          <ListChecks :size="17" />
-          <span class="action-label">{{ t('courseLibrary.tasks', '课程任务') }}</span>
-          <span v-if="attentionTaskCount" class="action-count">{{ attentionTaskCount }}</span>
+          <LayoutDashboard :size="17" />
+          <span class="action-label">{{ workbenchLabel }}</span>
+          <span v-if="actionRequiredTaskCount" class="action-count">{{ actionRequiredTaskCount }}</span>
         </button>
       </nav>
     </Teleport>
 
     <header class="library-header">
       <div>
-        <p v-if="courseStore.courseList.length">{{ t('courseLibrary.eyebrow', '课程库') }}</p>
-        <h1>{{ courseStore.courseList.length
-          ? t('courseLibrary.title', '选择一门课程继续学习')
-          : t('courseLibrary.eyebrow', '课程库') }}</h1>
-        <span v-if="courseStore.courseList.length">{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
+        <p>{{ t('courseLibrary.eyebrow', '课程库') }}</p>
+        <h1>{{ t('courseLibrary.title', '选择一门课程继续学习') }}</h1>
+        <span>{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
       </div>
-      <div class="library-actions">
-        <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
-        <div ref="createMenuRef" class="create-course-menu" @keydown.esc.stop.prevent="closeCreateMenu(true)">
+      <div ref="createMenuRef" class="create-course-menu" @keydown.esc.stop.prevent="closeCreateMenu(true)">
+        <div class="create-course-trigger-group">
+          <button
+            type="button"
+            class="create-course-primary"
+            data-testid="create-blank-course-trigger"
+            @click="openBlankCourse"
+          >
+            <span class="create-course-primary__icon" aria-hidden="true"><Plus :size="16" /></span>
+            <span class="create-course-primary__label">{{ t('courseLibrary.newCourse', '新建课程') }}</span>
+          </button>
           <button
             ref="createMenuTriggerRef"
             type="button"
-            class="primary-button create-course-trigger"
+            class="create-course-menu-toggle"
             data-testid="create-course-menu-trigger"
             aria-haspopup="menu"
             aria-controls="create-course-menu"
             :aria-expanded="createMenuOpen"
+            :aria-label="t('courseLibrary.moreCreateMethods', '更多新建方式')"
             @click="toggleCreateMenu"
           >
-            <Plus :size="17" />
-            {{ t('courseLibrary.newCourse', '新建课程') }}
             <ChevronDown class="create-course-trigger__chevron" :class="{ open: createMenuOpen }" :size="15" />
           </button>
-
-          <Transition name="create-menu">
-            <div v-if="createMenuOpen" id="create-course-menu" class="create-course-menu__panel" role="menu">
-              <button
-                ref="createMenuFirstItemRef"
-                type="button"
-                class="create-course-menu__item"
-                role="menuitem"
-                data-testid="create-blank-course"
-                @click="openBlankCourse"
-              >
-                <span class="create-course-menu__icon"><FilePlus2 :size="19" /></span>
-                <span>
-                  <strong>{{ t('courseLibrary.newBlankCourse', '新建空白课程') }}</strong>
-                  <small>{{ t('courseLibrary.newBlankCourseHelp', '从零开始创建课程') }}</small>
-                </span>
-              </button>
-              <button
-                type="button"
-                class="create-course-menu__item"
-                role="menuitem"
-                data-testid="import-markdown-course"
-                @click="openMarkdownImport"
-              >
-                <span class="create-course-menu__icon"><Upload :size="19" /></span>
-                <span>
-                  <strong>{{ t('courseLibrary.import', '导入 Markdown') }}</strong>
-                  <small>{{ t('courseLibrary.importHelp', '上传 .md 文件快速生成') }}</small>
-                </span>
-              </button>
-            </div>
-          </Transition>
         </div>
+
+        <Transition name="create-menu">
+          <div v-if="createMenuOpen" id="create-course-menu" class="create-course-menu__panel" role="menu">
+            <button
+              ref="createMenuFirstItemRef"
+              type="button"
+              class="create-course-menu__item"
+              role="menuitem"
+              data-testid="create-blank-course"
+              @click="openBlankCourse"
+            >
+              <span class="create-course-menu__icon"><FilePlus2 :size="19" /></span>
+              <span>
+                <strong>{{ t('courseLibrary.newBlankCourse', '新建空白课程') }}</strong>
+                <small>{{ t('courseLibrary.newBlankCourseHelp', '从零开始创建课程') }}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="create-course-menu__item"
+              role="menuitem"
+              data-testid="import-markdown-course"
+              @click="openMarkdownImport"
+            >
+              <span class="create-course-menu__icon"><Upload :size="19" /></span>
+              <span>
+                <strong>{{ t('courseLibrary.import', '导入 Markdown') }}</strong>
+                <small>{{ t('courseLibrary.importHelp', '上传 .md 文件快速生成') }}</small>
+              </span>
+            </button>
+          </div>
+        </Transition>
       </div>
     </header>
 
-    <button v-if="latestResumeCourse" type="button" class="resume-card" @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)">
-      <span class="resume-card__icon"><History :size="18" /></span>
-      <span class="resume-card__copy">
-        <small>{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
-        <strong>{{ latestResumeCourse.course_name }}</strong>
-        <span>{{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}</span>
-      </span>
-      <span class="resume-card__action">
-        {{ t('courseLibrary.resume.open', '继续') }}
-        <ArrowRight :size="16" />
-      </span>
-    </button>
-
-    <div v-if="courseStore.courseList.length || query" class="library-toolbar">
+    <div class="library-toolbar">
       <label>
         <Search :size="16" />
-        <input v-model="query" type="search" :placeholder="t('courseLibrary.search', '搜索课程')" />
+        <input
+          v-model="query"
+          type="search"
+          :aria-label="t('courseLibrary.search', '搜索课程')"
+          :placeholder="t('courseLibrary.search', '搜索课程')"
+        />
       </label>
-      <span>{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
+      <button
+        v-if="latestResumeCourse"
+        type="button"
+        class="library-resume"
+        data-testid="resume-course"
+        :aria-label="[
+          resumeKindLabel(latestResumeCourse.resume?.kind || 'reading'),
+          formatCourseTitle(latestResumeCourse.course_name),
+          t('courseLibrary.resume.open', '继续'),
+        ].join(' · ')"
+        @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)"
+      >
+        <span class="library-resume__icon"><History :size="16" /></span>
+        <span class="library-resume__copy">
+          <small class="library-resume__label">{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
+          <strong class="library-resume__title">{{ formatCourseTitle(latestResumeCourse.course_name) }}</strong>
+          <span class="library-resume__separator" aria-hidden="true">·</span>
+          <span class="library-resume__location">
+            {{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}
+          </span>
+        </span>
+        <span class="library-resume__action">
+          {{ t('courseLibrary.resume.open', '继续') }}
+          <ArrowRight :size="16" />
+        </span>
+      </button>
+      <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
+      <span class="library-toolbar__count">{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
     </div>
 
     <div v-if="courseStore.loading" class="library-state">
@@ -124,7 +146,7 @@
       <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程或导入已有 Markdown 开始学习。') }}</span>
     </div>
 
-    <div v-else ref="courseGridRef" class="course-grid" data-layout="two-column">
+    <div v-else ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
       <article
         v-for="{ course, status } in courseCards"
         :key="course.course_id"
@@ -135,12 +157,12 @@
         <button
           type="button"
           class="course-main"
-          :title="status.active ? status.detail : course.course_name"
+          :title="status.active ? status.detail : formatCourseTitle(course.course_name)"
           @click="handleCoursePrimary(course.course_id, status.active)"
         >
-          <span class="course-mark"><BookMarked :size="21" /></span>
+          <CourseCover :course-id="course.course_id" :title="course.course_name" />
           <span class="course-copy">
-            <h2>{{ course.course_name }}</h2>
+            <h2>{{ formatCourseTitle(course.course_name) }}</h2>
             <span class="course-status" :class="`course-status--${status.tone}`">
               <span class="course-status__dot" aria-hidden="true"></span>
               <span>{{ status.label }}</span>
@@ -155,7 +177,7 @@
               aria-valuemin="0"
               aria-valuemax="100"
             >
-              <span class="progress-track"><span :style="{ transform: `scaleX(${status.progress / 100})` }"></span></span>
+              <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
             </span>
           </span>
         </button>
@@ -213,7 +235,7 @@
                 :data-testid="`open-question-bank-review-${course.course_id}`"
                 @click="openQuestionBankReview(course.course_id)"
               >
-                <ShieldCheck :size="17" />
+                <ShieldCheck :size="15" />
                 <span>{{ t('questionBank.reviewEntry', '题库管理') }}</span>
               </button>
               <button
@@ -221,9 +243,9 @@
                 class="course-menu__item course-menu__item--danger"
                 role="menuitem"
                 :data-testid="`delete-course-${course.course_id}`"
-                @click="deleteCourse(course.course_id, course.course_name)"
+                @click="deleteCourse(course.course_id, formatCourseTitle(course.course_name))"
               >
-                <Trash2 :size="17" />
+                <Trash2 :size="15" />
                 <span>{{ t('courseLibrary.delete', '删除课程') }}</span>
               </button>
             </div>
@@ -308,10 +330,10 @@
       @generate="generateCourse"
       @error="message => ElMessage.error(message)"
     />
-    <CourseTaskCenter v-model="taskCenterOpen" :course-id="selectedTaskCourseId" />
-    <QuestionBankReviewCenter
-      v-model="questionBankReviewOpen"
-      :course-id="selectedReviewCourseId"
+    <CourseWorkbench
+      v-model="workbenchOpen"
+      :initial-section="workbenchSection"
+      :course-id="selectedWorkbenchCourseId"
     />
   </section>
 </template>
@@ -320,21 +342,22 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookMarked, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, ListChecks, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import CourseCover from '../components/CourseCover.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
-import CourseTaskCenter from '../components/CourseTaskCenter.vue'
-import QuestionBankReviewCenter from '../components/QuestionBankReviewCenter.vue'
+import CourseWorkbench from '../components/CourseWorkbench.vue'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
-import { t } from '../shared/i18n'
+import { activeLocale, t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
 import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume'
+import { formatCourseTitle } from '../utils/course-presentation'
 
 const router = useRouter()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
-const COURSES_PER_PAGE = 6
+const COURSES_PER_PAGE = 9
 const query = ref('')
 const currentPage = ref(1)
 const pageJumpInput = ref('')
@@ -346,10 +369,9 @@ const createMenuFirstItemRef = ref<HTMLButtonElement | null>(null)
 const createMenuOpen = ref(false)
 const openCourseMenuId = ref('')
 const createDialogOpen = ref(false)
-const taskCenterOpen = ref(false)
-const selectedTaskCourseId = ref('')
-const questionBankReviewOpen = ref(false)
-const selectedReviewCourseId = ref('')
+const workbenchOpen = ref(false)
+const workbenchSection = ref<'tasks' | 'question-bank'>('tasks')
+const selectedWorkbenchCourseId = ref('')
 const creating = ref(false)
 
 const filteredCourses = computed(() => {
@@ -373,7 +395,8 @@ const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis
   if (currentPage.value >= pages - 3) return [1, 'start-ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages]
   return [1, 'start-ellipsis', currentPage.value - 1, currentPage.value, currentPage.value + 1, 'end-ellipsis', pages]
 })
-const attentionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskNeedsAttention).length)
+const workbenchLabel = computed(() => activeLocale.value === 'en' ? 'Course workbench' : '课程工作台')
+const actionRequiredTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskRequiresAction).length)
 const latestResumeCourse = computed(() => latestResumableCourse(courseStore.courseList))
 
 watch(query, () => {
@@ -504,6 +527,11 @@ function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean
   return ['pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
+function taskRequiresAction(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
+  if (isPublishedWarning(task)) return false
+  return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
+}
+
 function openCourse(courseId: string, nodeId?: string) {
   closeCourseMenu()
   void router.push({
@@ -526,14 +554,16 @@ function openGeneratingCourse(courseId: string) {
 
 function openTaskCenter(courseId = '') {
   closeCourseMenu()
-  selectedTaskCourseId.value = courseId
-  taskCenterOpen.value = true
+  selectedWorkbenchCourseId.value = courseId
+  workbenchSection.value = 'tasks'
+  workbenchOpen.value = true
 }
 
 function openQuestionBankReview(courseId: string) {
   closeCourseMenu()
-  selectedReviewCourseId.value = courseId
-  questionBankReviewOpen.value = true
+  selectedWorkbenchCourseId.value = courseId
+  workbenchSection.value = 'question-bank'
+  workbenchOpen.value = true
 }
 
 async function generateCourse(payload: { subject: string; options: CourseGenerationOptions }) {
@@ -588,8 +618,8 @@ async function deleteCourse(courseId: string, courseName: string) {
 </script>
 
 <style scoped>
-.course-library { width:100%; height:100%; overflow:auto; padding:30px clamp(18px,4vw,54px) 48px; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:rgba(255,255,255,.76); box-shadow:var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
-.library-header { max-width: 1280px; margin: 0 auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.course-library { --course-content-width:1280px; --course-grid-width:1280px; --course-card-height:150px; --course-grid-gap:18px; --course-cover-width:78px; width:100%; height:100%; overflow:auto; padding:30px clamp(18px,4vw,54px) 48px; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:rgba(255,255,255,.76); box-shadow:var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
+.library-header { max-width:var(--course-content-width); margin:0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
 .library-header p { margin: 0 0 7px; color: var(--lz-brand); font-size: 12px; font-weight: 700; }
 .library-header h1 { margin:0; color:#312e81; font-size:clamp(25px,3vw,32px); line-height:1.2; }
 .library-header > div:first-child > span { display:block; margin-top:8px; color:var(--lz-text-secondary); font-size:13px; }
@@ -597,14 +627,22 @@ async function deleteCourse(courseId: string, courseName: string) {
 .global-action-button { position:relative; min-height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 10px; border:1px solid transparent; border-radius:10px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .global-action-button:hover,.global-action-button:focus-visible { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
 .task-center-button > .action-count { min-width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0 5px; border-radius:10px; color:#fff; background:var(--lz-warning); font-size:9px; font-weight:800; }
-.library-actions { display:flex; flex:0 0 auto; }
-.create-course-menu { position:relative; }
-.primary-button, .secondary-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 14px; border-radius:11px; font-size:12px; font-weight:700; cursor:pointer; }
-.primary-button { border:1px solid transparent; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; box-shadow:0 7px 16px rgba(99,102,241,.2); }
-.secondary-button { border:1px solid rgba(203,213,225,.72); background:rgba(255,255,255,.72); color:var(--lz-text-secondary); }
-.create-course-trigger { min-height:44px; padding:0 16px; font-size:13px; box-shadow:0 9px 20px rgba(99,102,241,.24); }
-.create-course-trigger:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:2px; }
-.create-course-trigger__chevron { margin-left:2px; transition:transform .18s ease; }
+.create-course-menu { position:relative; flex:0 0 auto; margin-left:auto; }
+.create-course-trigger-group { height:44px; display:inline-flex; align-items:stretch; overflow:hidden; border:1px solid rgba(203,213,225,.86); border-radius:10px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.08),0 1px 3px rgba(79,70,229,.06),inset 0 1px 0 rgba(255,255,255,.96); transition:border-color .18s ease,box-shadow .18s ease; }
+.create-course-trigger-group:hover { border-color:rgba(167,139,250,.72); box-shadow:0 8px 22px rgba(15,23,42,.1),0 2px 5px rgba(124,58,237,.08); }
+.create-course-trigger-group:focus-within { border-color:#a78bfa; box-shadow:0 0 0 3px rgba(124,58,237,.12),0 7px 20px rgba(15,23,42,.09); }
+.create-course-primary,.create-course-menu-toggle { min-height:42px; display:inline-flex; align-items:center; justify-content:center; border:0; color:#334155; background:transparent; font:inherit; cursor:pointer; transition:color .18s ease,background .18s ease; }
+.create-course-primary { gap:8px; padding:0 14px; font-size:13px; font-weight:700; white-space:nowrap; }
+.create-course-primary__icon { width:22px; height:22px; display:grid; place-items:center; flex:0 0 auto; color:#7c3aed; transition:transform .2s cubic-bezier(.2,.8,.2,1),color .18s ease; }
+.create-course-primary__label { transform-origin:left center; transition:transform .2s cubic-bezier(.2,.8,.2,1); }
+.create-course-primary:hover { color:#6d28d9; background:#f5f5f5; }
+.create-course-primary:hover .create-course-primary__icon { transform:rotate(90deg) scale(1.05); }
+.create-course-primary:hover .create-course-primary__label { transform:translateX(1px); }
+.create-course-menu-toggle { width:40px; padding:0; border-left:1px solid rgba(226,232,240,.96); color:#64748b; }
+.create-course-menu-toggle:hover,.create-course-menu-toggle[aria-expanded='true'] { color:#6d28d9; background:#f5f5f5; }
+.create-course-primary:active,.create-course-menu-toggle:active { background:#ececec; }
+.create-course-primary:focus-visible,.create-course-menu-toggle:focus-visible { position:relative; z-index:1; outline:2px solid rgba(124,58,237,.58); outline-offset:-3px; }
+.create-course-trigger__chevron { transition:transform .18s ease; }
 .create-course-trigger__chevron.open { transform:rotate(180deg); }
 .create-course-menu__panel { position:absolute; z-index:60; top:calc(100% + 9px); right:0; width:270px; overflow:hidden; padding:7px; border:1px solid rgba(203,213,225,.78); border-radius:14px; background:rgba(255,255,255,.98); box-shadow:0 18px 42px rgba(51,65,85,.16),0 4px 12px rgba(79,70,229,.08); }
 .create-course-menu__item { width:100%; display:grid; grid-template-columns:38px minmax(0,1fr); align-items:center; gap:10px; padding:11px; border:0; border-radius:10px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
@@ -616,28 +654,32 @@ async function deleteCourse(courseId: string, courseName: string) {
 .create-course-menu__item small { margin-top:3px; color:var(--lz-text-muted); font-size:10px; line-height:1.4; }
 .create-menu-enter-active,.create-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .create-menu-enter-from,.create-menu-leave-to { opacity:0; transform:translateY(-5px) scale(.98); }
-.resume-card { width:100%; max-width:1280px; min-width:0; margin:24px auto 0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:13px; padding:14px 16px; border:1px solid rgba(134,239,172,.72); border-radius:14px; color:var(--lz-text); background:linear-gradient(105deg,#f0fdf4,#fff); text-align:left; box-shadow:0 7px 20px rgba(21,128,61,.07); cursor:pointer; }
-.resume-card:hover { border-color:#4ade80; box-shadow:0 10px 24px rgba(21,128,61,.11); }
-.resume-card__icon { width:42px; height:42px; display:grid; place-items:center; border-radius:12px; color:#fff; background:#15803d; }
-.resume-card__copy { min-width:0; display:flex; flex-direction:column; }
-.resume-card__copy small { color:#15803d; font-size:10px; font-weight:800; }
-.resume-card__copy strong,.resume-card__copy span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.resume-card__copy strong { margin-top:2px; color:var(--lz-text-strong); font-size:14px; }
-.resume-card__copy span { margin-top:2px; color:var(--lz-text-muted); font-size:11px; }
-.resume-card__action { display:inline-flex; align-items:center; gap:5px; color:#166534; font-size:12px; font-weight:800; }
-.library-toolbar { max-width: 1280px; margin: 28px auto 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.library-toolbar label { width:min(360px,100%); height:38px; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
+.library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:flex; align-items:center; gap:12px; }
+.library-toolbar label { width:100%; height:44px; flex:0 1 360px; display:flex; align-items:center; gap:8px; padding:0 14px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
-.library-toolbar > span { color: var(--lz-text-muted); font-size: 12px; }
-.course-grid { width:100%; max-width:1280px; margin:0 auto; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
-.course-item { position:relative; min-width:0; min-height:166px; display:grid; grid-template-columns:minmax(0,1fr) 146px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:16px; background:rgba(255,255,255,.86); box-shadow:0 4px 16px rgba(79,70,229,.045),inset 0 1px 0 rgba(255,255,255,.92); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.library-resume { min-width:0; height:44px; flex:1 1 520px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px 0 9px; overflow:hidden; border:1px solid rgba(134,239,172,.62); border-radius:12px; color:var(--lz-text); background:rgba(240,253,244,.52); box-shadow:inset 0 1px 0 rgba(255,255,255,.88); text-align:left; cursor:pointer; transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.library-resume:hover,.library-resume:focus-visible { border-color:rgba(74,222,128,.92); background:rgba(240,253,244,.9); box-shadow:0 5px 14px rgba(21,128,61,.08),inset 0 1px 0 rgba(255,255,255,.9); outline:none; }
+.library-resume:focus-visible { box-shadow:0 0 0 3px rgba(34,197,94,.14),0 5px 14px rgba(21,128,61,.08); }
+.library-resume__icon { width:28px; height:28px; display:grid; place-items:center; border-radius:9px; color:#15803d; background:rgba(220,252,231,.92); }
+.library-resume__copy { min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; white-space:nowrap; }
+.library-resume__label { flex:0 0 auto; color:#15803d; font-size:10px; font-weight:800; }
+.library-resume__title,.library-resume__location { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-resume__title { flex:0 1 auto; color:var(--lz-text-strong); font-size:12px; font-weight:800; }
+.library-resume__separator { flex:0 0 auto; color:rgba(148,163,184,.78); font-size:11px; }
+.library-resume__location { flex:1 1 auto; color:var(--lz-text-muted); font-size:11px; }
+.library-resume__action { display:inline-flex; align-items:center; gap:5px; color:#166534; font-size:11px; font-weight:800; white-space:nowrap; }
+.library-resume__action svg { transition:transform .18s ease; }
+.library-resume:hover .library-resume__action svg { transform:translateX(3px); }
+.library-resume:focus-visible .library-resume__action svg { transform:translateX(3px); }
+.library-toolbar__count { color:var(--lz-text-muted); font-size:12px; white-space:nowrap; }
+.course-grid { width:100%; max-width:var(--course-grid-width); margin:0; margin-inline-start:max(0px,calc((100% - var(--course-content-width)) / 2)); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
+.course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 96px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
 .course-item--menu-open { z-index:30; }
-.course-main { min-width:0; min-height:164px; display:grid; grid-template-columns:52px minmax(0,1fr); align-items:center; gap:18px; padding:22px 10px 22px 24px; border:0; border-radius:16px 0 0 16px; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.course-main { min-width:0; min-height:calc(var(--course-card-height) - 2px); display:grid; grid-template-columns:var(--course-cover-width) minmax(0,1fr); align-items:center; gap:16px; padding:16px 8px 16px 18px; border:0; border-radius:15px 0 0 15px; color:inherit; background:transparent; text-align:left; cursor:pointer; }
 .course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
-.course-mark { width:52px; height:52px; display:grid; place-items:center; border-radius:14px; color:#fff; background:linear-gradient(135deg,#818cf8,#7c3aed); box-shadow:0 7px 16px rgba(99,102,241,.2); }
 .course-copy { min-width:0; display:flex; flex-direction:column; align-items:stretch; }
-.course-copy h2 { margin:0 0 14px; overflow:hidden; color:var(--lz-text-strong); font-size:16px; font-weight:800; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.course-copy h2 { margin:0 0 10px; overflow:hidden; color:var(--lz-text-strong); font-size:16px; font-weight:800; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
 .course-status { display:flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:12px; line-height:1; }
 .course-status strong { margin-left:2px; color:inherit; font-size:12px; font-weight:800; }
 .course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
@@ -647,19 +689,19 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-status--danger .course-status__dot { background:var(--lz-danger); }
 .course-status--warning { color:#a16207; }
 .course-status--warning .course-status__dot { background:#d97706; }
-.generation-progress { display:block; width:min(100%,360px); margin-top:12px; }
+.generation-progress { display:block; width:min(100%,260px); margin-top:10px; }
 .progress-track { display:block; height:4px; overflow:hidden; border-radius:999px; background:var(--lz-surface-muted); }
-.progress-track > span { display:block; width:100%; height:100%; border-radius:inherit; background:var(--lz-brand); transform-origin:left center; }
+.progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
 .course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
-.course-actions { position:relative; min-width:0; display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-end; padding:18px 20px; }
-.course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 4px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; cursor:pointer; }
+.course-actions { position:relative; min-width:0; display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-end; padding:14px 16px; }
+.course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 4px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; white-space:nowrap; cursor:pointer; }
 .course-primary-action:hover,.course-primary-action:focus-visible { color:#4f46e5; background:var(--lz-brand-soft); outline:none; }
-.course-menu-trigger { position:absolute; top:18px; right:18px; width:34px; height:34px; display:grid; place-items:center; border:1px solid rgba(203,213,225,.72); border-radius:9px; color:var(--lz-text-secondary); background:rgba(255,255,255,.84); cursor:pointer; }
+.course-menu-trigger { position:absolute; top:14px; right:14px; width:34px; height:34px; display:grid; place-items:center; border:1px solid rgba(203,213,225,.72); border-radius:9px; color:var(--lz-text-secondary); background:rgba(255,255,255,.84); cursor:pointer; }
 .course-menu-trigger:hover,.course-menu-trigger:focus-visible,.course-menu-trigger[aria-expanded='true'] { border-color:#c7d2fe; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
-.course-menu { position:absolute; z-index:50; top:58px; right:18px; width:188px; overflow:hidden; padding:6px; border:1px solid rgba(203,213,225,.82); border-radius:12px; background:#fff; box-shadow:0 18px 38px rgba(51,65,85,.18),0 4px 10px rgba(79,70,229,.08); }
-.course-menu__item { width:100%; min-height:42px; display:flex; align-items:center; gap:10px; padding:0 11px; border:0; border-radius:8px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
+.course-menu { position:absolute; z-index:50; top:52px; right:14px; width:160px; overflow:hidden; padding:4px; border:1px solid rgba(203,213,225,.82); border-radius:10px; background:#fff; box-shadow:0 12px 28px rgba(51,65,85,.16),0 3px 8px rgba(79,70,229,.07); }
+.course-menu__item { width:100%; min-height:36px; display:flex; align-items:center; gap:8px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
 .course-menu__item:hover,.course-menu__item:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
-.course-menu__item--danger { margin-top:4px; border-top:1px solid rgba(226,232,240,.9); border-radius:0 0 8px 8px; color:var(--lz-danger); }
+.course-menu__item--danger { margin-top:3px; border-top:1px solid rgba(226,232,240,.9); border-radius:0 0 7px 7px; color:var(--lz-danger); }
 .course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
 .course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
@@ -687,27 +729,30 @@ async function deleteCourse(courseId: string, courseName: string) {
 .spin { animation: spin 1s linear infinite; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width:1360px) {
+  .course-grid { max-width:1040px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
 @media (max-width:980px) {
-  .course-grid { grid-template-columns:minmax(0,1fr); }
+  .library-toolbar label { flex-basis:320px; }
+  .library-toolbar__count { display:none; }
+  .library-resume__location,.library-resume__separator { display:none; }
+}
+@media (max-width:860px) {
+  .course-grid { max-width:511px; grid-template-columns:minmax(0,1fr); }
 }
 @media (max-width:700px) {
-  .course-library { padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
+  .course-library { --course-card-height:150px; --course-cover-width:72px; padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
   .course-library--paginated { padding-bottom:126px; }
   .library-header { align-items:stretch; flex-direction:column; }
-  .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
-  .create-course-menu__panel { left:0; right:0; width:auto; }
-  .resume-card { margin-top:18px; grid-template-columns:38px minmax(0,1fr); padding:12px; }
-  .resume-card__icon { width:38px; height:38px; }
-  .resume-card__action { grid-column:2; }
-  .library-toolbar { margin-top:18px; }
-  .course-library--empty .library-state { min-height:230px; }
-  .library-toolbar > span { display:none; }
-  .course-item { min-height:150px; grid-template-columns:minmax(0,1fr) 116px; }
-  .course-main { min-height:148px; grid-template-columns:44px minmax(0,1fr); gap:13px; padding:18px 8px 18px 18px; }
-  .course-mark { width:44px; height:44px; border-radius:12px; }
-  .course-actions { padding:15px; }
-  .course-menu-trigger { top:15px; right:15px; }
-  .course-menu { top:53px; right:15px; }
+  .create-course-menu { width:auto; margin-left:auto; }
+  .create-course-menu__panel { left:auto; right:0; width:min(270px,calc(100vw - 40px)); }
+  .library-toolbar { margin-top:18px; flex-wrap:wrap; gap:10px; }
+  .library-toolbar label,.library-resume { width:100%; flex:1 0 100%; }
+  .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }
+  .course-main { min-height:calc(var(--course-card-height) - 2px); grid-template-columns:var(--course-cover-width) minmax(0,1fr); gap:13px; padding:16px 5px 16px 14px; }
+  .course-actions { padding:13px; }
+  .course-menu-trigger { top:13px; right:13px; }
+  .course-menu { top:51px; right:13px; }
   .course-copy h2 { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
   .library-pagination-dock { width:calc(100vw - 24px); max-width:none; flex-wrap:wrap; gap:6px; padding:7px 8px; border-radius:14px; }
   .pagination-button--direction { min-width:34px; width:34px; padding:0; }
@@ -719,5 +764,9 @@ async function deleteCourse(courseId: string, courseName: string) {
   .global-action-button { width:40px; padding:0; }
   .global-action-button .action-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .task-center-button > .action-count { position:absolute; top:-4px; right:-4px; min-width:17px; height:17px; padding:0 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-resume,.library-resume__action svg,.create-course-trigger-group,.create-course-primary,.create-course-menu-toggle,.create-course-trigger__chevron { transition:none; }
+  .library-resume:hover .library-resume__action svg,.library-resume:focus-visible .library-resume__action svg { transform:none; }
 }
 </style>

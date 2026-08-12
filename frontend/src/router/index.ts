@@ -18,6 +18,18 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('../views/TeacherCourseSpaceView.vue')
   },
   {
+    path: '/workspace-concept',
+    name: 'workspace-concept',
+    component: () => import('../views/WorkspacePortalConceptView.vue'),
+    meta: { publicConcept: true }
+  },
+  {
+    path: '/workspace-concept/modes',
+    name: 'workspace-mode-lab',
+    component: () => import('../views/WorkspaceModeLabView.vue'),
+    meta: { publicConcept: true }
+  },
+  {
     path: '/course/:courseId',
     redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
   },

@@ -1,17 +1,18 @@
 <template>
-  <Teleport to="body">
-    <div v-if="modelValue" class="task-center-layer" @keydown="handleDialogKeydown">
-      <button type="button" class="task-center-backdrop" :aria-label="t('common.cancel', '取消')" @click="close" />
+  <Teleport to="body" :disabled="embedded">
+    <div v-if="modelValue" class="task-center-layer" :class="{ 'task-center-layer--embedded': embedded }" @keydown="handleDialogKeydown">
+      <button v-if="!embedded" type="button" class="task-center-backdrop" :aria-label="t('common.cancel', '取消')" @click="close" />
       <section
         ref="panelRef"
         class="task-center"
-        :class="{ 'task-center--empty': !tasks.length }"
-        role="dialog"
-        aria-modal="true"
-        :aria-labelledby="titleId"
+        :class="{ 'task-center--embedded': embedded }"
+        :role="embedded ? 'region' : 'dialog'"
+        :aria-modal="embedded ? undefined : true"
+        :aria-labelledby="embedded ? undefined : titleId"
+        :aria-label="embedded ? t('courseTasks.title', '课程任务中心') : undefined"
         tabindex="-1"
       >
-        <header class="task-center__header">
+        <header v-if="!embedded" class="task-center__header">
           <div>
             <span><ListChecks :size="16" /></span>
             <div>
@@ -436,7 +437,10 @@ import {
 
 type TaskView = Task
 
-const props = withDefaults(defineProps<{ modelValue: boolean; courseId?: string }>(), { courseId: '' })
+const props = withDefaults(defineProps<{ modelValue: boolean; courseId?: string; embedded?: boolean }>(), {
+  courseId: '',
+  embedded: false,
+})
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const router = useRouter()
 const courseStore = useCourseStore()
@@ -679,14 +683,14 @@ const contentQualityLabel = computed(() => {
 
 watch(() => props.modelValue, async open => {
   if (!open) return
-  previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (!props.embedded) previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await refresh()
   if (!tasks.value.some(task => task.id === selectedTaskId.value)) {
     selectedTaskId.value = preferredTaskId(props.courseId)
   }
   await loadSelectedReview()
   await nextTick()
-  panelRef.value?.focus()
+  if (!props.embedded) panelRef.value?.focus()
 }, { immediate: true })
 watch(() => props.courseId, value => {
   if (value) selectedTaskId.value = preferredTaskId(value)
@@ -711,9 +715,10 @@ function normalizeStatus(status: string): Task['status'] {
 }
 function close() {
   emit('update:modelValue', false)
-  nextTick(() => previousFocus.value?.focus())
+  if (!props.embedded) nextTick(() => previousFocus.value?.focus())
 }
 function handleDialogKeydown(event: KeyboardEvent) {
+  if (props.embedded) return
   if (event.key === 'Escape') {
     event.preventDefault()
     close()
@@ -1182,10 +1187,10 @@ function formatDuration(seconds: number) {
 
 <style scoped>
 .task-center-layer { position: fixed; inset: 0; z-index: 520; display: grid; place-items: center; padding: 20px; }
+.task-center-layer--embedded { position:relative; inset:auto; z-index:auto; width:100%; height:100%; display:block; padding:0; }
 .task-center-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30,41,59,.34); backdrop-filter: blur(5px); cursor: default; }
-.task-center { position: relative; width: min(980px,100%); height: min(720px,calc(100dvh - 40px)); display: grid; grid-template-rows: 62px minmax(0,1fr); overflow: hidden; border: 1px solid rgba(255,255,255,.92); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: rgba(255,255,255,.98); box-shadow: var(--lz-shadow-overlay); outline: none; animation:task-center-arrive .22s cubic-bezier(.16,1,.3,1); }
-.task-center--empty { width:min(620px,100%); height:auto; min-height:270px; grid-template-rows:62px auto; }
-@keyframes task-center-arrive { from { opacity:.72; transform:translateY(10px) scale(.992); } to { opacity:1; transform:none; } }
+.task-center { position: relative; width: min(980px,100%); height: min(720px,calc(100vh - 40px)); display: grid; grid-template-rows: 62px minmax(0,1fr); overflow: hidden; border: 1px solid rgba(255,255,255,.92); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: rgba(255,255,255,.98); box-shadow: var(--lz-shadow-overlay); outline: none; }
+.task-center--embedded { width:100%; height:100%; grid-template-rows:minmax(0,1fr); border:0; border-radius:0; box-shadow:none; }
 .task-center__header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 14px 0 20px; border-bottom:1px solid var(--lz-border); }
 .task-center__header > div:first-child { min-width:0; display:flex; align-items:center; gap:10px; }
 .task-center__header > div:first-child > span { width:34px; height:34px; display:grid; place-items:center; border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
