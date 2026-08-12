@@ -725,6 +725,84 @@ def test_ordered_activity_materializes_as_distinct_source_bound_steps() -> None:
     assert "Follow these operations" not in region.content
 
 
+def test_ordered_activity_keeps_complete_source_details_without_ellipsis() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-procedure-density",
+        title="Field specimen workflow",
+        sections=[CourseSection(
+            section_id="field-procedure",
+            title="Preserve the specimen chain",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="specimen-steps",
+            section_id="field-procedure",
+            position=0,
+            role="activity",
+            payload={"markdown": (
+                "Follow these operations in order:\n\n"
+                "1. **Prepare the station**\n"
+                "   - Record the site, time, weather, observer, instrument and batch identifier.\n"
+                "   - Confirm the clean surface before opening the specimen container.\n"
+                "2. **Collect the sample**\n"
+                "   - Match the field label to the signed source record before collection begins.\n"
+                "   - Preserve the original sequence while transferring the sample.\n"
+                "3. **Seal the container**\n"
+                "   - Check the lid, tamper mark, temperature and current custody condition.\n"
+                "   - Stop the transfer if any required field is missing.\n"
+                "4. **Label the evidence**\n"
+                "   - Copy the complete specimen identifier and collection window exactly.\n"
+                "   - Keep the source form beside the package for independent review.\n"
+                "5. **Transfer the package**\n"
+                "   - Record the receiver, handoff time, route and storage condition.\n"
+                "   - Obtain the receiver signature before releasing custody."
+            )},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="field-procedure-density-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("practice-prompt"),
+        title="Preserve the specimen chain",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field-procedure-density",
+            chapter_id="field-procedure",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    task = next(region for region in deck.pages[0].regions if region.slot_id == "task")
+
+    assert len(task.content.splitlines()) == 5
+    assert "…" not in task.content
+    assert all(not line.rstrip().endswith((";", "；", ":", "：")) for line in task.content.splitlines())
+
+
 def test_visual_plan_degrades_only_optional_visuals() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)

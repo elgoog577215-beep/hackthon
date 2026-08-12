@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from pptx import Presentation
+from pptx.enum.text import MSO_ANCHOR
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import compile_course_presentation_graph
@@ -622,6 +623,14 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
     report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
 
     assert report["passed"], report["blockers"]
+    presentation = Presentation(output)
+    for slide in presentation.slides:
+        table = next(shape.table for shape in slide.shapes if shape.has_table)
+        assert all(
+            cell.vertical_anchor == MSO_ANCHOR.MIDDLE
+            for row in table.rows
+            for cell in row.cells
+        )
 
 
 def test_wide_table_summary_band_fits_three_lines_at_readable_size(tmp_path: Path) -> None:

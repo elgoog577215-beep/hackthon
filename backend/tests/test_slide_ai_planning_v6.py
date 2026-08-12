@@ -945,6 +945,7 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
     assert target["required_template_layout_id"].endswith("/content-stack")
     assert target["required_summary"]
     assert len(target["required_summary"]) >= target["summary_min_chars"]
+    assert len(target["required_summary"]) <= target["summary_min_chars"] + 80
     assert story.pages[0].summary == target["required_summary"]
     assert len(story.pages[0].summary) >= target["summary_min_chars"]
 
