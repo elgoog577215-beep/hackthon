@@ -96,16 +96,20 @@ jobs:
           from ai_provider_route import provider_route_snapshot
 
 
-          async def probe_ai_model() -> None:
+          async def probe_ai_model(
+              *,
+              model_role: str,
+              use_fast_model: bool,
+          ) -> None:
               provider = AIBase()
               telemetry = []
               status = "failed"
               error_code = ""
               try:
                   response = await provider._call_llm(
-                      '{"probe":"ppt_story"}',
+                      json.dumps({"probe": model_role}),
                       system_prompt='Return only this JSON object: {"ok":true}',
-                      use_fast_model=False,
+                      use_fast_model=use_fast_model,
                       enable_thinking=False,
                       retry_count=1,
                       max_attempts=3,
@@ -113,7 +117,7 @@ jobs:
                       reject_truncated=True,
                       raise_on_failure=True,
                       json_mode=True,
-                      model_role="ppt_story",
+                      model_role=model_role,
                       telemetry_sink=telemetry.append,
                   )
                   parsed = provider._extract_json(response or "") or {}
@@ -132,7 +136,7 @@ jobs:
                   for item in telemetry
                   if isinstance(item, dict)
               ]
-              print("ppt_story_model_probe", json.dumps({
+              print(f"{model_role}_model_probe", json.dumps({
                   "status": status,
                   "error_code": error_code,
                   "attempts": attempts,
@@ -142,7 +146,14 @@ jobs:
                   raise SystemExit(1)
 
 
-          asyncio.run(probe_ai_model())
+          asyncio.run(probe_ai_model(
+              model_role="ppt_story",
+              use_fast_model=False,
+          ))
+          asyncio.run(probe_ai_model(
+              model_role="ppt_visual",
+              use_fast_model=True,
+          ))
           PY
           fi
 
