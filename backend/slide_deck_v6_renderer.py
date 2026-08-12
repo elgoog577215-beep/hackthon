@@ -357,13 +357,46 @@ def _validate_deck_for_export(deck: SlideDeckV6) -> None:
         )
 
 
+_V6_PUBLICATION_METADATA_FIELDS = frozenset({
+    "ai_batch_diagnostics",
+    "build_signature",
+    "course_presentation_graph",
+    "planning_status",
+    "source_contract",
+    "story_plan",
+    "visual_plan",
+})
+
+
+def _validated_export_deck(
+    content: SlideDeckV6 | dict[str, Any],
+) -> SlideDeckV6:
+    if isinstance(content, SlideDeckV6):
+        return content
+    core_fields = set(SlideDeckV6.model_fields)
+    unknown_fields = (
+        set(content)
+        - core_fields
+        - _V6_PUBLICATION_METADATA_FIELDS
+    )
+    if unknown_fields:
+        # Preserve the strict model's field-specific validation error instead
+        # of silently accepting an undeclared publication extension.
+        return SlideDeckV6.model_validate(content)
+    return SlideDeckV6.model_validate({
+        key: value
+        for key, value in content.items()
+        if key in core_fields
+    })
+
+
 def export_slide_deck_v6_pptx(
     content: SlideDeckV6 | dict[str, Any],
     output_path: str | Path,
     *,
     asset_repository: SlideAssetRepository | None = None,
 ) -> Path:
-    deck = content if isinstance(content, SlideDeckV6) else SlideDeckV6.model_validate(content)
+    deck = _validated_export_deck(content)
     _validate_deck_for_export(deck)
 
     from pptx import Presentation
