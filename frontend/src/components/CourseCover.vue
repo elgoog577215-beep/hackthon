@@ -62,6 +62,6 @@ const bookTexture = computed(() => bookTextures[preset.value])
 }
 
 @media (max-width: 700px) {
-  .course-cover { width: 72px; }
+  .course-cover { width: var(--course-cover-width, 68px); }
 }
 </style>

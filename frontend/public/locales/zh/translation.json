@@ -3248,6 +3248,21 @@
     "cancel": "取消",
     "save": "保存笔记"
   },
+  "questionBank": {
+    "centerTitle": "课程题库质量管理",
+    "courseList": "课程列表",
+    "searchCourse": "搜索课程",
+    "noCourses": "没有可管理的课程",
+    "currentCourse": "当前课程",
+    "title": "课程题库质量管理",
+    "refreshCourses": "刷新课程",
+    "regenerateHelp": "新题通过质量检查后才会替换当前题库",
+    "notBuilt": "该课程尚未整理题库，请点击“重新整理”。",
+    "loadFailed": "题库读取失败，请稍后重试。",
+    "rebuildMissing": "重新整理题库",
+    "regeneratingCourse": "正在重新生成课程题目",
+    "regenerateCourse": "重新生成整门课程题目"
+  },
   "assessmentGeneration": {
     "label": "题目生成方式",
     "fastLabel": "快速版",
