@@ -837,7 +837,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v28"
+    assert data["prompt_contract_version"] == "course_prompt_v29"
     assert len(calls) == 5
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"

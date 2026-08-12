@@ -396,7 +396,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(4)
+    expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(3)
     expect(wrapper.text()).toContain('小节教案、知识库与关系图已由同一计划编译')
     expect(wrapper.text()).toContain('题目合同与可判定性')
     expect(wrapper.text()).toContain('为什么出这道题')
@@ -406,7 +406,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('3 / 3')
   })
 
-  it('英文模式完整显示四步和当前确认动作，不泄漏翻译键或中文', async () => {
+  it('英文模式完整显示三步产品电路和当前兼容确认动作，不泄漏翻译键或中文', async () => {
     const generation = useGenerationStore()
     const workspace = useCourseWorkspaceStore()
     const workflow = {
@@ -446,7 +446,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(4)
+    expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(3)
     expect(wrapper.text()).toContain('Review course content')
     expect(wrapper.text()).toContain('Course task center')
     expect(wrapper.text()).toContain('Confirm publication')

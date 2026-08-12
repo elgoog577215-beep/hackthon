@@ -152,11 +152,11 @@
               </details>
             </section>
 
-            <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
+            <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成三步流程')">
               <header class="guided-workflow__heading">
                 <div>
-                  <strong>{{ t('courseTasks.workflow.visibleTitle', '你只需要关注这四步') }}</strong>
-                  <span>{{ t('courseTasks.workflow.visibleHelp', '需要你确认时，系统会停在对应步骤。') }}</span>
+                  <strong>{{ t('courseTasks.workflow.visibleTitle', '你只需要关注三步') }}</strong>
+                  <span>{{ t('courseTasks.workflow.visibleHelp', '只在目录和发布时需要你确认，中间生成会自动完成。') }}</span>
                 </div>
               </header>
               <ol>
@@ -585,31 +585,53 @@ const workflowSteps = computed(() => {
   const workflow = selectedTask.value?.guidedWorkflow || generationReview.value?.guided_workflow
   const current = workflow?.current_step
   const sourceSteps = workflow?.steps || []
-  const visibleKeys: Exclude<GuidedGenerationStepKey, 'requirements'>[] = ['outline', 'teaching', 'content', 'release']
-  const currentIndex = visibleKeys.indexOf(current as Exclude<GuidedGenerationStepKey, 'requirements'>)
-  return visibleKeys.map((key, index) => {
+  const internalOrder: Exclude<GuidedGenerationStepKey, 'requirements'>[] = ['outline', 'teaching', 'content', 'release']
+  const currentIndex = internalOrder.indexOf(current as Exclude<GuidedGenerationStepKey, 'requirements'>)
+  const sourceStatus = (key: Exclude<GuidedGenerationStepKey, 'requirements'>) => {
     const source = sourceSteps.find((step: any) => step.key === key)
-    const status = source?.status || (
-      currentIndex > index ? 'confirmed'
-        : currentIndex === index ? 'pending'
-          : 'locked'
-    )
+    if (source?.status) return source.status
+    const index = internalOrder.indexOf(key)
+    return currentIndex > index ? 'confirmed' : currentIndex === index ? 'pending' : 'locked'
+  }
+  const productionStatuses = [sourceStatus('teaching'), sourceStatus('content')]
+  const productionStatus = (() => {
+    if (productionStatuses.includes('failed')) return 'failed'
+    if (productionStatuses.includes('needs_regeneration')) return 'needs_regeneration'
+    if (productionStatuses.includes('waiting_for_confirmation')) return 'waiting_for_confirmation'
+    if (productionStatuses.every(status => status === 'confirmed')) return 'confirmed'
+    if (
+      selectedTask.value?.status === 'running'
+      && (current === 'teaching' || current === 'content')
+    ) return 'in_progress'
+    if (productionStatuses.includes('in_progress')) return 'in_progress'
+    if (productionStatuses.every(status => status === 'locked')) return 'locked'
+    return 'pending'
+  })()
+  const visibleSteps = [
+    { key: 'outline', sourceKeys: ['outline'], status: sourceStatus('outline') },
+    { key: 'production', sourceKeys: ['teaching', 'content'], status: productionStatus },
+    { key: 'release', sourceKeys: ['release'], status: sourceStatus('release') },
+  ]
+  return visibleSteps.map((step, index) => {
+    const { key, status } = step
     return {
-      ...source,
+      ...step,
       key,
       number: index + 1,
       status,
-      label: guidedStepLabel(key),
+      label: guidedStepLabel(key as GuidedGenerationStepKey | 'production'),
       displayStatus: (
         status === 'pending'
-        && current === key
+        && step.sourceKeys.includes(String(current))
         && selectedTask.value?.status === 'running'
       ) ? 'in_progress' : status,
     }
   })
 })
 const currentReviewNumber = computed(() => {
-  const step = workflowSteps.value.find((item: any) => item.key === currentReviewStep.value)
+  const step = workflowSteps.value.find((item: any) => (
+    item.sourceKeys?.includes(currentReviewStep.value)
+  ))
   return String(step?.number || 2).padStart(2, '0')
 })
 const currentReviewTitle = computed(() => ({
@@ -889,10 +911,11 @@ function formatTaskTime(value: string) {
     minute: '2-digit',
   }).format(date)
 }
-function guidedStepLabel(step: GuidedGenerationStepKey) {
+function guidedStepLabel(step: GuidedGenerationStepKey | 'production') {
   return {
     requirements: t('courseTasks.workflow.requirements', '需求输入'),
     outline: t('courseTasks.workflow.outline', '目录确认'),
+    production: t('courseTasks.workflow.production', '自动生成课程'),
     teaching: t('courseTasks.workflow.teaching', '教案确认'),
     content: t('courseTasks.workflow.content', '正文生成'),
     release: t('courseTasks.workflow.release', '确认发布'),
@@ -1251,7 +1274,7 @@ function formatDuration(seconds: number) {
 .guided-workflow__heading strong,.guided-workflow__heading span { display:block; }
 .guided-workflow__heading strong { color:var(--lz-text); font-size:12px; }
 .guided-workflow__heading span { margin-top:3px; color:var(--lz-text-muted); font-size:9px; }
-.guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; }
+.guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); list-style:none; }
 .guided-workflow li { position:relative; min-width:0; display:grid; justify-items:center; gap:7px; color:var(--lz-text-muted); text-align:center; }
 .guided-workflow li:not(:last-child)::after { content:""; position:absolute; z-index:0; top:14px; left:calc(50% + 18px); right:calc(-50% + 18px); height:1px; background:var(--lz-border); }
 .guided-workflow__step { min-width:0; width:100%; display:grid; justify-items:center; gap:7px; padding:0 3px; border:0; color:inherit; background:transparent; text-align:center; }
@@ -1282,6 +1305,6 @@ function formatDuration(seconds: number) {
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--embedded { height:100%; border-radius:0; }.task-center--empty { height:auto; min-height:280px; }.task-center__body { grid-template-columns:1fr; grid-template-rows:76px minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { display:flex; gap:6px; max-height:none; overflow-x:auto; overflow-y:hidden; padding:7px 10px; border-right:0; border-bottom:1px solid var(--lz-border); scroll-snap-type:x proximity; }.task-row { width:auto; flex:0 0 min(270px,calc(100vw - 52px)); min-height:60px; scroll-snap-align:start; }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:16px 14px 12px; }.task-summary { padding-bottom:18px; }.task-summary__top { gap:12px; }.task-summary__top > strong { font-size:22px; }.task-summary h3 { margin:8px 0 4px; font-size:18px; }.task-progress { margin:14px 0 13px; }.task-summary dl { grid-template-columns:1fr 1fr; gap:9px; }.task-actions { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }.task-actions__open { margin-left:0; }.task-observability { padding:0; }.task-observability ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:16px; }.task-observability__stage:nth-child(3n)::after { display:none; }.guided-workflow ol { grid-template-columns:repeat(4,minmax(0,1fr)); }.guided-workflow li strong { min-height:2.4em; display:-webkit-box; overflow:hidden; font-size:9px; line-height:1.2; text-overflow:clip; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.guided-workflow li small { font-size:8px; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--embedded { height:100%; border-radius:0; }.task-center--empty { height:auto; min-height:280px; }.task-center__body { grid-template-columns:1fr; grid-template-rows:76px minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { display:flex; gap:6px; max-height:none; overflow-x:auto; overflow-y:hidden; padding:7px 10px; border-right:0; border-bottom:1px solid var(--lz-border); scroll-snap-type:x proximity; }.task-row { width:auto; flex:0 0 min(270px,calc(100vw - 52px)); min-height:60px; scroll-snap-align:start; }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:16px 14px 12px; }.task-summary { padding-bottom:18px; }.task-summary__top { gap:12px; }.task-summary__top > strong { font-size:22px; }.task-summary h3 { margin:8px 0 4px; font-size:18px; }.task-progress { margin:14px 0 13px; }.task-summary dl { grid-template-columns:1fr 1fr; gap:9px; }.task-actions { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }.task-actions__open { margin-left:0; }.task-observability { padding:0; }.task-observability ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:16px; }.task-observability__stage:nth-child(3n)::after { display:none; }.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); }.guided-workflow li strong { min-height:2.4em; display:-webkit-box; overflow:hidden; font-size:9px; line-height:1.2; text-overflow:clip; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.guided-workflow li small { font-size:8px; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { .task-center { animation:none; }.spin { animation:none; } }
 </style>

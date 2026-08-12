@@ -6492,6 +6492,11 @@ class TaskManager:
             ).setdefault("content_generation", {})
             content_stage.update({
                 "status": "in_progress",
+                "course_design_contract_revision_id": str(
+                    (course_data.get("course_design_contract") or {}).get(
+                        "revision_id"
+                    ) or ""
+                ),
                 "section_count": total,
                 "pending_section_count": len(incomplete_l2),
                 "max_concurrency": self.max_concurrency,

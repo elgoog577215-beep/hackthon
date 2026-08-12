@@ -2702,6 +2702,10 @@ def attach_generation_artifacts_to_plan(
     plan["subject_generation_template"] = deepcopy(
         artifacts.get("subject_generation_template") or {}
     )
+    plan["course_design_contract_revision_id"] = str(
+        (artifacts.get("course_design_contract") or {}).get("revision_id")
+        or ""
+    )
     return plan
 
 

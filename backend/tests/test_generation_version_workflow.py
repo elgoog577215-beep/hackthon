@@ -489,7 +489,7 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_guided_job_requires_teaching_confirmation_before_content(
+async def test_guided_job_auto_advances_teaching_and_content_before_release(
     tmp_path,
     monkeypatch,
 ):

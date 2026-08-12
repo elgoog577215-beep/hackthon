@@ -54,6 +54,7 @@ from course_difficulty import (
     format_node_difficulty_contract,
     parse_difficulty_level,
 )
+from course_design_contract import compile_course_design_contract
 from course_generation_adaptive import (
     PromptCandidate,
     clip_text,
@@ -380,6 +381,7 @@ class CourseService(AIBase):
             "requirements",
             "subject_pedagogy_profile",
             "subject_generation_template",
+            "course_design_contract",
             "difficulty_profile",
             "difficulty_gap_assessment",
             "adaptation_decision",
@@ -766,6 +768,17 @@ class CourseService(AIBase):
             gap_assessment=gap_assessment,
             adaptation_decision=adaptation_decision,
         )
+        artifacts["course_design_contract"] = compile_course_design_contract(
+            brief=artifacts["course_generation_brief"],
+            subject_template=(
+                artifacts.get("subject_generation_template")
+                or compile_subject_generation_template(profile)
+            ),
+            difficulty_profile=difficulty_profile.to_dict(),
+            gap_assessment=gap_assessment.to_dict(),
+            adaptation_decision=adaptation_decision.to_dict(),
+            grounding_strategy=grounding_strategy,
+        )
         await self._notify_checkpoint(on_checkpoint, {
             "generation_pipeline_version": artifacts["pipeline_version"],
             "material_cards": artifacts["material_cards"],
@@ -782,6 +795,7 @@ class CourseService(AIBase):
             "subject_generation_template": artifacts.get(
                 "subject_generation_template"
             ) or compile_subject_generation_template(profile),
+            "course_design_contract": artifacts["course_design_contract"],
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
@@ -990,6 +1004,7 @@ class CourseService(AIBase):
             "subject_generation_template": artifacts.get(
                 "subject_generation_template"
             ) or compile_subject_generation_template(profile),
+            "course_design_contract": artifacts["course_design_contract"],
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
             "adaptation_decision": adaptation_decision.to_dict(),
@@ -1027,6 +1042,11 @@ class CourseService(AIBase):
                 **deepcopy(existing.get("generation_stage_artifacts") or {}),
                 "outline": {
                     **deepcopy(existing_outline_stage),
+                    "course_design_contract_revision_id": str(
+                        (
+                            artifacts.get("course_design_contract") or {}
+                        ).get("revision_id") or ""
+                    ),
                     "status": (
                         "completed_with_warnings"
                         if existing_outline_stage.get("fallback_units")
@@ -1283,6 +1303,22 @@ class CourseService(AIBase):
             ),
             "evidence_coverage_plan": deepcopy(working.get("evidence_coverage_plan") or {}),
         }
+        artifacts["course_design_contract"] = (
+            deepcopy(working.get("course_design_contract") or {})
+            or compile_course_design_contract(
+                brief=artifacts["course_generation_brief"],
+                subject_template=artifacts["subject_generation_template"],
+                difficulty_profile=difficulty_profile.to_dict(),
+                gap_assessment=gap_assessment.to_dict(),
+                adaptation_decision=adaptation_decision.to_dict(),
+                grounding_strategy=str(
+                    request.get("grounding_strategy") or "material_first"
+                ),
+            )
+        )
+        working["course_design_contract"] = deepcopy(
+            artifacts["course_design_contract"]
+        )
 
         plan = attach_generation_artifacts_to_plan(plan, artifacts)
         plan = attach_module_plans_to_plan(plan, profile)
@@ -1535,6 +1571,11 @@ class CourseService(AIBase):
             and teaching_stage.get("source_outline_revision_id") != outline_revision_id
         ):
             teaching_stage.clear()
+        teaching_stage["course_design_contract_revision_id"] = str(
+            (course_data.get("course_design_contract") or {}).get(
+                "revision_id"
+            ) or ""
+        )
         teaching_stage["runtime_budget"] = {
             "max_input_tokens": (
                 self._teaching_plan_budget.max_input_tokens
@@ -1830,6 +1871,9 @@ class CourseService(AIBase):
                             plan.get("learning_objectives") or []
                         ),
                         "planning_context": chunk_context,
+                        "course_design_contract": course_data.get(
+                            "course_design_contract"
+                        ) or {},
                     },
                     max_input_chars=(
                         self._generation_budget.max_input_chars
@@ -1856,6 +1900,9 @@ class CourseService(AIBase):
                                     dict,
                                 )
                                 else None
+                            ),
+                            design_contract=course_data.get(
+                                "course_design_contract"
                             ),
                             detail_level=detail_level,
                         )
@@ -2223,7 +2270,9 @@ class CourseService(AIBase):
                     "section_identities": [
                         identity_by_id[item] for item in section_ids
                     ],
-                    "subject_template": subject_template,
+                    "course_design_contract": course_data.get(
+                        "course_design_contract"
+                    ) or {},
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
             )
@@ -2252,6 +2301,9 @@ class CourseService(AIBase):
                             skeleton.get("revision_id") or ""
                         ),
                         subject_template=subject_template,
+                        design_contract=course_data.get(
+                            "course_design_contract"
+                        ),
                         detail_level=detail_level,
                     )
                 )
@@ -2870,7 +2922,9 @@ class CourseService(AIBase):
                     ],
                     "module_catalog": module_catalog,
                     "overall_guidance": overall_teaching_guidance,
-                    "subject_template": subject_template,
+                    "course_design_contract": course_data.get(
+                        "course_design_contract"
+                    ) or {},
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
             )
@@ -2893,6 +2947,9 @@ class CourseService(AIBase):
                             frozen_knowledge_graph.get("revision_id") or ""
                         ),
                         subject_template=subject_template,
+                        design_contract=course_data.get(
+                            "course_design_contract"
+                        ),
                         overall_guidance=overall_teaching_guidance,
                         detail_level=detail_level,
                     )
@@ -4241,6 +4298,11 @@ class CourseService(AIBase):
         stage.update({
             "status": "in_progress",
             "schema_version": "course_outline_execution_v2",
+            "course_design_contract_revision_id": str(
+                (artifacts.get("course_design_contract") or {}).get(
+                    "revision_id"
+                ) or ""
+            ),
             "strategy": "hierarchical_chapter_batches",
             "request_fingerprint": request_fingerprint,
             "batch_max_sections": self._outline_budget.batch_max_sections,
@@ -4369,6 +4431,9 @@ class CourseService(AIBase):
                     "audience": audience,
                     "brief": brief,
                     "difficulty_profile": difficulty_profile,
+                    "course_design_contract": artifacts.get(
+                        "course_design_contract"
+                    ) or {},
                     "material_cards": artifacts.get("material_cards") or [],
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
@@ -4386,6 +4451,9 @@ class CourseService(AIBase):
                         material_context=build_outline_generation_context(
                             artifacts,
                             detail_level=detail_level,
+                        ),
+                        design_contract=artifacts.get(
+                            "course_design_contract"
                         ),
                         detail_level=detail_level,
                     )
@@ -4781,6 +4849,9 @@ class CourseService(AIBase):
                     "batch_spec": spec,
                     "previous_sections": previous,
                     "evidence_hints": evidence_hints,
+                    "course_design_contract": artifacts.get(
+                        "course_design_contract"
+                    ) or {},
                 },
                 max_input_chars=self._generation_budget.max_input_chars,
             )
@@ -4807,6 +4878,9 @@ class CourseService(AIBase):
                         evidence_hints=evidence_hints,
                         skeleton_revision_id=str(
                             skeleton.get("revision_id") or ""
+                        ),
+                        design_contract=artifacts.get(
+                            "course_design_contract"
                         ),
                         detail_level=detail_level,
                     )
@@ -5340,11 +5414,8 @@ class CourseService(AIBase):
             {
                 "course_name": persisted.get("course_name") or "",
                 "target_audience": persisted.get("target_audience") or "",
-                "subject_pedagogy_profile": (
-                    persisted.get("subject_pedagogy_profile") or {}
-                ),
-                "subject_generation_template": (
-                    persisted.get("subject_generation_template") or {}
+                "course_design_contract": (
+                    persisted.get("course_design_contract") or {}
                 ),
                 "difficulty_profile": persisted.get("difficulty_profile") or {},
                 "course_composition_profile": (

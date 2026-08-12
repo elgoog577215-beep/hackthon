@@ -8,6 +8,10 @@ from typing import Any
 
 from course_coherence import course_coherence_prompt_context
 from course_composition import format_block_difficulty, format_composition_profile
+from course_design_contract import (
+    course_design_contract_from_course,
+    project_course_design_contract,
+)
 from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
@@ -31,7 +35,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v28"
+PROMPT_CONTRACT_VERSION = "course_prompt_v29"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -68,11 +72,41 @@ class CoursePromptComposer:
         gap_assessment: dict[str, Any],
         adaptation_decision: dict[str, Any],
         material_context: str,
+        design_contract: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         """Build the small global decision used before parallel chapter expansion."""
         planning_brief = brief
         template_data = compile_subject_generation_template(profile)
+        design_projection = project_course_design_contract(
+            design_contract,
+            "outline",
+        )
+        if not design_projection:
+            design_projection = {
+                "schema_version": "course_design_prompt_projection_legacy",
+                "shared_constraints": {
+                    "course_type": brief.get("course_type"),
+                    "course_type_label": brief.get("course_type_label"),
+                    "audience": audience,
+                    "course_shape_constraints": brief.get(
+                        "course_shape_constraints"
+                    ) or {},
+                    "hard_constraints": brief.get("hard_constraints") or [],
+                    "difficulty_profile": difficulty_profile,
+                    "adaptation_decision": adaptation_decision,
+                },
+                "stage": "outline",
+                "stage_contract": {
+                    "course_type_contract": brief.get(
+                        "course_type_contract"
+                    ) or {},
+                    "course_intent": brief.get("course_intent") or {},
+                    "subject_architecture_contract": template_data.get(
+                        "course_architecture_contract"
+                    ) or {},
+                },
+            }
         if detail_level != "full":
             compact_chars = 220 if detail_level == "compact" else 100
             compact_items = 8 if detail_level == "compact" else 4
@@ -108,12 +142,17 @@ class CoursePromptComposer:
                 max_list_items=4 if detail_level == "compact" else 2,
                 max_depth=2,
             )
+            design_projection = compact_value(
+                design_projection,
+                max_string_chars=140 if detail_level == "compact" else 72,
+                max_list_items=7 if detail_level == "compact" else 4,
+                max_depth=4 if detail_level == "compact" else 3,
+            )
             material_context = clip_text(
                 material_context,
                 4200 if detail_level == "compact" else 1600,
             )
         shape = brief.get("course_shape_constraints") or {}
-        course_type_contract = brief.get("course_type_contract") or {}
         planning_rules = _course_type_planning_rules(planning_brief)
         return f"""## 全课章节骨架 V2
 
@@ -124,26 +163,14 @@ class CoursePromptComposer:
 ## 课程输入
 - 主题：{subject}
 - 学习对象：{audience}
-- 结构化 brief：{json.dumps(brief, ensure_ascii=False)}
+- 课程类型：{planning_brief.get('course_type_label') or '系统学习'}
 - 用户指定章数：{shape.get('chapter_count') or '未指定'}
 - 用户指定小节总数：{shape.get('section_count') or '未指定'}
 - 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
 - 完整课程最低小节总数：{shape.get('minimum_section_count') or '按用户明确数量'}
 
-## 课程类型契约
-- 课程类型：{brief.get('course_type_label') or brief.get('course_type') or '系统学习'}
-- 类型组织方式：{json.dumps(course_type_contract, ensure_ascii=False)}
-- 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
-- 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
-- 个性化依据：{json.dumps(brief.get('personalization_rationale') or [], ensure_ascii=False)}
-
-## 难度与适配
-- 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
-- 就绪差距：{json.dumps(gap_assessment, ensure_ascii=False)}
-- 适配决策：{json.dumps(adaptation_decision, ensure_ascii=False)}
-
-## 学科生成模板
-{json.dumps(template_data, ensure_ascii=False)}
+## 统一课程设计契约（目录投影）
+{json.dumps(design_projection, ensure_ascii=False)}
 
 ## 资料摘要
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
@@ -212,9 +239,14 @@ class CoursePromptComposer:
         previous_sections: list[dict[str, Any]],
         evidence_hints: list[dict[str, Any]],
         skeleton_revision_id: str,
+        design_contract: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         """Expand one bounded chapter slice without rebroadcasting the course."""
+        design_projection = project_course_design_contract(
+            design_contract,
+            "outline_expansion",
+        )
         if detail_level != "full":
             max_text = 180 if detail_level == "compact" else 88
             course_title = clip_text(course_title, 140 if detail_level == "compact" else 80)
@@ -247,6 +279,12 @@ class CoursePromptComposer:
                 max_list_items=4 if detail_level == "compact" else 2,
                 max_depth=3,
             )
+            design_projection = compact_value(
+                design_projection,
+                max_string_chars=140 if detail_level == "compact" else 72,
+                max_list_items=7 if detail_level == "compact" else 4,
+                max_depth=4 if detail_level == "compact" else 3,
+            )
         start = int(batch_spec.get("start_section_index") or 1)
         end = int(batch_spec.get("end_section_index") or start)
         return f"""## 章节小节目录批次 V2
@@ -275,13 +313,18 @@ class CoursePromptComposer:
 ## 当前章限量证据提示
 {json.dumps(evidence_hints, ensure_ascii=False)}
 
+## 统一课程设计契约（小节目录投影）
+{json.dumps(design_projection, ensure_ascii=False) if design_projection else '沿用已冻结章节骨架的课程类型与学科推进合同。'}
+
 ## 约束
 1. 必须严格返回 {end - start + 1} 个小节，并按 `expected_node_ids` 的顺序逐一对应。
 2. 每节只承担一个可观察且互不重复的责任，给出目标、范围和可检查验收任务。
 3. 当前章内部只能引用编号更早的小节。第一节只有确需承接时才可引用
    `previous_chapter_anchor_id`；不得引用其他章节或未来小节。
 4. 当前批次不得重新解释整个章节，不得提前承担下一批次或相邻章节的核心责任。
-5. 不输出知识点、知识关系、教案、正文、题目答案或 Markdown 围栏。
+5. 小节序列必须继续落实课程类型与学科推进合同，不能把项目、探究或考试课程退化为
+   通用教材目录，也不能让不同学科复用同一套小节套路。
+6. 不输出知识点、知识关系、教案、正文、题目答案或 Markdown 围栏。
 
 ## JSON Schema
 {{
@@ -329,6 +372,7 @@ class CoursePromptComposer:
         learning_objectives: list[str],
         planning_context: dict[str, Any],
         subject_template: dict[str, Any] | None = None,
+        design_contract: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         planning_context = compact_planning_context(
@@ -338,18 +382,28 @@ class CoursePromptComposer:
         skeleton_context = self._compact_skeleton_planning_context(
             planning_context
         )
+        design_projection = project_course_design_contract(
+            design_contract,
+            "knowledge_identity",
+        )
         subject_contract = compact_value(
-            {
-                "template_id": (subject_template or {}).get("template_id"),
-                "template_version": (subject_template or {}).get(
-                    "template_version"
-                ),
-                "course_architecture_contract": (subject_template or {}).get(
-                    "course_architecture_contract"
-                ),
-                "knowledge_contract": (subject_template or {}).get(
-                    "knowledge_contract"
-                ),
+            design_projection or {
+                "schema_version": "course_design_prompt_projection_legacy",
+                "template_ref": {
+                    "template_id": (subject_template or {}).get("template_id"),
+                    "template_version": (subject_template or {}).get(
+                        "template_version"
+                    ),
+                },
+                "stage": "knowledge_identity",
+                "stage_contract": {
+                    "subject_architecture_contract": (
+                        subject_template or {}
+                    ).get("course_architecture_contract"),
+                    "subject_knowledge_contract": (
+                        subject_template or {}
+                    ).get("knowledge_contract"),
+                },
             },
             max_string_chars=180 if detail_level == "full" else 96,
             max_list_items=10 if detail_level == "full" else 6,
@@ -398,7 +452,7 @@ class CoursePromptComposer:
 - 定位：{positioning}
 - 全课成果：{json.dumps(learning_objectives, ensure_ascii=False)}
 
-## 学科课程与知识合同
+## 学科课程与知识合同（统一课程设计契约投影）
 {json.dumps(subject_contract, ensure_ascii=False)}
 
 ## 已去重的规划上下文
@@ -519,6 +573,7 @@ class CoursePromptComposer:
         section_identities: list[dict[str, Any]],
         skeleton_revision_id: str,
         subject_template: dict[str, Any] | None = None,
+        design_contract: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
         """Build the knowledge-engineering call that must finish before teaching."""
@@ -532,15 +587,25 @@ class CoursePromptComposer:
         batch_sections = bounded["batch_sections"]
         knowledge_registry = bounded["knowledge_registry"]
         section_identities = bounded["section_identities"]
+        design_projection = project_course_design_contract(
+            design_contract,
+            "knowledge_enrichment",
+        )
         knowledge_contract = compact_value(
-            {
-                "template_id": (subject_template or {}).get("template_id"),
-                "template_version": (subject_template or {}).get(
-                    "template_version"
-                ),
-                "knowledge_contract": (subject_template or {}).get(
-                    "knowledge_contract"
-                ),
+            design_projection or {
+                "schema_version": "course_design_prompt_projection_legacy",
+                "template_ref": {
+                    "template_id": (subject_template or {}).get("template_id"),
+                    "template_version": (subject_template or {}).get(
+                        "template_version"
+                    ),
+                },
+                "stage": "knowledge_enrichment",
+                "stage_contract": {
+                    "subject_knowledge_contract": (
+                        subject_template or {}
+                    ).get("knowledge_contract"),
+                },
             },
             max_string_chars=(180 if detail_level == "full" else 96),
             max_list_items=(10 if detail_level == "full" else 6),
@@ -579,7 +644,7 @@ class CoursePromptComposer:
 ## 当前知识职责（身份只读）
 {json.dumps(section_identities, ensure_ascii=False)}
 
-## 学科知识合同
+## 学科知识合同（统一课程设计契约投影）
 {json.dumps(knowledge_contract, ensure_ascii=False)}
 
 ## 约束
@@ -595,7 +660,7 @@ class CoursePromptComposer:
    具体语义理由；课程先后、父子包含和泛泛相关不得写成关系。
 5. `source_refs` 只能引用当前小节 `evidence_hints` 中已经给出的证据标识；无证据时
    留空并降低 `confidence`，不得伪造书名、链接、作者、页码或资料 ID。
-6. 严格执行学科知识合同中的知识重点、证据优先级和反模式；不能用同一套通用知识
+6. 严格执行课程设计契约中的学科知识重点、证据优先级和反模式；不能用同一套通用知识
    描述覆盖数学、工程、科学、人文、语言等不同知识形态。
 7. 本阶段禁止返回 `teaching_modules`、师生活动、课时流程、正文或练习。
 
@@ -685,6 +750,7 @@ class CoursePromptComposer:
         module_catalog: list[dict[str, Any]],
         knowledge_revision_id: str,
         subject_template: dict[str, Any] | None = None,
+        design_contract: dict[str, Any] | None = None,
         overall_guidance: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
@@ -699,18 +765,25 @@ class CoursePromptComposer:
         frozen_knowledge = bounded["knowledge_registry"]
         section_identities = bounded["section_identities"]
         module_catalog = bounded["module_catalog"]
+        design_projection = project_course_design_contract(
+            design_contract,
+            "teaching",
+        )
         lesson_contract = compact_value(
-            {
-                "template_id": (subject_template or {}).get("template_id"),
-                "template_version": (subject_template or {}).get(
-                    "template_version"
-                ),
-                "lesson_plan_contract": (subject_template or {}).get(
-                    "lesson_plan_contract"
-                ),
-                "content_contract": (subject_template or {}).get(
-                    "content_contract"
-                ),
+            design_projection or {
+                "schema_version": "course_design_prompt_projection_legacy",
+                "template_ref": {
+                    "template_id": (subject_template or {}).get("template_id"),
+                    "template_version": (subject_template or {}).get(
+                        "template_version"
+                    ),
+                },
+                "stage": "teaching",
+                "stage_contract": {
+                    "subject_lesson_plan_contract": (
+                        subject_template or {}
+                    ).get("lesson_plan_contract"),
+                },
             },
             max_string_chars=(180 if detail_level == "full" else 96),
             max_list_items=(10 if detail_level == "full" else 6),
@@ -745,7 +818,7 @@ class CoursePromptComposer:
 ## 共享课程块目录
 {json.dumps(module_catalog, ensure_ascii=False)}
 
-## 学科教案与正文合同
+## 学科教案与正文合同（统一课程设计契约投影）
 {json.dumps(lesson_contract, ensure_ascii=False)}
 
 ## 总体教案引领
@@ -998,9 +1071,10 @@ class CoursePromptComposer:
         existing_draft: str = "",
         detail_level: str = "full",
     ) -> tuple[str, str]:
-        profile = course_data.get("subject_pedagogy_profile") or {}
-        subject_template = (
-            course_data.get("subject_generation_template") or {}
+        design_contract = course_design_contract_from_course(course_data)
+        content_design_projection = project_course_design_contract(
+            design_contract,
+            "content",
         )
         difficulty_profile = course_data.get("difficulty_profile") or {}
         difficulty_contract = node.get("difficulty_contract") or {}
@@ -1009,17 +1083,11 @@ class CoursePromptComposer:
         composition_profile = course_data.get("course_composition_profile") or {}
         if detail_level != "full":
             max_text = 180 if detail_level == "compact" else 96
-            profile = compact_value(
-                profile,
+            content_design_projection = compact_value(
+                content_design_projection,
                 max_string_chars=max_text,
                 max_list_items=6 if detail_level == "compact" else 3,
-                max_depth=3,
-            )
-            subject_template = compact_value(
-                subject_template,
-                max_string_chars=max_text,
-                max_list_items=6 if detail_level == "compact" else 3,
-                max_depth=3,
+                max_depth=4 if detail_level == "compact" else 3,
             )
             difficulty_profile = compact_value(
                 difficulty_profile,
@@ -1138,6 +1206,9 @@ class CoursePromptComposer:
 - 范围：{scope or '只完成当前小节责任'}
 - 验收：{assessments or '给出可检查的学习任务'}
 
+## 统一课程设计契约（正文投影）
+{json.dumps(content_design_projection, ensure_ascii=False)}
+
 ## 总体教案对本节的引领
 {teaching_guidance}
 
@@ -1230,7 +1301,9 @@ class CoursePromptComposer:
 ## 课程
 - 名称：{course_name}
 - 学习对象：{audience}
-- 学科生成模板：{json.dumps(subject_template or profile, ensure_ascii=False)}
+
+## 统一课程设计契约（正文投影，来源于学科生成模板）
+{json.dumps(content_design_projection, ensure_ascii=False)}
 
 ## 课程块编排画像
 {format_composition_profile(composition_profile)}

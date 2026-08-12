@@ -35,6 +35,10 @@ from assessment_generation_policy import (
     AssessmentModelCallPolicy,
     resolve_assessment_generation_policy,
 )
+from course_design_contract import (
+    course_design_contract_from_course,
+    project_course_design_contract,
+)
 from assessment_independent_solvers import IndependentSolverRegistry
 from assessment_quality import evaluate_question_contract_quality
 from assessment_retrieval import (
@@ -1289,6 +1293,10 @@ class AssessmentGenerationOrchestrator:
             )
         prepared = deepcopy(course_data)
         profile = compile_course_assessment_profile(prepared)
+        profile["course_design_contract"] = project_course_design_contract(
+            course_design_contract_from_course(prepared),
+            "assessment",
+        )
         objectives = compile_assessment_objectives(prepared, profile)
         blueprint = compile_course_assessment_blueprint(
             prepared,
@@ -1314,6 +1322,11 @@ class AssessmentGenerationOrchestrator:
             "course_id": str(prepared.get("course_id") or ""),
             "assessment_generation_profile": generation_policy.profile,
             "assessment_generation_policy_version": generation_policy.version,
+            "course_design_contract_revision_id": str(
+                (profile.get("course_design_contract") or {}).get(
+                    "revision_id"
+                ) or ""
+            ),
             "generation_scope": resolved_generation_scope,
             "generation_calls": 0,
             "batch_generation_calls": 0,
@@ -3957,6 +3970,9 @@ def _generation_context(
                 profile.get("notation_and_language") or {}
             ),
             "course_purpose": profile.get("course_purpose"),
+            "course_design_contract": deepcopy(
+                profile.get("course_design_contract") or {}
+            ),
         },
         "objective": {
             key: deepcopy(objective.get(key))
