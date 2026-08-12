@@ -1007,6 +1007,79 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
 
 
 @pytest.mark.asyncio
+async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_sentence() -> None:
+    """A long grounded sentence must not strand a repair below its slot minimum."""
+
+    long_observation_clause = (
+        "The observer records habitat boundaries, weather conditions, sampling "
+        "intervals, instrument calibration, evidence identifiers, review status, "
+        "unexpected disturbances, follow-up ownership, and the acceptance decision "
+        "in one continuous field statement without inventing any measurement"
+    )
+    long_observation = f"{' and '.join([long_observation_clause] * 3)}."
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-long-field-sentence",
+        title="Field observation review",
+        sections=[
+            CourseSection(
+                section_id="field-review",
+                title="Review the observation",
+                position=0,
+            )
+        ],
+        blocks=[CourseBlock(
+            block_id="observation-record",
+            section_id="field-review",
+            position=0,
+            role="concept",
+            payload={
+                "markdown": (
+                    "## Evidence record\n"
+                    "Record the context. "
+                    f"{long_observation}"
+                )
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        summary = (
+            "Record the context."
+            if len(calls) == 1
+            else request["repair_feedback"]["repair_targets"][0]["required_summary"]
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "field-long-sentence-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": "Evidence record",
+                "summary": summary,
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert len(target["required_summary"]) >= target["summary_min_chars"]
+    assert len(story.pages[0].summary) >= target["summary_min_chars"]
+    assert "habitat boundaries" in story.pages[0].summary
+
+
+@pytest.mark.asyncio
 async def test_story_batch_repairs_all_underfilled_pages_in_one_retry() -> None:
     source_a = (
         "潮间带记录必须包含样区、潮位、时间、观察者和原始编号，并说明记录条件。"
