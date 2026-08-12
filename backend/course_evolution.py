@@ -153,6 +153,7 @@ class CourseEvolutionPlan(BaseModel):
     scope_selection: Literal[
         "current_block",
         "current_section",
+        "current_chapter",
         "whole_course",
     ] = "current_section"
     allowed_scopes: list[Literal["current", "current_and_next"]] = Field(default_factory=list)

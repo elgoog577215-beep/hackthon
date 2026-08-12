@@ -55,7 +55,11 @@ class GenerateSectionEvolutionRequest(BaseModel):
 
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
-    scope_selection: Literal["current_section", "whole_course"] = "current_section"
+    scope_selection: Literal[
+        "current_section",
+        "current_chapter",
+        "whole_course",
+    ] = "current_section"
     anchor_role: Literal[
         "reasoning",
         "application",
@@ -74,6 +78,7 @@ class GenerateCourseAdjustmentRequest(BaseModel):
     scope_selection: Literal[
         "current_block",
         "current_section",
+        "current_chapter",
         "whole_course",
     ] = "current_section"
     block_id: str = Field(default="", max_length=240)

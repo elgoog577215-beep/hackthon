@@ -334,6 +334,9 @@ const scopeBoundaryLabel = computed(() => {
   if (props.plan?.scope_selection === 'whole_course') {
     return t('courseEvolution.scope.wholeCourse', '当前全课程')
   }
+  if (props.plan?.scope_selection === 'current_chapter') {
+    return t('courseEvolution.scope.currentChapter', '影响本章相关内容')
+  }
   return t('courseEvolution.scope.currentSection', '当前小节')
 })
 const headerEyebrow = computed(() => isGenerating.value

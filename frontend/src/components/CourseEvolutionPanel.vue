@@ -96,14 +96,14 @@
         </button>
         <button
           type="button"
-          data-scope="whole_course"
+          data-scope="current_chapter"
           role="radio"
-          :aria-checked="requestScope === 'whole_course'"
-          :class="{ active: requestScope === 'whole_course' }"
-          @click="requestScope = 'whole_course'"
+          :aria-checked="requestScope === 'current_chapter'"
+          :class="{ active: requestScope === 'current_chapter' }"
+          @click="requestScope = 'current_chapter'"
         >
           <BookOpenText :size="12" />
-          <span><b>{{ t('courseEvolution.scope.wholeCourse', '应用到全课程') }}</b><small>{{ t('courseEvolution.scope.wholeCourseHint', 'AI 解析语义后匹配相关节点') }}</small></span>
+          <span><b>{{ t('courseEvolution.scope.currentChapter', '影响本章相关内容') }}</b><small>{{ t('courseEvolution.scope.currentChapterHint', 'AI 在本章范围内匹配相关节点；确认前不会修改课程') }}</small></span>
         </button>
       </div>
       <button type="button" class="generate-plan" :disabled="store.generating || !sectionInstruction.trim()" @click="createSectionPlan">
@@ -112,8 +112,8 @@
         {{
           store.generating
             ? t('courseEvolution.sectionGrowth.generating', '正在生成候选')
-            : requestScope === 'whole_course'
-              ? t('courseEvolution.sectionGrowth.generateWholeCourse', '解析并生成全课程影响预览')
+            : requestScope === 'current_chapter'
+              ? t('courseEvolution.sectionGrowth.generateChapter', '解析并生成本章影响预览')
               : t('courseEvolution.sectionGrowth.generate', '生成本节调整方案')
         }}
       </button>
@@ -216,7 +216,7 @@
         </div>
         <div v-if="isManualPlan(plan)" class="semantic-scope-summary" :data-scope="plan.scope_selection || 'current_section'">
           <span>
-            <component :is="plan.scope_selection === 'whole_course' ? BookOpenText : LocateFixed" :size="13" />
+            <component :is="['whole_course', 'current_chapter'].includes(String(plan.scope_selection || '')) ? BookOpenText : LocateFixed" :size="13" />
             {{ planScopeLabel(plan) }}
           </span>
           <strong>{{ planScopeSummary(plan) }}</strong>
@@ -287,7 +287,7 @@
             <span>{{ evidence.summary }}</span>
             <button type="button" :title="t('courseEvolution.locateEvidence', '回到证据位置')" :aria-label="t('courseEvolution.locateEvidence', '回到证据位置')" @click="locateEvidence(evidence)"><LocateFixed :size="12" /></button>
           </p>
-          <ul v-if="plan.scope_selection !== 'whole_course'" class="operation-list">
+          <ul v-if="!['whole_course', 'current_chapter'].includes(String(plan.scope_selection || ''))" class="operation-list">
             <li v-for="operation in contentOperations(plan)" :key="operation.operation_id">
               <span :data-action="operation.payload?.action">{{ operationActionLabel(operation) }}</span>
               <div>
@@ -422,7 +422,10 @@ const expandedId = ref('')
 const mapOpen = ref(false)
 const evidenceOpen = ref(false)
 const sectionInstruction = ref('')
-const requestScope = ref<'current_section' | 'whole_course'>('current_section')
+// Student-side AI-initiated change tops out at the current chapter (owner
+// decision 2026-08-12). `whole_course` remains a supported backend scope for
+// the teacher authoring chain; it simply has no student entry point here.
+const requestScope = ref<'current_section' | 'current_chapter'>('current_section')
 const reviewPlanId = ref('')
 const reviewOverlayOpen = ref(false)
 const reviewScanInFlight = ref(false)
@@ -600,6 +603,7 @@ function requiresWorkbench(plan: CourseEvolutionPlan) {
     (plan.impact_summary?.affected_section_ids || []).map(String),
   )
   return plan.scope_selection === 'whole_course'
+    || plan.scope_selection === 'current_chapter'
     || affectedSections.size > 1
     || contentOperations(plan).length > 1
 }
@@ -613,13 +617,16 @@ function planScopeLabel(plan: CourseEvolutionPlan) {
   if (plan.scope_selection === 'whole_course') {
     return t('courseEvolution.scope.wholeCourse', '应用到全课程')
   }
+  if (plan.scope_selection === 'current_chapter') {
+    return t('courseEvolution.scope.currentChapter', '影响本章相关内容')
+  }
   return t('courseEvolution.scope.currentSection', '只影响当前小节')
 }
 function planScopeSummary(plan: CourseEvolutionPlan) {
   if (plan.scope_selection === 'current_block') {
     return t('courseEvolution.scope.blockSummary', 'AI 只处理当前内容，不扩展到其他位置')
   }
-  if (plan.scope_selection === 'whole_course') {
+  if (plan.scope_selection === 'whole_course' || plan.scope_selection === 'current_chapter') {
     return t('courseEvolution.scope.matchedSummary', 'AI 识别 {roles}，匹配 {count} 个节点')
       .replace('{roles}', targetRoleLabels(plan).join('、'))
       .replace('{count}', String(contentOperations(plan).length))
@@ -918,13 +925,14 @@ function findGeneratedWholeCoursePlan(context: ReviewScanContext) {
     !context.baselinePlanIds.has(plan.change_set_id)
     && plan.target_section_id === props.sectionId
   ))
-  const wholeCourseCandidates = candidates.filter(plan => (
-    isManualPlan(plan) && plan.scope_selection === 'whole_course'
+  const broadScopeCandidates = candidates.filter(plan => (
+    isManualPlan(plan)
+    && ['whole_course', 'current_chapter'].includes(String(plan.scope_selection || ''))
   ))
-  return wholeCourseCandidates.find(plan => (
+  return broadScopeCandidates.find(plan => (
     !context.baselinePlanIds.has(plan.change_set_id)
     && plan.request_text === context.instruction
-  )) || wholeCourseCandidates[0]
+  )) || broadScopeCandidates[0]
     // A semantically complete learner statement can be promoted by the
     // backend into an evidence-driven current-and-next plan. It still belongs
     // to the whole-course review flow the learner explicitly opened, so bind
@@ -1026,7 +1034,10 @@ async function createSectionPlan() {
   const scopeSelection = requestScope.value
   const baselinePlanIds = new Set(store.plans.map(plan => plan.change_set_id))
   let context: ReviewScanContext | null = null
-  if (scopeSelection === 'whole_course') {
+  // Any scope that can span more than the current section opens the live
+  // review workbench, so the learner watches candidates appear and decides
+  // item by item. `current_chapter` is now the widest student-side scope.
+  if (scopeSelection === 'whole_course' || scopeSelection === 'current_chapter') {
     const token = ++scanSession
     context = {
       token,
@@ -1219,11 +1230,14 @@ onUnmounted(clearProgressPoll)
 .section-growth-request input { width:100%; min-height:36px; padding:7px 8px; border:1px solid #cbd5e1; border-radius:7px; color:#1f2937; background:#fff; font:inherit; line-height:1.5; box-sizing:border-box; }
 .section-growth-request input:focus { outline:2px solid #ddd6fe; border-color:#8b5cf6; }
 .request-scope-control { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
-.request-scope-control > button { min-width:0; min-height:44px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:5px; padding:6px 7px; border:1px solid #dbe3ef; border-radius:7px; color:#64748b; background:#f8fafc; text-align:left; cursor:pointer; }
+.request-scope-control > button { min-width:0; min-height:44px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:start; gap:5px; padding:7px; border:1px solid #dbe3ef; border-radius:7px; color:#64748b; background:#f8fafc; text-align:left; cursor:pointer; }
 .request-scope-control > button.active { color:#4338ca; border-color:#a5b4fc; background:#eef2ff; box-shadow:0 0 0 1px rgba(99,102,241,.08); }
-.request-scope-control > button > span { min-width:0; display:flex; flex-direction:column; gap:1px; }
-.request-scope-control b { overflow:hidden; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
-.request-scope-control small { overflow:hidden; color:#94a3b8; font-size:7px; text-overflow:ellipsis; white-space:nowrap; }
+.request-scope-control > button > span { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.request-scope-control b { min-width:0; font-size:8px; line-height:1.35; overflow-wrap:anywhere; }
+/* The hint carries the "nothing changes until you confirm" promise, so it
+   wraps instead of truncating — an ellipsis here hides the one sentence that
+   tells the learner a broad scope is still safe to pick. */
+.request-scope-control small { min-width:0; color:#94a3b8; font-size:7px; line-height:1.4; overflow-wrap:anywhere; }
 .request-scope-control button.active small { color:#6366f1; }
 .generate-plan,.challenge-suggestion button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid #7c3aed; border-radius:6px; color:#fff; background:#7c3aed; font-size:9px; font-weight:700; cursor:pointer; }
 .generate-plan:disabled,.challenge-suggestion button:disabled { opacity:.55; cursor:not-allowed; }

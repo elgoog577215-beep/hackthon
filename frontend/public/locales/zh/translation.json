@@ -710,7 +710,9 @@
       "wholeCourseHint": "AI 解析语义后匹配相关节点",
       "matchedSummary": "AI 识别 {roles}，匹配 {count} 个节点",
       "blockSummary": "AI 只处理当前内容，不扩展到其他位置",
-      "currentSummary": "AI 只在本节内处理：{roles}"
+      "currentSummary": "AI 只在本节内处理：{roles}",
+      "currentChapter": "影响本章相关内容",
+      "currentChapterHint": "AI 在本章范围内匹配相关节点；确认前不会修改课程"
     },
     "review": {
       "eyebrow": "课程调整审阅",
@@ -877,7 +879,8 @@
         "example": "例子讲解",
         "checkpoint": "理解检查",
         "concept": "核心概念"
-      }
+      },
+      "generateChapter": "解析并生成本章影响预览"
     },
     "effects": {
       "effective": "原判断获得新证据支持，继续观察后续迁移",
