@@ -102,6 +102,7 @@ from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
+    evaluate_generated_course_knowledge_teaching_readiness,
 )
 from course_knowledge_map import (
     compile_course_knowledge_map,
@@ -2384,6 +2385,13 @@ class CourseService(AIBase):
             normalized_spec["batch_id"] = f"TP-B{index:02d}"
             batch_specs.append(normalized_spec)
 
+        current_design_revision_id = str(
+            (course_data.get("course_design_contract") or {}).get(
+                "revision_id"
+            )
+            or ""
+        )
+
         # Stage 1: enrich and freeze the course-owned knowledge base. Batches
         # run concurrently, but teaching is not allowed to start until every
         # knowledge batch and the deterministic whole-course freeze gate pass.
@@ -2418,6 +2426,8 @@ class CourseService(AIBase):
                 and stored.get("generation_source") == "model"
                 and stored.get("skeleton_revision_id")
                 == skeleton.get("revision_id")
+                and stored.get("course_design_contract_revision_id")
+                == current_design_revision_id
                 and list(stored.get("section_ids") or [])
                 == list(spec.get("section_ids") or [])
                 and candidate_report.get("passed")
@@ -2434,6 +2444,9 @@ class CourseService(AIBase):
             "strategy": strategy,
             "skeleton": deepcopy(skeleton),
             "skeleton_revision_id": skeleton.get("revision_id"),
+            "course_design_contract_revision_id": (
+                current_design_revision_id
+            ),
             "skeleton_validation_report": deepcopy(skeleton_report),
             "knowledge_batch_count": len(batch_specs),
             "completed_knowledge_batch_count": len(knowledge_results),
@@ -2667,6 +2680,9 @@ class CourseService(AIBase):
                         "status": "completed",
                         "section_ids": section_ids,
                         "skeleton_revision_id": skeleton.get("revision_id"),
+                        "course_design_contract_revision_id": (
+                            current_design_revision_id
+                        ),
                         "revision_id": batch.get("revision_id"),
                         "attempt_count": attempt_count,
                         "validation_report": deepcopy(report),
@@ -2707,6 +2723,9 @@ class CourseService(AIBase):
                         "status": "failed",
                         "section_ids": section_ids,
                         "skeleton_revision_id": skeleton.get("revision_id"),
+                        "course_design_contract_revision_id": (
+                            current_design_revision_id
+                        ),
                         "attempt_count": attempt_count,
                         "error": str(exc),
                     }
@@ -2806,6 +2825,9 @@ class CourseService(AIBase):
         )
         knowledge_course_data = deepcopy(course_data)
         knowledge_course_data["course_plan"] = knowledge_only_plan
+        knowledge_course_data["knowledge_relations"] = deepcopy(
+            knowledge_only_plan.get("knowledge_relations") or []
+        )
         knowledge_course_data["nodes"] = self._merge_generation_nodes(
             self._convert_plan_to_nodes(
                 knowledge_only_plan,
@@ -2819,20 +2841,47 @@ class CourseService(AIBase):
             assets=(artifacts or {}).get("assets")
             if isinstance(artifacts, dict) else None,
         )
-        if not (
+        knowledge_quality_report = deepcopy(
             frozen_knowledge_base.get("quality_report") or {}
-        ).get("passed"):
+        )
+        grounding_strategy = str(
+            (course_data.get("course_generation_brief") or {}).get(
+                "grounding_strategy"
+            )
+            or (course_data.get("generation_request") or {}).get(
+                "grounding_strategy"
+            )
+            or "material_first"
+        )
+        evidence_available = bool(
+            (artifacts or {}).get("evidence_catalog")
+            or course_data.get("evidence_catalog")
+        )
+        knowledge_readiness_report = (
+            evaluate_generated_course_knowledge_teaching_readiness(
+                knowledge_quality_report,
+                grounding_strategy=grounding_strategy,
+                evidence_available=evidence_available,
+            )
+        )
+        course_data["course_knowledge_teaching_readiness_report"] = deepcopy(
+            knowledge_readiness_report
+        )
+        if not knowledge_readiness_report.get("passed"):
             teaching_stage["status"] = "knowledge_quality_failed"
             teaching_stage["knowledge_quality_report"] = deepcopy(
-                frozen_knowledge_base.get("quality_report") or {}
+                knowledge_quality_report
+            )
+            teaching_stage["knowledge_teaching_readiness_report"] = deepcopy(
+                knowledge_readiness_report
             )
             course_data[
                 "generation_status"
             ] = "course_knowledge_quality_failed"
             await self._notify_checkpoint(on_checkpoint, course_data)
             raise AIProviderRequestError(
-                "课程知识库未通过原子性、关系、能力、易错与掌握标准验收，"
-                "不启动教案生成"
+                "课程知识库尚未达到教学就绪标准；已停止在知识阶段，"
+                "不会让低质量知识继续污染教案"
             )
         course_data["course_knowledge_base"] = frozen_knowledge_base
         course_data["course_knowledge_quality_report"] = deepcopy(
@@ -2843,7 +2892,10 @@ class CourseService(AIBase):
             "completed_knowledge_batch_count": len(batch_specs),
             "completed_knowledge_section_count": len(sections),
             "knowledge_quality_report": deepcopy(
-                frozen_knowledge_base.get("quality_report") or {}
+                knowledge_quality_report
+            ),
+            "knowledge_teaching_readiness_report": deepcopy(
+                knowledge_readiness_report
             ),
         })
         course_data["generation_status"] = "course_knowledge_frozen"
@@ -3005,6 +3057,8 @@ class CourseService(AIBase):
                 and stored.get("skeleton_revision_id") == skeleton.get("revision_id")
                 and stored.get("knowledge_revision_id")
                 == frozen_knowledge_graph.get("revision_id")
+                and stored.get("course_design_contract_revision_id")
+                == current_design_revision_id
                 and list(stored.get("section_ids") or []) == list(spec.get("section_ids") or [])
                 and candidate_report.get("passed")
             ):
@@ -3020,6 +3074,9 @@ class CourseService(AIBase):
             "strategy": strategy,
             "skeleton": deepcopy(skeleton),
             "skeleton_revision_id": skeleton.get("revision_id"),
+            "course_design_contract_revision_id": (
+                current_design_revision_id
+            ),
             "skeleton_validation_report": deepcopy(skeleton_report),
             "batch_count": len(batch_specs),
             "completed_batch_count": len(results),
@@ -3300,6 +3357,9 @@ class CourseService(AIBase):
                         "knowledge_revision_id": frozen_knowledge_graph.get(
                             "revision_id"
                         ),
+                        "course_design_contract_revision_id": (
+                            current_design_revision_id
+                        ),
                         "revision_id": batch.get("revision_id"),
                         "attempt_count": attempt_count,
                         "validation_report": deepcopy(batch_report),
@@ -3339,6 +3399,12 @@ class CourseService(AIBase):
                         "status": "failed",
                         "section_ids": section_ids,
                         "skeleton_revision_id": skeleton.get("revision_id"),
+                        "knowledge_revision_id": frozen_knowledge_graph.get(
+                            "revision_id"
+                        ),
+                        "course_design_contract_revision_id": (
+                            current_design_revision_id
+                        ),
                         "attempt_count": attempt_count,
                         "error": str(exc),
                     }
@@ -5337,6 +5403,9 @@ class CourseService(AIBase):
                     "node_type": "original",
                     "key_points": section.get("key_points", []),
                     "knowledge_structure": section.get("knowledge_structure", []),
+                    "knowledge_relations": section.get(
+                        "knowledge_relations", []
+                    ),
                     "reused_knowledge_names": section.get("reused_knowledge_names", []),
                     "learning_objective": section.get("learning_objective", ""),
                     "prerequisite_node_ids": section.get("prerequisite_node_ids", []),

@@ -13,6 +13,9 @@ from course_versioning import stable_hash
 COURSE_KNOWLEDGE_BASE_SCHEMA = "course_knowledge_base_v2"
 COURSE_KNOWLEDGE_VIEW_SCHEMA = "knowledge_library_view_v3"
 COURSE_KNOWLEDGE_QUALITY_SCHEMA = "course_knowledge_quality_v3"
+COURSE_KNOWLEDGE_TEACHING_READINESS_SCHEMA = (
+    "course_knowledge_teaching_readiness_v1"
+)
 
 RELATION_TYPES = {
     "prerequisite",
@@ -1016,6 +1019,138 @@ def validate_course_knowledge_base(
             "prerequisite_dag_valid": not relation_cycles.get("prerequisite"),
         },
         "underfilled": underfilled,
+    }
+
+
+def evaluate_generated_course_knowledge_teaching_readiness(
+    quality_report: dict[str, Any] | None,
+    *,
+    grounding_strategy: str = "material_first",
+    evidence_available: bool = False,
+) -> dict[str, Any]:
+    """Decide whether newly generated knowledge may feed teaching.
+
+    The generic quality report stays backward compatible for existing courses.
+    New generation uses this stronger boundary because a readable graph is not
+    automatically detailed enough to support a high-quality lesson plan.
+    """
+    quality = deepcopy(quality_report or {})
+    coverage = quality.get("coverage") or {}
+    metrics = quality.get("metrics") or {}
+    point_count = int(coverage.get("knowledge_point_count") or 0)
+    issues_by_code = {
+        str(item.get("code") or ""): item
+        for item in quality.get("issues") or []
+        if isinstance(item, dict)
+    }
+    blocking: list[dict[str, Any]] = []
+
+    def block(code: str, gate: str, message: str) -> None:
+        if any(item.get("code") == code for item in blocking):
+            return
+        source = issues_by_code.get(code)
+        blocking.append(
+            deepcopy(source)
+            if source
+            else _issue(code, gate, "critical", message)
+        )
+
+    if not quality.get("passed"):
+        for item in quality.get("blocking_issues") or []:
+            if isinstance(item, dict):
+                blocking.append(deepcopy(item))
+    if point_count <= 0:
+        block(
+            "teaching_readiness_missing_knowledge",
+            "teaching_readiness",
+            "课程没有可供教案消费的原子知识点",
+        )
+
+    for code, message in (
+        (
+            "point_missing_skill",
+            "仍有知识点缺少可观察能力，无法设计学习者行动",
+        ),
+        (
+            "point_missing_mastery",
+            "仍有知识点缺少可验证掌握标准，无法设计课堂检查",
+        ),
+        (
+            "dependency_only_knowledge_graph",
+            "知识图谱只有前置顺序，尚不能支持辨析、迁移和应用教学",
+        ),
+        (
+            "missing_semantic_crosslinks",
+            "知识图谱缺少非前置语义关系，尚不能开始教案设计",
+        ),
+    ):
+        if code in issues_by_code:
+            block(code, "teaching_readiness", message)
+
+    mastery_coverage = float(metrics.get("mastery_coverage") or 0.0)
+    if point_count and mastery_coverage < 1.0:
+        block(
+            "teaching_readiness_incomplete_mastery",
+            "teaching_readiness",
+            "每个生成知识点都必须具备可验证掌握标准",
+        )
+    atomic_ratio = float(metrics.get("atomic_ratio") or 0.0)
+    if point_count >= 6 and atomic_ratio < 0.9:
+        block(
+            "teaching_readiness_low_atomicity",
+            "teaching_readiness",
+            "知识点原子性不足，教案会被迫围绕宽泛主题组织",
+        )
+    misconception_coverage = float(
+        metrics.get("misconception_coverage") or 0.0
+    )
+    if point_count >= 6 and misconception_coverage < 0.6:
+        block(
+            "teaching_readiness_sparse_misconceptions",
+            "teaching_readiness",
+            "难点与易错覆盖不足，无法形成有诊断性的课堂检查",
+        )
+
+    strategy = str(grounding_strategy or "material_first")
+    source_grounding = float(
+        metrics.get("source_grounding_coverage") or 0.0
+    )
+    if strategy == "strict_grounded" and source_grounding < 1.0:
+        block(
+            "teaching_readiness_strict_grounding_gap",
+            "grounding",
+            "严格资料模式要求每个知识点绑定准入证据",
+        )
+    elif (
+        strategy == "material_first"
+        and evidence_available
+        and source_grounding < 0.5
+    ):
+        block(
+            "teaching_readiness_material_grounding_gap",
+            "grounding",
+            "已有用户资料或检索证据，但少于一半知识点完成来源锚定",
+        )
+
+    return {
+        "schema_version": COURSE_KNOWLEDGE_TEACHING_READINESS_SCHEMA,
+        "passed": not blocking,
+        "grounding_strategy": strategy,
+        "evidence_available": bool(evidence_available),
+        "blocking_issue_codes": [
+            str(item.get("code") or "") for item in blocking
+        ],
+        "blocking_issues": blocking,
+        "metrics": {
+            "knowledge_point_count": point_count,
+            "atomic_ratio": atomic_ratio,
+            "mastery_coverage": mastery_coverage,
+            "misconception_coverage": misconception_coverage,
+            "semantic_relation_coverage": float(
+                metrics.get("semantic_relation_coverage") or 0.0
+            ),
+            "source_grounding_coverage": source_grounding,
+        },
     }
 
 
@@ -2219,6 +2354,7 @@ __all__ = [
     "compile_course_knowledge_base",
     "course_knowledge_source_fingerprint",
     "course_knowledge_base_prompt_context",
+    "evaluate_generated_course_knowledge_teaching_readiness",
     "knowledge_binding_for_section",
     "validate_course_knowledge_base",
 ]

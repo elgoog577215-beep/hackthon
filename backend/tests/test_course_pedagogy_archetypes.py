@@ -356,7 +356,7 @@ def test_v1_persisted_profile_remains_readable_without_course_migration():
 
 def test_registry_covers_all_modes_and_all_archetypes_have_real_evidence():
     assert len(LESSON_ARCHETYPES) == 40
-    assert len(SUBJECT_VARIANTS) == 21
+    assert len(SUBJECT_VARIANTS) == 23
     assert {
         item.mode
         for item in LESSON_ARCHETYPES.values()

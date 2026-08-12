@@ -109,6 +109,29 @@ def test_outline_batch_receives_course_type_and_subject_contract_after_split():
     assert contract["revision_id"] in prompt
 
 
+def test_compact_prompt_preserves_non_compressible_stage_quality_kernel():
+    contract = _contract("project")
+    composer = CoursePromptComposer()
+    prompt = composer.build_outline_skeleton_v2_prompt(
+        subject="微积分项目实战",
+        audience="大学一年级",
+        brief=contract["shared"],
+        profile=resolve_pedagogy_profile(subject="微积分"),
+        difficulty_profile={"level": "intermediate"},
+        gap_assessment={},
+        adaptation_decision={},
+        material_context="",
+        design_contract=contract,
+        detail_level="minimal",
+    )
+
+    assert "唯一允许输出" in prompt
+    assert "禁止修改" in prompt
+    assert "直觉不能替代定义" in prompt
+    assert "章节能推进到最终成果" in prompt
+    assert contract["revision_id"] in prompt
+
+
 def test_content_prompt_consumes_only_content_projection():
     contract = _contract()
     course = {

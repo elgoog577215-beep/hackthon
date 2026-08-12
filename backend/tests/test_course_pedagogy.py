@@ -74,7 +74,7 @@ def test_subject_template_freezes_one_contract_for_all_downstream_stages():
 
     template = compile_subject_generation_template(profile)
 
-    assert template["schema_version"] == "subject_generation_template_v2"
+    assert template["schema_version"] == "subject_generation_template_v3"
     assert template["template_id"].startswith("subject/math_formal/")
     assert template["subject_variant"]["id"]
     assert "derives" in template["knowledge_contract"]["relation_priorities"]
@@ -92,6 +92,21 @@ def test_subject_template_freezes_one_contract_for_all_downstream_stages():
         "course_content",
         "course_assessment",
     ]
+
+
+def test_static_routing_distinguishes_computing_physical_engineering_and_history():
+    data_structures = resolve_pedagogy_profile(subject="数据结构")
+    mechanical_design = resolve_pedagogy_profile(subject="机械设计")
+    modern_history = resolve_pedagogy_profile(subject="中国近现代史")
+
+    assert data_structures.primary_mode is PedagogyMode.PROGRAMMING_ENGINEERING
+    assert data_structures.subject_variant_id == "engineering_computing_foundations"
+    assert "复杂度分析" in data_structures.final_assessment
+    assert mechanical_design.primary_mode is PedagogyMode.NATURAL_SCIENCE
+    assert mechanical_design.subject_variant_id == "science_physical_engineering_design"
+    assert "工程设计" in mechanical_design.final_assessment
+    assert modern_history.primary_mode is PedagogyMode.HUMANITIES_SOCIAL
+    assert modern_history.subject_variant_id == "humanities_historical"
 
 
 def test_subject_title_outweighs_generic_application_wording():

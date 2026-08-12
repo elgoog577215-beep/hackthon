@@ -23,7 +23,7 @@ from course_pedagogy_archetypes import (
 )
 
 PROFILE_VERSION = "subject_pedagogy_v2"
-SUBJECT_GENERATION_TEMPLATE_VERSION = "subject_generation_template_v2"
+SUBJECT_GENERATION_TEMPLATE_VERSION = "subject_generation_template_v3"
 
 
 class PedagogyMode(str, Enum):
@@ -510,6 +510,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
             "编程",
             "软件",
             "算法",
+            "数据结构",
+            "操作系统",
+            "计算机组成",
+            "计算机体系结构",
+            "编译原理",
             "数据库",
             "网络",
             "机器学习",
@@ -539,7 +544,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
     PedagogyMode.NATURAL_SCIENCE: PedagogyTemplate(
         PedagogyMode.NATURAL_SCIENCE, "自然科学",
         ("解释自然现象", "设计实验", "建立模型", "预测结果"),
-        ("物理", "化学", "天文", "地质", "气象", "环境科学", "力学", "电磁", "量子"),
+        (
+            "物理", "化学", "天文", "地质", "气象", "环境科学", "力学", "电磁", "量子",
+            "机械设计", "机械工程", "制造工程", "材料工程", "土木工程",
+            "结构工程", "电气工程", "控制工程", "工程力学", "结构设计",
+        ),
         ("观察", "实验", "测量", "解释", "预测", "验证"),
         ("science_phenomenon_path",),
         ("science_phenomenon", "science_model", "science_evidence", "science_boundary", "science_prediction"),
@@ -568,7 +577,11 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
     PedagogyMode.HUMANITIES_SOCIAL: PedagogyTemplate(
         PedagogyMode.HUMANITIES_SOCIAL, "人文社科",
         ("分析材料", "比较观点", "形成论证", "解释社会现象"),
-        ("哲学", "历史", "文学", "社会学", "心理学", "经济学", "政治", "教育", "传播", "文化"),
+        (
+            "哲学", "历史", "古代史", "近代史", "现代史", "近现代史",
+            "中国史", "世界史", "文学", "社会学", "心理学", "经济学",
+            "政治", "教育", "传播", "文化",
+        ),
         ("分析", "论证", "比较", "讨论", "批判", "写作", "解释"),
         ("humanities_question_path",),
         ("humanities_context", "humanities_source", "humanities_claim", "humanities_comparison", "humanities_response"),
@@ -936,9 +949,12 @@ def compile_subject_generation_template(
                 if str(item.get("evidence_contract") or "")
             ],
             "guardrails": list(_dedupe(
-                guardrail
-                for item in preferred_archetypes
-                for guardrail in item.get("guardrails") or []
+                [
+                    guardrail
+                    for item in preferred_archetypes
+                    for guardrail in item.get("guardrails") or []
+                ]
+                + list(variant.quality_guardrails if variant else ())
             )),
         },
         "resolution": {
@@ -948,7 +964,9 @@ def compile_subject_generation_template(
             "user_locked": profile.user_locked,
         },
         "course_architecture_contract": {
-            "progression": list(stage_contract["course_progression"]),
+            "progression": list(stage_contract["course_progression"]) + list(
+                variant.course_progression_additions if variant else ()
+            ),
             "preferred_archetype_sequence": preferred_archetype_ids,
             "archetype_progression_contracts": preferred_archetypes,
             "course_module_ids": [
@@ -973,11 +991,16 @@ def compile_subject_generation_template(
                 "知识名称不得复制章节或小节标题，也不得写成教学动作",
                 "能力、易错和掌握标准必须描述可观察证据，不得使用模板占位",
             ],
-            "subject_focus": list(stage_contract["knowledge_focus"]),
+            "subject_focus": list(stage_contract["knowledge_focus"]) + list(
+                variant.knowledge_focus_additions if variant else ()
+            ),
             "variant_guardrails": list(_dedupe(
-                guardrail
-                for item in preferred_archetypes
-                for guardrail in item.get("guardrails") or []
+                [
+                    guardrail
+                    for item in preferred_archetypes
+                    for guardrail in item.get("guardrails") or []
+                ]
+                + list(variant.quality_guardrails if variant else ())
             )),
             "evidence_priorities": list(
                 SUBJECT_EVIDENCE_PRIORITIES[profile.primary_mode]
@@ -1021,6 +1044,8 @@ def compile_subject_generation_template(
             ),
             "observable_evidence": list(
                 stage_contract["assessment_evidence"]
+            ) + list(
+                variant.assessment_evidence_additions if variant else ()
             ),
             "quality_standard": [
                 "题目或任务必须直接验证冻结掌握标准",
@@ -1179,9 +1204,12 @@ def resolve_pedagogy_profile(
         module_ids.extend(TEMPLATES[secondary].lesson_modules)
         module_ids.extend(TEMPLATES[secondary].conditional_modules)
     quality_guardrails = list(TEMPLATES[primary].quality_guardrails)
+    quality_guardrails.extend(subject_variant.quality_guardrails)
     if secondary:
         quality_guardrails.extend(TEMPLATES[secondary].quality_guardrails)
     final_assessment = TEMPLATES[primary].final_assessment
+    if subject_variant.final_assessment_override:
+        final_assessment = subject_variant.final_assessment_override
     if secondary and intensity == SecondaryIntensity.DUAL_CORE:
         final_assessment = (
             f"{final_assessment}；同时完成"

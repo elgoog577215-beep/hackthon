@@ -5,6 +5,7 @@ from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
+    evaluate_generated_course_knowledge_teaching_readiness,
     knowledge_binding_for_section,
     validate_course_knowledge_base,
 )
@@ -171,6 +172,48 @@ def test_large_dependency_only_graph_is_reported_as_incomplete_semantics():
     assert report["coverage"]["used_relation_type_count"] == 1
     assert "dependency_only_knowledge_graph" in issue_codes
     assert "missing_semantic_crosslinks" in issue_codes
+
+    readiness = evaluate_generated_course_knowledge_teaching_readiness(report)
+    assert readiness["passed"] is False
+    assert "dependency_only_knowledge_graph" in readiness[
+        "blocking_issue_codes"
+    ]
+
+
+def test_generated_knowledge_requires_source_coverage_only_when_evidence_exists():
+    report = {
+        "passed": True,
+        "issues": [],
+        "blocking_issues": [],
+        "coverage": {"knowledge_point_count": 8},
+        "metrics": {
+            "atomic_ratio": 1.0,
+            "mastery_coverage": 1.0,
+            "misconception_coverage": 0.75,
+            "semantic_relation_coverage": 0.5,
+            "source_grounding_coverage": 0.25,
+        },
+    }
+
+    no_material = evaluate_generated_course_knowledge_teaching_readiness(
+        report,
+        grounding_strategy="material_first",
+        evidence_available=False,
+    )
+    with_material = evaluate_generated_course_knowledge_teaching_readiness(
+        report,
+        grounding_strategy="material_first",
+        evidence_available=True,
+    )
+    strict = evaluate_generated_course_knowledge_teaching_readiness(
+        report,
+        grounding_strategy="strict_grounded",
+        evidence_available=True,
+    )
+
+    assert no_material["passed"] is True
+    assert with_material["passed"] is False
+    assert strict["passed"] is False
 
 
 def test_course_knowledge_base_preserves_richer_knowledge_types():

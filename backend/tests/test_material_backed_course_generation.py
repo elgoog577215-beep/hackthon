@@ -355,6 +355,13 @@ def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
                 "relation_type": "prerequisite",
                 "reason": f"先掌握{registry_by_key[keys[0]]['name']}才能继续应用",
             })
+            relations.append({
+                "source_key": keys[0],
+                "target_key": keys[1],
+                "relation_type": "applies_to",
+                "reason": f"将{registry_by_key[keys[0]]['name']}用于解释和完成当前能力任务",
+                "conditions": ["前置对象、条件与当前任务边界一致"],
+            })
         module_keys = list(dict.fromkeys([
             *identity_by_id[section["node_id"]].get(
                 "owned_knowledge_keys", []
@@ -837,7 +844,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v29"
+    assert data["prompt_contract_version"] == "course_prompt_v30"
     assert len(calls) == 5
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"

@@ -9,13 +9,14 @@ product intent.
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
 
 
-COURSE_DESIGN_CONTRACT_VERSION = "course_design_contract_v1"
+COURSE_DESIGN_CONTRACT_VERSION = "course_design_contract_v2"
 
 COURSE_DESIGN_STAGE_KEYS = (
     "outline",
@@ -26,6 +27,52 @@ COURSE_DESIGN_STAGE_KEYS = (
     "content",
     "assessment",
 )
+
+
+STAGE_EXECUTION_PROTOCOLS: dict[str, dict[str, list[str]]] = {
+    "outline": {
+        "reads": ["课程需求", "课程类型合同", "学科课程结构合同", "难度与起点"],
+        "writes": ["课程定位", "最终成果", "章节边界与推进顺序"],
+        "forbidden_mutations": ["小节详情", "知识身份", "教案", "正文", "题目"],
+        "completion_evidence": ["课程规模满足硬约束", "每章责任唯一", "章节能推进到最终成果"],
+    },
+    "outline_expansion": {
+        "reads": ["冻结章节骨架", "相邻章节边界", "课程类型与学科结构合同"],
+        "writes": ["小节责任", "小节前置", "小节验收任务"],
+        "forbidden_mutations": ["课程定位", "章节数量与边界", "其他章节", "知识与教案"],
+        "completion_evidence": ["目标、范围与验收同向", "小节互不重复", "没有提前承担后续责任"],
+    },
+    "knowledge_identity": {
+        "reads": ["冻结目录", "小节责任", "学科知识合同"],
+        "writes": ["原子知识身份", "唯一负责小节", "复用与前置键"],
+        "forbidden_mutations": ["目录", "知识详情", "课堂流程", "正文"],
+        "completion_evidence": ["知识身份全课唯一", "每个知识有且仅有一个负责小节", "前置图无环"],
+    },
+    "knowledge_enrichment": {
+        "reads": ["冻结知识身份", "直接依赖闭包", "准入证据", "学科知识合同"],
+        "writes": ["知识详情", "能力点", "易错点", "掌握标准", "正式知识关系"],
+        "forbidden_mutations": ["知识名称与所有者", "冻结前置图", "目录", "教案与正文"],
+        "completion_evidence": ["每个知识可独立解释和诊断", "掌握标准可观察", "关系有语义理由与条件"],
+    },
+    "teaching": {
+        "reads": ["教学就绪的冻结知识库", "小节职责", "学科教案合同", "课时约束"],
+        "writes": ["教学模块", "师生活动", "课堂检查", "作业与迁移任务"],
+        "forbidden_mutations": ["目录", "知识身份与知识详情", "正文", "题目"],
+        "completion_evidence": ["模块绑定冻结知识", "活动在课时内可执行", "检查直接观察掌握标准"],
+    },
+    "content": {
+        "reads": ["冻结目录", "教学就绪知识库", "正式教案", "准入证据", "学科正文合同"],
+        "writes": ["当前小节正式课程块"],
+        "forbidden_mutations": ["目录", "知识库", "教案", "其他小节", "正式评价合同"],
+        "completion_evidence": ["解释、例子、练习与反馈口径一致", "正文体现本节独特责任", "事实可追溯"],
+    },
+    "assessment": {
+        "reads": ["冻结掌握标准", "正式教案", "课程最终成果", "学科评价合同"],
+        "writes": ["任务", "答案", "评分标准", "诊断标签"],
+        "forbidden_mutations": ["目录", "知识库", "教案", "课程正文"],
+        "completion_evidence": ["任务可判定", "答案与评分一致", "关键任务验证独立表现或迁移"],
+    },
+}
 
 
 def compile_course_design_contract(
@@ -210,6 +257,8 @@ def compile_course_design_contract(
             ],
         },
     }
+    for stage, protocol in STAGE_EXECUTION_PROTOCOLS.items():
+        stage_contracts[stage].update(deepcopy(protocol))
     contract = {
         "schema_version": COURSE_DESIGN_CONTRACT_VERSION,
         "contract_version": COURSE_DESIGN_CONTRACT_VERSION,
@@ -226,6 +275,34 @@ def compile_course_design_contract(
                 "assessment_and_quality",
                 "release",
             ],
+            "stage_dependencies": {
+                "outline_expansion": ["outline_revision"],
+                "knowledge_identity": ["outline_revision"],
+                "knowledge_enrichment": [
+                    "outline_revision",
+                    "knowledge_identity_revision",
+                    "course_design_contract_revision",
+                ],
+                "knowledge_freeze": [
+                    "all_knowledge_batches",
+                    "knowledge_identity_revision",
+                    "course_design_contract_revision",
+                ],
+                "teaching": [
+                    "teaching_ready_knowledge_revision",
+                    "course_design_contract_revision",
+                ],
+                "content": [
+                    "teaching_plan_revision",
+                    "teaching_ready_knowledge_revision",
+                    "course_design_contract_revision",
+                ],
+                "assessment_and_quality": [
+                    "content_revision",
+                    "mastery_contract_revision",
+                    "course_design_contract_revision",
+                ],
+            },
             "user_confirmation_gates": ["outline", "release"],
             "automatic_quality_gates": [
                 "knowledge_freeze",
@@ -311,6 +388,136 @@ def project_course_design_contract(
     }
 
 
+def format_course_design_stage_brief(
+    projection: dict[str, Any] | None,
+) -> str:
+    """Render the non-compressible quality kernel for one model stage.
+
+    Runtime context may be shortened to fit a request budget, but deleting
+    subject guardrails or stage ownership changes the product.  Keeping this
+    renderer deterministic also makes compact/full prompts enforce the same
+    generation strategy.
+    """
+    source = projection or {}
+    stage_contract = source.get("stage_contract") or {}
+    if not stage_contract:
+        return "沿用已冻结上游合同；不得扩大当前阶段职责。"
+
+    template_ref = source.get("template_ref") or {}
+    lines = [
+        f"- 合同修订：{source.get('revision_id') or 'legacy'}",
+        (
+            "- 学科模板："
+            f"{template_ref.get('template_id') or 'legacy'} / "
+            f"{template_ref.get('template_version') or 'legacy'}"
+        ),
+        f"- 当前阶段：{source.get('stage') or 'unknown'}",
+        f"- 唯一责任：{stage_contract.get('responsibility') or '遵守冻结上游合同'}",
+    ]
+    labels = (
+        ("reads", "只读输入"),
+        ("writes", "唯一允许输出"),
+        ("forbidden_mutations", "禁止修改"),
+        ("completion_evidence", "完成证据"),
+        ("quality_invariants", "质量不变量"),
+    )
+    for key, label in labels:
+        values = stage_contract.get(key) or []
+        if values:
+            lines.append(
+                f"- {label}：" + "；".join(str(item) for item in values)
+            )
+
+    shared = source.get("shared_constraints") or {}
+    if shared:
+        lines.append(
+            "- 本阶段共享约束："
+            + json.dumps(
+                _bound_prompt_contract_data(shared),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+    protocol_keys = {
+        "responsibility",
+        "reads",
+        "writes",
+        "forbidden_mutations",
+        "completion_evidence",
+        "quality_invariants",
+    }
+    specialist = {
+        key: value
+        for key, value in stage_contract.items()
+        if key not in protocol_keys and value not in (None, "", [], {})
+    }
+    if specialist:
+        lines.append(
+            "- 学科与课型专业合同："
+            + json.dumps(
+                _bound_prompt_contract_data(specialist),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+    return "\n".join(lines)
+
+
+def _bound_prompt_contract_data(
+    value: Any,
+    *,
+    max_string_chars: int = 360,
+    max_list_items: int = 24,
+    max_depth: int = 6,
+    _depth: int = 0,
+) -> Any:
+    """Bound instance data without removing the non-compressible protocol.
+
+    Stage ownership, forbidden mutations, completion evidence and quality
+    invariants are rendered separately and always remain intact.  The nested
+    payload contains user instance data as well as subject contracts; legacy
+    checkpoints can put an entire raw requirement or arbitrary ``notes`` field
+    there.  Re-broadcasting tens of thousands of repeated characters would
+    prevent even the minimal prompt from reaching the model, so only nested
+    values are bounded here.  Normal subject contracts remain far below these
+    limits and therefore pass through unchanged.
+    """
+    if _depth >= max_depth:
+        if isinstance(value, (dict, list, tuple)):
+            return "…[bounded]"
+        return value
+    if isinstance(value, str):
+        if len(value) <= max_string_chars:
+            return value
+        return value[:max_string_chars].rstrip() + "…[bounded]"
+    if isinstance(value, dict):
+        return {
+            str(key): _bound_prompt_contract_data(
+                item,
+                max_string_chars=max_string_chars,
+                max_list_items=max_list_items,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        bounded = [
+            _bound_prompt_contract_data(
+                item,
+                max_string_chars=max_string_chars,
+                max_list_items=max_list_items,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+            )
+            for item in value[:max_list_items]
+        ]
+        if len(value) > max_list_items:
+            bounded.append(f"…[{len(value) - max_list_items} omitted]")
+        return bounded
+    return value
+
+
 def course_design_contract_from_course(
     course_data: dict[str, Any],
 ) -> dict[str, Any]:
@@ -353,5 +560,6 @@ __all__ = [
     "COURSE_DESIGN_STAGE_KEYS",
     "compile_course_design_contract",
     "course_design_contract_from_course",
+    "format_course_design_stage_brief",
     "project_course_design_contract",
 ]

@@ -39,6 +39,11 @@ class SubjectVariantSpec:
     label: str
     signals: tuple[str, ...]
     preferred_archetype_ids: tuple[str, ...]
+    course_progression_additions: tuple[str, ...] = ()
+    knowledge_focus_additions: tuple[str, ...] = ()
+    assessment_evidence_additions: tuple[str, ...] = ()
+    quality_guardrails: tuple[str, ...] = ()
+    final_assessment_override: str = ""
 
 
 def _archetype(
@@ -470,6 +475,30 @@ SUBJECT_VARIANTS: dict[str, SubjectVariantSpec] = {
         ("编程入门", "语法", "算法基础", "python基础", "java基础"),
         ("engineering_runnable_intro", "engineering_guided_build"),
     ),
+    "engineering_computing_foundations": SubjectVariantSpec(
+        "engineering_computing_foundations", "programming_engineering", "计算机核心基础",
+        (
+            "数据结构", "算法", "操作系统", "计算机组成", "计算机体系结构",
+            "编译原理", "复杂度", "图算法", "排序", "查找",
+        ),
+        (
+            "engineering_guided_build", "engineering_debugging_lab",
+            "engineering_test_refactor",
+        ),
+        (
+            "从数据表示与操作不变量进入核心算法，再比较复杂度、边界行为与系统实现取舍",
+        ),
+        (
+            "数据结构知识必须说明操作契约、表示不变量、复杂度条件和失败边界",
+            "算法知识必须保存输入前提、关键步骤、正确性依据和复杂度分析",
+        ),
+        ("可运行实现", "不变量检查", "复杂度分析", "边界与失败用例"),
+        (
+            "不得只背复杂度结论而不说明输入条件",
+            "不得用代码运行成功替代算法正确性和边界验证",
+        ),
+        "交付可运行实现，并用不变量、复杂度分析和边界测试证明其正确性",
+    ),
     "engineering_software_systems": SubjectVariantSpec(
         "engineering_software_systems", "programming_engineering", "软件工程与系统",
         ("软件工程", "系统", "架构", "服务", "数据库", "网络", "部署"),
@@ -495,6 +524,31 @@ SUBJECT_VARIANTS: dict[str, SubjectVariantSpec] = {
         ("环境", "地质", "能源", "工程", "生态环境"),
         ("science_investigation", "science_design_application"),
     ),
+    "science_physical_engineering_design": SubjectVariantSpec(
+        "science_physical_engineering_design", "natural_science", "物理工程设计",
+        (
+            "机械设计", "机械工程", "制造工程", "材料工程", "土木工程",
+            "结构工程", "电气工程", "控制工程", "工程力学", "结构设计",
+        ),
+        (
+            "science_model_explanation", "science_investigation",
+            "science_design_application",
+        ),
+        (
+            "从需求和约束进入物理模型，比较方案，形成设计，再通过计算、仿真、实验或标准验证",
+        ),
+        (
+            "工程知识必须区分需求、约束、模型假设、设计变量、失效模式和验证方法",
+            "设计关系必须说明取舍条件，不能把经验结论写成无边界规律",
+        ),
+        ("需求分解", "方案比较", "计算或仿真", "失效分析", "验证报告"),
+        (
+            "不得把物理工程课套成编程项目模板",
+            "不得先给唯一方案再补写形式化比较",
+            "验证必须对应预先定义的性能、安全与边界条件",
+        ),
+        "提交一个满足明确约束的工程设计，并用模型、计算或实验说明取舍与验证结果",
+    ),
     "life_biological_systems": SubjectVariantSpec(
         "life_biological_systems", "life_medical", "生命系统",
         ("生物", "细胞", "遗传", "进化", "生态", "植物", "动物"),
@@ -508,7 +562,8 @@ SUBJECT_VARIANTS: dict[str, SubjectVariantSpec] = {
     "humanities_historical": SubjectVariantSpec(
         "humanities_historical", "humanities_social", "历史探究",
         (
-            "历史", "古代史", "近代史", "现代史",
+            "历史", "古代史", "近代史", "现代史", "近现代史",
+            "中国史", "世界史",
             "时期", "朝代", "战争", "革命", "演变",
         ),
         ("humanities_inquiry_context", "humanities_source_interpretation", "humanities_causal_change"),
