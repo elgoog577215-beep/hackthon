@@ -737,6 +737,49 @@ def test_course_cover_adapter_exposes_source_subtitle_without_internal_slug() ->
     assert adapted.subtitle
 
 
+def test_course_cover_contract_capacity_survives_pptx_frame_audit(tmp_path: Path) -> None:
+    document, deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    cover_layout = template.get_layout(template.layout_id("cover-minimal"))
+    subtitle_slot = next(
+        slot for slot in cover_layout.slots if slot.slot_id == "subtitle"
+    )
+    long_objective = (
+        "记录湿地观察地点时间天气仪器校准采样窗口证据负责人验收标准异常现象"
+        "复核结论推导依据修正方案跟进责任人并保留签字原始记录供独立审查追溯"
+        "同时区分事实观察与解释判断确保每项结论都能回到冻结来源"
+    )
+    cover = _compile_course_cover_page(
+        document.model_copy(update={
+            "title": "A field guide to reproducible environmental evidence",
+            "sections": [
+                section.model_copy(update={
+                    "learning_objective": long_objective,
+                })
+                for section in document.sections
+            ],
+        }),
+        template,
+    )
+    cover_deck = deck.model_copy(update={"pages": [cover]})
+    output = export_slide_deck_v6_pptx(
+        cover_deck.model_dump(mode="json"),
+        tmp_path / "v6-cover-capacity.pptx",
+    )
+
+    assert len(cover.regions[0].content) == subtitle_slot.max_chars
+    audit = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert not [
+        issue
+        for issue in audit["issues"]
+        if issue.get("code") in {
+            "exported_text_frame_overflow",
+            "exported_title_unexpected_wrap",
+        }
+    ]
+
+
 def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Path) -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     layout = template.get_layout(template.layout_id("evidence-code"))

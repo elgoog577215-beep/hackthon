@@ -2093,13 +2093,16 @@ def _render_authored_cover(
         east_asian_font=theme["title_east_asian_font"],
     )
     if unit.subtitle:
+        subtitle_y = 3.80 if minimal else 3.86
+        subtitle_width = 7.55 if minimal else 6.85
+        subtitle_height = 1.02 if minimal else 0.58
         _text(
             slide,
             unit.subtitle,
             0.94,
-            3.86,
-            6.85,
-            0.58,
+            subtitle_y,
+            subtitle_width,
+            subtitle_height,
             17,
             theme["muted"],
         )
@@ -2176,7 +2179,7 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
     )
     _shape(slide, 0.88, 5.5, 3.25, 0.06, theme["accent"], radius=False)
     if unit.subtitle:
-        _text(slide, unit.subtitle, 0.9, 5.78, 8.4, 0.45, 16, theme["muted"])
+        _text(slide, unit.subtitle, 0.9, 5.72, 10.9, 0.92, 16, theme["muted"])
 
 
 def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
