@@ -304,7 +304,8 @@
       </footer>
     </section>
 
-    <section v-if="aiOpen && editing" class="generation-lesson-plan__ai-panel" aria-live="polite">
+    <Teleport :to="aiDockTarget || 'body'" :disabled="!aiDockTarget || !aiOpen">
+    <section v-if="aiOpen && editing" class="generation-lesson-plan__ai-panel" :class="{ 'is-docked': aiDockTarget }" aria-live="polite">
       <header>
         <div>
           <span>{{ t('courseGeneration.lessonPlan.aiEyebrow', 'AI 只生成候选') }}</span>
@@ -397,6 +398,7 @@
         </footer>
       </div>
     </section>
+    </Teleport>
 
     <section v-if="historyOpen && activeWorkbench" class="generation-lesson-plan__history" aria-live="polite">
       <header>
@@ -1247,6 +1249,7 @@ const props = withDefaults(defineProps<{
   courseId?: string
   live?: boolean
   task?: Task
+  aiDockTarget?: string
 }>(), {
   plan: null,
   nodes: () => [],
@@ -1254,6 +1257,7 @@ const props = withDefaults(defineProps<{
   courseId: '',
   live: false,
   task: undefined,
+  aiDockTarget: '',
 })
 
 const emit = defineEmits<{
@@ -1261,6 +1265,7 @@ const emit = defineEmits<{
   (event: 'open-knowledge', knowledgeId: string): void
   (event: 'applied'): void
   (event: 'open-outline-editor', target: { endpoint: string; revisionField: string }): void
+  (event: 'ai-open-change', open: boolean): void
 }>()
 
 const workbenchStore = useTeachingPlanWorkbenchStore()
@@ -1810,7 +1815,12 @@ function setAiScope(scope: 'overall' | 'section') {
 async function openAiAssistant(scope: 'overall' | 'section') {
   actionBusy.value = true
   try {
-    if (!editing.value) await workbenchStore.beginDraft()
+    if (!editing.value && activeWorkbench.value?.can_initialize) {
+      await workbenchStore.initializeBaseline()
+      await workbenchStore.beginDraft()
+    } else if (!editing.value) {
+      await workbenchStore.beginDraft()
+    }
     if (!workbenchStore.draft) return
     setAiScope(scope)
     aiOpen.value = true
@@ -1969,6 +1979,12 @@ watch(
 watch(activeAiCandidate, candidate => {
   selectedAiOperationIds.value = candidate?.operations.map(operation => operation.operation_id) || []
 }, { immediate: true })
+
+watch(aiOpen, open => emit('ai-open-change', open), { immediate: true })
+
+defineExpose({
+  openAiAssistant,
+})
 
 onMounted(() => window.addEventListener('beforeunload', handleBeforeUnload))
 
@@ -2368,6 +2384,12 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__review-button.is-primary { border-color:#555fb7; color:#fff; background:#555fb7; }
 .generation-lesson-plan__review-button:disabled { opacity:.5; cursor:not-allowed; }
 .generation-lesson-plan__ai-panel { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d7d2eb; border-radius:8px; background:#fbfbff; }
+.generation-lesson-plan__ai-panel.is-docked { box-sizing:border-box; width:100%; min-height:100%; margin:0; padding:16px; border:0; border-radius:0; background:var(--lz-surface,#fff); }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request { grid-template-columns:1fr; align-items:stretch; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request textarea { min-height:126px; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request > .generation-lesson-plan__review-button { width:100%; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__candidate-change > span { grid-template-columns:1fr; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__candidate-change > span > svg { transform:rotate(90deg); }
 .generation-lesson-plan__ai-panel > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
 .generation-lesson-plan__ai-panel > header span { color:#665db2; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__ai-panel h3 { margin:4px 0 0; color:#293146; font-size:17px; line-height:1.4; }

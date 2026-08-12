@@ -1,6 +1,6 @@
 <template>
-  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute }">
-    <header v-if="!isPptRoute" class="app-header glass-panel-elevated">
+  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute, 'is-fullscreen-concept': isFullscreenConceptRoute }">
+    <header v-if="!isPptRoute && !isFullscreenConceptRoute" class="app-header glass-panel-elevated">
       <RouterLink class="brand-button" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
         <span class="brand-name">启智</span>
@@ -130,6 +130,7 @@ onBeforeUnmount(() => {
 const isLearningRoute = computed(() => route.name === 'learning')
 const isPptRoute = computed(() => route.name === 'ppt-workspace')
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
+const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -169,6 +170,8 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .app-shell.is-ppt-workspace { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
 .app-shell.is-ppt-workspace .app-main { border-radius:0; }
+.app-shell.is-fullscreen-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:var(--lz-canvas); }
+.app-shell.is-fullscreen-concept .app-main { border-radius:0; }
 .app-shell.is-public-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#f5f6f9; }
 .app-shell.is-public-concept .app-main { border-radius:0; }
 

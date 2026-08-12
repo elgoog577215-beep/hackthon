@@ -529,7 +529,22 @@ import {
   type PedagogyModeSelection,
 } from '@/shared/prompt-config'
 
-const props = withDefaults(defineProps<{ modelValue: boolean; busy?: boolean }>(), { busy: false })
+const props = withDefaults(defineProps<{
+  modelValue: boolean
+  busy?: boolean
+  initialSubject?: string
+  initialAudience?: string
+  initialAcademicTerm?: string
+  initialTotalClassHours?: number
+  initialLessonDurationMinutes?: number
+}>(), {
+  busy: false,
+  initialSubject: '',
+  initialAudience: '',
+  initialAcademicTerm: '',
+  initialTotalClassHours: 16,
+  initialLessonDurationMinutes: 45,
+})
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   generate: [payload: { subject: string; options: CourseGenerationOptions }]
@@ -679,6 +694,11 @@ watch(() => props.modelValue, async open => {
     lastDefaultAudience = defaultAudience()
     form.targetAudience = lastDefaultAudience
   }
+  if (!form.systematicTopic.trim() && props.initialSubject.trim()) form.systematicTopic = props.initialSubject.trim()
+  if (props.initialAudience.trim()) form.targetAudience = props.initialAudience.trim()
+  if (props.initialAcademicTerm.trim()) form.academicTerm = props.initialAcademicTerm.trim()
+  if (Number.isFinite(props.initialTotalClassHours) && props.initialTotalClassHours > 0) form.totalClassHours = props.initialTotalClassHours
+  if (Number.isFinite(props.initialLessonDurationMinutes) && props.initialLessonDurationMinutes > 0) form.lessonDurationMinutes = props.initialLessonDurationMinutes
   await nextTick()
   dialogRef.value?.focus()
 })

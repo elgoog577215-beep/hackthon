@@ -1,6 +1,6 @@
 <template>
-  <main class="course-library teacher-space">
-    <header class="library-header">
+  <main class="course-library teacher-space" :class="{ 'teacher-space--embedded': embedded }">
+    <header v-if="!embedded" class="library-header">
       <div>
         <p>{{ t('teacherCourseSpace.eyebrow', '教师课程空间') }}</p>
         <h1>{{ t('teacherCourseSpace.title', '课程文件库') }}</h1>
@@ -18,14 +18,15 @@
       :class="{
         'knowledge-space--first-run': !packages.length && !selected,
         'knowledge-space--creating': !selected,
+        'knowledge-space--embedded': embedded,
       }"
     >
       <aside v-if="packages.length" class="knowledge-sidebar">
-        <div class="sidebar-heading">
+        <div v-if="!embedded" class="sidebar-heading">
           <strong>{{ t('teacherCourseSpace.myCourses', '我的课程') }}</strong>
           <button type="button" @click="selected = null">{{ t('teacherCourseSpace.new', '新建') }}</button>
         </div>
-        <button v-for="item in packages" :key="item.package_id" class="package-item" :class="{ active: item.package_id === selected?.package_id }" type="button" @click="openPackage(item.package_id)">
+        <button v-for="item in embedded ? [] : packages" :key="item.package_id" class="package-item" :class="{ active: item.package_id === selected?.package_id }" type="button" @click="openPackage(item.package_id)">
           <strong>{{ item.course_name }}</strong>
           <span>{{ t('teacherCourseSpace.courseMeta', '{year} / {term} / {count} 份资料')
             .replace('{year}', item.academic_year)
@@ -59,8 +60,8 @@
 
       <section v-if="!selected" class="workspace-create">
         <div class="workspace-create__copy">
-          <strong>{{ t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
-          <span>{{ t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
+          <strong>{{ embedded ? `建立「${courseTitle || form.course_name}」的课程文件` : t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
+          <span>{{ embedded ? '文件空间建立后会保留空目录，可继续整文件夹导入、预览、下载和删除。' : t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
         </div>
         <form @submit.prevent="createPackage">
           <label class="create-field create-field--course">
@@ -68,6 +69,7 @@
             <input
               v-model.trim="form.course_name"
               required
+              :readonly="embedded && Boolean(courseTitle)"
               :placeholder="t('teacherCourseSpace.courseNamePlaceholder', '如：数据结构')"
             />
           </label>
@@ -218,6 +220,13 @@ type FileSystemEntryLike = {
 }
 
 const router = useRouter()
+const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), {
+  embedded: false,
+  courseId: '',
+  courseTitle: '',
+})
+const embedded = computed(() => props.embedded)
+const courseTitle = computed(() => props.courseTitle)
 const packages = ref<any[]>([])
 const selected = ref<any | null>(null)
 const currentPath = ref('')
@@ -229,7 +238,7 @@ const previewAsset = ref<Asset | null>(null)
 const previewImageSize = ref<{ width: number; height: number } | null>(null)
 const folderInput = ref<HTMLInputElement>()
 const fileInput = ref<HTMLInputElement>()
-const form = ref({ course_name: '', academic_year: '2025-2026', term: '春季', template: 'school_course_materials' })
+const form = ref({ course_name: props.courseTitle || '', academic_year: '2025-2026', term: '春季', template: 'school_course_materials' })
 
 const termLabel = (term: string) => ({
   春季: t('teacherCourseSpace.terms.spring', '春季'),
@@ -292,7 +301,14 @@ const currentFolderLabel = computed(() => breadcrumbs.value.at(-1)?.label || t('
 const size = (value: number) => value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
 
 async function refresh() {
-  try { packages.value = (await http.get('/api/teacher-course-spaces')).data }
+  try {
+    packages.value = (await http.get('/api/teacher-course-spaces')).data
+    if (embedded.value && !selected.value) {
+      const match = packages.value.find(item => String(item.course_name).trim() === props.courseTitle.trim())
+      if (match) await openPackage(match.package_id)
+      else if (props.courseTitle) form.value.course_name = props.courseTitle
+    }
+  }
   catch { status.value = t('teacherCourseSpace.errors.serviceUnavailable', '课程空间服务暂不可用，请确认后端已启动后重试。') }
 }
 async function openPackage(id: string) { selected.value = (await http.get(`/api/teacher-course-spaces/${id}`)).data; currentPath.value = '' }
@@ -303,7 +319,7 @@ async function createPackage() {
     const data = (await http.post('/api/teacher-course-spaces', form.value)).data
     await refresh()
     await openPackage(data.package_id)
-    form.value.course_name = ''
+    form.value.course_name = embedded.value ? props.courseTitle : ''
   } catch (error: any) {
     status.value = localizedError(error, 'teacherCourseSpace.errors.createFailed', '创建文件库失败，请检查课程名称和学年后重试。')
   } finally { busy.value = false }
@@ -927,6 +943,14 @@ onMounted(refresh)
 :deep(.file-preview-dialog .el-dialog__header) { padding: 18px 22px 14px; margin: 0; border-bottom: 1px solid var(--lz-border); }
 :deep(.file-preview-dialog .el-dialog__title) { display: block; overflow: hidden; color: var(--lz-text-strong); font-size: 17px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 :deep(.file-preview-dialog .el-dialog__body) { padding: 18px 20px 20px; }
+.teacher-space--embedded{min-height:0;height:100%;padding:0;border:0;border-radius:0;background:var(--lz-surface);box-shadow:none}
+.teacher-space--embedded .knowledge-space{height:100%;min-height:0;max-width:none;margin:0;grid-template-columns:214px minmax(0,1fr);border:0;border-radius:0;background:var(--lz-surface)}
+.teacher-space--embedded .knowledge-space--creating{display:block;overflow:auto}
+.teacher-space--embedded .workspace-create{width:min(760px,calc(100% - 48px));margin:24px auto;padding:24px 0}
+.teacher-space--embedded .knowledge-sidebar{background:var(--lz-fill)}
+.teacher-space--embedded .folder-workbench{min-height:0;padding:0 18px 24px;overflow:auto}
+.teacher-space--embedded .folder-workbench__topline{position:sticky;top:0;z-index:2;background:var(--lz-surface)}
+.teacher-space--embedded .folder-workbench__heading{padding-top:16px}
 @media (max-width: 760px) {
   .course-library { padding: 22px 20px 40px; border: 0; border-radius: 0; box-shadow: none; }
   .library-header,
