@@ -1061,7 +1061,7 @@ def test_story_capacity_error_uses_the_frozen_source_summary_repair() -> None:
     assert repaired is not payload
     assert repaired_summary
     assert len(repaired_summary) <= maximum
-    assert repaired_summary in unit["source_text"]
+    assert repaired_summary.rstrip("…") in unit["source_text"]
 
 
 @pytest.mark.asyncio

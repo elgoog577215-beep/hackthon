@@ -1828,6 +1828,7 @@ def _apply_grounded_story_repairs(
 
     if error.failure.code not in {
         "story_page_underfilled",
+        "story_summary_capacity_exceeded",
         "story_summary_markdown_invalid",
         "story_unsupported_fact",
         "story_unsupported_semantic_claim",
