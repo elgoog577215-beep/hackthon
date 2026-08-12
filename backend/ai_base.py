@@ -1908,50 +1908,73 @@ class AIBase:
                 break
             attempts += 1
             yielded = False
+            # 非流式路径已有"截断后加大预算重试"，流式没有：一次截断就以空
+            # 正文收场，是正文阶段的单点故障，在 reasoning 模型上尤其常见
+            # （thinking 吃光输出预算）。
+            stream_max_tokens = max_tokens or self.max_tokens
+            truncation_ceiling = max(self.max_tokens, stream_max_tokens * 2)
             try:
-                extra_body = self._thinking_extra_body(enable_thinking)
-                capacity = get_provider_capacity_controller(self.api_base)
-                lease = await capacity.acquire(
-                    model_id,
-                    on_wait_activity=on_stream_activity,
-                )
-                try:
-                    await self._wait_for_request_slot()
-                    response = await self.client.chat.completions.create(
-                        model=model_id,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
-                        ],
-                        stream=True,
-                        max_tokens=max_tokens or self.max_tokens,
-                        extra_body=extra_body
+                while True:
+                    extra_body = self._thinking_extra_body(enable_thinking)
+                    capacity = get_provider_capacity_controller(self.api_base)
+                    lease = await capacity.acquire(
+                        model_id,
+                        on_wait_activity=on_stream_activity,
                     )
+                    try:
+                        await self._wait_for_request_slot()
+                        response = await self.client.chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ],
+                            stream=True,
+                            max_tokens=stream_max_tokens,
+                            extra_body=extra_body
+                        )
 
-                    truncated = False
-                    async for chunk in response:
-                        if chunk.choices:
-                            reasoning = self._delta_reasoning(
-                                chunk.choices[0].delta
-                            )
-                            if reasoning:
+                        truncated = False
+                        async for chunk in response:
+                            if chunk.choices:
+                                reasoning = self._delta_reasoning(
+                                    chunk.choices[0].delta
+                                )
+                                if reasoning and on_stream_activity:
+                                    on_stream_activity()
+
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    yielded = True
                                     if on_stream_activity:
                                         on_stream_activity()
-
-                            delta = chunk.choices[0].delta
-                            if delta.content:
-                                yielded = True
-                                if on_stream_activity:
-                                    on_stream_activity()
-                                yield delta.content
-                            if getattr(chunk.choices[0], "finish_reason", None) == "length":
-                                truncated = True
-                finally:
-                    await lease.release()
+                                    yield delta.content
+                                if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                    truncated = True
+                    finally:
+                        await lease.release()
+                    if (
+                        truncated
+                        and not yielded
+                        and stream_max_tokens < truncation_ceiling
+                    ):
+                        # 尚未向调用方吐出任何内容，重发不会产生重复正文。
+                        stream_max_tokens = min(
+                            truncation_ceiling,
+                            stream_max_tokens * 2,
+                        )
+                        logger.info(
+                            "Stream truncated with no content; retrying "
+                            "(Model: %s, max_tokens=%d)",
+                            model_id,
+                            stream_max_tokens,
+                        )
+                        continue
+                    break
                 if truncated:
                     raise AIResponseTruncated(
                         "模型流式输出达到硬上限："
-                        f"max_tokens={max_tokens or self.max_tokens}"
+                        f"max_tokens={stream_max_tokens}"
                     )
                 if yielded:
                     self._remember_model(use_fast_model, model_id)

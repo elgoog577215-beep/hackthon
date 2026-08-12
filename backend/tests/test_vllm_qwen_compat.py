@@ -112,3 +112,121 @@ async def test_thinking_starved_response_is_named_not_reported_as_empty(
     assert "reasoning_chars=" in message
     AIBase._model_failure_cache.clear()
     AIBase._model_transient_failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_streaming_truncation_retries_with_more_headroom(monkeypatch):
+    """流式截断且尚未吐出任何内容时，必须带更大预算重试。
+
+    非流式路径早已有这个兜底；流式没有，导致一次截断就产出空正文——
+    这是正文阶段的单点故障，也是 reasoning 模型上最常见的形态。
+    """
+    calls: list[int] = []
+
+    class Stream:
+        def __init__(self, chunks):
+            self._chunks = iter(chunks)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class Completions:
+        async def create(self, **kwargs):
+            calls.append(kwargs["max_tokens"])
+            if len(calls) == 1:
+                # 第一次：只有 thinking，没有正文，且截断。
+                return Stream([
+                    SimpleNamespace(choices=[SimpleNamespace(
+                        delta=SimpleNamespace(reasoning="想" * 20, content=None),
+                        finish_reason="length",
+                    )]),
+                ])
+            return Stream([
+                SimpleNamespace(choices=[SimpleNamespace(
+                    delta=SimpleNamespace(reasoning=None, content="正文内容"),
+                    finish_reason="stop",
+                )]),
+            ])
+
+    service = _service(monkeypatch)
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=Completions())
+    )
+    service.smart_models = ["qwen-test"]
+    service.fast_models = ["qwen-test"]
+    service._working_model_cache.clear()
+    service._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+    chunks = [
+        chunk async for chunk in service._stream_llm(
+            "prompt", "system", max_tokens=4096
+        )
+    ]
+
+    assert "".join(chunks) == "正文内容"
+    # 重试必须带更大预算，否则大概率再次截断。
+    assert calls == [4096, 8192]
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_streaming_truncation_after_output_is_not_retried(monkeypatch):
+    """已经吐出内容后再截断，不能重试——会让下游收到重复正文。"""
+    calls: list[int] = []
+
+    class Stream:
+        def __init__(self, chunks):
+            self._chunks = iter(chunks)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class Completions:
+        async def create(self, **kwargs):
+            calls.append(kwargs["max_tokens"])
+            return Stream([
+                SimpleNamespace(choices=[SimpleNamespace(
+                    delta=SimpleNamespace(reasoning=None, content="前半段"),
+                    finish_reason="length",
+                )]),
+            ])
+
+    from ai_base import AIProviderRequestError
+
+    service = _service(monkeypatch)
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=Completions())
+    )
+    service.smart_models = ["qwen-test"]
+    service.fast_models = ["qwen-test"]
+    service._working_model_cache.clear()
+    service._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+    collected: list[str] = []
+    with pytest.raises(AIProviderRequestError):
+        async for chunk in service._stream_llm(
+            "prompt", "system", max_tokens=4096
+        ):
+            collected.append(chunk)
+
+    assert collected == ["前半段"]
+    assert calls == [4096]  # 没有重试
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
