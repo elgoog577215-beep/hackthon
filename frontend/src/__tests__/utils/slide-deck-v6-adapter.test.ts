@@ -115,6 +115,45 @@ describe('slide deck V6 web adapter', () => {
     ])
   })
 
+  it('adapts a mixed practice-code page to the shared practice-artifact renderer', () => {
+    const slides = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        page_id: 'page-practice-code',
+        page_ordinal: 0,
+        title: 'Verify the reading before accepting it',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.12.1/practice-code',
+        source_block_ids: ['verification-task'],
+        regions: [
+          {
+            region_id: 'page-practice-code:code',
+            slot_id: 'code',
+            content_kind: 'code',
+            content: 'def accept(reading, threshold):\n    return reading <= threshold',
+            source_block_ids: ['verification-task'],
+          },
+          {
+            region_id: 'page-practice-code:task',
+            slot_id: 'task',
+            content_kind: 'steps',
+            content: 'Capture the reading.\nCompare with the threshold.\nRecord the evidence.',
+            source_block_ids: ['verification-task'],
+          },
+        ],
+        speaker_notes: {
+          source_document_revision: 'course-rev-mixed',
+          teaching_unit_id: 'unit-mixed',
+          source_blocks: [],
+        },
+      }],
+    })
+
+    expect(slides[0]!.quality.resolved_layout).toBe('practice-artifact')
+    expect(slides[0]!.quality.v6_layout_slug).toBe('practice-code')
+    expect(slides[0]!.blocks.map((block: any) => block.type)).toEqual(['code', 'process'])
+    expect(slides[0]!.quality.task_prompt_mode).toBe('artifact-guided')
+  })
+
   it('materializes published table-family variants and structured table data without duplicating source text', () => {
     const basePage = {
       schema_version: 'slide_page_v6',

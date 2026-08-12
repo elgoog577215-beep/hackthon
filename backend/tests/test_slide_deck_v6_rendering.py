@@ -90,6 +90,65 @@ def _code_deck():
     return document, compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _practice_code_deck():
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-practice-code-render-fixture",
+        title="Sensor verification",
+        sections=[CourseSection(section_id="practice", title="Verify", position=0)],
+        blocks=[CourseBlock(
+            block_id="verification-task",
+            section_id="practice",
+            position=0,
+            role="activity",
+            payload={"markdown": (
+                "1. Capture the sensor reading.\n"
+                "2. Compare it with the declared threshold.\n"
+                "3. Record the decision and evidence.\n\n"
+                "```python\n"
+                "def accept(reading, threshold):\n"
+                "    return reading <= threshold\n"
+                "```"
+            )},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = template.layout_id("practice-code")
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-practice-code",
+            chapter_id="practice",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="practice-code-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Verify the reading before accepting it",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="practice-code-page",
+            decision="code",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
 def _dense_table_deck():
     table = "\n".join([
         "| Check | Required evidence | Result |",
@@ -866,6 +925,32 @@ def test_official_representation_export_dispatches_v6_without_legacy_schema_coer
 
     assert output.is_file()
     assert len(Presentation(output).slides) == len(deck.pages)
+
+
+def test_practice_code_layout_exports_numbered_steps_and_readable_code(
+    tmp_path: Path,
+) -> None:
+    deck = _practice_code_deck()
+    page = deck.pages[0]
+
+    assert page.resolved_layout.endswith("/practice-code")
+    assert {region.content_kind for region in page.regions} == {"steps", "code"}
+    renderer_slide = adapt_v6_page_to_slide_spec(page)
+    assert renderer_slide.quality["resolved_layout"] == "practice-artifact"
+    assert [block.type for block in renderer_slide.blocks] == ["code", "process"]
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "practice-code.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+    visible_text = "\n".join(
+        str(shape.text or "")
+        for shape in Presentation(output).slides[0].shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert "01" in visible_text
+    assert "02" in visible_text
+    assert "def accept" in visible_text
 
 
 def test_pptx_renderer_applies_the_frozen_template_theme_overrides(

@@ -19,6 +19,8 @@ from slide_deck_v6 import (
     compile_ppt_source_contract_v2,
     compile_shadow_chapter_document,
     compile_slide_deck_v6,
+    story_page_count_range,
+    story_safe_page_slices,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
 )
@@ -171,6 +173,64 @@ def _block(
         kind=kind,
         payload={"title": block_id, "markdown": text},
     )
+
+
+@pytest.mark.parametrize(
+    ("artifact_kind", "artifact_source", "expected_layout_slug"),
+    [
+        (
+            "code",
+            "```python\nfor sample in samples:\n    verify(sample)\n```",
+            "practice-code",
+        ),
+        (
+            "formula",
+            "$$R = accepted / inspected$$",
+            "practice-formula",
+        ),
+        (
+            "table",
+            "| Sample | Result |\n| --- | --- |\n| A | accepted |\n| B | review |",
+            "practice-table",
+        ),
+    ],
+)
+def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts(
+    artifact_kind: str,
+    artifact_source: str,
+    expected_layout_slug: str,
+) -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id=f"generic-field-practice-{artifact_kind}",
+        title="Field verification practice",
+        sections=[CourseSection(section_id="field", title="Field work", position=0)],
+        blocks=[_block(
+            "field-practice",
+            "field",
+            0,
+            role="activity",
+            text=(
+                "Complete the verification task in source order.\n"
+                "1. Collect the specimen and record its identifier.\n"
+                "2. Apply the declared acceptance rule.\n"
+                "3. Preserve the result for independent review.\n\n"
+                f"{artifact_source}"
+            ),
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+
+    safe_slices = story_safe_page_slices(unit, template)
+    complete_slice = next(
+        item for item in safe_slices
+        if item["source_block_ids"] == unit.primary_block_ids
+    )
+
+    assert story_page_count_range(unit, template) == [1, 1]
+    assert template.layout_id(expected_layout_slug) in complete_slice["template_layout_ids"]
+    assert complete_slice["required_slot_kinds"] == ["steps"]
 
 
 def _cross_subject_document() -> CourseDocument:
