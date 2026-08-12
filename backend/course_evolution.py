@@ -1994,7 +1994,7 @@ def _build_change_set(
                 hypothesis.affected_block_ids,
                 sorted(affected_section_ids),
             ),
-            "knowledge_revision_pins": _knowledge_revision_pins(
+            "knowledge_revision_pins": knowledge_revision_pins(
                 knowledge_base,
                 knowledge_ids=[
                     *knowledge_ids,
@@ -2121,7 +2121,7 @@ def _knowledge_semantics_for(
     }
 
 
-def _knowledge_revision_pins(
+def knowledge_revision_pins(
     knowledge_base: dict[str, Any] | None,
     *,
     knowledge_ids: list[str],
@@ -3890,6 +3890,7 @@ __all__ = [
     "accept_change_set",
     "course_evolution_repository",
     "course_evolution_view",
+    "knowledge_revision_pins",
     "personal_course_overlay",
     "reject_change_set",
     "reject_adaptation_plan",
