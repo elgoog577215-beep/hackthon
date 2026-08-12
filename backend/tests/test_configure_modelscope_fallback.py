@@ -8,6 +8,9 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "configure_modelscope_fallback.py"
 DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "deploy-lingzhi.yml"
+DIAGNOSTICS_WORKFLOW = (
+    REPOSITORY_ROOT / ".github" / "workflows" / "production-diagnostics.yml"
+)
 
 
 def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
@@ -152,3 +155,14 @@ def test_deploy_workflow_provisions_verified_ppt_role_routes():
     ) in workflow
     assert "MODELSCOPE_MODEL_CANDIDATES" not in workflow
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
+
+
+def test_production_diagnostics_can_probe_ppt_story_route_without_content_output():
+    workflow = DIAGNOSTICS_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "probe_ai_model:" in workflow
+    assert 'model_role="ppt_story"' in workflow
+    assert '"model_id"' in workflow
+    assert '"status"' in workflow
+    assert '"error_code"' in workflow
+    assert "full_content" not in workflow
