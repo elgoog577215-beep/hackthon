@@ -79,14 +79,21 @@ def _layout_variant(
         ),
         None,
     )
+    if (
+        artifact_kind == "table"
+        and artifact_region is not None
+        and len(_parse_markdown_table(artifact_region.content)[1]) == 1
+        and policy.get("detail_variant")
+        and (
+            page.continuation_index > 1
+            or (
+                not has_support
+                and _table_row_requires_detail(artifact_region.content)
+            )
+        )
+    ):
+        return str(policy["detail_variant"]), "full"
     if page.continuation_index > 1:
-        if (
-            artifact_kind == "table"
-            and artifact_region is not None
-            and len(_parse_markdown_table(artifact_region.content)[1]) == 1
-            and policy.get("detail_variant")
-        ):
-            return str(policy["detail_variant"]), "full"
         return str(policy.get("continuation_variant") or ""), "full"
     if (
         has_artifact
@@ -103,6 +110,16 @@ def _layout_variant(
     if has_artifact and has_support:
         return str(policy.get("split_variant") or ""), "split"
     return str(policy.get("full_variant") or ""), "full"
+
+
+def _table_row_requires_detail(value: str) -> bool:
+    headers, rows = _parse_markdown_table(value)
+    if len(rows) != 1:
+        return False
+    cells = rows[0]
+    column_count = max(1, len(headers), len(cells))
+    safe_column_chars = max(8, round(108 / column_count))
+    return max((len(cell) for cell in cells), default=0) > safe_column_chars
 
 
 def _speaker_notes(page: SlidePageV6) -> str:

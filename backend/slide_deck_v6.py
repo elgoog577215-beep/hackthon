@@ -1325,6 +1325,7 @@ def _bounded_slot_content(
     max_items: int,
     max_lines: int,
     max_rows: int,
+    supports_single_row_detail: bool = False,
 ) -> str:
     if slot_kind == "code":
         return _bounded_code_content(
@@ -1347,7 +1348,12 @@ def _bounded_slot_content(
     if slot_kind == "table":
         content = _normalize_markdown_table("\n".join(texts))
         lines = content.splitlines()
-        if (max_rows and len(lines) > max_rows + 2) or len(content) > capacity:
+        _headers, rows = _table_components(content)
+        oversized = bool(
+            (max_rows and len(lines) > max_rows + 2)
+            or len(content) > capacity
+        )
+        if oversized and not (supports_single_row_detail and len(rows) == 1):
             raise ValueError("template_slot_capacity_exceeded")
         return content.rstrip()
     if slot_kind == "steps":
@@ -1700,10 +1706,18 @@ def _split_table_block_for_layout_variants(
         else:
             current = candidate
         if exceeds(current):
+            # A single oversized row has its own declared row-detail adapter.
+            # Preserve the complete source row here so Web and PPTX can expand
+            # its fields horizontally instead of rejecting or truncating it.
+            if len(current) == 1 and len(headers) >= 2:
+                chunks.append(rendered_text(current))
+                page_index += 1
+                current = []
+                continue
             raise ValueError("template_slot_capacity_exceeded")
     if current:
         chunks.append(rendered_text(current))
-    elif len(_markdown_table_text(headers, [])) <= slot.max_chars:
+    elif not chunks and len(_markdown_table_text(headers, [])) <= slot.max_chars:
         chunks.append(_markdown_table_text(headers, []))
     return [_block_with_source_excerpt(block, chunk) for chunk in chunks]
 
@@ -1934,6 +1948,12 @@ def _materialize_template_regions(
                     max_items=slot.max_items,
                     max_lines=slot.max_lines,
                     max_rows=slot.max_rows,
+                    supports_single_row_detail=bool(
+                        slot.slot_kind == "table"
+                        and getattr(slot, "split_wrapped_lines", 0)
+                        and getattr(slot, "full_wrapped_lines", 0)
+                        and getattr(slot, "full_column_chars", 0)
+                    ),
                 )
         except ValueError as error:
             if str(error) != "template_slot_capacity_exceeded":

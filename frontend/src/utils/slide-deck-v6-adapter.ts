@@ -103,6 +103,15 @@ function parseMarkdownTable(value: string): { headers: string[]; rows: string[][
   return { headers: rows[0] || [], rows: rows.slice(1) }
 }
 
+function tableRowRequiresDetail(value: string): boolean {
+  const table = parseMarkdownTable(value)
+  if (table.rows.length !== 1) return false
+  const cells = table.rows[0] || []
+  const columnCount = Math.max(1, table.headers.length, cells.length)
+  const safeColumnChars = Math.max(8, Math.round(108 / columnCount))
+  return Math.max(0, ...cells.map(cell => cell.length)) > safeColumnChars
+}
+
 function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
   const policy = adapter.variant_policy
   if (!policy?.artifact_content_kind) return { variant: '', supportMode: '' }
@@ -115,15 +124,18 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
   const artifactRegion = page.regions.find(
     region => region.content_kind === policy.artifact_content_kind,
   )
+  if (
+    policy.artifact_content_kind === 'table'
+    && artifactRegion
+    && policy.detail_variant
+    && (
+      Number(page.continuation_index || 1) > 1
+      || (!hasSupport && tableRowRequiresDetail(artifactRegion.content))
+    )
+  ) {
+    return { variant: policy.detail_variant, supportMode: 'full' }
+  }
   if (Number(page.continuation_index || 1) > 1) {
-    if (
-      policy.artifact_content_kind === 'table'
-      && artifactRegion
-      && parseMarkdownTable(artifactRegion.content).rows.length === 1
-      && policy.detail_variant
-    ) {
-      return { variant: policy.detail_variant, supportMode: 'full' }
-    }
     return { variant: policy.continuation_variant, supportMode: 'full' }
   }
   const wideMinimum = Number(policy.wide_min_columns || 0)
