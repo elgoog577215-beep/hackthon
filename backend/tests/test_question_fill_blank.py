@@ -137,13 +137,7 @@ def test_numeric_blank_accepts_equivalent_units() -> None:
 def test_exact_blank_ignores_case_and_whitespace() -> None:
     contract = compile_fill_blank_contract(
         prompt="{{1}}",
-        blanks=[{
-            "blank_id": "1",
-            "match_mode": "exact",
-            "answer": "Gibbs Free Energy",
-            # 文本空现在必须自带同义写法（见 _requires_synonyms）
-            "acceptable_answers": ["gibbs free energy", "Gibbs free energy"],
-        }],
+        blanks=[{"blank_id": "1", "match_mode": "exact", "answer": "Gibbs Free Energy"}],
     )
     graded = grade_fill_blank(contract, {"blanks": {"1": "  gibbs   free energy "}})
     assert graded["all_correct"] is True
@@ -343,12 +337,7 @@ def test_multiple_blanks_are_derived_in_order() -> None:
 
     blanks = [
         {"blank_id": "1", "answer": "23", "match_mode": "exact"},
-        {
-            "blank_id": "2",
-            "answer": "热力学第一定律",
-            "match_mode": "exact",
-            "acceptable_answers": ["热力学第1定律", "能量守恒定律"],
-        },
+        {"blank_id": "2", "answer": "热力学第一定律", "match_mode": "exact"},
     ]
     text, unresolved = derive_blank_placeholders(
         "ΔU 为 23，判据是热力学第一定律。", blanks,
@@ -357,77 +346,3 @@ def test_multiple_blanks_are_derived_in_order() -> None:
     # 挖出来的题面必须能直接编译成契约
     contract = compile_fill_blank_contract(prompt=text, blanks=blanks)
     assert contract["blank_ids"] == ["1", "2"]
-
-
-# --- 文本空必须自带同义写法（H1b 归因结论的落地） -------------------------
-
-
-def test_free_text_blank_without_synonyms_is_rejected() -> None:
-    """文本空的判等是「归一化后字符串相等」，措辞一变就判错。
-
-    归因实测：填空失败几乎全是求解器写「系统内能增加」而标准答案是
-    「内能增加」这类同义不同形。要么题目把同义写法穷举出来，要么这道题
-    本来就判不准——所以出题期就要求给齐，而不是留到学生作答时误判。
-
-    **这是收紧不是放宽**：判等规则一个字没动，只是要求把判等所需信息给全。
-    """
-    with pytest.raises(ValueError, match="acceptable_answers"):
-        compile_fill_blank_contract(
-            prompt="该过程中系统{{1}}。",
-            blanks=[{
-                "blank_id": "1",
-                "answer": "内能增加",
-                "match_mode": "exact",
-            }],
-        )
-
-
-def test_free_text_blank_with_synonyms_compiles() -> None:
-    contract = compile_fill_blank_contract(
-        prompt="该过程中系统{{1}}。",
-        blanks=[{
-            "blank_id": "1",
-            "answer": "内能增加",
-            "match_mode": "exact",
-            "acceptable_answers": ["系统内能增加", "内能增大"],
-        }],
-    )
-    assert contract["blanks"][0]["acceptable_answers"] == [
-        "系统内能增加", "内能增大",
-    ]
-    # 同义写法要真的能判对，否则等于白填
-    graded = grade_fill_blank(contract, {"blanks": {"1": "系统内能增加"}})
-    assert graded["all_correct"] is True
-
-
-def test_numeric_and_symbolic_blanks_are_not_forced_to_list_synonyms() -> None:
-    """数值/代数的判等本身就吃得下写法差异，不必穷举。"""
-    numeric = compile_fill_blank_contract(
-        prompt="ΔU = {{1}}。",
-        blanks=[{
-            "blank_id": "1",
-            "answer": {"value": 23, "unit": "kJ"},
-            "match_mode": "numeric",
-        }],
-    )
-    assert numeric["blanks"][0]["acceptable_answers"] == []
-
-    symbolic = compile_fill_blank_contract(
-        prompt="ΔU = {{1}}。",
-        blanks=[{"blank_id": "1", "answer": "Q - W", "match_mode": "symbolic"}],
-    )
-    assert symbolic["blanks"][0]["acceptable_answers"] == []
-
-
-def test_pure_number_and_very_short_exact_blanks_are_exempt() -> None:
-    """纯数字与一两字的答案判等歧义小，不强制穷举——否则会误伤正常题。"""
-    for answer in ("23", "-15", "1.5", "是"):
-        contract = compile_fill_blank_contract(
-            prompt="答案是{{1}}。",
-            blanks=[{
-                "blank_id": "1",
-                "answer": answer,
-                "match_mode": "exact",
-            }],
-        )
-        assert contract["blank_ids"] == ["1"], answer
