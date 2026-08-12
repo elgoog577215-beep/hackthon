@@ -140,19 +140,21 @@ async def derive_teaching_calendar(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
     owner_id = _identity(request)
     current = teaching_calendar_repository.load(owner_id, course_id, _course_title(course))
-    existing_by_lesson = {
-        str(item.get("lesson_unit_id")): item
-        for item in current.get("sessions") or []
+    existing_sessions = [dict(item) for item in current.get("sessions") or [] if isinstance(item, dict)]
+    existing_lesson_ids = {
+        str(item.get("lesson_unit_id"))
+        for item in existing_sessions
         if item.get("lesson_unit_id")
     }
-    candidate_sessions: list[dict[str, Any]] = []
-    retained_count = 0
+    # Derivation is an additive proposal. Existing rows—including manual
+    # sessions, repeated A/B/C groups and rows whose old outline node no longer
+    # exists—must remain byte-for-byte visible to the teacher. A dict keyed by
+    # lesson ID would collapse repeated groups and silently drop unbound rows.
+    candidate_sessions: list[dict[str, Any]] = list(existing_sessions)
+    retained_count = len(existing_sessions)
     for index, node in enumerate(_lesson_nodes(course)):
         node_id = str(node.get("node_id") or "")
-        existing = existing_by_lesson.get(node_id)
-        if existing:
-            candidate_sessions.append(existing)
-            retained_count += 1
+        if not node_id or node_id in existing_lesson_ids:
             continue
         content = str(node.get("node_name") or node.get("title") or f"第{index + 1}讲")
         objective = str(node.get("learning_objective") or "")
@@ -174,6 +176,9 @@ async def derive_teaching_calendar(course_id: str, request: Request):
             "status": "unscheduled",
             "source": "outline",
         })
+        existing_lesson_ids.add(node_id)
+    for sequence, item in enumerate(candidate_sessions, start=1):
+        item["sequence"] = sequence
     candidate = {
         **current,
         "course_title": current.get("course_title") or _course_title(course),

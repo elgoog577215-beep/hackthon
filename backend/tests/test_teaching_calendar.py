@@ -131,6 +131,83 @@ class TeachingCalendarRouteTests(unittest.TestCase):
             self.assertEqual(result["candidate"]["sessions"][0]["content_summary"], "人工调整后的第一讲")
             self.assertEqual(self.repository.load("teacher-a", "course-1")["revision"], 1)
 
+    def test_derive_retains_manual_stale_and_repeated_group_sessions(self):
+        repository_patch, course_patch = self._patches()
+        headers = {"X-User-Id": "teacher-a"}
+        with repository_patch, course_patch:
+            saved = self.client.put(
+                "/api/courses/course-1/teaching-calendar",
+                headers=headers,
+                json={
+                    "base_revision": 0,
+                    "course_title": "设计思维",
+                    "sessions": [
+                        {
+                            "session_id": "lesson-1-group-a",
+                            "lesson_unit_id": "lesson-1",
+                            "content_summary": "第一讲 A 组",
+                            "date": "2026-03-02",
+                            "start_time": "08:00:00",
+                            "end_time": "09:35:00",
+                            "location": "紫金港 A101",
+                            "group_code": "A",
+                            "status": "scheduled",
+                            "source": "outline",
+                        },
+                        {
+                            "session_id": "lesson-1-group-b",
+                            "lesson_unit_id": "lesson-1",
+                            "content_summary": "第一讲 B 组",
+                            "date": "2026-03-03",
+                            "start_time": "08:00:00",
+                            "end_time": "09:35:00",
+                            "location": "紫金港 A102",
+                            "group_code": "B",
+                            "status": "scheduled",
+                            "source": "outline",
+                        },
+                        {
+                            "session_id": "manual-office-hour",
+                            "content_summary": "期中答疑",
+                            "date": "2026-03-04",
+                            "start_time": "18:30:00",
+                            "end_time": "20:00:00",
+                            "status": "scheduled",
+                            "source": "manual",
+                        },
+                        {
+                            "session_id": "legacy-lesson",
+                            "lesson_unit_id": "lesson-removed",
+                            "content_summary": "保留的旧大纲课次",
+                            "status": "unscheduled",
+                            "source": "outline",
+                        },
+                    ],
+                },
+            )
+            self.assertEqual(saved.status_code, 200)
+
+            derived = self.client.post(
+                "/api/courses/course-1/teaching-calendar/derive-from-outline",
+                headers=headers,
+            )
+
+            self.assertEqual(derived.status_code, 200)
+            result = derived.json()
+            sessions = result["candidate"]["sessions"]
+            self.assertEqual(result["retained_count"], 4)
+            self.assertEqual(result["new_count"], 1)
+            self.assertEqual(result["candidate_count"], 5)
+            self.assertEqual(
+                [item["session_id"] for item in sessions[:4]],
+                ["lesson-1-group-a", "lesson-1-group-b", "manual-office-hour", "legacy-lesson"],
+            )
+            self.assertEqual(sessions[0]["location"], "紫金港 A101")
+            self.assertEqual(sessions[1]["group_code"], "B")
+            self.assertEqual(sessions[2]["lesson_unit_id"], None)
+            self.assertEqual(sessions[4]["lesson_unit_id"], "lesson-2")
+            self.assertEqual(self.repository.load("teacher-a", "course-1")["revision"], 1)
+
     def test_rejects_invalid_time_and_requires_identity(self):
         repository_patch, course_patch = self._patches()
         with repository_patch, course_patch:
