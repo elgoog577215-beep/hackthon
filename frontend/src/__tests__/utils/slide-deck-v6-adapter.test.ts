@@ -5,6 +5,38 @@ import { adaptSlideDeckV6ForWeb } from '../../utils/slide-deck-v6-adapter'
 
 
 describe('slide deck V6 web adapter', () => {
+  it('adapts the source-bound course cover without leaking its layout slug', () => {
+    const page = {
+      page_id: 'course-cover',
+      page_ordinal: 0,
+      title: 'Unity 游戏编程进阶实战',
+      resolved_layout: 'qizhi-classroom-v2@2026.08.12.1/cover-minimal',
+      source_block_ids: [],
+      source_section_ids: ['chapter-1'],
+      regions: [{
+        region_id: 'course-cover:subtitle',
+        slot_id: 'subtitle',
+        content_kind: 'body',
+        content: '开发环境初始化与项目结构规范',
+        source_section_ids: ['chapter-1'],
+      }],
+      speaker_notes: {
+        source_document_revision: 'course-rev-cover',
+        teaching_unit_id: 'course-cover',
+        source_blocks: [],
+        source_section_ids: ['chapter-1'],
+      },
+    }
+
+    const slide = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      pages: [page],
+    })[0]!
+
+    expect(slide.eyebrow).toBe('COURSE DECK')
+    expect(slide.subtitle).toBe('开发环境初始化与项目结构规范')
+  })
+
   it('uses the shared template adapter contract and preserves full V6 layout identity', () => {
     const content = {
       schema_version: 'slide_deck_v6',

@@ -277,13 +277,26 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         if slug in {"practice-code", "practice-formula", "practice-table"}
         else ""
     )
+    subtitle = next(
+        (
+            region.content
+            for region in resolved_page.regions
+            if region.slot_id == "subtitle"
+        ),
+        "",
+    )
     return SlideSpec(
         unit_id=resolved_page.page_id,
         position=resolved_page.page_ordinal,
         layout=adapter["basic_layout"] or "concept",
         slide_purpose=slug,
-        eyebrow=slug.replace("-", " ").upper(),
+        eyebrow=(
+            "COURSE DECK"
+            if slug == "cover-minimal"
+            else slug.replace("-", " ").upper()
+        ),
         title=resolved_page.title,
+        subtitle=subtitle,
         composition="diagram-full" if slug == "evidence-diagram" else "",
         visuals=_visuals(resolved_page),
         blocks=[_region_block(resolved_page, region) for region in resolved_page.regions],
