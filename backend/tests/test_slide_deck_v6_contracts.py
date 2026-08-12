@@ -1345,6 +1345,34 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
     assert sum(region.count("| Zone ") for region in table_regions) == 17
 
 
+def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None:
+    headers = "| Stage | Standard | Evidence | Basis | Repair |\n|---|---|---|---|---|"
+    row = (
+        "| Observe | " + "Preserve the complete signed field record before analysis begins. " * 3
+        + "| " + "Retain the place, time, observer, instrument, and sampling window. " * 3
+        + "| " + "Compare the record against the declared acceptance condition. " * 3
+        + "| " + "Keep the evidence separate from the interpretation and restore every "
+        "missing source field before the conclusion is published. " * 3 + "|"
+    )
+    document, graph, template, story, visual = _artifact_deck_fixture(
+        artifact_kind="table",
+        artifact_text=f"{headers}\n{row}",
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    table_regions = [
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "table"
+    ]
+    assert len(deck.pages) == 1
+    assert len(table_regions) == 1
+    assert "restore every missing source field" in table_regions[0]
+    assert "…" not in table_regions[0]
+
+
 def test_full_course_compilation_inserts_a_source_bound_course_agenda() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-community-research",

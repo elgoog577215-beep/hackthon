@@ -177,6 +177,44 @@ describe('slide deck V6 web adapter', () => {
     expect(slides[0]!.blocks[0].metadata.table_source).toBe(true)
   })
 
+  it('uses the row-detail layout when one source row is too dense for table columns', () => {
+    const content = {
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        schema_version: 'slide_page_v6',
+        page_id: 'page-dense-row',
+        page_ordinal: 0,
+        title: 'Inspect every field before publishing',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.11.1/evidence-table',
+        source_block_ids: ['evidence'],
+        continuation_index: 1,
+        continuation_count: 1,
+        regions: [{
+          region_id: 'page-dense-row:table',
+          slot_id: 'table',
+          content_kind: 'table',
+          content: [
+            '| Stage | Standard | Evidence | Basis | Repair |',
+            '| --- | --- | --- | --- | --- |',
+            '| Observe | Preserve the complete signed field record before analysis begins | Retain the place, time, observer, instrument, and sampling window | Compare the record against the declared acceptance condition | Keep evidence separate from interpretation and restore every missing source field before publishing |',
+          ].join('\n'),
+          source_block_ids: ['evidence'],
+        }],
+        visual_decision: { decision: 'table' },
+        speaker_notes: {
+          source_document_revision: 'r1',
+          teaching_unit_id: 'u1',
+          source_blocks: [{ block_id: 'evidence', block_revision: 'b1', full_text: 'full table' }],
+        },
+      }],
+    }
+
+    const slides = adaptSlideDeckV6ForWeb(content)
+
+    expect(slides[0]!.quality.v6_layout_variant).toBe('table-row-detail')
+    expect(slides[0]!.quality.v6_artifact_support_mode).toBe('full')
+  })
+
   it('uses the wide-table summary band for four-or-more-column evidence', () => {
     const page = {
       schema_version: 'slide_page_v6',
