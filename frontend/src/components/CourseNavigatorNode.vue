@@ -110,7 +110,11 @@ const emit = defineEmits<{
 const progressStore = useLearningProgressStore()
 const courseStore = useCourseStore()
 const evolutionStore = useCourseEvolutionStore()
-const expanded = ref(props.depth < 2)
+const containsActiveNode = (node: Node): boolean => (
+  node.node_id === props.activeId
+  || Boolean(node.children?.some(containsActiveNode))
+)
+const expanded = ref(containsActiveNode(props.node) || (!props.activeId && props.depth < 1))
 const hasChildren = computed(() => Boolean(props.node.children?.length))
 const blockOutlineExpanded = ref(props.activeId === props.node.node_id)
 const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
@@ -356,6 +360,8 @@ const handleNodeClick = () => {
 }
 watch(normalizedQuery, value => { if (value) expanded.value = true })
 watch(() => props.activeId, (value, previous) => {
+  if (value && containsActiveNode(props.node)) expanded.value = true
+  else if (value && !previous && props.depth === 0) expanded.value = false
   if (value === props.node.node_id && value !== previous) blockOutlineExpanded.value = true
   if (previous === props.node.node_id && value !== props.node.node_id) blockOutlineExpanded.value = false
 })
