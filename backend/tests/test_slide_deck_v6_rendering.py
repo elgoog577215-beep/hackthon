@@ -962,6 +962,64 @@ def test_official_representation_export_dispatches_v6_without_legacy_schema_coer
     assert len(Presentation(output).slides) == len(deck.pages)
 
 
+def test_official_v6_export_accepts_declared_publication_metadata(
+    tmp_path: Path,
+) -> None:
+    _document, deck = _code_deck()
+    published = {
+        **deck.model_dump(mode="json"),
+        "build_signature": {"signature": "slidebuildv6_fixture"},
+        "source_contract": {"schema_version": "ppt_source_contract_v2"},
+        "course_presentation_graph": {
+            "schema_version": "course_presentation_graph_v1",
+        },
+        "story_plan": {"schema_version": "slide_story_plan_v3"},
+        "visual_plan": {"schema_version": "slide_visual_plan_v2"},
+        "ai_batch_diagnostics": [{
+            "schema_version": "ai_batch_diagnostic_v1",
+        }],
+        "planning_status": {
+            "story_ai": {"status": "completed"},
+            "visual_ai": {"status": "completed"},
+        },
+    }
+    spec = SimpleNamespace(
+        representation_type="slide_deck",
+        payload={"content": published},
+    )
+
+    output = export_slide_deck_pptx(
+        spec,
+        tmp_path / "published-official-v6.pptx",
+    )
+
+    assert output.is_file()
+    assert len(Presentation(output).slides) == len(deck.pages)
+
+
+def test_official_v6_export_still_rejects_unknown_publication_fields(
+    tmp_path: Path,
+) -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    _document, deck = _code_deck()
+    published = {
+        **deck.model_dump(mode="json"),
+        "undeclared_payload": {"should": "not pass"},
+    }
+    spec = SimpleNamespace(
+        representation_type="slide_deck",
+        payload={"content": published},
+    )
+
+    with pytest.raises(ValidationError, match="undeclared_payload"):
+        export_slide_deck_pptx(
+            spec,
+            tmp_path / "invalid-published-v6.pptx",
+        )
+
+
 def test_practice_code_layout_exports_numbered_steps_and_readable_code(
     tmp_path: Path,
 ) -> None:
