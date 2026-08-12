@@ -337,6 +337,28 @@ def test_archetype_contract_reaches_content_prompt_and_teacher_plan():
     ]
 
 
+def test_physical_engineering_design_uses_engineering_facing_module_labels():
+    profile = resolve_pedagogy_profile(
+        subject="机械设计",
+        requirements="完成轴系方案比较与验证",
+        requested_mode="auto",
+    )
+    plan = _plan([(
+        "轴承匹配与系统验证",
+        "比较方案并依据失败项修订设计",
+    )])
+    attach_module_plans_to_plan(plan, profile)
+    labels = {
+        item["module_id"]: item["label"]
+        for item in plan["chapters"][0]["sections"][0]["module_plan"]
+    }
+
+    assert profile.subject_variant_id == "science_physical_engineering_design"
+    assert labels["science_prediction"] == "方案推演"
+    assert labels["science_engineering_design"] == "方案比较与设计决策"
+    assert labels["science_boundary"] == "设计边界与失效风险"
+
+
 def test_v1_persisted_profile_remains_readable_without_course_migration():
     restored = coerce_persisted_profile({
         "course_name": "旧版数学课程",

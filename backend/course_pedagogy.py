@@ -474,6 +474,32 @@ COMMON_COURSE_MODULES = ("course_positioning", "learning_path", "integrated_tran
 COMMON_LESSON_MODULES = ("lesson_goal", "core_explanation", "learner_action", "feedback_check")
 
 
+PHYSICAL_ENGINEERING_MODULE_LABELS = {
+    "science_phenomenon": "工程问题与设计输入",
+    "science_model": "工程模型与计算",
+    "science_evidence": "验证证据",
+    "science_boundary": "设计边界与失效风险",
+    "science_prediction": "方案推演",
+    "science_experiment_design": "验证方案",
+    "science_data_analysis": "数据与不确定性",
+    "science_question_hypothesis": "设计问题与假设",
+    "science_argument": "证据与设计论证",
+    "science_engineering_design": "方案比较与设计决策",
+}
+
+
+def _lesson_module_label(
+    module_id: str,
+    profile: SubjectPedagogyProfile,
+) -> str:
+    if profile.subject_variant_id == "science_physical_engineering_design":
+        return PHYSICAL_ENGINEERING_MODULE_LABELS.get(
+            module_id,
+            MODULES[module_id].label,
+        )
+    return MODULES[module_id].label
+
+
 TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
     PedagogyMode.GENERAL: PedagogyTemplate(
         PedagogyMode.GENERAL, "通用课程",
@@ -1416,6 +1442,7 @@ def attach_module_plans_to_plan(
                         )
                     ),
                 ),
+                "label": _lesson_module_label(module_id, profile),
                 "lesson_archetype_id": archetype.archetype_id,
                 "lesson_archetype_label": archetype.label,
             }

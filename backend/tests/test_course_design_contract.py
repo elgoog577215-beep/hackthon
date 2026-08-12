@@ -128,6 +128,12 @@ def test_outline_batch_receives_course_type_and_subject_contract_after_split():
         previous_sections=[],
         evidence_hints=[],
         skeleton_revision_id="outline-skeleton-1",
+        course_spine={
+            "mode": "shared_anchor",
+            "title": "同一组数值建模数据",
+            "fixed_facts": ["时间区间为 0 到 10 秒"],
+            "continuity_rule": "不得静默改变时间区间",
+        },
         design_contract=contract,
     )
 
@@ -135,6 +141,9 @@ def test_outline_batch_receives_course_type_and_subject_contract_after_split():
     assert "围绕项目里程碑组织" in prompt
     assert "从直觉与多重表征进入正式定义" in prompt
     assert contract["revision_id"] in prompt
+    assert "已冻结的全课主轴" in prompt
+    assert "不得静默更换数字" in prompt
+    assert '"spine_progression"' in prompt
 
 
 def test_compact_prompt_preserves_non_compressible_stage_quality_kernel():

@@ -36,7 +36,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v32"
+PROMPT_CONTRACT_VERSION = "course_prompt_v37"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -181,6 +181,14 @@ class CoursePromptComposer:
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
 8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
+9. 同一次全局决策必须冻结 `course_spine`，让后续并行生成的小节共享同一个课程主轴。
+   `shared_anchor` 用于确实贯穿全课的同一案例、数据集、文本或项目；必须写出不可静默改变的
+   `fixed_facts`。`connected_examples` 用于围绕同一问题递进、但每节可以换例子；
+   `independent_sections` 用于不应伪装成连续案例的并列主题。没有用户或资料给定具体数据时，
+   可以设计教学用合成数据，但必须在 `continuity_rule` 中注明其教学属性，不能伪装成真实来源。
+10. 全课一旦提出“后续必须证明、计算、验证或提交”的承诺，就必须登记到
+   `required_closures`，指定真正完成它的 `target_node_id` 和可观察证据。若课程条件不足以
+   判定通过，闭环证据应要求目标小节明确写成“未验证”及缺失条件，不能靠条件句假装完成。
 {planning_rules}
 
 ## JSON Schema
@@ -189,6 +197,21 @@ class CoursePromptComposer:
   "positioning": "课程定位与最终成果",
   "learning_objectives": ["可观察的全课成果"],
   "prerequisites": ["必要前置"],
+  "course_spine": {{
+    "mode": "shared_anchor|connected_examples|independent_sections",
+    "title": "贯穿全课的案例、问题、材料或主题名",
+    "central_question": "全课反复推进、最终能够回答的核心问题",
+    "fixed_facts": ["后续小节不得静默改写的事实、参数、角色、文本或边界"],
+    "allowed_variations": ["允许作为迁移而改变的条件；改变时必须明确说明"],
+    "final_artifact": "学习者最终完成的统一成果",
+    "continuity_rule": "怎样承接主轴；何时必须明确标记为新例子或变式",
+    "required_closures": [{{
+      "closure_id": "全课唯一闭环 ID",
+      "requirement": "前文提出、后文必须完成或明确判为未验证的义务",
+      "target_node_id": "负责闭环的小节节点 ID",
+      "evidence": "该小节必须实际给出的计算、判断、作品或未决条件"
+    }}]
+  }},
   "chapters": [
     {{
       "chapter_number": 1,
@@ -234,6 +257,7 @@ class CoursePromptComposer:
         previous_sections: list[dict[str, Any]],
         evidence_hints: list[dict[str, Any]],
         skeleton_revision_id: str,
+        course_spine: dict[str, Any] | None = None,
         design_contract: dict[str, Any] | None = None,
         detail_level: str = "full",
     ) -> str:
@@ -274,6 +298,14 @@ class CoursePromptComposer:
                 max_list_items=4 if detail_level == "compact" else 2,
                 max_depth=3,
             )
+            course_spine = compact_value(
+                course_spine or {},
+                max_string_chars=180 if detail_level == "compact" else 96,
+                max_list_items=8 if detail_level == "compact" else 4,
+                max_depth=3,
+            )
+        else:
+            course_spine = course_spine or {}
         start = int(batch_spec.get("start_section_index") or 1)
         end = int(batch_spec.get("end_section_index") or start)
         return f"""## 章节小节目录批次 V2
@@ -302,6 +334,9 @@ class CoursePromptComposer:
 ## 当前章限量证据提示
 {json.dumps(evidence_hints, ensure_ascii=False)}
 
+## 已冻结的全课主轴
+{json.dumps(course_spine, ensure_ascii=False)}
+
 ## 统一课程设计契约（小节目录投影）
 {format_course_design_stage_brief(design_projection)}
 
@@ -314,6 +349,13 @@ class CoursePromptComposer:
 5. 小节序列必须继续落实课程类型与学科推进合同，不能把项目、探究或考试课程退化为
    通用教材目录，也不能让不同学科复用同一套小节套路。
 6. 不输出知识点、知识关系、教案、正文、题目答案或 Markdown 围栏。
+7. 每节必须用 `spine_progression` 声明它如何推进全课主轴，以及留给下一节的具体成果。
+   当主轴是 `shared_anchor` 时，必须原样沿用 `fixed_facts`，不得静默更换数字、角色、
+   文本或工况；需要变式时写进 `variation` 并明确改变了什么。当主轴不是共享案例时，
+   不得使用“继续沿用上一节案例”之类虚假承接。
+8. 当前批次中的 `required_closure_ids` 必须且只能登记到对应目标小节的
+   `spine_progression.closure_ids`。目标小节的任务与验收必须实际产生主轴中规定的闭环证据；
+   条件不足时，证据是明确的“未验证”、缺失条件和后续动作，不得伪造通过结论。
 
 ## JSON Schema
 {{
@@ -327,7 +369,15 @@ class CoursePromptComposer:
       "assessment": ["验收标准或任务"],
       "scope_boundary": "本节负责什么，以及明确不提前展开什么",
       "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
-      "path_reason": "该小节为何出现在当前学习路径"
+      "path_reason": "该小节为何出现在当前学习路径",
+      "spine_progression": {{
+        "role": "introduce|advance|challenge|synthesize|verify",
+        "action": "本节对全课主轴新增的判断、推导或决策",
+        "student_artifact": "本节留下的可复用学习成果",
+        "handoff": "下一节可以直接承接的已知结论或产物",
+        "variation": "若改变共享条件，明确写出改变项；否则为空字符串",
+        "closure_ids": ["本节负责完成的全课闭环 ID"]
+      }}
     }}
   ]
 }}""".strip()
@@ -1084,6 +1134,10 @@ class CoursePromptComposer:
         modules = node.get("module_plan") or []
         lesson_archetype = node.get("lesson_archetype") or {}
         composition_profile = course_data.get("course_composition_profile") or {}
+        plan = course_data.get("course_plan")
+        plan = plan if isinstance(plan, dict) else {}
+        course_spine = course_data.get("course_spine") or plan.get("course_spine") or {}
+        spine_progression = node.get("spine_progression") or {}
         if detail_level != "full":
             max_text = 180 if detail_level == "compact" else 96
             difficulty_profile = compact_value(
@@ -1108,6 +1162,18 @@ class CoursePromptComposer:
                 lesson_archetype,
                 max_string_chars=max_text,
                 max_list_items=4 if detail_level == "compact" else 2,
+                max_depth=2,
+            )
+            course_spine = compact_value(
+                course_spine,
+                max_string_chars=max_text,
+                max_list_items=8 if detail_level == "compact" else 4,
+                max_depth=3,
+            )
+            spine_progression = compact_value(
+                spine_progression,
+                max_string_chars=max_text,
+                max_list_items=6 if detail_level == "compact" else 3,
                 max_depth=2,
             )
             context = clip_text(
@@ -1191,7 +1257,9 @@ class CoursePromptComposer:
             system_prompt = f"""## 有界正文生成契约
 只输出当前小节可保存的 Markdown 正文，不输出解释、计划或任务复述。
 按下列顺序和原始标签完整输出每个 `##` 教学模块；不得重写课程目录或提前讲后续小节。
-每个模块首段必须明确写出负责的知识规范名称。例子、练习与检查必须共享同一知识口径。
+每个知识规范名称在实质讲解它的主责模块中完整出现一次；后续模块不重复知识清单。
+全节保留一个完整主任务，有必要时最多增加一个改变条件或表征的短迁移任务。
+只有冻结主轴明确为共享案例时才可声称沿用前节数据；不得静默修改固定事实。
 不得编造来源；使用资料事实时追加 `[[evidence:证据ID]]`，且只能用允许列表中的 ID。
 数学使用 `$...$` 或 `$$...$$`；列表使用真实 Markdown 语法。
 
@@ -1208,6 +1276,10 @@ class CoursePromptComposer:
 
 ## 总体教案对本节的引领
 {teaching_guidance}
+
+## 全课主轴与本节增量
+- 冻结主轴：{json.dumps(course_spine, ensure_ascii=False)}
+- 本节增量：{json.dumps(spine_progression, ensure_ascii=False)}
 
 ## 当前课程知识库（当前节点切片）
 {course_knowledge_context}
@@ -1288,12 +1360,24 @@ class CoursePromptComposer:
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
 9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
 10. 当前节点名称已经由页面显示，正文不得再次把“{node_name}”写成二级标题，也不得输出只有标题没有正文的空模块。
-11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
-12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
+11. 每个知识规范名称必须在它被实质讲解的主责模块中至少完整出现一次，用于建立正文块到知识点的精确绑定。后续模块应直接进入例题、推导、边界或任务，不得为了绑定而重复“本模块围绕……”式知识清单。
+12. `## 检查与反馈` 是直接给学习者的紧凑自检，不得出现“静态检查参考”、“不表示已经评价”等系统说明。对应多个学习任务时，每个任务使用 `### 任务 N：名称` 作为边界；主任务给核对标准、必要推导与典型错误，次要任务只给关键步骤或结果检查，不得把“学习者行动”整段重抄成答案手册。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
 14. 数学表达必须使用 `$...$` 或 `$$...$$`，反引号只用于代码标识、命令或程序片段；不得用反引号书写幂、上下标、分式、复杂度或数学关系。
 15. 下方“总体教案对本节的引领”是课程内容选择与讲法的上位约束：正文必须推进总体成果、体现教学主线并产出对应评价证据；不得把教案条目原样抄成正文。
 16. 下方“本节学科课型”规定当前小节特有的学习行为和成果证据。必须体现该课型与前后小节的差异，不能机械复用同一学科的固定段落套路。
+17. 写作前先在内部确定“一个核心问题、一个贯穿例题或案例、一个本节新能力跃迁”，用它们组织全节。模块是可编辑边界，不是等长填空：核心讲解、必要证明或完整工程案例可详写，目标、边界和检查应紧凑。
+18. 每个知识的完整解释只出现一次；后续模块只新增它负责的推导、证据、反例、应用或反馈。不得在“核心教学、正式定义、证明、学习者行动、检查反馈”中五次重述同一定义和条件。
+19. 全节只保留 1 个必须完整作答的主任务，有明确迁移价值时最多再加 1 个短任务；不得用多道同构练习制造充实感。示例、任务和反馈优先沿用同一组对象或案例，通过改变一个关键条件产生真实迁移。
+20. 正文必须在下方课时边界内可真实完成。当模块、知识和课时发生竞争时，应缩短次要模块、减少任务并保留主轴案例，不得压缩关键推导或靠缩短句子假装完成。
+21. 读者看到的只能是成品课程。禁止出现“本模块依据……”、“质量标准”、“静态检查”、“知识库契约”、“蓝图要求”等产品或生成过程语言；直接说问题、条件、任务和自检方法。
+22. 若保留短迁移任务，必须改变条件、表征、约束或决策情境，并要求新的判断；不得只替换数值后重复主例题步骤。
+23. 下方全课主轴是事实连续性的上位约束。只有 `mode=shared_anchor` 且事实确实存在于 `fixed_facts` 时，正文才能说“沿用、承接、贯穿同一案例”。不得静默改变固定数字、人物、材料、文本、几何或工况；若本节使用 `variation`，必须向学习者说清改变了哪一项。其他模式应直接说明是相关的新例子，不得伪造前一节已经得到的结论。
+24. 如果本节主例题与验收任务使用同一对象和数据，完整解答只能出现一次：要么把示范换成更简单或不同条件的例子，要么把学习者行动改成错误诊断、缺步补全、变式决策或结果审查。反馈优先给检查点、错误诊断与结果范围，不得再誊写一遍刚展示过的完整计算。
+25. 每张表必须承担不同决策；需求、工况、失效、比较等表格若只是换列重复同一信息，应合并。不得用矩阵数量制造工程感或课程充实感。
+26. `required_closures` 中目标为本节的义务必须在正文中实际闭环。前节 `handoff` 没有交付的强度、刚度、实验或材料证据，不得写成“上一节已通过”；条件不足时必须明确标为未验证，并列出缺少的准则或数据。
+27. 正文中的每个派生数值必须能由同页展示的输入和公式复算。输出前应至少用一种独立关系交叉核对关键表格，例如量纲、平衡方程、反代、比例缩放或数量级；同一物理量在正文、表格、任务反馈中的舍入必须一致。若交叉核对不通过，先修正数值再输出，不得保留互相矛盾的近似值。
+28. 论证若依赖当前知识库、前置小节和已声明先修之外的定理、标准或经验公式，必须直接命名该外部依赖，说明它在本节只作为已知条件，并据此收窄“本课已经证明”的表述。不得省略关键桥梁后声称推导自足。
 
 ## 课程
 - 名称：{course_name}
@@ -1307,6 +1391,12 @@ class CoursePromptComposer:
 
 ## 总体教案对本节的引领
 {teaching_guidance}
+
+## 已冻结的全课主轴
+{json.dumps(course_spine, ensure_ascii=False)}
+
+## 本节对主轴的新增推进
+{json.dumps(spine_progression, ensure_ascii=False)}
 
 ## 本节学科课型
 {json.dumps(lesson_archetype, ensure_ascii=False)}

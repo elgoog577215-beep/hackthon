@@ -52,6 +52,15 @@ def _course():
                 "能够在图像与解析式之间转换",
             ],
             "prerequisites": ["平面直角坐标系"],
+            "course_spine": {
+                "mode": "shared_anchor",
+                "title": "同一段出租车收费变化",
+                "central_question": "怎样从同一情境中读出并检验恒定变化率？",
+                "fixed_facts": ["起步价 12 元", "每公里增加 2.5 元"],
+                "allowed_variations": ["比较另一城市时必须声明新费率"],
+                "final_artifact": "收费模型及检验报告",
+                "continuity_rule": "不得静默改变费率",
+            },
             "chapters": [{
                 "chapter_number": 1,
                 "title": "看见恒定的变化",
@@ -67,6 +76,13 @@ def _course():
                     "learning_objective": node["learning_objective"],
                     "scope_boundary": node["scope_boundary"],
                     "assessment": node["assessment"],
+                    "spine_progression": {
+                        "role": "advance",
+                        "action": "用图像解释同一收费模型的恒定变化率",
+                        "student_artifact": "图像与解析式互译记录",
+                        "handoff": "交付已解释的费率与截距",
+                        "variation": "",
+                    },
                 }, {
                     "node_id": "L2-1-3",
                     "title": "一次函数建模",
@@ -119,6 +135,9 @@ def test_teacher_view_and_generation_guidance_share_one_macro_contract():
     )
     assert "教学主线：先用图像建立变化率直觉，再进入代数表达。" in context
     assert "评价证据：完成图像与解析式互译任务" in context
+    assert "课时边界：以完成一个核心问题" in context
+    assert "全课主轴：同一段出租车收费变化（模式：shared_anchor）" in context
+    assert "主轴固定事实：起步价 12 元；每公里增加 2.5 元" in context
 
 
 def test_macro_teaching_design_changes_content_prompt_without_changing_modules():
@@ -146,6 +165,28 @@ def test_macro_teaching_design_changes_content_prompt_without_changing_modules()
     assert baseline != guided
     assert "必需模块 `## 核心教学` [角色=concept]" in baseline
     assert "必需模块 `## 核心教学` [角色=concept]" in guided
+
+
+def test_content_prompt_requires_editorial_focus_instead_of_equal_length_modules():
+    course, node = _course()
+    course["teacher_course_brief"] = {"lesson_duration_minutes": 45}
+    composer = CoursePromptComposer()
+
+    _user, prompt = composer.build_content_prompt(
+        course_data=course,
+        node=node,
+        context="无额外资料",
+    )
+
+    assert "一个核心问题、一个贯穿例题或案例、一个本节新能力跃迁" in prompt
+    assert "模块是可编辑边界，不是等长填空" in prompt
+    assert "全节只保留 1 个必须完整作答的主任务" in prompt
+    assert "课时边界：45 分钟内" in prompt
+    assert "不得把“学习者行动”整段重抄成答案手册" in prompt
+    assert "不得只替换数值后重复主例题步骤" in prompt
+    assert "只有 `mode=shared_anchor`" in prompt
+    assert "起步价 12 元" in prompt
+    assert "用图像解释同一收费模型的恒定变化率" in prompt
 
 
 def test_detailed_lesson_plan_batch_must_translate_overall_guidance():

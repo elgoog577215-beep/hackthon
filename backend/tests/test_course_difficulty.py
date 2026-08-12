@@ -19,6 +19,18 @@ from course_quality import (
 )
 
 
+def test_intermediate_support_uses_learner_facing_success_language():
+    profile = compile_difficulty_profile(
+        "intermediate",
+        primary_mode="math_formal",
+        secondary_mode=None,
+    )
+
+    support = "；".join(profile.support_profile.strategies)
+    assert "可观察成功表现" in support
+    assert "质量标准" not in support
+
+
 def _average(values):
     numeric = [value for value in values.values() if isinstance(value, (int, float))]
     return sum(numeric) / len(numeric)

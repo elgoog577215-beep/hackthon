@@ -178,6 +178,11 @@ def compile_overall_teaching_guidance(
             limit=8,
         ),
         "prerequisites": _strings(plan.get("prerequisites"), limit=8),
+        "course_spine": (
+            plan.get("course_spine")
+            if isinstance(plan.get("course_spine"), dict)
+            else {}
+        ),
         "teaching_strategy": {
             "primary_mode": _text(pedagogy.get("primary_mode")),
             "secondary_mode": _text(pedagogy.get("secondary_mode")),
@@ -251,6 +256,13 @@ def compile_section_teaching_guidance(
             or node.get("assessment"),
             limit=6,
         ),
+        "spine_progression": (
+            current_section.get("spine_progression")
+            if isinstance(current_section.get("spine_progression"), dict)
+            else node.get("spine_progression")
+            if isinstance(node.get("spine_progression"), dict)
+            else {}
+        ),
         "handoff_from": section_summary(current_index - 1),
         "handoff_to": section_summary(current_index + 1),
     }
@@ -275,18 +287,34 @@ def format_generation_teaching_guidance(
         section["assessment"]
         or overall["assessment_methods"]
     )[:3 if compact else 6]
+    spine = overall.get("course_spine") or {}
+    progression = section.get("spine_progression") or {}
     lines = [
         f"- 课程定位：{overall['positioning'] or '按已确认课程目标推进'}",
         f"- 总体成果：{'；'.join(objectives) or '完成当前课程的可观察学习成果'}",
         f"- 教学对象：{overall['target_audience'] or '按课程需求确定'}",
         f"- 学习起点：{'；'.join(overall['prerequisites']) or '无额外前置要求'}",
         f"- 教学主线：{overall['teaching_throughline'] or '从理解进入应用，并用可检查任务闭环'}",
+        (
+            f"- 全课主轴：{spine.get('title') or spine.get('central_question') or '按课程核心问题递进'}"
+            f"（模式：{spine.get('mode') or 'connected_examples'}）"
+        ),
+        f"- 本节主轴推进：{progression.get('action') or '完成本节独有推进，不虚构跨节承接'}",
         f"- 当前章节责任：{section['chapter_learning_focus'] or section['chapter_title'] or '推进当前阶段目标'}",
         f"- 本节责任：{section['section_objective'] or '完成当前小节目标'}",
         f"- 评价证据：{'；'.join(assessments) or '使用与本节目标一致的可检查任务'}",
+        (
+            f"- 课时边界：{overall['classroom'].get('lesson_duration_minutes')} 分钟内"
+            "完成必要讲解、主任务和反馈，不将额外题量冒充内容深度"
+            if overall["classroom"].get("lesson_duration_minutes")
+            else "- 课时边界：以完成一个核心问题、一个主任务和反馈为度"
+        ),
     ]
     if not compact:
         lines.extend([
+            f"- 主轴固定事实：{'；'.join(_strings(spine.get('fixed_facts'), limit=12)) or '无共享固定事实；不得声称沿用同一组数据'}",
+            f"- 本节变式：{_text(progression.get('variation')) or '不改变已冻结事实'}",
+            f"- 本节留下：{_text(progression.get('handoff')) or _text(progression.get('student_artifact')) or '仅留下本节明确产物'}",
             f"- 从哪里来：{section['handoff_from'] or '课程起点'}",
             f"- 到哪里去：{section['handoff_to'] or '完成本阶段学习'}",
             f"- 范围边界：{section['scope_boundary'] or '只完成当前小节责任，不提前替代后续教学'}",

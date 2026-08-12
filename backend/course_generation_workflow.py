@@ -181,6 +181,23 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
     """
     section_records: list[tuple[dict[str, Any], str, str, int]] = []
     aliases: dict[str, str] = {}
+    raw_spine = plan.get("course_spine")
+    raw_spine = raw_spine if isinstance(raw_spine, dict) else {}
+    plan["course_spine"] = {
+        **deepcopy(raw_spine),
+        "required_closures": [
+            {
+                "closure_id": str(item.get("closure_id") or "").strip(),
+                "requirement": str(item.get("requirement") or "").strip(),
+                "target_node_id": str(item.get("target_node_id") or "").strip(),
+                "evidence": str(item.get("evidence") or "").strip(),
+            }
+            for item in raw_spine.get("required_closures") or []
+            if isinstance(item, dict)
+            and str(item.get("closure_id") or "").strip()
+            and str(item.get("requirement") or "").strip()
+        ],
+    }
     for chapter_index, chapter in enumerate(plan.get("chapters") or [], start=1):
         chapter["chapter_number"] = chapter_index
         chapter.setdefault("title", f"第{chapter_index}章")
@@ -254,6 +271,16 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
             section.get("learning_path_role")
         )
         section.setdefault("suggested_module_ids", [])
+        progression = section.get("spine_progression")
+        progression = progression if isinstance(progression, dict) else {}
+        section["spine_progression"] = {
+            **deepcopy(progression),
+            "closure_ids": [
+                str(item).strip()
+                for item in progression.get("closure_ids") or []
+                if str(item or "").strip()
+            ],
+        }
         section.pop("complexity", None)
         earlier_ids.add(canonical)
     plan.setdefault("knowledge_relations", [])
@@ -1630,6 +1657,7 @@ def validate_course_outline_constraints(
         issues.append(_plan_issue("outline:malformed_chapters", f"课程目录第 {malformed_chapters} 章不是合法对象"))
     valid_chapters = [chapter for chapter in chapters if isinstance(chapter, dict)]
     section_count = 0
+    actual_closure_owners: dict[str, list[str]] = {}
     for chapter_index, chapter in enumerate(valid_chapters, start=1):
         sections = chapter.get("sections")
         if not isinstance(sections, list):
@@ -1642,6 +1670,20 @@ def validate_course_outline_constraints(
                     "outline:malformed_section",
                     f"课程目录小节 {chapter_index}.{section_index} 不是合法对象",
                 ))
+                continue
+            node_id = str(
+                section.get("node_id")
+                or f"L2-{chapter_index}-{section_index}"
+            )
+            for closure_id in (
+                (section.get("spine_progression") or {}).get("closure_ids")
+                or []
+            ):
+                closure_id = str(closure_id or "").strip()
+                if closure_id:
+                    actual_closure_owners.setdefault(closure_id, []).append(
+                        node_id
+                    )
     if chapters and not section_count:
         issues.append(_plan_issue("outline:missing_sections", "课程目录没有可生成的小节"))
     expected_chapters = constraints.get("chapter_count")
@@ -1655,6 +1697,47 @@ def validate_course_outline_constraints(
         issues.append(_plan_issue(
             "outline:section_count_mismatch",
             f"用户明确要求 {expected_sections} 个小节，目录实际为 {section_count} 个",
+        ))
+    required_closures = (
+        (plan.get("course_spine") or {}).get("required_closures") or []
+        if isinstance(plan, dict)
+        else []
+    )
+    expected_closure_targets = {
+        str(item.get("closure_id") or "").strip(): str(
+            item.get("target_node_id") or ""
+        ).strip()
+        for item in required_closures
+        if isinstance(item, dict)
+        and str(item.get("closure_id") or "").strip()
+    }
+    duplicate_closures = sorted(
+        closure_id
+        for closure_id, owners in actual_closure_owners.items()
+        if len(owners) != 1
+    )
+    if duplicate_closures:
+        issues.append(_plan_issue(
+            "outline:duplicate_closure_assignment",
+            f"全课闭环被重复分配：{duplicate_closures}",
+        ))
+    mismatched_closures = sorted(
+        closure_id
+        for closure_id, target_id in expected_closure_targets.items()
+        if actual_closure_owners.get(closure_id) != [target_id]
+    )
+    if mismatched_closures:
+        issues.append(_plan_issue(
+            "outline:missing_closure_assignment",
+            f"全课闭环没有交给指定小节：{mismatched_closures}",
+        ))
+    unknown_closures = sorted(
+        set(actual_closure_owners) - set(expected_closure_targets)
+    )
+    if unknown_closures:
+        issues.append(_plan_issue(
+            "outline:unknown_closure_assignment",
+            f"小节声明了未冻结的全课闭环：{unknown_closures}",
         ))
     return {
         "schema_version": "course_outline_constraints_v1",

@@ -149,6 +149,63 @@ def normalize_outline_skeleton(
             ),
             "section_count": section_count or 0,
         })
+    raw_spine = payload.get("course_spine")
+    raw_spine = raw_spine if isinstance(raw_spine, dict) else {}
+    spine_mode = str(raw_spine.get("mode") or "connected_examples").strip()
+    if spine_mode not in {
+        "shared_anchor", "connected_examples", "independent_sections",
+    }:
+        spine_mode = "connected_examples"
+    course_spine = {
+        "mode": spine_mode,
+        "title": _clip(
+            raw_spine.get("title") or f"{topic}的全课核心问题",
+            160,
+        ),
+        "central_question": _clip(
+            raw_spine.get("central_question")
+            or f"学习者怎样逐步形成并验证对{topic}的完整理解？",
+            280,
+        ),
+        "fixed_facts": [
+            _clip(item, 220)
+            for item in raw_spine.get("fixed_facts") or []
+            if str(item or "").strip()
+        ][:16],
+        "allowed_variations": [
+            _clip(item, 220)
+            for item in raw_spine.get("allowed_variations") or []
+            if str(item or "").strip()
+        ][:12],
+        "final_artifact": _clip(
+            raw_spine.get("final_artifact")
+            or payload.get("positioning")
+            or f"一份可检查的{topic}学习成果",
+            240,
+        ),
+        "continuity_rule": _clip(
+            raw_spine.get("continuity_rule")
+            or "围绕同一核心问题递进；每节若使用新例子必须明确说明，不得伪造共享数据。",
+            280,
+        ),
+        "required_closures": [
+            {
+                "closure_id": _clip(
+                    item.get("closure_id") or f"CLOSURE-{index}",
+                    64,
+                ),
+                "requirement": _clip(item.get("requirement"), 240),
+                "target_node_id": _clip(item.get("target_node_id"), 64),
+                "evidence": _clip(item.get("evidence"), 240),
+            }
+            for index, item in enumerate(
+                raw_spine.get("required_closures") or [],
+                start=1,
+            )
+            if isinstance(item, dict)
+            and str(item.get("requirement") or "").strip()
+        ][:16],
+    }
     skeleton = {
         "schema_version": "course_outline_skeleton_v2",
         "request_fingerprint": request_fingerprint,
@@ -168,6 +225,7 @@ def normalize_outline_skeleton(
             for item in payload.get("prerequisites") or []
             if str(item or "").strip()
         ][:16],
+        "course_spine": course_spine,
         "chapters": chapters,
     }
     if not skeleton["learning_objectives"]:
@@ -213,6 +271,51 @@ def validate_outline_skeleton(
         issues.append(_issue(
             "outline_skeleton:invalid_section_counts",
             f"章节 {invalid_counts} 没有合法的小节数量",
+        ))
+    course_spine = skeleton.get("course_spine") or {}
+    if (
+        course_spine.get("mode") == "shared_anchor"
+        and not course_spine.get("fixed_facts")
+    ):
+        issues.append(_issue(
+            "outline_skeleton:shared_anchor_without_fixed_facts",
+            "共享案例主轴没有冻结任何事实，后续并行小节会产生数据漂移",
+        ))
+    valid_section_ids = {
+        f"L2-{chapter_index}-{section_index}"
+        for chapter_index, chapter in enumerate(chapters, start=1)
+        for section_index in range(
+            1,
+            int(chapter.get("section_count") or 0) + 1,
+        )
+    }
+    closures = [
+        item
+        for item in course_spine.get("required_closures") or []
+        if isinstance(item, dict)
+    ]
+    closure_ids = [
+        str(item.get("closure_id") or "").strip()
+        for item in closures
+    ]
+    if len(set(closure_ids)) != len(closure_ids):
+        issues.append(_issue(
+            "outline_skeleton:duplicate_closure_id",
+            "全课必须闭环的义务使用了重复 ID",
+        ))
+    invalid_closures = [
+        str(item.get("closure_id") or "未命名闭环")
+        for item in closures
+        if (
+            not str(item.get("evidence") or "").strip()
+            or str(item.get("target_node_id") or "").strip()
+            not in valid_section_ids
+        )
+    ]
+    if invalid_closures:
+        issues.append(_issue(
+            "outline_skeleton:invalid_closure_target",
+            f"全课闭环缺少证据或目标小节无效：{invalid_closures}",
         ))
     expected_chapters = _positive_int(shape_constraints.get("chapter_count"))
     expected_sections = _positive_int(shape_constraints.get("section_count"))
@@ -359,6 +462,36 @@ def build_outline_batch_specs(
                     if previous_chapter_count
                     else None
                 ),
+                "required_closure_ids": [
+                    str(item.get("closure_id") or "")
+                    for item in (
+                        (skeleton.get("course_spine") or {}).get(
+                            "required_closures"
+                        ) or []
+                    )
+                    if isinstance(item, dict)
+                    and str(item.get("target_node_id") or "") in {
+                        f"L2-{chapter_index}-{section_index}"
+                        for section_index in range(start, end + 1)
+                    }
+                    and str(item.get("closure_id") or "")
+                ],
+                "required_closure_targets": {
+                    str(item.get("closure_id") or ""): str(
+                        item.get("target_node_id") or ""
+                    )
+                    for item in (
+                        (skeleton.get("course_spine") or {}).get(
+                            "required_closures"
+                        ) or []
+                    )
+                    if isinstance(item, dict)
+                    and str(item.get("target_node_id") or "") in {
+                        f"L2-{chapter_index}-{section_index}"
+                        for section_index in range(start, end + 1)
+                    }
+                    and str(item.get("closure_id") or "")
+                },
             })
     return specs
 
@@ -376,6 +509,10 @@ def normalize_outline_batch(
         if not isinstance(raw, dict):
             continue
         section_index = start_index + offset
+        raw_progression = raw.get("spine_progression")
+        raw_progression = (
+            raw_progression if isinstance(raw_progression, dict) else {}
+        )
         sections.append({
             "node_id": f"L2-{chapter_number}-{section_index}",
             "section_number": f"{chapter_number}.{section_index}",
@@ -411,6 +548,34 @@ def normalize_outline_batch(
                 raw.get("path_reason") or "课程主路径",
                 240,
             ),
+            "spine_progression": {
+                "role": _clip(
+                    raw_progression.get("role") or "advance",
+                    48,
+                ),
+                "action": _clip(
+                    raw_progression.get("action")
+                    or raw.get("learning_objective")
+                    or f"完成第 {chapter_number}.{section_index} 节的主轴推进",
+                    240,
+                ),
+                "student_artifact": _clip(
+                    raw_progression.get("student_artifact")
+                    or next(iter(raw.get("assessment") or []), ""),
+                    220,
+                ),
+                "handoff": _clip(
+                    raw_progression.get("handoff")
+                    or "只交付本节已经明确完成的结论或学习成果",
+                    240,
+                ),
+                "variation": _clip(raw_progression.get("variation"), 220),
+                "closure_ids": [
+                    _clip(item, 64)
+                    for item in raw_progression.get("closure_ids") or []
+                    if str(item or "").strip()
+                ][:12],
+            },
         })
     for section in sections:
         if not section["assessment"]:
@@ -459,8 +624,32 @@ def validate_outline_batch(
     previous_anchor = str(
         spec.get("previous_chapter_anchor_id") or ""
     )
+    expected_closure_ids = {
+        str(item)
+        for item in spec.get("required_closure_ids") or []
+        if str(item or "").strip()
+    }
+    actual_closure_ids: set[str] = set()
+    actual_closure_targets: dict[str, list[str]] = {}
     for section in sections:
         node_id = str(section.get("node_id") or "")
+        actual_closure_ids.update(
+            str(item)
+            for item in (
+                (section.get("spine_progression") or {}).get("closure_ids")
+                or []
+            )
+            if str(item or "").strip()
+        )
+        for closure_id in (
+            (section.get("spine_progression") or {}).get("closure_ids")
+            or []
+        ):
+            closure_id = str(closure_id or "").strip()
+            if closure_id:
+                actual_closure_targets.setdefault(closure_id, []).append(
+                    node_id
+                )
         if not str(section.get("title") or "").strip():
             issues.append(_issue(
                 "outline_batch:missing_title",
@@ -493,6 +682,30 @@ def validate_outline_batch(
                     "outline_batch:invalid_prerequisite",
                     f"{node_id} 引用了当前批次不可用的前置小节 {dependency}",
                 ))
+    if actual_closure_ids != expected_closure_ids:
+        issues.append(_issue(
+            "outline_batch:closure_assignment_mismatch",
+            (
+                f"当前批次必须闭环 {sorted(expected_closure_ids)}，"
+                f"实际声明 {sorted(actual_closure_ids)}"
+            ),
+        ))
+    expected_closure_targets = {
+        str(closure_id): str(target_id)
+        for closure_id, target_id in (
+            spec.get("required_closure_targets") or {}
+        ).items()
+    }
+    target_mismatches = [
+        closure_id
+        for closure_id, target_id in expected_closure_targets.items()
+        if actual_closure_targets.get(closure_id) != [target_id]
+    ]
+    if target_mismatches:
+        issues.append(_issue(
+            "outline_batch:closure_target_mismatch",
+            f"全课闭环没有分配给指定小节：{target_mismatches}",
+        ))
     return {
         "schema_version": "course_outline_batch_validation_v2",
         "passed": not issues,
@@ -542,6 +755,23 @@ def compile_fallback_outline_batch(
             "path_reason": str(
                 chapter.get("path_reason") or "课程主路径"
             ),
+            "spine_progression": {
+                "role": "advance",
+                "action": f"完成第 {chapter_number}.{section_index} 节的主轴推进",
+                "student_artifact": (
+                    f"第 {chapter_number}.{section_index} 节可检查结果"
+                ),
+                "handoff": "只交付本节已经完成的结论或未决项",
+                "variation": "",
+                "closure_ids": [
+                    str(item)
+                    for item in spec.get("required_closure_ids") or []
+                    if str(
+                        (spec.get("required_closure_targets") or {}).get(item)
+                        or ""
+                    ) == node_id
+                ],
+            },
         })
     return normalize_outline_batch(
         {"sections": sections},
@@ -602,6 +832,7 @@ def assemble_course_outline(
             skeleton.get("learning_objectives") or []
         ),
         "prerequisites": list(skeleton.get("prerequisites") or []),
+        "course_spine": deepcopy(skeleton.get("course_spine") or {}),
         "chapters": chapters,
     }
 

@@ -19,6 +19,7 @@ from course_outline_planning import (
     assemble_course_outline,
     build_outline_batch_specs,
     compile_fallback_outline_batch,
+    normalize_outline_batch,
     normalize_outline_skeleton,
     outline_request_fingerprint,
     validate_outline_batch,
@@ -37,6 +38,15 @@ def _outline_skeleton_payload(
         "positioning": "验证结构化分片、恢复与并行生成",
         "learning_objectives": ["完成一门可检查的大规模课程"],
         "prerequisites": [],
+        "course_spine": {
+            "mode": "connected_examples",
+            "title": "并行系统的完整设计问题",
+            "central_question": "怎样逐层形成可检查的并行系统方案？",
+            "fixed_facts": [],
+            "allowed_variations": ["每章可更换系统场景并明确说明"],
+            "final_artifact": "并行系统方案",
+            "continuity_rule": "共享问题链，不伪装共享数据",
+        },
         "chapters": [
             {
                 "chapter_number": index,
@@ -66,6 +76,13 @@ def _outline_batch_payload(system_prompt: str) -> str:
                 "prerequisite_node_ids": [],
                 "assessment": [f"提交 {node_id} 结果"],
                 "scope_boundary": f"只负责 {node_id}",
+                "spine_progression": {
+                    "role": "advance",
+                    "action": f"推进 {node_id}",
+                    "student_artifact": f"{node_id} 结果",
+                    "handoff": f"向后续交付 {node_id} 结果",
+                    "variation": "",
+                },
             }
             for node_id in spec["expected_node_ids"]
         ],
@@ -267,6 +284,15 @@ def test_large_outline_is_split_per_chapter_and_locally_assembled():
             "positioning": "验证大课目录分片",
             "learning_objectives": ["完成 48 节递进任务"],
             "prerequisites": [],
+            "course_spine": {
+                "mode": "connected_examples",
+                "title": "并行系统的完整设计问题",
+                "central_question": "怎样逐层形成可检查的并行系统方案？",
+                "fixed_facts": [],
+                "allowed_variations": ["每章可更换系统场景并明确说明"],
+                "final_artifact": "并行系统方案",
+                "continuity_rule": "共享问题链，不伪装共享数据",
+            },
             "chapters": [
                 {
                     "title": f"并行系统阶段 {index}",
@@ -324,6 +350,117 @@ def test_large_outline_is_split_per_chapter_and_locally_assembled():
         len(chapter["sections"])
         for chapter in outline["chapters"]
     ) == 48
+    assert outline["course_spine"]["central_question"] == (
+        "怎样逐层形成可检查的并行系统方案？"
+    )
+    assert outline["chapters"][0]["sections"][0][
+        "spine_progression"
+    ]["action"]
+
+
+def test_shared_anchor_requires_frozen_facts_before_parallel_expansion():
+    fingerprint = outline_request_fingerprint(
+        topic="机械设计",
+        audience="undergraduate",
+        brief={"course_shape_constraints": {"chapter_count": 1, "section_count": 2}},
+        difficulty_profile={"level": "intermediate"},
+    )
+    skeleton = normalize_outline_skeleton(
+        {
+            "course_title": "传动轴设计",
+            "course_spine": {
+                "mode": "shared_anchor",
+                "title": "同一套传动轴",
+                "central_question": "怎样完成一套可验证设计？",
+            },
+            "chapters": [{"title": "设计", "section_count": 2}],
+        },
+        topic="机械设计",
+        request_fingerprint=fingerprint,
+    )
+
+    report = validate_outline_skeleton(
+        skeleton,
+        shape_constraints={"chapter_count": 1, "section_count": 2},
+        request_fingerprint=fingerprint,
+    )
+
+    assert report["passed"] is False
+    assert {item["code"] for item in report["issues"]} >= {
+        "outline_skeleton:shared_anchor_without_fixed_facts",
+    }
+
+
+def test_required_closure_is_assigned_only_to_its_target_section():
+    fingerprint = outline_request_fingerprint(
+        topic="机械设计",
+        audience="undergraduate",
+        brief={"course_shape_constraints": {"chapter_count": 1, "section_count": 2}},
+        difficulty_profile={"level": "intermediate"},
+    )
+    skeleton = normalize_outline_skeleton(
+        {
+            "course_title": "传动轴设计",
+            "course_spine": {
+                "mode": "shared_anchor",
+                "title": "同一传动轴",
+                "central_question": "怎样完成验证？",
+                "fixed_facts": ["正常扭矩 10 N·m"],
+                "required_closures": [{
+                    "closure_id": "STARTUP",
+                    "requirement": "完成启动校核",
+                    "target_node_id": "L2-1-2",
+                    "evidence": "启动应力",
+                }],
+            },
+            "chapters": [{"title": "设计", "section_count": 2}],
+        },
+        topic="机械设计",
+        request_fingerprint=fingerprint,
+    )
+    spec = build_outline_batch_specs(
+        skeleton,
+        CourseOutlinePlanningBudget(batch_max_sections=6),
+    )[0]
+
+    batch = normalize_outline_batch(
+        {"sections": [{
+            "title": "正常工况",
+            "spine_progression": {"closure_ids": []},
+        }, {
+            "title": "启动校核",
+            "spine_progression": {"closure_ids": ["STARTUP"]},
+        }]},
+        spec=spec,
+        skeleton_revision_id=skeleton["revision_id"],
+    )
+
+    assert validate_outline_batch(
+        batch,
+        spec=spec,
+        skeleton_revision_id=skeleton["revision_id"],
+    )["passed"] is True
+
+    wrong_target = normalize_outline_batch(
+        {"sections": [{
+            "title": "正常工况",
+            "spine_progression": {"closure_ids": ["STARTUP"]},
+        }, {
+            "title": "启动校核",
+            "spine_progression": {"closure_ids": []},
+        }]},
+        spec=spec,
+        skeleton_revision_id=skeleton["revision_id"],
+    )
+    wrong_report = validate_outline_batch(
+        wrong_target,
+        spec=spec,
+        skeleton_revision_id=skeleton["revision_id"],
+    )
+    assert wrong_report["passed"] is False
+    assert {item["code"] for item in wrong_report["issues"]} >= {
+        "outline_batch:closure_target_mismatch",
+    }
 
 
 @pytest.mark.asyncio

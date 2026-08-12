@@ -1,4 +1,27 @@
 from course_quality import evaluate_node_content
+
+
+def test_learner_visible_generator_language_is_a_repairable_failure():
+    node = {
+        "node_id": "L2-1-1",
+        "node_name": "变量关系",
+        "key_points": ["变量关系"],
+        "module_plan": [],
+        "difficulty_contract": {},
+        "grounding_contract": {},
+    }
+    content = (
+        "## 核心教学\n\n变量关系描述两个量怎样共同变化。" * 12
+        + "\n\n## 学习者行动\n\n请完成一个判断任务。"
+        + "\n\n## 检查与反馈\n\n作答质量标准：写出判断依据。"
+    )
+
+    report = evaluate_node_content(content, node)
+
+    assert report["passed"] is False
+    assert {item["code"] for item in report["issues"]} >= {
+        "learner_visible_generator_language",
+    }
 from task_manager import fix_latex_content, normalize_generated_course_syntax
 
 

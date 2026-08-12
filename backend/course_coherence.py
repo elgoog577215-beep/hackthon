@@ -11,7 +11,7 @@ from course_knowledge_base import compile_course_knowledge_base
 from course_versioning import stable_hash
 
 
-COURSE_COHERENCE_SCHEMA = "course_coherence_v2"
+COURSE_COHERENCE_SCHEMA = "course_coherence_v3"
 COURSE_COHERENCE_QUALITY_SCHEMA = "course_coherence_quality_v2"
 
 
@@ -35,6 +35,9 @@ def compile_course_coherence_contract(course_data: dict[str, Any]) -> dict[str, 
         for item in knowledge_base.get("mistake_points") or []
     }
     binding_by_section = knowledge_base.get("section_bindings") or {}
+    plan = course_view.get("course_plan")
+    plan = plan if isinstance(plan, dict) else {}
+    course_spine = course_view.get("course_spine") or plan.get("course_spine") or {}
 
     section_rows: list[dict[str, Any]] = []
     for order, section in enumerate(sections):
@@ -85,6 +88,11 @@ def compile_course_coherence_contract(course_data: dict[str, Any]) -> dict[str, 
             "explicit_prerequisite_ids": explicit_prerequisites,
             "context_predecessor_ids": _unique(context_predecessors),
             "difficulty_signature": _difficulty_signature(section),
+            "spine_progression": (
+                section.get("spine_progression")
+                if isinstance(section.get("spine_progression"), dict)
+                else {}
+            ),
         })
 
     rows_by_id = {row["node_id"]: row for row in section_rows}
@@ -122,6 +130,7 @@ def compile_course_coherence_contract(course_data: dict[str, Any]) -> dict[str, 
         "knowledge_base_revision_id": knowledge_base.get("revision_id"),
         "ordered_section_ids": [row["node_id"] for row in section_rows],
         "canonical_terms": _canonical_terms(knowledge_base),
+        "course_spine": course_spine,
         "section_contracts": section_rows,
         "status": "active",
     }
@@ -366,6 +375,8 @@ def course_coherence_prompt_context(
         )
     else:
         next_section = "无，本节是全课收束"
+    spine = contract.get("course_spine") or {}
+    progression = row.get("spine_progression") or {}
     return "\n".join([
         f"- 课程位置：第 {int(row.get('order') or 0) + 1}/{len(rows)} 节；角色：{row.get('progression_role')}",
         f"- 必须承接：{predecessor_text}",
@@ -376,6 +387,10 @@ def course_coherence_prompt_context(
         f"- 留给后续节点展开：{'；'.join(row.get('reserved_for_later') or []) or '无'}",
         f"- 本节之后实际进入：{next_section}",
         f"- 术语口径：{terminology}",
+        f"- 全课主轴：{spine.get('title') or spine.get('central_question') or '无共享案例'}；模式：{spine.get('mode') or 'connected_examples'}",
+        f"- 不可静默改写的主轴事实：{'；'.join(spine.get('fixed_facts') or []) or '无'}",
+        f"- 本节主轴增量：{progression.get('action') or '只完成本节学习目标'}",
+        f"- 本节交付下一节：{progression.get('handoff') or progression.get('student_artifact') or '无虚构前序产物'}",
         "- 写作要求：先建立与前置输出的关系，再推进本节新能力；不得复制前节实质段落，不得提前完成后续小节的主要任务，也不得把本节已经讲完的内容误写成下一节任务。",
     ])
 

@@ -202,7 +202,7 @@ LEVEL_CONFIG: dict[DifficultyLevel, dict[str, Any]] = {
             3,
             3,
             3,
-            ("在新方法处提供示范", "练习前给出质量标准", "保留结果检查"),
+            ("在新方法处提供示范", "任务前给出可观察成功表现", "保留结果检查"),
         ),
         "mastery": MasteryContract(
             4,

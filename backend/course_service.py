@@ -4915,6 +4915,7 @@ class CourseService(AIBase):
                     "batch_spec": spec,
                     "previous_sections": previous,
                     "evidence_hints": evidence_hints,
+                    "course_spine": skeleton.get("course_spine") or {},
                     "course_design_contract": artifacts.get(
                         "course_design_contract"
                     ) or {},
@@ -4945,6 +4946,7 @@ class CourseService(AIBase):
                         skeleton_revision_id=str(
                             skeleton.get("revision_id") or ""
                         ),
+                        course_spine=skeleton.get("course_spine"),
                         design_contract=artifacts.get(
                             "course_design_contract"
                         ),
@@ -5416,6 +5418,9 @@ class CourseService(AIBase):
                         "learning_path_role", "standard"
                     ),
                     "path_reason": section.get("path_reason", "课程主路径"),
+                    "spine_progression": section.get(
+                        "spine_progression", {}
+                    ),
                     "evidence_refs": section.get("evidence_refs", []),
                     "grounding_contract": section.get("grounding_contract", {}),
                     "grounding_annotations": [],

@@ -12,7 +12,16 @@ from course_knowledge_base import (
 )
 from course_pedagogy import MODULES, coerce_persisted_profile
 
-QUALITY_CONTRACT_VERSION = "course_quality_v10"
+QUALITY_CONTRACT_VERSION = "course_quality_v11"
+
+LEARNER_VISIBLE_GENERATOR_LANGUAGE = (
+    "静态检查参考",
+    "知识库契约",
+    "蓝图要求",
+    "本模块依据",
+    "完成质量标准",
+    "作答质量标准",
+)
 
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
@@ -194,6 +203,19 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             "重新核对题干、计算、答案和量规，只保留一致的最终版本",
             node_id,
         ))
+    meta_language = next((
+        marker
+        for marker in LEARNER_VISIBLE_GENERATOR_LANGUAGE
+        if marker in text
+    ), "")
+    if meta_language:
+        issues.append(_issue(
+            "learner_visible_generator_language",
+            "major",
+            f"正文包含面向生成系统的表达“{meta_language}”，不像学习者直接阅读的成品",
+            "改写为任务核对点、成功表现或错误诊断，不暴露生成与质量合同语言",
+            node_id,
+        ))
     if re.search(r"\$(?:#{1,6}\s|\d+\.\s{2,}|[*+-]\s{2,})", text):
         issues.append(_issue(
             "markdown_block_join",
@@ -273,6 +295,7 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
     has_content_integrity_failure = any(
         item.get("code") in {
             "model_self_correction",
+            "learner_visible_generator_language",
             "markdown_block_join",
             "duplicate_section_heading",
             "missing_module_headings",
