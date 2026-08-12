@@ -2186,6 +2186,54 @@ def validate_story_template_text_slots(
         if _prose_source_text(block) and block not in remaining
     )
 
+    for slot in content_slots:
+        if slot.slot_kind not in {"code", "formula", "table"}:
+            continue
+        matching_blocks = [
+            block
+            for block in source_blocks
+            if _block_matches_slot(block, slot.slot_kind)
+        ]
+        if slot.required and not matching_blocks:
+            raise V6BuildError(
+                stage="template",
+                code="template_required_slot_unfilled",
+                message=(
+                    f"Required template slot {slot.slot_id} "
+                    "has no source-backed content"
+                ),
+                page_id=page_id,
+            )
+        if matching_blocks and slot.slot_kind in {"code", "table"}:
+            try:
+                _safe_artifact_page_blocks(
+                    page_id=page_id,
+                    layout=layout,
+                    source_blocks=source_blocks,
+                    story_summary=story_summary,
+                )
+            except V6BuildError:
+                raise
+        elif matching_blocks:
+            try:
+                _bounded_slot_content(
+                    matching_blocks,
+                    slot_kind=slot.slot_kind,
+                    max_chars=slot.max_chars,
+                    max_items=slot.max_items,
+                    max_lines=slot.max_lines,
+                    max_rows=slot.max_rows,
+                )
+            except ValueError as error:
+                raise V6BuildError(
+                    stage="template",
+                    code="template_slot_capacity_exceeded",
+                    message=(
+                        f"Source-backed content exceeds template slot {slot.slot_id}"
+                    ),
+                    page_id=page_id,
+                ) from error
+
     text_slots = [
         slot
         for slot in content_slots

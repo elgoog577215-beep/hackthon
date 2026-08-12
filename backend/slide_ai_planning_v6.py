@@ -65,6 +65,16 @@ _STORY_PAGE_CONTRACT_FIELDS = frozenset({
     "source_block_ids",
 })
 _STORY_SEMANTIC_MAX_ATTEMPTS = 3
+_STORY_UNIT_REPARTITION_FAILURE_CODES = frozenset({
+    "template_layout_artifact_mismatch",
+    "template_layout_intent_mismatch",
+    "template_layout_semantic_slot_mismatch",
+    "template_required_slot_unfilled",
+    "template_source_slot_role_mismatch",
+    "template_slot_capacity_exceeded",
+    "template_slot_underfilled",
+    "template_source_slot_coverage_incomplete",
+})
 _VISUAL_SEMANTIC_MAX_ATTEMPTS = 2
 _VISUAL_DECISION_CONTRACT_FIELDS = frozenset({
     "page_id",
@@ -276,8 +286,12 @@ def _project_required_safe_partitions(
             [str(block_id) for block_id in page.get("source_block_ids") or []]
             for page in provider_pages
         ]
-        safe_partitions = [
-            [
+        provider_layout_partition = [
+            str(page.get("template_layout_id") or "")
+            for page in provider_pages
+        ]
+        provider_partition_is_safe = any(
+            provider_partition == [
                 [
                     str(block_id)
                     for block_id in page.get("source_block_ids") or []
@@ -285,10 +299,20 @@ def _project_required_safe_partitions(
                 for page in option.get("pages") or []
                 if isinstance(page, dict)
             ]
+            and all(
+                layout_id in [
+                    str(candidate)
+                    for candidate in page.get("template_layout_ids") or []
+                ]
+                for layout_id, page in zip(
+                    provider_layout_partition,
+                    option.get("pages") or [],
+                )
+            )
             for option in unit.get("safe_partition_options") or []
             if isinstance(option, dict)
-        ]
-        if provider_partition in safe_partitions:
+        )
+        if provider_partition_is_safe:
             projected.extend(provider_pages)
             continue
         partition = target["required_safe_partition"]
@@ -1193,11 +1217,9 @@ def _story_repair_targets(
             ),
             None,
         )
-        repartition_required = error.failure.code in {
-            "template_layout_artifact_mismatch",
-            "template_layout_intent_mismatch",
-            "template_layout_semantic_slot_mismatch",
-        }
+        repartition_required = (
+            error.failure.code in _STORY_UNIT_REPARTITION_FAILURE_CODES
+        )
         observed_unit_pages = [
             page
             for page in pages
