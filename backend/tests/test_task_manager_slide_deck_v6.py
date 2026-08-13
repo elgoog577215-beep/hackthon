@@ -1,5 +1,5 @@
-from copy import deepcopy
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -301,13 +301,57 @@ async def test_terminal_v6_build_preserves_its_recovery_contract_and_never_resum
     )
     progress_root = tmp_path / "slide_build_progress_v2"
     progress_root.mkdir()
-    (progress_root / f"{task_id}.json").write_text("{}", encoding="utf-8")
+    (progress_root / f"{task_id}.json").write_text(
+        json.dumps({
+            "schema_version": "slide_build_progress_v2",
+            "task_id": task_id,
+            "status": "failed",
+            "items": [],
+            "current_context": {
+                "stage": "story",
+                "step_index": 0,
+                "step_count": 0,
+                "chapter_id": "chapter-field-observation",
+                "batch_id": "story-2",
+                "page_id": "",
+                "provider_wait": False,
+                "retry_attempt": 0,
+            },
+            "completed_weight": 4,
+            "total_weight": 10,
+            "display_percent": 41,
+            "finalized": False,
+            "published": False,
+            "failure": {
+                "stage": "story",
+                "code": "story_ai_batch_failed",
+                "message": "retry from checkpoint",
+                "retryable": True,
+                "chapter_id": "chapter-field-observation",
+                "page_id": "",
+                "batch_id": "story-2",
+            },
+            "started_at": "2026-08-13T00:00:00+00:00",
+            "updated_at": "2026-08-13T00:01:00+00:00",
+            "last_event_at": "2026-08-13T00:01:00+00:00",
+            "newly_discovered_since_event": 0,
+        }),
+        encoding="utf-8",
+    )
     manager.save_tasks(strict=True)
 
     persisted = json.loads(jobs_path.read_text(encoding="utf-8"))[task_id]
     assert "request_snapshot" not in persisted
     assert persisted["slide_build_request_contract"]["target_schema"] == (
         "slide_deck_v6"
+    )
+    # Simulate the production task written before the durable contract existed.
+    persisted.pop("slide_build_request_contract")
+    persisted["progress"] = 100
+    persisted["phase"] = "v5_candidate"
+    jobs_path.write_text(
+        json.dumps({task_id: persisted}),
+        encoding="utf-8",
     )
 
     restarted = TaskManager(
@@ -316,8 +360,20 @@ async def test_terminal_v6_build_preserves_its_recovery_contract_and_never_resum
         ws_service=None,
         document_repository=CourseDocumentRepository(storage),
     )
+    assert restarted.tasks[task_id]["slide_build_request_contract"][
+        "target_schema"
+    ] == "slide_deck_v6"
+    assert restarted.tasks[task_id]["progress"] == 41
+    assert restarted.tasks[task_id]["phase"] == "story"
     resumed = await restarted.resume_task(task_id)
     assert resumed["status"] == "resumed"
+    assert restarted.tasks[task_id]["error_detail"] is None
+    assert restarted.tasks[task_id]["slide_build_progress_v2"][
+        "status"
+    ] == "active"
+    assert restarted.tasks[task_id]["slide_build_progress_v2"][
+        "failure"
+    ] is None
 
     captured: dict[str, object] = {}
 

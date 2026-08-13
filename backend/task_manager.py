@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from ai_provider_route import provider_route_snapshot
 from assessment_blueprint import compile_course_assessment_blueprint
 from assessment_contracts import (
     compile_assessment_objectives,
@@ -58,7 +59,6 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
-from ai_provider_route import provider_route_snapshot
 from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
@@ -157,6 +157,7 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from ppt_template_packs import ppt_template_pack_repository
 from question_bank import (
     QuestionBankRepository,
     question_bank_repository,
@@ -169,12 +170,11 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
-from slide_ai_runtime import ai_slide_planning_enabled
 from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     build_ai_base_visual_planner_v2,
 )
-from ppt_template_packs import ppt_template_pack_repository
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -215,11 +215,11 @@ from slide_visuals import (
 )
 from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
+from teaching_representations import teaching_representation_repository
 from template_layout_contract import (
     TemplateLayoutPackContractV1,
     compile_builtin_template_layout_contract_v1,
 )
-from teaching_representations import teaching_representation_repository
 from web_retrieval import (
     RetrievalRequest,
     configured_retrieval_gateway,
@@ -424,6 +424,73 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "node_drafts",
 })
 PUBLIC_TASK_LOG_LIMIT = 100
+SLIDE_BUILD_REQUEST_CONTRACT_FIELDS = (
+    "mode",
+    "theme",
+    "variant_key",
+    "target_schema",
+    "template_contract",
+    "template_selector",
+    "force_rebuild",
+    "shadow_only",
+    "chapter_id",
+    "source_course_document_revision",
+)
+
+
+def _slide_build_request_contract(
+    request_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Keep immutable slide routing inputs after bulky terminal data is pruned."""
+
+    request = request_snapshot or {}
+    return {
+        "schema_version": "slide_build_request_contract_v1",
+        **{
+            field: deepcopy(request[field])
+            for field in SLIDE_BUILD_REQUEST_CONTRACT_FIELDS
+            if field in request
+        },
+    }
+
+
+def _slide_build_task_request(task: dict[str, Any]) -> dict[str, Any]:
+    """Resolve slide routing from the live request or its durable contract."""
+
+    request = task.get("request_snapshot")
+    if isinstance(request, dict) and request:
+        return request
+    contract = task.get("slide_build_request_contract")
+    if (
+        isinstance(contract, dict)
+        and contract.get("schema_version")
+        == "slide_build_request_contract_v1"
+    ):
+        return contract
+    return {}
+
+
+def _persisted_slide_progress_projection(
+    manifest: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Project the persisted V6 manifest back into the public task view."""
+
+    if manifest.get("schema_version") != "slide_build_progress_v2":
+        return None
+    context = manifest.get("current_context") or {}
+    if not isinstance(context, dict):
+        context = {}
+    projection = deepcopy(manifest)
+    projection.update({
+        "percent": int(manifest.get("display_percent") or 0),
+        "stage": str(context.get("stage") or "source"),
+        "current_chapter_id": str(context.get("chapter_id") or ""),
+        "current_batch_id": str(context.get("batch_id") or ""),
+        "current_page_id": str(context.get("page_id") or ""),
+    })
+    return projection
+
+
 TERMINAL_TASK_STATUSES = frozenset({
     "cancelled",
     "canceled",
@@ -976,6 +1043,10 @@ class TaskManager:
             "workspace_id": workspace_id,
             "base_document_revision": base_document_revision,
         }
+        if task_type == "slide_deck_variant_build":
+            task["slide_build_request_contract"] = (
+                _slide_build_request_contract(request_snapshot)
+            )
         if (
             task_type == "course_generation"
             and workspace_id
@@ -2654,7 +2725,7 @@ class TaskManager:
 
         task_id = str(task.get("id") or "")
         status = str(task.get("status") or "")
-        request_snapshot = task.get("request_snapshot") or {}
+        request_snapshot = _slide_build_task_request(task)
         progress_failure = (
             (task.get("slide_build_progress_v2") or {}).get("failure") or {}
         )
@@ -3704,7 +3775,7 @@ class TaskManager:
                     }
                     task["updated_at"] = datetime.now().isoformat()
                     return False
-                request = task.get("request_snapshot") or {}
+                request = _slide_build_task_request(task)
                 selector = request.get("template_selector") or {}
                 recovery_key = (
                     str(task.get("course_id") or ""),
@@ -3725,13 +3796,13 @@ class TaskManager:
                         and candidate.get("status") in {"pending", "running"}
                         and (
                             str(candidate.get("course_id") or ""),
-                            str((candidate.get("request_snapshot") or {}).get("mode") or "teaching"),
-                            str((candidate.get("request_snapshot") or {}).get("theme") or "qizhi-classroom"),
-                            str((candidate.get("request_snapshot") or {}).get("target_schema") or ""),
-                            bool((candidate.get("request_snapshot") or {}).get("shadow_only")),
-                            str((candidate.get("request_snapshot") or {}).get("chapter_id") or ""),
-                            str(((candidate.get("request_snapshot") or {}).get("template_selector") or {}).get("pack_id") or ""),
-                            str(((candidate.get("request_snapshot") or {}).get("template_selector") or {}).get("version") or ""),
+                            str(_slide_build_task_request(candidate).get("mode") or "teaching"),
+                            str(_slide_build_task_request(candidate).get("theme") or "qizhi-classroom"),
+                            str(_slide_build_task_request(candidate).get("target_schema") or ""),
+                            bool(_slide_build_task_request(candidate).get("shadow_only")),
+                            str(_slide_build_task_request(candidate).get("chapter_id") or ""),
+                            str((_slide_build_task_request(candidate).get("template_selector") or {}).get("pack_id") or ""),
+                            str((_slide_build_task_request(candidate).get("template_selector") or {}).get("version") or ""),
                         ) == recovery_key
                         and (
                             str(candidate.get("created_at") or ""),
@@ -4202,6 +4273,17 @@ class TaskManager:
                 task["current_phase"] = "resuming"
                 task["message"] = "正在从最近同源产物保存点继续"
                 task["error"] = None
+                task["error_detail"] = None
+                task["error_code"] = None
+                slide_progress = task.get("slide_build_progress_v2")
+                if (
+                    task.get("type") == "slide_deck_variant_build"
+                    and isinstance(slide_progress, dict)
+                ):
+                    slide_progress = deepcopy(slide_progress)
+                    slide_progress["status"] = "active"
+                    slide_progress["failure"] = None
+                    task["slide_build_progress_v2"] = slide_progress
                 task["retry_count"] = int(task.get("retry_count") or 0) + 1
                 task["updated_at"] = datetime.now().isoformat()
                 self.save_tasks()
@@ -5068,7 +5150,7 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task or task.get("status") == "paused":
             return
-        request = task.get("request_snapshot") or {}
+        request = _slide_build_task_request(task)
         course_id = str(task["course_id"])
         mode = str(request.get("mode") or "teaching")
         theme = normalize_slide_deck_theme(str(request.get("theme") or "qizhi-classroom"))
@@ -5694,6 +5776,10 @@ class TaskManager:
                             or payload.get("message")
                             or "V6 slide build failed"
                         )
+                else:
+                    task["error"] = None
+                    task["error_detail"] = None
+                    task["error_code"] = None
             if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")
@@ -6986,6 +7072,7 @@ class TaskManager:
             if not isinstance(loaded, dict):
                 raise ValueError("Generation job index must contain an object")
             self.tasks = loaded
+            migrated_slide_contract = False
             for task_id, task in self.tasks.items():
                 task.setdefault("id", task_id)
                 task.setdefault("type", "legacy_content_generation")
@@ -6993,6 +7080,107 @@ class TaskManager:
                 task.setdefault("phase_progress", 0)
                 task.setdefault("phase_detail", {})
                 task.setdefault("request_snapshot", {})
+                if task.get("type") == "slide_deck_variant_build":
+                    persisted_contract = task.get(
+                        "slide_build_request_contract"
+                    )
+                    if not isinstance(persisted_contract, dict):
+                        persisted_contract = None
+                    if not persisted_contract:
+                        checkpoint_path = (
+                            self._storage_data_dir
+                            / "slide_deck_v6_candidates"
+                            / "checkpoints"
+                            / f"{task_id}.json"
+                        )
+                        try:
+                            checkpoint = json.loads(
+                                checkpoint_path.read_text(encoding="utf-8")
+                            )
+                        except (OSError, TypeError, ValueError):
+                            checkpoint = None
+                        if (
+                            isinstance(checkpoint, dict)
+                            and checkpoint.get("schema_version")
+                            == "slide_deck_v6_checkpoint_v1"
+                            and str(checkpoint.get("task_id") or "") == task_id
+                            and str(checkpoint.get("course_id") or "")
+                            == str(task.get("course_id") or "")
+                        ):
+                            mode = str(
+                                checkpoint.get("mode") or "teaching"
+                            )
+                            theme = str(
+                                checkpoint.get("theme")
+                                or "qizhi-classroom"
+                            )
+                            persisted_contract = (
+                                _slide_build_request_contract({
+                                    "mode": mode,
+                                    "theme": theme,
+                                    "variant_key": slide_deck_variant_key(
+                                        mode,
+                                        theme,
+                                    ),
+                                    "target_schema": "slide_deck_v6",
+                                    "force_rebuild": True,
+                                })
+                            )
+                            task["slide_build_request_contract"] = (
+                                persisted_contract
+                            )
+                            progress_path = (
+                                self._storage_data_dir
+                                / "slide_build_progress_v2"
+                                / f"{task_id}.json"
+                            )
+                            try:
+                                progress_manifest = json.loads(
+                                    progress_path.read_text(encoding="utf-8")
+                                )
+                            except (OSError, TypeError, ValueError):
+                                progress_manifest = None
+                            if isinstance(progress_manifest, dict):
+                                projection = (
+                                    _persisted_slide_progress_projection(
+                                        progress_manifest
+                                    )
+                                )
+                                if (
+                                    projection is not None
+                                    and str(projection.get("task_id") or "")
+                                    == task_id
+                                ):
+                                    task["slide_build_progress_v2"] = projection
+                                    task["progress"] = int(
+                                        projection.get("percent") or 0
+                                    )
+                                    task["phase"] = str(
+                                        projection.get("stage") or "resuming"
+                                    )
+                                    task["current_phase"] = task["phase"]
+                                    progress_failure = (
+                                        projection.get("failure") or {}
+                                    )
+                                    if isinstance(progress_failure, dict):
+                                        task["error_detail"] = deepcopy(
+                                            progress_failure
+                                        )
+                                        task["error"] = str(
+                                            progress_failure.get("message")
+                                            or task.get("error")
+                                            or ""
+                                        )
+                            migrated_slide_contract = True
+                    if (
+                        persisted_contract
+                        and not task.get("request_snapshot")
+                    ):
+                        task["request_snapshot"] = {
+                            key: deepcopy(value)
+                            for key, value in persisted_contract.items()
+                            if key != "schema_version"
+                        }
                 try:
                     persisted_generation_profile = (
                         normalize_assessment_generation_profile(
@@ -7047,7 +7235,7 @@ class TaskManager:
                         task["status"] = "completed"
                         task["phase"] = "legacy_read_only"
                         task["message"] = "旧版任务仅供历史查看"
-            if source == LEGACY_TASKS_FILE:
+            if source == LEGACY_TASKS_FILE or migrated_slide_contract:
                 self.save_tasks(strict=True)
         except Exception as e:
             logger.error("Failed to load tasks: %s", e)
