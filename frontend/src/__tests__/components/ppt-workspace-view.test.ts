@@ -509,6 +509,44 @@ describe('PptWorkspaceView', () => {
     expect(wrapper.text()).toContain('Previous published version')
   })
 
+  it('resumes a saved failed PPT task instead of starting a fresh build', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      slide_deck_target_schema: 'slide_deck_v6',
+      representations: [{
+        representation_id: 'slides-v6', representation_type: 'slide_deck',
+        variant_key: 'teaching:qizhi-classroom', spec_id: 'spec-v6',
+        status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+      }],
+    }
+    store.selectedId = 'slides-v6'
+    store.selectedSpec = {
+      spec_id: 'spec-v6', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+      payload: { compiler_version: 'representation_compiler_v6:slide_deck_v6', content: {
+        schema_version: 'slide_deck_v6', title: 'Saved deck', pages: [], slides: [],
+      } },
+    }
+    store.buildTaskId = 'failed-v6-task'
+    store.buildPaused = true
+    store.buildFailure = {
+      code: 'story_ai_batch_timeout', message: 'provider timed out', retryable: true,
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    vi.spyOn(store, 'select').mockResolvedValue(undefined)
+    const resume = vi.spyOn(store, 'resumeBuild').mockResolvedValue(undefined as any)
+    const fresh = vi.spyOn(store, 'buildSlideDeckVariant').mockResolvedValue(undefined as any)
+
+    const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+    wrapper.getComponent({ name: 'SlideDeckWorkbench' }).vm.$emit('rebuild')
+    await flushPromises()
+
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(fresh).not.toHaveBeenCalled()
+  })
+
   it('keeps the published deck when an errored build leaves residual live slides', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'

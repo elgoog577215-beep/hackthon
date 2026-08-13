@@ -51,7 +51,7 @@
       >
         <Sparkles :size="17" />{{ logicUpgrading ? '正在补全课程逻辑…' : '补全课程逻辑' }}
       </button>
-      <button v-else type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="openGenerator(false)">
+      <button v-else type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="startOrResumeBuild">
         <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '选择模式与风格') }}
       </button>
     </div>
@@ -86,6 +86,7 @@
         :estimated-slide-count="store.buildEstimatedSlideCount"
         :error="store.buildError"
         :build-failure="effectiveBuildFailure"
+        :build-resumable="store.buildPaused"
         :logic-upgrading="logicUpgrading"
         :logic-upgrade-error="logicUpgradeError"
         :quality="displayQuality"
@@ -498,6 +499,14 @@ async function rebuild() {
     return
   }
   if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
+}
+
+async function startOrResumeBuild() {
+  if (store.buildPaused) {
+    await store.resumeBuild()
+    return
+  }
+  openGenerator(false)
 }
 
 function openGenerator(forceRebuild: boolean) {

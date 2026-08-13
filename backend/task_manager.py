@@ -2696,6 +2696,24 @@ class TaskManager:
 
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             status = str(task.get("status") or "")
+            request_snapshot = task.get("request_snapshot") or {}
+            progress_failure = (task.get("slide_build_progress_v2") or {}).get("failure") or {}
+            error_detail = task.get("error_detail") or {}
+            is_v6_slide_build = (
+                task.get("type") == "slide_deck_variant_build"
+                and str(request_snapshot.get("target_schema") or "") == "slide_deck_v6"
+            )
+            v6_checkpoint_available = (
+                (self._storage_data_dir / "slide_deck_v6_candidates" / "checkpoints" / f"{task_id}.json").is_file()
+                and (self._storage_data_dir / "slide_build_progress_v2" / f"{task_id}.json").is_file()
+            ) if is_v6_slide_build else False
+            failure_retryable = bool(
+                progress_failure.get("retryable")
+                if isinstance(progress_failure, dict) and "retryable" in progress_failure
+                else error_detail.get("retryable")
+                if isinstance(error_detail, dict) and "retryable" in error_detail
+                else False
+            )
             checkpoint = {
                 "phase": str(task.get("phase") or "queued"),
                 "progress": int(task.get("progress") or 0),
@@ -2712,7 +2730,14 @@ class TaskManager:
                     "reason": "同源教学产物已经通过质量门并发布",
                     "checkpoint": checkpoint,
                 }
-            can_resume = status in {"paused", "failed"}
+            can_resume = (
+                status == "paused" and (v6_checkpoint_available if is_v6_slide_build else True)
+                or status == "failed" and (
+                    failure_retryable and v6_checkpoint_available
+                    if is_v6_slide_build
+                    else True
+                )
+            )
             return {
                 "state": "manual_resume" if can_resume else "auto_resuming" if status in {"pending", "running"} else "none",
                 "can_resume": can_resume,

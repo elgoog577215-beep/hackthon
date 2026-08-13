@@ -1068,6 +1068,49 @@ def test_story_capacity_error_repairs_every_overflow_page_from_frozen_source() -
     )
 
 
+def test_rich_text_table_with_explanation_keeps_a_table_safe_partition() -> None:
+    source = (
+        "Field teams compare the evidence before approving a survey.\n\n"
+        "| Check | Evidence | Decision |\n"
+        "| --- | --- | --- |\n"
+        "| Weather | Log entry | Continue |\n"
+        "| Calibration | Signed record | Accept |\n\n"
+        "The reviewer records any exception separately from the signed evidence."
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-table",
+        title="Field evidence review",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Evidence checks",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="field-table",
+            section_id="chapter-a",
+            position=0,
+            kind="rich_text",
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = planning_module._story_requests(graph, template)[0]["teaching_units"][0]
+
+    assert unit["artifact_kinds"] == ["table"]
+    assert unit["primary_blocks"][0]["artifact_kinds"] == ["table"]
+    assert unit["safe_partition_options"]
+    assert all(
+        any(
+            "table" in template.get_layout(layout_id).artifact_kinds
+            for layout_id in page["template_layout_ids"]
+        )
+        for option in unit["safe_partition_options"]
+        for page in option["pages"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_sentence() -> None:
     """A long grounded sentence must not strand a repair below its slot minimum."""

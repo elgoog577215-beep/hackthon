@@ -111,6 +111,8 @@
     "completeCourseLogic": "Complete course logic",
     "completingCourseLogic": "Completing course logic…",
     "previousVersionPageQuality": "Previous version slide quality",
+    "resumeCheckpoint": "Resume from checkpoint",
+    "rebuildCurrent": "Regenerate current combination",
     "build": "Generate full deck",
     "untitledCourse": "Course presentation",
     "targetSchema": "Target",

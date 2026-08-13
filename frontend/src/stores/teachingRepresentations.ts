@@ -967,8 +967,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         )
         this.settleFailedSlideDraft(quality)
         this.building = false
-        this.buildPaused = false
-        this.buildProgress = Math.max(this.buildProgress, 100)
+        this.buildPaused = Boolean(task.recovery?.can_resume)
+        this.buildProgress = Math.max(
+          this.buildProgress,
+          this.buildPaused ? Number(task.progress || 0) : 100,
+        )
         this.buildStage = 'build_blocked'
         this.buildFailure = failure
         this.buildError = failure.code

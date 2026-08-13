@@ -111,6 +111,8 @@
     "completeCourseLogic": "补全课程逻辑",
     "completingCourseLogic": "正在补全课程逻辑…",
     "previousVersionPageQuality": "上一版本本页质量",
+    "resumeCheckpoint": "从保存点继续",
+    "rebuildCurrent": "重新生成当前组合",
     "build": "生成完整课件",
     "untitledCourse": "课程演示",
     "targetSchema": "目标",

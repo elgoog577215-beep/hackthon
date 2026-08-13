@@ -75,6 +75,31 @@ class SlideDeckV6CandidateRepository:
             raise FileNotFoundError(task_id)
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def _checkpoint_path(self, task_id: str) -> Path:
+        safe = "".join(character for character in task_id if character.isalnum() or character in "-_")
+        if safe != task_id or not safe:
+            raise ValueError("Invalid V6 checkpoint task ID")
+        checkpoint_root = (self.root / "checkpoints").resolve()
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        path = (checkpoint_root / f"{safe}.json").resolve()
+        path.relative_to(checkpoint_root)
+        return path
+
+    def save_checkpoint(self, task_id: str, payload: dict[str, Any]) -> None:
+        path = self._checkpoint_path(task_id)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+
+    def load_checkpoint(self, task_id: str) -> dict[str, Any]:
+        path = self._checkpoint_path(task_id)
+        if not path.is_file():
+            raise FileNotFoundError(task_id)
+        return json.loads(path.read_text(encoding="utf-8"))
+
     def summarize(
         self,
         *,
@@ -253,46 +278,9 @@ class SlideDeckV6Orchestrator:
         shadow_context: dict[str, Any] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
-        try:
-            tracker = SlideBuildProgressTrackerV2.load(
-                task_id,
-                repository=self.progress_repository,
-            )
-        except FileNotFoundError:
-            tracker = SlideBuildProgressTrackerV2.create(
-                task_id,
-                repository=self.progress_repository,
-            )
-        else:
-            if tracker.manifest.status != "active":
-                raise V6BuildError(
-                    stage="recovery",
-                    code="v6_terminal_task_requires_new_task",
-                    message="A terminal V6 task cannot be restarted with the same task ID",
-                    retryable=False,
-                )
-            tracker.resume_active()
-        current_work = "source-contract"
-        source_contract = None
-        graph = None
-        story = None
-        visual = None
         template = template_contract or compile_builtin_template_layout_contract_v1(theme)
-        finalize_item_id = "publish" if publish_result else "finalize-shadow"
-        checkpoint: dict[str, Any] = {
-            "schema_version": "slide_deck_v6_checkpoint_v1",
-            "task_id": task_id,
-            "course_id": document.course_id,
-            "course_document_revision": document.document_revision,
-            "template_digest": template.template_digest,
-            "mode": mode,
-            "theme": theme,
-            "story_batches": [],
-            "visual_decisions": [],
-            "updated_at": _utc_now(),
-        }
         try:
-            restored_checkpoint = self.candidates.load(task_id)
+            restored_checkpoint = self.candidates.load_checkpoint(task_id)
         except FileNotFoundError:
             restored_checkpoint = None
         if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
@@ -310,12 +298,58 @@ class SlideDeckV6Orchestrator:
                     message="Persisted V6 work belongs to a different frozen source or template",
                     retryable=False,
                 )
+        try:
+            tracker = SlideBuildProgressTrackerV2.load(
+                task_id,
+                repository=self.progress_repository,
+            )
+        except FileNotFoundError:
+            tracker = SlideBuildProgressTrackerV2.create(
+                task_id,
+                repository=self.progress_repository,
+            )
+        else:
+            if tracker.manifest.status == "active":
+                tracker.resume_active()
+            elif (
+                tracker.manifest.status == "failed"
+                and tracker.manifest.failure is not None
+                and tracker.manifest.failure.retryable
+                and restored_checkpoint is not None
+            ):
+                tracker.resume_failed()
+            else:
+                raise V6BuildError(
+                    stage="recovery",
+                    code="v6_terminal_task_requires_new_task",
+                    message="A terminal V6 task cannot be restarted with the same task ID",
+                    retryable=False,
+                )
+        current_work = "source-contract"
+        source_contract = None
+        graph = None
+        story = None
+        visual = None
+        finalize_item_id = "publish" if publish_result else "finalize-shadow"
+        checkpoint: dict[str, Any] = {
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "task_id": task_id,
+            "course_id": document.course_id,
+            "course_document_revision": document.document_revision,
+            "template_digest": template.template_digest,
+            "mode": mode,
+            "theme": theme,
+            "story_batches": [],
+            "visual_decisions": [],
+            "updated_at": _utc_now(),
+        }
+        if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
             checkpoint.update(restored_checkpoint)
 
         def save_checkpoint(**updates: Any) -> None:
             checkpoint.update(updates)
             checkpoint["updated_at"] = _utc_now()
-            self.candidates.save(task_id, checkpoint)
+            self.candidates.save_checkpoint(task_id, checkpoint)
 
         ai_batch_diagnostics_by_key = {
             (diagnostic.kind, diagnostic.batch_id): diagnostic

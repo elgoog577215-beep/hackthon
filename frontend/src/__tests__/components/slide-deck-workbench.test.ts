@@ -201,6 +201,22 @@ describe('SlideDeckWorkbench', () => {
     wrapper.unmount()
   })
 
+  it('labels a retryable failed build as continuing from its saved checkpoint', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'generic-course', representationId: 'slides-v6', deckTitle: 'Evidence workflow', slides,
+        staleUnitIds: [], building: false, progress: 63, stage: 'build_blocked', error: 'provider_timeout',
+        quality: null, standalone: true, buildResumable: true,
+      },
+    })
+
+    const resume = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '从保存点继续')
+    expect(resume?.text()).toContain('从保存点继续')
+    await resume!.trigger('click')
+    expect(wrapper.emitted('rebuild')).toHaveLength(1)
+  })
+
   it('labels teaching mainline and appendix counts without a demo target', () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {

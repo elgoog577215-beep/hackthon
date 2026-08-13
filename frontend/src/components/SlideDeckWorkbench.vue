@@ -87,8 +87,8 @@
         <button v-if="standalone && generationBlocked" type="button" class="slide-workbench__upgrade-logic" :disabled="logicUpgrading" :title="t('pptWorkspace.completeCourseLogic', '补全课程逻辑')" @click="emit('upgrade-course-logic')">
           <Sparkles :size="16" /><span>{{ logicUpgrading ? t('pptWorkspace.completingCourseLogic', '正在补全课程逻辑…') : t('pptWorkspace.completeCourseLogic', '补全课程逻辑') }}</span>
         </button>
-        <button v-else-if="standalone" type="button" :disabled="building" :title="t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
-          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ t('pptWorkspace.rebuildCurrent', '重新生成当前组合') }}</span>
+        <button v-else-if="standalone" type="button" :disabled="building" :title="buildResumable ? t('pptWorkspace.resumeCheckpoint', '从保存点继续') : t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
+          <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ buildResumable ? t('pptWorkspace.resumeCheckpoint', '从保存点继续') : t('pptWorkspace.rebuildCurrent', '重新生成当前组合') }}</span>
         </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
           <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
@@ -509,6 +509,7 @@ const props = withDefaults(defineProps<{
   estimatedSlideCount?: number
   error: string
   buildFailure?: TeachingRepresentationBuildFailure | null
+  buildResumable?: boolean
   logicUpgrading?: boolean
   logicUpgradeError?: string
   quality?: Record<string, any> | null
@@ -541,6 +542,7 @@ const props = withDefaults(defineProps<{
   candidateStatus: '',
   planningStatus: null,
   buildFailure: null,
+  buildResumable: false,
   logicUpgrading: false,
   logicUpgradeError: '',
   buildDetail: null,
