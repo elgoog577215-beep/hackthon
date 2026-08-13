@@ -93,7 +93,7 @@ class ProviderCapacityController:
         self.initial_limit = _env_int("AI_PROVIDER_INITIAL_CONCURRENCY", 4)
         self.max_limit = max(
             self.initial_limit,
-            _env_int("AI_PROVIDER_MAX_CONCURRENCY", 8),
+            _env_int("AI_PROVIDER_MAX_CONCURRENCY", 16),
         )
         self.successes_to_grow = _env_int(
             "AI_PROVIDER_SUCCESSES_TO_GROW", 3
