@@ -28,7 +28,12 @@ describe('course outline review layout', () => {
     expect(cssDeclarations('.outline-review__sheet')).toContain(
       'grid-template-rows:auto minmax(0,1fr) auto',
     )
+    expect(cssDeclarations('.outline-review')).toContain('height:100%')
+    expect(cssDeclarations('.outline-review')).toContain('box-sizing:border-box')
     expect(cssDeclarations('.outline-review__body')).toContain('min-height:0')
     expect(cssDeclarations('.outline-review__body')).toContain('overflow:auto')
+    expect(cssDeclarations('.outline-review__body')).toContain('scrollbar-gutter:stable')
+    expect(componentSource).toContain('class="outline-review__chapter-nav"')
+    expect(componentSource).toContain('@click="jumpToChapter(chapter.index)"')
   })
 })

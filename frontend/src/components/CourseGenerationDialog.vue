@@ -537,6 +537,7 @@ const props = withDefaults(defineProps<{
   initialAcademicTerm?: string
   initialTotalClassHours?: number
   initialLessonDurationMinutes?: number
+  initialSectionCount?: number
 }>(), {
   busy: false,
   initialSubject: '',
@@ -699,6 +700,7 @@ watch(() => props.modelValue, async open => {
   if (props.initialAcademicTerm.trim()) form.academicTerm = props.initialAcademicTerm.trim()
   if (Number.isFinite(props.initialTotalClassHours) && props.initialTotalClassHours > 0) form.totalClassHours = props.initialTotalClassHours
   if (Number.isFinite(props.initialLessonDurationMinutes) && props.initialLessonDurationMinutes > 0) form.lessonDurationMinutes = props.initialLessonDurationMinutes
+  if (Number.isFinite(props.initialSectionCount) && Number(props.initialSectionCount) > 0) form.sectionCount = Number(props.initialSectionCount)
   await nextTick()
   dialogRef.value?.focus()
 })

@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity } from '../utils/http'
 
+export const TEACHING_CALENDAR_SAVED_EVENT = 'lingzhi:teaching-calendar-saved'
+export const TEACHING_CALENDAR_SAVED_STORAGE_KEY = 'lingzhi_teaching_calendar_saved_v1'
+
 export type TeachingCalendarStatus = 'draft' | 'ready'
 export type ClassSessionStatus = 'unscheduled' | 'scheduled' | 'cancelled'
 
@@ -58,6 +61,22 @@ const messageFromError = (error: any, fallback: string) => {
 const teacherRequestConfig = () => ({
   headers: { 'X-User-Id': getTeacherIdentity() },
 })
+
+const announceCalendarSaved = (calendar: TeachingCalendar) => {
+  if (typeof window === 'undefined') return
+  const detail = {
+    courseId: calendar.course_id,
+    revision: calendar.revision,
+    updatedAt: calendar.updated_at,
+    timestamp: Date.now(),
+  }
+  window.dispatchEvent(new CustomEvent(TEACHING_CALENDAR_SAVED_EVENT, { detail }))
+  try {
+    window.localStorage.setItem(TEACHING_CALENDAR_SAVED_STORAGE_KEY, JSON.stringify(detail))
+  } catch {
+    // Same-tab refresh still works when storage is unavailable.
+  }
+}
 
 export const useTeachingCalendarStore = defineStore('teaching-calendar', {
   state: () => ({
@@ -130,6 +149,7 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
           teacherRequestConfig(),
         )
         this.calendar = response.data
+        announceCalendarSaved(response.data)
         return response.data
       } catch (error: any) {
         const detail = error?.response?.data?.detail

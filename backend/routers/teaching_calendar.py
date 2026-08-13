@@ -10,7 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, model_validator
 
-from dependencies import get_course_or_404
+from dependencies import get_course_or_404, get_task_manager_optional
 from learner_context import require_user_id
 from teaching_calendar import (
     TeachingCalendarConflict,
@@ -97,6 +97,112 @@ def _lesson_nodes(course: dict[str, Any]) -> list[dict[str, Any]]:
     return [node for node in nodes if int(node.get("node_level") or 0) == max_level]
 
 
+def _expected_session_count(course: dict[str, Any]) -> int | None:
+    request = course.get("generation_request") or {}
+    brief = request.get("teacher_course_brief") or course.get("teacher_course_brief") or {}
+    explicit = brief.get("expected_session_count") or brief.get("session_count")
+    if explicit:
+        try:
+            value = int(explicit)
+            return value if value > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    # A Chinese university credit hour is normally 45 minutes.  The creation
+    # form already collects total class hours and lesson duration, so retain
+    # that intent even when an older generation request did not persist the
+    # explicit expected-session field.
+    try:
+        total_class_hours = float(brief.get("total_class_hours") or 0)
+        lesson_duration_minutes = float(brief.get("lesson_duration_minutes") or 0)
+    except (TypeError, ValueError):
+        return None
+    if total_class_hours <= 0 or lesson_duration_minutes <= 0:
+        return None
+    value = round(total_class_hours * 45 / lesson_duration_minutes)
+    return value if value > 0 else None
+
+
+def _calendar_units(course: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes = _flatten_nodes(list(course.get("nodes") or []))
+    expected_count = _expected_session_count(course)
+    top_level = [
+        node
+        for node in nodes
+        if int(node.get("node_level") or 0) == 1
+        and str(node.get("parent_node_id") or "root") in {"", "root"}
+    ]
+    # One generated chapter can contain several knowledge sections while still
+    # representing one class meeting.  Prefer the chapter projection only when
+    # it exactly matches the teacher's requested meeting count; otherwise keep
+    # the historical leaf-node behavior.
+    if expected_count and len(top_level) == expected_count:
+        return top_level
+    return _lesson_nodes(course)
+
+
+def _unit_requirements(course: dict[str, Any], node: dict[str, Any]) -> str:
+    direct = str(node.get("learning_objective") or "").strip()
+    if direct:
+        return direct
+    node_id = str(node.get("node_id") or "")
+    children = [
+        child
+        for child in _flatten_nodes(list(course.get("nodes") or []))
+        if str(child.get("parent_node_id") or "") == node_id
+    ]
+    objectives = [
+        str(child.get("learning_objective") or child.get("node_name") or "").strip()
+        for child in children
+    ]
+    return "；".join(value for value in objectives if value)[:4000]
+
+
+def _outline_source(course_id: str, course: dict[str, Any]) -> dict[str, Any]:
+    """Prefer the active AI-generation projection until the course is published."""
+    manager = get_task_manager_optional()
+    if manager is None:
+        return course
+    try:
+        preview = manager.get_generation_preview(course_id)
+    except Exception:
+        return course
+    if not isinstance(preview, dict) or not preview.get("nodes"):
+        return course
+    if len(_flatten_nodes(list(preview.get("nodes") or []))) <= len(
+        _flatten_nodes(list(course.get("nodes") or []))
+    ):
+        return course
+    return {
+        **course,
+        **preview,
+        "generation_request": course.get("generation_request") or preview.get("generation_request") or {},
+    }
+
+
+def _calendar_metadata(course: dict[str, Any]) -> tuple[str, str]:
+    request = course.get("generation_request") or {}
+    brief = request.get("teacher_course_brief") or course.get("teacher_course_brief") or {}
+    academic_term = str(brief.get("academic_term") or "").strip()
+    if not academic_term:
+        return "", ""
+    parts = academic_term.replace("—", "-").replace("–", "-").split(maxsplit=1)
+    if len(parts) == 1:
+        if "-" in parts[0]:
+            return parts[0], ""
+        return "", parts[0]
+    return parts[0], parts[1]
+
+
+def _apply_calendar_defaults(calendar: dict[str, Any], course: dict[str, Any]) -> dict[str, Any]:
+    result = dict(calendar)
+    academic_year, term = _calendar_metadata(course)
+    result["course_title"] = result.get("course_title") or _course_title(course)
+    result["academic_year"] = result.get("academic_year") or academic_year
+    result["term"] = result.get("term") or term
+    return result
+
+
 def _outline_revision(course: dict[str, Any]) -> str:
     return str(
         course.get("document_revision")
@@ -110,7 +216,10 @@ def _outline_revision(course: dict[str, Any]) -> str:
 async def get_teaching_calendar(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
     try:
-        return teaching_calendar_repository.load(_identity(request), course_id, _course_title(course))
+        return _apply_calendar_defaults(
+            teaching_calendar_repository.load(_identity(request), course_id, _course_title(course)),
+            course,
+        )
     except (TeachingCalendarError, TeachingCalendarValidationError) as exc:
         raise HTTPException(status_code=500, detail={"code": "teaching_calendar_read_failed", "message": str(exc)}) from exc
 
@@ -138,8 +247,12 @@ async def update_teaching_calendar(course_id: str, body: TeachingCalendarUpdate,
 @router.post("/courses/{course_id}/teaching-calendar/derive-from-outline")
 async def derive_teaching_calendar(course_id: str, request: Request):
     course = await get_course_or_404(course_id)
+    outline_course = _outline_source(course_id, course)
     owner_id = _identity(request)
-    current = teaching_calendar_repository.load(owner_id, course_id, _course_title(course))
+    current = _apply_calendar_defaults(
+        teaching_calendar_repository.load(owner_id, course_id, _course_title(course)),
+        outline_course,
+    )
     existing_sessions = [dict(item) for item in current.get("sessions") or [] if isinstance(item, dict)]
     existing_lesson_ids = {
         str(item.get("lesson_unit_id"))
@@ -152,12 +265,12 @@ async def derive_teaching_calendar(course_id: str, request: Request):
     # lesson ID would collapse repeated groups and silently drop unbound rows.
     candidate_sessions: list[dict[str, Any]] = list(existing_sessions)
     retained_count = len(existing_sessions)
-    for index, node in enumerate(_lesson_nodes(course)):
+    for index, node in enumerate(_calendar_units(outline_course)):
         node_id = str(node.get("node_id") or "")
         if not node_id or node_id in existing_lesson_ids:
             continue
         content = str(node.get("node_name") or node.get("title") or f"第{index + 1}讲")
-        objective = str(node.get("learning_objective") or "")
+        objective = _unit_requirements(outline_course, node)
         candidate_sessions.append({
             "session_id": f"candidate-{hashlib.sha256(f'{course_id}:{node_id}'.encode('utf-8')).hexdigest()[:16]}",
             "lesson_unit_id": node_id,
@@ -181,8 +294,8 @@ async def derive_teaching_calendar(course_id: str, request: Request):
         item["sequence"] = sequence
     candidate = {
         **current,
-        "course_title": current.get("course_title") or _course_title(course),
-        "source_outline_revision": _outline_revision(course),
+        "course_title": current.get("course_title") or _course_title(outline_course),
+        "source_outline_revision": _outline_revision(outline_course),
         "sessions": candidate_sessions,
     }
     return {

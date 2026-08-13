@@ -10,7 +10,7 @@
         <strong>教学日历</strong>
       </nav>
       <div class="product-actions">
-        <button type="button" @click="router.push({ name: 'teacher-teaching-calendar' })"><CalendarRange :size="16" />教学总日历</button>
+        <button type="button" @click="openTotalCalendar"><CalendarRange :size="16" />教学总日历</button>
         <button type="button" aria-label="刷新日历" @click="load"><RefreshCw :size="17" :class="{ spin: store.loading }" /></button>
       </div>
     </header>
@@ -26,7 +26,7 @@
           <span>{{ t('teacherCalendar.scheduled', '已排期') }} {{ scheduledCount }}</span>
           <span>{{ t('teacherCalendar.unscheduled', '未排期') }} {{ unscheduledCount }}</span>
           <span class="spacer"></span>
-          <span v-if="dirty" class="dirty">{{ t('teacherCalendar.unsaved', '有未保存修改') }}</span>
+          <span v-if="dirty" class="dirty">未保存，不会同步总日历</span>
           <span v-else>{{ t('teacherCalendar.revision', '修订') }} {{ editable?.revision || 0 }}</span>
         </div>
 
@@ -51,8 +51,9 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            <button v-if="editable && view === 'table'" type="button" class="quiet-button" data-testid="add-table-session" @click="addSession"><Plus :size="15" />新增课次</button>
             <button v-if="editable" type="button" class="quiet-button" :disabled="store.deriving" @click="deriveFromOutline"><Sparkles :size="15" />{{ store.deriving ? '正在识别大纲' : '从大纲生成课次' }}</button>
-            <button v-if="editable" type="button" class="primary-button" data-testid="save-calendar" :disabled="!dirty || store.saving" @click="save"><Save :size="15" />{{ store.saving ? '保存中' : '保存日历' }}</button>
+            <button v-if="editable" type="button" class="primary-button" data-testid="save-calendar" :disabled="!dirty || store.saving" @click="save"><Save :size="15" />{{ store.saving ? '保存中' : '保存并同步' }}</button>
           </header>
 
           <div v-if="store.conflictRevision !== null" class="issue-bar" role="alert">
@@ -236,10 +237,32 @@ async function deriveFromOutline() {
     if (action) { editable.value = cloneCalendar(result.candidate); selectedIndex.value = editable.value.sessions.length ? 0 : null; dirty.value = true; ElMessage.success('候选已进入本地草稿，保存后才会生效') }
   } catch (error: any) { if (error !== 'cancel') ElMessage.error(store.error || '从大纲生成失败') }
 }
-async function save() {
-  if (!editable.value) return
-  try { editable.value = cloneCalendar(await store.saveCourse(courseId.value, editable.value)); dirty.value = false; ElMessage.success('教学日历已保存') }
-  catch { ElMessage.error(store.error || '教学日历保存失败') }
+async function save(): Promise<boolean> {
+  if (!editable.value) return false
+  try {
+    editable.value = cloneCalendar(await store.saveCourse(courseId.value, editable.value))
+    dirty.value = false
+    ElMessage.success('教学日历已保存，教学总日历已同步')
+    return true
+  } catch {
+    ElMessage.error(store.error || '教学日历保存失败')
+    return false
+  }
+}
+async function openTotalCalendar() {
+  if (dirty.value) {
+    try {
+      await ElMessageBox.confirm(
+        '当前新增或修改的课次仍是本地草稿，教学总日历只显示已保存课次。',
+        '先保存再查看教学总日历',
+        { type: 'info', confirmButtonText: '保存并打开', cancelButtonText: '留在当前页' },
+      )
+      if (!await save()) return
+    } catch {
+      return
+    }
+  }
+  await router.push({ name: 'teacher-teaching-calendar' })
 }
 async function load() {
   try {

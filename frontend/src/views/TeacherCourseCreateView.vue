@@ -86,6 +86,7 @@
       :initial-academic-term="academicTerm"
       :initial-total-class-hours="draft.totalHours"
       :initial-lesson-duration-minutes="draft.lessonDuration"
+      :initial-section-count="draft.expectedSessions"
       @generate="generateCourse"
       @error="message => operationError = message"
     />

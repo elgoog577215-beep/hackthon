@@ -101,11 +101,20 @@ def test_environment_cannot_disable_per_request_safety_fuses(
 def test_content_budget_is_a_resumable_window_not_a_course_size_cap():
     budget = CourseGenerationBudget()
 
+    assert budget.outline_max_output_tokens == 8192
     assert budget.content_concurrency == 4
     assert budget.content_inactivity_timeout_seconds == 90
     assert not hasattr(budget, "content_node_timeout_seconds")
     assert not hasattr(budget, "content_stage_timeout_seconds")
     assert "max_sections" not in budget.to_dict()
+
+
+def test_outline_output_budget_can_cover_ten_lesson_structured_plans(
+    monkeypatch,
+):
+    monkeypatch.delenv("COURSE_OUTLINE_MAX_OUTPUT_TOKENS", raising=False)
+
+    assert CourseGenerationBudget.from_env().outline_max_output_tokens == 8192
 
 
 def test_course_budget_has_no_total_section_rejection():

@@ -1876,6 +1876,8 @@
       "eyebrow": "Your judgment is needed",
       "title": "Confirm how this course unfolds",
       "help": "Review only the course name, sequence, and learning objectives. The lesson plan and content will keep growing from this structure on the same page.",
+      "chapterNavigation": "Jump to chapter",
+      "chapterNavigationShort": "Jump to",
       "retrievalTitle": "Web-research outline proposal",
       "retrievalRevision": "Retrieval package revision {revision}",
       "retrievalPending": "Applies after outline confirmation",

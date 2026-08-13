@@ -130,7 +130,9 @@
         >
           <BookOpenCheck :size="16" />
           <span>
-            <strong>{{ t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
+            <strong>{{ preferSectionView
+              ? t('courseGeneration.lessonPlan.teacherOverallTab', '全课设计')
+              : t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
           </span>
         </button>
         <button
@@ -143,7 +145,9 @@
         >
           <ListTree :size="16" />
           <span>
-            <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
+            <strong>{{ preferSectionView
+              ? t('courseGeneration.lessonPlan.teacherSectionTab', '本讲教案')
+              : t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
           </span>
         </button>
       </div>
@@ -1250,6 +1254,7 @@ const props = withDefaults(defineProps<{
   live?: boolean
   task?: Task
   aiDockTarget?: string
+  preferSectionView?: boolean
 }>(), {
   plan: null,
   nodes: () => [],
@@ -1258,6 +1263,7 @@ const props = withDefaults(defineProps<{
   live: false,
   task: undefined,
   aiDockTarget: '',
+  preferSectionView: false,
 })
 
 const emit = defineEmits<{
@@ -1973,6 +1979,14 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
 watch(
   () => [props.courseId, props.live, planReady.value],
   () => { void ensureWorkbench() },
+  { immediate: true },
+)
+
+watch(
+  () => props.activeNodeId,
+  activeNodeId => {
+    if (props.preferSectionView && activeNodeId) viewMode.value = 'sections'
+  },
   { immediate: true },
 )
 

@@ -7,7 +7,7 @@ vi.mock('@/utils/http', () => ({
 }))
 
 import http from '@/utils/http'
-import { useTeachingCalendarStore, type TeachingCalendar } from '@/stores/teachingCalendar'
+import { TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY, useTeachingCalendarStore, type TeachingCalendar } from '@/stores/teachingCalendar'
 
 const calendar: TeachingCalendar = {
   schema_version: 'teaching_calendar_v1',
@@ -50,6 +50,22 @@ describe('teaching calendar store', () => {
       { headers: { 'X-User-Id': 'teacher-calendar-test' } },
     )
     expect(store.calendar?.revision).toBe(3)
+  })
+
+  it('announces a successful save so total-calendar views can refresh', async () => {
+    const saved = { ...calendar, revision: 3, updated_at: '2026-08-13T10:00:00Z' }
+    vi.mocked(http.put).mockResolvedValue({ data: saved } as any)
+    const listener = vi.fn()
+    window.addEventListener(TEACHING_CALENDAR_SAVED_EVENT, listener)
+    const storageSpy = vi.spyOn(Storage.prototype, 'setItem')
+
+    await useTeachingCalendarStore().saveCourse('course-1', calendar)
+
+    expect(listener).toHaveBeenCalledOnce()
+    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({ courseId: 'course-1', revision: 3 })
+    expect(storageSpy).toHaveBeenCalledWith(TEACHING_CALENDAR_SAVED_STORAGE_KEY, expect.stringContaining('"revision":3'))
+    window.removeEventListener(TEACHING_CALENDAR_SAVED_EVENT, listener)
+    storageSpy.mockRestore()
   })
 
   it('preserves the conflict revision returned by the backend', async () => {

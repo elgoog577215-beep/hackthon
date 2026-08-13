@@ -61,12 +61,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Columns3, LayoutGrid, List, LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-vue-next'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import { t } from '../shared/i18n'
-import { useTeachingCalendarStore, type ClassSession } from '../stores/teachingCalendar'
+import { TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY, useTeachingCalendarStore, type ClassSession } from '../stores/teachingCalendar'
 
 const router = useRouter()
 const store = useTeachingCalendarStore()
@@ -94,8 +94,23 @@ async function load() { const range = loadRange(); try { await store.loadTotal(r
 function movePeriod(delta: number) { const value = new Date(cursor.value); if (view.value === 'week') value.setDate(value.getDate() + delta * 7); else value.setMonth(value.getMonth() + delta); cursor.value = value }
 function goToday() { cursor.value = new Date() }
 function openSession(session: ClassSession) { if (!session.course_id) return; void router.push({ name: 'teacher-course-calendar', params: { courseId: session.course_id }, query: { session: session.session_id || '' } }) }
+function refreshAfterCalendarSave() { void load() }
+function refreshAfterStorage(event: StorageEvent) { if (event.key === TEACHING_CALENDAR_SAVED_STORAGE_KEY) void load() }
+function refreshWhenVisible() { if (document.visibilityState === 'visible') void load() }
 
 watch([cursor, view], () => { void load() }, { immediate: true })
+onMounted(() => {
+  window.addEventListener(TEACHING_CALENDAR_SAVED_EVENT, refreshAfterCalendarSave)
+  window.addEventListener('storage', refreshAfterStorage)
+  window.addEventListener('focus', refreshAfterCalendarSave)
+  document.addEventListener('visibilitychange', refreshWhenVisible)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener(TEACHING_CALENDAR_SAVED_EVENT, refreshAfterCalendarSave)
+  window.removeEventListener('storage', refreshAfterStorage)
+  window.removeEventListener('focus', refreshAfterCalendarSave)
+  document.removeEventListener('visibilitychange', refreshWhenVisible)
+})
 </script>
 
 <style scoped>

@@ -297,10 +297,30 @@
           </section>
           </div>
 
+          <nav
+            v-if="chapterJumps.length > 1"
+            class="outline-review__chapter-nav"
+            :aria-label="t('courseGeneration.outlineReview.chapterNavigation', '按章快速定位')"
+          >
+            <span>{{ t('courseGeneration.outlineReview.chapterNavigationShort', '快速定位') }}</span>
+            <div>
+              <button
+                v-for="chapter in chapterJumps"
+                :key="chapter.node.node_id || chapter.index"
+                type="button"
+                :title="chapter.node.node_name"
+                @click="jumpToChapter(chapter.index)"
+              >
+                {{ chapter.node.node_name }}
+              </button>
+            </div>
+          </nav>
+
           <ol class="outline-review__nodes">
             <li
               v-for="(node, index) in blueprintNodes"
               :key="node.node_id || index"
+              :id="outlineNodeId(index)"
               :data-level="node.node_level || 2"
             >
               <span class="outline-review__index">{{ String(index + 1).padStart(2, '0') }}</span>
@@ -475,6 +495,9 @@ const blueprintNodes = computed<any[]>(() => (
       ? blueprintDraft.value.course_blueprint.nodes
       : []
 ))
+const chapterJumps = computed(() => blueprintNodes.value
+  .map((node, index) => ({ node, index }))
+  .filter(item => Number(item.node.node_level || 2) === 1))
 const courseType = computed(() => String(blueprintDraft.value?.course_type || props.task?.courseType || 'systematic'))
 const isProjectCourse = computed(() => courseType.value === 'project')
 const courseIntent = computed<Record<string, any>>(() => blueprintDraft.value?.course_intent || {})
@@ -518,6 +541,17 @@ function clone<T>(value: T): T {
 function listText(value: unknown) {
   if (!Array.isArray(value)) return ''
   return value.map(item => String(item || '').trim()).filter(Boolean).join('；')
+}
+
+function outlineNodeId(index: number) {
+  return `outline-review-node-${index}`
+}
+
+function jumpToChapter(index: number) {
+  const target = document.getElementById(outlineNodeId(index))
+  if (!target) return
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
 }
 
 function normalizedPathRole(value: unknown) {
@@ -795,11 +829,13 @@ async function confirmOutline() {
 
 <style scoped>
 .outline-review {
+  box-sizing:border-box;
+  height:100%;
   min-height:0;
   flex:1;
   display:flex;
   overflow:hidden;
-  padding:18px clamp(18px,3vw,40px) 26px;
+  padding:12px clamp(12px,2vw,24px) 16px;
   background:radial-gradient(circle at 88% 2%,rgba(99,102,241,.065),transparent 28%),linear-gradient(180deg,#f8f9fc 0%,#f4f6f9 100%);
 }
 .outline-review__sheet {
@@ -831,7 +867,7 @@ async function confirmOutline() {
   align-items:flex-start;
   justify-content:space-between;
   gap:28px;
-  padding:26px 30px 22px;
+  padding:18px 24px 16px;
   border-bottom:1px solid #e7e9ee;
 }
 .outline-review__eyebrow {
@@ -844,9 +880,9 @@ async function confirmOutline() {
   letter-spacing:.08em;
 }
 .outline-review__header h1 {
-  margin:7px 0 6px;
+  margin:5px 0 4px;
   color:#182230;
-  font:700 clamp(27px,2.6vw,36px)/1.18 Georgia,"Noto Serif SC",serif;
+  font:700 clamp(25px,2.2vw,30px)/1.18 Georgia,"Noto Serif SC",serif;
   letter-spacing:-.025em;
 }
 .outline-review__header p {
@@ -903,6 +939,7 @@ async function confirmOutline() {
   min-height:0;
   overflow:auto;
   overscroll-behavior:contain;
+  scrollbar-gutter:stable;
 }
 .outline-review__setup {
   min-width:0;
@@ -913,7 +950,7 @@ async function confirmOutline() {
   grid-template-columns:100px minmax(0,1fr);
   align-items:center;
   gap:14px;
-  margin:0 30px;
+  margin:0 24px;
   padding:14px 0 12px;
 }
 .outline-review__course-name span {
@@ -1031,7 +1068,7 @@ async function confirmOutline() {
   grid-template-columns:minmax(180px,.8fr) minmax(280px,1.7fr) auto;
   align-items:center;
   gap:14px;
-  margin:0 30px;
+  margin:0 24px;
   padding:13px 0;
   border-top:1px solid #eceef2;
 }
@@ -1162,8 +1199,57 @@ async function confirmOutline() {
   min-height:0;
   overflow:visible;
   margin:0;
-  padding:6px 30px 18px;
+  padding:6px 24px 18px;
   list-style:none;
+}
+.outline-review__chapter-nav {
+  position:sticky;
+  z-index:2;
+  top:0;
+  min-height:40px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:6px 24px;
+  border-bottom:1px solid #e7e9ee;
+  background:rgba(255,255,255,.97);
+}
+.outline-review__chapter-nav > span {
+  flex:0 0 auto;
+  color:#7b8494;
+  font-size:10px;
+  font-weight:750;
+}
+.outline-review__chapter-nav > div {
+  min-width:0;
+  display:flex;
+  gap:4px;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.outline-review__chapter-nav > div::-webkit-scrollbar { display:none; }
+.outline-review__chapter-nav button {
+  max-width:150px;
+  height:28px;
+  flex:0 0 auto;
+  overflow:hidden;
+  padding:0 9px;
+  border:1px solid transparent;
+  border-radius:6px;
+  color:#596579;
+  background:transparent;
+  cursor:pointer;
+  font-size:10px;
+  font-weight:700;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.outline-review__chapter-nav button:hover,
+.outline-review__chapter-nav button:focus-visible {
+  border-color:#c9cdea;
+  color:#454ca8;
+  background:#f7f7ff;
+  outline:none;
 }
 .outline-review__nodes li {
   position:relative;
@@ -1172,6 +1258,7 @@ async function confirmOutline() {
   gap:9px;
   padding:10px 0;
   border-bottom:1px solid #eef0f3;
+  scroll-margin-top:44px;
 }
 .outline-review__nodes li:last-child { border-bottom:0; }
 .outline-review__nodes li[data-level="1"] { margin-top:2px; }
@@ -1276,7 +1363,7 @@ async function confirmOutline() {
   align-items:center;
   justify-content:space-between;
   gap:24px;
-  padding:13px 18px 14px 30px;
+  padding:12px 18px 13px 24px;
   border-top:1px solid #dfe3e9;
   background:#fafbfc;
 }
@@ -1340,6 +1427,7 @@ async function confirmOutline() {
   .outline-review__proposal-actions { display:grid; grid-template-columns:1fr 1.25fr; }
   .outline-review__proposal-actions button { width:100%; }
   .outline-review__nodes { padding:4px 16px 12px; }
+  .outline-review__chapter-nav { padding:6px 16px; }
   .outline-review__nodes li { grid-template-columns:26px 12px minmax(0,1fr); gap:6px; }
   .outline-review__footer { align-items:stretch; flex-direction:column; gap:9px; padding:11px 12px 13px; }
   .outline-review__actions { display:grid; grid-template-columns:.85fr 1.15fr; }

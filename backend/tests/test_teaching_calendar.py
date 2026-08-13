@@ -208,6 +208,66 @@ class TeachingCalendarRouteTests(unittest.TestCase):
             self.assertEqual(sessions[4]["lesson_unit_id"], "lesson-2")
             self.assertEqual(self.repository.load("teacher-a", "course-1")["revision"], 1)
 
+    def test_derive_uses_generation_preview_and_requested_session_shape(self):
+        self.course = {
+            "course_id": "course-1",
+            "course_name": "人工智能基础十讲",
+            "generation_request": {
+                "teacher_course_brief": {
+                    "academic_term": "2026-2027 秋冬",
+                    "total_class_hours": 4,
+                    "lesson_duration_minutes": 90,
+                }
+            },
+            "nodes": [{"node_id": "root-placeholder", "node_name": "生成中", "node_level": 1}],
+        }
+
+        class FakeTaskManager:
+            @staticmethod
+            def get_generation_preview(course_id: str):
+                assert course_id == "course-1"
+                return {
+                    "course_id": course_id,
+                    "course_name": "人工智能基础十讲",
+                    "updated_at": "2026-08-13T10:00:00Z",
+                    "nodes": [
+                        {"node_id": "chapter-1", "parent_node_id": "root", "node_name": "第1章 AI概览", "node_level": 1},
+                        {"node_id": "lesson-1", "parent_node_id": "chapter-1", "node_name": "1.1 AI定义", "node_level": 2, "learning_objective": "解释AI定义"},
+                        {"node_id": "lesson-2", "parent_node_id": "chapter-1", "node_name": "1.2 AI历史", "node_level": 2, "learning_objective": "梳理AI历史"},
+                        {"node_id": "chapter-2", "parent_node_id": "root", "node_name": "第2章 数据", "node_level": 1},
+                        {"node_id": "lesson-3", "parent_node_id": "chapter-2", "node_name": "2.1 数据表示", "node_level": 2, "learning_objective": "理解数据表示"},
+                        {"node_id": "lesson-4", "parent_node_id": "chapter-2", "node_name": "2.2 数据质量", "node_level": 2, "learning_objective": "评估数据质量"},
+                    ],
+                }
+
+        repository_patch, course_patch = self._patches()
+        headers = {"X-User-Id": "teacher-a"}
+        with (
+            repository_patch,
+            course_patch,
+            patch.object(teaching_calendar_router, "get_task_manager_optional", return_value=FakeTaskManager()),
+        ):
+            loaded = self.client.get("/api/courses/course-1/teaching-calendar", headers=headers)
+            derived = self.client.post(
+                "/api/courses/course-1/teaching-calendar/derive-from-outline",
+                headers=headers,
+            )
+
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.json()["academic_year"], "2026-2027")
+        self.assertEqual(loaded.json()["term"], "秋冬")
+        self.assertEqual(derived.status_code, 200)
+        result = derived.json()
+        self.assertEqual(result["new_count"], 2)
+        self.assertEqual(
+            [item["lesson_unit_id"] for item in result["candidate"]["sessions"]],
+            ["chapter-1", "chapter-2"],
+        )
+        self.assertEqual(
+            result["candidate"]["sessions"][0]["requirements"],
+            "解释AI定义；梳理AI历史",
+        )
+
     def test_rejects_invalid_time_and_requires_identity(self):
         repository_patch, course_patch = self._patches()
         with repository_patch, course_patch:

@@ -193,6 +193,7 @@
                 :live="isGenerationPreview"
                 :task="task"
                 ai-dock-target="#teacher-course-ai-dock"
+                prefer-section-view
                 @select="selectLesson"
                 @open-outline-editor="router.push({ name: 'teacher-course-outline', params: { courseId } })"
                 @applied="handleTeachingPlanApplied"
@@ -410,7 +411,15 @@ function selectStage(key: StageKey) {
     }
   }
 }
-function selectLesson(node: Node) { courseStore.selectNode(node) }
+function selectLesson(node: Node) {
+  courseStore.selectNode(node)
+  if (pageMode.value !== 'production' || String(route.query.node || '') === node.node_id) return
+  void router.replace({
+    name: 'teacher-course-production',
+    params: { courseId: courseId.value },
+    query: { ...route.query, node: node.node_id },
+  })
+}
 function lessonNumber(node: Node) { return String(Math.max(1, lessons.value.findIndex(item => item.node_id === node.node_id) + 1)).padStart(2, '0') }
 function nodePreviewContent(node: Node) {
   const blocks = (node.content_blocks || []).filter(block => block.content).slice(0, 2)

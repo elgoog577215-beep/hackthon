@@ -1876,6 +1876,8 @@
       "eyebrow": "需要你的判断",
       "title": "确认这门课怎样展开",
       "help": "只检查课程名称、章节顺序和学习目标。确认后，教案与正文会沿用这份结构在当前页面继续生长。",
+      "chapterNavigation": "按章快速定位",
+      "chapterNavigationShort": "快速定位",
       "retrievalTitle": "联网研究调整提案",
       "retrievalRevision": "检索包修订 {revision}",
       "retrievalPending": "确认目录后生效",
