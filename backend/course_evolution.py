@@ -368,7 +368,9 @@ def synchronize_and_evaluate_course_evolution(
     document = _course_document(course_data)
     # Knowledge compilation normalizes legacy fields in-place. Personal
     # adaptation is a read-only consumer, so compile from an isolated snapshot.
-    knowledge_base = compile_course_knowledge_base(deepcopy(course_data))
+    knowledge_base = compile_course_knowledge_base(
+        deepcopy(knowledge_compilation_source(course_data)),
+    )
     asset_bundle = learning_asset_repository.load_bundle(course_id) or {}
     learning_assets = asset_bundle.get("assets") if isinstance(asset_bundle, dict) else {}
     state = repository.load(user_id, course_id)
@@ -389,6 +391,31 @@ def synchronize_and_evaluate_course_evolution(
     ensure_challenge_suggestions(state, document)
     _evaluate_applied_effects(state, user_id=user_id)
     return repository.save(state)
+
+
+def knowledge_compilation_source(course_data: dict[str, Any]) -> dict[str, Any]:
+    """Return a course shape the knowledge compiler can read bindings from.
+
+    Callers pass whichever shape they hold: routes use the projected course view,
+    while the learning-event hook passes the raw stored course. A migrated course
+    persists ``course_document`` and no ``nodes``, and the knowledge compiler
+    reads its per-section structure from ``nodes`` — so the raw shape compiles to
+    zero bindings and a plan silently freezes with no knowledge anchor. Normalize
+    here rather than making every caller know which shape to hand over.
+    """
+    if course_data.get("nodes"):
+        return course_data
+    document = course_data.get("course_document")
+    if not isinstance(document, dict):
+        return course_data
+    try:
+        from course_document import course_view_from_document
+
+        return course_view_from_document(course_data, document)
+    except Exception:
+        # Projection is a convenience, never a precondition for evaluating
+        # evidence; fall back to the caller's shape rather than failing the sync.
+        return course_data
 
 
 def _reconcile_command_group(
@@ -1748,7 +1775,7 @@ def _build_change_set(
     target = blocks[hypothesis.target_block_id]
     target_text = _block_text(target.payload)
     target_title = str(target.payload.get("title") or sections.get(target.section_id, {}).title if sections.get(target.section_id) else "当前内容")
-    target_binding = _knowledge_binding_for_anchor(
+    target_binding = knowledge_binding_for_anchor(
         knowledge_base or {},
         section_id=target.section_id,
         block_id=target.block_id,
@@ -3163,7 +3190,7 @@ def _resolve_anchor(
     ability_refs = [str(item) for item in source.get("skill_unit_ids") or [] if item]
     misconception_refs = [str(item) for item in source.get("mistake_point_ids") or [] if item]
     if knowledge_base:
-        resolved = _knowledge_binding_for_anchor(
+        resolved = knowledge_binding_for_anchor(
             knowledge_base,
             section_id=section_id,
             block_id=block_id,
@@ -3294,7 +3321,7 @@ def _affected_blocks(
     if count == 1:
         return [block_id]
 
-    source_binding = _knowledge_binding_for_anchor(
+    source_binding = knowledge_binding_for_anchor(
         knowledge_base or {},
         section_id=ordered[index].section_id,
         block_id=block_id,
@@ -3388,7 +3415,7 @@ def _affected_blocks(
     return selected
 
 
-def _knowledge_binding_for_anchor(
+def knowledge_binding_for_anchor(
     knowledge_base: dict[str, Any],
     *,
     section_id: str,
@@ -3891,6 +3918,8 @@ __all__ = [
     "accept_change_set",
     "course_evolution_repository",
     "course_evolution_view",
+    "knowledge_binding_for_anchor",
+    "knowledge_compilation_source",
     "knowledge_revision_pins",
     "personal_course_overlay",
     "reject_change_set",
