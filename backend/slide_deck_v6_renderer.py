@@ -112,6 +112,17 @@ def _layout_variant(
     return str(policy.get("full_variant") or ""), "full"
 
 
+def _audience_title(page: SlidePageV6) -> str:
+    title = str(page.title or "").strip()
+    if page.continuation_count <= 1:
+        return title
+    return re.sub(
+        r"\s*[（(]\s*\d+\s*/\s*\d+\s*[）)]\s*$",
+        "",
+        title,
+    ).strip()
+
+
 def _table_row_requires_detail(value: str) -> bool:
     headers, rows = _parse_markdown_table(value)
     if len(rows) != 1:
@@ -168,7 +179,9 @@ def _region_block(page: SlidePageV6, region: Any) -> SlideBlockSpec:
     return SlideBlockSpec(
         block_id=region.region_id,
         type=block_type,
-        title=region.slot_id.replace("_", " ").title(),
+        # Slot identifiers describe the template contract; they are not
+        # audience-facing copy and must never become visible headings.
+        title="",
         content="" if items else region.content,
         items=items,
         metadata=metadata,
@@ -198,14 +211,16 @@ def _visuals(page: SlidePageV6) -> list[dict[str, Any]]:
     if decision == "formula" and "formula" in by_kind:
         return [{
             "kind": "formula",
-            "caption": by_kind["formula"].slot_id,
+            "caption": "",
+            "alt_text": _audience_title(page),
             "parameters": {"formula": by_kind["formula"].content},
         }]
     if decision in {"table", "data"} and "table" in by_kind:
         headers, rows = _parse_markdown_table(by_kind["table"].content)
         return [{
             "kind": "table",
-            "caption": by_kind["table"].slot_id,
+            "caption": "",
+            "alt_text": _audience_title(page),
             "parameters": {"headers": headers, "rows": rows},
         }]
     if decision == "diagram":
@@ -285,17 +300,23 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         ),
         "",
     )
+    if slug == "cover-minimal":
+        subtitle = ""
+    eyebrow = next(
+        (
+            region.content
+            for region in resolved_page.regions
+            if region.slot_id == "eyebrow"
+        ),
+        "",
+    )
     return SlideSpec(
         unit_id=resolved_page.page_id,
         position=resolved_page.page_ordinal,
         layout=adapter["basic_layout"] or "concept",
         slide_purpose=slug,
-        eyebrow=(
-            "COURSE DECK"
-            if slug == "cover-minimal"
-            else slug.replace("-", " ").upper()
-        ),
-        title=resolved_page.title,
+        eyebrow=eyebrow,
+        title=_audience_title(resolved_page),
         subtitle=subtitle,
         composition="diagram-full" if slug == "evidence-diagram" else "",
         visuals=_visuals(resolved_page),
@@ -305,6 +326,7 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         quality={
             "passed": True,
             "render_contract": "template_layout_contract_v1",
+            "audience_label_policy": "source_only",
             "v6_template_layout_id": resolved_page.resolved_layout,
             "v6_layout_slug": slug,
             "v6_layout_variant": layout_variant,

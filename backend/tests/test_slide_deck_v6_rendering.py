@@ -725,16 +725,82 @@ def test_v6_web_and_pptx_adapters_resolve_the_same_template_page(tmp_path: Path)
     assert "A rejected value remains visible" in notes
 
 
-def test_course_cover_adapter_exposes_source_subtitle_without_internal_slug() -> None:
+def test_published_continuation_titles_hide_legacy_pagination_suffixes() -> None:
+    deck = _dense_table_deck()
+    page = deck.pages[0].model_copy(update={
+        "title": "Review the evidence (1/3)",
+        "continuation_index": 1,
+        "continuation_count": 3,
+    })
+
+    adapted = adapt_v6_page_to_slide_spec(page)
+
+    assert adapted.title == "Review the evidence"
+
+
+def test_course_cover_adapter_keeps_the_title_page_minimal_and_internal_labels_hidden() -> None:
     document, _deck = _code_deck()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     page = _compile_course_cover_page(document, template)
 
     adapted = adapt_v6_page_to_slide_spec(page)
 
-    assert adapted.eyebrow == "COURSE DECK"
-    assert adapted.subtitle == page.regions[0].content
-    assert adapted.subtitle
+    assert adapted.eyebrow == ""
+    assert adapted.subtitle == ""
+    assert adapted.quality["audience_label_policy"] == "source_only"
+    assert [(region.slot_id, region.content) for region in page.regions] == [
+        ("title", document.title),
+    ]
+
+
+def test_course_cover_title_only_contract_survives_pptx_frame_audit(tmp_path: Path) -> None:
+    document, deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    long_objective = (
+        "记录湿地观察地点时间天气仪器校准采样窗口证据负责人验收标准异常现象"
+        "复核结论推导依据修正方案跟进责任人并保留签字原始记录供独立审查追溯"
+        "同时区分事实观察与解释判断确保每项结论都能回到冻结来源"
+    )
+    cover = _compile_course_cover_page(
+        document.model_copy(update={
+            "title": "A field guide to reproducible environmental evidence",
+            "sections": [
+                section.model_copy(update={
+                    "learning_objective": long_objective,
+                })
+                for section in document.sections
+            ],
+        }),
+        template,
+    )
+    cover_deck = deck.model_copy(update={"pages": [cover]})
+    output = export_slide_deck_v6_pptx(
+        cover_deck.model_dump(mode="json"),
+        tmp_path / "v6-cover-capacity.pptx",
+    )
+
+    assert [(region.slot_id, region.content) for region in cover.regions] == [
+        ("title", cover.title),
+    ]
+    audit = audit_exported_pptx(output, expected_slide_count=1)
+    presentation = Presentation(output)
+    visible_text = [
+        shape.text.strip()
+        for shape in presentation.slides[0].shapes
+        if hasattr(shape, "text") and shape.text.strip()
+    ]
+
+    assert "COURSE DECK" not in visible_text
+    assert "课堂演示" not in visible_text
+    assert long_objective not in visible_text
+    assert not [
+        issue
+        for issue in audit["issues"]
+        if issue.get("code") in {
+            "exported_text_frame_overflow",
+            "exported_title_unexpected_wrap",
+        }
+    ]
 
 
 def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Path) -> None:
@@ -784,6 +850,8 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
 
     assert split_slide.quality["v6_layout_variant"] == "table-wide-with-summary"
     assert split_slide.quality["v6_artifact_support_mode"] == "band"
+    assert split_slide.eyebrow == ""
+    assert all(block.title == "" for block in split_slide.blocks)
     for page in deck.pages[1:]:
         continuation_slide = adapt_v6_page_to_slide_spec(page)
         assert continuation_slide.quality["v6_layout_variant"] == "table-continuation"
@@ -799,6 +867,16 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
     assert report["passed"], report["blockers"]
     presentation = Presentation(output)
     for slide in presentation.slides:
+        visible_text = [
+            shape.text.strip()
+            for shape in slide.shapes
+            if hasattr(shape, "text") and shape.text.strip()
+        ]
+        assert "EVIDENCE TABLE" not in visible_text
+        assert "INTERPRETATION" not in visible_text
+        assert "SUMMARY" not in visible_text
+        assert "COURSE" not in visible_text
+        assert not any("(1/" in value or "(2/" in value for value in visible_text)
         table = next(shape.table for shape in slide.shapes if shape.has_table)
         assert all(
             cell.vertical_anchor == MSO_ANCHOR.MIDDLE

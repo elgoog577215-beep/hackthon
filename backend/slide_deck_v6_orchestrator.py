@@ -30,6 +30,7 @@ from slide_deck_v6 import (
     build_signature_v6,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
+    prepare_story_plan_for_final_compilation,
 )
 from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from teaching_representations import (
@@ -598,6 +599,12 @@ class SlideDeckV6Orchestrator:
 
             current_work = "materialize"
             tracker.start("materialize")
+            story = prepare_story_plan_for_final_compilation(
+                story,
+                graph,
+                template,
+            )
+            save_checkpoint(story_plan=story.model_dump(mode="json"))
             deck = compile_slide_deck_v6(document, graph, story, visual, template)
             tracker.add_work([
                 SlideWorkItemV2(

@@ -640,6 +640,62 @@ def test_story_plan_rejects_an_underfilled_editorial_body_when_source_is_rich() 
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_final_compiler_uses_frozen_source_when_editorial_summary_underfills() -> None:
+    source = (
+        "Before a wetland survey begins, observers freeze the location, time, "
+        "weather, instrument calibration, sampling window, and evidence owner. "
+        "After collection, the team compares every record with the acceptance "
+        "criterion, documents anomalies, and keeps interpretation separate from "
+        "the signed field evidence."
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-final-density",
+        title="Field evidence",
+        sections=[CourseSection(
+            section_id="field",
+            title="Wetland evidence review",
+            position=0,
+        )],
+        blocks=[_block(
+            "field-evidence",
+            "field",
+            0,
+            role="concept",
+            text=source,
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    page = story.batches[0].pages[0]
+    page.title = "Wetland evidence review"
+    page.summary = "Record the evidence."
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    compiled_page = next(item for item in deck.pages if item.page_id == page.page_id)
+    body = next(
+        region.content
+        for region in compiled_page.regions
+        if region.slot_id == "body"
+    )
+    body_slot = next(
+        slot
+        for slot in template.get_layout(page.template_layout_id).slots
+        if slot.slot_id == "body"
+    )
+    assert body != "Record the evidence."
+    assert len(body) >= body_slot.min_chars
+    assert body in source
+
+
 def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
@@ -1689,6 +1745,12 @@ def test_template_safe_table_continuations_do_not_consume_the_story_page_budget(
     assert len(deck.pages) == 5
     assert len(table_pages) == 3
     assert all(page.continuation_count == 3 for page in table_pages)
+    assert [page.title for page in table_pages] == [
+        "Inspect the complete evidence",
+        "Inspect the complete evidence",
+        "Inspect the complete evidence",
+    ]
+    assert all("/3)" not in page.title for page in table_pages)
 
 
 def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda() -> None:
@@ -1766,8 +1828,9 @@ def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda(
     assert cover.source_section_ids == ["observe", "explain"]
     assert cover.speaker_notes.source_blocks == []
     assert cover.speaker_notes.source_section_ids == ["observe", "explain"]
-    assert cover.regions[0].slot_id == "subtitle"
-    assert cover.regions[0].source_section_ids == ["observe", "explain"]
+    assert [(region.slot_id, region.content) for region in cover.regions] == [
+        ("title", document.title),
+    ]
 
     agenda = deck.pages[1]
     assert agenda.resolved_layout == template.layout_id("agenda-path")

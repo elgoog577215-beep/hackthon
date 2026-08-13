@@ -33,8 +33,9 @@ describe('slide deck V6 web adapter', () => {
       pages: [page],
     })[0]!
 
-    expect(slide.eyebrow).toBe('COURSE DECK')
-    expect(slide.subtitle).toBe('开发环境初始化与项目结构规范')
+    expect(slide.eyebrow).toBe('')
+    expect(slide.subtitle).toBe('')
+    expect(slide.quality.audience_label_policy).toBe('source_only')
   })
 
   it('uses the shared template adapter contract and preserves full V6 layout identity', () => {
@@ -191,7 +192,7 @@ describe('slide deck V6 web adapter', () => {
       schema_version: 'slide_page_v6',
       page_id: 'page-table',
       page_ordinal: 0,
-      title: 'Compare the field evidence',
+      title: 'Compare the field evidence (1/2)',
       resolved_layout: 'qizhi-classroom-v2@2026.08.10.5/evidence-table',
       source_block_ids: ['interpretation', 'evidence'],
       continuation_index: 1,
@@ -227,6 +228,7 @@ describe('slide deck V6 web adapter', () => {
           ...basePage,
           page_id: 'page-table--continuation-2',
           page_ordinal: 1,
+          title: 'Compare the field evidence (2/2)',
           continuation_of_page_id: 'page-table',
           continuation_index: 2,
           regions: basePage.regions.map(region => ({
@@ -241,6 +243,12 @@ describe('slide deck V6 web adapter', () => {
 
     expect(slides[0]!.quality.v6_layout_variant).toBe('table-with-interpretation')
     expect(slides[1]!.quality.v6_layout_variant).toBe('table-row-detail')
+    expect(slides.map(slide => slide.title)).toEqual([
+      'Compare the field evidence',
+      'Compare the field evidence',
+    ])
+    expect(slides[0]!.eyebrow).toBe('')
+    expect(slides[0]!.blocks.every((block: any) => block.title === '')).toBe(true)
     expect(slides[0]!.visuals[0].parameters).toEqual({
       headers: ['Check', 'Evidence'],
       rows: [['Input | timestamp', 'Recorded']],

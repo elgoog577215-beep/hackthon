@@ -6,7 +6,6 @@
           <ArrowLeft :size="18" />
         </button>
         <div>
-          <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
           <strong>{{ deckTitle }}</strong>
         </div>
         <span class="slide-workbench__status" :data-state="generationBlocked ? 'blocked' : error ? 'error' : building ? 'building' : qualityPassed ? 'ready' : 'warning'">
@@ -19,37 +18,8 @@
         <small class="slide-workbench__engine-status" :data-state="engineStatus">
           {{ engineStatusLabel }}
         </small>
-        <small class="slide-workbench__schema-facts" data-testid="ppt-schema-facts">
-          {{ t('pptWorkspace.targetSchema', '目标') }} {{ schemaLabel(targetSchema) }} ·
-          {{ t('pptWorkspace.candidateSchema', '候选') }} {{ schemaLabel(candidateSchema) }} ·
-          {{ t('pptWorkspace.publishedSchema', '已发布') }} {{ schemaLabel(publishedSchema) }}
-        </small>
-        <small
-          v-if="candidateStatus === 'v5_needs_manual_edit' || candidateStatus === 'v6_needs_manual_edit'"
-          class="slide-workbench__manual-status"
-          data-testid="ppt-manual-edit-status"
-        >{{ t('pptWorkspace.manualEditCandidate', '完整课件已生成，部分页面需要人工调整') }}</small>
-        <small
-          v-if="planningStatus?.story_ai?.status === 'completed'"
-          class="slide-workbench__manual-status"
-          data-testid="ppt-story-ai-status"
-        >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
-        <small
-          v-if="planningStatus?.visual_ai?.status"
-          class="slide-workbench__manual-status"
-          data-testid="ppt-visual-ai-status"
-        >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `视觉 AI 部分降级 · ${planningStatus.visual_ai.degraded_page_count || 0} 页需检查` : '视觉 AI 已完成' }}</small>
-        <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
-          {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
-        </small>
-        <small v-if="currentRepresentation?.course_logic_upgrade_required" class="slide-workbench__engine-update">
-          {{ currentRepresentation.course_logic_upgrade_reason || '请先升级课程教学计划，再生成课程逻辑版 PPT' }}
-        </small>
       </div>
       <div class="slide-workbench__commands">
-        <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
-          <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
-        </button>
         <select
           v-if="bundleParts.length > 1"
           class="slide-workbench__part-selector"
@@ -84,14 +54,54 @@
         <button v-if="standalone" type="button" class="slide-workbench__configure-compact" :disabled="building || generationBlocked" title="选择模式与风格" @click="emit('configure')">
           <SlidersHorizontal :size="16" />
         </button>
+        <details class="slide-workbench__more" data-testid="ppt-build-details">
+          <summary>
+            <ScanSearch :size="16" />
+            <span>{{ t('pptWorkspace.buildDetails', '生成详情') }}</span>
+          </summary>
+          <div class="slide-workbench__more-menu">
+            <strong>{{ t('pptWorkspace.buildDetails', '生成详情') }}</strong>
+            <small class="slide-workbench__schema-facts" data-testid="ppt-schema-facts">
+              {{ t('pptWorkspace.targetSchema', '目标') }} {{ schemaLabel(targetSchema) }} ·
+              {{ t('pptWorkspace.candidateSchema', '候选') }} {{ schemaLabel(candidateSchema) }} ·
+              {{ t('pptWorkspace.publishedSchema', '已发布') }} {{ schemaLabel(publishedSchema) }}
+            </small>
+            <small
+              v-if="candidateStatus === 'v5_needs_manual_edit' || candidateStatus === 'v6_needs_manual_edit'"
+              class="slide-workbench__manual-status"
+              data-testid="ppt-manual-edit-status"
+            >{{ t('pptWorkspace.manualEditCandidate', '完整课件已生成，部分页面需要人工调整') }}</small>
+            <small
+              v-if="planningStatus?.story_ai?.status === 'completed'"
+              class="slide-workbench__manual-status"
+              data-testid="ppt-story-ai-status"
+            >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
+            <small
+              v-if="planningStatus?.visual_ai?.status"
+              class="slide-workbench__manual-status"
+              data-testid="ppt-visual-ai-status"
+            >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `视觉 AI 部分降级 · ${planningStatus.visual_ai.degraded_page_count || 0} 页需检查` : '视觉 AI 已完成' }}</small>
+            <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
+              {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
+            </small>
+            <small v-if="currentRepresentation?.course_logic_upgrade_required" class="slide-workbench__engine-update">
+              {{ currentRepresentation.course_logic_upgrade_reason || '请先升级课程教学计划，再生成课程逻辑版 PPT' }}
+            </small>
+            <div class="slide-workbench__secondary-actions">
+              <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
+                <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
+              </button>
+              <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
+                <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
+              </button>
+            </div>
+          </div>
+        </details>
         <button v-if="standalone && generationBlocked" type="button" class="slide-workbench__upgrade-logic" :disabled="logicUpgrading" :title="t('pptWorkspace.completeCourseLogic', '补全课程逻辑')" @click="emit('upgrade-course-logic')">
           <Sparkles :size="16" /><span>{{ logicUpgrading ? t('pptWorkspace.completingCourseLogic', '正在补全课程逻辑…') : t('pptWorkspace.completeCourseLogic', '补全课程逻辑') }}</span>
         </button>
         <button v-else-if="standalone" type="button" :disabled="building" :title="buildResumable ? t('pptWorkspace.resumeCheckpoint', '从保存点继续') : t('teachingRepresentations.rebuildCurrentVariant', '重新生成当前模式与风格组合')" @click="emit('rebuild')">
           <RefreshCw :size="16" :class="{ spinning: building }" /><span>{{ buildResumable ? t('pptWorkspace.resumeCheckpoint', '从保存点继续') : t('pptWorkspace.rebuildCurrent', '重新生成当前组合') }}</span>
-        </button>
-        <button type="button" :disabled="!activeSlide || building" :title="t('teachingRepresentations.slides.askAi', '交给 AI 老师讨论')" @click="askAi">
-          <Sparkles :size="16" /><span>{{ t('teachingRepresentations.slides.askAi', '交给 AI 老师') }}</span>
         </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('pptWorkspace.present', '全屏演示')" @click="openPresentation">
           <Play :size="16" /><span>{{ t('pptWorkspace.present', '全屏演示') }}</span>
@@ -1241,6 +1251,17 @@ function classificationLabel(value: string) {
 .slide-workbench__schema-facts { color:#667085; font-size:9px; font-weight:700; }
 .slide-workbench__manual-status { padding:4px 7px; border:1px solid #f1c36d; border-radius:999px; color:#92400e; background:#fffbeb; font-size:9px; font-weight:800; }
 .slide-workbench__commands { flex:none; display:flex; gap:6px; }.slide-workbench__commands button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }.slide-workbench__commands button:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }.slide-workbench__commands button:disabled { opacity:.45; cursor:not-allowed; }
+.slide-workbench__more { position:relative; }
+.slide-workbench__more > summary { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; font-weight:700; list-style:none; cursor:pointer; }
+.slide-workbench__more > summary::-webkit-details-marker { display:none; }
+.slide-workbench__more[open] > summary,.slide-workbench__more > summary:hover { color:var(--lz-brand-strong); border-color:#c7d2fe; background:var(--lz-brand-soft); }
+.slide-workbench__more-menu { position:absolute; z-index:30; top:calc(100% + 9px); right:0; width:min(340px,82vw); display:grid; gap:8px; padding:14px; border:1px solid #d9e0eb; border-radius:12px; color:#344054; background:#fff; box-shadow:0 18px 42px rgba(15,23,42,.2); }
+.slide-workbench__more-menu > strong { font-size:12px; }
+.slide-workbench__more-menu > small { display:block; padding:0; border:0; border-radius:0; color:#667085; background:transparent; font-size:10px; font-weight:700; line-height:1.45; }
+.slide-workbench__more-menu > .slide-workbench__manual-status { color:#92400e; }
+.slide-workbench__more-menu > .slide-workbench__engine-update { color:#8a4b08; }
+.slide-workbench__secondary-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding-top:4px; border-top:1px solid #eef1f5; }
+.slide-workbench__commands .slide-workbench__secondary-actions button { width:100%; justify-content:center; color:#475467; background:#fff; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
 .slide-workbench__part-selector { min-height:34px; max-width:110px; padding:0 28px 0 10px; border:1px solid var(--lz-border); border-radius:9px; color:#536174; background:#fff; font-size:11px; font-weight:800; outline:none; }
 .slide-workbench__theme select { min-height:28px; max-width:112px; padding:0 25px 0 8px; border:0; border-radius:6px; color:#536174; background:#fff; font-size:11px; font-weight:700; outline:none; }
@@ -1294,12 +1315,12 @@ function classificationLabel(value: string) {
 /* 独立 PPT 工作台：克制的编辑部风格，优先保证长时间备课与课堂投影的可读性。 */
 .slide-workbench.is-standalone {
   height:100dvh;
-  grid-template-rows:74px minmax(0,1fr);
+  grid-template-rows:64px minmax(0,1fr);
   color:#17202c;
   background:#e9edf3;
   font-family:"Avenir Next","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
 }
-.slide-workbench.is-standalone.has-build-progress { grid-template-rows:74px auto minmax(0,1fr); }
+.slide-workbench.is-standalone.has-build-progress { grid-template-rows:64px auto minmax(0,1fr); }
 .is-standalone .slide-workbench__toolbar {
   z-index:8;
   padding:0 20px;
@@ -1348,6 +1369,11 @@ function classificationLabel(value: string) {
   border-color:rgba(255,255,255,.28);
   background:rgba(255,255,255,.1);
 }
+.is-standalone .slide-workbench__more > summary { min-height:38px; padding:0 12px; border-color:rgba(255,255,255,.13); border-radius:9px; color:#d9e2ee; background:rgba(255,255,255,.045); font-size:11px; }
+.is-standalone .slide-workbench__more[open] > summary,.is-standalone .slide-workbench__more > summary:hover { color:#fff; border-color:rgba(255,255,255,.28); background:rgba(255,255,255,.1); }
+.is-standalone .slide-workbench__more-menu { color:#344054; background:#fff; }
+.is-standalone .slide-workbench__commands .slide-workbench__more-menu button { min-height:34px; color:#475467; border-color:#d9e0eb; background:#fff; }
+.is-standalone .slide-workbench__commands .slide-workbench__more-menu button:hover:not(:disabled) { color:#1d4ed8; border-color:#bfd1ff; background:#eff5ff; }
 .is-standalone .slide-workbench__commands .slide-workbench__export {
   padding:0 15px;
   color:#fff;
@@ -1531,7 +1557,10 @@ function classificationLabel(value: string) {
 @media (max-width:1180px) {
   .is-standalone .slide-workbench__body { grid-template-columns:172px minmax(460px,1fr) 270px; }
   .is-standalone .slide-workbench__commands button span { display:none; }
+  .is-standalone .slide-workbench__more > summary span { display:none; }
+  .is-standalone .slide-workbench__more-menu button span { display:inline; }
   .is-standalone .slide-workbench__commands button { width:38px; padding:0; }
+  .is-standalone .slide-workbench__commands .slide-workbench__more-menu button { width:100%; padding:0 10px; }
   .is-standalone .slide-workbench__commands .slide-workbench__export { width:auto; padding:0 12px; }
   .is-standalone .slide-workbench__commands .slide-workbench__export span { display:inline; }
   .is-standalone .slide-workbench__commands .slide-workbench__theme button { width:auto; padding:0 7px; }

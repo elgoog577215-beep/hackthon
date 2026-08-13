@@ -33,6 +33,7 @@ function tableSlide(variant: TableVariant) {
     ],
     quality: {
       resolved_layout: 'data-highlight',
+      audience_label_policy: 'source_only' as const,
       v6_layout_variant: variant,
       v6_artifact_support_mode: (
         variant === 'table-with-interpretation'
@@ -68,6 +69,7 @@ describe('SlideCanvas V6 table family', () => {
     const splitStory = split.get('.deck-canvas__story')
 
     expect(splitStory.attributes('data-layout-variant')).toBe('table-with-interpretation')
+    expect(split.find('.deck-canvas__heading small').exists()).toBe(false)
     expect(split.findAll('.deck-canvas__source section')).toHaveLength(1)
     expect(split.get('.deck-canvas__source').text()).toContain('Compare the recorded condition')
     expect(split.get('.deck-canvas__source').text()).not.toContain('| Check | Evidence |')

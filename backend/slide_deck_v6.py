@@ -1991,12 +1991,10 @@ def _safe_artifact_page_blocks(
 
 
 def _continuation_title(title: str, index: int, count: int, capacity: int) -> str:
-    if count == 1:
-        return title
-    suffix = f" ({index}/{count})"
-    if capacity and len(title) + len(suffix) > capacity:
-        title = title[: max(1, capacity - len(suffix))].rstrip()
-    return f"{title}{suffix}"
+    """Keep pagination metadata out of the audience-facing teaching claim."""
+
+    _ = (index, count, capacity)
+    return title
 
 
 def _effective_slot_min_chars(slot: Any, blocks: list[CourseBlock]) -> int:
@@ -2095,6 +2093,19 @@ def _materialize_template_regions(
                     raise ValueError("template_slot_capacity_exceeded")
                 content = summary_content
                 slot_blocks = list(source_blocks)
+                minimum_chars = _effective_slot_min_chars(slot, slot_blocks)
+                if (
+                    minimum_chars
+                    and len(_visible_prose_text(content)) < minimum_chars
+                ):
+                    content = _bounded_slot_content(
+                        slot_blocks,
+                        slot_kind=slot.slot_kind,
+                        max_chars=slot.max_chars,
+                        max_items=slot.max_items,
+                        max_lines=slot.max_lines,
+                        max_rows=slot.max_rows,
+                    )
             else:
                 content = _bounded_slot_content(
                     slot_blocks,
@@ -2677,15 +2688,11 @@ def _compile_course_cover_page(
         (slot for slot in layout.slots if slot.slot_kind == "title"),
         None,
     )
-    subtitle_slot = next(
-        (slot for slot in layout.slots if slot.slot_id == "subtitle"),
-        None,
-    )
-    if title_slot is None or subtitle_slot is None:
+    if title_slot is None:
         raise V6BuildError(
             stage="template",
             code="template_required_slot_unfilled",
-            message="The course cover layout is missing its title or subtitle slot",
+            message="The course cover layout is missing its title slot",
         )
     course_title = _visible_prose_text(document.title).strip()
     if not course_title:
@@ -2697,21 +2704,6 @@ def _compile_course_cover_page(
     if title_slot.max_chars and len(course_title) > title_slot.max_chars:
         course_title = _display_excerpt(course_title, int(title_slot.max_chars))
     section_ids = [section.section_id for section in sections]
-    objective = next(
-        (
-            _visible_prose_text(section.learning_objective).strip()
-            for section in sections
-            if _visible_prose_text(section.learning_objective).strip()
-        ),
-        "",
-    )
-    subtitle_source = objective or " · ".join(
-        _visible_prose_text(section.title).strip() for section in sections
-    )
-    subtitle = _complete_sentence_excerpt(
-        subtitle_source,
-        int(subtitle_slot.max_chars or len(subtitle_source)),
-    )
     page_id = "course-cover"
     return SlidePageV6(
         page_id=page_id,
@@ -2723,10 +2715,10 @@ def _compile_course_cover_page(
         web_renderer_adapter=layout.web_renderer_adapter,
         pptx_renderer_adapter=layout.pptx_renderer_adapter,
         regions=[SlideRegionV6(
-            region_id=f"{page_id}:{subtitle_slot.slot_id}",
-            slot_id=subtitle_slot.slot_id,
-            content_kind=subtitle_slot.slot_kind,
-            content=subtitle,
+            region_id=f"{page_id}:{title_slot.slot_id}",
+            slot_id=title_slot.slot_id,
+            content_kind=title_slot.slot_kind,
+            content=course_title,
             source_section_ids=section_ids,
         )],
         source_section_ids=section_ids,
@@ -2744,6 +2736,60 @@ def _compile_course_cover_page(
     )
 
 
+def prepare_story_plan_for_final_compilation(
+    story: SlideStoryPlanV3,
+    graph: CoursePresentationGraphV1,
+    template: TemplateLayoutPackContractV1,
+) -> SlideStoryPlanV3:
+    """Replace a sparse single-body summary with a bounded frozen-source excerpt."""
+
+    units = _unit_map(graph)
+    batches: list[SlideStoryBatchV3] = []
+    for batch in story.batches:
+        pages: list[SlideStoryPageV3] = []
+        for page in batch.pages:
+            layout = template.get_layout(page.template_layout_id)
+            unit = units.get(page.teaching_unit_id)
+            if layout is None or unit is None or not page.summary:
+                pages.append(page)
+                continue
+            text_slots = [
+                slot
+                for slot in layout.slots
+                if slot.slot_kind in {"body", "items", "steps"}
+            ]
+            if len(text_slots) != 1 or text_slots[0].slot_kind != "body":
+                pages.append(page)
+                continue
+            slot = text_slots[0]
+            source_blocks = graph_page_source_blocks(unit, page.source_block_ids)
+            minimum_chars = _effective_slot_min_chars(slot, source_blocks)
+            if (
+                not minimum_chars
+                or len(_visible_prose_text(page.summary)) >= minimum_chars
+            ):
+                pages.append(page)
+                continue
+            try:
+                source_content = _bounded_slot_content(
+                    source_blocks,
+                    slot_kind=slot.slot_kind,
+                    max_chars=slot.max_chars,
+                    max_items=slot.max_items,
+                    max_lines=slot.max_lines,
+                    max_rows=slot.max_rows,
+                )
+            except ValueError:
+                pages.append(page)
+                continue
+            if len(_visible_prose_text(source_content)) < minimum_chars:
+                pages.append(page)
+                continue
+            pages.append(page.model_copy(update={"summary": source_content}))
+        batches.append(batch.model_copy(update={"pages": pages}))
+    return story.model_copy(update={"batches": batches})
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -2751,6 +2797,7 @@ def compile_slide_deck_v6(
     visual: SlideVisualPlanV2,
     template: TemplateLayoutPackContractV1,
 ) -> SlideDeckV6:
+    story = prepare_story_plan_for_final_compilation(story, graph, template)
     validate_slide_story_plan_v3(story, graph, template)
     status = validate_slide_visual_plan_v2(visual, story, graph, template)
     blocks = {block.block_id: block for block in _formal_blocks(document)}
@@ -2933,6 +2980,7 @@ __all__ = [
     "compile_shadow_chapter_document",
     "compile_slide_deck_v6",
     "graph_page_source_blocks",
+    "prepare_story_plan_for_final_compilation",
     "validate_story_template_text_slots",
     "validate_slide_story_plan_v3",
     "validate_slide_visual_plan_v2",
