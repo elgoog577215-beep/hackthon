@@ -213,6 +213,11 @@ def _provider_cooldowns() -> int:
 
 
 async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
+    from assessment_fill_blank_diagnostics import (
+        clear_sink,
+        install_sink,
+        summarize,
+    )
     from assessment_orchestrator import AssessmentGenerationOrchestrator
     from question_bank import build_question_bank
     from question_fill_blank import compile_fill_blank_contract
@@ -220,14 +225,22 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
 
     course = _course(forms, per_form)
     started = time.monotonic()
-    prepared = await AssessmentGenerationOrchestrator().prepare_course(
-        course,
-        generation_profile=profile,
-        practice_levels_by_node={
-            str(node["node_id"]): ["concept_check"]
-            for node in course["nodes"]
-        },
-    )
+    # 逐空对照取证（用户 2026-08-13 要求）：把独立求解器的原始答案与标准答案
+    # **全部**记下来，拿分布而不是拿例子。sink 只在本进程内存在，默认关闭，
+    # 生产路径不会产生这些数据。
+    blank_diagnostics = install_sink()
+    try:
+        prepared = await AssessmentGenerationOrchestrator().prepare_course(
+            course,
+            generation_profile=profile,
+            practice_levels_by_node={
+                str(node["node_id"]): ["concept_check"]
+                for node in course["nodes"]
+            },
+        )
+        blank_comparisons = list(blank_diagnostics)
+    finally:
+        clear_sink()
     elapsed = time.monotonic() - started
     # 记录每个槽位的最终去向与失败原因——生成失败率与失败原因本身就是要如实
     # 报告的结果，不能只报成功的那几道。
@@ -425,7 +438,7 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
     )
 
     return {
-        "schema_version": "question_form_generation_audit_v2",
+        "schema_version": "question_form_generation_audit_v3",
         "run_vitals": vitals,
         "metric_name": "expected_agreement",
         "metric_disclaimer": (
@@ -435,6 +448,14 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
         "generation_profile": profile,
         "elapsed_seconds": round(elapsed, 1),
         "per_form": per_form_report,
+        # 填空判等的逐空对照：分布 + 全部原始对照。
+        #
+        # 上一轮的教训是「先假设后验证」白跑三轮，所以这里**只导出事实**：
+        # 汇总不下结论，代码判不了的 text_divergent 原样列出供人读。
+        "fill_blank_blank_diagnostics": {
+            "summary": summarize(blank_comparisons),
+            "comparisons": blank_comparisons,
+        },
         "items": checked,
     }
 

@@ -134,6 +134,54 @@ def _answer_text(value: Any) -> str:
     return _text(value)
 
 
+# 允许的空位类型（A 方案，2026-08-13 用户拍板）。
+#
+# 决策：填空只出**短词空**与**数值空**，自由文本长句空在**生成之前**挡掉。
+# 理由：守住确定性判分。语义判等那条被明确否掉——它会把填空从确定性判分
+# 变成模型判分，与 H1b「按空位确定性判定」的立项前提冲突。
+#
+# **不要再往语义判等方向试。**
+BLANK_KINDS = ("numeric", "symbolic", "short_term", "long_text")
+
+# 短词空的字符上限。超过即视为自由文本长句空，拒收。
+#
+# 定为 6，依据真机数据而非拍脑袋：把历轮**成功题**里出现过的文本空答案全部
+# 取出来，长度分布是 负(1) / 增加(2) / 增大(2) / 减少(2) / 封闭系统(4)；
+# 而失败的是「系统内能增加」(6)、「系统内能增加并对外做功」(10) 这类句式表述。
+#
+# 定为 5：已知成功样本最长 4 字（封闭系统），已知失败样本最短 6 字
+# （系统内能增加）。5 是这两组之间唯一能把它们分开的位置——定 6 会把
+# 「系统内能增加」放进来，而它正是归因里最典型的判错样本。
+#
+# 代价（已知并接受）：「热力学第一定律」(7) 这类长术语也被挡。但那类词
+# 求解器同样容易写成「热力学第 1 定律」而判错，挡掉比放进来判错更诚实。
+MAX_SHORT_TERM_CHARS = 5
+
+
+def classify_blank_kind(match_mode: str, answer: Any) -> str:
+    """判定一个空位属于哪一类。规则明确、可测，不看题干上下文。
+
+    - `numeric` / `symbolic`：由 match_mode 直接决定，判等本身吃得下写法差异；
+    - `short_term`：exact 模式且答案是短词（含纯数字）；
+    - `long_text`：exact 模式且答案超过短词上限 —— **这一类要挡掉**。
+    """
+    mode = _text(match_mode) or "exact"
+    if mode == "numeric":
+        return "numeric"
+    if mode == "symbolic":
+        return "symbolic"
+    # dict 形态（数值+单位）即使标成 exact 也按数值处理
+    if isinstance(answer, dict):
+        return "numeric"
+    text = _text(answer)
+    if not text:
+        return "long_text"
+    # 纯数字（含负号小数点）永远算数值型
+    if text.replace("-", "").replace(".", "").replace(" ", "").isdigit():
+        return "numeric"
+    return "short_term" if len(text) <= MAX_SHORT_TERM_CHARS else "long_text"
+
+
 def compile_fill_blank_contract(
     *,
     prompt: str,
@@ -178,6 +226,18 @@ def compile_fill_blank_contract(
         answer = raw.get("answer")
         if answer is None or answer == "":
             raise ValueError(f"blank {blank_id} has no answer")
+        # A 方案：自由文本长句空在此挡掉。
+        #
+        # 这类空的判等是「归一化后字符串相等」，措辞一变就判错——归因实测失败
+        # 几乎全是「系统内能增加」vs「内能增加」这类同义不同形。既然不引入
+        # 语义判等（会破坏确定性判分），就只能不出这类空。
+        kind = classify_blank_kind(mode, answer)
+        if kind == "long_text":
+            raise ValueError(
+                f"blank {blank_id} is a long free-text blank "
+                f"(>{MAX_SHORT_TERM_CHARS} chars); fill_blank only accepts "
+                "short-term or numeric blanks"
+            )
         compiled.append({
             "blank_id": blank_id,
             "match_mode": mode,
@@ -186,6 +246,7 @@ def compile_fill_blank_contract(
             "validator_config": deepcopy(raw.get("validator_config") or {}),
             "score_weight": float(raw.get("score_weight") or 1.0),
             "hint": _text(raw.get("hint")),
+            "blank_kind": kind,
             # 这一空考的易错点，供 L2 与作答诊断使用。
             "misconception_ids": [
                 _text(value)
@@ -307,7 +368,10 @@ def assert_no_answer_leak(public_view: dict[str, Any]) -> None:
 
 
 __all__ = [
+    "BLANK_KINDS",
     "BLANK_MATCH_MODES",
+    "MAX_SHORT_TERM_CHARS",
+    "classify_blank_kind",
     "derive_blank_placeholders",
     "FILL_BLANK_RESULT_SCHEMA",
     "FILL_BLANK_SCHEMA",
