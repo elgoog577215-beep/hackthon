@@ -667,7 +667,7 @@ def validate_slide_story_plan_v3(
             slot for slot in layout.slots if slot.slot_kind == "body"
         ]
         if page.summary and (
-            _visible_prose_text(page.summary) != page.summary.strip()
+            _presentation_summary_text(page.summary) != page.summary.strip()
             or _looks_like_markdown_table(page.summary)
         ):
             raise V6BuildError(
@@ -686,14 +686,14 @@ def validate_slide_story_plan_v3(
                     message="Story summary exceeds the selected template support slot",
                     page_id=page.page_id,
                 )
-            source_length = len(_visible_prose_text(
+            source_length = len(_presentation_summary_text(
                 _unit_source_text_for_blocks(unit, page.source_block_ids)
             ))
             summary_min_chars = min(
                 int(getattr(summary_slot, "min_chars", 0) or 0),
                 source_length,
             )
-            if summary_min_chars and len(_visible_prose_text(page.summary)) < summary_min_chars:
+            if summary_min_chars and len(_presentation_summary_text(page.summary)) < summary_min_chars:
                 raise V6BuildError(
                     stage="story",
                     code="story_page_underfilled",
@@ -1009,20 +1009,56 @@ def _semantic_prose_excerpt(text: str, capacity: int) -> str:
 def _visible_prose_text(value: str) -> str:
     """Compile source Markdown into audience-facing text without changing facts."""
 
-    text = str(value or "")
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(?m)^\s*(?:`{3,}|~{3,})[^\n]*$",
+        "",
+        text,
+    )
     text = re.sub(r"!\[([^]]*)]\([^)]*\)", r"\1", text)
     text = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", text)
     text = re.sub(r"(?<!\\)(\*\*|__)(.+?)\1", r"\2", text)
     text = re.sub(r"(?<!\\)(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", text)
     text = re.sub(r"`([^`\n]+)`", r"\1", text)
     text = re.sub(r"(?m)^\s*#{1,6}\s+", "", text)
+    text = re.sub(r"(?m)^\s*(?:[-*_]\s*){3,}$", "", text)
+
+    compiled_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if (
+            stripped.count("|") >= 2
+            and re.fullmatch(r"\|?[|:\-\s]+\|?", stripped)
+            and "-" in stripped
+        ):
+            continue
+        if stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2:
+            cells = [
+                cell.strip().replace(r"\|", "|")
+                for cell in re.split(r"(?<!\\)\|", stripped.strip("|"))
+                if cell.strip()
+            ]
+            compiled_lines.append(" ".join(cells))
+            continue
+        compiled_lines.append(line)
+    text = "\n".join(compiled_lines)
     text = re.sub(
         r"</?[A-Za-z][A-Za-z0-9:_-]*(?:\s[^<>]*)?/?>",
         "",
         text,
     )
     return text.replace(r"\*", "*").replace(r"\_", "_").strip()
+
+
+def _presentation_summary_text(value: str) -> str:
+    """Compile source markup into one presentation-ready summary contract."""
+
+    text = _visible_prose_text(value)
+    text = re.sub(r"(?m)^\s*>\s?", "", text)
+    text = re.sub(r"(?m)^\s*[-+*]\s+(?:\[[ xX]\]\s+)?", "", text)
+    text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
+    return text.strip()
 
 
 def _looks_like_markdown_table(value: str) -> bool:

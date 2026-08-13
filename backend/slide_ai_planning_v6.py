@@ -37,6 +37,7 @@ from slide_deck_v6 import (
     V6BuildError,
     _complete_sentence_excerpt,
     _looks_like_markdown_table,
+    _presentation_summary_text,
     _protected_tokens,
     _title_is_incomplete,
     _visible_prose_text,
@@ -1209,7 +1210,7 @@ def _story_repair_targets(
     ) -> str:
         """Fill a summary from ordered source even when its next sentence is long."""
 
-        normalized = " ".join(_visible_prose_text(source).split())
+        normalized = " ".join(_presentation_summary_text(source).split())
         if not normalized or maximum <= 0:
             return ""
         preferred_capacity = min(
@@ -1442,7 +1443,7 @@ def _story_repair_targets(
         )
         required_summary = ""
         if summary_repair_required and (summary_min_chars or summary_max_chars):
-            grounded_source = _visible_prose_text("\n\n".join(
+            grounded_source = _presentation_summary_text("\n\n".join(
                 str(block_metadata.get(block_id, {}).get("source_text") or "")
                 for block_id in current_source_block_ids
             ))
@@ -1450,7 +1451,7 @@ def _story_repair_targets(
             if (
                 error.failure.code == "story_summary_capacity_exceeded"
                 and current_summary
-                and _visible_prose_text(current_summary) == current_summary.strip()
+                and _presentation_summary_text(current_summary) == current_summary.strip()
                 and not _looks_like_markdown_table(current_summary)
             ):
                 repair_source = current_summary.strip()

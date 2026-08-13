@@ -1129,8 +1129,8 @@ def test_story_markdown_repair_compiles_block_markup_into_plain_summary() -> Non
     assert planning_module._visible_prose_text(repaired_summary) == repaired_summary
     assert not planning_module._looks_like_markdown_table(repaired_summary)
     assert all(marker not in repaired_summary for marker in ("> ", "- ", "1. ", "2. "))
-    assert "instrument calibration" in repaired_summary
-    assert "approved field protocol" in repaired_summary
+    assert "Field evidence review" in repaired_summary
+    assert "observation time" in repaired_summary
 
 
 def test_visible_prose_compiles_fenced_code_and_markdown_table_without_markers() -> None:

@@ -2646,6 +2646,94 @@ class TaskManager:
             "artifact": artifact,
         }
 
+    def _slide_build_recovery_contract(
+        self,
+        task: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return one recovery answer for task polling and explicit resume."""
+
+        task_id = str(task.get("id") or "")
+        status = str(task.get("status") or "")
+        request_snapshot = task.get("request_snapshot") or {}
+        progress_failure = (
+            (task.get("slide_build_progress_v2") or {}).get("failure") or {}
+        )
+        error_detail = task.get("error_detail") or {}
+        is_v6_slide_build = (
+            task.get("type") == "slide_deck_variant_build"
+            and str(request_snapshot.get("target_schema") or "") == "slide_deck_v6"
+        )
+        v6_checkpoint_available = (
+            (
+                self._storage_data_dir
+                / "slide_deck_v6_candidates"
+                / "checkpoints"
+                / f"{task_id}.json"
+            ).is_file()
+            and (
+                self._storage_data_dir
+                / "slide_build_progress_v2"
+                / f"{task_id}.json"
+            ).is_file()
+        ) if is_v6_slide_build else False
+        failure_retryable = bool(
+            progress_failure.get("retryable")
+            if isinstance(progress_failure, dict) and "retryable" in progress_failure
+            else error_detail.get("retryable")
+            if isinstance(error_detail, dict) and "retryable" in error_detail
+            else False
+        )
+        checkpoint = {
+            "phase": str(task.get("phase") or "queued"),
+            "progress": int(task.get("progress") or 0),
+            "completed_representation_types": list(
+                task.get("completed_representation_types") or []
+            ),
+            "last_event_sequence": int(task.get("event_sequence") or 0),
+            "updated_at": task.get("updated_at"),
+        }
+        if status == "completed":
+            return {
+                "state": "completed",
+                "can_resume": False,
+                "reason_code": "already_published",
+                "reason": "同源教学产物已经通过质量门并发布",
+                "checkpoint": checkpoint,
+            }
+        can_resume = (
+            status == "paused"
+            and (v6_checkpoint_available if is_v6_slide_build else True)
+            or status in {"failed", "error"}
+            and (
+                failure_retryable and v6_checkpoint_available
+                if is_v6_slide_build
+                else True
+            )
+        )
+        return {
+            "state": (
+                "manual_resume"
+                if can_resume
+                else "auto_resuming"
+                if status in {"pending", "running"}
+                else "none"
+            ),
+            "can_resume": can_resume,
+            "reason_code": (
+                "checkpoint_available"
+                if can_resume
+                else "job_active"
+                if status in {"pending", "running"}
+                else "not_needed"
+            ),
+            "reason": (
+                "已完成的页面与产物会被复用，只重建未完成或失效单元"
+                if can_resume
+                else "同源教学产物任务正在执行"
+            ),
+            "checkpoint": checkpoint,
+        }
+
     def describe_task_recovery(self, task_id: str) -> dict[str, Any]:
         task = self.tasks.get(task_id)
         if not task:
@@ -2698,56 +2786,7 @@ class TaskManager:
             }
 
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
-            status = str(task.get("status") or "")
-            request_snapshot = task.get("request_snapshot") or {}
-            progress_failure = (task.get("slide_build_progress_v2") or {}).get("failure") or {}
-            error_detail = task.get("error_detail") or {}
-            is_v6_slide_build = (
-                task.get("type") == "slide_deck_variant_build"
-                and str(request_snapshot.get("target_schema") or "") == "slide_deck_v6"
-            )
-            v6_checkpoint_available = (
-                (self._storage_data_dir / "slide_deck_v6_candidates" / "checkpoints" / f"{task_id}.json").is_file()
-                and (self._storage_data_dir / "slide_build_progress_v2" / f"{task_id}.json").is_file()
-            ) if is_v6_slide_build else False
-            failure_retryable = bool(
-                progress_failure.get("retryable")
-                if isinstance(progress_failure, dict) and "retryable" in progress_failure
-                else error_detail.get("retryable")
-                if isinstance(error_detail, dict) and "retryable" in error_detail
-                else False
-            )
-            checkpoint = {
-                "phase": str(task.get("phase") or "queued"),
-                "progress": int(task.get("progress") or 0),
-                "completed_representation_types": list(
-                    task.get("completed_representation_types") or []
-                ),
-                "last_event_sequence": int(task.get("event_sequence") or 0),
-                "updated_at": task.get("updated_at"),
-            }
-            if status == "completed":
-                return {
-                    "state": "completed", "can_resume": False,
-                    "reason_code": "already_published",
-                    "reason": "同源教学产物已经通过质量门并发布",
-                    "checkpoint": checkpoint,
-                }
-            can_resume = (
-                status == "paused" and (v6_checkpoint_available if is_v6_slide_build else True)
-                or status == "failed" and (
-                    failure_retryable and v6_checkpoint_available
-                    if is_v6_slide_build
-                    else True
-                )
-            )
-            return {
-                "state": "manual_resume" if can_resume else "auto_resuming" if status in {"pending", "running"} else "none",
-                "can_resume": can_resume,
-                "reason_code": "checkpoint_available" if can_resume else "job_active" if status in {"pending", "running"} else "not_needed",
-                "reason": "已完成的页面与产物会被复用，只重建未完成或失效单元" if can_resume else "同源教学产物任务正在执行",
-                "checkpoint": checkpoint,
-            }
+            return self._slide_build_recovery_contract(task)
 
         status = str(task.get("status") or "")
         base = {
@@ -3374,6 +3413,11 @@ class TaskManager:
                 ),
                 "checkpoint": checkpoint,
             }
+        if task.get("type") in {
+            "teaching_representation_build",
+            "slide_deck_variant_build",
+        }:
+            return self._slide_build_recovery_contract(task)
         detail = task.get("phase_detail")
         if not isinstance(detail, dict):
             detail = {}
