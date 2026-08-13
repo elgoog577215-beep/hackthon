@@ -62,6 +62,36 @@ PRACTICE_LEVELS = (
     "objective_practice",
     "mastery_check",
 )
+
+
+def _out_tokens(limit: int) -> int:
+    """Raise a per-call output ceiling to the floor the current model needs.
+
+    The ceilings below (1536 for a choice solve, 2048 for a review, ...) encode
+    how much *answer* each call type needs, and their relative ordering is
+    deliberate.  What they cannot encode is how much the model spends before it
+    writes any answer at all, which is a property of the deployed model rather
+    than of the task.
+
+    Measured against the self-hosted `qwen3.6-35b-a3b` endpoint, a trivial
+    review question cost ~1874 completion tokens to produce 261 characters, and
+    raising the ceiling to 8192 did not make it more verbose (~1956).  So the
+    overhead is fixed, not proportional: under a 2048 ceiling the answer is
+    truncated to nothing (`chars=0`) and JSON parsing fails downstream.
+
+    A floor is therefore the right shape of fix — it preserves the relative
+    sizing between call types while guaranteeing room for that fixed cost.  A
+    multiplier would not: it would scale the part that does not grow.
+
+    Defaults to 0, i.e. exactly the previous behaviour.  Deployments whose model
+    has a large fixed reasoning cost set ASSESSMENT_MIN_OUTPUT_TOKENS; the
+    calibration that suits each model is not something this module can guess.
+    """
+    try:
+        floor = int(os.getenv("ASSESSMENT_MIN_OUTPUT_TOKENS", "0"))
+    except (TypeError, ValueError):
+        return limit
+    return max(limit, min(floor, 16000))
 AssessmentProgressCallback = Callable[
     [dict[str, Any]],
     Awaitable[None] | None,
@@ -226,7 +256,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
-            max_tokens=(
+            max_tokens=_out_tokens(
                 2048
                 if input_mode == "choice"
                 else (4096 if input_mode != "code" else 6144)
@@ -272,7 +302,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=False,
             raise_on_failure=True,
-            max_tokens=12288,
+            max_tokens=_out_tokens(12288),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -362,7 +392,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
-            max_tokens=(
+            max_tokens=_out_tokens(
                 1536
                 if input_mode == "choice"
                 else (3072 if input_mode != "code" else 4096)
@@ -410,7 +440,7 @@ class UniversalAssessmentModel(AIBase):
                 for item in items
             ),
             raise_on_failure=True,
-            max_tokens=min(8192, 2048 * len(items)),
+            max_tokens=_out_tokens(min(8192, 2048 * len(items))),
             json_mode=True,
             model_role="assessment_solver",
         )
@@ -470,7 +500,7 @@ class UniversalAssessmentModel(AIBase):
                 }
             ),
             raise_on_failure=True,
-            max_tokens=6144,
+            max_tokens=_out_tokens(6144),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -503,7 +533,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=False,
             raise_on_failure=True,
-            max_tokens=min(12288, 4096 * len(items)),
+            max_tokens=_out_tokens(min(12288, 4096 * len(items))),
             json_mode=True,
             model_role="assessment_generator",
         )
@@ -586,7 +616,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=True,
             raise_on_failure=True,
-            max_tokens=2048,
+            max_tokens=_out_tokens(2048),
             json_mode=True,
             model_role="assessment_reviewer",
         )
@@ -620,7 +650,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=True,
             raise_on_failure=True,
-            max_tokens=4096,
+            max_tokens=_out_tokens(4096),
             json_mode=True,
             model_role="assessment_reviewer",
         )
