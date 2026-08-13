@@ -248,6 +248,57 @@ DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
 
 
+def build_node_locations(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """把有序节点表压成 {node_id: 位置}，供进度显示用。
+
+    教师问的是"现在生成到哪了"，答案应该是"第 2 章第 3 节 · 不确定性原理"，
+    而不是一个 node_id 或一个孤零零的小节名——课程里重名的小节并不少见，
+    只报小节名说不清进度走到了整门课的什么位置。
+
+    章节序号按节点表顺序推导：level 1 递增章号并把节号归零，level 2 在当前章
+    下递增节号。位置只依赖顺序与层级，不依赖 node_id 的命名约定。
+
+    正文可能在没有章的课程里生成（早期课程或导入课程只有平铺小节），
+    这时 ``chapter_number`` 为 None，标签退化成"第 Y 节 · 名字"，
+    调用方不需要为这种课程写分支。
+    """
+    locations: dict[str, dict[str, Any]] = {}
+    chapter_number = 0
+    section_number = 0
+    chapter_name = ""
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        if not node_id:
+            continue
+        level = int(node.get("node_level") or 1)
+        name = str(node.get("node_name") or "")
+        if level <= 1:
+            chapter_number += 1
+            section_number = 0
+            chapter_name = name
+            locations[node_id] = {
+                "chapter_number": chapter_number,
+                "chapter_name": name,
+                "section_number": None,
+                "node_name": name,
+                "label": f"第{chapter_number}章 · {name}" if name else f"第{chapter_number}章",
+            }
+            continue
+        section_number += 1
+        if chapter_number:
+            prefix = f"第{chapter_number}章第{section_number}节"
+        else:
+            prefix = f"第{section_number}节"
+        locations[node_id] = {
+            "chapter_number": chapter_number or None,
+            "chapter_name": chapter_name,
+            "section_number": section_number,
+            "node_name": name,
+            "label": f"{prefix} · {name}" if name else prefix,
+        }
+    return locations
+
+
 def _source_first_slide_ai_workers() -> tuple[
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
@@ -2798,6 +2849,18 @@ class TaskManager:
         workspace_id = str(task.get("workspace_id") or "")
         candidate_id = str(task.get("candidate_id") or "")
         workspace: dict[str, Any] = {}
+        # Same judgement the polling summary uses, so the two projections cannot
+        # disagree about whether this job is resumable.
+        unavailable_reason = self._checkpoint_unavailable_reason(task)
+        if unavailable_reason and unavailable_reason != "checkpoint_not_supported":
+            return {
+                **base,
+                "state": "unavailable",
+                "reason_code": unavailable_reason,
+                "reason": self._CHECKPOINT_UNAVAILABLE_REASONS[
+                    unavailable_reason
+                ],
+            }
         if workspace_id:
             try:
                 workspace = self._generation_workspace_repository.load(workspace_id)
@@ -2933,7 +2996,7 @@ class TaskManager:
             and course_data.get("subject_pedagogy_profile")
         )
         checkpoint = {
-            "phase": str(task.get("phase") or task.get("current_phase") or ""),
+            "phase": self._effective_phase(task),
             "completed_nodes": completed_nodes,
             "total_nodes": len(nodes),
             "draft_node_ids": draft_node_ids,
@@ -3397,7 +3460,7 @@ class TaskManager:
         completed_nodes = int(task.get("completed_nodes") or 0)
         total_nodes = int(task.get("total_nodes") or 0)
         checkpoint = {
-            "phase": phase,
+            "phase": self._effective_phase(task),
             "assessment_generation_profile": str(
                 task.get("assessment_generation_profile")
                 or "deliberate"
@@ -3479,6 +3542,10 @@ class TaskManager:
             return base
 
         has_checkpoint = bool(task.get("workspace_id") or task.get("candidate_id"))
+        # Presence of an id is not proof the checkpoint survives; ask the shared
+        # judgement so this projection cannot advertise a resume that
+        # describe_task_recovery would refuse.
+        unavailable_reason = self._checkpoint_unavailable_reason(task)
         if status == "completed_with_warnings" and (
             phase == "quality_failed" or task.get("publication_allowed") is False
         ):
@@ -3489,12 +3556,14 @@ class TaskManager:
                 has_checkpoint=has_checkpoint,
             )
         if status in {"paused", "failed", "error", "completed_with_warnings"}:
-            if not has_checkpoint:
+            if unavailable_reason:
                 return {
                     **base,
                     "state": "unavailable",
-                    "reason_code": "checkpoint_not_supported",
-                    "reason": "该旧任务没有独立检查点，无法安全继续",
+                    "reason_code": unavailable_reason,
+                    "reason": self._CHECKPOINT_UNAVAILABLE_REASONS[
+                        unavailable_reason
+                    ],
                 }
             return {
                 **base,
@@ -3537,6 +3606,51 @@ class TaskManager:
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
 
+    def _checkpoint_unavailable_reason(
+        self,
+        task: dict[str, Any],
+    ) -> str | None:
+        """Single answer to "is this job's saved checkpoint still usable?".
+
+        Returns a ``reason_code`` when the checkpoint cannot be resumed, or
+        ``None`` when it can.
+
+        This exists for the same reason as ``_task_is_published``: the polling
+        summary and the resume path must not describe the same job differently.
+        The summary used to infer a usable checkpoint from the presence of a
+        ``workspace_id`` on the task record, while the resume path loaded the
+        workspace and answered ``workspace_missing``. A job whose workspace had
+        been deleted therefore polled as "可以恢复" and refused on click.
+
+        Existence is checked without reading the payload, so this stays cheap
+        enough for the per-poll summary.
+        """
+        workspace_id = str(task.get("workspace_id") or "")
+        candidate_id = str(task.get("candidate_id") or "")
+        if workspace_id:
+            if not self._generation_workspace_repository.exists(workspace_id):
+                return "workspace_missing"
+            return None
+        if candidate_id:
+            try:
+                candidate = self._version_repository.load_candidate(
+                    str(task.get("course_id") or ""),
+                    candidate_id,
+                )
+            except KeyError:
+                return "candidate_missing"
+            if not isinstance(candidate.get("course_data"), dict):
+                return "candidate_invalid"
+            return None
+        return "checkpoint_not_supported"
+
+    _CHECKPOINT_UNAVAILABLE_REASONS = {
+        "workspace_missing": "生成工作区已丢失，无法安全继续原任务",
+        "candidate_missing": "课程候选版本已丢失，无法安全继续原任务",
+        "candidate_invalid": "课程候选版本不完整，无法安全继续原任务",
+        "checkpoint_not_supported": "该旧任务没有独立检查点，无法安全继续",
+    }
+
     def _task_is_published(self, task: dict[str, Any]) -> bool:
         """Single answer to "did this job actually publish a course?".
 
@@ -3555,6 +3669,29 @@ class TaskManager:
         if status == "completed_with_warnings" and task.get("publication_allowed") is False:
             return False
         return self._publication_receipt(task) is not None
+
+    # 恢复过程中会被短暂盖上去的阶段。它们说明"正在回到工作状态"，
+    # 但答不了"回到哪一阶段"——投影直接回显它们，用户就只看得到"正在继续"。
+    _TRANSIENT_PHASES = frozenset({"resuming"})
+
+    def _effective_phase(self, task: dict[str, Any]) -> str:
+        """Single answer to "which stage is this job at?".
+
+        ``_process_task`` derives the real stage from the guided workflow via
+        ``_processing_handoff`` and stamps it. Between a resume request and that
+        stamp the stored phase reads ``resuming``, so a projection that echoes
+        the stored value tells the task list one thing while the job is about to
+        report another. Both recovery projections ask this instead, which is why
+        the list, the resume dialog and the running job name the same stage.
+
+        A stored phase that is not transient is authoritative and returned
+        unchanged — this only fills the gap, it does not second-guess the job.
+        """
+        phase = str(task.get("phase") or task.get("current_phase") or "")
+        if phase and phase not in self._TRANSIENT_PHASES:
+            return phase
+        derived, _message = self._processing_handoff(task)
+        return derived or phase
 
     def _failed_node_report_entry(
         self, task_id: str, node: dict[str, Any]
@@ -6103,6 +6240,9 @@ class TaskManager:
             await self._save_task_course(task_id, course_data)
 
         nodes = course_data.get("nodes", [])
+        # 位置表在这里算一次：这是唯一同时拿得到完整有序节点表的地方，
+        # 之后推进度时只查表，不再重新加载课程。
+        task["node_locations"] = build_node_locations(nodes)
         l2_nodes = [n for n in nodes if n.get("node_level", 1) == 2]
 
         # The V2 blueprint already owns the complete L1/L2 structure.
@@ -6495,11 +6635,17 @@ class TaskManager:
                     "type": "content" if node.get("node_level", 1) == 2 else "structure",
                     "generated_chars": 0,
                 }
+                location = (task.get("node_locations") or {}).get(node_id) or {}
+                if location:
+                    node_info["location"] = deepcopy(location)
                 current_nodes = task.get("current_nodes", [])
                 current_nodes.append(node_info)
                 task["current_nodes"] = current_nodes
                 if current_nodes:
                     task["current_node_name"] = current_nodes[0].get("node_name", "")
+                    task["current_node_location"] = deepcopy(
+                        current_nodes[0].get("location") or {}
+                    )
                 self.save_tasks()
 
             self._add_log_entry(
@@ -6751,8 +6897,12 @@ class TaskManager:
                     ]
                     if task["current_nodes"]:
                         task["current_node_name"] = task["current_nodes"][0].get("node_name", "")
+                        task["current_node_location"] = deepcopy(
+                            task["current_nodes"][0].get("location") or {}
+                        )
                     else:
                         task["current_node_name"] = ""
+                        task["current_node_location"] = {}
                     self.save_tasks()
                 await self._update_progress(task_id)
                 await self._push_progress(task_id)
@@ -7375,6 +7525,9 @@ class TaskManager:
                 "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
+                "current_node_location": deepcopy(
+                    task.get("current_node_location") or {}
+                ),
                 "current_nodes": current_nodes,
                 "completed_nodes": completed_nodes,
                 "total_nodes": total_nodes,

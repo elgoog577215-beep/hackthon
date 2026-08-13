@@ -66,6 +66,21 @@ class GenerationWorkspaceRepository:
             self._atomic_write(path, workspace)
             return deepcopy(workspace)
 
+    def exists(self, workspace_id: str) -> bool:
+        """Report whether a workspace is on disk without reading or parsing it.
+
+        The recovery summary is built on every poll and must not load course
+        payloads, so it needs a way to tell "this task records a workspace id"
+        apart from "that workspace is still there".  Answering that from the
+        task record alone is what let polling advertise a resume that the
+        resume path then refused.
+        """
+        try:
+            self._validate_id(workspace_id)
+        except Exception:
+            return False
+        return self._path(workspace_id).is_file()
+
     def load(self, workspace_id: str) -> dict[str, Any]:
         self._validate_id(workspace_id)
         path = self._path(workspace_id)

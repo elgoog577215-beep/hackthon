@@ -431,6 +431,7 @@ import {
   reviewIssueSuggestion,
   reviewIssueTarget,
 } from '@/utils/review-issues'
+import { taskProgressStep } from '@/utils/course-progress'
 import { courseProductionTaskDetail } from '@/utils/course-production'
 import {
   observableTaskPhase,
@@ -475,7 +476,7 @@ const tasks = computed<TaskView[]>(() => {
       taskType: String(raw.type || matchingLocal?.taskType || 'course_generation'),
       status: normalizeStatus(raw.status),
       progress: Math.max(0, Math.min(100, Number(raw.progress || 0))),
-      currentStep: raw.current_node_name ? String(raw.current_node_name) : String(raw.message || matchingLocal?.currentStep || ''),
+      currentStep: taskProgressStep(raw as any, String(matchingLocal?.currentStep || '')),
       currentPhase: String(raw.current_phase || raw.phase || matchingLocal?.currentPhase || ''),
       phaseProgress: Number(raw.phase_progress || matchingLocal?.phaseProgress || 0),
       phaseDetail: raw.phase_detail || matchingLocal?.phaseDetail || {},
