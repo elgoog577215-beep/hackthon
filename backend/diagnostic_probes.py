@@ -25,11 +25,19 @@ two fields that read as helpful but must never enter a probe:
 ``confused_with`` and ``error_pattern`` are safe: they frame *what to compare*
 without supplying the criterion that decides it.  `probe_leaks_answer` enforces
 this, and the tests pin it.
+
+There is a third leak path that no fixture exposes: `build_probe_spec`
+interpolates ``hypothesis.claim`` verbatim, and in production that claim is the
+live model's own description of the error — which may name the correct answer
+while describing it.  `probe_leaks_answer` screens for that too, when the caller
+passes the originating task.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from hint_leakage import mentions_answer_value
 
 
 PROBE_CATEGORIES = (
@@ -126,13 +134,26 @@ def build_probe_spec(
 def probe_leaks_answer(
     probe: dict[str, Any],
     misconception: dict[str, Any] | None,
+    task: dict[str, Any] | None = None,
 ) -> str:
-    """Return the offending field name if the probe hands over its own answer.
+    """Return the offending source if the probe hands over an answer.
 
-    A discrimination probe whose prompt already contains `discrimination` tests
-    nothing: the student copies it, passes, and the hypothesis is wrongly
-    rejected — a false *negative* in the diagnosis, which is worse than no probe
-    at all because it looks like evidence.
+    Two distinct hazards, both fatal to the probe's purpose:
+
+    ``discrimination`` / ``repair_strategy`` — *is the answer* to a discrimination
+    probe.  Pasting it in means the student passes by copying, and the hypothesis
+    gets rejected on evidence that proves nothing.
+
+    The original question's own answer — reachable because `build_probe_spec`
+    interpolates ``hypothesis.claim`` verbatim, and in production that claim is
+    lifted from the live model's ``answer_diagnosis``.  Observed with a real model:
+    the diagnosis read 「原常数 5 与 -9 相加应得 -4，学生误算为 +4」 and the probe
+    handed the student 「-4」 — the answer to the very question they are about to
+    re-attempt in the remediation chain.  Hand-written fixtures never show this
+    because a human writing a claim does not quote the answer.
+
+    Returns ``"answer_value:<value>"`` for that second case so the caller can tell
+    the two apart in logs.
     """
     mistake = misconception or {}
     haystack = "".join(
@@ -146,6 +167,11 @@ def probe_leaks_answer(
         # Short values collide with ordinary prose; only act on substantive text.
         if len(value) >= 8 and value in haystack:
             return field
+    if task:
+        # Same metric K1/K2 use — one implementation, not a third one.
+        literal = mentions_answer_value(haystack, task)
+        if literal:
+            return f"answer_value:{literal}"
     return ""
 
 

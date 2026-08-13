@@ -211,3 +211,47 @@ def test_short_final_answers_do_not_create_false_leakage():
 
     assert result["reveals_final_answer"] is False
     assert result["leaked"] is False
+
+
+# --- 字面答案值口径：三个调用方共用一份实现 ----------------------------------
+
+
+def test_literal_answer_value_check_has_exactly_one_implementation():
+    """K1 编译期、K2 运行时引导、I0-a 诊断探针必须指向同一个函数对象。
+
+    这条口径的取舍很微妙（裸值拦几位、单字符为什么放过），任何一份副本漂移都会
+    让三条链路对"这算不算泄题"给出不同答案，而且不会有测试报警。所以这里断言
+    **同一性**，而不是"行为一致"——后者默许副本存在。
+    """
+    from hint_leakage import mentions_answer_value as canonical
+    import diagnostic_probes
+    import diagnostic_workflows
+    import socratic_guidance
+
+    assert socratic_guidance.mentions_answer_value is canonical
+    assert diagnostic_probes.mentions_answer_value is canonical
+    assert diagnostic_workflows.mentions_answer_value is canonical
+    # 模块内不得再出现私有副本
+    assert not hasattr(socratic_guidance, "_mentions_answer_value")
+    assert not hasattr(socratic_guidance, "_answer_values")
+
+
+def test_literal_answer_values_keep_the_single_character_carve_out():
+    """搬家不得悄悄改口径：单字符答案仍然不作信号，两位及以上仍然拦。"""
+    from hint_leakage import literal_answer_values
+
+    assert literal_answer_values({"answer_spec": {"correct_answer": "B"}}) == []
+    assert literal_answer_values({"answer_spec": {"correct_answer": "4"}}) == []
+    assert "-4" in literal_answer_values(
+        {"answer_spec": {"correct_answer": "最小值为 -4"}}
+    )
+
+
+def test_mentions_answer_value_respects_digit_boundaries():
+    """-4 不得在 -42 上误报，也不得被步骤序号触发。"""
+    from hint_leakage import mentions_answer_value
+
+    question = {"answer_spec": {"correct_answer": "最小值为 -4"}}
+
+    assert mentions_answer_value("结果是 -42 米", question) == ""
+    assert mentions_answer_value("最小值是 -4", question) == "-4"
