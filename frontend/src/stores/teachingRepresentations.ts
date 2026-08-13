@@ -37,8 +37,6 @@ export interface SlideDeckBuildOptions {
     mode?: 'wide_safe'
     targetCount?: number
   }
-  templatePackId?: string
-  templatePackVersion?: number
 }
 
 export interface TeachingRepresentation {
