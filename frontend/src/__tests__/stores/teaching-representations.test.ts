@@ -935,6 +935,35 @@ describe('teaching representation progressive build', () => {
     expect(store.buildError).toBe('deck_split_required')
   })
 
+  it('exposes a retryable failed PPT task as resumable from its saved checkpoint', () => {
+    const store = useTeachingRepresentationsStore()
+
+    store.applyDurableBuildTask({
+      id: 'representation-job-resumable',
+      type: 'slide_deck_variant_build',
+      status: 'failed',
+      progress: 41,
+      phase: 'story',
+      error_detail: {
+        stage: 'story',
+        code: 'story_ai_batch_timeout',
+        message: 'provider timed out',
+        retryable: true,
+        batch_id: 'story-2',
+      },
+      recovery: {
+        state: 'manual_resume',
+        can_resume: true,
+        reason_code: 'checkpoint_available',
+        checkpoint: { progress: 41 },
+      },
+    })
+
+    expect(store.buildPaused).toBe(true)
+    expect(store.buildProgress).toBe(41)
+    expect(store.buildFailure?.code).toBe('story_ai_batch_timeout')
+  })
+
   it('normalizes a layout-capacity planner failure after reopening the workspace', async () => {
     httpMock.get.mockResolvedValue({ data: {
       id: 'representation-job-layout-capacity',

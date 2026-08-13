@@ -522,3 +522,67 @@ async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_agai
     assert result["status"] == "v6_ready"
     assert calls.count("chapter-1") == 1
     assert calls.count("chapter-2") == 2
+
+
+@pytest.mark.asyncio
+async def test_retryable_story_failure_resumes_same_task_and_reuses_finished_batches(
+    tmp_path: Path,
+) -> None:
+    document = _two_chapter_document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    calls: list[str] = []
+    failed_once = False
+
+    async def retryable_story(request):
+        nonlocal failed_once
+        chapter_id = request["chapter_id"]
+        calls.append(chapter_id)
+        if chapter_id == "chapter-2" and not failed_once:
+            failed_once = True
+            raise TimeoutError("provider timeout")
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": chapter_id,
+            "provider": "fixture-pool",
+            "model": "fixture-story",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"page-{chapter_id}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    item for item in unit["allowed_template_layout_ids"]
+                    if item.endswith("/content-stack")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(V6BuildError, match="story_ai_batch_timeout"):
+        await orchestrator.build(
+            task_id="task-v6-retryable",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=retryable_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    result = await orchestrator.build(
+        task_id="task-v6-retryable",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=retryable_story,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert result["status"] == "v6_ready"
+    assert calls.count("chapter-1") == 1
+    assert calls.count("chapter-2") == 2
