@@ -163,6 +163,7 @@ class SlideDeckVariantBuildRequest(BaseModel):
     engine_version: Literal["v5", "v6"] | None = None
     template_pack_id: str = ""
     template_version: int | None = Field(default=None, ge=1)
+    template_pack_version: int | None = Field(default=None, ge=1)
     shadow_only: bool = False
     chapter_id: str = Field(default="", max_length=200)
     force_rebuild: bool = False
@@ -172,6 +173,13 @@ class SlideDeckVariantBuildRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_shadow_scope(self) -> "SlideDeckVariantBuildRequest":
+        if self.template_version is not None and self.template_pack_version is not None:
+            if self.template_version != self.template_pack_version:
+                raise ValueError("template version aliases must match")
+        if self.template_version is None:
+            self.template_version = self.template_pack_version
+        if self.template_pack_version is None:
+            self.template_pack_version = self.template_version
         self.chapter_id = self.chapter_id.strip()
         if self.shadow_only and self.engine_version != "v6":
             raise ValueError("Shadow chapter builds require engine_version=v6")
