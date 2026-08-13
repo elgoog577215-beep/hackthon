@@ -4728,6 +4728,12 @@ class CourseService(AIBase):
             if card.get("source_id") in cited_source_ids
         ]
         node["citation_invalid_refs"] = invalid_citations
+        # 记录本节**可用**来源总量（不是已引用量），供质量门判定
+        # "有资料却零引用"。只有已引用的会留在 citation_map/source_cards 里，
+        # 光看它们无法区分"没来源"与"有来源但没用"。
+        node["available_source_ids"] = sorted(
+            {str(value) for value in citation_map.values() if value}
+        )
         grounding_contract = node.get("grounding_contract") or {}
         allowed_ids = set(grounding_contract.get("required_evidence_ids") or []) | set(
             grounding_contract.get("optional_evidence_ids") or []

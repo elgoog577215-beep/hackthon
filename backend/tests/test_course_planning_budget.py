@@ -429,8 +429,11 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
     # 实测总量 96_996 -> 114_804 -> 129_000 -> 136_308 -> 142_335 -> 151_386 字符，
     # 而单请求仍是 2_399 -> 4_127 token / 预算 7_000，只用到准入门的六成。
     # 因此放宽的是代理上限而不是准入门：整课上下文回灌会是数倍量级，仍会被这条拦住。
+    # 集成补充：lz-web-search 的 S2+S3 给教案批次加了资料证据段，会进一步抬高
+    # 这个总量代理（它那侧实测把上限从 100_000 提到 110_000）。这里保留 HEAD 的
+    # 7 批结构（batch_max_sections=3 是 lz-perf M0 落到产品代码里的真实行为，
+    # 21 批的旧断言已过期），上限取两侧较宽者以容纳证据段。
     assert prompt_chars < 158_000
-
 
 def test_twenty_four_section_rich_skeleton_stays_under_final_input_gate():
     module_ids = [

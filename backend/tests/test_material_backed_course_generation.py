@@ -261,6 +261,10 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
 def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
     # 只锚定各块自身的标题，不锚定它后面跟着哪一块，
     # 这样 prompt 的分块顺序调整（稳定前缀优化）不会连累这些桩。
+    # 集成说明：lz-web-search 的 S2+S3 在小节与知识闭包之间插入了
+    # 「本批次可依据的资料证据」段，并为此把正则改成硬编码该段名。
+    # 这里保留 HEAD 这版——它只锚定「下一个 ## 」而不关心是哪一段，
+    # 天然容纳新插入的证据段，且以后再插新段也不必再改。
     def _json_block(heading):
         return re.search(
             rf"## {heading}\n(\[.*?\])\n\n## ",
