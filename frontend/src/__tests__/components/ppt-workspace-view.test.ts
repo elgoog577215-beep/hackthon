@@ -50,11 +50,12 @@ function courseEnvelope(
 }
 
 describe('PptWorkspaceView', () => {
-  it('reads the CourseDocument envelope before ensuring teaching representations', async () => {
+  it('loads the CourseDocument envelope and teaching registry in parallel', async () => {
     const calls: string[] = []
-    httpMock.get.mockImplementation(async () => {
+    let resolveDocument!: (value: { data: ReturnType<typeof courseEnvelope> }) => void
+    httpMock.get.mockImplementation(() => {
       calls.push('document')
-      return { data: courseEnvelope('canonical') }
+      return new Promise(resolve => { resolveDocument = resolve })
     })
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'
@@ -63,9 +64,12 @@ describe('PptWorkspaceView', () => {
     vi.spyOn(store, 'ensure').mockImplementation(async () => { calls.push('ensure') })
 
     mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
-    await flushPromises()
+    await nextTick()
 
     expect(calls).toEqual(['document', 'ensure'])
+
+    resolveDocument({ data: courseEnvelope('canonical') })
+    await flushPromises()
   })
 
   it('loads registry summaries first and fetches the selected PPT spec only once', async () => {
