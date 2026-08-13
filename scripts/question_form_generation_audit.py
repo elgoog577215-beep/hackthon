@@ -379,9 +379,26 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             if entry["final_decision"] != "publish"
         ]
         failure_codes: dict[str, int] = {}
+        # provider 类失败必须与内容质量码**分开统计**。
+        #
+        # 实测踩到：一轮 10 个槽位全部 `AIProviderRequestError: empty_response`，
+        # 其中 7 个连一次 attempt 都没发生，但 `failure_issue_codes` 只汇总
+        # `issue_codes`（那是拿到模型输出后才判出来的码），于是那一轮看起来
+        # 只是「VALIDATION_FAILED 3」——一个健康轮次的样子。
+        # 整轮作废的判据必须能看见这类错误，否则会把故障轮当成有效样本。
+        provider_errors: dict[str, int] = {}
         for entry in discarded:
             for code in entry["issue_codes"]:
                 failure_codes[code] = failure_codes.get(code, 0) + 1
+            error_code = str(entry.get("error_code") or "")
+            if error_code:
+                key = f"{error_code}:{str(entry.get('error_message') or '')[:60]}"
+                provider_errors[key] = provider_errors.get(key, 0) + 1
+        # 一次 attempt 都没发生的槽位数：熔断/provider 故障最直接的指纹。
+        # 内容质量差不会让 attempt 为 0，它至少得先拿到一次模型输出。
+        no_attempt_count = sum(
+            1 for entry in discarded if not entry.get("attempt_count")
+        )
         per_form_report[form] = {
             "requested": requested,
             "generated": generated,
@@ -391,6 +408,10 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             "failure_issue_codes": dict(
                 sorted(failure_codes.items(), key=lambda kv: -kv[1])
             ),
+            "provider_error_codes": dict(
+                sorted(provider_errors.items(), key=lambda kv: -kv[1])
+            ),
+            "zero_attempt_slot_count": no_attempt_count,
             "classified_as_declared": classified_ok,
             "graded_case_count": agree_total,
             "expected_agreement_hits": agree_hit,
@@ -435,6 +456,19 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
     )
     vitals["requested_total"] = sum(
         int(v.get("requested") or 0) for v in per_form_report.values()
+    )
+    # provider 故障的两个直读指标。
+    #
+    # `provider_cooldowns`（quota_exhausted）**不足以判健康**：实测一轮 10/10
+    # 槽位全死于 `empty_response`，冷却计数仍读到 0——它只数配额耗尽，
+    # 不数空响应。所以整轮有效性必须同时看这两个。
+    vitals["provider_error_total"] = sum(
+        sum(v.get("provider_error_codes", {}).values())
+        for v in per_form_report.values()
+    )
+    vitals["zero_attempt_slot_total"] = sum(
+        int(v.get("zero_attempt_slot_count") or 0)
+        for v in per_form_report.values()
     )
 
     return {
