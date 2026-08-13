@@ -494,7 +494,7 @@ watch(() => route.params.courseId, async value => {
   taskOpen.value = false
   workspaceStore.mistakeBookAttempts = []
   workspaceStore.practiceNeedsReviewCount = 0
-  await courseStore.fetchCourseList()
+  void courseStore.fetchCourseList()
   await courseStore.loadCourse(courseId)
   generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
