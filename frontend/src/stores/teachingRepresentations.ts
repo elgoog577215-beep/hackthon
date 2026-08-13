@@ -68,6 +68,7 @@ export interface TeachingRepresentationSpec {
 
 export interface TeachingRepresentationLoadOptions {
   loadSelectedSpec?: boolean
+  handleMissingRepresentations?: boolean
 }
 
 export function preferredRepresentationForType(
@@ -1162,6 +1163,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const registry = await this.load(courseId, options)
       if (!registry || this.courseId !== courseId) return
       if (!this.representations.length) {
+        if (options.handleMissingRepresentations === false) return
         if (this.deferMissingSlideBuild) {
           await this.recoverDurableBuild(courseId)
         } else {

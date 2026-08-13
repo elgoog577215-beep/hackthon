@@ -352,13 +352,15 @@ async function loadWorkspace() {
   logicUpgradeError.value = ''
   documentLoadError.value = ''
   try {
-    const envelope = await loadDocumentEnvelope(id, attempt)
+    const documentPromise = loadDocumentEnvelope(id, attempt)
+    const registryPromise = store.ensure(id, {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
+    const [envelope] = await Promise.all([documentPromise, registryPromise])
     if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
-    store.deferMissingSlideBuild = true
-    try {
-      await store.ensure(id, { loadSelectedSpec: false })
-    } finally {
-      store.deferMissingSlideBuild = false
+    if (store.courseId === id && !store.representations.length) {
+      await store.recoverDurableBuild(id)
     }
     if (!isCurrentAttempt(id, attempt)) return
     const preferred = preferredVariantRepresentation()

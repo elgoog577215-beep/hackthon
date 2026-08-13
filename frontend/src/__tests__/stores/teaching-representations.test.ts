@@ -126,6 +126,23 @@ describe('teaching representation progressive build', () => {
     expect(store.selectedSpec).toBeNull()
   })
 
+  it('can preload an empty registry without recovering or starting a build', async () => {
+    httpMock.get.mockResolvedValueOnce({
+      data: { registry: { representations: [], specs: [] } },
+    })
+    const store = useTeachingRepresentationsStore()
+    const recover = vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null)
+    const build = vi.spyOn(store, 'buildProgressive').mockResolvedValue(undefined)
+
+    await store.ensure('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
+
+    expect(recover).not.toHaveBeenCalled()
+    expect(build).not.toHaveBeenCalled()
+  })
+
   it('rebuilds the material suite and then regenerates PPT through the scoped V5 route', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(streamResponse([{

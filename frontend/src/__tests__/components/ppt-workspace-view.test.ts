@@ -103,7 +103,10 @@ describe('PptWorkspaceView', () => {
     mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
     await flushPromises()
 
-    expect(ensure).toHaveBeenCalledWith('course-1', { loadSelectedSpec: false })
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
     expect(select).toHaveBeenCalledTimes(1)
     expect(select).toHaveBeenCalledWith('slides-v6')
   })
@@ -302,7 +305,10 @@ describe('PptWorkspaceView', () => {
 
     expect(wrapper.text()).toContain('旧课程需要先升级')
     expect(wrapper.get('.ppt-workspace-state__migrate').text()).toContain('升级课程后生成PPT')
-    expect(ensure).not.toHaveBeenCalled()
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
 
     await wrapper.get('.ppt-workspace-state__migrate').trigger('click')
     await flushPromises()
@@ -312,7 +318,7 @@ describe('PptWorkspaceView', () => {
       { confirm: true, source_checksum: 'checksum-legacy' },
     )
     expect(courseStore.currentCourseSourceFormat).toBe('canonical')
-    expect(ensure).toHaveBeenCalledWith('course-1', { loadSelectedSpec: false })
+    expect(ensure).toHaveBeenLastCalledWith('course-1', { loadSelectedSpec: false })
   })
 
   it('reloads the migration preview after a 409 and shows an actionable retry hint', async () => {
@@ -332,7 +338,11 @@ describe('PptWorkspaceView', () => {
 
     expect(httpMock.get).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('课程源已变化，迁移预览已刷新，请确认后重试')
-    expect(ensure).not.toHaveBeenCalled()
+    expect(ensure).toHaveBeenCalledOnce()
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
   })
 
   it('shows a failed live preview even when no deck has ever been published', async () => {
@@ -648,6 +658,10 @@ describe('PptWorkspaceView', () => {
 
     expect(wrapper.find('.ppt-workspace-state__migrate').exists()).toBe(false)
     expect(wrapper.text()).toContain('加载课程源失败，请重试')
-    expect(ensure).not.toHaveBeenCalled()
+    expect(ensure).toHaveBeenCalledTimes(2)
+    expect(ensure).toHaveBeenLastCalledWith('course-2', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
   })
 })
