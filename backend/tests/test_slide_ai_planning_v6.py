@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -23,6 +24,33 @@ from slide_deck_v6 import (
     validate_slide_story_plan_v3,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+@pytest.mark.asyncio
+async def test_planner_timeout_is_a_hard_deadline_when_provider_delays_cancellation() -> None:
+    """A stuck provider must not keep a durable V6 task running forever."""
+
+    provider_released = asyncio.Event()
+
+    async def cancellation_delayed_planner(_request):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.08)
+            provider_released.set()
+            return {}
+
+    started = time.perf_counter()
+    with pytest.raises(asyncio.TimeoutError):
+        await planning_module._invoke(
+            cancellation_delayed_planner,
+            {},
+            timeout_seconds=0.01,
+        )
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.05
+    await asyncio.wait_for(provider_released.wait(), timeout=0.2)
 
 
 def _document(*, with_code: bool = False) -> CourseDocument:
