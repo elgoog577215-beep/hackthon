@@ -21,6 +21,8 @@ from course_evolution import (
     CourseEvolutionPlan,
     CourseEvolutionRepository,
     CourseEvolutionState,
+    knowledge_binding_for_anchor,
+    knowledge_compilation_source,
     knowledge_revision_pins,
 )
 from course_feedback import default_block_kind_for_role
@@ -331,6 +333,18 @@ async def generate_block_evolution_plan(
     if section is None:
         raise ValueError("Course section not found")
 
+    # Resolve the knowledge this block teaches so the plan can pin it. Compiled
+    # from the same normalized source the evidence path uses, so a migrated
+    # course without ``nodes`` still resolves its bindings.
+    block_knowledge_base = compile_course_knowledge_base(
+        deepcopy(knowledge_compilation_source(course_data)),
+    )
+    block_binding = knowledge_binding_for_anchor(
+        block_knowledge_base,
+        section_id=section_id,
+        block_id=block_id,
+    )
+
     request_text = instruction.strip()
     if not request_text:
         raise ValueError("Describe how the course should be adjusted")
@@ -428,6 +442,15 @@ async def generate_block_evolution_plan(
             impact_summary={
                 "diagnosis": f"根据你的要求调整“{str(target.payload.get('title') or section.title)}”。",
                 "scope_selection": "current_block",
+                # A block rewrite still teaches specific knowledge, so it needs
+                # the same staleness guard as the evidence and section paths:
+                # renaming that knowledge must be able to invalidate this plan.
+                "knowledge_revision_pins": knowledge_revision_pins(
+                    block_knowledge_base,
+                    knowledge_ids=block_binding["knowledge_ids"],
+                    block_ids=[block_id],
+                    section_ids=[section_id],
+                ),
                 "request_id": request_id,
                 "request_fingerprint": request_fingerprint,
                 "anchor_block_id": block_id,

@@ -373,6 +373,52 @@ async def test_manual_section_plan_is_also_guarded_by_knowledge_semantics(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_block_level_request_is_also_guarded_by_knowledge_semantics(tmp_path):
+    """The block-scope path needs the same knowledge guard as the other two.
+
+    Found on the real machine: a block-level adjustment produced a plan whose
+    ``knowledge_revision_pins`` were absent entirely, so a rename of the very
+    knowledge the rewritten block teaches could not make it stale. Evidence and
+    section paths were already covered; this was the remaining hole.
+    """
+    course = _section_growth_course()
+    storage = _MemoryCourseStorage(course)
+    document_repository = CourseDocumentRepository(storage)
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+    candidate_repository = BlockRegenerationCandidateRepository(tmp_path / "candidates")
+    before, _canonical = document_repository.load_document(course["course_id"])
+    target = next(
+        block for block in before.blocks
+        if block.section_id == "section-1" and block.status != "retired"
+    )
+
+    state = await generate_course_adjustment_plan(
+        course,
+        user_id="student-block-knowledge",
+        section_id=target.section_id,
+        block_id=target.block_id,
+        instruction="这里讲得太抽象，请更直观",
+        request_id="request-block-knowledge-1",
+        expected_document_revision=before.document_revision,
+        expected_block_revision=target.internal_revision,
+        direction="simplify",
+        scope_selection="current_block",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        candidate_repository=candidate_repository,
+        generator=_CountingBlockGenerator(),
+    )
+    plan = state.change_sets[0]
+    pins = plan.impact_summary.get("knowledge_revision_pins")
+
+    assert pins is not None, "block-scope plan carries no knowledge pins at all"
+    assert pins["available"] is True, (
+        f"block-scope plan must pin its knowledge; reason={pins.get('reason')!r}"
+    )
+    assert any(key.startswith("point:") for key in pins["revisions"])
+
+
+@pytest.mark.asyncio
 async def test_current_block_request_uses_course_evolution_plan_and_one_atomic_apply(
     tmp_path,
 ):
