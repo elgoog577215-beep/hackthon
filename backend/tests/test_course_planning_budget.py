@@ -323,8 +323,12 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
         )
 
     assert len(batches) == 21
+    # 真正的准入门：单批输入不得超预算。它仍有大量余量。
     assert max(prompt_tokens) <= budget.max_input_tokens
-    assert prompt_chars < 100_000
+    # 这一条是 21 批的**总量代理**，不是准入门。教案批次新增证据段后
+    # 实测 101_280（每批约 4_823 字符），单批 token 仍远低于 7_000 上限。
+    # 放宽代理上限，而不是砍掉证据——证据正是"资料/联网进知识库"的载体。
+    assert prompt_chars < 110_000
 
 
 def test_twenty_four_section_rich_skeleton_stays_under_final_input_gate():

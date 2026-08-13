@@ -258,6 +258,20 @@ def compact_planning_context(
                 max_list_items=2,
                 max_depth=2,
             )
+        elif detail_level == "minimal":
+            # minimal 档原本把证据整个丢弃，于是"资料/联网进知识库"这一环
+            # 在降级时彻底断掉，教案只能凭模型常识写。这里保底留下证据 ID
+            # 与极短摘要：宁可窄，也不要让链路悄悄退化成无依据生成。
+            hints = [
+                {
+                    "evidence_id": clip_text(entry.get("evidence_id"), 48),
+                    "summary": clip_text(entry.get("summary"), 60),
+                }
+                for entry in list(item.get("evidence_hints") or [])[:2]
+                if isinstance(entry, dict)
+            ]
+            if hints:
+                section["evidence_hints"] = hints
         sections.append({
             key: value
             for key, value in section.items()

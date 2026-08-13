@@ -481,6 +481,52 @@ class CoursePromptComposer:
 {original_prompt}
 """.strip()
 
+    @staticmethod
+    def _batch_evidence_digest(
+        batch_sections: list[dict[str, Any]],
+        *,
+        detail_level: str,
+    ) -> list[dict[str, Any]]:
+        """按小节汇总本批次可依据的证据摘要。
+
+        证据已经随小节带进来（`evidence_hints`），但埋在 `batch_sections`
+        的 JSON 里、没有任何提示语，模型没有被要求据此写作。单列一段并在
+        约束里点名，才算真的"教案读得到证据"。
+
+        长度按详细度收紧：教案批次 prompt 已在撞 token 上限，这里宁可短。
+        """
+        summary_chars = (
+            220 if detail_level == "full"
+            else 140 if detail_level == "compact"
+            else 60
+        )
+        per_section = 4 if detail_level == "full" else 2
+        digest: list[dict[str, Any]] = []
+        for section in batch_sections or []:
+            if not isinstance(section, dict):
+                continue
+            hints = [
+                item for item in (section.get("evidence_hints") or [])
+                if isinstance(item, dict)
+            ][:per_section]
+            if not hints:
+                continue
+            digest.append({
+                "node_id": str(section.get("node_id") or ""),
+                "evidence": [
+                    {
+                        "evidence_id": str(item.get("evidence_id") or ""),
+                        "kind": str(item.get("kind") or ""),
+                        "summary": clip_text(
+                            str(item.get("summary") or ""),
+                            summary_chars,
+                        ),
+                    }
+                    for item in hints
+                ],
+            })
+        return digest
+
     def build_teaching_plan_batch_v3_prompt(
         self,
         *,
@@ -506,6 +552,13 @@ class CoursePromptComposer:
         knowledge_registry = bounded["knowledge_registry"]
         section_identities = bounded["section_identities"]
         module_catalog = bounded["module_catalog"]
+        # 证据从小节里抽出来单列一段：批次 prompt 此前**完全看不到资料原文**，
+        # 于是知识点的成立条件、边界、易错点只能凭模型常识写——
+        # 而知识库正是对这一步产出的确定性重排，断在这里就一路断到底。
+        batch_evidence = self._batch_evidence_digest(
+            batch_sections,
+            detail_level=detail_level,
+        )
         overall_guidance = compact_value(
             overall_guidance or {},
             max_string_chars=(
@@ -547,6 +600,9 @@ class CoursePromptComposer:
 ## 当前小节（已去重）
 {json.dumps(batch_sections, ensure_ascii=False)}
 
+## 本批次可依据的资料证据（只读，来自教师上传资料与已确认联网来源）
+{json.dumps(batch_evidence, ensure_ascii=False)}
+
 ## 当前批次知识与直接依赖闭包（只读）
 {json.dumps(knowledge_registry, ensure_ascii=False)}
 
@@ -574,6 +630,10 @@ class CoursePromptComposer:
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
 7. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
    课堂检查、作业或备注；这些字段必须与教学场景和总课时相容，未知内容可以省略，不能编造资料来源。
+8. 「本批次可依据的资料证据」是本节已确认的教师资料与联网来源。写成立条件、边界、
+   易错点与掌握标准时**必须优先依据这些证据**，不得与证据冲突；证据未覆盖的部分
+   照常用学科通识补足，但不得把通识伪装成资料结论，也不得编造证据里没有的来源、
+   数据或结论。该段为空时说明本节无可用证据，据实按通识展开即可。
 
 ## JSON Schema
 {{

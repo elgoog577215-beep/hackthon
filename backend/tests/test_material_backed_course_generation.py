@@ -259,9 +259,11 @@ def _teaching_skeleton_v3_response(system_prompt, labels_by_title=None):
 
 
 def _teaching_batch_v3_response(system_prompt, labels_by_title=None):
+    # 证据段现在夹在"当前小节"与"知识闭包"之间，原正则会把它一起吞掉。
+    # 锚到证据段（无证据时锚到知识闭包），只取小节 JSON 本身。
     section_match = re.search(
         r"## 当前小节（已去重）\n(\[.*?\])\n\n"
-        r"## 当前批次知识与直接依赖闭包",
+        r"## (?:本批次可依据的资料证据|当前批次知识与直接依赖闭包)",
         system_prompt,
         re.S,
     )
