@@ -1513,9 +1513,9 @@ function formatValue(value: unknown) {
 </script>
 
 <style scoped>
-.question-bank-panel { display: grid; gap: 16px; padding: 18px; border: 1px solid var(--lz-border); border-radius: var(--lz-radius-surface); background: var(--lz-surface); }
+.question-bank-panel { display:grid; gap:13px; padding:14px 16px 16px; border-top:1px solid var(--lz-border); background:transparent; }
 .question-bank-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.question-bank-panel__header h3 { margin: 0; color: var(--lz-text-strong); font-size: 15px; }
+.question-bank-panel__header h3 { margin:0; color:var(--lz-text-secondary); font-size:13px; }
 .question-bank-panel__header-action { display:flex; align-items:flex-end; gap:10px; }
 .question-bank-panel__header-copy { display:grid; max-width:250px; gap:3px; text-align:right; }
 .question-bank-panel__header-action small,.question-bank-panel__header-action span { color:var(--lz-text-muted); font-size:10px; line-height:1.4; }
