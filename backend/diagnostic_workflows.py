@@ -20,6 +20,7 @@ from diagnostic_probes import (
     find_misconception,
     probe_leaks_answer,
 )
+from hint_leakage import mentions_answer_value
 from storage import storage
 
 
@@ -363,6 +364,36 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
     return hypotheses
 
 
+def _hypothesis_without_answer(
+    hypothesis: dict[str, Any],
+    task: dict[str, Any],
+) -> dict[str, Any]:
+    """Copy of ``hypothesis`` whose claim is safe to show the student.
+
+    Claims come from the live model's `answer_diagnosis`, so they can state the
+    correct answer while describing the error.  When that happens the claim
+    cannot be shown at all — not in the generated probe and not in the neutral
+    fallback, which quotes it too.  Redacting to the objective keeps the probe
+    pointed at the right thing while giving nothing away; the original claim
+    stays on the stored hypothesis as diagnostic evidence.
+    """
+    claim = str(hypothesis.get("claim") or "")
+    if not mentions_answer_value(claim, task):
+        return hypothesis
+    objective = str(
+        task.get("learning_objective") or task.get("prompt") or ""
+    ).strip()
+    return {
+        **hypothesis,
+        "claim": (
+            f"你在「{objective}」上的这一步还没有稳定成立"
+            if objective
+            else "你在这一步的判断依据还没有稳定成立"
+        ),
+        "claim_redacted": True,
+    }
+
+
 def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     templates = [
         item for item in (course.get("learning_assets") or {}).get("diagnostic_templates") or []
@@ -375,6 +406,14 @@ def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: l
             course,
             list(hypothesis.get("candidate_mistake_point_ids") or []),
         )
+        # The claim is the model's own words about the error, and in production it
+        # can name the correct answer while describing it ("应得 -4，学生误算为
+        # +4").  Every learner-facing string below interpolates the claim — the
+        # generated probe *and* the neutral fallback — so it has to be made safe
+        # once, here, before either path can use it.  The stored hypothesis keeps
+        # the original text: it is diagnostic evidence, not shown to the student.
+        safe_hypothesis = _hypothesis_without_answer(hypothesis, task)
+        claim = str(safe_hypothesis.get("claim") or "")
         if index < len(templates):
             base = deepcopy(templates[index])
             probe_spec = {}
@@ -382,13 +421,13 @@ def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: l
             # No authored template: build a probe shaped by *what kind* of error
             # is hypothesised, instead of one generic prompt for every category.
             probe_spec = build_probe_spec(
-                hypothesis,
+                safe_hypothesis,
                 task=task,
                 misconception=misconception,
             )
-            leaked = probe_leaks_answer(probe_spec, misconception)
+            leaked = probe_leaks_answer(probe_spec, misconception, task)
             if leaked:
-                # A probe that contains its own answer proves nothing and would
+                # A probe that contains an answer proves nothing and would
                 # wrongly reject the hypothesis; fall back to the neutral form.
                 logger.warning(
                     "diagnostic probe rejected for leaking %s; using neutral prompt",
@@ -402,14 +441,14 @@ def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: l
                 "objective_revision_id": task.get("objective_revision_id"),
                 "node_id": task.get("node_id"),
                 "prompt": probe_spec.get("prompt") or (
-                    f"只针对下面这一点作答，不展开其他内容：{hypothesis['claim']}。"
+                    f"只针对下面这一点作答，不展开其他内容：{claim}。"
                     "说明你的判断、必要条件和一个最小例子。"
                 ),
                 "answer_spec": {
                     "type": "rubric",
                     "expected_keywords": (task.get("answer_spec") or {}).get("expected_keywords") or [task.get("learning_objective")],
                     "criteria": probe_spec.get("criteria") or [
-                        hypothesis["claim"],
+                        claim,
                         "说明必要条件或边界",
                         "给出可检查的最小例子",
                     ],

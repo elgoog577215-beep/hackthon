@@ -158,6 +158,116 @@ def test_leak_guard_catches_an_injected_answer():
     assert probe_leaks_answer(safe, mistake) == ""
 
 
+# --- 假设文本自带答案（真机抽查发现，见 NOTES_TO_OWNER · I0-a 真机取证）------
+
+
+def _answered_task(correct_answer="最小值为 -4"):
+    task = _task()
+    task["answer_spec"] = {**task["answer_spec"], "correct_answer": correct_answer}
+    return task
+
+
+def test_guard_catches_the_answer_carried_in_the_hypothesis_claim():
+    """claim 来自真实模型的诊断，可能顺手把正确答案说出来。
+
+    这条不是假想：真机抽查里模型写的是
+    「原常数 5 与 -9 相加应得 -4，学生误算为 +4」，
+    `build_probe_spec` 把 claim 逐字拼进探针，学生就在探针里看到了 -4——
+    而他接下来还要在补救链上重做同一道题。手写 fixture 永远暴露不了这条，
+    因为人写 claim 时不会去引用答案。
+    """
+    hypothesis = _hypothesis("process_error")
+    hypothesis["claim"] = "原常数 5 与 -9 相加应得 -4，学生误算为 +4"
+    spec = build_probe_spec(
+        hypothesis, task=_answered_task(), misconception=_misconception()
+    )
+
+    # 不传 task 时看不见这条——正是加这个参数的理由
+    assert probe_leaks_answer(spec, _misconception()) == ""
+    assert probe_leaks_answer(
+        spec, _misconception(), _answered_task()
+    ) == "answer_value:-4"
+
+
+def test_claim_carrying_the_answer_is_redacted_not_shown():
+    """端到端：带答案的 claim 不得发给学生。
+
+    注意退让的方式：claim 在**进入探针之前**就被改写，所以探针**仍然保持按错误
+    类型出题的形态**（这里仍是 `redo_single_step`），只是不再带答案——比整条退回
+    通用表述更好。原始 claim 留在假设上作为诊断证据，不给学生看。
+    """
+    hypothesis = _hypothesis("process_error")
+    hypothesis["claim"] = "原常数 5 与 -9 相加应得 -4，学生误算为 +4"
+    task = diagnostic_tasks(_course(), _answered_task(), [hypothesis])[0]
+
+    assert "-4" not in str(task.get("prompt"))
+    assert "-4" not in str(task.get("answer_spec"))
+    assert task.get("probe_strategy") == "redo_single_step"  # 形态未被牺牲
+    assert hypothesis["claim"] == "原常数 5 与 -9 相加应得 -4，学生误算为 +4"
+
+
+def test_safe_claim_is_left_exactly_as_written():
+    """不带答案的 claim 一个字都不该被改——重写只针对真泄漏。"""
+    hypothesis = _hypothesis("process_error")
+    hypothesis["claim"] = "学生跳过了配方中加减同一个数的步骤"
+    task = diagnostic_tasks(_course(), _answered_task(), [hypothesis])[0]
+
+    assert "学生跳过了配方中加减同一个数的步骤" in str(task.get("prompt"))
+
+
+def test_neutral_fallback_also_drops_the_answer():
+    """兜底表述同样引用 claim，所以它必须走同一条改写。
+
+    这是修这条时最容易漏的一半：守卫拦下生成的探针后退回"中性提示"，
+    而那句中性提示自己就拼了 claim——等于没拦。
+    """
+    import diagnostic_workflows
+
+    monkey = diagnostic_workflows.build_probe_spec
+    try:
+        diagnostic_workflows.build_probe_spec = (
+            lambda hypothesis, *, task, misconception: {}
+        )
+        hypothesis = _hypothesis("process_error")
+        hypothesis["claim"] = "原常数 5 与 -9 相加应得 -4，学生误算为 +4"
+        task = diagnostic_tasks(_course(), _answered_task(), [hypothesis])[0]
+    finally:
+        diagnostic_workflows.build_probe_spec = monkey
+
+    assert "-4" not in str(task.get("prompt"))
+    assert "-4" not in str(task.get("answer_spec"))
+
+
+def test_guard_does_not_block_step_indices_or_option_labels():
+    """另一个方向同样要守：拦得太狠会把探针本身拦死。
+
+    答案是 "1"/"B" 这类单字符时，「第 1 步」「选项 B」是完全正常的探针措辞。
+    与 K2 运行时守卫用的是同一套口径（`hint_leakage.mentions_answer_value`），
+    不另建第二套。
+    """
+    probe = {
+        "prompt": "只重做出问题的那一步：第 4 步你用了什么条件？选项 B 与 C 差在哪？",
+        "criteria": ["指明这一步的输入"],
+        "probe_strategy": "redo_single_step",
+    }
+
+    assert probe_leaks_answer(probe, _misconception(), _answered_task("B")) == ""
+    assert probe_leaks_answer(probe, _misconception(), _answered_task("4")) == ""
+    # 两位及以上的裸值照旧拦下
+    assert probe_leaks_answer(
+        probe, _misconception(), _answered_task("4 步")
+    ) == "answer_value:4 步"
+
+
+def test_guard_is_a_no_op_when_the_task_has_no_stored_answer():
+    """开放题没有 correct_answer，守卫不得凭空报错或误报。"""
+    probe = build_probe_spec(
+        _hypothesis("transfer_gap"), task=_task(), misconception=_misconception()
+    )
+
+    assert probe_leaks_answer(probe, _misconception(), _task()) == ""
+
+
 def test_leaky_probe_falls_back_to_neutral_prompt(monkeypatch):
     """真的漏了就退回中性提示，而不是把带答案的探针发给学生。"""
     import diagnostic_workflows
