@@ -2938,7 +2938,7 @@ class AssessmentGenerationOrchestrator:
             # 会因此被误判。判分侧 practice_grading._grade_typed 早就排序了，
             # 生成侧一直没有。这里复用判分侧同一套 id 归一，不各写一份。
             fill_blank_validation = _validate_fill_blank_solution(
-                contract, solved,
+                contract, solved, independent=independent,
             )
             if fill_blank_validation is not None:
                 validation = fill_blank_validation
@@ -4226,9 +4226,88 @@ def _normalize_blank_submission(
     return {"blanks": {}}
 
 
+def _record_fill_blank_diagnostics(
+    contract: dict[str, Any],
+    solved: Any,
+    *,
+    independent: dict[str, Any] | None,
+    outcome: str,
+    compiled: dict[str, Any] | None = None,
+    submission: dict[str, Any] | None = None,
+    graded: dict[str, Any] | None = None,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    """把「独立求解器原始答案 vs 标准答案」逐空记下来，供归因。
+
+    **默认什么也不做**：`record_comparison` 在没装 sink 时是 no-op，
+    所以生产路径不产生数据、不落盘、不进任何 payload。标准答案原文只在
+    核查脚本显式装 sink 的进程里存在，进程结束即消失。
+
+    记录不参与判定——`passed` 已经由 `grade_fill_blank` 算完了，这里只读。
+    """
+    from assessment_fill_blank_diagnostics import (
+        classify_blank_mismatch,
+        record_comparison,
+        sink_enabled,
+    )
+
+    if not sink_enabled():
+        return
+    results = {
+        str(item.get("blank_id")): item
+        for item in (graded or {}).get("results") or []
+    }
+    answers = (submission or {}).get("blanks") or {}
+    blanks: list[dict[str, Any]] = []
+    for blank in (compiled or {}).get("blanks") or []:
+        blank_id = str(blank.get("blank_id"))
+        result = results.get(blank_id) or {}
+        submitted = answers.get(blank_id)
+        blanks.append({
+            "blank_id": blank_id,
+            "match_mode": blank.get("match_mode"),
+            "blank_kind": blank.get("blank_kind"),
+            "expected": deepcopy(blank.get("answer")),
+            "acceptable_answers": deepcopy(
+                blank.get("acceptable_answers") or []
+            ),
+            "submitted": deepcopy(submitted),
+            "correct": bool(result.get("correct")),
+            "answered": bool(result.get("answered")),
+            "mismatch_kind": classify_blank_mismatch(
+                str(blank.get("match_mode") or "exact"),
+                blank.get("answer"),
+                submitted,
+                correct=bool(result.get("correct")),
+            ),
+        })
+    record_comparison({
+        "outcome": outcome,
+        "solution_revision_id": str(
+            (contract.get("question_spec") or {}).get(
+                "solution_revision_id"
+            )
+            or ""
+        ),
+        "prompt_excerpt": str(contract.get("prompt") or "")[:300],
+        # 求解器身份：区分「本地确定性解题器算错」与「模型求解写法不同」。
+        "solver_kind": str((independent or {}).get("solver_kind") or ""),
+        "solver_attested": bool(
+            (independent or {}).get("solver_attested")
+        ),
+        # 归一化之前的原始形状也留一份——按位置给列表 / 给标量这类形状问题，
+        # 只看归一化之后的结果是看不出来的。
+        "raw_solved": deepcopy(solved),
+        "blanks": blanks,
+        "detail": deepcopy(detail or {}),
+    })
+
+
 def _validate_fill_blank_solution(
     contract: dict[str, Any],
     solved: Any,
+    *,
+    independent: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """填空题按空位逐个校验独立解答，返回 None 表示这不是填空题。
 
@@ -4236,6 +4315,10 @@ def _validate_fill_blank_solution(
     ——把「各空答案」当成一整段文本比字符串。求解器只要格式稍有出入就判不一致，
     真机实测填空题 4/4 全部因 VALIDATION_FAILED + PROMPT_SOLUTION_CONTRADICTION
     被丢弃。这里改成用既有的 `grade_fill_blank` 逐空判，与学生作答同一套判定。
+
+    顺带把逐空对照交给 `assessment_fill_blank_diagnostics` 记录（默认 no-op，
+    只有核查脚本装了 sink 才收集）。**判定逻辑一行不变**——记录是旁路，
+    不参与 passed 的计算。
     """
     blanks = (contract.get("solution_envelope") or {}).get("blanks")
     if not isinstance(blanks, list) or not blanks:
@@ -4252,6 +4335,13 @@ def _validate_fill_blank_solution(
         str(contract.get("prompt") or ""), blanks,
     )
     if unresolved:
+        _record_fill_blank_diagnostics(
+            contract,
+            solved,
+            independent=independent,
+            outcome="answer_not_in_stem",
+            detail={"unresolved_blank_ids": unresolved},
+        )
         return {
             "schema_version": "assessment_validator_result_v1",
             "validation_mode": "fill_blank_validator",
@@ -4284,6 +4374,13 @@ def _validate_fill_blank_solution(
             blanks=blanks,
         )
     except ValueError as error:
+        _record_fill_blank_diagnostics(
+            contract,
+            solved,
+            independent=independent,
+            outcome="contract_invalid",
+            detail={"error": str(error)},
+        )
         return {
             "schema_version": "assessment_validator_result_v1",
             "validation_mode": "fill_blank_validator",
@@ -4298,6 +4395,15 @@ def _validate_fill_blank_solution(
     submission = _normalize_blank_submission(solved, compiled)
     graded = grade_fill_blank(compiled, submission)
     passed = bool(graded.get("all_correct"))
+    _record_fill_blank_diagnostics(
+        contract,
+        solved,
+        independent=independent,
+        outcome="passed" if passed else "blank_mismatch",
+        compiled=compiled,
+        submission=submission,
+        graded=graded,
+    )
     return {
         "schema_version": "assessment_validator_result_v1",
         "validation_mode": "fill_blank_validator",
