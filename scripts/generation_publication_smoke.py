@@ -155,6 +155,32 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 "generation_quality_report"
             ) or {}
             asset_quality = generated.get("asset_quality_report") or {}
+            # Count the questions that actually reached storage. The smoke run
+            # lives in a TemporaryDirectory that is removed on exit, so this is
+            # the only chance to observe them; without it the report cannot
+            # distinguish "assets vetted and passed" from "no assets existed".
+            question_total = 0
+            try:
+                bundle = assets.load_bundle(course_id) or {}
+
+                def _count(node: object) -> int:
+                    if isinstance(node, dict):
+                        total = 0
+                        for key, value in node.items():
+                            if key in {"questions", "items"} and isinstance(
+                                value, list
+                            ):
+                                total += len(value)
+                            total += _count(value)
+                        return total
+                    if isinstance(node, list):
+                        return sum(_count(item) for item in node)
+                    return 0
+
+                question_total = _count(bundle)
+            except Exception as exc:  # never let counting mask the real result
+                question_total = -1
+                print(f"[warn] 题目统计失败: {exc}", file=sys.stderr)
             source_chain = generated.get(
                 "generation_source_chain_report"
             ) or {}
@@ -186,6 +212,15 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 failures.append("课程仍有阻断性质量问题")
             if not asset_quality.get("passed"):
                 failures.append("学习资产合同未通过")
+            # `passed` is also True when nothing was generated to judge, so a
+            # run whose assessment stage never fired reports a clean pass. That
+            # happened for real: a 5-model-call run reported asset_quality
+            # passed with zero questions produced, which reads identically to a
+            # 31-call run that actually generated and vetted them.
+            if question_total <= 0:
+                failures.append(
+                    "未生成任何题目（学习资产合同为空过，不能视为通过）"
+                )
             if not source_chain.get("can_publish"):
                 failures.append("确认后的同源链未通过")
             if workspace.get("status") != "published":
@@ -253,6 +288,7 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 "asset_quality_passed": bool(
                     asset_quality.get("passed")
                 ),
+                "question_total": question_total,
                 "source_chain_passed": bool(
                     source_chain.get("can_publish")
                 ),
