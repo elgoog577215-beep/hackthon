@@ -15,17 +15,49 @@
     >
       <span class="day-number">{{ cell.day }}</span>
       <span class="day-events">
-        <button
+        <el-popover
           v-for="session in cell.sessions.slice(0, 3)"
           :key="session.session_id || `${session.course_id}-${session.sequence}`"
-          type="button"
-          class="event"
-          :data-color="session.course_color_key ?? 0"
-          :title="eventTitle(session)"
-          @click.stop="$emit('select', session)"
+          :trigger="['hover', 'focus']"
+          placement="top-start"
+          :width="292"
+          :offset="8"
+          :show-after="140"
+          :hide-after="80"
+          popper-class="calendar-session-popover"
         >
-          <i></i><span>{{ showCourse ? session.course_title : session.content_summary }}</span>
-        </button>
+          <div class="event-popover" :data-color="session.course_color_key ?? 0">
+            <header>
+              <span class="course-mark"><i></i></span>
+              <span class="course-heading">
+                <small>课程</small>
+                <strong>{{ session.course_title || '未命名课程' }}</strong>
+              </span>
+              <span class="session-index">第 {{ session.sequence }} 课次</span>
+            </header>
+            <section class="lesson-summary">
+              <BookOpenText :size="15" />
+              <strong>{{ session.content_summary || '教学内容待补充' }}</strong>
+            </section>
+            <dl>
+              <div><dt><Clock3 :size="14" />时间</dt><dd>{{ sessionTime(session) }}</dd></div>
+              <div><dt><MapPin :size="14" />地点</dt><dd>{{ session.location || '地点未定' }}</dd></div>
+              <div v-if="session.teacher_name"><dt><UserRound :size="14" />教师</dt><dd>{{ session.teacher_name }}</dd></div>
+            </dl>
+            <footer>点击课程条目进入教学日历 <ArrowUpRight :size="13" /></footer>
+          </div>
+          <template #reference>
+            <button
+              type="button"
+              class="event"
+              :data-color="session.course_color_key ?? 0"
+              :aria-label="eventAriaLabel(session)"
+              @click.stop="$emit('select', session)"
+            >
+              <i></i><span>{{ showCourse ? session.course_title : session.content_summary }}</span>
+            </button>
+          </template>
+        </el-popover>
         <small v-if="cell.sessions.length > 3">+{{ cell.sessions.length - 3 }}</small>
       </span>
     </div>
@@ -34,6 +66,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ArrowUpRight, BookOpenText, Clock3, MapPin, UserRound } from 'lucide-vue-next'
 import type { ClassSession } from '../stores/teachingCalendar'
 
 const props = withDefaults(defineProps<{
@@ -76,8 +109,14 @@ const cells = computed(() => {
   })
 })
 
-function eventTitle(session: ClassSession) {
-  return [session.course_title, session.content_summary, session.start_time?.slice(0, 5), session.location].filter(Boolean).join(' · ')
+function sessionTime(session: ClassSession) {
+  const date = session.date?.replace(/-/g, '/') || '日期未定'
+  const start = session.start_time?.slice(0, 5) || '--:--'
+  const end = session.end_time?.slice(0, 5)
+  return `${date} · ${start}${end ? `–${end}` : ''}`
+}
+function eventAriaLabel(session: ClassSession) {
+  return [session.course_title, session.content_summary, sessionTime(session), session.location].filter(Boolean).join('，')
 }
 function emitDay(date: string) { emit('day', date) }
 </script>
@@ -88,7 +127,10 @@ function emitDay(date: string) { emit('day', date) }
 .day-cell { min-width:0; min-height:82px; display:grid; grid-template-rows:22px minmax(0,1fr); gap:2px; padding:5px; border:0; border-right:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-primary); background:var(--lz-surface); text-align:left; cursor:pointer; }
 .day-cell:hover { background:var(--lz-fill); }.day-cell.muted { color:var(--lz-text-muted); background:color-mix(in srgb,var(--lz-fill) 48%,var(--lz-surface)); }.day-cell.today .day-number { color:#fff; background:var(--lz-brand); }
 .day-number { width:22px; height:22px; display:grid; place-items:center; border-radius:50%; font-size:10px; font-weight:700; }
-.day-events { min-width:0; display:grid; align-content:start; gap:3px; }.event { min-width:0; height:20px; display:flex; align-items:center; gap:5px; padding:0 5px; border:0; border-radius:5px; color:var(--lz-text-secondary); background:var(--lz-brand-soft); font-size:9px; cursor:pointer; }.event i { width:5px; height:5px; flex:0 0 auto; border-radius:50%; background:var(--lz-brand); }.event span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.day-events { min-width:0; display:grid; align-content:start; gap:3px; }.day-events :deep(.el-popper__trigger){min-width:0;display:block}.event { width:100%; min-width:0; height:20px; display:flex; align-items:center; gap:5px; padding:0 5px; border:1px solid transparent; border-radius:5px; color:var(--lz-text-secondary); background:var(--lz-brand-soft); font-size:9px; cursor:pointer; transition:color .16s ease-out,background .16s ease-out,border-color .16s ease-out,transform .16s ease-out; }.event:hover,.event:focus-visible{color:var(--lz-brand-strong);border-color:color-mix(in srgb,var(--lz-brand) 20%,transparent);background:color-mix(in srgb,var(--lz-brand-soft) 72%,var(--lz-surface));outline:none;transform:translateY(-1px)}.event i { width:5px; height:5px; flex:0 0 auto; border-radius:50%; background:var(--lz-brand); }.event span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .event[data-color="1"],.event[data-color="5"] { background:var(--lz-success-soft); }.event[data-color="1"] i,.event[data-color="5"] i { background:var(--lz-success); }.event[data-color="2"],.event[data-color="6"] { background:var(--lz-warning-soft); }.event[data-color="2"] i,.event[data-color="6"] i { background:var(--lz-warning); }.event[data-color="3"],.event[data-color="7"] { background:var(--lz-danger-soft); }.event[data-color="3"] i,.event[data-color="7"] i { background:var(--lz-danger); }
 .day-events small { padding-left:5px; color:var(--lz-text-muted); font-size:9px; }
+.event-popover{display:grid;gap:var(--space-3);padding:var(--space-3);color:var(--lz-text);background:var(--lz-surface)}.event-popover header{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:var(--space-2)}.course-mark{width:30px;height:30px;display:grid;place-items:center;border-radius:var(--lz-radius-control);background:var(--lz-brand-soft)}.course-mark i{width:8px;height:8px;border-radius:50%;background:var(--lz-brand);box-shadow:0 0 0 4px color-mix(in srgb,var(--lz-brand) 12%,transparent)}.course-heading{min-width:0;display:grid;gap:2px}.course-heading small{padding:0;color:var(--lz-text-muted);font-size:9px}.course-heading strong{overflow:hidden;color:var(--lz-text-strong);font-size:12px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.session-index{padding:3px 6px;border-radius:6px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px;font-weight:700;white-space:nowrap}.lesson-summary{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:start;gap:var(--space-2);padding:var(--space-2);border:1px solid var(--lz-border);border-radius:var(--lz-radius-control);background:var(--lz-surface-subtle)}.lesson-summary svg{margin-top:1px;color:var(--lz-brand)}.lesson-summary strong{display:-webkit-box;overflow:hidden;color:var(--lz-text);font-size:11px;font-weight:650;line-height:1.55;-webkit-box-orient:vertical;-webkit-line-clamp:2}.event-popover dl{display:grid;gap:7px;margin:0}.event-popover dl>div{display:grid;grid-template-columns:62px minmax(0,1fr);align-items:center;gap:var(--space-2)}.event-popover dt{display:flex;align-items:center;gap:5px;color:var(--lz-text-muted);font-size:10px}.event-popover dd{min-width:0;margin:0;overflow:hidden;color:var(--lz-text-secondary);font-size:10px;text-overflow:ellipsis;white-space:nowrap}.event-popover footer{display:flex;align-items:center;justify-content:flex-end;gap:4px;padding-top:var(--space-2);border-top:1px solid var(--lz-border);color:var(--lz-brand-strong);font-size:9px;font-weight:650}.event-popover[data-color="1"] .course-mark,.event-popover[data-color="5"] .course-mark{background:var(--lz-success-soft)}.event-popover[data-color="1"] .course-mark i,.event-popover[data-color="5"] .course-mark i{background:var(--lz-success)}.event-popover[data-color="2"] .course-mark,.event-popover[data-color="6"] .course-mark{background:var(--lz-warning-soft)}.event-popover[data-color="2"] .course-mark i,.event-popover[data-color="6"] .course-mark i{background:var(--lz-warning)}.event-popover[data-color="3"] .course-mark,.event-popover[data-color="7"] .course-mark{background:var(--lz-danger-soft)}.event-popover[data-color="3"] .course-mark i,.event-popover[data-color="7"] .course-mark i{background:var(--lz-danger)}
+:global(.calendar-session-popover.el-popper){overflow:hidden;padding:0!important;border:1px solid color-mix(in srgb,var(--lz-brand) 12%,var(--lz-border))!important;border-radius:var(--lz-radius-control)!important;background:var(--lz-surface)!important;box-shadow:var(--lz-shadow-overlay)!important}:global(.calendar-session-popover.el-popper .el-popper__arrow::before){border-color:color-mix(in srgb,var(--lz-brand) 12%,var(--lz-border))!important;background:var(--lz-surface)!important}
+@media(prefers-reduced-motion:reduce){.event{transition:none}.event:hover,.event:focus-visible{transform:none}}
 </style>
