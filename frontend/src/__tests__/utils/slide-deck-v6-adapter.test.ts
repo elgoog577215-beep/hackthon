@@ -33,8 +33,9 @@ describe('slide deck V6 web adapter', () => {
       pages: [page],
     })[0]!
 
-    expect(slide.eyebrow).toBe('COURSE DECK')
-    expect(slide.subtitle).toBe('开发环境初始化与项目结构规范')
+    expect(slide.eyebrow).toBe('')
+    expect(slide.subtitle).toBe('')
+    expect(slide.quality.audience_label_policy).toBe('source_only')
   })
 
   it('uses the shared template adapter contract and preserves full V6 layout identity', () => {
@@ -241,6 +242,8 @@ describe('slide deck V6 web adapter', () => {
 
     expect(slides[0]!.quality.v6_layout_variant).toBe('table-with-interpretation')
     expect(slides[1]!.quality.v6_layout_variant).toBe('table-row-detail')
+    expect(slides[0]!.eyebrow).toBe('')
+    expect(slides[0]!.blocks.every((block: any) => block.title === '')).toBe(true)
     expect(slides[0]!.visuals[0].parameters).toEqual({
       headers: ['Check', 'Evidence'],
       rows: [['Input | timestamp', 'Recorded']],

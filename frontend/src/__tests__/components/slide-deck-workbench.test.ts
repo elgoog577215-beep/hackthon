@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
-  it('shows verified V6 story completion and visual degradation truthfully', () => {
+  it('consolidates V6 planning diagnostics into one compact build-details menu', () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
         courseId: 'generic-course',
@@ -58,9 +58,12 @@ describe('SlideDeckWorkbench', () => {
       },
     })
 
-    expect(wrapper.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
-    expect(wrapper.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
-    expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
+    const details = wrapper.get('[data-testid="ppt-build-details"]')
+    expect(details.get('summary').text()).toContain('生成详情')
+    expect(details.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
+    expect(details.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
+    expect(details.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
+    expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)
   })
 
   it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {

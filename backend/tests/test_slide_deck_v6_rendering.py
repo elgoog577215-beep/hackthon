@@ -725,25 +725,22 @@ def test_v6_web_and_pptx_adapters_resolve_the_same_template_page(tmp_path: Path)
     assert "A rejected value remains visible" in notes
 
 
-def test_course_cover_adapter_exposes_source_subtitle_without_internal_slug() -> None:
+def test_course_cover_adapter_keeps_the_title_page_minimal_and_internal_labels_hidden() -> None:
     document, _deck = _code_deck()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     page = _compile_course_cover_page(document, template)
 
     adapted = adapt_v6_page_to_slide_spec(page)
 
-    assert adapted.eyebrow == "COURSE DECK"
-    assert adapted.subtitle == page.regions[0].content
-    assert adapted.subtitle
+    assert adapted.eyebrow == ""
+    assert adapted.subtitle == ""
+    assert adapted.quality["audience_label_policy"] == "source_only"
+    assert page.regions == []
 
 
-def test_course_cover_contract_capacity_survives_pptx_frame_audit(tmp_path: Path) -> None:
+def test_course_cover_title_only_contract_survives_pptx_frame_audit(tmp_path: Path) -> None:
     document, deck = _code_deck()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
-    cover_layout = template.get_layout(template.layout_id("cover-minimal"))
-    subtitle_slot = next(
-        slot for slot in cover_layout.slots if slot.slot_id == "subtitle"
-    )
     long_objective = (
         "记录湿地观察地点时间天气仪器校准采样窗口证据负责人验收标准异常现象"
         "复核结论推导依据修正方案跟进责任人并保留签字原始记录供独立审查追溯"
@@ -767,9 +764,18 @@ def test_course_cover_contract_capacity_survives_pptx_frame_audit(tmp_path: Path
         tmp_path / "v6-cover-capacity.pptx",
     )
 
-    assert len(cover.regions[0].content) == subtitle_slot.max_chars
+    assert cover.regions == []
     audit = audit_exported_pptx(output, expected_slide_count=1)
+    presentation = Presentation(output)
+    visible_text = [
+        shape.text.strip()
+        for shape in presentation.slides[0].shapes
+        if hasattr(shape, "text") and shape.text.strip()
+    ]
 
+    assert "COURSE DECK" not in visible_text
+    assert "课堂演示" not in visible_text
+    assert long_objective not in visible_text
     assert not [
         issue
         for issue in audit["issues"]
@@ -827,6 +833,8 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
 
     assert split_slide.quality["v6_layout_variant"] == "table-wide-with-summary"
     assert split_slide.quality["v6_artifact_support_mode"] == "band"
+    assert split_slide.eyebrow == ""
+    assert all(block.title == "" for block in split_slide.blocks)
     for page in deck.pages[1:]:
         continuation_slide = adapt_v6_page_to_slide_spec(page)
         assert continuation_slide.quality["v6_layout_variant"] == "table-continuation"
@@ -842,6 +850,14 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
     assert report["passed"], report["blockers"]
     presentation = Presentation(output)
     for slide in presentation.slides:
+        visible_text = [
+            shape.text.strip()
+            for shape in slide.shapes
+            if hasattr(shape, "text") and shape.text.strip()
+        ]
+        assert "EVIDENCE TABLE" not in visible_text
+        assert "INTERPRETATION" not in visible_text
+        assert "SUMMARY" not in visible_text
         table = next(shape.table for shape in slide.shapes if shape.has_table)
         assert all(
             cell.vertical_anchor == MSO_ANCHOR.MIDDLE

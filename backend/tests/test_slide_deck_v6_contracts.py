@@ -1745,6 +1745,12 @@ def test_template_safe_table_continuations_do_not_consume_the_story_page_budget(
     assert len(deck.pages) == 5
     assert len(table_pages) == 3
     assert all(page.continuation_count == 3 for page in table_pages)
+    assert [page.title for page in table_pages] == [
+        "Inspect the complete evidence",
+        "Inspect the complete evidence",
+        "Inspect the complete evidence",
+    ]
+    assert all("/3)" not in page.title for page in table_pages)
 
 
 def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda() -> None:
@@ -1822,8 +1828,7 @@ def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda(
     assert cover.source_section_ids == ["observe", "explain"]
     assert cover.speaker_notes.source_blocks == []
     assert cover.speaker_notes.source_section_ids == ["observe", "explain"]
-    assert cover.regions[0].slot_id == "subtitle"
-    assert cover.regions[0].source_section_ids == ["observe", "explain"]
+    assert cover.regions == []
 
     agenda = deck.pages[1]
     assert agenda.resolved_layout == template.layout_id("agenda-path")
