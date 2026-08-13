@@ -251,3 +251,29 @@ def test_prompt_lists_every_legal_knowledge_type() -> None:
 
     missing = sorted(name for name in KNOWLEDGE_TYPES if name not in constraints)
     assert missing == [], f"约束里没有给出这些合法 knowledge_type：{missing}"
+
+
+def test_skeleton_prompt_requires_splitting_representations() -> None:
+    """骨架阶段必须要求把同一对象的多种表示拆成独立知识点。
+
+    为什么必须在骨架阶段而不是批次阶段：实测三次批次阶段提示全部失败
+    （representation 恒为 0），根因是骨架 prompt 写着"每节通常 2-4 个原子
+    知识点"——**要求拆表示法与这条名额限制直接冲突**，两条矛盾指令下模型
+    选择了不拆。所以拆分名额必须在分配名额的那一层给出。
+
+    同 provider 对照实测（千问 qwen3.6-35b-a3b）：
+        A 组（骨架未改）：representation 0
+        B 组（骨架加规则）：representation 3 / 2（跑两次）
+    """
+    composer = CoursePromptComposer()
+    prompt = composer.build_teaching_plan_skeleton_v3_prompt(
+        course_title="一次函数",
+        positioning="能用一次函数刻画线性变化",
+        learning_objectives=["能在解析式与图像之间互相转换"],
+        planning_context={"sections": [], "module_catalog": []},
+    )
+
+    assert "representation" in prompt, "骨架必须点名 representation 类型"
+    assert "equivalent_to" in prompt, "要说清表示法之间用哪种关系相连"
+    # 关键：必须明确"可以超过 4 个"，否则与既有名额约束冲突，模型会选择不拆。
+    assert "超过 4 个" in prompt or "可以超过" in prompt

@@ -99,6 +99,7 @@ def compile_course_knowledge_base(
     unresolved_relation_candidates: list[dict[str, Any]] = []
     unresolved_reuse_candidates: list[dict[str, Any]] = []
     waiting_review_entries: list[dict[str, Any]] = []
+    coerced_knowledge_types: list[dict[str, Any]] = []
 
     point_by_name: dict[str, dict[str, Any]] = {}
     section_point_ids: dict[str, list[str]] = {}
@@ -173,8 +174,25 @@ def compile_course_knowledge_base(
                     continue
 
                 point_id = _local_id(course_id, group_id, "knowledge_point", name, "ckp_")
-                knowledge_type = str(raw_point.get("knowledge_type") or "definition")
+                raw_knowledge_type = str(raw_point.get("knowledge_type") or "").strip()
+                knowledge_type = raw_knowledge_type or "definition"
                 if knowledge_type not in KNOWLEDGE_TYPES:
+                    # 词表外取值一律兜成 `definition`，但**必须留痕**。
+                    # 这里原本是静默改写：模型填错、系统改错、没人知道，一个本该
+                    # 是 `procedure` 的知识点会以 `definition` 的身份进入题目生成
+                    # 与教师界面。真机实测千问自造过 `relationship` 与 `concept`，
+                    # 所以这不是假想问题。
+                    #
+                    # 只记"填了但填错"的情况：完全没填是缺省，走默认值合理，
+                    # 混进来会淹没这条审计的信噪比。
+                    if raw_knowledge_type:
+                        coerced_knowledge_types.append({
+                            "knowledge_id": point_id,
+                            "knowledge_name": name,
+                            "section_ref": section_id,
+                            "original": raw_knowledge_type,
+                            "coerced_to": "definition",
+                        })
                     knowledge_type = "definition"
                 point = {
                     "knowledge_id": point_id,
@@ -401,6 +419,7 @@ def compile_course_knowledge_base(
             "unresolved_reuse_candidates": unresolved_reuse_candidates,
             "invalid_block_ref_candidates": invalid_block_ref_candidates,
             "waiting_review_entries": waiting_review_entries,
+            "coerced_knowledge_types": coerced_knowledge_types,
             "title_fallback_used": False,
             "legacy_outline_sections": [
                 section_id
@@ -898,7 +917,11 @@ def validate_course_knowledge_base(
     for relation_type in ("prerequisite", "generalizes"):
         cycle = _find_relation_cycle(relations, relation_type)
         if cycle:
-            issues.append(_issue(f"{relation_type}_cycle", "relations", "major", f"{relation_type} 关系存在循环，建议后续优化：{' -> '.join(cycle)}"))
+            # critical 而非 major（D4，2026-08-12）：前置成环意味着"学 A 要先学 B、
+            # 学 B 要先学 A"，学习顺序根本排不出来，是结构错误不是质量瑕疵。
+            # 升级前实测过风险：`scripts/measure_relation_cycles.py` 扫遍全部真实
+            # 课程，成环 0 门，所以升级不会卡住任何存量课程。
+            issues.append(_issue(f"{relation_type}_cycle", "relations", "critical", f"{relation_type} 关系存在循环，必须修正学习顺序：{' -> '.join(cycle)}"))
     for point in points:
         point_id = str(point.get("knowledge_id") or "")
         if point_id not in inbound and not str(point.get("entry_reason") or "").strip():
@@ -906,6 +929,19 @@ def validate_course_knowledge_base(
 
     if (knowledge_base.get("generation_audit") or {}).get("invalid_relation_candidates"):
         issues.append(_issue("invalid_relation_candidates", "relations", "major", "已忽略六类白名单之外的知识关系候选"))
+    coerced = (knowledge_base.get("generation_audit") or {}).get("coerced_knowledge_types") or []
+    if coerced:
+        # `minor` 而非 critical：改写后的 `definition` 是合法值，下游不会崩，
+        # 损失的是语义精度而不是结构完整性。真机实测模型自造率不低，直接判失败
+        # 会把大量课程卡在生成阶段——先让它可见、可统计，积累数据再决定是否升级。
+        originals = sorted({str(item.get("original") or "") for item in coerced})
+        issues.append(_issue(
+            "coerced_knowledge_type",
+            "semantic",
+            "minor",
+            f"{len(coerced)} 个知识点的 knowledge_type 不在词表内、已兜底为 definition"
+            f"（原值：{'、'.join(originals)}）",
+        ))
     waiting = (knowledge_base.get("generation_audit") or {}).get("waiting_review_entries") or []
     if waiting:
         # `minor`: the rejected entries are genuinely out of the active set, so

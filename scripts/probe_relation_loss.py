@@ -11,7 +11,8 @@
   3. `assemble_course_teaching_plan_v3` 出口 —— 最终装配结果
 
 用法（需在 backend 目录下，且已配好 AI 凭据）：
-    cd backend && MODELSCOPE_API_KEY= .venv/bin/python ../scripts/probe_relation_loss.py
+    cd backend && set -a && source ~/.lz_qwen_provider.env && set +a \\
+      && .venv/bin/python ../scripts/probe_relation_loss.py
 
 输入课程需求读 `/tmp/kb-gen/req.json`；结果写 `/tmp/kb-gen/probe2.json`。
 
@@ -22,7 +23,9 @@
 import asyncio, json, os, sys, uuid
 from collections import defaultdict
 sys.path.insert(0, '.')
-os.environ['MODELSCOPE_API_KEY'] = ''
+# provider 凭据由 ~/.lz_qwen_provider.env 提供（仓库外）。
+# 原先这里手动置空 MODELSCOPE_API_KEY 是为了绕开那个 401 的端点；
+# ModelScope 端点已决定弃用，env 文件也已处理，故删除该逻辑。
 
 import course_teaching_plan_v3 as tp
 import course_service as cs
