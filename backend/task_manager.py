@@ -2959,7 +2959,7 @@ class TaskManager:
             and course_data.get("subject_pedagogy_profile")
         )
         checkpoint = {
-            "phase": str(task.get("phase") or task.get("current_phase") or ""),
+            "phase": self._effective_phase(task),
             "completed_nodes": completed_nodes,
             "total_nodes": len(nodes),
             "draft_node_ids": draft_node_ids,
@@ -3423,7 +3423,7 @@ class TaskManager:
         completed_nodes = int(task.get("completed_nodes") or 0)
         total_nodes = int(task.get("total_nodes") or 0)
         checkpoint = {
-            "phase": phase,
+            "phase": self._effective_phase(task),
             "assessment_generation_profile": str(
                 task.get("assessment_generation_profile")
                 or "deliberate"
@@ -3632,6 +3632,29 @@ class TaskManager:
         if status == "completed_with_warnings" and task.get("publication_allowed") is False:
             return False
         return self._publication_receipt(task) is not None
+
+    # 恢复过程中会被短暂盖上去的阶段。它们说明"正在回到工作状态"，
+    # 但答不了"回到哪一阶段"——投影直接回显它们，用户就只看得到"正在继续"。
+    _TRANSIENT_PHASES = frozenset({"resuming"})
+
+    def _effective_phase(self, task: dict[str, Any]) -> str:
+        """Single answer to "which stage is this job at?".
+
+        ``_process_task`` derives the real stage from the guided workflow via
+        ``_processing_handoff`` and stamps it. Between a resume request and that
+        stamp the stored phase reads ``resuming``, so a projection that echoes
+        the stored value tells the task list one thing while the job is about to
+        report another. Both recovery projections ask this instead, which is why
+        the list, the resume dialog and the running job name the same stage.
+
+        A stored phase that is not transient is authoritative and returned
+        unchanged — this only fills the gap, it does not second-guess the job.
+        """
+        phase = str(task.get("phase") or task.get("current_phase") or "")
+        if phase and phase not in self._TRANSIENT_PHASES:
+            return phase
+        derived, _message = self._processing_handoff(task)
+        return derived or phase
 
     def _failed_node_report_entry(
         self, task_id: str, node: dict[str, Any]
