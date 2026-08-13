@@ -789,7 +789,26 @@ async def _invoke(planner: Planner, request: dict[str, Any], timeout_seconds: fl
     else:
         result = await asyncio.to_thread(planner, request)
     if inspect.isawaitable(result):
-        result = await asyncio.wait_for(result, timeout=timeout_seconds)
+        task = asyncio.ensure_future(result)
+        done, _pending = await asyncio.wait(
+            {task},
+            timeout=timeout_seconds,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if task not in done:
+            task.cancel()
+            # The provider SDK may delay or suppress cancellation while a
+            # stream is wedged.  Observe its eventual result without making
+            # the durable slide task wait past the V6 batch deadline.
+            task.add_done_callback(
+                lambda finished: (
+                    None
+                    if finished.cancelled()
+                    else finished.exception()
+                )
+            )
+            raise asyncio.TimeoutError
+        result = task.result()
     if not isinstance(result, dict):
         raise TypeError("AI planner response must be a JSON object")
     return result
