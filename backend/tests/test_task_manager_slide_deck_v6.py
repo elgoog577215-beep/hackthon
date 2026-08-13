@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import pytest
@@ -241,6 +242,108 @@ async def test_restart_stops_a_slide_build_recovery_loop(
     assert manager.tasks[task_id]["error_detail"]["code"] == (
         "restart_recovery_limit_exceeded"
     )
+
+
+@pytest.mark.asyncio
+async def test_terminal_v6_build_preserves_its_recovery_contract_and_never_resumes_as_v5(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    jobs_path = tmp_path / "jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", jobs_path)
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={
+            "mode": "teaching",
+            "theme": "qizhi-classroom",
+            "variant_key": "teaching:qizhi-classroom",
+            "target_schema": "slide_deck_v6",
+            "template_selector": {"pack_id": "", "version": None},
+            "force_rebuild": True,
+        },
+    )
+    manager.tasks[task_id].update({
+        "status": "failed",
+        "phase": "story",
+        "error_detail": {
+            "stage": "story",
+            "code": "story_ai_batch_failed",
+            "message": "retry from checkpoint",
+            "retryable": True,
+        },
+    })
+    checkpoint_root = tmp_path / "slide_deck_v6_candidates" / "checkpoints"
+    checkpoint_root.mkdir(parents=True)
+    (checkpoint_root / f"{task_id}.json").write_text(
+        json.dumps({
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "task_id": task_id,
+            "course_id": course["course_id"],
+            "course_document_revision": course["course_document"]["document_revision"],
+            "template_digest": "tpl_fixture",
+            "mode": "teaching",
+            "theme": "qizhi-classroom",
+        }),
+        encoding="utf-8",
+    )
+    progress_root = tmp_path / "slide_build_progress_v2"
+    progress_root.mkdir()
+    (progress_root / f"{task_id}.json").write_text("{}", encoding="utf-8")
+    manager.save_tasks(strict=True)
+
+    persisted = json.loads(jobs_path.read_text(encoding="utf-8"))[task_id]
+    assert "request_snapshot" not in persisted
+    assert persisted["slide_build_request_contract"]["target_schema"] == (
+        "slide_deck_v6"
+    )
+
+    restarted = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    resumed = await restarted.resume_task(task_id)
+    assert resumed["status"] == "resumed"
+
+    captured: dict[str, object] = {}
+
+    async def v6_runner(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        restarted,
+        "_process_slide_deck_variant_v6",
+        v6_runner,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        task_manager_module,
+        "fragment_course_document",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Recovered V6 task entered the V5 fragmentation path")
+        ),
+    )
+
+    await restarted._process_slide_deck_variant_task(task_id)
+
+    assert captured["task_id"] == task_id
+    assert restarted.tasks[task_id]["slide_build_request_contract"][
+        "target_schema"
+    ] == "slide_deck_v6"
 
 
 @pytest.mark.asyncio
