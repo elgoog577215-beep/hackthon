@@ -725,6 +725,19 @@ def test_v6_web_and_pptx_adapters_resolve_the_same_template_page(tmp_path: Path)
     assert "A rejected value remains visible" in notes
 
 
+def test_published_continuation_titles_hide_legacy_pagination_suffixes() -> None:
+    deck = _dense_table_deck()
+    page = deck.pages[0].model_copy(update={
+        "title": "Review the evidence (1/3)",
+        "continuation_index": 1,
+        "continuation_count": 3,
+    })
+
+    adapted = adapt_v6_page_to_slide_spec(page)
+
+    assert adapted.title == "Review the evidence"
+
+
 def test_course_cover_adapter_keeps_the_title_page_minimal_and_internal_labels_hidden() -> None:
     document, _deck = _code_deck()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -735,7 +748,9 @@ def test_course_cover_adapter_keeps_the_title_page_minimal_and_internal_labels_h
     assert adapted.eyebrow == ""
     assert adapted.subtitle == ""
     assert adapted.quality["audience_label_policy"] == "source_only"
-    assert page.regions == []
+    assert [(region.slot_id, region.content) for region in page.regions] == [
+        ("title", document.title),
+    ]
 
 
 def test_course_cover_title_only_contract_survives_pptx_frame_audit(tmp_path: Path) -> None:
@@ -764,7 +779,9 @@ def test_course_cover_title_only_contract_survives_pptx_frame_audit(tmp_path: Pa
         tmp_path / "v6-cover-capacity.pptx",
     )
 
-    assert cover.regions == []
+    assert [(region.slot_id, region.content) for region in cover.regions] == [
+        ("title", cover.title),
+    ]
     audit = audit_exported_pptx(output, expected_slide_count=1)
     presentation = Presentation(output)
     visible_text = [
@@ -858,6 +875,8 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
         assert "EVIDENCE TABLE" not in visible_text
         assert "INTERPRETATION" not in visible_text
         assert "SUMMARY" not in visible_text
+        assert "COURSE" not in visible_text
+        assert not any("(1/" in value or "(2/" in value for value in visible_text)
         table = next(shape.table for shape in slide.shapes if shape.has_table)
         assert all(
             cell.vertical_anchor == MSO_ANCHOR.MIDDLE

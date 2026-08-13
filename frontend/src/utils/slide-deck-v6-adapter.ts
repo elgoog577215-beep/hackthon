@@ -157,6 +157,12 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
     : { variant: policy.full_variant, supportMode: 'full' }
 }
 
+function audienceTitle(page: V6Page): string {
+  const title = String(page.title || '').trim()
+  if (Number(page.continuation_count || 1) <= 1) return title
+  return title.replace(/\s*[（(]\s*\d+\s*\/\s*\d+\s*[）)]\s*$/u, '').trim()
+}
+
 function regionBlock(region: V6Region): Record<string, unknown> {
   const items = ['items', 'steps'].includes(region.content_kind)
     ? region.content.split('\n').map(item => item.trim()).filter(Boolean)
@@ -170,7 +176,9 @@ function regionBlock(region: V6Region): Record<string, unknown> {
       : region.content_kind === 'items'
         ? 'bullets'
         : 'statement',
-    title: region.slot_id.replace(/_/g, ' '),
+    // Template slot identifiers are internal routing metadata, not visible
+    // teaching copy.
+    title: '',
     content: items.length ? '' : region.content,
     items,
     metadata: {
@@ -189,13 +197,14 @@ function pageVisuals(page: V6Page): Array<Record<string, unknown>> {
   const formula = page.regions.find(region => region.content_kind === 'formula')
   if (formula) return [{
     kind: 'formula',
-    caption: formula.slot_id,
+    caption: '',
+    alt_text: audienceTitle(page),
     parameters: { formula: formula.content },
   }]
   const table = page.regions.find(region => region.content_kind === 'table')
   if (table) {
     const parameters = parseMarkdownTable(table.content)
-    return [{ kind: 'table', caption: table.slot_id, parameters }]
+    return [{ kind: 'table', caption: '', alt_text: audienceTitle(page), parameters }]
   }
   if (String(page.visual_decision?.decision || '') === 'diagram') {
     const payload = page.visual_decision?.visual_payload || {}
@@ -250,14 +259,17 @@ function adaptPage(
   const practiceArtifactKind = ['practice-code', 'practice-formula', 'practice-table'].includes(slug)
     ? slug.replace('practice-', '')
     : ''
-  const subtitle = page.regions.find(region => region.slot_id === 'subtitle')?.content || ''
+  const subtitle = slug === 'cover-minimal'
+    ? ''
+    : page.regions.find(region => region.slot_id === 'subtitle')?.content || ''
+  const eyebrow = page.regions.find(region => region.slot_id === 'eyebrow')?.content || ''
   return {
     unit_id: page.page_id,
     position: page.page_ordinal,
     layout: adapter.basic_layout,
     slide_purpose: slug,
-    eyebrow: slug === 'cover-minimal' ? 'COURSE DECK' : slug.replace(/-/g, ' ').toUpperCase(),
-    title: page.title,
+    eyebrow,
+    title: audienceTitle(page),
     subtitle,
     key_message: '',
     teaching_job: '',
@@ -271,6 +283,7 @@ function adaptPage(
     quality: {
       passed: true,
       render_contract: 'template_layout_contract_v1',
+      audience_label_policy: 'source_only',
       v6_template_layout_id: page.resolved_layout,
       v6_layout_slug: slug,
       v6_layout_variant: variant.variant,

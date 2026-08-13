@@ -1828,7 +1828,9 @@ def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda(
     assert cover.source_section_ids == ["observe", "explain"]
     assert cover.speaker_notes.source_blocks == []
     assert cover.speaker_notes.source_section_ids == ["observe", "explain"]
-    assert cover.regions == []
+    assert [(region.slot_id, region.content) for region in cover.regions] == [
+        ("title", document.title),
+    ]
 
     agenda = deck.pages[1]
     assert agenda.resolved_layout == template.layout_id("agenda-path")

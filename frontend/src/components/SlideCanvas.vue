@@ -17,7 +17,7 @@
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '启智') }}</div>
       <div class="deck-cover__content">
-        <small>{{ slide.eyebrow || t('teachingRepresentations.slides.courseDeck', '课堂演示') }}</small>
+        <small v-if="coverHeadingLabel">{{ coverHeadingLabel }}</small>
         <h2>{{ slide.title }}</h2>
         <p v-if="slide.subtitle">{{ slide.subtitle }}</p>
         <blockquote v-if="slide.key_message">{{ slide.key_message }}</blockquote>
@@ -27,11 +27,11 @@
 
     <template v-else-if="slide.layout === 'chapter'">
       <div class="deck-chapter__panel">
-        <small>{{ t('teachingRepresentations.slides.chapter', 'CHAPTER') }}</small>
+        <small v-if="!sourceOnlyAudienceLabels">{{ t('teachingRepresentations.slides.chapter', 'CHAPTER') }}</small>
         <strong>{{ chapterNumber(slide.title) }}</strong>
       </div>
       <div class="deck-chapter__content">
-        <small>{{ slide.eyebrow }}</small>
+        <small v-if="audienceHeadingLabel">{{ audienceHeadingLabel }}</small>
         <h2>{{ slide.title }}</h2>
         <i></i>
         <blockquote>{{ slide.key_message || slide.teaching_job || slide.takeaway }}</blockquote>
@@ -42,7 +42,7 @@
     <template v-else>
       <header class="deck-canvas__heading">
         <div>
-          <small>{{ sectionLabel || slide.eyebrow || layoutLabel(visualLayout) }}</small>
+          <small v-if="audienceHeadingLabel">{{ audienceHeadingLabel }}</small>
           <h2 v-if="headingMode !== 'hidden'">{{ displayHeading }}</h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
@@ -445,6 +445,7 @@ interface Slide {
     v6_layout_variant?: string
     v6_artifact_support_mode?: 'split' | 'full' | 'band' | ''
     v6_practice_artifact_kind?: 'code' | 'formula' | 'table' | ''
+    audience_label_policy?: 'source_only'
   }
 }
 
@@ -483,6 +484,19 @@ const sectionLabel = computed(() => {
   if (explicit) return explicit
   const message = String(props.slide.key_message || '').trim()
   return /^\d+(?:[.．]\d+)+\s+\S+/.test(message) ? message : ''
+})
+const sourceOnlyAudienceLabels = computed(() => (
+  props.slide.quality?.audience_label_policy === 'source_only'
+))
+const audienceHeadingLabel = computed(() => {
+  const explicit = sectionLabel.value || String(props.slide.eyebrow || '').trim()
+  if (explicit || sourceOnlyAudienceLabels.value) return explicit
+  return layoutLabel(visualLayout.value)
+})
+const coverHeadingLabel = computed(() => {
+  const explicit = String(props.slide.eyebrow || '').trim()
+  if (explicit || sourceOnlyAudienceLabels.value) return explicit
+  return t('teachingRepresentations.slides.courseDeck', '课堂演示')
 })
 const showsStandaloneMessage = computed(() => {
   const message = String(props.slide.key_message || '').trim()

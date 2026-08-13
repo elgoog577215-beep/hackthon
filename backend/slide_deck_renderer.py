@@ -1651,7 +1651,7 @@ def _render_table_visual(
                     for block in supporting_blocks
                     if str(block.title or "").strip()
                 ),
-                "SUMMARY",
+                "" if _uses_source_only_audience_labels(unit) else "SUMMARY",
             )
             _shape(
                 slide,
@@ -1663,25 +1663,26 @@ def _render_table_visual(
                 radius=True,
                 line=theme["chart_bg"],
             )
-            _text(
-                slide,
-                support_label.upper(),
-                1.08,
-                support_band_y + support_band_height / 2 - 0.14,
-                1.45,
-                0.28,
-                10,
-                theme["accent"],
-                bold=True,
-                font=theme["body_font"],
-                east_asian_font=theme["body_east_asian_font"],
-            )
+            if support_label:
+                _text(
+                    slide,
+                    support_label.upper(),
+                    1.08,
+                    support_band_y + support_band_height / 2 - 0.14,
+                    1.45,
+                    0.28,
+                    10,
+                    theme["accent"],
+                    bold=True,
+                    font=theme["body_font"],
+                    east_asian_font=theme["body_east_asian_font"],
+                )
             _text(
                 slide,
                 support_text,
-                2.6,
+                2.6 if support_label else 1.08,
                 support_band_y + 0.10,
-                9.55,
+                9.55 if support_label else 11.08,
                 support_band_height - 0.18,
                 16,
                 theme["ink"],
@@ -2057,6 +2058,10 @@ def _semantic_panel(
     return panel
 
 
+def _uses_source_only_audience_labels(unit: SlideSpec) -> bool:
+    return str(unit.quality.get("audience_label_policy") or "") == "source_only"
+
+
 def _render_authored_cover(
     slide: Any,
     unit: SlideSpec,
@@ -2067,17 +2072,21 @@ def _render_authored_cover(
     """Render the authored Qizhi cover when the theme ships a cover visual."""
     if not _add_theme_visual_asset(slide, theme, "cover"):
         return False
-    _text(
-        slide,
-        unit.eyebrow or "课堂演示",
-        0.92,
-        0.72,
-        4.0,
-        0.38,
-        14,
-        theme["accent"],
-        bold=True,
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "课堂演示"
     )
+    if eyebrow:
+        _text(
+            slide,
+            eyebrow,
+            0.92,
+            0.72,
+            4.0,
+            0.38,
+            14,
+            theme["accent"],
+            bold=True,
+        )
     title_size = 35 if len(unit.title) > 10 else 44 if len(unit.title) > 6 else 50
     _text(
         slide,
@@ -2133,7 +2142,11 @@ def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _shape(slide, 10.82, 0.0, 2.513, 7.5, theme["accent_soft"], radius=False)
     _shape(slide, 11.35, 0.72, 1.04, 1.04, theme["green"], radius=True)
     _text(slide, "灵知", 11.35, 0.99, 1.04, 0.34, 15, "FFFFFF", bold=True, align="center")
-    _text(slide, unit.eyebrow or "课程演示", 0.92, 0.72, 4.0, 0.38, 14, theme["accent"], bold=True)
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "课程演示"
+    )
+    if eyebrow:
+        _text(slide, eyebrow, 0.92, 0.72, 4.0, 0.38, 14, theme["accent"], bold=True)
     cover_title_size = 42 if len(unit.title) > 32 else 46 if len(unit.title) > 22 else 50
     _text(
         slide, unit.title, 0.92, 1.22, 9.15, 2.6, cover_title_size, theme["title"], bold=True,
@@ -2152,17 +2165,21 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
     if _render_authored_cover(slide, unit, theme, minimal=True):
         return
     _shape(slide, 0.82, 0.76, 0.12, 0.72, theme["accent"], radius=False)
-    _text(
-        slide,
-        unit.eyebrow or "课程课件",
-        1.12,
-        0.86,
-        3.6,
-        0.34,
-        13,
-        theme["accent"],
-        bold=True,
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "课程课件"
     )
+    if eyebrow:
+        _text(
+            slide,
+            eyebrow,
+            1.12,
+            0.86,
+            3.6,
+            0.34,
+            13,
+            theme["accent"],
+            bold=True,
+        )
     title_size = 38 if len(unit.title) > 34 else 44 if len(unit.title) > 22 else 50
     _text(
         slide,
@@ -2215,7 +2232,8 @@ def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) 
     if unit.subtitle:
         _shape(slide, 0.92, 4.72, 5.65, 0.05, theme["accent"], radius=False)
         _text(slide, unit.subtitle, 0.94, 5.04, 7.3, 0.7, 20, theme["ink"], bold=True)
-    _text(slide, "COURSE", 9.72, 1.08, 2.4, 0.42, 14, theme["accent"], bold=True)
+    if not _uses_source_only_audience_labels(unit):
+        _text(slide, "COURSE", 9.72, 1.08, 2.4, 0.42, 14, theme["accent"], bold=True)
     _text(
         slide,
         "概念\n方法\n应用",
@@ -2294,9 +2312,14 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
 def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     if _add_theme_visual_asset(slide, theme, "chapter"):
         chapter_number = _chapter_number(unit.title)
-        _text(slide, "CHAPTER", 0.64, 0.88, 2.5, 0.34, 12, "FFFFFF", bold=True)
+        if not _uses_source_only_audience_labels(unit):
+            _text(slide, "CHAPTER", 0.64, 0.88, 2.5, 0.34, 12, "FFFFFF", bold=True)
         _text(slide, chapter_number, 0.64, 1.48, 2.62, 1.35, 54, "FFFFFF", bold=True)
-        _text(slide, unit.eyebrow or "章节转场", 4.48, 1.02, 2.4, 0.32, 12, theme["green"], bold=True)
+        eyebrow = unit.eyebrow or (
+            "" if _uses_source_only_audience_labels(unit) else "章节转场"
+        )
+        if eyebrow:
+            _text(slide, eyebrow, 4.48, 1.02, 2.4, 0.32, 12, theme["green"], bold=True)
         _text(
             slide,
             unit.title,
@@ -2323,7 +2346,11 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _shape(slide, 0.0, 0.0, 4.05, 7.5, theme["accent_soft"], radius=False)
     chapter_number = _chapter_number(unit.title)
     _text(slide, chapter_number, 0.72, 1.15, 2.5, 1.35, 54, theme["accent"], bold=True)
-    _text(slide, unit.eyebrow or "章节转场", 4.65, 1.08, 2.3, 0.32, 12, theme["green"], bold=True)
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "章节转场"
+    )
+    if eyebrow:
+        _text(slide, eyebrow, 4.65, 1.08, 2.3, 0.32, 12, theme["green"], bold=True)
     _text(
         slide, unit.title, 4.65, 1.62, 7.55, 1.4, 35, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
@@ -3693,14 +3720,19 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     heading_mode = str(unit.quality.get("heading_mode") or "full")
-    eyebrow = str(
-        unit.quality.get("section_label")
-        if heading_mode == "hidden"
-        else unit.eyebrow or unit.slide_purpose
-    )
+    section_label = str(unit.quality.get("section_label") or "").strip()
+    if _uses_source_only_audience_labels(unit):
+        eyebrow = section_label or str(unit.eyebrow or "").strip()
+    else:
+        eyebrow = str(
+            section_label
+            if heading_mode == "hidden"
+            else unit.eyebrow or unit.slide_purpose
+        )
     heading = _display_heading(unit)
     heading_size = 35
-    _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
+    if eyebrow:
+        _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
     _text(
         slide, heading, 0.78, 0.70, 11.72, 1.16, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
@@ -3710,8 +3742,11 @@ def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 
 
 def _footer(slide: Any, unit: SlideSpec, page: int, total: int, theme: dict[str, str]) -> None:
-    section = unit.section_id or "COURSE"
-    _text(slide, section, 0.78, 7.1, 2.4, 0.2, 8, theme["muted"], font="Aptos Mono")
+    section = unit.section_id or (
+        "" if _uses_source_only_audience_labels(unit) else "COURSE"
+    )
+    if section:
+        _text(slide, section, 0.78, 7.1, 2.4, 0.2, 8, theme["muted"], font="Aptos Mono")
     image_source = str(unit.quality.get("image_source_short") or "").strip()
     if image_source:
         _text(

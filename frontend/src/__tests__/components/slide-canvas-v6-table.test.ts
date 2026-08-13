@@ -33,7 +33,7 @@ function tableSlide(variant: TableVariant) {
     ],
     quality: {
       resolved_layout: 'data-highlight',
-      audience_label_policy: 'source_only',
+      audience_label_policy: 'source_only' as const,
       v6_layout_variant: variant,
       v6_artifact_support_mode: (
         variant === 'table-with-interpretation'
