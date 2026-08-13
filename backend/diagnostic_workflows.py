@@ -6,6 +6,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import threading
@@ -14,7 +15,16 @@ import uuid
 
 from assessment_tasks import project_assessment_task
 from course_versioning import stable_hash
+from diagnostic_probes import (
+    build_probe_spec,
+    find_misconception,
+    probe_leaks_answer,
+)
+from hint_leakage import mentions_answer_value
 from storage import storage
+
+
+logger = logging.getLogger(__name__)
 
 
 SCHEMA_VERSION = 1
@@ -293,27 +303,41 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
     }.get(level, "process_error")
     claims = diagnosed_claims[:2] or (
         [
-            {"claim": claim, "candidate_mistake_point_ids": []}
+            {
+                "claim": claim,
+                "candidate_mistake_point_ids": [],
+                "attribution": "formal_failure",
+            }
             for claim in failed[:2]
         ] or [{
             "claim": f"尚未稳定达到：{task.get('learning_objective') or task.get('prompt')}",
-            "candidate_mistake_point_ids": list(task.get("mistake_point_ids") or []),
+            # 没有诊断结论也没有失败量规时，作答只证明"没达标"，不指向任何具体
+            # 错误，所以候选易错点必须为空 —— 候选的含义是"我们怀疑这些"。
+            # 该目标下声明的易错点另记为待测范围，供探针铺开提问，但不冒充结论。
+            "candidate_mistake_point_ids": [],
+            "probe_scope_mistake_point_ids": list(task.get("mistake_point_ids") or []),
+            "attribution": "unattributed",
         }]
     )
     misconceptions = [
         item for item in (course.get("learning_assets") or {}).get("misconceptions") or []
         if item.get("objective_revision_id") == task.get("objective_revision_id")
     ]
-    if misconceptions and not diagnosed_claims:
-        matched_id = str(misconceptions[0].get("mistake_point_id") or "")
-        claims.append({
-            "claim": f"可能混淆：{misconceptions[0].get('error_pattern')}",
-            "candidate_mistake_point_ids": [matched_id] if matched_id else [],
-        })
+    # 这里原来有一条兜底：没有诊断结论时取 misconceptions[0] 拼一条"可能混淆：…"
+    # 的假设。被选中的易错点与本次作答毫无关联——它只是列表里的第一个，同一目标
+    # 下其余易错点同样"可能"。下游会据此生成定向探针并写进补救单元，等于把
+    # "我们不知道"包装成"我们查到了"。无法归因时如实说无法归因，由探针去测。
     hypotheses = []
     for index, claim_entry in enumerate(claims[:3]):
         claim = str(claim_entry.get("claim") or "")
-        category = "boundary_confusion" if index >= len(failed) and misconceptions else default_category
+        attribution = str(claim_entry.get("attribution") or "diagnosed")
+        category = (
+            "boundary_confusion"
+            if attribution == "diagnosed"
+            and claim_entry.get("candidate_mistake_point_ids")
+            and misconceptions
+            else default_category
+        )
         hypothesis_id = stable_hash({
             "objective": task.get("objective_revision_id"), "category": category, "claim": claim,
         }, prefix="dh_")
@@ -322,6 +346,10 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
             "category": category,
             "claim": claim,
             "status": "testing",
+            # diagnosed | formal_failure | unattributed —— 归因依据的等级。
+            # `unattributed` 明确表示"这次失败无法定位到具体错误"，下游据此把
+            # candidate_mistake_point_ids 当作待测范围而不是结论。
+            "attribution": attribution,
             "confidence_level": (
                 "medium"
                 if float(claim_entry.get("confidence") or 0.0) >= 0.7
@@ -340,18 +368,54 @@ def diagnostic_hypotheses(course: dict[str, Any], task: dict[str, Any], attempt:
                 or []
             ),
             "candidate_mistake_point_ids": list(claim_entry.get("candidate_mistake_point_ids") or []),
+            "probe_scope_mistake_point_ids": list(
+                claim_entry.get("probe_scope_mistake_point_ids") or []
+            ),
             "confirmed_mistake_point_ids": [],
             "evidence_for": [{
                 "attempt_id": attempt.get("attempt_id"),
                 "kind": (
                     "answer_diagnosis"
                     if claim_entry.get("source") == "answer_diagnosis"
+                    # 无法归因的失败不能标成 formal_failure：那会声称有量规证据。
+                    else "unattributed_failure"
+                    if attribution == "unattributed"
                     else "formal_failure"
                 ),
             }],
             "evidence_against": [],
         })
     return hypotheses
+
+
+def _hypothesis_without_answer(
+    hypothesis: dict[str, Any],
+    task: dict[str, Any],
+) -> dict[str, Any]:
+    """Copy of ``hypothesis`` whose claim is safe to show the student.
+
+    Claims come from the live model's `answer_diagnosis`, so they can state the
+    correct answer while describing the error.  When that happens the claim
+    cannot be shown at all — not in the generated probe and not in the neutral
+    fallback, which quotes it too.  Redacting to the objective keeps the probe
+    pointed at the right thing while giving nothing away; the original claim
+    stays on the stored hypothesis as diagnostic evidence.
+    """
+    claim = str(hypothesis.get("claim") or "")
+    if not mentions_answer_value(claim, task):
+        return hypothesis
+    objective = str(
+        task.get("learning_objective") or task.get("prompt") or ""
+    ).strip()
+    return {
+        **hypothesis,
+        "claim": (
+            f"你在「{objective}」上的这一步还没有稳定成立"
+            if objective
+            else "你在这一步的判断依据还没有稳定成立"
+        ),
+        "claim_redacted": True,
+    }
 
 
 def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -362,21 +426,63 @@ def diagnostic_tasks(course: dict[str, Any], task: dict[str, Any], hypotheses: l
     ]
     results = []
     for index, hypothesis in enumerate(hypotheses[:3]):
-        base = deepcopy(templates[index]) if index < len(templates) else {
-            "question_type": "short_answer",
-            "learning_objective": task.get("learning_objective"),
-            "objective_id": task.get("objective_id"),
-            "objective_revision_id": task.get("objective_revision_id"),
-            "node_id": task.get("node_id"),
-            "prompt": f"只针对下面这一点作答，不展开其他内容：{hypothesis['claim']}。说明你的判断、必要条件和一个最小例子。",
-            "answer_spec": {
-                "type": "rubric",
-                "expected_keywords": (task.get("answer_spec") or {}).get("expected_keywords") or [task.get("learning_objective")],
-                "criteria": [hypothesis["claim"], "说明必要条件或边界", "给出可检查的最小例子"],
-                "pass_score": 70,
-            },
-            "practice_level": "diagnostic_probe",
-        }
+        misconception = find_misconception(
+            course,
+            list(hypothesis.get("candidate_mistake_point_ids") or []),
+        )
+        # The claim is the model's own words about the error, and in production it
+        # can name the correct answer while describing it ("应得 -4，学生误算为
+        # +4").  Every learner-facing string below interpolates the claim — the
+        # generated probe *and* the neutral fallback — so it has to be made safe
+        # once, here, before either path can use it.  The stored hypothesis keeps
+        # the original text: it is diagnostic evidence, not shown to the student.
+        safe_hypothesis = _hypothesis_without_answer(hypothesis, task)
+        claim = str(safe_hypothesis.get("claim") or "")
+        if index < len(templates):
+            base = deepcopy(templates[index])
+            probe_spec = {}
+        else:
+            # No authored template: build a probe shaped by *what kind* of error
+            # is hypothesised, instead of one generic prompt for every category.
+            probe_spec = build_probe_spec(
+                safe_hypothesis,
+                task=task,
+                misconception=misconception,
+            )
+            leaked = probe_leaks_answer(probe_spec, misconception, task)
+            if leaked:
+                # A probe that contains an answer proves nothing and would
+                # wrongly reject the hypothesis; fall back to the neutral form.
+                logger.warning(
+                    "diagnostic probe rejected for leaking %s; using neutral prompt",
+                    leaked,
+                )
+                probe_spec = {}
+            base = {
+                "question_type": "short_answer",
+                "learning_objective": task.get("learning_objective"),
+                "objective_id": task.get("objective_id"),
+                "objective_revision_id": task.get("objective_revision_id"),
+                "node_id": task.get("node_id"),
+                "prompt": probe_spec.get("prompt") or (
+                    f"只针对下面这一点作答，不展开其他内容：{claim}。"
+                    "说明你的判断、必要条件和一个最小例子。"
+                ),
+                "answer_spec": {
+                    "type": "rubric",
+                    "expected_keywords": (task.get("answer_spec") or {}).get("expected_keywords") or [task.get("learning_objective")],
+                    "criteria": probe_spec.get("criteria") or [
+                        claim,
+                        "说明必要条件或边界",
+                        "给出可检查的最小例子",
+                    ],
+                    "pass_score": 70,
+                },
+                "practice_level": "diagnostic_probe",
+            }
+        if probe_spec:
+            base["probe_strategy"] = probe_spec.get("probe_strategy")
+            base["probe_category"] = probe_spec.get("probe_category")
         base["target_hypothesis_ids"] = [hypothesis["hypothesis_id"]]
         base["concept_ids"] = list(base.get("concept_ids") or hypothesis.get("concept_ids") or [])
         base["skill_unit_ids"] = list(base.get("skill_unit_ids") or hypothesis.get("skill_unit_ids") or [])

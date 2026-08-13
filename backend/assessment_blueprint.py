@@ -30,14 +30,9 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
-INPUT_MODES = {
-    "choice",
-    "numeric_unit",
-    "code",
-    "short_text",
-    "rich_text",
-    "structured_fields",
-}
+# 唯一真源见 assessment_input_modes。此处仅重导出——`assessment_quality`
+# 一直是 `from assessment_blueprint import INPUT_MODES`，保留这个名字不打断它。
+from assessment_input_modes import INPUT_MODES  # noqa: F401
 
 
 def _slot(
@@ -289,6 +284,19 @@ def compile_course_assessment_blueprint(
             ):
                 recipe["language"] = supported_runner_language
             archetype = ASSESSMENT_ARCHETYPES[recipe["archetype_id"]]
+            # H2：按知识点类型选作答形态。没有知识库时回落到默认形态，
+            # 产出与改动前完全一致。
+            recipe["question_form"] = resolve_slot_question_form(
+                course_data,
+                node_id=node_id,
+                input_mode=str(recipe.get("input_mode") or ""),
+                practice_level=practice_level,
+            )
+            if (
+                recipe["question_form"] == "fill_blank"
+                and recipe.get("input_mode") != "short_text"
+            ):
+                recipe.update(_FILL_BLANK_SLOT_OVERRIDES)
             slot = {
                 "slot_id": stable_hash(
                     {
@@ -419,6 +427,130 @@ def slot_for(
     return None
 
 
+
+# 输入模式 -> 该模式能承载的作答形态。H2 只在这个范围内选型：
+# 学科族配方决定 input_mode 与验证器（已验收链路），H2 只在它允许的形态里挑。
+_FORMS_BY_INPUT_MODE: dict[str, tuple[str, ...]] = {
+    # choice 槽位可以被 H2 换成填空：8 个学科族的三个槽位里没有任何 short_text
+    # 槽位，不允许换的话填空永远选不上。换的是 input_mode 与验证器，不动三槽位
+    # 结构本身（保持每节 3 题，不抬高生成成本）。
+    "choice": (
+        "single_choice", "multiple_choice", "true_false", "fill_blank",
+    ),
+    "short_text": ("short_answer", "fill_blank"),
+}
+
+# 被 H2 换成填空时，槽位要一起换掉输入模式与验证器——只改形态不改验证器会让
+# 填空题拿着选择题的 exact_validator 去比对整段文本。
+_FILL_BLANK_SLOT_OVERRIDES = {
+    "input_mode": "short_text",
+    "validation_mode": "exact_validator",
+}
+_DEFAULT_FORM_BY_INPUT_MODE: dict[str, str] = {
+    "choice": "single_choice",
+    "short_text": "short_answer",
+    "numeric_unit": "numeric",
+    "rich_text": "essay",
+    "structured_fields": "structured",
+    "code": "coding",
+}
+
+
+def _node_of(
+    course_data: dict[str, Any],
+    node_id: str,
+) -> dict[str, Any] | None:
+    for node in (course_data or {}).get("nodes") or []:
+        if isinstance(node, dict) and str(node.get("node_id") or "") == str(node_id):
+            return node
+    return None
+
+
+def resolve_slot_question_form(
+    course_data: dict[str, Any],
+    *,
+    node_id: str,
+    input_mode: str,
+    practice_level: str,
+) -> str:
+    """按知识点类型给这个槽位选一个作答形态（H2）。
+
+    必须是 `(course_data, node_id, input_mode, practice_level)` 的**纯函数**：
+    `blueprint_revision_id` 是对整个 blueprint 的 stable_hash，选型只要带一点
+    不确定性，blueprint 就不再可复现。
+
+    拿不到课程知识库、拿不到知识点类型、或该输入模式没有可选形态时，一律回落到
+    默认形态——**这是既有课程与既有测试行为不变的保证**：绝大多数既有测试不提供
+    知识库，走的就是这条回落路径。
+    """
+    default_form = _DEFAULT_FORM_BY_INPUT_MODE.get(
+        str(input_mode or ""), "unspecified",
+    )
+    candidates = _FORMS_BY_INPUT_MODE.get(str(input_mode or ""))
+    if not candidates:
+        return default_form
+
+    # 小节可以显式指定作答形态，优先于 H2 推荐。
+    #
+    # 需要这条是因为 H2 的推荐表里**没有任何知识点类型把 multiple_choice 排在
+    # 第一位**（rule 排第三，其余更靠后），于是纯按推荐顺序永远选不出多选。
+    # 与其为了凑出多选去改 H2 的教研判断表（那是把工具改成迎合结论），
+    # 不如给一个显式入口：教师/教研明确要多选时直接声明。
+    requested = str(
+        (_node_of(course_data, node_id) or {}).get("preferred_question_form")
+        or ""
+    )
+    if requested in candidates:
+        return requested
+
+    # 局部导入：question_knowledge_binding 只读知识库，但 blueprint 是被广泛
+    # import 的底层模块，顶层引入会把依赖方向倒过来。
+    from question_form_matching import recommended_forms
+    from question_knowledge_binding import (
+        course_knowledge_base_of,
+        resolve_node_knowledge_binding,
+    )
+
+    knowledge_base = course_knowledge_base_of(course_data)
+    if not knowledge_base:
+        return default_form
+    binding = resolve_node_knowledge_binding(course_data, node_id)
+    if not binding.get("resolved"):
+        return default_form
+    owned = set(binding.get("knowledge_ids") or [])
+    knowledge_types = [
+        str(point.get("knowledge_type") or "")
+        for point in knowledge_base.get("knowledge_points") or []
+        if isinstance(point, dict)
+        and str(point.get("knowledge_id") or "") in owned
+        and str(point.get("knowledge_type") or "")
+    ]
+    if not knowledge_types:
+        return default_form
+
+    # 同一小节的三个练习层级用不同的知识点做主依据，避免三个槽位塌缩成同一
+    # 形态（例如整节都是判断题）。取模而不是随机——必须可复现。
+    level_index = (
+        PRACTICE_LEVELS.index(practice_level)
+        if practice_level in PRACTICE_LEVELS
+        else 0
+    )
+    primary_type = sorted(set(knowledge_types))[
+        level_index % len(set(knowledge_types))
+    ]
+    # 按 H2 的**推荐顺序**挑，而不是按本模块的候选顺序。
+    #
+    # recommended_forms 是有序的（definition 优先 single_choice，condition 优先
+    # true_false，representation 优先 fill_blank）。若按本地候选顺序遍历，
+    # single_choice 排在最前且对几乎所有类型都判 match，H2 就永远选不出新题型——
+    # 我第一版正是这样，实测五种知识点类型全部得到 single_choice。
+    allowed = set(candidates)
+    for candidate in recommended_forms(primary_type):
+        if candidate in allowed:
+            return candidate
+    return default_form
+
+
 def input_contract_for_slot(
     slot: dict[str, Any],
     *,
@@ -435,7 +567,33 @@ def input_contract_for_slot(
         "supports_attachments": False,
     }
     if mode == "choice":
-        contract["selection"] = {"multiple": False}
+        # 按槽位声明的作答形态产出 selection。
+        #
+        # 改动前这里恒写 {"multiple": False}，多选与判断在合同层根本表达不出来
+        # （H1a 的现状）。单选分支必须与改动前**逐字节相同**——blueprint_revision_id
+        # 是对 blueprint 的 stable_hash，多一个键就会让所有既有课程的修订 ID 漂移。
+        question_form = str(slot.get("question_form") or "")
+        if question_form == "multiple_choice":
+            contract["selection"] = {
+                "multiple": True,
+                # 部分给分默认关闭，口径见 question_choice_grading。
+                "partial_credit": False,
+            }
+        elif question_form == "true_false":
+            contract["selection"] = {"multiple": False, "true_false": True}
+        else:
+            contract["selection"] = {"multiple": False}
+    elif mode == "short_text" and str(
+        slot.get("question_form") or ""
+    ) == "fill_blank":
+        # 填空不新增 INPUT_MODES 成员：全仓有三份 INPUT_MODES 定义与十余处
+        # input_mode 分支，新增成员的影响面远大于收益。question_forms 已能从
+        # 「short_text + blanks」判出 fill_blank，走这条路。
+        contract["blanks"] = []
+        # 仍给一个作答字段：填空的空位在题面里，但作答载体要有地方落。
+        contract["fields"] = [
+            _field("blanks", "structured", "各空作答", True),
+        ]
     elif mode == "numeric_unit":
         contract["fields"] = [
             _field("value", "number", "数值", True),

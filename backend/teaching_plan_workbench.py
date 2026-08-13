@@ -2387,9 +2387,12 @@ class TeachingPlanWorkbenchService:
         刻意不在这里实现任何重建逻辑：
         - 表达走 representation_compiler 的 shadow-then-publish
           （失败时旧产物留在 stale 状态继续可读）；
+        - 正文走与知识侧**同一个** `build_content_runner`，产出候选即止
+          （`BlockRegenerationService` 只在 apply 时才写正文）。两侧共用一份
+          实现，否则同一个正文块因教案改动和因知识改动重建会走出两套失败
+          语义、两份「最后可用产物」记录；
         - 练习登记为按小节定向的出题作业，由既有异步管线接手；
-        - 正文与知识目前没有可直接调用的定向重建入口，明确返回失败原因，
-          不假装成功。
+        - 知识目前没有可直接调用的定向重建入口，明确返回失败原因，不假装成功。
         """
         def representation(entry: dict[str, Any]) -> dict[str, Any]:
             if self.representation_repository is None:
@@ -2442,9 +2445,25 @@ class TeachingPlanWorkbenchService:
                 "error": f"{entry['type']} 目前没有可用于定向重建的管线入口",
             }
 
+        from course_downstream_rebuild import (
+            PLAN_CONTENT_INSTRUCTION,
+            build_content_runner,
+        )
+        from block_regeneration import block_regeneration_candidate_repository
+
+        course_content = build_content_runner(
+            raw,
+            course_repository=self.repository,
+            block_repository=block_regeneration_candidate_repository,
+            actor=actor or "system",
+            request_id=source_revision,
+            request_prefix="teaching-plan-rebuild",
+            instruction=PLAN_CONTENT_INSTRUCTION,
+        )
+
         return {
             "representation": representation,
-            "course_content": unsupported,
+            "course_content": course_content,
             "practice": practice,
             "knowledge": unsupported,
         }

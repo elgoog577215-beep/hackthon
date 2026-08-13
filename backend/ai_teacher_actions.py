@@ -19,6 +19,28 @@ from learning_records import (
 from learning_runtime import build_learning_runtime
 
 
+RECEIPT_SCHEMA_VERSION = "ai_action_receipt_v1"
+
+# Every terminal confirm/undo outcome resolves to exactly one of these codes.
+# The code — not the Chinese summary — is the machine-readable contract: the
+# router maps it to a status and the client maps it to localized copy, so a
+# refused action can never reach the learner as a silent no-op.
+RECEIPT_RESULT_CODES = {
+    "note_created": "succeeded",
+    "issue_created": "succeeded",
+    "review_task_created": "succeeded",
+    "bookmark_created": "succeeded",
+    "runtime_action_opened": "succeeded",
+    "record_archived": "succeeded",
+    "proposal_expired": "stale",
+    "runtime_changed": "stale",
+    "undo_target_changed": "stale",
+    "proposal_rejected": "failed",
+    "action_failed": "failed",
+    "undo_not_supported": "failed",
+    "undo_target_missing": "failed",
+}
+
 ACTION_TYPES = {
     "create_note",
     "create_issue",
@@ -42,9 +64,26 @@ STRONG_RUNTIME_ACTIONS = {
     "start_due_review",
 }
 
+# Interrupting someone who is reading is expensive, and every candidate here is
+# a *strong* runtime action (blocked diagnostic, due review, ...) that stays
+# valid for a while. So a suggestion waits for the next natural pause rather
+# than cutting into the current paragraph.
+SUGGESTION_MOMENTS = {
+    "section_completed",
+    "practice_submitted",
+    "course_entered",
+}
 
-class ProposalStale(Exception):
-    pass
+# Frequency ceilings, on top of (not instead of) the per-evidence dedupe key.
+# Without them a learner with three blocking issues is interrupted three times
+# in a row, each one individually "justified".
+SESSION_SUGGESTION_LIMIT = 2
+NODE_SUGGESTION_LIMIT = 1
+
+# "Not now" used to hold only until the evidence revision changed — but a due
+# review re-revises constantly, so the same suggestion could return minutes
+# later and read as if the refusal was ignored. `never` stays permanent.
+NOT_NOW_QUIET_HOURS = 24
 
 
 class ActionForbidden(Exception):
@@ -121,13 +160,42 @@ def execute_proposal(
         raise KeyError(proposal_id)
     if str(proposal.get("action_type") or "") not in ACTION_TYPES:
         raise ActionForbidden("proposal action is not registered")
-    if proposal.get("status") == "rejected":
-        raise ActionForbidden("proposal was rejected")
     if proposal.get("status") == "succeeded" and proposal.get("receipt_id"):
         receipt = repository.get_receipt(user_id, course_id, str(proposal["receipt_id"]))
         if receipt:
             return receipt
-    _require_not_expired(proposal)
+    if proposal.get("status") == "rejected":
+        # A rejected proposal is a real terminal outcome, not a protocol error:
+        # persist it as a receipt so the conversation keeps one auditable row
+        # per confirm attempt and a retry replays instead of re-deciding.
+        return _save_outcome_receipt(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            proposal=proposal,
+            idempotency_key=idempotency_key,
+            result_code="proposal_rejected",
+            reason="该建议已被拒绝，不会再执行。",
+            runtime_revision_id=str(proposal.get("runtime_revision_id") or ""),
+        )
+    if _is_expired(proposal):
+        repository.update_proposal(
+            user_id,
+            course_id,
+            proposal_id,
+            status="expired",
+            changes={"failure_reason": "proposal expired"},
+        )
+        return _save_outcome_receipt(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            proposal=proposal,
+            idempotency_key=idempotency_key,
+            result_code="proposal_expired",
+            reason="该建议已经过期，请重新发起。",
+            runtime_revision_id=str(proposal.get("runtime_revision_id") or ""),
+        )
 
     node_id = str((proposal.get("target_ref") or {}).get("node_id") or "")
     runtime_before = build_learning_runtime(course, user_id=user_id, node_id=node_id or None)
@@ -141,17 +209,16 @@ def execute_proposal(
             status="stale",
             changes={"failure_reason": "learning runtime changed"},
         )
-        receipt = _save_failure_receipt(
+        return _save_outcome_receipt(
             repository,
             user_id=user_id,
             course_id=course_id,
             proposal=proposal,
             idempotency_key=idempotency_key,
-            status="stale",
+            result_code="runtime_changed",
             reason="学习状态已经变化，请重新计算建议。",
             runtime_revision_id=current_runtime,
         )
-        return receipt
 
     repository.update_proposal(
         user_id,
@@ -184,24 +251,27 @@ def execute_proposal(
             status="failed",
             changes={"failure_reason": str(exc)},
         )
-        return _save_failure_receipt(
+        return _save_outcome_receipt(
             repository,
             user_id=user_id,
             course_id=course_id,
             proposal=proposal,
             idempotency_key=idempotency_key,
-            status="failed",
+            result_code="action_failed",
             reason=str(exc),
             runtime_revision_id=current_runtime,
         )
 
     runtime_after = build_learning_runtime(course, user_id=user_id, node_id=node_id or None)
+    result_code = _SUCCESS_RESULT_CODES[action_type]
     receipt = repository.save_receipt(user_id, course_id, {
+        "schema_version": RECEIPT_SCHEMA_VERSION,
         "conversation_id": proposal.get("conversation_id"),
         "proposal_id": proposal_id,
-        "command_id": f"cmd_{hashlib.sha256(idempotency_key.encode('utf-8')).hexdigest()[:24]}",
+        "command_id": _command_id(idempotency_key),
         "idempotency_key": idempotency_key,
         "status": "succeeded",
+        "result_code": result_code,
         "action_type": action_type,
         "affected_refs": affected,
         "runtime_revision_before": current_runtime,
@@ -241,12 +311,22 @@ def reject_proposal(
     )
     mode = reason if reason in {"not_now", "irrelevant", "already_done", "never"} else "not_now"
     suppression = repository.save_suppression(user_id, course_id, {
-        "suppression_key": str(proposal.get("dedupe_key") or proposal_id),
+        # Keyed on what was refused, not on the evidence behind it — see
+        # `_suppression_key`. The proposal's own dedupe key folds in the runtime
+        # revision, so using it here silently expired every refusal.
+        "suppression_key": _suppression_key(
+            str(proposal.get("action_type") or ""),
+            proposal.get("target_ref") or {},
+        ),
         "action_type": proposal.get("action_type"),
         "target_ref": proposal.get("target_ref") or {},
         "evidence_revision": proposal.get("runtime_revision_id"),
         "mode": mode,
         "proposal_id": proposal_id,
+        # A time floor for the reversible refusals. `never` needs none — it is
+        # already permanent, and giving it a window would only invite the
+        # window to be treated as its expiry.
+        "quiet_until": "" if mode == "never" else _quiet_until(),
     })
     return {"proposal": updated, "suppression": suppression}
 
@@ -268,20 +348,59 @@ def undo_receipt(
     if not receipt:
         raise KeyError(receipt_id)
     if receipt.get("undo_capability") != "archive_record":
-        raise ActionForbidden("this action cannot be undone")
+        return _save_undo_receipt(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            receipt=receipt,
+            idempotency_key=idempotency_key,
+            result_code="undo_not_supported",
+            reason="这个动作没有可撤销的对象。",
+            runtime_revision_id=str(receipt.get("runtime_revision_after") or ""),
+        )
     affected = next((item for item in receipt.get("affected_refs") or [] if item.get("kind") == "learning_record"), None)
     if not affected:
-        raise ActionForbidden("receipt has no reversible record")
+        return _save_undo_receipt(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            receipt=receipt,
+            idempotency_key=idempotency_key,
+            result_code="undo_not_supported",
+            reason="这条回执没有可撤销的学习记录。",
+            runtime_revision_id=str(receipt.get("runtime_revision_after") or ""),
+        )
     record_id = str(affected.get("record_id") or "")
     current = next((
         item for item in learning_record_repository.list(user_id, course_id)
         if item.get("record_id") == record_id
     ), None)
     if not current:
-        raise KeyError(record_id)
+        return _save_undo_receipt(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            receipt=receipt,
+            idempotency_key=idempotency_key,
+            result_code="undo_target_missing",
+            reason="原学习记录已经不存在，无需撤销。",
+            runtime_revision_id=str(receipt.get("runtime_revision_after") or ""),
+        )
     expected_revision = int(affected.get("revision") or 0)
     if int(current.get("revision") or 0) != expected_revision:
-        raise ProposalStale("record changed after the original action")
+        # The learner edited the record after the AI created it. Archiving now
+        # would silently discard their own edit, so refuse — but still leave a
+        # receipt saying why, instead of a bare 409 the message list can't show.
+        return _save_undo_receipt(
+            repository,
+            user_id=user_id,
+            course_id=course_id,
+            receipt=receipt,
+            idempotency_key=idempotency_key,
+            result_code="undo_target_changed",
+            reason="这条记录在创建之后被改动过，已保留你的修改。",
+            runtime_revision_id=str(receipt.get("runtime_revision_after") or ""),
+        )
     archived, _ = learning_record_repository.update(
         user_id,
         course_id,
@@ -293,11 +412,13 @@ def undo_receipt(
     node_id = str(archived.get("node_id") or "")
     runtime = build_learning_runtime(course, user_id=user_id, node_id=node_id or None)
     return repository.save_receipt(user_id, course_id, {
+        "schema_version": RECEIPT_SCHEMA_VERSION,
         "conversation_id": receipt.get("conversation_id"),
         "proposal_id": receipt.get("proposal_id"),
-        "command_id": f"cmd_{hashlib.sha256(idempotency_key.encode('utf-8')).hexdigest()[:24]}",
+        "command_id": _command_id(idempotency_key),
         "idempotency_key": idempotency_key,
         "status": "succeeded",
+        "result_code": "record_archived",
         "action_type": "undo_create_record",
         "affected_refs": [{"kind": "learning_record", "record_id": record_id, "revision": archived.get("revision")}],
         "runtime_revision_before": receipt.get("runtime_revision_after"),
@@ -313,9 +434,21 @@ def build_trigger_candidate(
     *,
     user_id: str,
     node_id: str | None,
+    moment: str = "",
+    session_id: str = "",
     repository: AITeacherRepository | None = None,
 ) -> dict[str, Any] | None:
+    """Return a proactive suggestion only when interrupting is actually justified.
+
+    Four gates, in increasing cost order: the moment must be a natural pause,
+    the runtime action must be one of the strong ones, the frequency budget
+    must have room, and the learner must not have refused this suggestion
+    recently. All of it is server-side so a refresh or a second device cannot
+    hand the learner a fresh allowance.
+    """
     repository = repository or ai_teacher_repository
+    if moment not in SUGGESTION_MOMENTS:
+        return None
     course_id = str(course.get("course_id") or "")
     runtime = build_learning_runtime(course, user_id=user_id, node_id=node_id)
     action = (runtime.get("continuation") or {}).get("primary_action") or {}
@@ -326,16 +459,31 @@ def build_trigger_candidate(
         "node_id": (runtime.get("context") or {}).get("node_id"),
         "objective_revision_id": (runtime.get("context") or {}).get("objective_revision_id"),
     }
+    scope_node_id = str(node_id or target_ref.get("node_id") or (runtime.get("context") or {}).get("node_id") or "")
+    if _suggestion_budget_exhausted(
+        repository,
+        user_id=user_id,
+        course_id=course_id,
+        session_id=session_id,
+        node_id=scope_node_id,
+    ):
+        return None
     evidence_revision = str(runtime.get("runtime_revision_id") or "")
-    suppression_key = _dedupe_key("explain_runtime_action", target_ref, [], evidence_revision, "")
+    suppression_key = _suppression_key("explain_runtime_action", target_ref)
     for suppression in repository.list_suppressions(user_id, course_id):
         if suppression.get("suppression_key") != suppression_key:
             continue
-        if suppression.get("mode") == "never" or suppression.get("evidence_revision") == evidence_revision:
+        if suppression.get("mode") == "never":
+            return None
+        if suppression.get("evidence_revision") == evidence_revision:
+            return None
+        if _within_quiet_window(suppression):
             return None
     return {
         "trigger_id": f"ait_{suppression_key[:24]}",
         "trigger_type": "runtime_support",
+        "moment": moment,
+        "node_id": scope_node_id,
         "scope_ref": target_ref,
         "evidence_refs": action.get("evidence_refs") or [],
         "confidence": 1.0,
@@ -346,6 +494,91 @@ def build_trigger_candidate(
         "runtime_revision_id": evidence_revision,
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
     }
+
+
+def record_suggestion_shown(
+    *,
+    user_id: str,
+    course_id: str,
+    candidate: dict[str, Any],
+    session_id: str,
+    repository: AITeacherRepository | None = None,
+) -> dict[str, Any]:
+    """Spend one unit of the interruption budget.
+
+    Charged when the suggestion is actually put in front of the learner, not
+    when it is computed, so polling for a candidate is free.
+    """
+    repository = repository or ai_teacher_repository
+    return repository.record_suggestion_shown(user_id, course_id, {
+        "session_id": str(session_id or ""),
+        "node_id": str(candidate.get("node_id") or ""),
+        "trigger_id": str(candidate.get("trigger_id") or ""),
+        "dedupe_key": str(candidate.get("dedupe_key") or ""),
+        "moment": str(candidate.get("moment") or ""),
+    })
+
+
+def suppress_suggestion(
+    *,
+    user_id: str,
+    course_id: str,
+    dedupe_key: str,
+    runtime_revision_id: str = "",
+    reason: str = "not_now",
+    repository: AITeacherRepository | None = None,
+) -> dict[str, Any]:
+    """Record a refusal of a proactive suggestion.
+
+    `not_now` carries the 24-hour floor so a suggestion whose evidence keeps
+    re-revising (a due review, typically) cannot reappear minutes after being
+    dismissed. `never` is permanent and deliberately carries no window.
+    """
+    repository = repository or ai_teacher_repository
+    mode = reason if reason in {"not_now", "never"} else "not_now"
+    return repository.save_suppression(user_id, course_id, {
+        "suppression_key": dedupe_key,
+        "action_type": "explain_runtime_action",
+        "evidence_revision": runtime_revision_id,
+        "mode": mode,
+        "quiet_until": "" if mode == "never" else _quiet_until(),
+    })
+
+
+def _suggestion_budget_exhausted(
+    repository: AITeacherRepository,
+    *,
+    user_id: str,
+    course_id: str,
+    session_id: str,
+    node_id: str,
+) -> bool:
+    shown = repository.list_suggestions_shown(user_id, course_id)
+    if session_id:
+        in_session = [item for item in shown if str(item.get("session_id") or "") == session_id]
+        if len(in_session) >= SESSION_SUGGESTION_LIMIT:
+            return True
+        if node_id and len([
+            item for item in in_session
+            if str(item.get("node_id") or "") == node_id
+        ]) >= NODE_SUGGESTION_LIMIT:
+            return True
+    return False
+
+
+def _within_quiet_window(suppression: dict[str, Any]) -> bool:
+    quiet_until = str(suppression.get("quiet_until") or "")
+    if not quiet_until:
+        return False
+    try:
+        expires = datetime.fromisoformat(quiet_until.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return expires > datetime.now(timezone.utc)
+
+
+def _quiet_until() -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=NOT_NOW_QUIET_HOURS)).isoformat()
 
 
 def _execute_record_action(
@@ -424,23 +657,26 @@ def _record_record_event(event_type: str, record: dict[str, Any], *, user_id: st
     )
 
 
-def _save_failure_receipt(
+def _save_outcome_receipt(
     repository: AITeacherRepository,
     *,
     user_id: str,
     course_id: str,
     proposal: dict[str, Any],
     idempotency_key: str,
-    status: str,
+    result_code: str,
     reason: str,
     runtime_revision_id: str,
 ) -> dict[str, Any]:
+    """Persist one non-success confirm outcome under the unified receipt shape."""
     return repository.save_receipt(user_id, course_id, {
+        "schema_version": RECEIPT_SCHEMA_VERSION,
         "conversation_id": proposal.get("conversation_id"),
         "proposal_id": proposal.get("proposal_id"),
-        "command_id": f"cmd_{hashlib.sha256(idempotency_key.encode('utf-8')).hexdigest()[:24]}",
+        "command_id": _command_id(idempotency_key),
         "idempotency_key": idempotency_key,
-        "status": status,
+        "status": RECEIPT_RESULT_CODES[result_code],
+        "result_code": result_code,
         "action_type": proposal.get("action_type"),
         "affected_refs": [],
         "runtime_revision_after": runtime_revision_id,
@@ -450,16 +686,50 @@ def _save_failure_receipt(
     })
 
 
-def _require_not_expired(proposal: dict[str, Any]) -> None:
+def _save_undo_receipt(
+    repository: AITeacherRepository,
+    *,
+    user_id: str,
+    course_id: str,
+    receipt: dict[str, Any],
+    idempotency_key: str,
+    result_code: str,
+    reason: str,
+    runtime_revision_id: str,
+) -> dict[str, Any]:
+    """Persist one non-success undo outcome under the unified receipt shape."""
+    return repository.save_receipt(user_id, course_id, {
+        "schema_version": RECEIPT_SCHEMA_VERSION,
+        "conversation_id": receipt.get("conversation_id"),
+        "proposal_id": receipt.get("proposal_id"),
+        "command_id": _command_id(idempotency_key),
+        "idempotency_key": idempotency_key,
+        "status": RECEIPT_RESULT_CODES[result_code],
+        "result_code": result_code,
+        "action_type": "undo_create_record",
+        "affected_refs": [],
+        "runtime_revision_before": receipt.get("runtime_revision_after"),
+        "runtime_revision_after": runtime_revision_id,
+        "summary": reason,
+        "failure_reason": reason,
+        "undo_capability": "none",
+        "undo_of_receipt_id": receipt.get("receipt_id"),
+    })
+
+
+def _command_id(idempotency_key: str) -> str:
+    return f"cmd_{hashlib.sha256(idempotency_key.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _is_expired(proposal: dict[str, Any]) -> bool:
     expires_at = str(proposal.get("expires_at") or "")
     if not expires_at:
-        return
+        return False
     try:
         expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
     except ValueError:
-        return
-    if expires < datetime.now(timezone.utc):
-        raise ProposalStale("proposal expired")
+        return False
+    return expires < datetime.now(timezone.utc)
 
 
 def _dedupe_key(
@@ -477,6 +747,24 @@ def _dedupe_key(
             "runtime_revision_id": runtime_revision_id,
             "message_id": message_id,
         },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _suppression_key(action_type: str, target_ref: dict[str, Any]) -> str:
+    """Identify a refusal by what was refused, not by the evidence behind it.
+
+    Suppression used to be keyed on the full dedupe key, which folds in the
+    runtime revision — so the moment new evidence arrived the key changed, no
+    stored suppression matched, and even `never` came back. Refusals are about
+    the action and its target, so the key must survive evidence churn; the
+    revision is kept as a *field* for the narrower "same revision" rule.
+    """
+    payload = json.dumps(
+        {"action_type": action_type, "target_ref": target_ref},
         ensure_ascii=False,
         sort_keys=True,
         default=str,
@@ -515,17 +803,33 @@ def _success_summary(action_type: str) -> str:
     return labels[action_type]
 
 
+_SUCCESS_RESULT_CODES = {
+    "create_note": "note_created",
+    "create_issue": "issue_created",
+    "create_review_task": "review_task_created",
+    "create_bookmark": "bookmark_created",
+    "open_runtime_action": "runtime_action_opened",
+}
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 __all__ = [
     "ACTION_TYPES",
+    "NODE_SUGGESTION_LIMIT",
+    "NOT_NOW_QUIET_HOURS",
+    "RECEIPT_RESULT_CODES",
+    "RECEIPT_SCHEMA_VERSION",
+    "SESSION_SUGGESTION_LIMIT",
+    "SUGGESTION_MOMENTS",
     "ActionForbidden",
-    "ProposalStale",
     "build_trigger_candidate",
     "execute_proposal",
     "propose_action",
+    "record_suggestion_shown",
     "reject_proposal",
+    "suppress_suggestion",
     "undo_receipt",
 ]

@@ -104,6 +104,12 @@
           :acting="generationActionBusy"
           @resume="resumeGenerationTask"
         />
+        <AITeacherSuggestion
+          :suggestion="aiTeacherStore.suggestion"
+          @shown="aiTeacherStore.markSuggestionShown"
+          @accept="acceptSuggestion"
+          @decline="declineSuggestion"
+        />
         <ContentArea
           ref="contentAreaRef"
           :side-ai-panel-visible="aiVisible"
@@ -276,8 +282,9 @@ import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
-import { useAITeacherStore } from '../stores/aiTeacher'
+import { useAITeacherStore, type AISuggestion } from '../stores/aiTeacher'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
@@ -525,6 +532,8 @@ async function loadPublishedLearningContext(courseId: string) {
   await aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined)
   loadedLearningCourseId.value = courseId
   void changeProposalsStore.fetchChangeProposals(courseId)
+  // Natural pause #3: arriving at the course, before any reading has started.
+  void aiTeacherStore.checkSuggestion('course_entered', String(route.params.nodeId || '') || undefined)
 }
 
 watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
@@ -759,8 +768,30 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   if (isNarrow.value) navigatorOpen.value = false
 }
 
-function openBlockImprovement(target: CourseBlockEditTarget) {
-  activeDomain.value = 'assistant'
+/** Accepting only opens the AI panel to explain the action — it executes nothing. */
+function acceptSuggestion(candidate: AISuggestion) {
+  aiTeacherStore.dismissSuggestion()
+  openAi({
+    text: '',
+    nodeId: candidate.node_id || courseStore.currentNode?.node_id || '',
+  })
+  aiPrefill.value = t(
+    'courseWorkspace.aiTeacher.explainRuntimePrompt',
+    '请解释为什么我现在应该执行这个学习动作，并说明依据：',
+  )
+}
+
+/**
+ * Refusals go to the server, not just to local state: the archived protocol
+ * requires them to hold across a refresh and on another device, and `not_now`
+ * additionally carries a 24-hour floor so evidence churn cannot revive it.
+ */
+async function declineSuggestion(payload: { suggestion: AISuggestion; reason: 'not_now' | 'never' }) {
+  aiTeacherStore.dismissSuggestion()
+  await aiTeacherStore.suppressSuggestion(payload.suggestion, payload.reason)
+}
+
+function openBlockImprovement(target: CourseBlockEditTarget) {  activeDomain.value = 'assistant'
   aiBlockTarget.value = target
   aiQuote.value = ''
   aiNodeId.value = target.nodeId
@@ -1050,6 +1081,8 @@ async function refreshAfterGrade() {
   if (courseStore.currentCourseId) {
     await workspaceStore.loadMistakeBook(courseStore.currentCourseId).catch(() => undefined)
   }
+  // Natural pause #2: a practice attempt was just submitted and graded.
+  void aiTeacherStore.checkSuggestion('practice_submitted', courseStore.currentNode?.node_id)
 }
 
 async function handleContinuationAction(action: NextLearningAction) {
@@ -1064,6 +1097,8 @@ async function handleContinuationAction(action: NextLearningAction) {
     if (node) selectNode(node)
     if (action.action_type === 'complete_reading' && node) {
       await learningProgressStore.completeReading(courseStore.currentCourseId, node.node_id)
+      // Natural pause #1: the learner just finished a section.
+      void aiTeacherStore.checkSuggestion('section_completed', node.node_id)
     } else if (isWorkspaceTaskAction(action)) {
       workspaceStore.prepareLearningAction(action)
       openTask(node)

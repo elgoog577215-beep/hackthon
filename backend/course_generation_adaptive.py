@@ -258,6 +258,20 @@ def compact_planning_context(
                 max_list_items=2,
                 max_depth=2,
             )
+        elif detail_level == "minimal":
+            # minimal 档原本把证据整个丢弃，于是"资料/联网进知识库"这一环
+            # 在降级时彻底断掉，教案只能凭模型常识写。这里保底留下证据 ID
+            # 与极短摘要：宁可窄，也不要让链路悄悄退化成无依据生成。
+            hints = [
+                {
+                    "evidence_id": clip_text(entry.get("evidence_id"), 48),
+                    "summary": clip_text(entry.get("summary"), 60),
+                }
+                for entry in list(item.get("evidence_hints") or [])[:2]
+                if isinstance(entry, dict)
+            ]
+            if hints:
+                section["evidence_hints"] = hints
         sections.append({
             key: value
             for key, value in section.items()
@@ -444,10 +458,32 @@ def merge_teaching_skeleton_part(
         for item in part.get("knowledge_registry") or []
         if isinstance(item, dict)
     ]
+    prior_key_by_name = {
+        str(item.get("name") or "").strip(): str(item.get("knowledge_key") or "")
+        for item in prior_registry
+        if str(item.get("name") or "").strip()
+    }
     key_mapping: dict[str, str] = {}
-    for offset, item in enumerate(raw_registry, start=len(prior_registry) + 1):
-        raw_key = str(item.get("knowledge_key") or f"part-{offset}")
-        key_mapping[raw_key] = f"K{offset:03d}"
+    minted_key_by_name: dict[str, str] = {}
+    survivors: list[dict[str, Any]] = []
+    next_offset = len(prior_registry) + 1
+    for index, item in enumerate(raw_registry, start=1):
+        raw_key = str(item.get("knowledge_key") or f"part-{index}")
+        name = str(item.get("name") or "").strip()
+        settled_key = (
+            prior_key_by_name.get(name) or minted_key_by_name.get(name)
+            if name
+            else ""
+        )
+        if settled_key:
+            key_mapping[raw_key] = settled_key
+            continue
+        minted_key = f"K{next_offset:03d}"
+        key_mapping[raw_key] = minted_key
+        if name:
+            minted_key_by_name[name] = minted_key
+        survivors.append(item)
+        next_offset += 1
 
     def map_key(value: Any, *, prefer_prior: bool = False) -> str:
         key = str(value or "")
@@ -458,7 +494,7 @@ def merge_teaching_skeleton_part(
         return key if key in prior_keys else key
 
     appended_registry: list[dict[str, Any]] = []
-    for item in raw_registry:
+    for item in survivors:
         raw_key = str(item.get("knowledge_key") or "")
         normalized = deepcopy(item)
         normalized["knowledge_key"] = key_mapping.get(raw_key, raw_key)
@@ -468,19 +504,36 @@ def merge_teaching_skeleton_part(
         ]
         appended_registry.append(normalized)
     appended_sections: list[dict[str, Any]] = []
+    claimed_keys = {
+        str(key)
+        for identity in prior_sections
+        for key in identity.get("owned_knowledge_keys") or []
+    }
     for item in part.get("sections") or []:
         if not isinstance(item, dict):
             continue
+        owned: list[str] = []
+        reused: list[str] = [
+            map_key(key, prefer_prior=True)
+            for key in item.get("reused_knowledge_keys") or []
+        ]
+        for key in item.get("owned_knowledge_keys") or []:
+            mapped = map_key(key)
+            if mapped in claimed_keys:
+                reused.append(mapped)
+                continue
+            claimed_keys.add(mapped)
+            owned.append(mapped)
+        owned = list(dict.fromkeys(owned))
+        reused = [
+            key
+            for key in dict.fromkeys(reused)
+            if key not in set(owned)
+        ]
         appended_sections.append({
             "node_id": str(item.get("node_id") or ""),
-            "owned_knowledge_keys": [
-                map_key(key)
-                for key in item.get("owned_knowledge_keys") or []
-            ],
-            "reused_knowledge_keys": [
-                map_key(key, prefer_prior=True)
-                for key in item.get("reused_knowledge_keys") or []
-            ],
+            "owned_knowledge_keys": owned,
+            "reused_knowledge_keys": reused,
         })
     combined_sections = [*prior_sections, *appended_sections]
     declared_reuse: dict[str, list[str]] = {}

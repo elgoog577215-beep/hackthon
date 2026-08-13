@@ -7,7 +7,7 @@ import pytest
 import ai_teacher_actions
 import ai_teacher_context
 import learning_runtime
-from ai_qa_service import AIQAService
+from ai_qa_service import AIQAService, AITeacherModelFailure
 from ai_teacher_actions import build_trigger_candidate, execute_proposal, propose_action, undo_receipt
 from ai_teacher_context import build_ai_teacher_context, context_public_summary, format_ai_teacher_context_prompt
 from ai_teacher_state import AITeacherRepository
@@ -400,18 +400,22 @@ def test_record_action_is_idempotent_and_undo_archives_without_erasing(monkeypat
 
 def test_trigger_requires_strong_runtime_action_and_respects_suppression(monkeypatch, tmp_path: Path):
     interactions = AITeacherRepository(tmp_path)
+    # A proactive suggestion is now also gated on *when* it would interrupt, so
+    # every call here passes a natural pause; the timing rule itself is covered
+    # in `test_ai_teacher_proactive_gating.py`.
+    pause = {"moment": "section_completed", "session_id": "sess-1"}
     monkeypatch.setattr(ai_teacher_actions, "build_learning_runtime", lambda *args, **kwargs: _runtime("complete_reading"))
-    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions) is None
+    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions, **pause) is None
 
     monkeypatch.setattr(ai_teacher_actions, "build_learning_runtime", lambda *args, **kwargs: _runtime("resume_diagnostic"))
-    candidate = build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions)
+    candidate = build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions, **pause)
     assert candidate["trigger_type"] == "runtime_support"
     interactions.save_suppression("u1", "course-ai", {
         "suppression_key": candidate["dedupe_key"],
         "evidence_revision": candidate["runtime_revision_id"],
         "mode": "not_now",
     })
-    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions) is None
+    assert build_trigger_candidate(_course(), user_id="u1", node_id="node-1", repository=interactions, **pause) is None
 
 
 @pytest.mark.asyncio
@@ -422,12 +426,15 @@ async def test_ai_teacher_converts_provider_error_chunk_to_failure():
         yield "\n[Error: provider authentication failed]"
 
     service._stream_llm = failed_stream
-    with pytest.raises(RuntimeError, match="AI provider unavailable"):
+    # The failure now carries the provider's failure kind (see
+    # `test_ai_teacher_model_failures.py`) instead of one opaque message.
+    with pytest.raises(AITeacherModelFailure) as excinfo:
         async for _ in service.answer_question_stream(
             "解释变量",
             context_package={"conversation": {"recent_messages": []}},
         ):
             pass
+    assert excinfo.value.code == "model_auth_failed"
 
 
 @pytest.mark.asyncio
@@ -449,7 +456,7 @@ async def test_provider_failure_does_not_change_deterministic_learning_runtime(m
     service._stream_llm = failed_stream
     before = learning_runtime.build_learning_runtime(_course(), user_id="u-provider-down")
 
-    with pytest.raises(RuntimeError, match="AI provider unavailable"):
+    with pytest.raises(AITeacherModelFailure):
         async for _ in service.answer_question_stream(
             "解释变量",
             context_package={"conversation": {"recent_messages": []}},

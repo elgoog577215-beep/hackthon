@@ -14,6 +14,72 @@ from course_pedagogy import MODULES, coerce_persisted_profile
 
 QUALITY_CONTRACT_VERSION = "course_quality_v10"
 
+# L3e: content correctness and visual correctness are different questions with
+# different owners. A course can be pedagogically sound but render as garbled
+# LaTeX, or render beautifully while missing half its key points — and until now
+# both landed in one `issues` list sharing one score, so a report could not say
+# which. These sets classify every code the module emits; `_issue_dimension`
+# treats anything unlisted as content, so a new code is never silently dropped
+# from the content score.
+RENDER_ISSUE_CODES = frozenset({
+    # Real-render failures reported by the frontend (L3a).
+    "math_render_failed",
+    "block_render_failed",
+    # Math delimiter and environment structure.
+    "unclosed_math_fence",
+    "unwrapped_display_environment",
+    "legacy_math_delimiter",
+    # Block structure that changes what the learner sees.
+    "unclosed_code_fence",
+    "markdown_block_join",
+    "table_missing_delimiter",
+    "table_delimiter_mismatch",
+    "empty_blockquote",
+    "list_numbering_restart",
+    "feedback_math_as_code",
+})
+
+# Generation hygiene: traces of the model's own process leaking into the body.
+# Not a rendering fault and not a teaching-content fault, but it must still
+# block, so it is scored with content rather than given a third score.
+HYGIENE_ISSUE_CODES = frozenset({
+    "meta_preamble",
+    "model_self_correction",
+    "placeholder_content",
+})
+
+
+def _issue_dimension(code: str) -> str:
+    if code in RENDER_ISSUE_CODES:
+        return "render"
+    if code in HYGIENE_ISSUE_CODES:
+        return "hygiene"
+    return "content"
+
+
+def _dimension_report(issues: list[dict[str, Any]], dimension: str) -> dict[str, Any]:
+    """Score one dimension in isolation.
+
+    Uses the same `_score_from_issues` weighting so the numbers stay comparable
+    with the overall score; only the input set differs.
+    """
+    scoped = [
+        item for item in issues
+        if _issue_dimension(str(item.get("code") or "")) == dimension
+    ]
+    # A dimension fails when it carries a critical issue of its own kind. This
+    # mirrors the overall gate (`_has_critical`), which also blocks only on
+    # critical — a `major` lowers the score without blocking. Using a stricter
+    # rule here would make a dimension report "failed" for content the gate
+    # happily publishes, which is worse than no dimension at all.
+    return {
+        "dimension": dimension,
+        "passed": not _has_critical(scoped),
+        "score": _score_from_issues(scoped),
+        "issue_count": len(scoped),
+        "issues": scoped,
+    }
+
 
 MODULE_SIGNAL_RULES: dict[str, tuple[tuple[str, ...], str]] = {
     "general_explained_example": (("例如", "例子", "案例", "示例"), "缺少与概念对应的具体例子"),
@@ -116,10 +182,24 @@ def validate_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
+def evaluate_node_content(
+    content: str,
+    node: dict[str, Any],
+    render_diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score one node's body.
+
+    ``render_diagnostics`` carries what actually happened when the content was
+    rendered (see ``frontend/src/utils/render-diagnostics.ts``). The backend
+    gate is pure string matching, so without it a formula that KaTeX refuses to
+    render is indistinguishable from one that renders fine — the frontend
+    degrades to readable source and nothing upstream ever learns. Optional so
+    every existing caller keeps its current behaviour.
+    """
     text = str(content or "").strip()
     node_id = str(node.get("node_id") or "")
     issues: list[dict[str, Any]] = []
+    issues.extend(_render_diagnostic_issues(render_diagnostics, node_id))
     if not text:
         issues.append(_issue("empty_content", "critical", "正文为空", "重新生成当前节点", node_id))
     elif len(text) < 240:
@@ -130,6 +210,7 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
         issues.append(_issue("meta_preamble", "major", "正文包含模型寒暄或任务复述", "直接从课程正文开始", node_id))
     if text.count("```") % 2:
         issues.append(_issue("unclosed_code_fence", "critical", "代码块没有闭合", "闭合 Markdown 代码块", node_id))
+    issues.extend(_structural_markdown_issues(text, node_id))
     if re.search(r"(?m)^[ \t]*\$[ \t]*$", text):
         issues.append(_issue(
             "legacy_math_delimiter",
@@ -144,6 +225,38 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
             "critical",
             "块级公式 $$ 分隔符没有闭合",
             "闭合 Markdown 块级公式分隔符",
+            node_id,
+        ))
+    # An even `$$` count is not proof the math is well-formed: a display
+    # environment can sit entirely outside the delimiters and still leave the
+    # count balanced, which renders as raw LaTeX source to the learner.
+    display_envs = (
+        r"aligned|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|"
+        r"equation|equation\*|cases|gather|gather\*|alignat|alignat\*|eqnarray|split"
+    )
+    in_code_fence = False
+    in_display_math = False
+    unwrapped_display_env = False
+    for line in text.splitlines():
+        if re.match(r"^\s*```", line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        for token in re.finditer(rf"(?<!\\)\$\$|\\begin\{{(?:{display_envs})\}}", line):
+            if token.group(0) == "$$":
+                in_display_math = not in_display_math
+            elif not in_display_math:
+                unwrapped_display_env = True
+                break
+        if unwrapped_display_env:
+            break
+    if unwrapped_display_env:
+        issues.append(_issue(
+            "unwrapped_display_environment",
+            "critical",
+            "cases、aligned 或矩阵等块级公式环境位于 $$ 分隔符之外",
+            "把公式前缀与块级环境合并到同一组 $$...$$ 中",
             node_id,
         ))
     if "生成中..." in text or "[待补充" in text:
@@ -268,6 +381,12 @@ def evaluate_node_content(content: str, node: dict[str, Any]) -> dict[str, Any]:
         "content_chars": len(text),
         "difficulty_alignment": difficulty_alignment,
         "grounding_check": grounding_check,
+        # L3e: the same issues, split by dimension, so a caller can distinguish
+        # "content is fine but it renders wrong" from the opposite. `passed`
+        # above is unchanged and still the single authority for the gate.
+        "render_quality": _dimension_report(issues, "render"),
+        "content_quality": _dimension_report(issues, "content"),
+        "hygiene_quality": _dimension_report(issues, "hygiene"),
     }
 
 
@@ -298,16 +417,42 @@ def evaluate_node_grounding(node: dict[str, Any]) -> dict[str, Any]:
             "在对应资料事实后补充有效证据标记",
             node_id,
         ))
+    # 「有可用来源却一条都没引」以前完全测不出来：`required_evidence_ids`
+    # 只有 usage_policy=must_use 且词面重叠时才填，通常为空，于是
+    # required=0、missing=0，质量门直接空转判过——正文可以完全不碰资料。
+    # 这里补一条**告警级**信号：不阻断发布（存量课程大量是零引用），
+    # 但让"配了资料却没用"变成看得见、可统计的事实。
+    available = allowed | {
+        str(item) for item in node.get("available_source_ids") or [] if item
+    }
+    citation_count = len(used & allowed) + len(
+        node.get("citation_map") or {}
+    )
+    if available and citation_count == 0 and not invalid:
+        issues.append(_issue(
+            "grounding:no_source_used",
+            "warning",
+            f"本节有 {len(available)} 条可用资料/来源，但正文一条都没有引用",
+            "优先依据已确认资料写作，并在对应陈述后标注证据或〔S编号〕",
+            node_id,
+        ))
+    # 告警不参与 passed 判定：本轮口径是"先告警不阻断"。
+    blocking = [
+        item for item in issues
+        if str(item.get("severity")) in {"critical", "major"}
+    ]
     return {
         "contract_version": QUALITY_CONTRACT_VERSION,
         "stage": "grounding_node",
         "node_id": node_id,
-        "passed": not issues,
+        "passed": not blocking,
         "required_count": len(required),
         "used_count": len(used & allowed),
         "used_evidence_ids": sorted(used & allowed),
         "missing_required_evidence_ids": sorted(missing),
         "invalid_evidence_ids": sorted(invalid),
+        "available_source_count": len(available),
+        "citation_count": citation_count,
         "issues": issues,
     }
 
@@ -799,6 +944,10 @@ def build_final_course_quality_report(
             "weak": len(weak_nodes),
             "average_score": round(sum(float(report.get("score") or 0) for report in node_reports) / max(1, len(node_reports)), 3),
         },
+        # L3e: every section above is a content dimension. This one aggregates
+        # the render verdict across nodes, so the report can state plainly that
+        # a course is pedagogically sound but visually broken.
+        "render_quality": _aggregate_render_quality(node_reports),
         "weak_nodes": weak_nodes,
         "manual_review_required_nodes": manual_review_nodes,
         "publication_allowed": not blocking_issues,
@@ -966,6 +1115,224 @@ def _key_point_covered(point: str, text: str) -> bool:
 def _dimension_average(values: dict[str, Any]) -> float:
     numeric = [float(value) for value in values.values() if isinstance(value, (int, float))]
     return sum(numeric) / max(1, len(numeric))
+
+
+def _render_diagnostic_issues(
+    diagnostics: dict[str, Any] | None,
+    node_id: str,
+) -> list[dict[str, Any]]:
+    """Turn reported render failures into blocking issues.
+
+    A render failure is never cosmetic: the learner sees LaTeX source or an
+    unformatted wall of text. It is therefore critical, and separated from the
+    text-pattern checks by its own codes so L3e can score render defects apart
+    from content defects.
+    """
+    if not isinstance(diagnostics, dict):
+        return []
+    issues: list[dict[str, Any]] = []
+    math_failures = _positive_int(diagnostics.get("math_failure_count"))
+    block_failures = _positive_int(diagnostics.get("block_failure_count"))
+    if math_failures:
+        issues.append(_issue(
+            "math_render_failed",
+            "critical",
+            f"有 {math_failures} 处公式无法渲染，学习者会看到 LaTeX 源码",
+            "修正公式语法后重新生成该节正文",
+            node_id,
+        ))
+    if block_failures:
+        issues.append(_issue(
+            "block_render_failed",
+            "critical",
+            f"有 {block_failures} 处正文整体渲染失败，Markdown 结构全部丢失",
+            "检查该节正文的围栏与嵌套结构后重新生成",
+            node_id,
+        ))
+    return issues
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
+
+
+def _structural_markdown_issues(text: str, node_id: str) -> list[dict[str, Any]]:
+    """Check table, list and blockquote structure.
+
+    Before this the gate had code-fence parity and nothing else: tables and
+    blockquotes had no criteria at all, and lists were only touched indirectly
+    by the formula-adjacency rule. A malformed table renders as a literal row of
+    pipes, which the learner reads as garbled text rather than data.
+
+    Deliberately conservative — these are text heuristics, and the authoritative
+    answer comes from the real renderer (L3b). They exist to catch the common
+    structural mistakes cheaply, so they only fire on unambiguous breakage.
+    """
+    issues: list[dict[str, Any]] = []
+    lines = text.splitlines()
+
+    # Walk once, skipping fenced code: a Markdown sample inside ``` is content,
+    # not structure to validate.
+    in_fence = False
+    body: list[str] = []
+    for line in lines:
+        if re.match(r"^\s*```", line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            body.append(line)
+
+    # --- tables -------------------------------------------------------------
+    # A GFM table needs a delimiter row (|---|---|) directly under its header,
+    # and every row needs a consistent column count. Without the delimiter the
+    # whole block renders as literal pipe characters.
+    for index, line in enumerate(body):
+        if not _looks_like_table_row(line):
+            continue
+        previous = body[index - 1] if index else ""
+        following = body[index + 1] if index + 1 < len(body) else ""
+        if _is_table_delimiter(line):
+            continue
+        if _is_table_delimiter(following):
+            # This is a header row; verify the delimiter matches its width.
+            if _table_columns(line) != _table_columns(following):
+                issues.append(_issue(
+                    "table_delimiter_mismatch",
+                    "major",
+                    "表格分隔行的列数与表头不一致，表格无法正确渲染",
+                    "让分隔行与表头保持相同列数",
+                    node_id,
+                ))
+            continue
+        if _looks_like_table_row(previous) or _is_table_delimiter(previous):
+            continue
+        # A pipe row that neither follows a table nor introduces one.
+        issues.append(_issue(
+            "table_missing_delimiter",
+            "major",
+            "表格缺少分隔行，整段会显示成竖线原文",
+            "在表头下方补一行 |---|---| 形式的分隔行",
+            node_id,
+        ))
+        break
+
+    # --- blockquotes --------------------------------------------------------
+    # `>` with no content is an empty quote box; the learner sees a stray bar.
+    if any(re.match(r"^\s*>\s*$", line) for line in body) and not any(
+        re.match(r"^\s*>\s*\S", line) for line in body
+    ):
+        issues.append(_issue(
+            "empty_blockquote",
+            "minor",
+            "引用块没有内容，只会渲染出一条空引用条",
+            "补齐引用内容或删除该引用块",
+            node_id,
+        ))
+
+    # --- lists --------------------------------------------------------------
+    # An ordered list that restarts at 1 mid-run usually means a blank line was
+    # lost and two separate lists were merged, which renumbers visibly wrong.
+    ordered_runs = _ordered_list_runs(body)
+    if any(len(run) > 1 and run.count(1) > 1 for run in ordered_runs):
+        issues.append(_issue(
+            "list_numbering_restart",
+            "minor",
+            "有序列表中途从 1 重新编号，渲染后的序号会与内容不符",
+            "合并为一个连续列表，或在两段列表之间补齐空行",
+            node_id,
+        ))
+    return issues
+
+
+def _looks_like_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.count("|") >= 2
+
+
+def _is_table_delimiter(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return False
+    return bool(re.fullmatch(r"\|(?:\s*:?-{3,}:?\s*\|)+", stripped))
+
+
+def _table_columns(line: str) -> int:
+    return len([cell for cell in line.strip().strip("|").split("|")])
+
+
+def _ordered_list_runs(body: list[str]) -> list[list[int]]:
+    """Group consecutive ordered-list markers into runs, one run per level.
+
+    Indentation matters: a nested list legitimately starts again at 1, so
+    grouping every marker into one flat run reports every nested list as a
+    numbering restart. Measured against real generated course text, that was
+    the single false-positive source in this rule — nested ordered lists are
+    common in teaching content. Runs are therefore keyed by indent width, and
+    only markers at the same level are compared with each other.
+    """
+    runs: list[list[int]] = []
+    by_indent: dict[int, list[int]] = {}
+
+    def flush() -> None:
+        for numbers in by_indent.values():
+            if numbers:
+                runs.append(numbers)
+        by_indent.clear()
+
+    for line in body:
+        match = re.match(r"^(\s*)(\d+)\.\s+\S", line)
+        if match:
+            indent = len(match.group(1).expandtabs(4))
+            by_indent.setdefault(indent, []).append(int(match.group(2)))
+            # A deeper level restarting is normal; drop any deeper levels once
+            # an outer item appears again so a second sub-list is its own run.
+            for deeper in [key for key in by_indent if key > indent]:
+                if by_indent[deeper]:
+                    runs.append(by_indent.pop(deeper))
+                else:
+                    by_indent.pop(deeper)
+            continue
+        if line.strip():
+            # Non-blank, non-list line ends every open run; blank lines inside a
+            # list are normal spacing and must not split it.
+            flush()
+    flush()
+    return runs
+
+
+def _aggregate_render_quality(node_reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Roll every node's render verdict into one course-level section.
+
+    Kept separate from `publication_allowed`: this reports the render dimension,
+    while blocking remains driven by the node-level `passed` values that already
+    include these issues. Making it a second gate would double-block the same
+    defect.
+    """
+    failing: list[str] = []
+    issues: list[dict[str, Any]] = []
+    scores: list[float] = []
+    for report in node_reports:
+        render = report.get("render_quality")
+        if not isinstance(render, dict):
+            continue
+        scores.append(float(render.get("score") or 0))
+        if not render.get("passed", True):
+            node_id = str(report.get("node_id") or "")
+            if node_id:
+                failing.append(node_id)
+        issues.extend(render.get("issues") or [])
+    return {
+        "dimension": "render",
+        "passed": not failing,
+        "score": round(sum(scores) / max(1, len(scores)), 3) if scores else 1.0,
+        "failing_node_ids": failing,
+        "issue_count": len(issues),
+        "issues": issues[:50],
+    }
 
 
 def _issue(

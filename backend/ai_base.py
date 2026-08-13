@@ -21,7 +21,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -110,6 +110,13 @@ class AIResponseTruncated(AIProviderRequestError):
     retryable = True
 
 
+def _env_int_min1(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return max(1, default)
+
+
 def _parse_model_list(value: Optional[str]) -> List[str]:
     return [item.strip() for item in (value or "").replace("\n", ",").split(",") if item.strip()]
 
@@ -126,6 +133,10 @@ class AIBase:
     """
     _working_model_cache = {}
     _model_failure_cache: dict[tuple[str, str], float] = {}
+    # (hostname, model_id) pairs that rejected response_format with a 400.
+    _json_mode_unsupported: set[tuple[str, str]] = set()
+    # Consecutive transient failures per (provider, model); reset on success.
+    _model_transient_failures: dict[tuple[str, str], int] = {}
 
     def __init__(self):
         # 通过环境变量配置 API 密钥
@@ -238,20 +249,77 @@ class AIBase:
         enable_thinking: bool,
         api_base: str | None = None,
     ) -> Dict:
+        """Build the provider-specific switch for reasoning output.
+
+        Three shapes are in play:
+
+        * official DeepSeek wants a nested ``thinking`` object;
+        * vLLM (e.g. a self-hosted Qwen) only honours the flag when it is
+          nested under ``chat_template_kwargs`` -- a top-level
+          ``enable_thinking`` is accepted and then silently ignored, so
+          thinking stays on, ``message.content`` comes back null and the
+          whole response looks empty and truncated;
+        * other OpenAI-compatible providers use the flat form.
+
+        The flat form is kept alongside the nested one so providers that only
+        understand it keep working.
+        """
         thinking_enabled = enable_thinking and self.thinking_enabled
         if self._is_official_deepseek_base(api_base or self.api_base):
             return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-        return {"enable_thinking": thinking_enabled}
+        return {
+            "enable_thinking": thinking_enabled,
+            "chat_template_kwargs": {"enable_thinking": thinking_enabled},
+        }
+
+    @staticmethod
+    def _delta_reasoning(delta: Any) -> str:
+        """Read one streaming delta's reasoning text.
+
+        vLLM names the field ``reasoning`` while DeepSeek-style providers use
+        ``reasoning_content``.  Reading only one of them makes a provider look
+        like it is streaming nothing.
+        """
+        for field in ("reasoning_content", "reasoning"):
+            value = getattr(delta, field, None)
+            if value:
+                return str(value)
+        return ""
+
+    @staticmethod
+    def _message_reasoning(message: Any) -> str:
+        """Read a non-streaming message's reasoning text (same two names)."""
+        for field in ("reasoning_content", "reasoning"):
+            value = getattr(message, field, None)
+            if value:
+                return str(value)
+        return ""
 
     def _supports_json_response_format(
         self,
         api_base: str | None = None,
+        model_id: str | None = None,
     ) -> bool:
         hostname = (urlparse(api_base or self.api_base).hostname or "").casefold()
-        return hostname not in {
+        if hostname in {
             "api-inference.modelscope.cn",
             "api.modelscope.cn",
-        }
+        }:
+            return False
+        return (
+            hostname,
+            str(model_id or ""),
+        ) not in AIBase._json_mode_unsupported
+
+    @classmethod
+    def _remember_json_mode_unsupported(
+        cls,
+        api_base: str | None,
+        model_id: str | None,
+    ) -> None:
+        """Cache one provider's 400 on ``response_format`` for later calls."""
+        hostname = (urlparse(api_base or "").hostname or "").casefold()
+        cls._json_mode_unsupported.add((hostname, str(model_id or "")))
 
     async def _wait_for_request_slot(self) -> None:
         if self._minimum_request_interval <= 0:
@@ -348,6 +416,9 @@ class AIBase:
             )
         ] = model_id
         self._model_failure_cache.pop((self.api_base, model_id), None)
+        # A success means the model is healthy again: drop any partial
+        # transient streak so unrelated blips never accumulate into a trip.
+        self._model_transient_failures.pop((self.api_base, model_id), None)
 
     @staticmethod
     def estimate_request_tokens(prompt: str, system_prompt: str) -> int:
@@ -451,9 +522,36 @@ class AIBase:
         error: Exception,
         api_base: str | None = None,
     ) -> None:
+        """Open the circuit for one provider/model pair.
+
+        The cache is a class attribute, so opening the circuit stops every
+        concurrent slot in the process at once.  That is the right response to
+        rate limiting or an exhausted quota, but far too blunt for a single
+        transient error: one timeout would otherwise idle the whole run for
+        the full cooldown.  Transient failures therefore have to repeat
+        consecutively before the circuit opens, while a success clears the
+        streak.
+        """
         cooldown = self._model_failure_cooldown_seconds(error)
         provider_base = api_base or self.api_base
-        self._model_failure_cache[(provider_base, model_id)] = (
+        failure_key = (provider_base, model_id)
+        if self._capacity_failure_kind(error) == "transient":
+            threshold = _env_int_min1(
+                "AI_MODEL_TRANSIENT_FAILURES_TO_OPEN", 3
+            )
+            streak = self._model_transient_failures.get(failure_key, 0) + 1
+            self._model_transient_failures[failure_key] = streak
+            if streak < threshold:
+                logger.warning(
+                    "AI model transient failure %d/%d (Model: %s); "
+                    "circuit stays closed",
+                    streak,
+                    threshold,
+                    model_id,
+                )
+                return
+        self._model_transient_failures.pop(failure_key, None)
+        self._model_failure_cache[failure_key] = (
             time.monotonic() + cooldown
         )
         logger.warning(
@@ -1101,7 +1199,8 @@ class AIBase:
                         ),
                     }
                     if json_mode and self._supports_json_response_format(
-                        self.modelscope_fallback_api_base
+                        self.modelscope_fallback_api_base,
+                        model_id=model_id,
                     ):
                         request_options["response_format"] = {
                             "type": "json_object"
@@ -1143,7 +1242,7 @@ class AIBase:
                             if not chunk.choices:
                                 continue
                             delta = chunk.choices[0].delta
-                            reasoning = getattr(delta, "reasoning_content", None)
+                            reasoning = self._delta_reasoning(delta)
                             if reasoning and on_stream_activity:
                                 on_stream_activity()
                             if delta.content:
@@ -1296,7 +1395,7 @@ class AIBase:
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
-                        reasoning = getattr(delta, "reasoning_content", None)
+                        reasoning = self._delta_reasoning(delta)
                         if reasoning and on_stream_activity:
                             on_stream_activity()
                         if delta.content:
@@ -1431,6 +1530,16 @@ class AIBase:
 
         last_error: Exception | None = None
         attempts = 0
+        # A truncated answer is not a transient network blip: retrying at the
+        # same ceiling usually truncates again.  Reasoning models spend this
+        # same budget on hidden thinking tokens, so the retry only pays off
+        # with real headroom.
+        requested_max_tokens = max_tokens or self.max_tokens
+        effective_max_tokens = requested_max_tokens
+        truncation_headroom_ceiling = max(
+            self.max_tokens,
+            requested_max_tokens * 2,
+        )
         primary_models = (
             self._models_for(use_fast_model, model_role)
             if self.api_key and not self._provider_failure
@@ -1502,10 +1611,12 @@ class AIBase:
                             {"role": "user", "content": prompt},
                         ],
                         "stream": True,
-                        "max_tokens": max_tokens or self.max_tokens,
+                        "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
                     }
-                    if json_mode and self._supports_json_response_format():
+                    if json_mode and self._supports_json_response_format(
+                        model_id=model_id
+                    ):
                         request_options["response_format"] = {
                             "type": "json_object"
                         }
@@ -1530,6 +1641,12 @@ class AIBase:
                                 and self._error_status_code(format_error) == 400
                             ):
                                 raise
+                            # Remember the rejection: without this every later
+                            # call pays the same wasted 400 round trip.
+                            self._remember_json_mode_unsupported(
+                                self.api_base,
+                                model_id,
+                            )
                             request_options.pop("response_format", None)
                             await self._wait_for_request_slot()
                             physical_request_count += 1
@@ -1543,12 +1660,13 @@ class AIBase:
                         truncated = False
                         async for chunk in response:
                             if chunk.choices:
-                                if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                    reasoning = chunk.choices[0].delta.reasoning_content
-                                    if reasoning:
-                                        reasoning_chars += len(reasoning)
-                                        if on_stream_activity:
-                                            on_stream_activity()
+                                reasoning = self._delta_reasoning(
+                                    chunk.choices[0].delta
+                                )
+                                if reasoning:
+                                    reasoning_chars += len(reasoning)
+                                    if on_stream_activity:
+                                        on_stream_activity()
 
                                 delta = chunk.choices[0].delta
                                 if delta.content:
@@ -1562,30 +1680,71 @@ class AIBase:
 
                     if truncated:
                         logger.warning(
-                            f"AI response truncated by max_tokens={max_tokens or self.max_tokens} "
+                            f"AI response truncated by max_tokens={effective_max_tokens} "
                             f"(Model: {model_id}, Attempt {attempt+1}/{retry_count}, "
                             f"chars={len(full_content)}) - downstream JSON/structure parsing "
                             "will likely fail on this output."
                         )
                         if reject_truncated:
+                            if effective_max_tokens < truncation_headroom_ceiling:
+                                effective_max_tokens = min(
+                                    truncation_headroom_ceiling,
+                                    effective_max_tokens * 2,
+                                )
+                                logger.info(
+                                    "Raising max_tokens to %d before retrying "
+                                    "the truncated request (Model: %s)",
+                                    effective_max_tokens,
+                                    model_id,
+                                )
                             raise AIResponseTruncated(
                                 "模型输出达到硬上限："
-                                f"max_tokens={max_tokens or self.max_tokens}，"
+                                f"max_tokens={effective_max_tokens}，"
                                 f"chars={len(full_content)}"
                             )
 
                     if not full_content:
                         fallback_eligible = True
-                        emit_telemetry(status="empty_response")
+                        # An empty answer with a large reasoning trace is not a
+                        # dead provider: thinking consumed the whole
+                        # max_tokens budget and left nothing for the answer.
+                        # Reported as a plain empty_response it looks like a
+                        # provider outage (and trips the breaker), so name it.
+                        thinking_starved = reasoning_chars > 0
+                        emit_telemetry(
+                            status=(
+                                "thinking_consumed_budget"
+                                if thinking_starved
+                                else "empty_response"
+                            )
+                        )
                         empty_error = AIProviderRequestError(
-                            f"empty_response:{model_id}"
+                            (
+                                "thinking_consumed_budget:"
+                                f"{model_id}:reasoning_chars={reasoning_chars}"
+                                f":max_tokens={effective_max_tokens}"
+                            )
+                            if thinking_starved
+                            else f"empty_response:{model_id}"
                         )
                         last_error = empty_error
-                        logger.warning(
-                            "Empty response from AI "
-                            f"(Model: {model_id}, "
-                            f"Attempt {attempt+1}/{retry_count})"
-                        )
+                        if thinking_starved:
+                            logger.warning(
+                                "Model returned only reasoning and no answer "
+                                "(Model: %s, reasoning_chars=%d, "
+                                "max_tokens=%d): thinking used the whole "
+                                "output budget; disable thinking for this "
+                                "call or raise AI_MAX_TOKENS.",
+                                model_id,
+                                reasoning_chars,
+                                effective_max_tokens,
+                            )
+                        else:
+                            logger.warning(
+                                "Empty response from AI "
+                                f"(Model: {model_id}, "
+                                f"Attempt {attempt+1}/{retry_count})"
+                            )
                         if attempt < retry_count - 1:
                             await asyncio.sleep(1)
                             continue
@@ -1749,49 +1908,73 @@ class AIBase:
                 break
             attempts += 1
             yielded = False
+            # 非流式路径已有"截断后加大预算重试"，流式没有：一次截断就以空
+            # 正文收场，是正文阶段的单点故障，在 reasoning 模型上尤其常见
+            # （thinking 吃光输出预算）。
+            stream_max_tokens = max_tokens or self.max_tokens
+            truncation_ceiling = max(self.max_tokens, stream_max_tokens * 2)
             try:
-                extra_body = self._thinking_extra_body(enable_thinking)
-                capacity = get_provider_capacity_controller(self.api_base)
-                lease = await capacity.acquire(
-                    model_id,
-                    on_wait_activity=on_stream_activity,
-                )
-                try:
-                    await self._wait_for_request_slot()
-                    response = await self.client.chat.completions.create(
-                        model=model_id,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
-                        ],
-                        stream=True,
-                        max_tokens=max_tokens or self.max_tokens,
-                        extra_body=extra_body
+                while True:
+                    extra_body = self._thinking_extra_body(enable_thinking)
+                    capacity = get_provider_capacity_controller(self.api_base)
+                    lease = await capacity.acquire(
+                        model_id,
+                        on_wait_activity=on_stream_activity,
                     )
+                    try:
+                        await self._wait_for_request_slot()
+                        response = await self.client.chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ],
+                            stream=True,
+                            max_tokens=stream_max_tokens,
+                            extra_body=extra_body
+                        )
 
-                    truncated = False
-                    async for chunk in response:
-                        if chunk.choices:
-                            if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                reasoning = chunk.choices[0].delta.reasoning_content
-                                if reasoning:
+                        truncated = False
+                        async for chunk in response:
+                            if chunk.choices:
+                                reasoning = self._delta_reasoning(
+                                    chunk.choices[0].delta
+                                )
+                                if reasoning and on_stream_activity:
+                                    on_stream_activity()
+
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    yielded = True
                                     if on_stream_activity:
                                         on_stream_activity()
-
-                            delta = chunk.choices[0].delta
-                            if delta.content:
-                                yielded = True
-                                if on_stream_activity:
-                                    on_stream_activity()
-                                yield delta.content
-                            if getattr(chunk.choices[0], "finish_reason", None) == "length":
-                                truncated = True
-                finally:
-                    await lease.release()
+                                    yield delta.content
+                                if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                    truncated = True
+                    finally:
+                        await lease.release()
+                    if (
+                        truncated
+                        and not yielded
+                        and stream_max_tokens < truncation_ceiling
+                    ):
+                        # 尚未向调用方吐出任何内容，重发不会产生重复正文。
+                        stream_max_tokens = min(
+                            truncation_ceiling,
+                            stream_max_tokens * 2,
+                        )
+                        logger.info(
+                            "Stream truncated with no content; retrying "
+                            "(Model: %s, max_tokens=%d)",
+                            model_id,
+                            stream_max_tokens,
+                        )
+                        continue
+                    break
                 if truncated:
                     raise AIResponseTruncated(
                         "模型流式输出达到硬上限："
-                        f"max_tokens={max_tokens or self.max_tokens}"
+                        f"max_tokens={stream_max_tokens}"
                     )
                 if yielded:
                     self._remember_model(use_fast_model, model_id)

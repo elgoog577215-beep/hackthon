@@ -389,6 +389,12 @@ class CoursePromptComposer:
    改名或改写。
 3. 每节通常首次负责 2-4 个可单独解释、练习和诊断的原子知识点；名称和陈述必须
    简洁，知识名不得复制小节标题，也不得写成教学动作。
+   **例外——同一对象的多种表示要各自成点**：若一个对象在本节以多种表示形式
+   出现（解析式与图像、文字规则与符号公式、递推式与通项式、结构式与分子式
+   等），**每种表示各自成为一个独立知识点**，此时本节可以超过 4 个。
+   判据是"换一种写法后说的还是同一件事"；若两者结论不同，那不是表示法，
+   是两个本来就独立的知识点。表示法类知识点在详细教案里 `knowledge_type`
+   标 `representation`，并用 `equivalent_to` 与它所表示的对象相连。
 4. 每个键只有一个 `owner_node_id`。复用只能发生在负责小节之后，并同时登记到注册表
    的 `reused_in_node_ids` 与对应小节的 `reused_knowledge_keys`。
 5. `prerequisite_keys` 只能引用当前知识之前已经定义的键；没有前置时留空。
@@ -481,6 +487,52 @@ class CoursePromptComposer:
 {original_prompt}
 """.strip()
 
+    @staticmethod
+    def _batch_evidence_digest(
+        batch_sections: list[dict[str, Any]],
+        *,
+        detail_level: str,
+    ) -> list[dict[str, Any]]:
+        """按小节汇总本批次可依据的证据摘要。
+
+        证据已经随小节带进来（`evidence_hints`），但埋在 `batch_sections`
+        的 JSON 里、没有任何提示语，模型没有被要求据此写作。单列一段并在
+        约束里点名，才算真的"教案读得到证据"。
+
+        长度按详细度收紧：教案批次 prompt 已在撞 token 上限，这里宁可短。
+        """
+        summary_chars = (
+            220 if detail_level == "full"
+            else 140 if detail_level == "compact"
+            else 60
+        )
+        per_section = 4 if detail_level == "full" else 2
+        digest: list[dict[str, Any]] = []
+        for section in batch_sections or []:
+            if not isinstance(section, dict):
+                continue
+            hints = [
+                item for item in (section.get("evidence_hints") or [])
+                if isinstance(item, dict)
+            ][:per_section]
+            if not hints:
+                continue
+            digest.append({
+                "node_id": str(section.get("node_id") or ""),
+                "evidence": [
+                    {
+                        "evidence_id": str(item.get("evidence_id") or ""),
+                        "kind": str(item.get("kind") or ""),
+                        "summary": clip_text(
+                            str(item.get("summary") or ""),
+                            summary_chars,
+                        ),
+                    }
+                    for item in hints
+                ],
+            })
+        return digest
+
     def build_teaching_plan_batch_v3_prompt(
         self,
         *,
@@ -506,6 +558,13 @@ class CoursePromptComposer:
         knowledge_registry = bounded["knowledge_registry"]
         section_identities = bounded["section_identities"]
         module_catalog = bounded["module_catalog"]
+        # 证据从小节里抽出来单列一段：批次 prompt 此前**完全看不到资料原文**，
+        # 于是知识点的成立条件、边界、易错点只能凭模型常识写——
+        # 而知识库正是对这一步产出的确定性重排，断在这里就一路断到底。
+        batch_evidence = self._batch_evidence_digest(
+            batch_sections,
+            detail_level=detail_level,
+        )
         overall_guidance = compact_value(
             overall_guidance or {},
             max_string_chars=(
@@ -538,20 +597,9 @@ class CoursePromptComposer:
 全课知识身份已经冻结。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
 修改其他批次。只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
 
-## 课程与批次
+## 课程
 - 课程：{course_title}
 - 定位：{positioning}
-- 批次：{json.dumps(batch_spec, ensure_ascii=False)}
-- 骨架修订：{skeleton_revision_id}
-
-## 当前小节（已去重）
-{json.dumps(batch_sections, ensure_ascii=False)}
-
-## 当前批次知识与直接依赖闭包（只读）
-{json.dumps(knowledge_registry, ensure_ascii=False)}
-
-## 当前批次知识职责（只读）
-{json.dumps(section_identities, ensure_ascii=False)}
 
 ## 共享课程块目录（只出现一次）
 {json.dumps(module_catalog, ensure_ascii=False)}
@@ -559,21 +607,75 @@ class CoursePromptComposer:
 ## 总体教案引领（与教师视图同源，只读）
 {json.dumps(overall_guidance, ensure_ascii=False)}
 
+## 当前批次
+- 批次：{json.dumps(batch_spec, ensure_ascii=False)}
+- 骨架修订：{skeleton_revision_id}
+
+## 当前小节（已去重）
+{json.dumps(batch_sections, ensure_ascii=False)}
+
+## 本批次可依据的资料证据（只读，来自教师上传资料与已确认联网来源）
+{json.dumps(batch_evidence, ensure_ascii=False)}
+
+## 当前批次知识与直接依赖闭包（只读）
+{json.dumps(knowledge_registry, ensure_ascii=False)}
+
+## 当前批次知识职责（只读）
+{json.dumps(section_identities, ensure_ascii=False)}
+
 ## 约束
 1. `sections` 必须按批次指定顺序返回，`knowledge_details` 必须按本节
    `owned_knowledge_keys` 顺序逐个展开，不能展开复用键。
 2. 每个知识详情必须给出成立条件或边界、可观察能力、至少一个可信易错点和可验证
    掌握标准；易错点必须包含具体错误表现、判别方法与修复策略。
-3. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
+3. `knowledge_type` 只能取以下七类之一，取值不在表内会被系统**静默改写成
+   `definition`**，不会报错也不会提示，所以必须选准：
+   `definition` 定义；`principle` 原理；`rule` 规则判据；`method` 方法；
+   `condition` 成立条件；`procedure` 操作流程；
+   `representation` **表示法**（同一对象的另一种写法/记号/形式，
+   例如解析式与图像、数表与公式）。不要自造词表外的取值。
+4. 掌握标准要能被判定：`observable_performance` 写清用什么任务、做到什么程度算
+   达标（能数的就写数量，如"3 道变式题全对"），`verification_method` 写清用什么
+   题、看什么作答表现判定。不要写"理解××""掌握××"这类无法判定的话。
+   `required_independence` 取 `scaffolded`/`guided`/`independent`（给范例/给追问/
+   完全独立），`required_transfer` 取 `recall`/`procedure`/`variation`/`novel`
+   （复述/照流程/变式/新情境）。两项按本知识点实际要求选，不要所有标准都填同一个值。
+5. `concept_group` 是本节知识点的分组，不是知识点的别名：同一小节里彼此相关的
+   知识点必须共用同一个组名，每组通常聚合 2-4 个知识点。组名写知识问题域
+   （例如"容量与扩容"），不要写成某个知识点的改写；一节通常 1-2 个组，只有确实
+   互不相关时才增加。不要为了让组数变多而硬拆，也不要给每个知识点各起一个组名。
+6. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
    也不得修改骨架冻结的前置关系。
-4. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
+7. `relation_type` 按语义从六类中选，不要一律写 `prerequisite`；缺必填字段的关系整条丢弃。
+   `prerequisite` 学习顺序依赖；`applies_to` source 是方法或原理、target 是应用对象；
+   `generalizes` source 是一般情形、target 是其特例；`equivalent_to` 同一实质不同表述（对称）；
+   `derives` target 可由 source 推出，必填 `derivation_steps`（有序关键步骤，不可为空）；
+   `contrasts_with` 两者易混需辨析（对称），必填 `distinction`（凭什么区分两者）。
+   本节教学上确实成立的前置之外关系都要给出，但不要为凑数编造。
+   寻找关系时按下面的信号逐个自查，这三类最容易被漏掉：
+   - 写了某个知识点的易错点 `confused_with` 字段时，该易错对象若也是本节知识，
+     两者之间就应有一条 `contrasts_with`——学生会混淆，正是需要辨析的信号。
+   - 同一个对象在本节出现了两种表述（定义式与图像、文字规则与符号公式、
+     递推式与通项式），两者之间是 `equivalent_to`，不是前置。**尤其检查
+     `knowledge_type` 标成 `representation` 的知识点**：表示法本身不是新内容，
+     它一定是某个已有对象的另一种写法，那个对象若也在本节，就该连一条
+     `equivalent_to`。判据是"两边说的是同一件事，只是换了写法/记号/形式"，
+     而不是"两边有关系"。
+   - 一个知识点是另一个的特例（参数取特定值、条件更强、只适用于更窄的范围），
+     方向是一般 → 特例的 `generalizes`，不要写成 `prerequisite`。
+   自查后确实不成立就留空，宁缺毋滥；本节只有两三个知识点时没有这几类是正常的。
+8. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
-5. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
+9. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
    评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
-6. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
+10. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
-7. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
+11. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
    课堂检查、作业或备注；这些字段必须与教学场景和总课时相容，未知内容可以省略，不能编造资料来源。
+8. 「本批次可依据的资料证据」是本节已确认的教师资料与联网来源。写成立条件、边界、
+   易错点与掌握标准时**必须优先依据这些证据**，不得与证据冲突；证据未覆盖的部分
+   照常用学科通识补足，但不得把通识伪装成资料结论，也不得编造证据里没有的来源、
+   数据或结论。该段为空时说明本节无可用证据，据实按通识展开即可。
 
 ## JSON Schema
 {{
@@ -583,8 +685,8 @@ class CoursePromptComposer:
       "knowledge_details": [
         {{
           "knowledge_key": "K001",
-          "concept_group": "知识问题域",
-          "group_description": "本组作用与边界",
+          "concept_group": "知识问题域；本节相关知识点共用同一组名，通常每组 2-4 个知识点",
+          "group_description": "本组作用与边界；描述整组，不是描述单个知识点",
           "knowledge_type": "definition",
           "conditions": ["成立条件"],
           "boundaries": ["不适用范围"],
@@ -603,20 +705,35 @@ class CoursePromptComposer:
           }}],
           "mastery_criteria": [{{
             "name": "掌握标准",
-            "observable_performance": "独立表现",
-            "required_independence": "independent",
-            "required_transfer": "variation",
-            "verification_method": "验证方法",
+            "observable_performance": "独立表现；写清用什么任务、做到什么程度算达标，能数的就给数量",
+            "required_independence": "scaffolded|guided|independent 三选一，按本知识点实际要求选",
+            "required_transfer": "recall|procedure|variation|novel 四选一，按本知识点实际要求选",
+            "verification_method": "验证方法；写清用什么题、看什么作答表现判定",
             "required_evidence_types": ["practice_attempt"]
           }}],
           "aliases": []
         }}
       ],
       "knowledge_relations": [{{
-        "source_key": "K001",
-        "target_key": "K002",
-        "relation_type": "prerequisite",
-        "reason": "具体语义理由"
+        "source_key": "K001", "target_key": "K002",
+        "relation_type": "prerequisite", "reason": "具体语义理由"
+      }}, {{
+        "source_key": "K002", "target_key": "K003",
+        "relation_type": "derives", "reason": "K003 由 K002 推出",
+        "derivation_steps": ["从 K002 出发", "代入成立条件", "整理得到 K003"]
+      }}, {{
+        "source_key": "K003", "target_key": "K004",
+        "relation_type": "contrasts_with", "reason": "两者常被混同",
+        "distinction": "K003 是瞬时变化率，K004 是累积总量"
+      }}, {{
+        "source_key": "K002", "target_key": "K005",
+        "relation_type": "applies_to", "reason": "K002 是解 K005 这类问题的方法"
+      }}, {{
+        "source_key": "K005", "target_key": "K006",
+        "relation_type": "equivalent_to", "reason": "同一结论的两种表述，给定条件下可互相推出（对称）"
+      }}, {{
+        "source_key": "K006", "target_key": "K001",
+        "relation_type": "generalizes", "reason": "K006 是一般情形，K001 是它在参数取特定值时的特例"
       }}],
       "teaching_modules": [{{
         "module_id": "core_explanation",
@@ -791,8 +908,10 @@ class CoursePromptComposer:
 不得编造来源；使用资料事实时追加 `[[evidence:证据ID]]`，且只能用允许列表中的 ID。
 数学使用 `$...$` 或 `$$...$$`；列表使用真实 Markdown 语法。
 
-## 当前小节
+## 课程
 - 课程：{clip_text(course_data.get('course_name'), 96)}
+"""
+            node_brief = f"""## 当前小节
 - 节点：{node_name}
 - 目标：{objective}
 - 知识：{key_points or '按当前知识库契约'}
@@ -813,14 +932,13 @@ class CoursePromptComposer:
 
 ## 持久化上下文（已压缩）
 {context or '无额外资料或前序摘要。'}
-{continuation_contract}
-"""
-            user_prompt = (
+{continuation_contract}"""
+            instruction = (
                 f"续写「{node_name}」，只输出追加正文。"
                 if continuation
                 else f"撰写「{node_name}」正文，只输出 Markdown。"
             )
-            return user_prompt, system_prompt
+            return f"{node_brief}\n\n{instruction}", system_prompt
 
         course_name = (
             clip_text(course_data.get("course_name"), 180)
@@ -880,7 +998,7 @@ class CoursePromptComposer:
 7. 证据标记不是参考文献装饰，不能把讲法参考或弱背景伪装成事实来源。
 8. 输出前完成内部一致性检查；正文不得保留“我的计算有误”“等待，更正”“请重新检查任务”等模型自我纠错痕迹，也不得让题干、答案和量规互相矛盾。
 9. 正文中的解释、例子、练习和反馈必须共享当前课程知识库的知识、能力、易错和掌握标准，不得各写各的。
-10. 当前节点名称已经由页面显示，正文不得再次把“{node_name}”写成二级标题，也不得输出只有标题没有正文的空模块。
+10. 当前节点名称已经由页面显示，正文不得把本节标题重复写成二级标题，也不得输出只有标题没有正文的空模块。
 11. 每个 `##` 教学块必须在首段明确写出它实际讲解、练习或检查的一个或多个知识点规范名称；不得只用“本概念”“上述方法”等代词。规范名称来自下方“当前课程知识库契约”，用于建立正文块到知识点的精确绑定。
 12. `## 检查与反馈` 是静态检查参考，不得声称已经评价当前学生。对应多个学习任务时，每个任务必须使用 `### 任务 N：名称` 作为内部边界，并在任务内清楚区分核对标准、参考结论、推导依据和典型错误；不得把所有答案压成一个长段落。
 13. Markdown 列表必须使用真实的 `1.` 或 `-` 列表语法并保留必要空行。任务级标题使用 `###`，不要用单独一行加粗文字伪装标题。
@@ -896,14 +1014,24 @@ class CoursePromptComposer:
 ## 课程块编排画像
 {format_composition_profile(composition_profile)}
 
-## 总体教案对本节的引领
+## 全课难度能力契约
+{format_difficulty_profile(difficulty_profile)}
+
+## 当前课程知识身份边界
+{knowledge_context}
+
+## 当前课程教学边界
+{teaching_context}
+
+内容必须通过学习任务、支架方式、独立性和验收证据展现难度；不得仅靠术语、篇幅、公式、代码量或题量展现难度。
+"""
+        # 节点专属内容放进 user 消息：system prompt 因此在全课各节之间
+        # 完全一致，可缓存前缀覆盖整个 system 段而不只是它的前半部分。
+        node_brief = f"""## 总体教案对本节的引领
 {teaching_guidance}
 
 ## 本节学科课型
 {json.dumps(lesson_archetype, ensure_ascii=False)}
-
-## 全课难度能力契约
-{format_difficulty_profile(difficulty_profile)}
 
 ## 当前节点契约
 - 节点：{node_name}
@@ -914,12 +1042,6 @@ class CoursePromptComposer:
 - 常见误区：{'；'.join(misconceptions)}
 - 验收标准：{'；'.join(assessment)}
 - 范围边界：{scope_boundary}
-
-## 当前课程知识身份边界
-{knowledge_context}
-
-## 当前课程教学边界
-{teaching_context}
 
 ## 当前课程知识库契约
 {course_knowledge_context}
@@ -936,20 +1058,18 @@ class CoursePromptComposer:
 - 允许的全部证据 ID：{'；'.join(allowed_evidence) or '无'}
 - 是否允许模型通用知识：{'是' if grounding_contract.get('allow_general_knowledge', True) else '否'}
 
-内容必须通过学习任务、支架方式、独立性和验收证据展现难度；不得仅靠术语、篇幅、公式、代码量或题量展现难度。
-
 ## 本节教学模块
 {module_contract or '- 使用通用本节任务、核心教学、学习者行动和反馈检查。'}
 
 ## 持久化上下文
 {context or '无额外资料或前置摘要。'}
-{continuation_contract}
-"""
-        user_prompt = (
+{continuation_contract}"""
+        instruction = (
             f"继续撰写「{node_name}」，只输出追加正文。"
             if continuation
             else f"撰写「{node_name}」完整正文，只输出 Markdown。"
         )
+        user_prompt = f"{node_brief}\n\n{instruction}"
         return user_prompt, system_prompt
 
     @staticmethod

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
+import { t } from '../shared/i18n'
 import { useLearningSessionStore } from './learningSession'
 import { useLearningProgressStore, type LearningTaskRef, type NextLearningAction } from './learningProgress'
 
@@ -407,13 +408,16 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       await this.syncLearningTask(courseId)
       return res.data
     },
-    async recordPracticeAiSupport(courseId: string, level = 1) {
+    async recordPracticeAiSupport(courseId: string, level = 1, message = '') {
       const attempt = this.currentAttempt
       if (!attempt) return null
       const res = await http.post(`/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/ai-support`, {
         expected_revision: attempt.revision,
         level,
-        summary: '在正式练习中打开 AI 老师',
+        summary: t('courseWorkspace.practice.aiSupportSummary', '在正式练习中打开 AI 老师'),
+        // A message turns this into a Socratic guidance round (K2); without one
+        // the endpoint keeps its original record-only behaviour.
+        ...(message ? { message } : {}),
       })
       this.currentAttempt = res.data.attempt
       await this.syncLearningTask(courseId)

@@ -432,7 +432,13 @@ async def test_modelscope_and_non_official_deepseek_hosts_keep_modelscope_thinki
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
 
     assert await service._call_llm("test", retry_count=1, enable_thinking=True) == "answer"
-    assert captured["extra_body"] == {"enable_thinking": True}
+    # 非官方 DeepSeek 主机保持扁平写法；同时附带 vLLM 需要的嵌套写法，
+    # 只认扁平写法的 provider 不受影响。
+    assert captured["extra_body"]["enable_thinking"] is True
+    assert captured["extra_body"]["chat_template_kwargs"] == {
+        "enable_thinking": True
+    }
+    assert "thinking" not in captured["extra_body"]
 
 
 @pytest.mark.asyncio

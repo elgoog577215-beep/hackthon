@@ -192,6 +192,66 @@ describe('SideAIPanel', () => {
     expect(wrapper.get('.message-retrieval-status').text()).toContain('本回答未完成外部核验')
   })
 
+  it('把被拒绝的动作回执显示成失败状态并隐藏撤销入口', () => {
+    // A stale receipt means the server refused to write. It must not read like
+    // a completed action, and it must not offer an undo for a record that was
+    // never created.
+    const wrapper = mountPanel([{
+      message_id: 'assistant-stale',
+      role: 'assistant',
+      content: '这条建议依据的学习状态已经变了。',
+      status: 'complete',
+      receipt: {
+        receipt_id: 'receipt-stale',
+        proposal_id: 'proposal-1',
+        status: 'stale',
+        result_code: 'runtime_changed',
+        action_type: 'create_note',
+        affected_refs: [],
+        summary: '学习状态已经变化，请重新计算建议。',
+        failure_reason: '学习状态已经变化，请重新计算建议。',
+        undo_capability: 'none',
+      },
+    }])
+
+    const receipt = wrapper.get('.action-receipt')
+    expect(receipt.classes()).toContain('is-stale')
+    expect(receipt.text()).toContain('学习状态已变化')
+    expect(receipt.find('button').exists()).toBe(false)
+  })
+
+  it('把分类后的模型失败显示成可判断的状态，而不是笼统的不可用', () => {
+    // A rate limit is worth retrying; a missing key is not. Both used to render
+    // the same "AI teacher unavailable" line.
+    const wrapper = mountPanel([
+      {
+        message_id: 'assistant-busy',
+        role: 'assistant',
+        content: '线性相关的意思是',
+        status: 'failed',
+        failure_code: 'model_rate_limited',
+        failure_retryable: true,
+      },
+      {
+        message_id: 'assistant-authless',
+        role: 'assistant',
+        content: '',
+        status: 'failed',
+        failure_code: 'model_auth_failed',
+        failure_retryable: false,
+      },
+    ])
+
+    const failures = wrapper.findAll('[data-testid="ai-model-failure"]')
+    expect(failures).toHaveLength(2)
+    expect(failures[0]!.text()).toContain('AI 模型当前繁忙')
+    expect(failures[0]!.text()).toContain('可以重试')
+    expect(failures[1]!.text()).toContain('AI 模型认证失败')
+    expect(failures[1]!.text()).toContain('重试无法解决')
+    // Whatever the learner already read stays on screen.
+    expect(wrapper.text()).toContain('线性相关的意思是')
+  })
+
   it('AI 提问写入事实后立即刷新统一课程生长状态', async () => {
     const wrapper = mountPanel()
     const aiStore = useAITeacherStore()
@@ -596,6 +656,68 @@ describe('SideAIPanel', () => {
         'Apply to matching content across the course',
       )
       expect(wrapper.text()).not.toContain('应用范围')
+    } finally {
+      await setLocale('zh')
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('英文模式下动作回执使用英文文案而不是服务端中文摘要', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
+    await setLocale('en')
+
+    try {
+      const wrapper = mountPanel([{
+        message_id: 'assistant-en-receipt',
+        role: 'assistant',
+        content: 'Saved.',
+        status: 'complete',
+        receipt: {
+          receipt_id: 'receipt-en',
+          proposal_id: 'proposal-1',
+          status: 'succeeded',
+          result_code: 'note_created',
+          action_type: 'create_note',
+          affected_refs: [],
+          // The server-side audit summary stays Chinese on purpose; the UI must
+          // localize from `result_code` instead of echoing it.
+          summary: '已保存为笔记。',
+          undo_capability: 'archive_record',
+        },
+      }])
+
+      const receipt = wrapper.get('.action-receipt')
+      expect(receipt.text()).toContain('Saved as a note')
+      expect(receipt.text()).not.toContain('已保存为笔记')
+    } finally {
+      await setLocale('zh')
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('英文模式下模型失败使用英文分类文案', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
+    })))
+    await setLocale('en')
+
+    try {
+      const wrapper = mountPanel([{
+        message_id: 'assistant-en-failure',
+        role: 'assistant',
+        content: '',
+        status: 'failed',
+        failure_code: 'model_timeout',
+        failure_retryable: true,
+      }])
+
+      const failure = wrapper.get('[data-testid="ai-model-failure"]')
+      expect(failure.text()).toContain('The AI model timed out')
+      expect(failure.text()).not.toContain('超时')
     } finally {
       await setLocale('zh')
       vi.unstubAllGlobals()

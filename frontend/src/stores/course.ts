@@ -1,3 +1,4 @@
+import { taskProgressStep } from '@/utils/course-progress'
 import { defineStore } from 'pinia'
 import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
 import { ElMessage } from 'element-plus'
@@ -263,7 +264,7 @@ export const useCourseStore = defineStore('course', {
                     courseId,
                     normalizeTaskStatus(String(backendTask.status || 'pending')),
                     Number(backendTask.progress || 0),
-                    String(backendTask.current_node_name || backendTask.message || ''),
+                    taskProgressStep(backendTask as any),
                 )
                 return
             }
@@ -476,7 +477,7 @@ export const useCourseStore = defineStore('course', {
             localTask.courseName = preview.course_name || localTask.courseName
             localTask.status = normalizeTaskStatus(String(task.status || 'pending'))
             localTask.progress = Number(task.progress || 0)
-            localTask.currentStep = String(task.current_node_name || task.message || '')
+            localTask.currentStep = taskProgressStep(task as any)
             localTask.currentPhase = String(task.current_phase || task.phase || '')
             localTask.phaseDetail = task.phase_detail || {}
             localTask.error = task.error ? String(task.error) : undefined

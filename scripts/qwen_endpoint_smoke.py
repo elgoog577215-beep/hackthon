@@ -252,16 +252,25 @@ async def _try_thinking_form(
             extra_body=extra_body,
         )
     except Exception as exc:  # noqa: BLE001
-        return False, f"{type(exc).__name__}: {_fmt(exc, 120)}", ""
+        return False, f"{type(exc).__name__}: {_fmt(exc, 120)}", "", ""
     choice = response.choices[0] if response.choices else None
     message = getattr(choice, "message", None) if choice else None
     content = (getattr(message, "content", "") or "") if message else ""
     # Some builds expose thinking separately rather than inline.
-    reasoning = getattr(message, "reasoning_content", None) if message else None
+    # vLLM calls it "reasoning"; DeepSeek-style providers "reasoning_content".
+    reasoning = ""
+    if message:
+        for field_name in ("reasoning_content", "reasoning"):
+            value = getattr(message, field_name, None)
+            if value:
+                reasoning = str(value)
+                break
     detail = "已接受"
     if reasoning:
-        detail += "，且返回了 reasoning_content"
-    return True, detail, content
+        detail += f"，且返回了 reasoning（{len(reasoning)} 字符）"
+    if message is not None and getattr(message, "content", None) is None:
+        detail += "；message.content 为 null"
+    return True, detail, content, reasoning
 
 
 async def check_enable_thinking(client: Any, config: SmokeConfig) -> CheckResult:
@@ -271,21 +280,59 @@ async def check_enable_thinking(client: Any, config: SmokeConfig) -> CheckResult
     under ``chat_template_kwargs``. Whichever the endpoint accepts determines
     whether ``ai_base`` needs an adapter for this deployment.
     """
-    flat_ok, flat_detail, _ = await _try_thinking_form(
-        client, config, {"enable_thinking": True}
+    # Acceptance is not the question -- vLLM accepts the flat form and then
+    # ignores it, leaving thinking on.  So probe with enable_thinking=False
+    # and check whether reasoning actually stopped.
+    flat_ok, flat_detail, _flat_content, flat_reasoning = (
+        await _try_thinking_form(client, config, {"enable_thinking": False})
     )
-    nested_ok, nested_detail, _ = await _try_thinking_form(
-        client, config, {"chat_template_kwargs": {"enable_thinking": True}}
+    nested_ok, nested_detail, _nested_content, nested_reasoning = (
+        await _try_thinking_form(
+            client,
+            config,
+            {"chat_template_kwargs": {"enable_thinking": False}},
+        )
     )
-    data = {"flat_accepted": flat_ok, "nested_accepted": nested_ok}
+    flat_effective = flat_ok and not flat_reasoning
+    nested_effective = nested_ok and not nested_reasoning
+    data = {
+        "flat_accepted": flat_ok,
+        "nested_accepted": nested_ok,
+        "flat_actually_disables_thinking": flat_effective,
+        "nested_actually_disables_thinking": nested_effective,
+        "flat_reasoning_chars": len(flat_reasoning),
+        "nested_reasoning_chars": len(nested_reasoning),
+    }
 
-    if flat_ok:
-        # This is what ai_base already sends, so nothing has to change.
-        suffix = "" if nested_ok else "（嵌套写法被拒，但无需使用）"
+    if flat_ok and not flat_effective and nested_effective:
+        return CheckResult(
+            "enable_thinking extra_body",
+            FAIL,
+            (
+                "端点接受扁平写法但**静默忽略**：enable_thinking=false 时仍返回 "
+                f"reasoning（{len(flat_reasoning)} 字符）。"
+                "嵌套写法 chat_template_kwargs.enable_thinking 才真正生效。"
+                "ai_base 必须发嵌套形式，否则 thinking 吃光 max_tokens、"
+                "message.content 为 null，症状表现为空响应+截断+熔断。"
+            ),
+            data,
+        )
+    if flat_effective:
+        suffix = "" if nested_effective else "（嵌套写法未生效，但无需使用）"
         return CheckResult(
             "enable_thinking extra_body",
             PASS,
-            f"端点接受 ai_base 现用的扁平写法 {{'enable_thinking': true}}{suffix}",
+            f"扁平写法 {{'enable_thinking': false}} 真正关闭了 thinking{suffix}",
+            data,
+        )
+    if nested_effective:
+        return CheckResult(
+            "enable_thinking extra_body",
+            PASS,
+            (
+                "嵌套写法 chat_template_kwargs.enable_thinking 生效；"
+                "ai_base 已同时发送两种写法，兼容本端点。"
+            ),
             data,
         )
     if nested_ok:

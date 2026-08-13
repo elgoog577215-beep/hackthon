@@ -1,5 +1,12 @@
 export type KnowledgeNodeType = 'course' | 'chapter' | 'section' | 'concept_group' | 'knowledge_point'
 
+/**
+ * 知识记录的来源状态。三态各自可证：能追到教师上传资料、只能追到联网结果、
+ * 没有任何可追溯来源。联网单列而不并入 material_grounded，因为联网结果可能是
+ * license_unknown 的网页，教师需要据此决定要不要复核。
+ */
+export type KnowledgeSourceStatus = 'material_grounded' | 'web_grounded' | 'course_generated'
+
 export interface KnowledgeNode {
   knowledge_id: string
   code: string
@@ -30,7 +37,10 @@ export interface KnowledgeNode {
   counterexamples?: string[]
   granularity_status?: string
   covered_by_course: boolean
-  source_status: string
+  /** 后端按 source_refs 实际计算：material_grounded 表示能追到上传资料，course_generated 表示模型依通用知识生成 */
+  source_status: KnowledgeSourceStatus | string
+  /** 可追溯的证据块 id；无资料依据时为空数组而非缺字段 */
+  source_refs: string[]
   status: string
   revision_id: string
 }
@@ -49,13 +59,26 @@ export interface KnowledgeRelation {
     | 'related'
     | 'application'
     | 'confusable'
-  source_status: string
+  /** 与知识点同一套来源词表；关系继承声明它的知识点所在小节的证据 */
+  source_status: KnowledgeSourceStatus | string
+  source_refs: string[]
   status: 'accepted' | 'candidate' | 'rejected' | string
   reason: string
   conditions?: string[]
   distinction?: string
   derivation_steps?: string[]
   revision_id: string
+}
+
+/** 课程级来源落地结论：教师在发布前不必自己按桶推算落地率 */
+export interface KnowledgeSourceGrounding {
+  knowledge_point_count: number
+  material_grounded_count: number
+  /** 只能追到联网结果的知识点数；不计入 material_grounded_count，避免落地率虚高 */
+  web_grounded_count: number
+  course_generated_count: number
+  grounded_ratio: number
+  has_material_grounding: boolean
 }
 
 export interface KnowledgeLibraryView {
@@ -104,6 +127,7 @@ export interface KnowledgeLibraryView {
     provider_failure?: { code: string; message: string; retryable: boolean } | null
   }
   source_summary?: Record<string, number>
+  source_grounding?: KnowledgeSourceGrounding
 }
 
 export interface SubjectOntologyQualityReport {

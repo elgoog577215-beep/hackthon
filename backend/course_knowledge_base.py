@@ -22,6 +22,25 @@ RELATION_TYPES = {
     "generalizes",
 }
 SYMMETRIC_RELATION_TYPES = {"equivalent_to", "contrasts_with"}
+
+# 概念组聚合知识点数量的上界。批次 prompt 现在写的是"通常每组 2-4 个"，这里留出
+# 一格余量：超过 4 个不一定是错的（有些问题域确实宽），超过 5 个基本说明这一组
+# 已经变成"本节所有知识"的同义词。软门槛，不阻断发布。
+MAX_GROUP_POINTS = 5
+
+# 知识记录的来源状态。原本只有两个值，理由是"当前流水线只有上传资料一种可
+# 追溯来源"——这个理由已经不成立：`web_material_search.candidate_to_binding`
+# 把联网结果转成普通资料绑定（`material_pipeline.py:184` 是真实调用路径），
+# 只在 `source_metadata.origin` 上留 `web_search` 标记，其证据块进的是同一个
+# evidence 目录，evidence_id 同样落到小节 `evidence_refs`。
+#
+# 所以只看"有没有 source_refs"会把一条 license_unknown 的网页报成"教师上传
+# 资料依据"。那比恒定值更有害：恒定值教师一眼看得出没信息量，假的
+# material_grounded 看起来却是可信的。三态各自可证：有上传资料、只有联网、
+# 什么来源都没有。
+SOURCE_STATUS_MATERIAL = "material_grounded"
+SOURCE_STATUS_WEB = "web_grounded"
+SOURCE_STATUS_GENERATED = "course_generated"
 KNOWLEDGE_TYPES = {
     "definition",
     "principle",
@@ -79,6 +98,8 @@ def compile_course_knowledge_base(
     invalid_relation_candidates: list[dict[str, Any]] = []
     unresolved_relation_candidates: list[dict[str, Any]] = []
     unresolved_reuse_candidates: list[dict[str, Any]] = []
+    waiting_review_entries: list[dict[str, Any]] = []
+    coerced_knowledge_types: list[dict[str, Any]] = []
 
     point_by_name: dict[str, dict[str, Any]] = {}
     section_point_ids: dict[str, list[str]] = {}
@@ -153,8 +174,25 @@ def compile_course_knowledge_base(
                     continue
 
                 point_id = _local_id(course_id, group_id, "knowledge_point", name, "ckp_")
-                knowledge_type = str(raw_point.get("knowledge_type") or "definition")
+                raw_knowledge_type = str(raw_point.get("knowledge_type") or "").strip()
+                knowledge_type = raw_knowledge_type or "definition"
                 if knowledge_type not in KNOWLEDGE_TYPES:
+                    # 词表外取值一律兜成 `definition`，但**必须留痕**。
+                    # 这里原本是静默改写：模型填错、系统改错、没人知道，一个本该
+                    # 是 `procedure` 的知识点会以 `definition` 的身份进入题目生成
+                    # 与教师界面。真机实测千问自造过 `relationship` 与 `concept`，
+                    # 所以这不是假想问题。
+                    #
+                    # 只记"填了但填错"的情况：完全没填是缺省，走默认值合理，
+                    # 混进来会淹没这条审计的信噪比。
+                    if raw_knowledge_type:
+                        coerced_knowledge_types.append({
+                            "knowledge_id": point_id,
+                            "knowledge_name": name,
+                            "section_ref": section_id,
+                            "original": raw_knowledge_type,
+                            "coerced_to": "definition",
+                        })
                     knowledge_type = "definition"
                 point = {
                     "knowledge_id": point_id,
@@ -185,7 +223,10 @@ def compile_course_knowledge_base(
                 group_point_ids[group_id].append(point_id)
                 section_ids.append(point_id)
 
-                point_skills = _compile_skills(course_id, point, raw_point, section_id, source_refs)
+                point_skills = _compile_skills(
+                    course_id, point, raw_point, section_id, source_refs,
+                    waiting_review_entries,
+                )
                 skill_units.extend(point_skills)
                 point_skill_ids = [str(item["skill_id"]) for item in point_skills]
                 misconceptions.extend(
@@ -196,6 +237,7 @@ def compile_course_knowledge_base(
                         point_skill_ids,
                         section_id,
                         source_refs,
+                        waiting_review_entries,
                     )
                 )
                 mastery_criteria.extend(
@@ -206,6 +248,7 @@ def compile_course_knowledge_base(
                         point_skill_ids,
                         section_id,
                         source_refs,
+                        waiting_review_entries,
                     )
                 )
                 _append_binding(
@@ -220,6 +263,9 @@ def compile_course_knowledge_base(
                     source_refs=source_refs,
                     binding_method="knowledge_blueprint",
                 )
+                # 关系与声明它的知识点同处一节，来源依据因此与该节一致。
+                # `_compile_relations` 一直在读候选的 `source_refs`，但两个候选
+                # 构造点都没写过这个键，所以关系的来源永远是空的。
                 for prerequisite_name in raw_point.get("prerequisite_names") or []:
                     relation_candidates.append({
                         "source_name": str(prerequisite_name),
@@ -228,9 +274,11 @@ def compile_course_knowledge_base(
                         "reason": f"{prerequisite_name} 是独立学习 {name} 所需的前置知识",
                         "necessity": "required",
                         "priority": "core",
+                        "source_refs": source_refs,
                     })
                 for relation in raw_point.get("relations") or []:
                     relation_candidates.append({
+                        "source_refs": source_refs,
                         **deepcopy(relation),
                         "source_name": name,
                     })
@@ -370,6 +418,8 @@ def compile_course_knowledge_base(
             "unresolved_relation_candidates": unresolved_relation_candidates,
             "unresolved_reuse_candidates": unresolved_reuse_candidates,
             "invalid_block_ref_candidates": invalid_block_ref_candidates,
+            "waiting_review_entries": waiting_review_entries,
+            "coerced_knowledge_types": coerced_knowledge_types,
             "title_fallback_used": False,
             "legacy_outline_sections": [
                 section_id
@@ -382,6 +432,7 @@ def compile_course_knowledge_base(
         "source_course_fingerprint": course_knowledge_source_fingerprint(course_data),
     }
     _attach_compatibility_projection(payload, section_point_ids, group_point_ids)
+    payload["capability_coverage_report"] = compile_capability_coverage_report(payload)
     payload["revision_id"] = _revision_id(payload, "ckbr_")
     quality = validate_course_knowledge_base(payload, course_data=course_data, library={})
     payload["quality_report"] = quality
@@ -396,6 +447,109 @@ def compile_course_knowledge_base(
             relation["revision_id"] = _revision_id(relation, "ckrelr_")
     payload["revision_id"] = _revision_id(payload, "ckbr_")
     return payload
+
+
+def compile_capability_coverage_report(payload: dict[str, Any]) -> dict[str, Any]:
+    """Report, per knowledge point, which of the three capability kinds landed.
+
+    The compiler already produced counts of what exists. What it never said is
+    what is *missing*: a knowledge point with no mastery criterion cannot be
+    assessed, and one with no misconception gives diagnosis nothing to match
+    against. Both compile cleanly and look fine in a total count, so the gap is
+    only visible if something computes it deliberately.
+
+    Combined with `generation_audit.waiting_review_entries`, this separates the
+    two causes a teacher would act on differently: `missing` means nothing was
+    generated, `waiting_review` means something was generated and rejected.
+    """
+    points = [item for item in payload.get("knowledge_points") or [] if isinstance(item, dict)]
+    # Each kind links back to its knowledge point differently: skills and
+    # misconceptions carry one primary id plus a secondary list, mastery
+    # criteria carry only a list. Reading the wrong field yields a report that
+    # says "0% covered" on a healthy course, so these names are load-bearing.
+    kinds = (
+        ("skill_units", "skill_unit", ("primary_knowledge_id", "supporting_knowledge_ids")),
+        ("misconceptions", "misconception", ("primary_knowledge_id", "related_knowledge_ids")),
+        ("mastery_criteria", "mastery_criterion", ("knowledge_ids",)),
+    )
+    owners: dict[str, set[str]] = {name: set() for name, _, _ in kinds}
+    for collection, _label, link_fields in kinds:
+        for entry in payload.get(collection) or []:
+            if not isinstance(entry, dict):
+                continue
+            for field in link_fields:
+                value = entry.get(field)
+                if isinstance(value, str):
+                    owners[collection].add(value)
+                else:
+                    for knowledge_id in value or []:
+                        owners[collection].add(str(knowledge_id))
+
+    waiting_by_point: dict[str, list[str]] = {}
+    for entry in (payload.get("generation_audit") or {}).get("waiting_review_entries") or []:
+        if isinstance(entry, dict):
+            waiting_by_point.setdefault(str(entry.get("knowledge_id") or ""), []).append(
+                str(entry.get("entry_type") or ""),
+            )
+
+    per_point: list[dict[str, Any]] = []
+    totals = {name: 0 for name, _, _ in kinds}
+    for point in points:
+        knowledge_id = str(point.get("knowledge_id") or "")
+        missing = [
+            label for name, label, _ in kinds if knowledge_id not in owners[name]
+        ]
+        for name, _, _ in kinds:
+            if knowledge_id in owners[name]:
+                totals[name] += 1
+        per_point.append({
+            "knowledge_id": knowledge_id,
+            "name": str(point.get("name") or ""),
+            "section_refs": list(point.get("section_refs") or []),
+            "has_skill_unit": knowledge_id in owners["skill_units"],
+            "has_misconception": knowledge_id in owners["misconceptions"],
+            "has_mastery_criterion": knowledge_id in owners["mastery_criteria"],
+            "missing_kinds": missing,
+            "waiting_review_kinds": sorted(set(waiting_by_point.get(knowledge_id) or [])),
+        })
+
+    total = len(points)
+    # Only a missing mastery criterion blocks the content stage. Without one
+    # there is no way to decide whether the point was learned, so generating
+    # content against it produces material nobody can assess. A missing skill
+    # unit or misconception degrades quality but still leaves a teachable,
+    # assessable point — blocking on all three would stop essentially every
+    # real course and the gate would get switched off. Entries sitting in
+    # `waiting_review` never block: something was generated, and a teacher
+    # reviewing it is a parallel activity, not a prerequisite.
+    blocking = sorted({
+        f"missing_{label}"
+        for item in per_point
+        for label in item["missing_kinds"]
+        if label == "mastery_criterion"
+    })
+    return {
+        "total_knowledge_points": total,
+        "covered": {
+            "skill_unit": totals["skill_units"],
+            "misconception": totals["misconceptions"],
+            "mastery_criterion": totals["mastery_criteria"],
+        },
+        "coverage_rate": {
+            "skill_unit": round(totals["skill_units"] / total, 4) if total else 0.0,
+            "misconception": round(totals["misconceptions"] / total, 4) if total else 0.0,
+            "mastery_criterion": round(totals["mastery_criteria"] / total, 4) if total else 0.0,
+        },
+        "points_missing_any": [
+            item["knowledge_id"] for item in per_point if item["missing_kinds"]
+        ],
+        "waiting_review_count": len(
+            (payload.get("generation_audit") or {}).get("waiting_review_entries") or []
+        ),
+        "ready_for_content": not blocking,
+        "blocking_reasons": blocking,
+        "per_point": per_point,
+    }
 
 
 def course_knowledge_source_fingerprint(course_data: dict[str, Any]) -> str:
@@ -621,6 +775,7 @@ def validate_course_knowledge_base(
         for item in _sections(course_data or {})
     }
 
+    single_point_groups = 0
     for group in groups:
         group_id = str(group.get("concept_group_id") or "")
         section_id = str(group.get("primary_section_ref") or "")
@@ -631,6 +786,15 @@ def validate_course_knowledge_base(
         owned = [item for item in points if item.get("primary_concept_group_id") == group_id]
         if len(owned) < 2:
             issues.append(_issue("group_too_small", "granularity", "major", f"概念组「{group.get('name')}」少于两个原子知识点"))
+            single_point_groups += 1
+        elif len(owned) > MAX_GROUP_POINTS:
+            # 只有下界会把模型推向另一个极端：把整节知识塞进一个巨组，同样通不过
+            # 教学意义。上界因此是配套的，不是额外要求。
+            issues.append(_issue(
+                "group_too_large", "granularity", "major",
+                f"概念组「{group.get('name')}」聚合了 {len(owned)} 个知识点，"
+                f"超过 {MAX_GROUP_POINTS} 个，建议按问题域再分组",
+            ))
 
     normalized_names: set[str] = set()
     for point in points:
@@ -753,7 +917,11 @@ def validate_course_knowledge_base(
     for relation_type in ("prerequisite", "generalizes"):
         cycle = _find_relation_cycle(relations, relation_type)
         if cycle:
-            issues.append(_issue(f"{relation_type}_cycle", "relations", "major", f"{relation_type} 关系存在循环，建议后续优化：{' -> '.join(cycle)}"))
+            # critical 而非 major（D4，2026-08-12）：前置成环意味着"学 A 要先学 B、
+            # 学 B 要先学 A"，学习顺序根本排不出来，是结构错误不是质量瑕疵。
+            # 升级前实测过风险：`scripts/measure_relation_cycles.py` 扫遍全部真实
+            # 课程，成环 0 门，所以升级不会卡住任何存量课程。
+            issues.append(_issue(f"{relation_type}_cycle", "relations", "critical", f"{relation_type} 关系存在循环，必须修正学习顺序：{' -> '.join(cycle)}"))
     for point in points:
         point_id = str(point.get("knowledge_id") or "")
         if point_id not in inbound and not str(point.get("entry_reason") or "").strip():
@@ -761,6 +929,33 @@ def validate_course_knowledge_base(
 
     if (knowledge_base.get("generation_audit") or {}).get("invalid_relation_candidates"):
         issues.append(_issue("invalid_relation_candidates", "relations", "major", "已忽略六类白名单之外的知识关系候选"))
+    coerced = (knowledge_base.get("generation_audit") or {}).get("coerced_knowledge_types") or []
+    if coerced:
+        # `minor` 而非 critical：改写后的 `definition` 是合法值，下游不会崩，
+        # 损失的是语义精度而不是结构完整性。真机实测模型自造率不低，直接判失败
+        # 会把大量课程卡在生成阶段——先让它可见、可统计，积累数据再决定是否升级。
+        originals = sorted({str(item.get("original") or "") for item in coerced})
+        issues.append(_issue(
+            "coerced_knowledge_type",
+            "semantic",
+            "minor",
+            f"{len(coerced)} 个知识点的 knowledge_type 不在词表内、已兜底为 definition"
+            f"（原值：{'、'.join(originals)}）",
+        ))
+    waiting = (knowledge_base.get("generation_audit") or {}).get("waiting_review_entries") or []
+    if waiting:
+        # `minor`: the rejected entries are genuinely out of the active set, so
+        # nothing downstream is wrong. What was wrong before was that they were
+        # invisible — a teacher could not tell "the model produced four bad
+        # misconceptions" from "the model produced none", though the two call
+        # for opposite fixes.
+        kinds = sorted({str(item.get("entry_type") or "") for item in waiting if isinstance(item, dict)})
+        issues.append(_issue(
+            "knowledge_entries_waiting_review",
+            "capability_coverage",
+            "minor",
+            f"{len(waiting)} 条能力包记录字段不全待复核（{'、'.join(kinds)}）",
+        ))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_relation_candidates"):
         issues.append(_issue("unresolved_relation_endpoints", "relations", "major", "已忽略端点无法解析的知识关系候选"))
     if (knowledge_base.get("generation_audit") or {}).get("unresolved_reuse_candidates"):
@@ -821,6 +1016,11 @@ def validate_course_knowledge_base(
             "mapped_ratio": round(len(section_ids & bound_sections) / len(section_ids), 4) if section_ids else 0.0,
             "relation_coverage": round(relation_covered, 4),
             "atomic_ratio": round(sum(item.get("granularity_status") == "atomic" for item in points) / len(points), 4) if points else 0.0,
+            # 组数 / 知识点数。逐组的 group_too_small 在"全课每点一组"时会刷出几十条
+            # 同样的 major，教师看不出那是全课分组失效。这个比值把同一件事压成一个
+            # 数：接近 1 表示概念组根本没有承担分组职责。
+            "grouping_ratio": round(len(groups) / len(points), 4) if points else 0.0,
+            "single_point_group_count": single_point_groups,
         },
     }
 
@@ -990,6 +1190,8 @@ def build_course_knowledge_library_view(
 ) -> dict[str, Any]:
     """Project course path + knowledge packages into the student read model."""
     course_data = course_data or {}
+    # 一门课算一次：逐条记录去查绑定会把 O(记录数) 变成 O(记录数 × 绑定数)。
+    web_evidence_ids = _web_evidence_ids(course_data)
     bindings_by_point: dict[str, dict[str, set[str]]] = {}
 
     def binding(point_id: str) -> dict[str, set[str]]:
@@ -1113,7 +1315,8 @@ def build_course_knowledge_library_view(
             "mastery_criterion_ids": [],
             "improvement_ids": [],
             "covered_by_course": True,
-            "source_status": "course_source",
+            "source_status": _source_status(group, web_evidence_ids),
+            "source_refs": deepcopy(group.get("source_refs") or []),
             "status": group.get("status", "active"),
             "revision_id": group.get("revision_id"),
         })
@@ -1147,7 +1350,8 @@ def build_course_knowledge_library_view(
             "aliases": deepcopy(point.get("aliases") or []),
             "learning_actions": _unique(skill_behaviors.get(point_id, [])),
             "typical_problems": [],
-            "source_status": "course_source",
+            "source_status": _source_status(point, web_evidence_ids),
+            "source_refs": deepcopy(point.get("source_refs") or []),
             "status": point.get("status", "active"),
             "revision_id": point.get("revision_id"),
             "identity_scope": "course_local",
@@ -1171,7 +1375,11 @@ def build_course_knowledge_library_view(
         "conditions": deepcopy(item.get("conditions") or []),
         "distinction": item.get("distinction"),
         "derivation_steps": deepcopy(item.get("derivation_steps") or []),
-        "source_status": item.get("source_type", "course_source"),
+        # 关系与四类知识记录用同一套来源判据。原来这里读的是 `source_type`
+        # （编译期默认 `model_generated`）并兜底成 `course_source`，两个值都不在
+        # 来源词表里，关系那一栏因此永远显示成未知来源。
+        "source_status": _source_status(item, web_evidence_ids),
+        "source_refs": deepcopy(item.get("source_refs") or []),
         "status": item.get("status", "accepted"),
         "revision_id": item.get("revision_id"),
     } for item in knowledge_base.get("relations") or []]
@@ -1182,7 +1390,8 @@ def build_course_knowledge_library_view(
         "observable_behaviors": [item.get("observable_behavior")],
         "primary_knowledge_id": item.get("primary_knowledge_id"),
         "knowledge_ids": _unique([item.get("primary_knowledge_id"), *(item.get("supporting_knowledge_ids") or [])]),
-        "source_status": "course_source",
+        "source_status": _source_status(item, web_evidence_ids),
+        "source_refs": deepcopy(item.get("source_refs") or []),
     } for item in knowledge_base.get("skill_units") or []]
     mistake_view = [{
         "mistake_point_id": item.get("misconception_id"),
@@ -1192,7 +1401,8 @@ def build_course_knowledge_library_view(
         "discrimination": item.get("discrimination"),
         "repair_strategy": item.get("repair_strategy"),
         "knowledge_ids": _unique([item.get("primary_knowledge_id"), *(item.get("related_knowledge_ids") or [])]),
-        "source_status": "course_source",
+        "source_status": _source_status(item, web_evidence_ids),
+        "source_refs": deepcopy(item.get("source_refs") or []),
     } for item in knowledge_base.get("misconceptions") or []]
 
     quality = deepcopy(knowledge_base.get("quality_report") or {})
@@ -1244,7 +1454,14 @@ def build_course_knowledge_library_view(
         "origin": "course_and_domain_generated",
         "quality_report": public_quality,
         "generation_audit": deepcopy(knowledge_base.get("generation_audit") or {}),
-        "source_summary": {"course_source": published_point_count},
+        "source_summary": _source_summary(
+            knowledge_base.get("knowledge_points") or [] if publishable else [],
+            web_evidence_ids,
+        ),
+        "source_grounding": _source_grounding(
+            knowledge_base.get("knowledge_points") or [] if publishable else [],
+            web_evidence_ids,
+        ),
     }
     payload["asset_id"] = stable_hash(
         {"knowledge_base": knowledge_base.get("revision_id"), "course_map": course_map.get("revision_id")},
@@ -1275,12 +1492,58 @@ def _public_quality_summary(quality: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _record_waiting_review(
+    waiting_review: list[dict[str, Any]] | None,
+    *,
+    entry_type: str,
+    point: dict[str, Any],
+    section_id: str,
+    order: int,
+    standard: dict[str, Any],
+    raw_value: Any,
+    required: tuple[str, ...],
+) -> None:
+    """Record one entry that failed its completeness gate.
+
+    The gate itself stays — a misconception without a repair strategy cannot
+    drive remediation, so letting it through would be worse than dropping it.
+    What changes is that the drop is no longer invisible: the entry keeps its
+    原文, its owning knowledge point, and the exact fields it was missing, so a
+    teacher can tell "生成了但不合格" from "根本没生成". Those two situations
+    look identical in a filtered count and call for opposite responses.
+
+    `a|b` in `required` means "either field satisfies this requirement" —
+    misconceptions accept `observable_error_pattern` or `description`, and
+    mastery criteria fall back from `name` to `observable_performance`.
+    """
+    if waiting_review is None:
+        return
+    missing = [
+        requirement
+        for requirement in required
+        if not any(standard.get(field) for field in requirement.split("|"))
+    ]
+    name = str(standard.get("name") or "").strip()
+    waiting_review.append({
+        "entry_type": entry_type,
+        "knowledge_id": str(point.get("knowledge_id") or ""),
+        "knowledge_name": str(point.get("name") or ""),
+        "section_ref": section_id,
+        "order": order,
+        "name": name,
+        "missing_fields": missing,
+        "status": "waiting_review",
+        "payload": deepcopy(raw_value) if isinstance(raw_value, dict) else {"value": raw_value},
+    })
+
+
 def _compile_skills(
     course_id: str,
     point: dict[str, Any],
     raw_point: dict[str, Any],
     section_id: str,
     source_refs: list[str],
+    waiting_review: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     values = raw_point.get("capability_points") or []
     if not values and raw_point.get("capability"):
@@ -1293,6 +1556,16 @@ def _compile_skills(
         standard = _standard(value)
         name = standard["name"]
         if not name or not standard["observable_behavior"]:
+            _record_waiting_review(
+                waiting_review,
+                entry_type="skill_unit",
+                point=point,
+                section_id=section_id,
+                order=order,
+                standard=standard,
+                raw_value=value,
+                required=("name", "observable_behavior"),
+            )
             continue
         item = {
             "skill_id": _local_id(course_id, str(point["knowledge_id"]), "skill", name, "cks_"),
@@ -1319,6 +1592,7 @@ def _compile_misconceptions(
     point_skill_ids: list[str],
     section_id: str,
     source_refs: list[str],
+    waiting_review: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     result = []
     for order, value in enumerate(raw_point.get("misconceptions") or []):
@@ -1329,6 +1603,21 @@ def _compile_misconceptions(
             or not standard["discrimination"]
             or not standard["repair_strategy"]
         ):
+            _record_waiting_review(
+                waiting_review,
+                entry_type="misconception",
+                point=point,
+                section_id=section_id,
+                order=order,
+                standard=standard,
+                raw_value=value,
+                required=(
+                    "name",
+                    "observable_error_pattern|description",
+                    "discrimination",
+                    "repair_strategy",
+                ),
+            )
             continue
         item = {
             "misconception_id": _local_id(course_id, str(point["knowledge_id"]), "misconception", standard["name"], "ckm_"),
@@ -1358,6 +1647,7 @@ def _compile_mastery_criteria(
     point_skill_ids: list[str],
     section_id: str,
     source_refs: list[str],
+    waiting_review: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     result = []
     for order, value in enumerate(raw_point.get("mastery_criteria") or []):
@@ -1368,6 +1658,20 @@ def _compile_mastery_criteria(
             or not standard["observable_performance"]
             or not standard["verification_method"]
         ):
+            _record_waiting_review(
+                waiting_review,
+                entry_type="mastery_criterion",
+                point=point,
+                section_id=section_id,
+                order=order,
+                standard=standard,
+                raw_value=value,
+                required=(
+                    "name|observable_performance",
+                    "observable_performance",
+                    "verification_method",
+                ),
+            )
             continue
         item = {
             "criterion_id": _local_id(course_id, str(point["knowledge_id"]), "mastery", name, "ckmc_"),
@@ -1886,6 +2190,104 @@ def _view_path_node(
         "source_status": "course_path",
         "status": "active",
         "revision_id": stable_hash({"id": knowledge_id, "name": name}, prefix="ckpathr_"),
+    }
+
+
+def _web_evidence_ids(course_data: dict[str, Any] | None) -> frozenset[str]:
+    """课程里哪些 evidence_id 只能追到联网结果，而不是教师上传的资料。
+
+    判据取自绑定上的 `source_metadata.origin`（`web_material_search` 写入
+    `web_search`），再经 `evidence_catalog` 的 `asset_id` 反查到 evidence_id。
+    教师上传的绑定没有这个标记，所以未知来源默认按上传资料处理——宁可少报一个
+    联网，也不要把教师自己的材料说成是网上抄的。
+    """
+    if not isinstance(course_data, dict):
+        return frozenset()
+    web_assets = {
+        str(item.get("asset_id") or "")
+        for item in course_data.get("material_bindings") or []
+        if isinstance(item, dict)
+        and str((item.get("source_metadata") or {}).get("origin") or "") == "web_search"
+    }
+    web_assets.discard("")
+    if not web_assets:
+        return frozenset()
+    return frozenset(
+        str(item.get("evidence_id") or "")
+        for item in course_data.get("evidence_catalog") or []
+        if isinstance(item, dict) and str(item.get("asset_id") or "") in web_assets
+    ) - {""}
+
+
+def _source_status(
+    record: dict[str, Any],
+    web_evidence_ids: frozenset[str] = frozenset(),
+) -> str:
+    """如实报告一条知识记录的来源属于哪一类。
+
+    判据是记录自己的 `source_refs`：编译期它由 `_section_evidence_refs` 从小节
+    的 `evidence_refs` 与 `grounding_contract` 派生，所以有值意味着确实能追到
+    具体证据块。之前这里对四类记录一律写死 `course_source`，教师界面上"有资料
+    依据"与"模型凭通用知识写的"完全无法区分，来源落地率恒为 0 却没人看得见。
+
+    只要还有一条证据来自上传资料就报 `material_grounded`：教师自己的材料权威
+    高于联网结果，`web_grounded` 留给"只有联网来源"这一种情况，读起来才是一个
+    需要复核的信号而不是噪声。
+    """
+    refs = [ref for ref in record.get("source_refs") or [] if str(ref).strip()]
+    if not refs:
+        return SOURCE_STATUS_GENERATED
+    if web_evidence_ids and all(str(ref).strip() in web_evidence_ids for ref in refs):
+        return SOURCE_STATUS_WEB
+    return SOURCE_STATUS_MATERIAL
+
+
+def _source_summary(
+    points: list[Any],
+    web_evidence_ids: frozenset[str] = frozenset(),
+) -> dict[str, int]:
+    """按实际来源状态分桶计数，只列出真正出现的桶。
+
+    汇总是教师看"这门课有多少知识点真有资料依据"的唯一入口；原来它直接写成
+    `{"course_source": 总数}`，所以无论有没有证据都长得一样。
+    """
+    summary: dict[str, int] = {}
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        status = _source_status(point, web_evidence_ids)
+        summary[status] = summary.get(status, 0) + 1
+    return summary
+
+
+def _source_grounding(
+    points: list[Any],
+    web_evidence_ids: frozenset[str] = frozenset(),
+) -> dict[str, int | float | bool]:
+    """发布层面回答"这门课到底有没有资料依据"，不让教师自己去推算。
+
+    `source_summary` 是分桶字典：桶名会随词表变化，且一门完全没有资料的课与
+    大部分有资料的课在发布信息上长得几乎一样——教师得把桶里的数字和总数比一遍
+    才知道落地率。项目红线是"不得伪造证据"，那么"完全没有外部来源"就必须是一个
+    看一眼就成立的结论，而不是一个需要推算的结论。
+
+    刻意与逐点 `source_status` 用同一个判据（`_source_status`），这样明细与汇总
+    不可能各说各话。
+    """
+    counted = [point for point in points if isinstance(point, dict)]
+    total = len(counted)
+    statuses = [_source_status(point, web_evidence_ids) for point in counted]
+    grounded = sum(1 for status in statuses if status == SOURCE_STATUS_MATERIAL)
+    web = sum(1 for status in statuses if status == SOURCE_STATUS_WEB)
+    return {
+        "knowledge_point_count": total,
+        "material_grounded_count": grounded,
+        # 联网单独一列。并入 material 会虚高落地率，并入 generated 又会把一条
+        # 可追溯的网页说成"没有任何来源"——两种都不如实。
+        "web_grounded_count": web,
+        "course_generated_count": total - grounded - web,
+        "grounded_ratio": round(grounded / total, 4) if total else 0.0,
+        "has_material_grounding": grounded > 0,
     }
 
 

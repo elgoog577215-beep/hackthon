@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PracticeAnswerRenderer from '@/components/PracticeAnswerRenderer.vue'
@@ -175,5 +177,117 @@ describe('PracticeAnswerRenderer', () => {
         output: 'ok',
       },
     })
+  })
+})
+
+describe('PracticeAnswerRenderer 分步作答 (J3)', () => {
+  const stepwiseContract = {
+    schema_version: 'input_contract_v2',
+    mode: 'rich_text',
+    stepwise: true,
+  }
+
+  it('题目未开分步时不显示分步入口', () => {
+    const wrapper = mount(PracticeAnswerRenderer, {
+      props: { contract: { mode: 'rich_text' }, modelValue: {} },
+    })
+
+    expect(wrapper.find('[data-testid="stepwise-toggle"]').exists()).toBe(false)
+  })
+
+  it('选择题即使契约开了分步也不提供——一次选择没有可拆的推导', () => {
+    const wrapper = mount(PracticeAnswerRenderer, {
+      props: {
+        contract: { mode: 'choice', stepwise: true, selection: { multiple: false } },
+        options: [{ id: 'A', label: '选项 A' }, { id: 'B', label: '选项 B' }],
+        modelValue: {},
+      },
+    })
+
+    expect(wrapper.find('[data-testid="stepwise-toggle"]').exists()).toBe(false)
+  })
+
+  it('开启分步后写入 answer_payload.steps[]', async () => {
+    const wrapper = mount(PracticeAnswerRenderer, {
+      props: { contract: stepwiseContract, modelValue: {} },
+    })
+
+    await wrapper.get('[data-testid="stepwise-toggle"]').trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({
+      steps: [{ text: '', step_index: 1, step_id: '' }],
+    })
+  })
+
+  it('逐步输入按顺序编号', async () => {
+    const wrapper = mount(PracticeAnswerRenderer, {
+      props: {
+        contract: stepwiseContract,
+        modelValue: { steps: [{ text: '先配方', step_index: 1, step_id: '' }] },
+      },
+    })
+
+    await wrapper.get('[data-testid="stepwise-add"]').trigger('click')
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+
+    expect(emitted.steps.map((step: any) => step.step_index)).toEqual([1, 2])
+  })
+
+  it('降级路径：切回整体作答时保留已写内容且不再带 steps', async () => {
+    const wrapper = mount(PracticeAnswerRenderer, {
+      props: {
+        contract: stepwiseContract,
+        modelValue: {
+          steps: [
+            { text: '先配方得 (x-2)^2-1', step_index: 1, step_id: '' },
+            { text: '顶点是 (2,-1)', step_index: 2, step_id: '' },
+          ],
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="stepwise-toggle"]').trigger('click')
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+
+    // 学生写过的东西一个字都不能丢。
+    expect(emitted.text).toContain('先配方得 (x-2)^2-1')
+    expect(emitted.text).toContain('顶点是 (2,-1)')
+    // 没有 steps 就是后端认的"整体作答"形状。
+    expect(emitted.steps).toBeUndefined()
+  })
+
+  it('删除某一步后其余步骤重新编号', async () => {
+    const wrapper = mount(PracticeAnswerRenderer, {
+      props: {
+        contract: stepwiseContract,
+        modelValue: {
+          steps: [
+            { text: '第一步', step_index: 1, step_id: '' },
+            { text: '第二步', step_index: 2, step_id: '' },
+            { text: '第三步', step_index: 3, step_id: '' },
+          ],
+        },
+      },
+    })
+
+    await wrapper.findAll('.step-remove')[0].trigger('click')
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+
+    expect(emitted.steps.map((step: any) => step.text)).toEqual(['第二步', '第三步'])
+    expect(emitted.steps.map((step: any) => step.step_index)).toEqual([1, 2])
+  })
+
+  it('分步与代码题文案都经过 i18n 入口', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/components/PracticeAnswerRenderer.vue'),
+      'utf-8',
+    )
+
+    // 这些标签此前是硬编码中文，违反 AGENTS.md 0.2。
+    expect(source).toContain("t('courseWorkspace.practice.stepwiseOn'")
+    expect(source).toContain("t('courseWorkspace.practice.codeLanguage'")
+    expect(source).toContain("t('courseWorkspace.practice.fieldValue'")
+    expect(source).not.toMatch(/<span>编程语言<\/span>/)
+    expect(source).not.toMatch(/label: '数值'/)
   })
 })

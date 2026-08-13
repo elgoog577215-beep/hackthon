@@ -125,7 +125,7 @@ def test_macro_teaching_design_changes_content_prompt_without_changing_modules()
     course, node = _course()
     composer = CoursePromptComposer()
 
-    _user, baseline = composer.build_content_prompt(
+    _baseline_user, _baseline_system = composer.build_content_prompt(
         course_data=course,
         node=node,
         context="无额外资料",
@@ -134,11 +134,15 @@ def test_macro_teaching_design_changes_content_prompt_without_changing_modules()
     changed["subject_pedagogy_profile"]["rationale"] = (
         "先用真实收费情境提出问题，再从图像归纳变化规律。"
     )
-    _user, guided = composer.build_content_prompt(
+    _guided_user, _guided_system = composer.build_content_prompt(
         course_data=changed,
         node=node,
         context="无额外资料",
     )
+
+    # 节点专属内容现在在 user 消息里，模型收到的是两段拼接。
+    baseline = _baseline_system + _baseline_user
+    guided = _guided_system + _guided_user
 
     assert "## 总体教案对本节的引领" in baseline
     assert "先用图像建立变化率直觉，再进入代数表达" in baseline

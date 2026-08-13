@@ -162,3 +162,107 @@ def test_persisted_course_carries_web_summary_for_teacher_panel():
     source = inspect.getsource(course_service.CourseService.build_course_draft)
     # 两处 course_data 构造块都必须带上这一键。
     assert source.count('"web_material_search": artifacts.get(') == 2
+
+
+@pytest.mark.asyncio
+async def test_phase_detail_carries_adopted_sources_for_teacher_review(monkeypatch):
+    """采纳来源必须出现在 phase_detail.web_search.sources。
+
+    前端复核面板读的就是这个键。改动前 phase_detail 只做了
+    `k != "candidates"` 的过滤，既没有 candidates 也没有 sources，
+    于是教师只看得到关键词和被拒项，采纳列表永远是空的——
+    "能看到采用了哪些来源、并逐条剔除"这一整段因此形同虚设。
+    """
+    service = CourseService()
+    details: list[dict] = []
+
+    async def on_phase(*args, **kwargs):
+        # _notify_phase 是**位置传参**：(phase, progress, message,
+        # phase_progress, phase_detail)，phase_detail 不是关键字参数。
+        detail = args[4] if len(args) > 4 else kwargs.get("phase_detail")
+        if detail:
+            details.append(detail)
+
+    async def fake_discover(**_kwargs):
+        return {
+            "enabled": True,
+            "status": "ready",
+            "degraded": False,
+            "message_code": "web_search_ready",
+            "queries": ["导数 定义"],
+            "rejected": [],
+            "candidates": [{
+                "source_id": "src_open",
+                "url": "https://openstax.org/derivative-intro",
+                "domain": "openstax.org",
+                "title": "导数的直观引入",
+                "credibility": "high",
+                "retrieved_at": "2026-08-05T00:00:00+00:00",
+                "license": "",
+                "reuse_policy": "summary_only",
+                "sensitivity": {},
+                "accepted_for_generation": True,
+                "text": "正文不应出现在给前端的摘要里" * 20,
+            }],
+        }
+
+    import web_material_search
+
+    monkeypatch.setattr(
+        web_material_search, "discover_web_materials", fake_discover
+    )
+
+    await service._run_web_material_search(
+        topic="导数",
+        requirements="需要真实案例",
+        target_audience="高中生",
+        generation_request={"retrieval": {"enabled": True}},
+        on_phase=on_phase,
+    )
+
+    web_search = next(
+        detail["web_search"] for detail in details if "web_search" in detail
+    )
+    sources = web_search["sources"]
+    assert [item["source_id"] for item in sources] == ["src_open"]
+    assert sources[0]["url"] == "https://openstax.org/derivative-intro"
+    # 摘要只带可展示字段，正文留在候选里供生成使用，不外发。
+    assert "text" not in sources[0]
+    assert "candidates" not in web_search
+
+
+@pytest.mark.asyncio
+async def test_degraded_path_still_notifies_teacher(monkeypatch):
+    """降级必须告知：原来这条路径直接 return，前端拿不到任何提示。"""
+    service = CourseService()
+    details: list[dict] = []
+
+    async def on_phase(*args, **kwargs):
+        # _notify_phase 是**位置传参**：(phase, progress, message,
+        # phase_progress, phase_detail)，phase_detail 不是关键字参数。
+        detail = args[4] if len(args) > 4 else kwargs.get("phase_detail")
+        if detail:
+            details.append(detail)
+
+    async def boom(**_kwargs):
+        raise RuntimeError("provider down")
+
+    import web_material_search
+
+    monkeypatch.setattr(web_material_search, "discover_web_materials", boom)
+
+    report = await service._run_web_material_search(
+        topic="导数",
+        requirements="需要真实案例",
+        target_audience="高中生",
+        generation_request={"retrieval": {"enabled": True}},
+        on_phase=on_phase,
+    )
+
+    assert report["degraded"] is True
+    web_search = next(
+        detail["web_search"] for detail in details if "web_search" in detail
+    )
+    assert web_search["degraded"] is True
+    assert web_search["message_code"] == "web_search_unavailable"
+    assert web_search["sources"] == []

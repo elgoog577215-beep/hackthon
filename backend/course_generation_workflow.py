@@ -2370,9 +2370,20 @@ def _knowledge_contract_issues(
             allowed_knowledge_ids=list(point_ids),
         )
         issues.extend(deepcopy(relation_report.get("issues") or []))
-        return issues
 
+    # Deliberately no early return here. `relation_decisions` comes from the
+    # persisted `knowledge_relation_decisions` key, which every course generated
+    # before the AI-chain convergence (3eb73c84) still carries. Returning above
+    # meant one leftover legacy key silently switched off the whole name-keyed
+    # gate below — the six-type whitelist, the endpoint check, and the
+    # `derives`/`contrasts_with` required fields that the batch prompt promises
+    # are enforced. ID-keyed and name-keyed candidates are disjoint by
+    # construction, so running both validators is additive, not double-reporting.
     for relation in relation_candidates:
+        if str(relation.get("source_knowledge_id") or "").strip() or str(
+            relation.get("target_knowledge_id") or ""
+        ).strip():
+            continue
         relation_type = str(relation.get("relation_type") or "").strip()
         source_name = _normalize_knowledge_name(relation.get("source_name"))
         target_name = _normalize_knowledge_name(relation.get("target_name"))

@@ -158,7 +158,12 @@ def answers_equivalent(
             validator_config,
         )
     if validation_mode == "symbolic_validator":
-        return _symbolic(expected) == _symbolic(actual)
+        # 走真正的代数判等；判不了（None）时退回字符串比较，保持 fail-closed：
+        # 判不了不等于判对。
+        equivalent = _symbolic_equivalent(expected, actual)
+        if equivalent is None:
+            return _symbolic(expected) == _symbolic(actual)
+        return equivalent
     if validation_mode in {
         "exact_validator",
         "code_validator",
@@ -339,6 +344,17 @@ def _symbolic(value: Any) -> str:
     ).lower()
 
 
+_ALLOWED_SYMBOLIC_FUNCTIONS = frozenset({
+    "sin",
+    "cos",
+    "tan",
+    "exp",
+    "log",
+    "sqrt",
+    "Abs",
+})
+
+
 def _symbolic_equivalent(expected: Any, actual: Any) -> bool | None:
     if sympy is None:
         return _symbolic(expected) == _symbolic(actual)
@@ -353,18 +369,9 @@ def _symbolic_equivalent(expected: Any, actual: Any) -> bool | None:
         actual_text
     ):
         return None
-    allowed_functions = {
-        "sin",
-        "cos",
-        "tan",
-        "exp",
-        "log",
-        "sqrt",
-        "Abs",
-    }
     for text in (expected_text, actual_text):
         calls = set(re.findall(r"([A-Za-z][A-Za-z0-9]*)\s*\(", text))
-        if calls - allowed_functions:
+        if calls - _ALLOWED_SYMBOLIC_FUNCTIONS:
             return None
     try:
         expected_expression = _parse_symbolic_expression(expected_text)
@@ -380,10 +387,27 @@ def _symbolic_equivalent(expected: Any, actual: Any) -> bool | None:
 
 def _parse_symbolic_expression(value: str):
     text = value.replace("^", "**")
+    # 把所有自由变量显式声明为符号。
+    #
+    # sympy 的默认命名空间里 Q 是 AssumptionKeys、E 是自然常数、S/N/O 也各有
+    # 含义，于是 "Q - W" 会抛 TypeError，_symbolic_equivalent 捕获后返回 None
+    # （判不了），符号判等在物理/化学最常用的那批变量上直接失效。实测
+    # x - y ≡ -y + x 判 True，而 Q - W ≡ -W + Q 判 None。
+    #
+    # 显式建符号表后，单字母变量一律按自由变量解释；受保护的函数名
+    # （sin/cos/exp/log/sqrt/Abs）已由上游白名单单独放行，不会被这里覆盖。
+    local_symbols = {
+        name: sympy.Symbol(name)
+        for name in set(re.findall(r"[A-Za-z][A-Za-z0-9]*", text))
+        if name not in _ALLOWED_SYMBOLIC_FUNCTIONS
+    }
     if "=" in text:
         left, right = text.split("=", 1)
-        return sympy.sympify(left) - sympy.sympify(right)
-    return sympy.sympify(text)
+        return (
+            sympy.sympify(left, locals=local_symbols)
+            - sympy.sympify(right, locals=local_symbols)
+        )
+    return sympy.sympify(text, locals=local_symbols)
 
 
 def _validate_code_evidence(

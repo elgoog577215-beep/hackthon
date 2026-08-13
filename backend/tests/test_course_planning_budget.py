@@ -166,6 +166,83 @@ def test_skeleton_shards_rekey_and_reconcile_cross_shard_reuse():
     ]
 
 
+def test_concurrent_shards_reconcile_duplicate_knowledge_names_as_reuse():
+    """并发分片彼此看不见对方，同名知识必须本地收敛成"首次负责 + 复用"。"""
+    prior = {
+        "knowledge_registry": [{
+            "knowledge_key": "K001",
+            "name": "条件概率的定义",
+            "statement": "条件概率是在给定事件发生下的概率",
+            "owner_node_id": "L2-1-1",
+            "reused_in_node_ids": [],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        }],
+        "sections": [{
+            "node_id": "L2-1-1",
+            "owned_knowledge_keys": ["K001"],
+            "reused_knowledge_keys": [],
+        }],
+    }
+    # 后一分片并不知道前一分片已经冻结了同名知识，于是自己又铸了一个键。
+    part = {
+        "knowledge_registry": [
+            {
+                "knowledge_key": "K001",
+                "name": "条件概率的定义",
+                "statement": "条件概率是在给定事件发生下的概率",
+                "owner_node_id": "L2-1-2",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": [],
+                "module_ids": ["core_explanation"],
+            },
+            {
+                "knowledge_key": "K002",
+                "name": "乘法公式",
+                "statement": "乘法公式由条件概率定义直接改写得到",
+                "owner_node_id": "L2-1-2",
+                "reused_in_node_ids": [],
+                "prerequisite_keys": ["K001"],
+                "module_ids": ["core_explanation"],
+            },
+        ],
+        "sections": [{
+            "node_id": "L2-1-2",
+            "owned_knowledge_keys": ["K001", "K002"],
+            "reused_knowledge_keys": [],
+        }],
+    }
+
+    merged = merge_teaching_skeleton_part(
+        prior,
+        part,
+        outline_revision_id="outline-1",
+    )
+
+    # 同名知识不再复制成第二条注册表记录。
+    assert [
+        item["knowledge_key"] for item in merged["knowledge_registry"]
+    ] == ["K001", "K002"]
+    assert [
+        item["name"] for item in merged["knowledge_registry"]
+    ] == ["条件概率的定义", "乘法公式"]
+    # 重复的那条从"首次负责"降级为"复用"，首次负责仍归目录更靠前的小节。
+    assert merged["sections"][1]["owned_knowledge_keys"] == ["K002"]
+    assert merged["sections"][1]["reused_knowledge_keys"] == ["K001"]
+    assert merged["knowledge_registry"][0]["owner_node_id"] == "L2-1-1"
+    assert merged["knowledge_registry"][0]["reused_in_node_ids"] == [
+        "L2-1-2"
+    ]
+    # 跨分片前置引用重指到留存下来的那个键。
+    assert merged["knowledge_registry"][1]["prerequisite_keys"] == ["K001"]
+
+    report = validate_teaching_plan_skeleton_v3(
+        merged,
+        sections=[_section(1), _section(2)],
+    )
+    assert report["passed"] is True
+
+
 def test_batch_planner_prefers_chapter_boundaries_and_enforces_budgets():
     sections = [
         *[_section(index, "chapter-1") for index in range(1, 5)],
@@ -322,10 +399,41 @@ def test_twenty_one_section_plan_uses_scoped_bounded_batch_prompts():
             AIBase.estimate_request_tokens(user_prompt, system_prompt)
         )
 
-    assert len(batches) == 21
+    assert budget.batch_max_sections == 3
+    # 21 节 / 每章 3 节 -> 每批装满 3 节且不跨章，共 7 批。
+    assert len(batches) == 7
+    assert [
+        node_id
+        for spec in batches
+        for node_id in spec["section_ids"]
+    ] == [item["node_id"] for item in sections]
+    assert all(
+        len(spec["section_ids"]) <= budget.batch_max_sections
+        for spec in batches
+    )
+    assert all(
+        spec["estimated_output_tokens"] <= budget.max_output_tokens
+        for spec in batches
+    )
     assert max(prompt_tokens) <= budget.max_input_tokens
-    assert prompt_chars < 100_000
-
+    # 上一行是真正的准入门（单请求），这一行只是"没把整门课塞进每个批次"的总量代理。
+    # 需求 A1/B1/C2 给批次 prompt 加了三段契约（六类关系与多类型样例、概念组聚合
+    # 规则、掌握标准的独立度与迁移层级取值），A1 真机验收后又补了三类关系的触发
+    # 引导；最后按 lz-web-search 的六次对照实验把 JSON 样例补齐到六类
+    # （实验证明模型跟样例走、不跟散文枚举走：样例 1 类 -> 产出 1 类，
+    # 4 类 -> 3 类，6 类 -> 4 类，同主题同规模唯一变量就是样例覆盖的类数）。
+    # 以上都是静态前言，按批次重复 21 次：
+    # 最后一次增长来自 Gap A2：真机实测发现 prompt 从未列出 `knowledge_type`
+    # 的合法取值，模型因此自造了 `relationship`（词表外，会被静默改写成
+    # `definition`），也从不产出 `representation`。补上七类取值表。
+    # 实测总量 96_996 -> 114_804 -> 129_000 -> 136_308 -> 142_335 -> 151_386 字符，
+    # 而单请求仍是 2_399 -> 4_127 token / 预算 7_000，只用到准入门的六成。
+    # 因此放宽的是代理上限而不是准入门：整课上下文回灌会是数倍量级，仍会被这条拦住。
+    # 集成补充：lz-web-search 的 S2+S3 给教案批次加了资料证据段，会进一步抬高
+    # 这个总量代理（它那侧实测把上限从 100_000 提到 110_000）。这里保留 HEAD 的
+    # 7 批结构（batch_max_sections=3 是 lz-perf M0 落到产品代码里的真实行为，
+    # 21 批的旧断言已过期），上限取两侧较宽者以容纳证据段。
+    assert prompt_chars < 158_000
 
 def test_twenty_four_section_rich_skeleton_stays_under_final_input_gate():
     module_ids = [
@@ -523,3 +631,102 @@ def test_batch_requires_a_credible_misconception_for_each_owned_knowledge():
     assert "teaching_batch:missing_misconception" in {
         issue["code"] for issue in report["blocking_issues"]
     }
+
+
+def test_batch_prompts_share_one_stable_course_prefix_across_batches():
+    """同课程各批次的 prompt 必须共享稳定前缀：共享块排在批次专属块之前。"""
+    sections = [_section(index, f"chapter-{index}") for index in range(1, 5)]
+    planning_context = build_compact_planning_context(
+        sections,
+        composition_style="balanced",
+    )
+    identities = []
+    registry = []
+    for index, section in enumerate(sections, start=1):
+        key = f"K{index:03d}"
+        identities.append({
+            "node_id": section["node_id"],
+            "owned_knowledge_keys": [key],
+            "reused_knowledge_keys": [],
+        })
+        registry.append({
+            "knowledge_key": key,
+            "name": f"第{index}节知识",
+            "statement": f"第{index}节知识的稳定陈述",
+            "owner_node_id": section["node_id"],
+            "reused_in_node_ids": [],
+            "prerequisite_keys": [],
+            "module_ids": ["core_explanation"],
+        })
+    skeleton = {
+        "revision_id": "skeleton-prefix",
+        "knowledge_registry": registry,
+        "sections": identities,
+    }
+    budget = CoursePlanningBudget()
+    batches = build_teaching_plan_batches(
+        planning_context["sections"],
+        skeleton,
+        budget,
+    )
+    assert len(batches) > 1
+
+    composer = CoursePromptComposer()
+    compact_by_id = {
+        item["node_id"]: item for item in planning_context["sections"]
+    }
+    identity_by_id = {item["node_id"]: item for item in identities}
+    overall_guidance = {"positioning": "全课共享定位", "assessment_methods": ["解释题"]}
+    prompts = [
+        composer.build_teaching_plan_batch_v3_prompt(
+            course_title="前缀稳定性课程",
+            positioning="验证共享前缀",
+            batch_spec=spec,
+            batch_sections=[
+                compact_by_id[node_id] for node_id in spec["section_ids"]
+            ],
+            knowledge_registry=select_batch_knowledge_registry(
+                skeleton,
+                spec["section_ids"],
+            ),
+            section_identities=[
+                identity_by_id[node_id] for node_id in spec["section_ids"]
+            ],
+            module_catalog=planning_context["module_catalog"],
+            skeleton_revision_id="skeleton-prefix",
+            overall_guidance=overall_guidance,
+        )
+        for spec in batches
+    ]
+
+    first = prompts[0]
+    last_shared = max(
+        first.index(heading)
+        for heading in (
+            "## 共享课程块目录（只出现一次）",
+            "## 总体教案引领（与教师视图同源，只读）",
+        )
+    )
+    first_batch_specific = min(
+        first.index(heading)
+        for heading in (
+            "## 当前批次",
+            "## 当前小节（已去重）",
+            "## 当前批次知识与直接依赖闭包（只读）",
+            "## 当前批次知识职责（只读）",
+        )
+    )
+    assert last_shared < first_batch_specific
+
+    def shared_prefix(left, right):
+        limit = min(len(left), len(right))
+        for index in range(limit):
+            if left[index] != right[index]:
+                return index
+        return limit
+
+    divergence = min(shared_prefix(first, other) for other in prompts[1:])
+    # 精确不变量：分叉点不早于"## 当前批次"，即批次专属内容之前的一切都是共享的。
+    # 用位置而不是绝对长度，测试就不依赖 fixture 的体量。
+    assert divergence >= first.index("## 当前批次")
+    assert "## 共享课程块目录（只出现一次）" in first[:divergence]

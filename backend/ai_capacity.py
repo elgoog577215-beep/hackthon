@@ -90,16 +90,16 @@ class ProviderCapacityController:
 
     def __init__(self, provider_id: str) -> None:
         self.provider_id = provider_id
-        self.initial_limit = _env_int("AI_PROVIDER_INITIAL_CONCURRENCY", 2)
+        self.initial_limit = _env_int("AI_PROVIDER_INITIAL_CONCURRENCY", 4)
         self.max_limit = max(
             self.initial_limit,
-            _env_int("AI_PROVIDER_MAX_CONCURRENCY", 4),
+            _env_int("AI_PROVIDER_MAX_CONCURRENCY", 16),
         )
         self.successes_to_grow = _env_int(
             "AI_PROVIDER_SUCCESSES_TO_GROW", 3
         )
         self.start_interval_seconds = _env_float(
-            "AI_PROVIDER_START_INTERVAL_SECONDS", 0.5
+            "AI_PROVIDER_START_INTERVAL_SECONDS", 0.1
         )
         self.rate_limit_backoff_seconds = _env_float(
             "AI_PROVIDER_RATE_LIMIT_BACKOFF_SECONDS", 2.0,

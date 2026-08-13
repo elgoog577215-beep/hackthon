@@ -10,11 +10,12 @@ from pydantic import BaseModel, Field
 
 from ai_teacher_actions import (
     ActionForbidden,
-    ProposalStale,
     build_trigger_candidate,
     execute_proposal,
     propose_action,
+    record_suggestion_shown,
     reject_proposal,
+    suppress_suggestion,
     undo_receipt,
 )
 from ai_teacher_state import InteractionConflict, ai_teacher_repository
@@ -71,6 +72,22 @@ class ProposalReject(BaseModel):
 class ReceiptUndo(BaseModel):
     course_id: str = Field(min_length=1, max_length=160)
     idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class TriggerShown(BaseModel):
+    course_id: str = Field(min_length=1, max_length=160)
+    trigger_id: str = Field(min_length=1, max_length=160)
+    dedupe_key: str = Field(default="", max_length=200)
+    node_id: str = Field(default="", max_length=160)
+    session_id: str = Field(default="", max_length=160)
+    moment: str = Field(default="", max_length=40)
+
+
+class TriggerSuppress(BaseModel):
+    course_id: str = Field(min_length=1, max_length=160)
+    dedupe_key: str = Field(min_length=1, max_length=200)
+    runtime_revision_id: str = Field(default="", max_length=200)
+    reason: Literal["not_now", "never"] = "not_now"
 
 
 class AnswerFeedbackCreate(BaseModel):
@@ -316,6 +333,13 @@ async def confirm_proposal(
     payload: ProposalConfirm,
     request: Request,
 ):
+    """Return the persisted receipt for every outcome except a missing proposal.
+
+    Expired, rejected, stale-runtime and executor failures are real terminal
+    outcomes of a confirm, not transport errors: each one already produced an
+    `ActionReceipt` carrying a `result_code`, so returning 200 with that receipt
+    keeps one auditable, idempotent row per confirm attempt on every entrypoint.
+    """
     course = await get_course_or_404(payload.course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
@@ -330,8 +354,6 @@ async def confirm_proposal(
         raise HTTPException(status_code=404, detail="AI proposal not found") from exc
     except ActionForbidden as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ProposalStale as exc:
-        raise HTTPException(status_code=409, detail={"code": "proposal_stale", "message": str(exc)}) from exc
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -360,6 +382,7 @@ async def undo_action_receipt(
     payload: ReceiptUndo,
     request: Request,
 ):
+    """Mirror the confirm contract: an undo that is refused still returns a receipt."""
     course = await get_course_or_404(payload.course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
@@ -371,11 +394,9 @@ async def undo_action_receipt(
             idempotency_key=payload.idempotency_key,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="AI receipt or affected object not found") from exc
+        raise HTTPException(status_code=404, detail="AI receipt not found") from exc
     except ActionForbidden as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ProposalStale as exc:
-        raise HTTPException(status_code=409, detail={"code": "undo_stale", "message": str(exc)}) from exc
 
 
 @router.get("/trigger")
@@ -383,7 +404,15 @@ async def get_trigger_candidate(
     request: Request,
     course_id: str = Query(min_length=1, max_length=160),
     node_id: str | None = Query(default=None, max_length=160),
+    moment: str = Query(default="", max_length=40),
+    session_id: str = Query(default="", max_length=160),
 ):
+    """Ask whether a proactive suggestion is justified *right now*.
+
+    `moment` is the learner-facing event that prompted the check (a natural
+    pause such as finishing a section). Asking is free; the interruption budget
+    is only spent when the client reports the suggestion as shown.
+    """
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     candidate = await run_in_threadpool(
@@ -391,8 +420,55 @@ async def get_trigger_candidate(
         course,
         user_id=user_id,
         node_id=node_id,
+        moment=moment,
+        session_id=session_id,
     )
     return {"candidate": candidate}
+
+
+@router.post("/trigger/shown")
+async def mark_trigger_shown(payload: TriggerShown, request: Request):
+    """Spend one unit of the interruption budget for a delivered suggestion.
+
+    Recorded server-side so a refresh or a second device cannot hand the
+    learner a fresh allowance.
+    """
+    await get_course_or_404(payload.course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    entry = await run_in_threadpool(
+        record_suggestion_shown,
+        user_id=user_id,
+        course_id=payload.course_id,
+        candidate={
+            "trigger_id": payload.trigger_id,
+            "dedupe_key": payload.dedupe_key,
+            "node_id": payload.node_id,
+            "moment": payload.moment,
+        },
+        session_id=payload.session_id,
+    )
+    return {"status": "recorded", "shown_at": entry.get("shown_at")}
+
+
+@router.post("/trigger/suppress")
+async def suppress_trigger(payload: TriggerSuppress, request: Request):
+    """Record that the learner refused this suggestion.
+
+    A proactive suggestion has no proposal behind it, so it cannot reuse the
+    proposal reject path. Stored server-side because the archived protocol
+    requires a refusal to hold across a refresh and on another device.
+    """
+    await get_course_or_404(payload.course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    suppression = await run_in_threadpool(
+        suppress_suggestion,
+        user_id=user_id,
+        course_id=payload.course_id,
+        dedupe_key=payload.dedupe_key,
+        runtime_revision_id=payload.runtime_revision_id,
+        reason=payload.reason,
+    )
+    return {"status": "suppressed", "mode": suppression.get("mode")}
 
 
 __all__ = ["router"]

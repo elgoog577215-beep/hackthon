@@ -33,6 +33,7 @@ export type CourseEvolutionAnchorRole =
 export type CourseAdjustmentScope =
   | 'current_block'
   | 'current_section'
+  | 'current_chapter'
   | 'whole_course'
 
 export interface CreateCourseAdjustmentInput {
@@ -78,7 +79,9 @@ export interface CourseEvolutionPlan {
   excluded_operation_ids?: string[]
   impact_summary: Record<string, any>
   expected_effect: string
-  status: 'pending' | 'applied' | 'rejected' | 'stale' | 'undone'
+  // 'accepted' 表示用户已确认、课程提交尚未回执确认的中间态：
+  // 它既不该出现在待处理队列，也还不能当作已应用展示。
+  status: 'pending' | 'accepted' | 'applied' | 'rejected' | 'stale' | 'undone'
   applied_block_ids?: string[]
   application_receipt?: Record<string, any>
   undo_receipt?: Record<string, any>
@@ -122,6 +125,12 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
   getters: {
     pendingPlans: state => state.plans.filter(item => item.status === 'pending'),
     appliedPlans: state => state.plans.filter(item => item.status === 'applied'),
+    // 因知识语义变化而失效的方案：必须让用户看到"为什么失效"，
+    // 否则候选只是从列表里消失，看起来像系统吞了它。
+    knowledgeStalePlans: state => state.plans.filter(
+      item => item.status === 'stale'
+        && item.impact_summary?.knowledge_drift?.verdict === 'conflict',
+    ),
   },
   actions: {
     applyPayload(courseId: string, payload: Record<string, any>) {
@@ -220,7 +229,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     async createSectionPlan(
       sectionId: string,
       instruction: string,
-      scopeSelection: 'current_section' | 'whole_course' = 'current_section',
+      scopeSelection: 'current_section' | 'current_chapter' | 'whole_course' = 'current_section',
       anchorRole?: CourseEvolutionAnchorRole,
     ) {
       return this.createPlan({

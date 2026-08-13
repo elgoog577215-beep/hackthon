@@ -32,6 +32,7 @@ from assessment_diversity import (
 )
 from assessment_generation import generate_universal_question_contract
 from course_versioning import stable_hash
+from hint_leakage import measure_deepest_hint_overlap
 from practice_contracts import (
     project_default_single_choice,
 )
@@ -40,6 +41,10 @@ from question_generation import (
     generate_question_contract,
     validate_question_spec,
 )
+from question_choice_grading import canonical_option_ids
+from question_forms import classify_question_form, question_form_distribution
+from question_public_guard import rejected_teacher_patch_fields
+from question_knowledge_binding import resolve_node_knowledge_binding
 from storage import DATA_DIR
 
 QUESTION_BANK_SCHEMA = "question_bank_bundle_v1"
@@ -174,6 +179,7 @@ def build_question_bank(
     solution_envelopes.update(final_solutions)
     legacy = [_legacy_item(course_data, item) for item in legacy_tasks]
     items = [*imported, *generated, *finals, *legacy]
+    _stamp_question_forms(items)
     _mark_near_duplicate_risks(items)
     _apply_tiered_review_policy(items, assessment_profile)
 
@@ -353,6 +359,17 @@ def revise_question_bank_item(
     unknown = set(patch) - allowed_fields
     if unknown:
         raise ValueError(f"unsupported question item fields: {sorted(unknown)}")
+    # G2：题面修订接口一律不接受答案类字段。
+    #
+    # 此前只在 V2 题上拒绝 answer_spec（见下方），旧题仍可经这个接口改标准答案。
+    # 题面修订就该只改题面；改答案要走私有解答合同，否则「公开题面」与「私有
+    # 答案」两条链路的边界在旧题上是漏的。
+    rejected = rejected_teacher_patch_fields(patch)
+    if rejected:
+        raise ValueError(
+            "question wording revisions must not change answers: "
+            f"{rejected}"
+        )
     for field in ("prompt", "explanation", "deliverable"):
         if field in patch and len(str(patch[field] or "")) > 12_000:
             raise ValueError(f"{field} exceeds the 12000 character limit")
@@ -1382,6 +1399,11 @@ def evaluate_question_item_quality(item: dict[str, Any]) -> dict[str, Any]:
         criteria
         or answer_spec.get("correct_answer") is not None
         or answer_spec.get("correct_option_id") is not None
+        # 多选的正确答案是**复数键**。只认单数键会把一道合法多选题判成
+        # 「答案不可执行」并硬阻断——V2 题因为下面 is_v2 分支能读到
+        # canonical_answer 而侥幸逃过，**非 V2（旧题、教师导入）的多选题
+        # 会被直接误杀**。由 lz-course-gen 的质量门核查发现。
+        or bool(answer_spec.get("correct_option_ids"))
         or (
             is_v2
             and (
@@ -1774,9 +1796,9 @@ def _imported_item(
         "assessment_role": "imported_practice",
         "course_objective_refs": [_objective_ref(course_data, node)] if node_id else [],
         "course_knowledge_refs": knowledge_refs,
-        "course_skill_refs": _node_refs(node, "course_skill_refs"),
-        "course_misconception_refs": _node_refs(node, "course_misconception_refs"),
-        "course_mastery_refs": _node_refs(node, "course_mastery_refs"),
+        "course_skill_refs": _node_skill_refs(course_data, node),
+        "course_misconception_refs": _node_misconception_refs(course_data, node),
+        "course_mastery_refs": _node_mastery_refs(course_data, node),
         "source_type": "imported",
         "source_records": [source_record],
         "parse_confidence": confidence,
@@ -1954,9 +1976,9 @@ def _generated_course_items(
                 ),
                 "objective_id": objective.get("objective_id"),
                 "course_knowledge_refs": _node_knowledge_refs(course_data, node),
-                "course_skill_refs": _node_refs(node, "course_skill_refs"),
-                "course_misconception_refs": _node_refs(node, "course_misconception_refs"),
-                "course_mastery_refs": _node_refs(node, "course_mastery_refs"),
+                "course_skill_refs": _node_skill_refs(course_data, node),
+                "course_misconception_refs": _node_misconception_refs(course_data, node),
+                "course_mastery_refs": _node_mastery_refs(course_data, node),
                 "source_type": source_type,
                 "source_records": source_records,
                 "parse_confidence": "high",
@@ -2181,10 +2203,21 @@ def _align_generated_contract_to_slot(
             or ""
         ).strip()
         correct_option_id = legacy_correct or canonical_option_id
+        # 多选：按正确 id 的**集合**判定合法性。
+        #
+        # 改动前这里只认标量：列表答案让 correct_option_id 变成空串，于是整道
+        # 合法的多选题被判为「不合法」并落进 project_default_single_choice——
+        # 选项被替换成四个合成项、题干被改写成「选择唯一正确答案」。**失败不
+        # 报错**，改写完题库看起来完全健康，这是整条链上最危险的一处。
+        correct_ids = canonical_option_ids(
+            solution.get("canonical_answer")
+        ) or ({correct_option_id} if correct_option_id else set())
+        if legacy_correct:
+            correct_ids = {legacy_correct}
         if (
             len(public_options) < 2
-            or not correct_option_id
-            or correct_option_id not in option_ids
+            or not correct_ids
+            or not correct_ids <= option_ids
         ):
             result = project_default_single_choice(
                 result,
@@ -2203,16 +2236,31 @@ def _align_generated_contract_to_slot(
                 result.get("options")
             )
         question_spec["options"] = deepcopy(public_options)
+        # 兜底重投影后要重新取一次正确集合，否则会拿旧答案去描述新选项。
+        correct_ids = canonical_option_ids(
+            solution.get("canonical_answer")
+        ) or correct_ids
+        correct_ids = {
+            value for value in correct_ids
+            if value in {
+                str(option.get("id") or "")
+                for option in public_options
+            }
+        }
+        multiple = len(correct_ids) > 1
+        presentation_mode = "multiple_choice" if multiple else "single_choice"
         question_spec["presentation_contract"] = {
-            "mode": "single_choice",
+            "mode": presentation_mode,
             "option_count": len(public_options),
-            "selection_limit": 1,
+            "selection_limit": len(correct_ids) if multiple else 1,
         }
         question_spec["response_contract"] = {
-            "format": "single_choice",
-            "required_parts": ["selected_option_id"],
+            "format": presentation_mode,
+            "required_parts": [
+                "selected_option_ids" if multiple else "selected_option_id"
+            ],
             "option_count": len(public_options),
-            "selection_limit": 1,
+            "selection_limit": len(correct_ids) if multiple else 1,
         }
         choice_answer = solution.get("choice_answer_spec")
         if isinstance(choice_answer, dict):
@@ -3217,6 +3265,37 @@ def _legacy_item(course_data: dict[str, Any], task: dict[str, Any]) -> dict[str,
     return item
 
 
+def _counts_towards_coverage(item: dict[str, Any]) -> bool:
+    """这道题能否计入覆盖率（L1）。
+
+    口径必须与**学生真正拿得到的题**一致，也就是 `approved_formal_tasks` 的过滤
+    条件。此前少了最后一条：V2 题若编译合同校验没过，`approved_formal_tasks`
+    会跳过它（:495-506），学生根本看不到，但覆盖率仍把它算成已覆盖——于是一个
+    目标显示"有题"，学生打开却是空的。
+
+    「字段完整」不等于「合同通过」，这正是清单要纠正的。
+    """
+    if item.get("lifecycle_status") != "approved":
+        return False
+    if not (item.get("quality_report") or {}).get("passed"):
+        return False
+    if item.get("assessment_role") not in {
+        "practice",
+        "imported_practice",
+        "web_enriched_practice",
+    }:
+        return False
+    if (
+        (item.get("question_spec") or {}).get("schema_version")
+        == "question_spec_v2"
+        and not (
+            (item.get("compiled_contract_validation") or {}).get("passed")
+        )
+    ):
+        return False
+    return True
+
+
 def _coverage_report(
     course_data: dict[str, Any],
     nodes: list[dict[str, Any]],
@@ -3235,13 +3314,7 @@ def _coverage_report(
     covered = {
         objective
         for item in items
-        if item.get("lifecycle_status") == "approved"
-        and (item.get("quality_report") or {}).get("passed")
-        and item.get("assessment_role") in {
-            "practice",
-            "imported_practice",
-            "web_enriched_practice",
-        }
+        if _counts_towards_coverage(item)
         for objective in item.get("course_objective_refs") or []
     }
     imported_nodes = {
@@ -3262,6 +3335,14 @@ def _coverage_report(
     ]
     missing = [data for objective, data in required.items() if objective not in covered]
     count = len(required)
+    # H1d：题库按规范作答形态的分布。question_type 表达的是学科教学意图
+    # （同一种作答形态在不同学科族下有不同取值），答不了教师问的「这门课
+    # 填空题占比多少」；question_form 与学科无关，只描述怎么作答怎么判分。
+    publishable = [
+        item for item in items
+        if item.get("lifecycle_status") == "approved"
+        and (item.get("quality_report") or {}).get("passed")
+    ]
     return {
         "required_objective_count": count,
         "covered_objective_count": count - len(missing),
@@ -3269,6 +3350,10 @@ def _coverage_report(
         "missing_required_objectives": missing,
         "gaps": gaps,
         "status": "complete" if not missing else "blocked",
+        "question_form_distribution": question_form_distribution(items),
+        "publishable_question_form_distribution": question_form_distribution(
+            publishable
+        ),
     }
 
 
@@ -3298,6 +3383,22 @@ def _deduplicate_imported_items(items: list[dict[str, Any]]) -> list[dict[str, A
         existing["formal_task"] = _stored_formal_task_from_item(existing)
         existing["formal_task_revision_id"] = existing["formal_task"]["revision_id"]
     return result
+
+
+def _stamp_question_forms(items: list[dict[str, Any]]) -> None:
+    """给每道题打上规范作答形态（H1d）。
+
+    落库层此前只有 `question_type`，而它按学科族分裂（同一种作答形态在不同学科
+    下叫不同名字），题库因此无法按题型检索与配比。教师导入路径更是仅凭有没有
+    options 压成 single_choice / short_answer 两态，把导入题的真实形态丢掉。
+
+    这里补的是投影，不是第二真源：`question_type` 原样保留，判定只看已有的
+    结构化事实（input_contract.mode / options / answer_spec），判不出就落
+    unspecified，不按题干文本猜。
+    """
+    for item in items:
+        if isinstance(item, dict):
+            item["question_form"] = classify_question_form(item)
 
 
 def _mark_near_duplicate_risks(items: list[dict[str, Any]]) -> None:
@@ -3569,13 +3670,20 @@ def _hint_contract(item: dict[str, Any]) -> dict[str, Any]:
             "requires_unseen_equivalent_validation": True,
         },
         "frozen_with_item_revision": True,
-        "leakage_check": {
-            "passed": not leakage and all(
+        "leakage_check": _leakage_check(
+            not leakage and all(
                 _normalize_text(str(level.get("content") or "")) != prompt
                 for level in levels
             ),
-            "checked_at_compile_time": True,
-        },
+            levels,
+            {
+                "solution_spec": answer_spec.get("solution_spec") or {},
+                "canonical_answer": answer_spec.get("canonical_answer"),
+                "legacy_answer_spec": {
+                    "correct_answer": answer_spec.get("correct_answer"),
+                },
+            },
+        ),
     }
 
 
@@ -3711,13 +3819,35 @@ def _solution_graph_hint_contract(
             "requires_unseen_equivalent_validation": True,
         },
         "frozen_with_item_revision": True,
-        "leakage_check": {
-            "passed": not leakage and all(
+        "leakage_check": _leakage_check(
+            not leakage and all(
                 _normalize_text(level["content"]) != prompt
                 for level in levels
             ),
-            "checked_at_compile_time": True,
-        },
+            levels,
+            solution_envelope,
+        ),
+    }
+
+
+def _leakage_check(
+    base_passed: bool,
+    levels: list[dict[str, Any]],
+    private_solution: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile-time hint safety: verbatim answer check plus deepest-hint overlap.
+
+    The verbatim check (``base_passed``) catches a hint that prints the answer.
+    ``measure_deepest_hint_overlap`` catches the subtler failure it cannot see: a
+    level-3 hint that restates the entire private derivation while omitting the
+    final number.  Hints are legitimately derived from the same reasoning path,
+    so only the two unambiguous conditions fail the gate — see hint_leakage.
+    """
+    overlap = measure_deepest_hint_overlap(levels, private_solution)
+    return {
+        "passed": bool(base_passed and not overlap.get("leaked")),
+        "checked_at_compile_time": True,
+        "deepest_hint_overlap": overlap,
     }
 
 
@@ -4056,6 +4186,18 @@ def _best_node_for_evidence(
 
 
 def _node_knowledge_refs(course_data: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    # G4：先问课程知识库要真实的知识点 ID。
+    #
+    # 下面那条 stable_hash(..., prefix="ck_") 的兜底会**自己造一个 ID**，而知识库
+    # 里知识点的正式 ID 是 `ckp_…`。两者不是一个命名空间，于是题目记着的
+    # "知识点 ID" 在知识库里查不到实体——绑定不是间接，是悬空。回答不了"这道题
+    # 考哪个知识点"，也做不了知识点级覆盖率。所以真实 ID 优先。
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("knowledge_ids"):
+        return list(resolved["knowledge_ids"])
     direct = _node_refs(node, "course_knowledge_refs") or _node_refs(node, "concept_ids")
     if direct:
         return direct
@@ -4068,6 +4210,49 @@ def _node_knowledge_refs(course_data: dict[str, Any], node: dict[str, Any]) -> l
         )
         for name in _node_key_points(node)
     ] or [stable_hash({"course": course_id, "node": node_id}, prefix="ck_")]
+
+
+def _node_skill_refs(course_data: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    """能力点 ID，同样优先取知识库里真实的 `cks_…`。"""
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("skill_ids"):
+        return list(resolved["skill_ids"])
+    return _node_refs(node, "course_skill_refs")
+
+
+def _node_misconception_refs(
+    course_data: dict[str, Any],
+    node: dict[str, Any],
+) -> list[str]:
+    """易错点 ID，同样优先取知识库里真实的 `ckm_…`。
+
+    干扰项要对应具体易错点（清单 L2）也依赖这一层是真 ID，否则"对应易错点"
+    只是对应了一个查不到的字符串。
+    """
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("misconception_ids"):
+        return list(resolved["misconception_ids"])
+    return _node_refs(node, "course_misconception_refs")
+
+
+def _node_mastery_refs(
+    course_data: dict[str, Any],
+    node: dict[str, Any],
+) -> list[str]:
+    """掌握标准 ID，同样优先取知识库里真实的 `ckmc_…`。"""
+    resolved = resolve_node_knowledge_binding(
+        course_data,
+        str(node.get("node_id") or ""),
+    )
+    if resolved.get("resolved") and resolved.get("mastery_ids"):
+        return list(resolved["mastery_ids"])
+    return _node_refs(node, "course_mastery_refs")
 
 
 def _objective_ref(course_data: dict[str, Any], node: dict[str, Any]) -> str:
