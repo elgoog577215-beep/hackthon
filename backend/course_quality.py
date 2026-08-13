@@ -298,16 +298,42 @@ def evaluate_node_grounding(node: dict[str, Any]) -> dict[str, Any]:
             "在对应资料事实后补充有效证据标记",
             node_id,
         ))
+    # 「有可用来源却一条都没引」以前完全测不出来：`required_evidence_ids`
+    # 只有 usage_policy=must_use 且词面重叠时才填，通常为空，于是
+    # required=0、missing=0，质量门直接空转判过——正文可以完全不碰资料。
+    # 这里补一条**告警级**信号：不阻断发布（存量课程大量是零引用），
+    # 但让"配了资料却没用"变成看得见、可统计的事实。
+    available = allowed | {
+        str(item) for item in node.get("available_source_ids") or [] if item
+    }
+    citation_count = len(used & allowed) + len(
+        node.get("citation_map") or {}
+    )
+    if available and citation_count == 0 and not invalid:
+        issues.append(_issue(
+            "grounding:no_source_used",
+            "warning",
+            f"本节有 {len(available)} 条可用资料/来源，但正文一条都没有引用",
+            "优先依据已确认资料写作，并在对应陈述后标注证据或〔S编号〕",
+            node_id,
+        ))
+    # 告警不参与 passed 判定：本轮口径是"先告警不阻断"。
+    blocking = [
+        item for item in issues
+        if str(item.get("severity")) in {"critical", "major"}
+    ]
     return {
         "contract_version": QUALITY_CONTRACT_VERSION,
         "stage": "grounding_node",
         "node_id": node_id,
-        "passed": not issues,
+        "passed": not blocking,
         "required_count": len(required),
         "used_count": len(used & allowed),
         "used_evidence_ids": sorted(used & allowed),
         "missing_required_evidence_ids": sorted(missing),
         "invalid_evidence_ids": sorted(invalid),
+        "available_source_count": len(available),
+        "citation_count": citation_count,
         "issues": issues,
     }
 
