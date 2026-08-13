@@ -189,6 +189,57 @@ def build_outline_research_proposal(
     return proposal
 
 
+def _material_evidence_entries(
+    course: dict[str, Any],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """把资料链的 `evidence_catalog` 转成与联网来源同构的条目。
+
+    资料链（上传资料 + 联网落地的资料资产）产出 `evidence_catalog`，
+    联网研究链产出 `retrieval_package`，两者此前互不相通：正文的来源
+    上下文只读后者，于是**教师上传的资料在正文这一步拿不到任何来源上下文**
+    （实测：只有 evidence_catalog 时本函数返回 0 条引用）。
+
+    这里把资料证据也纳入同一份来源视图，沿用既有 `〔Sn〕` 引用语义，
+    不新增第二套标注规则。资料侧另有 `[[evidence:ev-*]]` 通道用于
+    受质量门约束的强绑定，两者并存、互不替代。
+    """
+    catalog = course.get("evidence_catalog")
+    if not isinstance(catalog, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    for unit in catalog:
+        if not isinstance(unit, dict):
+            continue
+        evidence_id = str(unit.get("evidence_id") or "")
+        if not evidence_id:
+            continue
+        # 摘要优先，回落到原文；两者都空的证据没有可引用内容，跳过。
+        excerpt = str(unit.get("summary") or "").strip() or str(
+            unit.get("source_text") or ""
+        ).strip()
+        if not excerpt:
+            continue
+        entries.append({
+            "source_id": evidence_id,
+            "title": str(unit.get("kind") or "资料证据"),
+            "excerpt": excerpt,
+            "origin": "material",
+            "asset_id": str(unit.get("asset_id") or ""),
+            "url": "",
+            "domain": "",
+            "published_date": "",
+            "retrieved_at": "",
+            "license": "",
+            "trust_tier": "material",
+            "provider": "material_pipeline",
+            "content_hash": str(unit.get("content_hash") or ""),
+        })
+        if len(entries) >= limit:
+            break
+    return entries
+
+
 def build_course_source_context(
     course: dict[str, Any],
 ) -> tuple[str, dict[str, str], list[dict[str, Any]]]:
@@ -205,14 +256,19 @@ def build_course_source_context(
         )
         or []
     )
-    sources = admitted_sources(
+    web_sources = admitted_sources(
         package,
         accepted_source_ids=accepted_ids,
     )[:24]
+    # 资料证据补进同一视图；总量仍受 24 条上限约束，联网来源优先占位。
+    sources = web_sources + _material_evidence_entries(
+        course,
+        max(0, 24 - len(web_sources)),
+    )
     citation_map: dict[str, str] = {}
     cards: list[dict[str, Any]] = []
     lines = [
-        "## 已确认联网资料（仅摘要）",
+        "## 已确认资料与联网来源（仅摘要）",
         "只有下列摘要可用于外部事实；使用时必须在句末标注对应的 `〔S编号〕`。",
         "不得复制网页原文，不得引用未列出的外部事实。",
     ]
@@ -244,6 +300,8 @@ def build_course_source_context(
             }
         )
         cards[-1]["citation_id"] = citation_id
+        # 标出来源种类，便于前端与验收区分"教师资料"与"联网来源"。
+        cards[-1]["origin"] = str(source.get("origin") or "web_search")
     if not citation_map:
         return "", {}, []
     return "\n".join(lines)[:12000], citation_map, cards
