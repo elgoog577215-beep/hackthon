@@ -122,6 +122,43 @@ describe('LearningView 正文任务覆盖层', () => {
     vi.spyOn(useChangeProposalsStore(), 'fetchChangeProposals').mockResolvedValue(undefined)
   })
 
+  it('后台课程列表刷新未完成时也立即读取当前课程正文', async () => {
+    const course = useCourseStore()
+    let finishCourseListRefresh!: () => void
+    const pendingCourseListRefresh = new Promise<void>(resolve => {
+      finishCourseListRefresh = resolve
+    })
+    vi.mocked(course.fetchCourseList).mockReturnValue(pendingCourseListRefresh)
+
+    const wrapper = mount(LearningView, {
+      attachTo: document.body,
+      global: {
+        plugins: [(globalThis as any).__learningTestPinia, (globalThis as any).__learningTestRouter],
+        stubs: {
+          ContentArea: ContentAreaStub,
+          LearningTaskOverlay: TaskOverlayStub,
+          CourseNavigator: true,
+          LearningDock: true,
+          LearningStats: LearningStatsStub,
+          MistakeNotebookPanel: true,
+          NotesPanel: true,
+          SideAIPanel: true,
+          Transition: false,
+        },
+      },
+    })
+    await Promise.resolve()
+
+    const loadStartedBeforeRefreshFinished = vi.mocked(course.loadCourse).mock.calls
+      .some(args => args[0] === 'c1')
+
+    finishCourseListRefresh()
+    await flushPromises()
+    wrapper.unmount()
+
+    expect(loadStartedBeforeRefreshFinished).toBe(true)
+  })
+
   it('从正文打开任务并在关闭后恢复原滚动位置', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
