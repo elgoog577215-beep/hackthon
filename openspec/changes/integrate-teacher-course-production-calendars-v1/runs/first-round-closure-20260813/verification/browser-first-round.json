@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-08-13T06:54:00Z",
+  "base_url": "http://127.0.0.1:5181",
+  "backend_url": "http://127.0.0.1:8002",
+  "production_rendering": true,
+  "production_next_action": true,
+  "course_calendar": true,
+  "teacher_total_calendar": true,
+  "browser_responsive": true,
+  "console_errors": 0,
+  "evidence": {
+    "production_rendering": "Published Python course preview rendered Markdown and KaTeX; raw underbrace source was absent.",
+    "teaching_ai": "Created a real teaching-plan draft, POSTed an AI candidate with HTTP 200, displayed field-level diffs, then rejected and discarded the disposable draft.",
+    "ppt": "Preserved node L2-1-1, POSTed slide-decks/build/stream with HTTP 200, completed an 11-slide deck with quality pass, and returned to stage=ppt&node=L2-1-1.",
+    "ppt_status": "After reload the production tab and PPT header read the same ready representation as generated/confirmed.",
+    "calendar_exchange": "Exported a UTF-8 CSV, re-imported it with duplicate detection, imported one novel row, saved with HTTP 200, confirmed revision 4 through the API, then removed the disposable row and restored revision 5 with four sessions.",
+    "calendar_persistence": "Edited a course session, saved and reloaded it, observed the same value in the total calendar, and restored the original fixture value.",
+    "total_calendar": "Month, week and list views aggregated three courses/five sessions; event click returned to the unique course calendar session.",
+    "responsive": "Production and calendar surfaces were inspected at 1440, 1180, 880 and 680 px; the mobile production body remained reachable and the AI assistant became an overlay.",
+    "screenshots": [
+      "output/playwright/first-round-closure/repaired-preview.png",
+      "output/playwright/first-round-closure/repaired-teaching-ai.png",
+      "output/playwright/first-round-closure/production-ppt-680-fixed.png",
+      "output/playwright/first-round-closure/course-calendar-month-1440.png",
+      "output/playwright/first-round-closure/total-calendar-month-1440.png"
+    ]
+  }
+}

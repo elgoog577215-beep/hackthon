@@ -30,4 +30,22 @@ describe('MarkdownRenderer', () => {
 
     wrapper.unmount()
   })
+
+  it('把课程预览中的块公式渲染为 KaTeX，而不是泄露 LaTeX 源码', async () => {
+    const wrapper = mount(MarkdownRenderer, {
+      props: {
+        content: String.raw`### 核心教学
+
+$$\text{函数契约} = \underbrace{\text{输入}}_{\text{参数}} + \underbrace{\text{输出}}_{\text{返回值}}$$`,
+        enableCodeRun: false,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.katex-display').exists()).toBe(true)
+    expect(wrapper.text()).toContain('函数契约')
+    expect(wrapper.text()).not.toContain('\\underbrace')
+
+    wrapper.unmount()
+  })
 })

@@ -312,17 +312,17 @@ No WP8 behavior is claimed in V1.
 | Area | Current evidence | Honest status |
 | --- | --- | --- |
 | six nav labels/order | shared course sidebar + six named routes | overview/outline/calendar/production/files/release share the course-scoped shell |
-| production real store/API wiring | `loadCourse` + `observeCourse/unobserveCourse` | published maintenance path passes; active generation fixture still required |
-| production overview | compact tabs + immediate lesson table | fixed stage/status sidebars removed; 1440 and 680 browser pass |
-| quick preview | large lesson preview from real nodes | opens and continues into teaching; previous/next and focus restoration remain |
-| immersive lesson workspace | real `GenerationLessonPlan` + lesson rail | browser pass on published course; live review fixture still required |
-| course calendar persistence | backend and frontend tests pass | functional alpha |
-| total calendar aggregation | browser/API pass | My Courses sibling route present; dense multi-course data still required |
+| production real store/API wiring | `loadCourse` + `observeCourse/unobserveCourse` | published maintenance path, real AI candidate and real PPT streaming build pass; active generation review fixture still required |
+| production overview | compact tabs + immediate lesson table | Markdown/KaTeX preview, persistent next action and PPT registry state pass at 1440/680 |
+| quick preview | large lesson preview from real nodes | opens and continues into teaching/PPT; previous/next and focus restoration remain |
+| immersive lesson workspace | real `GenerationLessonPlan` + lesson rail | AI creates a real draft and field-level candidate; accepted-candidate confirmation path still requires a disposable fixture |
+| course calendar persistence | backend/frontend tests + browser save/reload | functional alpha plus truthful CSV exchange; formal recognized import and DOCX/PDF remain release work |
+| total calendar aggregation | browser/API pass with three courses/five sessions | month/week/list and session-focused route-back pass; dense same-day overflow still required |
 | 680 responsive | horizontal course-function navigation | overview/production browser pass; no vertical Chinese observed |
 | recoverable new course | three-step page + local draft + real AI/import entry | browser/build pass; blank shell disabled because backend API is absent |
-| formal import/export | not implemented | V1 release pending |
+| formal import/export | CSV exchange only | Zhejiang editable DOCX/read-only PDF and evidence-preserving recognition remain V1 release pending |
 | course file bridge | course-scoped embedded file view | context bridge passes; stable CourseAsset identity/auto-placement remains later |
-| DeepSeek model-backed generation | code supports official flash candidate | not end-to-end verified because secret was not injected into runtime |
+| DeepSeek model-backed generation | real teaching-plan AI candidate + real 11-slide PPT build | both model-backed paths passed in the current configured runtime; secret provenance was not read or written |
 
 ## 7. Verification map
 

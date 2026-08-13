@@ -39,7 +39,7 @@ class ClassSessionInput(BaseModel):
     credit_hours: float | None = Field(default=None, ge=0, le=24)
     notes: str = Field(default="", max_length=2000)
     status: Literal["unscheduled", "scheduled", "cancelled"] = "unscheduled"
-    source: Literal["manual", "outline"] = "manual"
+    source: Literal["manual", "outline", "import"] = "manual"
 
     @model_validator(mode="after")
     def validate_times(self):

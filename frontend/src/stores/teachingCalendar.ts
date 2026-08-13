@@ -20,7 +20,7 @@ export interface ClassSession {
   credit_hours?: number | null
   notes: string
   status: ClassSessionStatus
-  source: 'manual' | 'outline'
+  source: 'manual' | 'outline' | 'import'
   course_id?: string
   course_title?: string
   course_color_key?: number

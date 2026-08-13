@@ -610,6 +610,11 @@ async function cancelBuild() {
 }
 
 function backToCourse() {
+  const returnTo = String(route.query.returnTo || '')
+  if (returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+    void router.push(returnTo)
+    return
+  }
   void router.push({ name: 'learning', params: { courseId: courseId.value } })
 }
 
