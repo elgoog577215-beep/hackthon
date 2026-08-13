@@ -306,6 +306,14 @@ export interface TaskProgress {
   status: string
   progress: number
   current_node_name: string
+  /** 「第2章第3节 · 不确定性原理」——正文阶段之前与旧任务上可能没有。 */
+  current_node_location?: {
+    chapter_number: number | null
+    chapter_name: string
+    section_number: number | null
+    node_name: string
+    label: string
+  } | null
   completed_nodes: number
   total_nodes: number
   estimated_time_remaining: number

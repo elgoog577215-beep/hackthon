@@ -244,6 +244,57 @@ DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
 
 
+def build_node_locations(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """把有序节点表压成 {node_id: 位置}，供进度显示用。
+
+    教师问的是"现在生成到哪了"，答案应该是"第 2 章第 3 节 · 不确定性原理"，
+    而不是一个 node_id 或一个孤零零的小节名——课程里重名的小节并不少见，
+    只报小节名说不清进度走到了整门课的什么位置。
+
+    章节序号按节点表顺序推导：level 1 递增章号并把节号归零，level 2 在当前章
+    下递增节号。位置只依赖顺序与层级，不依赖 node_id 的命名约定。
+
+    正文可能在没有章的课程里生成（早期课程或导入课程只有平铺小节），
+    这时 ``chapter_number`` 为 None，标签退化成"第 Y 节 · 名字"，
+    调用方不需要为这种课程写分支。
+    """
+    locations: dict[str, dict[str, Any]] = {}
+    chapter_number = 0
+    section_number = 0
+    chapter_name = ""
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        if not node_id:
+            continue
+        level = int(node.get("node_level") or 1)
+        name = str(node.get("node_name") or "")
+        if level <= 1:
+            chapter_number += 1
+            section_number = 0
+            chapter_name = name
+            locations[node_id] = {
+                "chapter_number": chapter_number,
+                "chapter_name": name,
+                "section_number": None,
+                "node_name": name,
+                "label": f"第{chapter_number}章 · {name}" if name else f"第{chapter_number}章",
+            }
+            continue
+        section_number += 1
+        if chapter_number:
+            prefix = f"第{chapter_number}章第{section_number}节"
+        else:
+            prefix = f"第{section_number}节"
+        locations[node_id] = {
+            "chapter_number": chapter_number or None,
+            "chapter_name": chapter_name,
+            "section_number": section_number,
+            "node_name": name,
+            "label": f"{prefix} · {name}" if name else prefix,
+        }
+    return locations
+
+
 def _source_first_slide_ai_workers() -> tuple[
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
     Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
@@ -6126,6 +6177,9 @@ class TaskManager:
             await self._save_task_course(task_id, course_data)
 
         nodes = course_data.get("nodes", [])
+        # 位置表在这里算一次：这是唯一同时拿得到完整有序节点表的地方，
+        # 之后推进度时只查表，不再重新加载课程。
+        task["node_locations"] = build_node_locations(nodes)
         l2_nodes = [n for n in nodes if n.get("node_level", 1) == 2]
 
         # The V2 blueprint already owns the complete L1/L2 structure.
@@ -6518,11 +6572,17 @@ class TaskManager:
                     "type": "content" if node.get("node_level", 1) == 2 else "structure",
                     "generated_chars": 0,
                 }
+                location = (task.get("node_locations") or {}).get(node_id) or {}
+                if location:
+                    node_info["location"] = deepcopy(location)
                 current_nodes = task.get("current_nodes", [])
                 current_nodes.append(node_info)
                 task["current_nodes"] = current_nodes
                 if current_nodes:
                     task["current_node_name"] = current_nodes[0].get("node_name", "")
+                    task["current_node_location"] = deepcopy(
+                        current_nodes[0].get("location") or {}
+                    )
                 self.save_tasks()
 
             self._add_log_entry(
@@ -6774,8 +6834,12 @@ class TaskManager:
                     ]
                     if task["current_nodes"]:
                         task["current_node_name"] = task["current_nodes"][0].get("node_name", "")
+                        task["current_node_location"] = deepcopy(
+                            task["current_nodes"][0].get("location") or {}
+                        )
                     else:
                         task["current_node_name"] = ""
+                        task["current_node_location"] = {}
                     self.save_tasks()
                 await self._update_progress(task_id)
                 await self._push_progress(task_id)
@@ -7398,6 +7462,9 @@ class TaskManager:
                 "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
+                "current_node_location": deepcopy(
+                    task.get("current_node_location") or {}
+                ),
                 "current_nodes": current_nodes,
                 "completed_nodes": completed_nodes,
                 "total_nodes": total_nodes,
