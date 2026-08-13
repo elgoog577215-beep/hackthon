@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/utils/http', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn() },
+  getTeacherIdentity: vi.fn(() => 'teacher-calendar-test'),
 }))
 
 import http from '@/utils/http'
@@ -40,8 +41,14 @@ describe('teaching calendar store', () => {
     await store.loadCourse('course-1')
     await store.saveCourse('course-1', calendar)
 
-    expect(http.get).toHaveBeenCalledWith('/api/courses/course-1/teaching-calendar')
-    expect(http.put).toHaveBeenCalledWith('/api/courses/course-1/teaching-calendar', expect.objectContaining({ base_revision: 2 }))
+    expect(http.get).toHaveBeenCalledWith('/api/courses/course-1/teaching-calendar', {
+      headers: { 'X-User-Id': 'teacher-calendar-test' },
+    })
+    expect(http.put).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-calendar',
+      expect.objectContaining({ base_revision: 2 }),
+      { headers: { 'X-User-Id': 'teacher-calendar-test' } },
+    )
     expect(store.calendar?.revision).toBe(3)
   })
 
@@ -62,6 +69,23 @@ describe('teaching calendar store', () => {
     const result = await store.deriveFromOutline('course-1')
 
     expect(result.new_count).toBe(1)
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-calendar/derive-from-outline',
+      undefined,
+      { headers: { 'X-User-Id': 'teacher-calendar-test' } },
+    )
     expect(http.put).not.toHaveBeenCalled()
+  })
+
+  it('loads the total calendar with the same teacher identity', async () => {
+    vi.mocked(http.get).mockResolvedValue({ data: { count: 1, sessions: calendar.sessions } } as any)
+    const store = useTeachingCalendarStore()
+
+    await store.loadTotal('2026-08-01', '2026-08-31')
+
+    expect(http.get).toHaveBeenCalledWith('/api/teachers/me/teaching-calendar', {
+      params: { date_from: '2026-08-01', date_to: '2026-08-31' },
+      headers: { 'X-User-Id': 'teacher-calendar-test' },
+    })
   })
 })

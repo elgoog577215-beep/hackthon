@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { getTeacherIdentity } from '../utils/http'
 
 export type TeachingCalendarStatus = 'draft' | 'ready'
 export type ClassSessionStatus = 'unscheduled' | 'scheduled' | 'cancelled'
@@ -55,6 +55,10 @@ const messageFromError = (error: any, fallback: string) => {
   return String(detail?.message || detail || error?.message || fallback)
 }
 
+const teacherRequestConfig = () => ({
+  headers: { 'X-User-Id': getTeacherIdentity() },
+})
+
 export const useTeachingCalendarStore = defineStore('teaching-calendar', {
   state: () => ({
     calendar: null as TeachingCalendar | null,
@@ -76,7 +80,10 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
       this.loading = true
       this.error = ''
       try {
-        const response = await http.get<TeachingCalendar>(`/api/courses/${courseId}/teaching-calendar`)
+        const response = await http.get<TeachingCalendar>(
+          `/api/courses/${courseId}/teaching-calendar`,
+          teacherRequestConfig(),
+        )
         this.calendar = response.data
         return response.data
       } catch (error) {
@@ -90,7 +97,11 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
       this.deriving = true
       this.error = ''
       try {
-        const response = await http.post<OutlineCalendarCandidate>(`/api/courses/${courseId}/teaching-calendar/derive-from-outline`)
+        const response = await http.post<OutlineCalendarCandidate>(
+          `/api/courses/${courseId}/teaching-calendar/derive-from-outline`,
+          undefined,
+          teacherRequestConfig(),
+        )
         return response.data
       } catch (error) {
         this.error = messageFromError(error, '无法从教学大纲生成课次候选')
@@ -104,16 +115,20 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
       this.error = ''
       this.conflictRevision = null
       try {
-        const response = await http.put<TeachingCalendar>(`/api/courses/${courseId}/teaching-calendar`, {
-          base_revision: calendar.revision,
-          course_title: calendar.course_title,
-          academic_year: calendar.academic_year,
-          term: calendar.term,
-          timezone: calendar.timezone,
-          status: calendar.status,
-          source_outline_revision: calendar.source_outline_revision,
-          sessions: calendar.sessions,
-        })
+        const response = await http.put<TeachingCalendar>(
+          `/api/courses/${courseId}/teaching-calendar`,
+          {
+            base_revision: calendar.revision,
+            course_title: calendar.course_title,
+            academic_year: calendar.academic_year,
+            term: calendar.term,
+            timezone: calendar.timezone,
+            status: calendar.status,
+            source_outline_revision: calendar.source_outline_revision,
+            sessions: calendar.sessions,
+          },
+          teacherRequestConfig(),
+        )
         this.calendar = response.data
         return response.data
       } catch (error: any) {
@@ -133,6 +148,7 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
       try {
         const response = await http.get<{ count: number; sessions: ClassSession[] }>('/api/teachers/me/teaching-calendar', {
           params: { date_from: dateFrom, date_to: dateTo },
+          ...teacherRequestConfig(),
         })
         this.totalSessions = response.data.sessions
         this.totalRange = { dateFrom, dateTo }
