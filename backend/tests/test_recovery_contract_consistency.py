@@ -82,3 +82,54 @@ async def test_warning_completion_without_a_receipt_is_not_called_published(
 
     assert (expensive["reason_code"] == "already_published") is False
     assert (cheap["reason_code"] == "already_published") is False
+
+
+@pytest.mark.asyncio
+async def test_v6_task_list_reports_the_same_saved_checkpoint_as_resume_endpoint(
+    tmp_path,
+    monkeypatch,
+):
+    manager = _manager(tmp_path, monkeypatch)
+    task_id = await manager.create_task(
+        "course-v6",
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+    task = manager.tasks[task_id]
+    failure = {
+        "stage": "story",
+        "code": "story_summary_markdown_invalid",
+        "message": "Summary still contains Markdown",
+        "retryable": True,
+        "chapter_id": "chapter-4",
+        "page_id": "page-3",
+        "batch_id": "story-12",
+    }
+    task.update({
+        "status": "failed",
+        "phase": "story",
+        "error_detail": failure,
+        "slide_build_progress_v2": {"failure": failure},
+    })
+    checkpoint_path = (
+        manager._storage_data_dir
+        / "slide_deck_v6_candidates"
+        / "checkpoints"
+        / f"{task_id}.json"
+    )
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_text("{}", encoding="utf-8")
+    progress_path = (
+        manager._storage_data_dir / "slide_build_progress_v2" / f"{task_id}.json"
+    )
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path.write_text("{}", encoding="utf-8")
+
+    expensive = manager.describe_task_recovery(task_id)
+    cheap = manager._task_recovery_summary(task)
+
+    assert expensive["reason_code"] == "checkpoint_available"
+    assert expensive["can_resume"] is True
+    assert cheap["reason_code"] == expensive["reason_code"]
+    assert cheap["can_resume"] is expensive["can_resume"]
