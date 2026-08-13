@@ -2761,6 +2761,18 @@ class TaskManager:
         workspace_id = str(task.get("workspace_id") or "")
         candidate_id = str(task.get("candidate_id") or "")
         workspace: dict[str, Any] = {}
+        # Same judgement the polling summary uses, so the two projections cannot
+        # disagree about whether this job is resumable.
+        unavailable_reason = self._checkpoint_unavailable_reason(task)
+        if unavailable_reason and unavailable_reason != "checkpoint_not_supported":
+            return {
+                **base,
+                "state": "unavailable",
+                "reason_code": unavailable_reason,
+                "reason": self._CHECKPOINT_UNAVAILABLE_REASONS[
+                    unavailable_reason
+                ],
+            }
         if workspace_id:
             try:
                 workspace = self._generation_workspace_repository.load(workspace_id)
@@ -3442,6 +3454,10 @@ class TaskManager:
             return base
 
         has_checkpoint = bool(task.get("workspace_id") or task.get("candidate_id"))
+        # Presence of an id is not proof the checkpoint survives; ask the shared
+        # judgement so this projection cannot advertise a resume that
+        # describe_task_recovery would refuse.
+        unavailable_reason = self._checkpoint_unavailable_reason(task)
         if status == "completed_with_warnings" and (
             phase == "quality_failed" or task.get("publication_allowed") is False
         ):
@@ -3452,12 +3468,14 @@ class TaskManager:
                 has_checkpoint=has_checkpoint,
             )
         if status in {"paused", "failed", "error", "completed_with_warnings"}:
-            if not has_checkpoint:
+            if unavailable_reason:
                 return {
                     **base,
                     "state": "unavailable",
-                    "reason_code": "checkpoint_not_supported",
-                    "reason": "该旧任务没有独立检查点，无法安全继续",
+                    "reason_code": unavailable_reason,
+                    "reason": self._CHECKPOINT_UNAVAILABLE_REASONS[
+                        unavailable_reason
+                    ],
                 }
             return {
                 **base,
@@ -3499,6 +3517,51 @@ class TaskManager:
         view = deepcopy(task)
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
+
+    def _checkpoint_unavailable_reason(
+        self,
+        task: dict[str, Any],
+    ) -> str | None:
+        """Single answer to "is this job's saved checkpoint still usable?".
+
+        Returns a ``reason_code`` when the checkpoint cannot be resumed, or
+        ``None`` when it can.
+
+        This exists for the same reason as ``_task_is_published``: the polling
+        summary and the resume path must not describe the same job differently.
+        The summary used to infer a usable checkpoint from the presence of a
+        ``workspace_id`` on the task record, while the resume path loaded the
+        workspace and answered ``workspace_missing``. A job whose workspace had
+        been deleted therefore polled as "可以恢复" and refused on click.
+
+        Existence is checked without reading the payload, so this stays cheap
+        enough for the per-poll summary.
+        """
+        workspace_id = str(task.get("workspace_id") or "")
+        candidate_id = str(task.get("candidate_id") or "")
+        if workspace_id:
+            if not self._generation_workspace_repository.exists(workspace_id):
+                return "workspace_missing"
+            return None
+        if candidate_id:
+            try:
+                candidate = self._version_repository.load_candidate(
+                    str(task.get("course_id") or ""),
+                    candidate_id,
+                )
+            except KeyError:
+                return "candidate_missing"
+            if not isinstance(candidate.get("course_data"), dict):
+                return "candidate_invalid"
+            return None
+        return "checkpoint_not_supported"
+
+    _CHECKPOINT_UNAVAILABLE_REASONS = {
+        "workspace_missing": "生成工作区已丢失，无法安全继续原任务",
+        "candidate_missing": "课程候选版本已丢失，无法安全继续原任务",
+        "candidate_invalid": "课程候选版本不完整，无法安全继续原任务",
+        "checkpoint_not_supported": "该旧任务没有独立检查点，无法安全继续",
+    }
 
     def _task_is_published(self, task: dict[str, Any]) -> bool:
         """Single answer to "did this job actually publish a course?".
