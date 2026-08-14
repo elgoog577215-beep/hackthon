@@ -94,6 +94,9 @@ jobs:
           import json
           from pathlib import Path
 
+          from course_presentation_graph import block_artifact_kinds, block_source_text
+          from dependencies import get_course_document_repository
+
 
           root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
           matches = []
@@ -140,15 +143,46 @@ jobs:
               ),
               {},
           )
-          blocks = {
-              str(item.get("block_id") or ""): item
-              for item in (unit.get("blocks") or unit.get("source_blocks") or [])
-          }
           source_ids = [str(item) for item in (page.get("source_block_ids") or [])]
-          source_kind_counts = collections.Counter(
-              str((blocks.get(block_id) or {}).get("kind") or (blocks.get(block_id) or {}).get("block_type") or "unknown")
+          graph_kinds = unit.get("primary_block_kinds") or {}
+          graph_roles = unit.get("primary_block_roles") or {}
+          graph_artifacts = unit.get("primary_block_artifacts") or {}
+          graph_texts = unit.get("primary_block_texts") or {}
+          graph_kind_counts = collections.Counter(
+              str(graph_kinds.get(block_id) or "unknown")
               for block_id in source_ids
           )
+          document, canonical = get_course_document_repository().load_document(
+              str(candidate.get("course_id") or "")
+          )
+          actual_blocks = {
+              block.block_id: block
+              for block in document.blocks
+              if block.status == "final"
+          }
+          actual_kind_counts = collections.Counter(
+              str(actual_blocks[block_id].kind if block_id in actual_blocks else "missing")
+              for block_id in source_ids
+          )
+          source_shapes = [
+              {
+                  "graph_kind": str(graph_kinds.get(block_id) or ""),
+                  "graph_role": str(graph_roles.get(block_id) or ""),
+                  "graph_artifacts": sorted(str(item) for item in graph_artifacts.get(block_id) or []),
+                  "graph_text_chars": len(str(graph_texts.get(block_id) or "")),
+                  "actual_present": block_id in actual_blocks,
+                  "actual_kind": str(actual_blocks[block_id].kind if block_id in actual_blocks else ""),
+                  "actual_artifacts": (
+                      sorted(block_artifact_kinds(actual_blocks[block_id]))
+                      if block_id in actual_blocks else []
+                  ),
+                  "actual_text_chars": (
+                      len(block_source_text(actual_blocks[block_id]))
+                      if block_id in actual_blocks else 0
+                  ),
+              }
+              for block_id in source_ids
+          ]
           print(json.dumps({
               "found": True,
               "updated_at": candidate.get("updated_at"),
@@ -162,7 +196,14 @@ jobs:
               "failure_page_present": bool(page),
               "story_layout_slug": str(page.get("template_layout_id") or "").rsplit("/", 1)[-1],
               "source_block_count": len(source_ids),
-              "source_kind_counts": dict(sorted(source_kind_counts.items())),
+              "course_document_canonical": bool(canonical),
+              "course_revision_matches_graph": (
+                  str(document.document_revision or "")
+                  == str(graph.get("source_document_revision") or "")
+              ),
+              "graph_kind_counts": dict(sorted(graph_kind_counts.items())),
+              "actual_kind_counts": dict(sorted(actual_kind_counts.items())),
+              "source_shapes": source_shapes,
               "visual_decision": visual.get("decision"),
               "visual_layout_slug": str(visual.get("resolved_template_layout_id") or "").rsplit("/", 1)[-1],
               "visual_degraded": bool(visual.get("degraded")),
