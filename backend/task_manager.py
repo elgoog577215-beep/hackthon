@@ -425,6 +425,7 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
 })
 PUBLIC_TASK_LOG_LIMIT = 100
 SLIDE_BUILD_REQUEST_CONTRACT_FIELDS = (
+    "operation",
     "mode",
     "theme",
     "variant_key",
@@ -435,6 +436,8 @@ SLIDE_BUILD_REQUEST_CONTRACT_FIELDS = (
     "shadow_only",
     "chapter_id",
     "source_course_document_revision",
+    "representation_id",
+    "target_page_ids",
 )
 
 
@@ -5063,6 +5066,7 @@ class TaskManager:
         source_revision_provider: Callable[[], str],
         publish_result: bool = True,
         shadow_context: dict[str, Any] | None = None,
+        visual_repair: dict[str, Any] | None = None,
     ) -> None:
         """Run the strict V6 candidate through the shared durable boundary."""
 
@@ -5084,21 +5088,35 @@ class TaskManager:
             }
             await self._record_representation_event(task_id, event)
 
-        result = await orchestrator.build(
-            task_id=task_id,
-            document=document,
-            course_data=course_view,
-            mode=mode,
-            theme=theme,
-            story_planner=build_ai_base_story_planner_v6(),
-            visual_planner=build_ai_base_visual_planner_v2(),
-            source_revision_provider=source_revision_provider,
-            template_contract=template_contract,
-            template_digest_provider=template_digest_provider,
-            publish_result=publish_result,
-            shadow_context=shadow_context,
-            progress_callback=record_v6_progress,
-        )
+        common = {
+            "task_id": task_id,
+            "document": document,
+            "course_data": course_view,
+            "mode": mode,
+            "theme": theme,
+            "story_planner": build_ai_base_story_planner_v6(),
+            "visual_planner": build_ai_base_visual_planner_v2(),
+            "source_revision_provider": source_revision_provider,
+            "template_contract": template_contract,
+            "template_digest_provider": template_digest_provider,
+            "progress_callback": record_v6_progress,
+        }
+        if visual_repair:
+            result = await orchestrator.repair_visuals(
+                **common,
+                representation_id=str(visual_repair.get("representation_id") or ""),
+                target_page_ids=[
+                    str(page_id)
+                    for page_id in visual_repair.get("target_page_ids") or []
+                    if str(page_id)
+                ],
+            )
+        else:
+            result = await orchestrator.build(
+                **common,
+                publish_result=publish_result,
+                shadow_context=shadow_context,
+            )
         public_result = {
             "build": result,
             "quality": result.get("quality") or {},
@@ -5106,6 +5124,11 @@ class TaskManager:
             "variant_key": variant_key,
             "target_schema": "slide_deck_v6",
             "shadow_context": dict(shadow_context or {}),
+            "operation": (
+                "repair_slide_visuals_v6"
+                if visual_repair
+                else "build_slide_deck_variant"
+            ),
         }
         final_status = (
             "completed_with_warnings"
@@ -5166,6 +5189,26 @@ class TaskManager:
             self._course_document_repository.load_document, course_id,
         )
         requested_schema = str(request.get("target_schema") or "")
+        operation = str(request.get("operation") or "build_slide_deck_variant")
+        visual_repair = (
+            {
+                "representation_id": str(request.get("representation_id") or ""),
+                "target_page_ids": [
+                    str(page_id)
+                    for page_id in request.get("target_page_ids") or []
+                    if str(page_id)
+                ],
+            }
+            if operation == "repair_slide_visuals_v6"
+            else None
+        )
+        if visual_repair and not visual_repair["representation_id"]:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_base_unavailable",
+                message="Visual repair requires a published representation ID",
+                retryable=False,
+            )
         shadow_only = bool(request.get("shadow_only"))
         chapter_id = str(request.get("chapter_id") or "").strip()
         if not canonical and not (requested_schema == "slide_deck_v6" and shadow_only):
@@ -5265,6 +5308,7 @@ class TaskManager:
                     if shadow_only
                     else None
                 ),
+                visual_repair=visual_repair,
             )
             return
         saved_revision = str(task.get("representation_source_document_revision") or "")
