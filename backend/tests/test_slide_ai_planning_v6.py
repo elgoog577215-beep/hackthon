@@ -3884,3 +3884,42 @@ async def test_visual_repair_rejects_an_incomplete_retry_without_mutating_the_pr
     assert captured.value.failure.code == "visual_repair_incomplete"
     assert captured.value.failure.page_id == "field-feedback"
     assert visual.model_dump(mode="json") == original
+
+
+@pytest.mark.asyncio
+async def test_visual_planning_resume_requests_only_missing_pages_in_a_partial_batch() -> None:
+    """A repair checkpoint may preserve healthy pages inside a degraded chapter batch."""
+
+    graph, template, story, visual = _field_visual_repair_fixture()
+    healthy_table = visual.decisions[0]
+    requested_page_ids = []
+
+    async def planner(request):
+        requested_page_ids.append([page["page_id"] for page in request["pages"]])
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "text_native",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            }],
+        }
+
+    resumed = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=planner,
+        resume_decisions=[healthy_table],
+    )
+
+    assert requested_page_ids == [["field-feedback"]]
+    assert resumed.decisions[0] is healthy_table
+    assert [decision.page_id for decision in resumed.decisions] == [
+        "field-table",
+        "field-feedback",
+    ]
