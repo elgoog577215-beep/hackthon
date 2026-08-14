@@ -17,6 +17,7 @@ from slide_deck_v6_orchestrator import (
     SlideDeckV6Orchestrator,
 )
 from teaching_representations import TeachingRepresentationRepository
+from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
 def _document() -> CourseDocument:
@@ -121,6 +122,48 @@ def _orchestrator(tmp_path: Path) -> tuple[SlideDeckV6Orchestrator, TeachingRepr
         progress_root=tmp_path / "progress",
     )
     return orchestrator, representations, candidates
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_checkpoint_from_previous_build_contract(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-stale-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("stale checkpoints must fail before AI planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
 
 
 def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_path: Path) -> None:
