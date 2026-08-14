@@ -120,12 +120,21 @@ jobs:
 
           _updated_at, candidate_path, candidate = max(matches, key=lambda item: item[0])
           failure = candidate.get("failure") or {}
-          graph = CoursePresentationGraphV1.model_validate(
-              candidate["course_presentation_graph"]
-          )
-          story = SlideStoryPlanV3.model_validate(candidate["story_plan"])
           checkpoint_path = root / "checkpoints" / candidate_path.name
           checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          graph = CoursePresentationGraphV1.model_validate(
+              candidate.get("course_presentation_graph")
+              or checkpoint["course_presentation_graph"]
+          )
+          story_payload = candidate.get("story_plan") or checkpoint.get("story_plan")
+          if story_payload is None:
+              story_payload = {
+                  "schema_version": "slide_story_plan_v3",
+                  "source_document_revision": graph.source_document_revision,
+                  "template_digest": str(checkpoint.get("template_digest") or ""),
+                  "batches": checkpoint.get("story_batches") or [],
+              }
+          story = SlideStoryPlanV3.model_validate(story_payload)
           template = compile_builtin_template_layout_contract_v1(
               str(checkpoint.get("theme") or "qizhi-classroom")
           )
