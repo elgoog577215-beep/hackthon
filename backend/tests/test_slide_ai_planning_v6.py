@@ -2594,6 +2594,79 @@ async def test_story_normalizes_duplicate_titles_from_unused_source_candidates()
 
 
 @pytest.mark.asyncio
+async def test_story_matches_batch_titles_when_greedy_replacement_would_dead_end() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="batch-title-matching",
+        title="Batch title matching",
+        sections=[
+            CourseSection(section_id="chapter-a", title="Evidence", position=0),
+        ],
+        blocks=[
+            CourseBlock(
+                block_id="broad-title-source",
+                section_id="chapter-a",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Shared checkpoint\n## Alpha evidence"},
+            ),
+            CourseBlock(
+                block_id="narrow-title-source",
+                section_id="chapter-a",
+                position=1,
+                role="feedback",
+                payload={"markdown": "## Shared checkpoint"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        source_ids = unit["primary_block_ids"]
+        shared_title = unit["title_candidates"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "broad-title-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        source_ids[:1],
+                    ),
+                    "title": shared_title,
+                    "summary": "",
+                    "source_block_ids": source_ids[:1],
+                },
+                {
+                    "page_id": "narrow-title-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        source_ids[1:],
+                    ),
+                    "title": shared_title,
+                    "summary": "",
+                    "source_block_ids": source_ids[1:],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert [page.title for page in story.pages] == [
+        "Alpha evidence",
+        "Shared checkpoint",
+    ]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
 async def test_story_globally_reassigns_titles_when_later_chapter_has_only_shared_candidate() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-title-reservation",
