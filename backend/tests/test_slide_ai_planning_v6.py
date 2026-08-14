@@ -2639,7 +2639,7 @@ async def test_story_matches_batch_titles_when_greedy_replacement_would_dead_end
                         source_ids[:1],
                     ),
                     "title": shared_title,
-                    "summary": "",
+                    "summary": "UnsupportedIdentifier_999",
                     "source_block_ids": source_ids[:1],
                 },
                 {
@@ -2663,6 +2663,7 @@ async def test_story_matches_batch_titles_when_greedy_replacement_would_dead_end
         "Alpha evidence",
         "Shared checkpoint",
     ]
+    assert "UnsupportedIdentifier_999" not in story.pages[0].summary
     validate_slide_story_plan_v3(story, graph, template)
 
 
