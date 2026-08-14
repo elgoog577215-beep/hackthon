@@ -138,8 +138,35 @@ jobs:
           template = compile_builtin_template_layout_contract_v1(
               str(checkpoint.get("theme") or "qizhi-classroom")
           )
-          page_id = str(failure.get("page_id") or "")
-          page = next(item for item in story.pages if item.page_id == page_id)
+          before_error = ""
+          validated_page_id = ""
+          try:
+              validate_slide_story_plan_v3(story, graph, template)
+          except Exception as error:
+              before_error = getattr(getattr(error, "failure", None), "code", type(error).__name__)
+              validated_page_id = str(
+                  getattr(getattr(error, "failure", None), "page_id", "") or ""
+              )
+          candidate_page_id = str(failure.get("page_id") or "")
+          page_id = validated_page_id or candidate_page_id
+          page = next((item for item in story.pages if item.page_id == page_id), None)
+          if page is None:
+              print(json.dumps({
+                  "found": True,
+                  "updated_at": candidate.get("updated_at"),
+                  "failure_stage": failure.get("stage"),
+                  "failure_code": failure.get("code"),
+                  "checkpoint_contract": checkpoint.get("build_contract_version"),
+                  "checkpoint_story_pages": len(story.pages),
+                  "candidate_failure_page_present": any(
+                      item.page_id == candidate_page_id for item in story.pages
+                  ),
+                  "validation_before_prepare": before_error or "passed",
+                  "validated_failure_page_present": any(
+                      item.page_id == validated_page_id for item in story.pages
+                  ),
+              }, ensure_ascii=False, sort_keys=True))
+              raise SystemExit(0)
           unit = next(
               item for item in graph.units
               if item.teaching_unit_id == page.teaching_unit_id
@@ -158,11 +185,6 @@ jobs:
               ),
               {},
           )
-          before_error = ""
-          try:
-              validate_slide_story_plan_v3(story, graph, template)
-          except Exception as error:
-              before_error = getattr(getattr(error, "failure", None), "code", type(error).__name__)
           prepared = prepare_story_plan_for_final_compilation(story, graph, template)
           prepared_page = next(item for item in prepared.pages if item.page_id == page_id)
           after_error = ""
