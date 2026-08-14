@@ -24,6 +24,22 @@ jobs:
       - name: Verify repository tracking hygiene
         run: scripts/check-tracked-ignored.sh
 
+      - name: Verify DeepSeek primary provider
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEEPSEEK_API_KEY"
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+            https://api.deepseek.com/models \
+            | python3 -c 'import json, sys; payload = json.load(sys.stdin); available = {str(item.get("id", "")) for item in payload.get("data", []) if isinstance(item, dict)}; required = {"deepseek-v4-pro", "deepseek-v4-flash"}; missing = sorted(required - available); missing and sys.exit("DeepSeek account is missing required models: " + ", ".join(missing))'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
