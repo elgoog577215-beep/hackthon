@@ -97,6 +97,68 @@ def _document(*, with_code: bool = False) -> CourseDocument:
     )
 
 
+def _two_unit_document() -> CourseDocument:
+    return refresh_document_revision(
+        CourseDocument(
+            course_id="generic-targeted-story-repair",
+            title="Targeted story repair",
+            sections=[
+                CourseSection(
+                    section_id="chapter-a",
+                    title="Repair scope",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="alpha-concept",
+                    section_id="chapter-a",
+                    position=0,
+                    role="concept",
+                    payload={
+                        "markdown": (
+                            "Alpha collection records every source before review."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="alpha-feedback",
+                    section_id="chapter-a",
+                    position=1,
+                    role="feedback",
+                    payload={
+                        "markdown": (
+                            "Alpha review checks the recorded source and final result."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="beta-concept",
+                    section_id="chapter-a",
+                    position=2,
+                    role="concept",
+                    payload={
+                        "markdown": (
+                            "Beta verification compares the baseline with the observed result."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="beta-feedback",
+                    section_id="chapter-a",
+                    position=3,
+                    role="feedback",
+                    payload={
+                        "markdown": (
+                            "Beta approval records both the decision and its evidence."
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+
+
 def test_title_candidates_exclude_structural_labels_and_dangling_excerpts() -> None:
     candidates = _grounded_title_candidates(
         "## 项目名称：湿地观察证据链与审核路径\n"
@@ -868,6 +930,59 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
         "complete_sentence_no_markdown"
     )
     assert story.batches[0].attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_story_repair_scopes_the_retry_and_preserves_unaffected_units() -> None:
+    document = _two_unit_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        pages = []
+        for index, unit in enumerate(request["teaching_units"]):
+            layout = next(
+                layout_id
+                for layout_id in unit["allowed_template_layout_ids"]
+                if layout_id.endswith("/practice-feedback")
+            )
+            if len(calls) == 1 and index == 0:
+                layout = "template-layout-not-in-contract"
+            title_candidates = unit["title_candidates"]
+            pages.append({
+                "page_id": f"{'initial' if len(calls) == 1 else 'repaired'}-{index}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": (
+                    title_candidates[-1]
+                    if len(calls) > 1 and index > 0
+                    else title_candidates[0]
+                ),
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            })
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": pages,
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 2
+    assert len(calls[0]["teaching_units"]) == 2
+    assert [
+        unit["teaching_unit_id"] for unit in calls[1]["teaching_units"]
+    ] == [calls[0]["teaching_units"][0]["teaching_unit_id"]]
+    assert [
+        target["teaching_unit_id"]
+        for target in calls[1]["repair_feedback"]["repair_targets"]
+    ] == [calls[0]["teaching_units"][0]["teaching_unit_id"]]
+    assert story.pages[0].page_id == "repaired-0"
+    assert story.pages[1].page_id == "initial-1"
+    assert story.pages[1].title == calls[0]["teaching_units"][1]["title_candidates"][0]
 
 
 @pytest.mark.asyncio
