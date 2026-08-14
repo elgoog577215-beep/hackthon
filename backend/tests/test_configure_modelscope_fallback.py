@@ -19,6 +19,7 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
     env_file = tmp_path / ".env"
     env_file.write_text(
         "AI_API_KEY=primary-key\n"
+        "AI_PPT_API_KEY=old-ppt-key\n"
         "MODELSCOPE_API_KEY=old-key\n"
         "UNRELATED=value\n",
         encoding="utf-8",
@@ -36,13 +37,13 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
             "api_key": secret,
             "base_url": "https://api-inference.modelscope.cn/v1/",
             "model": "Qwen/Qwen3.5-35B-A3B",
+            "ppt_api_key": "ppt-deepseek-secret",
+            "ppt_api_base": "https://api.deepseek.com",
             "ppt_story_models": (
-                "deepseek-ai/DeepSeek-V4-Flash-0731,"
-                "Qwen/Qwen3.5-122B-A10B"
+                "deepseek-v4-pro,deepseek-v4-flash"
             ),
             "ppt_visual_models": (
-                "deepseek-ai/DeepSeek-V4-Flash-0731,"
-                "Qwen/Qwen3.5-122B-A10B"
+                "deepseek-v4-flash,deepseek-v4-pro"
             ),
             "slide_deck_v6_enabled": True,
             "slide_deck_v6_default_enabled": True,
@@ -56,6 +57,9 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
     content = env_file.read_text(encoding="utf-8")
     assert "AI_API_KEY=primary-key" in content
     assert "UNRELATED=value" in content
+    assert content.count("AI_PPT_API_KEY=") == 1
+    assert "AI_PPT_API_KEY=ppt-deepseek-secret" in content
+    assert "AI_PPT_API_BASE=https://api.deepseek.com" in content
     assert content.count("MODELSCOPE_API_KEY=") == 1
     assert f"MODELSCOPE_API_KEY={secret}" in content
     assert (
@@ -64,12 +68,10 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
     )
     assert "MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B" in content
     assert (
-        "AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
-        "Qwen/Qwen3.5-122B-A10B"
+        "AI_PPT_STORY_MODELS=deepseek-v4-pro,deepseek-v4-flash"
     ) in content
     assert (
-        "AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
-        "Qwen/Qwen3.5-122B-A10B"
+        "AI_PPT_VISUAL_MODELS=deepseek-v4-flash,deepseek-v4-pro"
     ) in content
     assert "SLIDE_DECK_V6_ENABLED=true" in content
     assert "SLIDE_DECK_V6_DEFAULT_ENABLED=true" in content
@@ -77,6 +79,8 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES=" not in content
     assert secret not in result.stdout
     assert secret not in result.stderr
+    assert "ppt-deepseek-secret" not in result.stdout
+    assert "ppt-deepseek-secret" not in result.stderr
 
 
 def test_configure_modelscope_fallback_rejects_untrusted_endpoint(tmp_path):
@@ -136,14 +140,16 @@ def test_deploy_workflow_provisions_verified_ppt_role_routes():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
     assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-27B" in workflow
+    assert "AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}" in workflow
+    assert "AI_PPT_API_BASE: https://api.deepseek.com" in workflow
     assert (
-        "AI_PPT_STORY_MODELS: Qwen/Qwen3.5-397B-A17B,"
-        "Qwen/Qwen3.5-27B"
+        "AI_PPT_STORY_MODELS: deepseek-v4-pro,deepseek-v4-flash"
     ) in workflow
     assert (
-        "AI_PPT_VISUAL_MODELS: Qwen/Qwen3.5-27B,"
-        "Qwen/Qwen3.5-397B-A17B"
+        "AI_PPT_VISUAL_MODELS: deepseek-v4-flash,deepseek-v4-pro"
     ) in workflow
+    assert '"ppt_api_key": os.environ["AI_PPT_API_KEY"]' in workflow
+    assert '"ppt_api_base": os.environ["AI_PPT_API_BASE"]' in workflow
     assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
     assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
     assert "SLIDE_DECK_V6_ENABLED: true" in workflow

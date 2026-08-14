@@ -30,6 +30,21 @@ from slide_deck_v6 import (
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
+def test_v6_planners_use_the_dedicated_ppt_provider_profile(monkeypatch):
+    profiles: list[str | None] = []
+
+    class CapturingAIBase:
+        def __init__(self, *, provider_profile=None):
+            profiles.append(provider_profile)
+
+    monkeypatch.setattr(planning_module, "AIBase", CapturingAIBase)
+
+    planning_module.build_ai_base_story_planner_v6()
+    planning_module.build_ai_base_visual_planner_v2()
+
+    assert profiles == ["ppt", "ppt"]
+
+
 @pytest.mark.asyncio
 async def test_planner_timeout_is_a_hard_deadline_when_provider_delays_cancellation() -> None:
     """A stuck provider must not keep a durable V6 task running forever."""

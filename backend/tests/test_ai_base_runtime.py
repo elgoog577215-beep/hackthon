@@ -48,6 +48,8 @@ def _clear_model_environment(monkeypatch):
         "AI_ASSESSMENT_GENERATOR_MODELS",
         "AI_ASSESSMENT_SOLVER_MODELS",
         "AI_ASSESSMENT_REVIEWER_MODELS",
+        "AI_PPT_API_KEY",
+        "AI_PPT_API_BASE",
         "AI_PPT_STORY_MODELS",
         "AI_PPT_VISUAL_MODELS",
     ):
@@ -272,6 +274,41 @@ def test_ppt_roles_use_configured_cross_course_model_routes(monkeypatch):
     ]
     assert service._models_for(False, "unrelated_role") == [
         "shared-default",
+    ]
+
+
+def test_ppt_provider_profile_uses_dedicated_deepseek_route_only(monkeypatch):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "shared-key")
+    monkeypatch.setenv(
+        "AI_API_BASE",
+        "https://api-inference.modelscope.cn/v1",
+    )
+    monkeypatch.setenv("AI_PPT_API_KEY", "ppt-deepseek-key")
+    monkeypatch.setenv("AI_PPT_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv(
+        "AI_PPT_STORY_MODELS",
+        "deepseek-v4-pro,deepseek-v4-flash",
+    )
+    monkeypatch.setenv(
+        "AI_PPT_VISUAL_MODELS",
+        "deepseek-v4-flash,deepseek-v4-pro",
+    )
+
+    shared = AIBase()
+    ppt = AIBase(provider_profile="ppt")
+
+    assert shared.api_key == "shared-key"
+    assert shared.api_base == "https://api-inference.modelscope.cn/v1"
+    assert ppt.api_key == "ppt-deepseek-key"
+    assert ppt.api_base == "https://api.deepseek.com"
+    assert ppt._models_for(False, "ppt_story") == [
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    ]
+    assert ppt._models_for(True, "ppt_visual") == [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
     ]
 
 
