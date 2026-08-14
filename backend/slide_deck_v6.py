@@ -850,11 +850,36 @@ def validate_slide_visual_plan_v2(
         layout = template.get_layout(decision.resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="visual", code="template_layout_unavailable", message="Visual plan selected an unknown template layout", page_id=page_id)
-        if decision.resolved_template_layout_id != page.template_layout_id:
+        story_layout = template.get_layout(page.template_layout_id)
+        safe_degraded_rebind = bool(
+            story_layout is not None
+            and decision.degraded
+            and decision.decision == "text_native"
+            and layout.layout_slug
+            in set(story_layout.safe_continuation_layout_slugs)
+            and page_teaching_intent(unit, page.source_block_ids)
+            in layout.teaching_intents
+            and not any(
+                slot.required
+                and slot.slot_kind in {"code", "formula", "table", "visual"}
+                for slot in layout.slots
+            )
+            and not page_artifact_kinds(unit, page.source_block_ids)
+            and source_required_slot_kinds(
+                graph_page_source_blocks(unit, page.source_block_ids)
+            ).issubset({slot.slot_kind for slot in layout.slots})
+        )
+        if (
+            decision.resolved_template_layout_id != page.template_layout_id
+            and not safe_degraded_rebind
+        ):
             raise V6BuildError(
                 stage="visual",
                 code="visual_layout_binding_mismatch",
-                message="Visual decision must retain the story page template layout",
+                message=(
+                    "Visual decision must retain the story page template layout "
+                    "unless an optional visual safely degrades to an approved prose continuation"
+                ),
                 page_id=page_id,
             )
         unknown_assets = set(decision.source_asset_ids) - set(unit.source_asset_refs)

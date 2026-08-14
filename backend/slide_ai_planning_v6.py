@@ -2631,17 +2631,31 @@ def _visual_request(
             "optional_decision_fields": ["source_asset_ids", "visual_payload"],
             "forbidden_decision_fields": ["decision_type", "code_payload"],
             "diagram_node_fields": ["node_id", "label", "source_block_ids"],
+            "diagram_edge_fields": ["source", "target"],
+            "diagram_edge_rule": (
+                "Every source and target must exactly equal a node_id declared "
+                "in the same visual_payload."
+            ),
         },
         "pages": [page_request(page) for page in batch.pages],
     }
 
 
-_HARD_VISUAL_ARTIFACTS = {"code", "formula", "table", "data", "experiment", "source_excerpt"}
+_HARD_VISUAL_ARTIFACTS = {
+    "code",
+    "formula",
+    "table",
+    "data",
+    "diagram",
+    "experiment",
+    "source_excerpt",
+}
 _VISUAL_DECISIONS_BY_ARTIFACT: dict[str, set[str]] = {
     "code": {"code"},
     "formula": {"formula"},
     "table": {"table", "data"},
     "data": {"data", "table"},
+    "diagram": {"diagram"},
     "experiment": {"experiment", "image", "data"},
     "source_excerpt": {"source_excerpt", "image"},
 }
@@ -2690,6 +2704,92 @@ def _allowed_visual_decisions(
     if source_asset_ids:
         decisions.add("image")
     return sorted(decisions)
+
+
+def _safe_text_native_fallback_layout_id(
+    page: SlideStoryPageV3,
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+) -> str:
+    """Resolve a source-safe prose layout for an optional visual failure."""
+
+    original_layout = template.get_layout(page.template_layout_id)
+    if original_layout is None:
+        return ""
+    source_blocks = graph_page_source_blocks(unit, page.source_block_ids)
+    teaching_intent = page_teaching_intent(unit, page.source_block_ids)
+    required_artifacts = page_artifact_kinds(unit, page.source_block_ids)
+    required_slot_kinds = source_required_slot_kinds(source_blocks)
+    candidate_slugs = list(dict.fromkeys([
+        original_layout.layout_slug,
+        *original_layout.safe_continuation_layout_slugs,
+    ]))
+    for slug in candidate_slugs:
+        try:
+            candidate = template.get_layout(template.layout_id(slug))
+        except KeyError:
+            continue
+        if candidate is None:
+            continue
+        if any(
+            slot.required
+            and slot.slot_kind in {"code", "formula", "table", "visual"}
+            for slot in candidate.slots
+        ):
+            continue
+        if teaching_intent not in candidate.teaching_intents:
+            continue
+        if required_artifacts and not required_artifacts.issubset(
+            set(candidate.artifact_kinds)
+        ):
+            continue
+        if not required_slot_kinds.issubset(
+            {slot.slot_kind for slot in candidate.slots}
+        ):
+            continue
+        if candidate.template_layout_id == original_layout.template_layout_id:
+            # The frozen story already selected this non-artifact layout. Keep
+            # it for a text-native degradation instead of re-linting a
+            # previously published story during selective visual repair.
+            return candidate.template_layout_id
+        try:
+            validate_story_template_text_slots(
+                page_id=page.page_id,
+                template=template,
+                layout=candidate,
+                source_blocks=source_blocks,
+                story_summary=page.summary,
+            )
+        except V6BuildError:
+            continue
+        return candidate.template_layout_id
+    return ""
+
+
+def _degraded_text_native_decision(
+    page: SlideStoryPageV3,
+    unit: CoursePresentationUnitV1,
+    template: TemplateLayoutPackContractV1,
+    *,
+    reason: str,
+    duration_ms: int,
+) -> SlideVisualDecisionV2 | None:
+    fallback_layout_id = _safe_text_native_fallback_layout_id(
+        page,
+        unit,
+        template,
+    )
+    if not fallback_layout_id:
+        return None
+    return SlideVisualDecisionV2(
+        page_id=page.page_id,
+        decision="text_native",
+        source_block_ids=page.source_block_ids,
+        resolved_template_layout_id=fallback_layout_id,
+        degraded=True,
+        degradation_reason=reason,
+        duration_ms=duration_ms,
+    )
 
 
 def _validate_visual_batch_candidate(
@@ -2757,6 +2857,23 @@ def _visual_repair_targets(
             if decision is not None
             else []
         )
+        edges = (
+            decision.visual_payload.get("edges") or []
+            if decision is not None
+            else []
+        )
+        declared_node_ids = [
+            str(node.get("node_id") or "")
+            for node in nodes
+            if isinstance(node, dict) and str(node.get("node_id") or "")
+        ]
+        declared_node_id_set = set(declared_node_ids)
+        invalid_edges = [
+            edge for edge in edges
+            if not isinstance(edge, dict)
+            or str(edge.get("source") or "") not in declared_node_id_set
+            or str(edge.get("target") or "") not in declared_node_id_set
+        ]
         targets.append({
             "page_id": page_id,
             "required_artifact_kinds": list(page.get("artifact_kinds") or []),
@@ -2771,6 +2888,8 @@ def _visual_repair_targets(
                 if isinstance(node, dict)
                 and str(node.get("node_id") or "") != failed_node_id
             ] if failed_node_id else [],
+            "declared_node_ids": declared_node_ids,
+            "invalid_edges": invalid_edges,
         })
     return targets
 
@@ -2930,6 +3049,8 @@ async def plan_slide_visuals_v2(
                                 "failed diagram node, keep its node_id, bind it only to supplied "
                                 "source_blocks, prefer an extractive short label, preserve every "
                                 "locked_node unchanged, and keep exact numbers and code identifiers. "
+                                "For a failed diagram edge, replace every invalid_edges item and use "
+                                "only declared_node_ids as source and target. "
                                 "Choose only an allowed_decision and never invent artifact payloads."
                             ),
                         },
@@ -3024,7 +3145,7 @@ async def plan_slide_visuals_v2(
             first_failure_category = (
                 error.failure.code
                 if isinstance(error, V6BuildError)
-                else "visual_ai_batch_failed"
+                else _failure_category(error, prefix="visual_ai_batch")[0]
             )
             if isinstance(error, V6BuildError) and previous_decisions:
                 fallback_by_page = {
@@ -3049,18 +3170,19 @@ async def plan_slide_visuals_v2(
                     )
                     if failed_page is None:
                         break
-                    fallback_by_page[failed_page_id] = SlideVisualDecisionV2(
-                        page_id=failed_page.page_id,
-                        decision="text_native",
-                        source_block_ids=failed_page.source_block_ids,
-                        resolved_template_layout_id=failed_page.template_layout_id,
-                        degraded=True,
-                        degradation_reason=fallback_error.failure.code,
+                    fallback_decision = _degraded_text_native_decision(
+                        failed_page,
+                        units[failed_page.teaching_unit_id],
+                        template,
+                        reason=first_failure_category,
                         duration_ms=max(
                             0,
                             round((time.perf_counter() - started) * 1000),
                         ),
                     )
+                    if fallback_decision is None:
+                        break
+                    fallback_by_page[failed_page_id] = fallback_decision
                     fallback_decisions = [
                         fallback_by_page[page.page_id]
                         for page in batch.pages
@@ -3130,24 +3252,40 @@ async def plan_slide_visuals_v2(
                     batch_id=batch_id,
                 ) from error
             if not degraded_soft_failure:
-                category, _ = _failure_category(error, prefix="visual_ai_batch")
+                category = first_failure_category
                 batch_validation_status = "degraded"
                 batch_failure_category = category
                 fallback_by_page = {
                     decision.page_id: decision for decision in resumed
                 }
-                fallback_by_page.update({
-                    page.page_id: SlideVisualDecisionV2(
-                        page_id=page.page_id,
-                        decision="text_native",
-                        source_block_ids=page.source_block_ids,
-                        resolved_template_layout_id=page.template_layout_id,
-                        degraded=True,
-                        degradation_reason=category,
-                        duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
+                duration_ms = max(
+                    0,
+                    round((time.perf_counter() - started) * 1000),
+                )
+                for page in planning_batch.pages:
+                    fallback_decision = _degraded_text_native_decision(
+                        page,
+                        units[page.teaching_unit_id],
+                        template,
+                        reason=category,
+                        duration_ms=duration_ms,
                     )
-                    for page in planning_batch.pages
-                })
+                    if fallback_decision is None:
+                        if isinstance(error, V6BuildError):
+                            raise error
+                        raise V6BuildError(
+                            stage="visual",
+                            code=category,
+                            message=(
+                                "Visual AI failed and no source-safe text layout "
+                                "was available"
+                            ),
+                            retryable=True,
+                            chapter_id=batch.chapter_id,
+                            page_id=page.page_id,
+                            batch_id=batch_id,
+                        ) from error
+                    fallback_by_page[page.page_id] = fallback_decision
                 decisions = [
                     fallback_by_page[page.page_id]
                     for page in batch.pages

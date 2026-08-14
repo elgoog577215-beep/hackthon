@@ -4094,7 +4094,7 @@ async def test_invalid_diagram_edges_degrade_to_safe_text_layout_and_compile() -
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
     assert deck.status == "v6_needs_manual_edit"
-    assert deck.pages[0].template_layout_id.endswith("/content-stack")
+    assert deck.pages[0].resolved_layout.endswith("/content-stack")
     assert "missing-node" not in str(deck.model_dump(mode="json"))
 
 
