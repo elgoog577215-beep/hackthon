@@ -201,6 +201,7 @@ from slide_deck_v5 import (
 )
 from slide_deck_v6 import V6BuildError, compile_shadow_chapter_document
 from slide_deck_v6_orchestrator import (
+    SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
 )
@@ -476,6 +477,7 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "representation_deck_plan_v3",
     "representation_story_plan_v2",
     "request_snapshot",
+    "slide_build_contract_version",
     "node_drafts",
 })
 PUBLIC_TASK_LOG_LIMIT = 100
@@ -1105,6 +1107,12 @@ class TaskManager:
             task["slide_build_request_contract"] = (
                 _slide_build_request_contract(request_snapshot)
             )
+            if str((request_snapshot or {}).get("target_schema") or "") == (
+                "slide_deck_v6"
+            ):
+                task["slide_build_contract_version"] = (
+                    SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
+                )
         if (
             task_type == "course_generation"
             and workspace_id
@@ -2825,7 +2833,7 @@ class TaskManager:
             task.get("type") == "slide_deck_variant_build"
             and str(request_snapshot.get("target_schema") or "") == "slide_deck_v6"
         )
-        v6_checkpoint_available = (
+        v6_checkpoint_files_available = (
             (
                 self._storage_data_dir
                 / "slide_deck_v6_candidates"
@@ -2838,6 +2846,19 @@ class TaskManager:
                 / f"{task_id}.json"
             ).is_file()
         ) if is_v6_slide_build else False
+        v6_checkpoint_contract_current = bool(
+            is_v6_slide_build
+            and str(task.get("slide_build_contract_version") or "")
+            == SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
+        )
+        v6_checkpoint_contract_stale = bool(
+            v6_checkpoint_files_available
+            and not v6_checkpoint_contract_current
+        )
+        v6_checkpoint_available = bool(
+            v6_checkpoint_files_available
+            and v6_checkpoint_contract_current
+        )
         failure_retryable = bool(
             progress_failure.get("retryable")
             if isinstance(progress_failure, dict) and "retryable" in progress_failure
@@ -2884,6 +2905,8 @@ class TaskManager:
             "reason_code": (
                 "checkpoint_available"
                 if can_resume
+                else "checkpoint_contract_stale"
+                if v6_checkpoint_contract_stale
                 else "job_active"
                 if status in {"pending", "running"}
                 else "not_needed"
@@ -2891,6 +2914,8 @@ class TaskManager:
             "reason": (
                 "已完成的页面与产物会被复用，只重建未完成或失效单元"
                 if can_resume
+                else "生成协议已升级，请重新生成当前组合"
+                if v6_checkpoint_contract_stale
                 else "同源教学产物任务正在执行"
             ),
             "checkpoint": checkpoint,

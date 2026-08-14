@@ -20,6 +20,7 @@ from guided_generation import (
     mark_waiting,
     step_state,
 )
+from slide_deck_v6_orchestrator import SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
 from task_manager import TaskManager
 
 
@@ -137,6 +138,7 @@ async def test_v6_ppt_recovery_requires_a_retryable_failure(tmp_path, monkeypatc
     manager.tasks["retryable"] = {
         **common,
         "id": "retryable",
+        "slide_build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
         "slide_build_progress_v2": {
             "failure": {"retryable": True, "code": "story_ai_batch_timeout"},
         },
