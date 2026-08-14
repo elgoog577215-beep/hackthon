@@ -87,6 +87,9 @@ def block_source_text(block: CourseBlock) -> str:
         payload.get("markdown")
         or payload.get("text")
         or payload.get("content")
+        or payload.get("code")
+        or payload.get("formula")
+        or payload.get("table")
         or payload.get("summary")
         or ""
     ).strip()
@@ -95,9 +98,9 @@ def block_source_text(block: CourseBlock) -> str:
 def _artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
     kinds: list[ArtifactKind] = []
     explicit = _ARTIFACT_KIND_BY_BLOCK_KIND.get(block.kind)
-    if explicit:
-        kinds.append(explicit)
     text = block_source_text(block)
+    if explicit and (explicit not in {"code", "formula", "table"} or text):
+        kinds.append(explicit)
     # Structured course blocks can still carry canonical Markdown artifacts.
     # Detect the source expression itself instead of assuming only rich-text
     # blocks can contain code, formulae, or tables.

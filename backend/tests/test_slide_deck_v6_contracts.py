@@ -394,6 +394,25 @@ def test_visual_decision_fills_required_visual_slot_during_final_compilation(
             )],
         )],
     )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page_id,
+            decision=visual_decision,
+            source_block_ids=unit.primary_block_ids,
+            source_asset_ids=source_asset_ids,
+            visual_payload=visual_payload,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    rendered_page = adapt_v6_page_to_slide_spec(deck.pages[0])
+
+    assert [region.content_kind for region in deck.pages[0].regions] == ["body"]
+    assert deck.pages[0].visual_decision.decision == visual_decision
+    assert [item["kind"] for item in rendered_page.visuals] == [rendered_visual_kind]
 
 
 def test_code_block_source_text_reads_the_canonical_code_payload() -> None:
@@ -475,25 +494,6 @@ def test_story_preflight_rejects_a_code_template_for_an_empty_code_block() -> No
 
     with pytest.raises(V6BuildError, match="template_required_slot_unfilled"):
         validate_slide_story_plan_v3(story, graph, template)
-    visual = SlideVisualPlanV2(
-        source_document_revision=document.document_revision,
-        template_digest=template.template_digest,
-        decisions=[SlideVisualDecisionV2(
-            page_id=page_id,
-            decision=visual_decision,
-            source_block_ids=unit.primary_block_ids,
-            source_asset_ids=source_asset_ids,
-            visual_payload=visual_payload,
-            resolved_template_layout_id=layout_id,
-        )],
-    )
-
-    deck = compile_slide_deck_v6(document, graph, story, visual, template)
-    rendered_page = adapt_v6_page_to_slide_spec(deck.pages[0])
-
-    assert [region.content_kind for region in deck.pages[0].regions] == ["body"]
-    assert deck.pages[0].visual_decision.decision == visual_decision
-    assert [item["kind"] for item in rendered_page.visuals] == [rendered_visual_kind]
 
 
 def _cross_subject_document() -> CourseDocument:
