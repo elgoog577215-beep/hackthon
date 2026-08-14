@@ -2052,6 +2052,7 @@ def _materialize_template_regions(
     layout: Any,
     source_blocks: list[CourseBlock],
     story_summary: str = "",
+    visual_decision: SlideVisualDecisionV2 | None = None,
 ) -> list[SlideRegionV6]:
     title_slot = next(
         (slot for slot in layout.slots if slot.slot_kind == "title"),
@@ -2081,7 +2082,11 @@ def _materialize_template_regions(
             assigned[slot.slot_id] = matches
             remaining = [block for block in remaining if block not in matches]
 
-    text_slots = [slot for slot in content_slots if slot.slot_id not in assigned]
+    text_slots = [
+        slot
+        for slot in content_slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
     reusable_artifact_blocks = [
         block
         for slot_blocks in assigned.values()
@@ -2166,7 +2171,12 @@ def _materialize_template_regions(
                 message=f"Source-backed content exceeds template slot {slot.slot_id}",
                 page_id=page_id,
             ) from error
-        if slot.required and not content:
+        visual_decision_fills_slot = bool(
+            slot.slot_kind == "visual"
+            and visual_decision is not None
+            and visual_decision.decision in set(layout.artifact_kinds)
+        )
+        if slot.required and not content and not visual_decision_fills_slot:
             raise V6BuildError(
                 stage="template",
                 code="template_required_slot_unfilled",
@@ -2883,16 +2893,17 @@ def compile_slide_deck_v6(
                 continuation_count,
                 int(getattr(title_slot, "max_chars", 0) or 0),
             )
+            decision = visual_by_page[story_page.page_id].model_copy(
+                update={"page_id": page_id},
+                deep=True,
+            )
             regions = _materialize_template_regions(
                 page_id=page_id,
                 title=title,
                 layout=layout,
                 source_blocks=materialized_blocks,
                 story_summary=story_page.summary,
-            )
-            decision = visual_by_page[story_page.page_id].model_copy(
-                update={"page_id": page_id},
-                deep=True,
+                visual_decision=decision,
             )
             pages.append(
                 SlidePageV6(
