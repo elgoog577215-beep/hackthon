@@ -3981,6 +3981,124 @@ async def test_required_diagram_layout_restricts_visual_ai_to_diagram() -> None:
 
 
 @pytest.mark.asyncio
+async def test_invalid_diagram_edges_degrade_to_safe_text_layout_and_compile() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-observation-edge-fallback",
+            title="Observation verification flow",
+            sections=[CourseSection(
+                section_id="field",
+                title="Field verification",
+                position=0,
+            )],
+            blocks=[CourseBlock(
+                block_id="flow",
+                section_id="field",
+                position=0,
+                role="concept",
+                payload={
+                    "markdown": (
+                        "## Review the observation flow\n"
+                        "Collect the field sample and record its location, time, and "
+                        "environment. Compare the observation against the expected "
+                        "criteria, retain the original evidence, and record the verified "
+                        "result together with any exception that still needs review."
+                    )
+                },
+            )],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "observation-flow",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/evidence-diagram")
+                ),
+                "title": "Review the observation flow",
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    calls = []
+
+    async def visual_planner(request):
+        calls.append(request)
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "diagram",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+                "visual_payload": {
+                    "nodes": [
+                        {
+                            "node_id": "collect",
+                            "label": "Collect the field sample",
+                            "source_block_ids": ["flow"],
+                        },
+                        {
+                            "node_id": "compare",
+                            "label": "Compare the observation",
+                            "source_block_ids": ["flow"],
+                        },
+                        {
+                            "node_id": "record",
+                            "label": "Record the verified result",
+                            "source_block_ids": ["flow"],
+                        },
+                    ],
+                    "edges": [
+                        {"source": "collect", "target": "missing-node"},
+                    ],
+                },
+            }],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+
+    assert len(calls) == 2
+    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert repair_target["declared_node_ids"] == ["collect", "compare", "record"]
+    assert repair_target["invalid_edges"] == [
+        {"source": "collect", "target": "missing-node"},
+    ]
+    decision = visual.decisions[0]
+    assert decision.decision == "text_native"
+    assert decision.degraded is True
+    assert decision.degradation_reason == "visual_diagram_edge_invalid"
+    assert decision.resolved_template_layout_id.endswith("/content-stack")
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert deck.status == "v6_needs_manual_edit"
+    assert deck.pages[0].template_layout_id.endswith("/content-stack")
+    assert "missing-node" not in str(deck.model_dump(mode="json"))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("asset_refs", "figure_layout_allowed"),
     [([], False), (["source-photo"], True)],
