@@ -289,6 +289,102 @@ def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts
     }
 
 
+@pytest.mark.parametrize(
+    ("layout_slug", "visual_decision", "source_asset_ids", "visual_payload"),
+    [
+        (
+            "evidence-diagram",
+            "diagram",
+            [],
+            {
+                "nodes": [
+                    {
+                        "node_id": "collect",
+                        "label": "Collect the field sample",
+                        "source_block_ids": ["observation-flow"],
+                    },
+                    {
+                        "node_id": "compare",
+                        "label": "Compare the observation",
+                        "source_block_ids": ["observation-flow"],
+                    },
+                ],
+                "edges": [{"source": "collect", "target": "compare"}],
+            },
+        ),
+        ("evidence-figure", "image", ["field-photo"], {}),
+    ],
+)
+def test_visual_decision_fills_required_visual_slot_during_final_compilation(
+    layout_slug: str,
+    visual_decision: str,
+    source_asset_ids: list[str],
+    visual_payload: dict,
+) -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id=f"generic-visual-slot-{visual_decision}",
+        title="Field evidence",
+        sections=[CourseSection(section_id="field", title="Field review", position=0)],
+        blocks=[CourseBlock(
+            block_id="observation-flow",
+            section_id="field",
+            position=0,
+            role="concept",
+            kind="rich_text",
+            payload={
+                "markdown": (
+                    "Collect the field sample, compare the observation, and record "
+                    "the verified result."
+                )
+            },
+            asset_refs=source_asset_ids,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page_id = f"visual-slot-{visual_decision}"
+    layout_id = template.layout_id(layout_slug)
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-visual-slot",
+            chapter_id="field",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id=page_id,
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Collect and compare field evidence",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page_id,
+            decision=visual_decision,
+            source_block_ids=unit.primary_block_ids,
+            source_asset_ids=source_asset_ids,
+            visual_payload=visual_payload,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert [region.content_kind for region in deck.pages[0].regions] == ["body"]
+    assert deck.pages[0].visual_decision.decision == visual_decision
+
+
 def _cross_subject_document() -> CourseDocument:
     long_definition = "生态承载力描述环境在不发生不可逆退化时可持续支持的活动规模。" * 12
     return refresh_document_revision(
