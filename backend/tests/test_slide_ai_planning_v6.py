@@ -1438,6 +1438,156 @@ async def test_story_batch_normalizes_four_markdown_summaries_without_ai_retry()
     )
 
 
+@pytest.mark.parametrize(
+    "failure_code",
+    ["story_unsupported_fact", "story_unsupported_semantic_claim"],
+)
+def test_story_grounding_repair_converges_all_invalid_pages_in_one_pass(
+    failure_code: str,
+) -> None:
+    source = (
+        "Evidence review records the habitat boundary, observation time, weather, "
+        "instrument calibration, acceptance criterion, review decision, and owner."
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-batch-grounding",
+        title="Field evidence",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Evidence review",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="field-evidence",
+            section_id="chapter-a",
+            position=0,
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    unit = request["teaching_units"][0]
+    layout_id = next(
+        layout_id
+        for layout_id in unit["allowed_template_layout_ids"]
+        if layout_id.endswith("/chapter-entry")
+    )
+    pages = [
+        {
+            "page_id": f"field-grounding-page-{index}",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": layout_id,
+            "title": unit["title_candidates"][0],
+            "summary": (
+                "Evidence review records the habitat boundary and weather. "
+                f"fabricatedMetric{9000 + index}."
+            ),
+            "source_block_ids": unit["primary_block_ids"],
+        }
+        for index in range(4)
+    ]
+    payload = {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": request["chapter_id"],
+        "pages": pages,
+    }
+    error = V6BuildError(
+        stage="story",
+        code=failure_code,
+        message="Story summary is not grounded in its frozen source unit",
+        page_id=pages[0]["page_id"],
+    )
+
+    repaired = planning_module._apply_grounded_story_repairs(
+        payload,
+        request,
+        error,
+    )
+
+    assert repaired is not payload
+    assert len(repaired["pages"]) == 4
+    assert all(
+        planning_module._protected_tokens(page["summary"])
+        <= planning_module._protected_tokens(unit["source_text"])
+        for page in repaired["pages"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_story_batch_repairs_four_unsupported_facts_without_ai_retry() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-batch-unsupported-facts",
+        title="Field evidence workflow",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Evidence review",
+            position=0,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id=f"field-evidence-{index}",
+                section_id="chapter-a",
+                position=index,
+                role="concept",
+                payload={
+                    "markdown": (
+                        f"Evidence checkpoint {index + 1} records habitat boundary, "
+                        "weather, calibration, review decision, and follow-up owner."
+                    ),
+                },
+            )
+            for index in range(4)
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls: list[dict] = []
+
+    async def planner(request):
+        calls.append(request)
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": f"field-unsupported-fact-page-{index}",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": next(
+                        layout_id
+                        for layout_id in unit["allowed_template_layout_ids"]
+                        if layout_id.endswith("/chapter-entry")
+                    ),
+                    "title": unit["title_candidates"][0],
+                    "summary": (
+                        f"Evidence checkpoint {index + 1} records habitat boundary, "
+                        "weather, calibration, and review decision. "
+                        f"fabricatedMetric{9000 + index}."
+                    ),
+                    "source_block_ids": unit["primary_block_ids"],
+                }
+                for index, unit in enumerate(request["teaching_units"])
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert len(story.pages) == 4
+    assert all(
+        planning_module._protected_tokens(page.summary)
+        <= planning_module._protected_tokens(
+            next(
+                unit.source_text
+                for unit in graph.units
+                if unit.teaching_unit_id == page.teaching_unit_id
+            )
+        )
+        for page in story.pages
+    )
+
+
 def test_visible_prose_compiles_fenced_code_and_markdown_table_without_markers() -> None:
     source = (
         "```text\nreview_status = accepted\n```\n\n"
