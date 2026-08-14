@@ -1298,6 +1298,77 @@ def test_story_markdown_repair_compiles_block_markup_into_plain_summary() -> Non
     assert "observation time" in repaired_summary
 
 
+def test_story_markdown_repair_converges_all_invalid_pages_in_one_pass() -> None:
+    source = (
+        "## Field evidence review\n\n"
+        "- Record the habitat boundary, observation time, weather, and signed "
+        "evidence identifier.\n"
+        "> Verify the acceptance criterion and review decision before publication."
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-batch-markdown",
+        title="Field evidence",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Evidence review",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="field-evidence",
+            section_id="chapter-a",
+            position=0,
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    unit = request["teaching_units"][0]
+    layout_id = next(
+        layout_id
+        for layout_id in unit["allowed_template_layout_ids"]
+        if layout_id.endswith("/chapter-entry")
+    )
+    pages = [
+        {
+            "page_id": f"field-markdown-page-{index}",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": layout_id,
+            "title": unit["title_candidates"][0],
+            "summary": f"**Review {index}.**\n- Preserve the evidence record.",
+            "source_block_ids": unit["primary_block_ids"],
+        }
+        for index in range(4)
+    ]
+    payload = {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": request["chapter_id"],
+        "pages": pages,
+    }
+    error = V6BuildError(
+        stage="story",
+        code="story_summary_markdown_invalid",
+        message="Story summary must be presentation-ready text without Markdown",
+        page_id=pages[-1]["page_id"],
+    )
+
+    repaired = planning_module._apply_grounded_story_repairs(
+        payload,
+        request,
+        error,
+    )
+
+    assert repaired is not payload
+    assert len(repaired["pages"]) == 4
+    assert all(
+        planning_module._presentation_summary_text(page["summary"])
+        == page["summary"].strip()
+        and not planning_module._looks_like_markdown_table(page["summary"])
+        for page in repaired["pages"]
+    )
+
+
 def test_visible_prose_compiles_fenced_code_and_markdown_table_without_markers() -> None:
     source = (
         "```text\nreview_status = accepted\n```\n\n"
