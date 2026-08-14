@@ -2314,33 +2314,40 @@ async def plan_slide_story_v3(
                             batch=candidate_batch,
                         )
                     except V6BuildError as validation_error:
-                        repaired_payload = _apply_grounded_story_repairs(
-                            previous_response_payload,
-                            request,
-                            validation_error,
-                        )
-                        if repaired_payload is previous_response_payload:
-                            repaired_payload = _coalesce_oversplit_story_unit(
+                        if validation_error.failure.code == "duplicate_slide_title":
+                            candidate_batch = _assign_global_story_titles(
+                                [candidate_batch],
+                                [request],
+                            )[0]
+                            local_pages = list(candidate_batch.pages)
+                        else:
+                            repaired_payload = _apply_grounded_story_repairs(
                                 previous_response_payload,
                                 request,
                                 validation_error,
                             )
-                        if repaired_payload is previous_response_payload:
-                            raise
-                        previous_response_payload = repaired_payload
-                        response = _StoryBatchResponse.model_validate(
-                            previous_response_payload
-                        )
-                        local_pages = [
-                            SlideStoryPageV3(
-                                **item.model_dump(mode="json"),
-                                page_ordinal=index,
+                            if repaired_payload is previous_response_payload:
+                                repaired_payload = _coalesce_oversplit_story_unit(
+                                    previous_response_payload,
+                                    request,
+                                    validation_error,
+                                )
+                            if repaired_payload is previous_response_payload:
+                                raise
+                            previous_response_payload = repaired_payload
+                            response = _StoryBatchResponse.model_validate(
+                                previous_response_payload
                             )
-                            for index, item in enumerate(response.pages)
-                        ]
-                        candidate_batch = candidate_batch.model_copy(
-                            update={"pages": local_pages}
-                        )
+                            local_pages = [
+                                SlideStoryPageV3(
+                                    **item.model_dump(mode="json"),
+                                    page_ordinal=index,
+                                )
+                                for index, item in enumerate(response.pages)
+                            ]
+                            candidate_batch = candidate_batch.model_copy(
+                                update={"pages": local_pages}
+                            )
                         _validate_story_batch_candidate(
                             graph=graph,
                             template=template,
