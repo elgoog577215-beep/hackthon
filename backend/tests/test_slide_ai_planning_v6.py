@@ -2594,7 +2594,7 @@ async def test_story_normalizes_duplicate_titles_from_unused_source_candidates()
 
 
 @pytest.mark.asyncio
-async def test_story_batches_reserve_titles_accepted_by_prior_chapters() -> None:
+async def test_story_globally_reassigns_titles_when_later_chapter_has_only_shared_candidate() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-title-reservation",
         title="Shared observation course",
@@ -2615,7 +2615,7 @@ async def test_story_batches_reserve_titles_accepted_by_prior_chapters() -> None
                 section_id="phase-b",
                 position=0,
                 role="concept",
-                payload={"markdown": "## Shared checkpoint\n## Beta evidence"},
+                payload={"markdown": "## Shared checkpoint"},
             ),
         ],
     ))
@@ -2644,12 +2644,63 @@ async def test_story_batches_reserve_titles_accepted_by_prior_chapters() -> None
 
     assert len(calls) == 2
     assert calls[0]["constraints"]["forbidden_titles"] == []
-    assert calls[1]["constraints"]["forbidden_titles"] == ["Shared checkpoint"]
+    assert calls[1]["constraints"]["forbidden_titles"] == []
     assert [page.title for page in story.pages] == [
+        "Alpha evidence",
         "Shared checkpoint",
-        "Beta evidence",
     ]
     validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_reports_nonretryable_failure_when_global_title_assignment_is_impossible() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-title-capacity",
+        title="Shared observation course",
+        sections=[
+            CourseSection(section_id="phase-a", title="Phase A", position=0),
+            CourseSection(section_id="phase-b", title="Phase B", position=1),
+        ],
+        blocks=[
+            CourseBlock(
+                block_id="observation-a",
+                section_id="phase-a",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Shared checkpoint"},
+            ),
+            CourseBlock(
+                block_id="observation-b",
+                section_id="phase-b",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Shared checkpoint"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"page-{request['chapter_id']}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert captured.value.failure.code == "story_title_assignment_unsatisfiable"
+    assert captured.value.failure.retryable is False
 
 
 @pytest.mark.asyncio
