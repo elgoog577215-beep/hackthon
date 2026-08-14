@@ -825,6 +825,50 @@ def _validate(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _blocking_issue_signatures(validation: dict[str, Any]) -> set[tuple[str, str]]:
+    signatures: set[tuple[str, str]] = set()
+    for key in ("issues", "blocking_issues", "blockers"):
+        for issue in validation.get(key) or []:
+            if not isinstance(issue, dict):
+                continue
+            if key == "issues" and not issue.get("blocking"):
+                continue
+            signatures.add((_text(issue.get("code")), _text(issue.get("message"))))
+    return signatures
+
+
+def _validate_change(
+    base_snapshot: dict[str, Any],
+    candidate_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Allow a teacher edit that does not introduce a new quality blocker.
+
+    Older generated courses can carry a baseline warning that the current edit
+    cannot repair (for example a legacy class-hour total). Blocking every AI or
+    manual change on that unrelated baseline defect makes the workbench
+    unusable. We still expose the existing blocker and keep strict_passed false,
+    but permit a change only when it adds no new blocking signature.
+    """
+    validation = _validate(candidate_snapshot)
+    if validation.get("passed"):
+        return validation
+    baseline = _validate(base_snapshot)
+    existing = _blocking_issue_signatures(baseline)
+    candidate = _blocking_issue_signatures(validation)
+    introduced = candidate - existing
+    if introduced:
+        return validation
+    adjusted = deepcopy(validation)
+    adjusted["passed"] = True
+    adjusted["status"] = "warning"
+    adjusted["accepted_with_existing_blockers"] = True
+    adjusted["existing_blockers"] = [
+        {"code": code, "message": message}
+        for code, message in sorted(candidate)
+    ]
+    return adjusted
+
+
 def _impact(
     operations: list[dict[str, Any]],
     snapshot: dict[str, Any],
@@ -1709,7 +1753,7 @@ class TeachingPlanWorkbenchService:
         candidate_snapshot = deepcopy(base_snapshot)
         for operation in operations:
             _write_path(candidate_snapshot, operation["path"], operation["after"])
-        validation = _validate(candidate_snapshot)
+        validation = _validate_change(base_snapshot, candidate_snapshot)
         impact = _impact(operations, candidate_snapshot, course_data=raw)
         if not validation.get("passed") or impact.get("blocking"):
             raise TeachingPlanWorkbenchError(
@@ -1945,7 +1989,7 @@ class TeachingPlanWorkbenchService:
         current_plan_revision = _current_plan_revision(raw)
         snapshot = deepcopy(draft.get("snapshot") or {})
         operations = deepcopy(draft.get("operations") or [])
-        validation = _validate(snapshot)
+        validation = _validate_change(current, snapshot)
         status = _draft_status(draft, current_plan_revision)
         return {
             "draft_id": draft_id,
@@ -2011,7 +2055,7 @@ class TeachingPlanWorkbenchService:
                     "teaching_plan_no_changes",
                     "草稿没有修改，不能创建正式变更集。",
                 )
-            validation = _validate(snapshot)
+            validation = _validate_change(current, snapshot)
             impact = _impact(operations, snapshot, course_data=working)
             status = "blocked" if not validation.get("passed") or impact.get("blocking") else "ready"
             state["change_sets"].append({
@@ -2096,7 +2140,7 @@ class TeachingPlanWorkbenchService:
                     details={"current_course_document_revision": document_revision},
                 )
             snapshot = deepcopy(change_set.get("snapshot") or {})
-            validation = _validate(snapshot)
+            validation = _validate_change(_source_snapshot(working), snapshot)
             impact = _impact(
                 change_set.get("operations") or [], snapshot, course_data=working,
             )

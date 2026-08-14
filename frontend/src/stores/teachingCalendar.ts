@@ -28,6 +28,10 @@ export interface ClassSession {
   course_title?: string
   course_color_key?: number
   calendar_revision?: number
+  calendar_layer?: 'official' | 'incomplete'
+  lesson_plan_status?: string
+  ppt_status?: string
+  has_conflict?: boolean
 }
 
 export interface TeachingCalendar {
@@ -51,6 +55,25 @@ export interface OutlineCalendarCandidate {
   retained_count: number
   new_count: number
   current_revision: number
+  projection?: {
+    mode: 'outline_chapters' | 'legacy_roots'
+    lesson_unit_count: number
+    requested_session_count?: number | null
+  }
+  diff: {
+    items: Array<{
+      kind: 'add' | 'update' | 'keep' | 'stale'
+      session_id?: string
+      lesson_unit_id?: string | null
+      title: string
+      reason: string
+      changes: Record<string, { before: string; after: string }>
+    }>
+    add_count: number
+    update_count: number
+    keep_count: number
+    stale_count: number
+  }
 }
 
 const messageFromError = (error: any, fallback: string) => {
@@ -162,12 +185,12 @@ export const useTeachingCalendarStore = defineStore('teaching-calendar', {
         this.saving = false
       }
     },
-    async loadTotal(dateFrom: string, dateTo: string) {
+    async loadTotal(dateFrom: string, dateTo: string, includeIncomplete = false) {
       this.loading = true
       this.error = ''
       try {
         const response = await http.get<{ count: number; sessions: ClassSession[] }>('/api/teachers/me/teaching-calendar', {
-          params: { date_from: dateFrom, date_to: dateTo },
+          params: { date_from: dateFrom, date_to: dateTo, include_incomplete: includeIncomplete },
           ...teacherRequestConfig(),
         })
         this.totalSessions = response.data.sessions

@@ -9,7 +9,7 @@ const httpMock = vi.hoisted(() => ({
   post: vi.fn(),
 }))
 
-vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/http', () => ({ default: httpMock, getTeacherIdentity: () => 'teacher-test' }))
 
 import GenerationLessonPlan from '@/components/GenerationLessonPlan.vue'
 import {
@@ -139,13 +139,13 @@ describe('课程教案工作台', () => {
       1,
       '/api/courses/course-1/teaching-plan/baseline',
       expect.objectContaining({ base_course_document_revision: 'cdr-1' }),
-      { silentError: true },
+      expect.objectContaining({ silentError: true, headers: { 'X-User-Id': 'teacher-test' } }),
     )
     expect(httpMock.post).toHaveBeenNthCalledWith(
       2,
       '/api/courses/course-1/teaching-plan/drafts',
       expect.objectContaining({ base_plan_revision_id: 'tpr-1' }),
-      { silentError: true },
+      expect.objectContaining({ silentError: true, headers: { 'X-User-Id': 'teacher-test' } }),
     )
     expect(wrapper.text()).toContain('正式修订 #1')
     expect(wrapper.text()).toContain('草稿已保存')

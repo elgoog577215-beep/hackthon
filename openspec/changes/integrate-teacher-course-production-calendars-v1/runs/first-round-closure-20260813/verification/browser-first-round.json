@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at": "2026-08-13T06:54:00Z",
+  "verified_at": "2026-08-14T09:37:05Z",
   "base_url": "http://127.0.0.1:5181",
   "backend_url": "http://127.0.0.1:8002",
   "production_rendering": true,
@@ -10,20 +10,20 @@
   "browser_responsive": true,
   "console_errors": 0,
   "evidence": {
-    "production_rendering": "Published Python course preview rendered Markdown and KaTeX; raw underbrace source was absent.",
+    "production_rendering": "The same acceptance course renders as ten lectures in overview, teaching-plan navigation and teaching calendar; lesson previews use teacher asset/state information.",
     "teaching_ai": "Created a real teaching-plan draft, POSTed an AI candidate with HTTP 200, displayed field-level diffs, then rejected and discarded the disposable draft.",
-    "ppt": "Preserved node L2-1-1, POSTed slide-decks/build/stream with HTTP 200, completed an 11-slide deck with quality pass, and returned to stage=ppt&node=L2-1-1.",
+    "ppt": "A teacher-confirmed source opened the unchanged PPT workspace before student release; no fake learner publication was created.",
     "ppt_status": "After reload the production tab and PPT header read the same ready representation as generated/confirmed.",
-    "calendar_exchange": "Exported a UTF-8 CSV, re-imported it with duplicate detection, imported one novel row, saved with HTTP 200, confirmed revision 4 through the API, then removed the disposable row and restored revision 5 with four sessions.",
+    "calendar_exchange": "Revision 14 exported editable DOCX, searchable fixed PDF, XLSX and CSV from one calendar source. DOCX had 10 columns and ten session rows plus notes; the rendered PDF showed the same ten records without clipping.",
     "calendar_persistence": "Edited a course session, saved and reloaded it, observed the same value in the total calendar, and restored the original fixture value.",
-    "total_calendar": "Month, week and list views aggregated three courses/five sessions; event click returned to the unique course calendar session.",
-    "responsive": "Production and calendar surfaces were inspected at 1440, 1180, 880 and 680 px; the mobile production body remained reachable and the AI assistant became an overlay.",
+    "total_calendar": "Month, week and list views aggregate four courses with stable colors, incomplete filtering and overlap conflicts; event actions return to the unique ClassSession or exact preparation context.",
+    "responsive": "Production and calendar surfaces were inspected at 1440, 1180, 1024, 880 and 680 px. At 880 the hidden AI dock no longer reserves an empty grid column; the teaching body uses all remaining width.",
     "screenshots": [
-      "output/playwright/first-round-closure/repaired-preview.png",
-      "output/playwright/first-round-closure/repaired-teaching-ai.png",
-      "output/playwright/first-round-closure/production-ppt-680-fixed.png",
-      "output/playwright/first-round-closure/course-calendar-month-1440.png",
-      "output/playwright/first-round-closure/total-calendar-month-1440.png"
+      "output/playwright/verified-ai-teaching-candidate.png",
+      "output/playwright/verified-teacher-preview-readonly.png",
+      "output/playwright/verified-production-880.png",
+      "output/playwright/verified-calendar-1024.png",
+      "output/playwright/review-master-calendar.png"
     ]
   }
 }

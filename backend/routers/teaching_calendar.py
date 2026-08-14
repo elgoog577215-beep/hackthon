@@ -6,8 +6,10 @@ import hashlib
 from datetime import date as calendar_date
 from datetime import time as clock_time
 from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
 from dependencies import get_course_or_404, get_task_manager_optional
@@ -18,6 +20,7 @@ from teaching_calendar import (
     TeachingCalendarValidationError,
     teaching_calendar_repository,
 )
+from teaching_calendar_export import EXPORTERS, build_csv
 
 
 router = APIRouter(tags=["teaching_calendar"])
@@ -47,10 +50,9 @@ class ClassSessionInput(BaseModel):
             raise ValueError("开始时间和结束时间必须同时填写")
         if self.start_time and self.end_time and self.end_time <= self.start_time:
             raise ValueError("结束时间必须晚于开始时间")
-        if self.date and self.status == "unscheduled":
-            self.status = "scheduled"
-        if not self.date and self.status == "scheduled":
-            raise ValueError("已排课课次必须填写日期")
+        if self.status != "cancelled":
+            complete_schedule = bool(self.date and self.start_time and self.end_time)
+            self.status = "scheduled" if complete_schedule else "unscheduled"
         return self
 
 
@@ -125,18 +127,17 @@ def _expected_session_count(course: dict[str, Any]) -> int | None:
 
 def _calendar_units(course: dict[str, Any]) -> list[dict[str, Any]]:
     nodes = _flatten_nodes(list(course.get("nodes") or []))
-    expected_count = _expected_session_count(course)
     top_level = [
         node
         for node in nodes
         if int(node.get("node_level") or 0) == 1
         and str(node.get("parent_node_id") or "root") in {"", "root"}
     ]
-    # One generated chapter can contain several knowledge sections while still
-    # representing one class meeting.  Prefer the chapter projection only when
-    # it exactly matches the teacher's requested meeting count; otherwise keep
-    # the historical leaf-node behavior.
-    if expected_count and len(top_level) == expected_count:
+    # A chapter is the stable teacher-facing LessonUnit. It may contain several
+    # generated knowledge/content nodes and may later map to several A/B/C
+    # ClassSession rows. Never turn those descendants into extra lectures just
+    # because an older generation request persisted a different count.
+    if top_level:
         return top_level
     return _lesson_nodes(course)
 
@@ -263,15 +264,76 @@ async def derive_teaching_calendar(course_id: str, request: Request):
     # sessions, repeated A/B/C groups and rows whose old outline node no longer
     # exists—must remain byte-for-byte visible to the teacher. A dict keyed by
     # lesson ID would collapse repeated groups and silently drop unbound rows.
-    candidate_sessions: list[dict[str, Any]] = list(existing_sessions)
+    candidate_sessions: list[dict[str, Any]] = []
     retained_count = len(existing_sessions)
-    for index, node in enumerate(_calendar_units(outline_course)):
+    calendar_units = _calendar_units(outline_course)
+    units_by_id = {
+        str(node.get("node_id") or ""): node
+        for node in calendar_units
+        if str(node.get("node_id") or "")
+    }
+    diff_items: list[dict[str, Any]] = []
+
+    for raw in existing_sessions:
+        item = dict(raw)
+        lesson_unit_id = str(item.get("lesson_unit_id") or "")
+        unit = units_by_id.get(lesson_unit_id)
+        if not lesson_unit_id:
+            candidate_sessions.append(item)
+            diff_items.append({
+                "kind": "keep",
+                "session_id": item.get("session_id"),
+                "lesson_unit_id": None,
+                "title": str(item.get("content_summary") or "未命名课次"),
+                "reason": "手动课次未绑定教学大纲，保持不变",
+                "changes": {},
+            })
+            continue
+        if unit is None:
+            candidate_sessions.append(item)
+            diff_items.append({
+                "kind": "stale",
+                "session_id": item.get("session_id"),
+                "lesson_unit_id": lesson_unit_id,
+                "title": str(item.get("content_summary") or "未命名课次"),
+                "reason": "关联讲次已不在当前大纲中；保留课次，等待教师处理",
+                "changes": {},
+            })
+            continue
+
+        generated_content = str(unit.get("node_name") or unit.get("title") or "未命名讲次")
+        generated_requirements = _unit_requirements(outline_course, unit)
+        changes: dict[str, dict[str, Any]] = {}
+        if str(item.get("source") or "") == "outline":
+            if str(item.get("content_summary") or "") != generated_content:
+                changes["content_summary"] = {
+                    "before": str(item.get("content_summary") or ""),
+                    "after": generated_content,
+                }
+                item["content_summary"] = generated_content
+            if str(item.get("requirements") or "") != generated_requirements:
+                changes["requirements"] = {
+                    "before": str(item.get("requirements") or ""),
+                    "after": generated_requirements,
+                }
+                item["requirements"] = generated_requirements
+        candidate_sessions.append(item)
+        diff_items.append({
+            "kind": "update" if changes else "keep",
+            "session_id": item.get("session_id"),
+            "lesson_unit_id": lesson_unit_id,
+            "title": generated_content,
+            "reason": "仅更新大纲生成的教学内容与教学要求；日期、时间、地点、教师和小组保持不变" if changes else "已与当前大纲一致",
+            "changes": changes,
+        })
+
+    for index, node in enumerate(calendar_units):
         node_id = str(node.get("node_id") or "")
         if not node_id or node_id in existing_lesson_ids:
             continue
         content = str(node.get("node_name") or node.get("title") or f"第{index + 1}讲")
         objective = _unit_requirements(outline_course, node)
-        candidate_sessions.append({
+        candidate_session = {
             "session_id": f"candidate-{hashlib.sha256(f'{course_id}:{node_id}'.encode('utf-8')).hexdigest()[:16]}",
             "lesson_unit_id": node_id,
             "sequence": index + 1,
@@ -288,6 +350,15 @@ async def derive_teaching_calendar(course_id: str, request: Request):
             "notes": "",
             "status": "unscheduled",
             "source": "outline",
+        }
+        candidate_sessions.append(candidate_session)
+        diff_items.append({
+            "kind": "add",
+            "session_id": candidate_session["session_id"],
+            "lesson_unit_id": node_id,
+            "title": content,
+            "reason": "当前日历尚无该讲次，新增未排期候选",
+            "changes": {},
         })
         existing_lesson_ids.add(node_id)
     for sequence, item in enumerate(candidate_sessions, start=1):
@@ -304,7 +375,71 @@ async def derive_teaching_calendar(course_id: str, request: Request):
         "retained_count": retained_count,
         "new_count": len(candidate_sessions) - retained_count,
         "current_revision": int(current.get("revision") or 0),
+        "diff": {
+            "items": diff_items,
+            "add_count": sum(1 for item in diff_items if item["kind"] == "add"),
+            "update_count": sum(1 for item in diff_items if item["kind"] == "update"),
+            "keep_count": sum(1 for item in diff_items if item["kind"] == "keep"),
+            "stale_count": sum(1 for item in diff_items if item["kind"] == "stale"),
+        },
+        "projection": {
+            "mode": "outline_chapters" if any(int(node.get("node_level") or 0) == 1 for node in calendar_units) else "legacy_roots",
+            "lesson_unit_count": len(calendar_units),
+            "requested_session_count": _expected_session_count(outline_course),
+        },
     }
+
+
+@router.get("/courses/{course_id}/teaching-calendar/export")
+async def export_teaching_calendar(
+    course_id: str,
+    request: Request,
+    format: Literal["docx", "pdf", "xlsx", "csv"] = Query(default="docx"),
+    revision: int | None = Query(default=None, ge=0),
+):
+    course = await get_course_or_404(course_id)
+    calendar = _apply_calendar_defaults(
+        teaching_calendar_repository.load(_identity(request), course_id, _course_title(course)),
+        course,
+    )
+    current_revision = int(calendar.get("revision") or 0)
+    if revision is not None and revision != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "teaching_calendar_export_revision_conflict",
+                "message": f"请求导出的修订 {revision} 已不是最新修订；当前为 {current_revision}",
+                "current_revision": current_revision,
+            },
+        )
+    if not calendar.get("sessions"):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "teaching_calendar_export_empty", "message": "教学日历还没有课次，无法导出"},
+        )
+    try:
+        if format == "csv":
+            payload = build_csv(calendar)
+        else:
+            payload = EXPORTERS[format](calendar, course)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "teaching_calendar_export_failed", "message": f"{format.upper()} 导出失败：{exc}"},
+        ) from exc
+    media_types = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pdf": "application/pdf",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "csv": "text/csv; charset=utf-8",
+    }
+    safe_title = "".join(char if char not in '\\/:*?\"<>|' else "_" for char in str(calendar.get("course_title") or "教学日历"))
+    filename = quote(f"{safe_title}_教学日历_r{current_revision}.{format}")
+    return Response(
+        content=payload,
+        media_type=media_types[format],
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 @router.get("/teachers/me/teaching-calendar")
@@ -312,11 +447,17 @@ async def get_teacher_calendar(
     request: Request,
     date_from: calendar_date | None = Query(default=None),
     date_to: calendar_date | None = Query(default=None),
+    include_incomplete: bool = Query(default=False),
 ):
     if date_from and date_to and date_to < date_from:
         raise HTTPException(status_code=422, detail={"code": "invalid_date_range", "message": "结束日期不能早于开始日期"})
     try:
-        sessions = teaching_calendar_repository.list_sessions(_identity(request), date_from, date_to)
+        sessions = teaching_calendar_repository.list_sessions(
+            _identity(request),
+            date_from,
+            date_to,
+            include_incomplete=include_incomplete,
+        )
     except (TeachingCalendarError, TeachingCalendarValidationError) as exc:
         raise HTTPException(status_code=500, detail={"code": "teacher_calendar_read_failed", "message": str(exc)}) from exc
     return {"date_from": date_from, "date_to": date_to, "count": len(sessions), "sessions": sessions}

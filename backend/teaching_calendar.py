@@ -13,6 +13,7 @@ import json
 import os
 import re
 import tempfile
+import zlib
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -166,6 +167,7 @@ class TeachingCalendarRepository:
         owner_id: str,
         date_from: date | None = None,
         date_to: date | None = None,
+        include_incomplete: bool = False,
     ) -> list[dict[str, Any]]:
         owner_root = self.root / _owner_key(owner_id)
         if not owner_root.exists():
@@ -180,7 +182,11 @@ class TeachingCalendarRepository:
             course_title = str(value.get("course_title") or "未命名课程")
             for raw in value.get("sessions") or []:
                 session_date = str(raw.get("date") or "")
-                if not session_date or str(raw.get("status") or "scheduled") == "cancelled":
+                if not session_date or str(raw.get("status") or "unscheduled") == "cancelled":
+                    continue
+                complete_schedule = bool(raw.get("start_time") and raw.get("end_time"))
+                official = complete_schedule and str(raw.get("status") or "unscheduled") == "scheduled"
+                if not official and not include_incomplete:
                     continue
                 try:
                     parsed = date.fromisoformat(session_date)
@@ -195,7 +201,10 @@ class TeachingCalendarRepository:
                     "course_id": course_id,
                     "course_title": course_title,
                     "calendar_revision": int(value.get("revision") or 0),
-                    "course_color_key": int(hashlib.sha256(course_id.encode("utf-8")).hexdigest()[:4], 16) % 8,
+                    # Use the complete stable identifier. The former short SHA prefix
+                    # made several real courses collapse onto the same visible color.
+                    "course_color_key": zlib.crc32(course_id.encode("utf-8")) % 8,
+                    "calendar_layer": "official" if official else "incomplete",
                 })
                 rows.append(item)
         rows.sort(key=lambda item: (str(item.get("date") or ""), str(item.get("start_time") or ""), str(item.get("course_title") or "")))

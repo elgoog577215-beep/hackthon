@@ -940,6 +940,7 @@ async function confirmOutline() {
   overflow:auto;
   overscroll-behavior:contain;
   scrollbar-gutter:stable;
+  scrollbar-color:#c9ced8 transparent;
 }
 .outline-review__setup {
   min-width:0;

@@ -380,16 +380,41 @@ Viewports: 1440, 1180, 880 and 680. Every viewport checks navigation readability
 - [x] P0d Obtain user acceptance of this detailed plan and UI layout contract.
 - [ ] WP1 Course workspace entry and recoverable new-course flow. (Alpha page complete; idempotent blank shell API and term grouping remain.)
 - [x] WP2 Teacher overview and six route destinations. (All six routes retain the course context; stable CourseAsset identity remains WP7.)
-- [ ] WP3 Final production overview/preview/immersive workflow. (Published maintenance path complete; active task, per-lesson retry and PPT pre-release source remain.)
+- [x] WP3 First-round production overview/preview/immersive workflow. (Ten-lesson projection, real teaching-plan workbench, AI candidate flow, PPT pre-release source and read-only teacher preview are closed; multi-PPT asset/version history remains a later CourseAsset change.)
 - [x] WP4a Course calendar persistence functional alpha.
-- [ ] WP4b Course calendar V1 release UX/conflict/responsive completion.
+- [x] WP4b Course calendar first-round UX/conflict/responsive completion.
 - [x] WP5a Total calendar aggregation functional alpha.
-- [ ] WP5b Total calendar workspace-shell and dense-state completion.
-- [ ] Handoff WP6 to a follow-up change: import, school calendar and Zhejiang template DOCX/PDF release.
+- [x] WP5b Total calendar workspace-shell and dense-state completion.
+- [x] WP6a Zhejiang template export: editable DOCX, fixed PDF, XLSX and CSV from one saved revision.
+- [ ] Handoff WP6b to a follow-up change: school calendar and Word/PDF/Excel recognition with evidence/confidence review.
 - [ ] Handoff WP7 to a separate file-space bridge change after production/calendar stabilization.
 - [ ] Keep WP8 outside the current change; later student/collaboration/knowledge change only.
 - [x] Alpha verification, direct evidence and issue record: frontend 813 tests, backend calendar 5 tests, build and real browser at 1440/680.
 - [ ] V1 release verification with active/failed model-backed courses, overlapping calendars, import/export and permissions.
+
+## 9.1 Current closure round (2026-08-14)
+
+- [x] R1 Freeze and implement one compatibility projection. `frontend/src/utils/lesson-units.ts` and the backend calendar derivation treat each top-level outline chapter as one `LessonUnit`; all descendants are in-lesson content; each calendar row is a `ClassSession`.
+- [x] R2 Replace teacher-facing leaf-node projections with the shared `LessonUnit` projection. Overview, production, immersive navigation, release rows and calendar derivation now agree on ten lectures for the acceptance course.
+- [x] R3 Separate teacher PPT authoring from student publication through a compatibility adapter. A teacher-confirmed source opens the unchanged PPT workspace before release without fabricating a student publication.
+- [x] R4 Project lifecycle from one precedence rule and apply task polling cache/backoff. Stale completed jobs no longer override newer confirmed teacher assets.
+- [x] R5 Add `teacher-preview` as a read-only learner rendering mode. Browser network assertions observed zero learning-record, progress, practice or AI-conversation mutations.
+- [x] R6 Close single-course calendar gaps. Dense table is default; month/week remain alternate views; complete scheduling semantics, candidate diff, dirty guards, normalized time controls and responsive lecture navigation are verified.
+- [x] R7 Close total-calendar gaps. Entry/focus refresh, stable colors, filters, incomplete layer, overlap conflicts, asset readiness popover and exact schedule/preparation navigation are verified.
+- [x] R8 Produce the first Zhejiang University export from the same saved revision: editable DOCX, fixed PDF, XLSX and CSV. The final verification used revision 14 with ten sessions; DOCX contained an editable 10-column table and PDF rendered with searchable text and no clipping.
+- [x] R9 Run focused backend/frontend tests, production build and real-browser acceptance. Final evidence: backend 29 passed; frontend 51 passed; production build passed; nine Playwright flows passed at desktop and 1024/880 responsive widths, supplementing the earlier 1440/1180/880/680 sweep.
+
+### 9.2 Acceptance gates for this closure round
+
+| Gate | PASS condition | Failure/rollback condition |
+| --- | --- | --- |
+| G1 Domain consistency | The same test course is 10 lectures in overview, production and calendar; one lecture may contain N knowledge nodes and N schedule records. | Any page derives lecture count directly from leaf/content node count. |
+| G2 Authoring continuity | Outline confirmation opens per-lecture lesson-plan work; a confirmed lesson plan can open the unchanged PPT workspace before student release. | PPT requires `is_published`, or the adapter writes a fake release. |
+| G3 Version isolation | Working draft, teacher-confirmed version and student-published snapshot are separately named and projected. | Saving/previewing a teacher draft changes learner-visible state. |
+| G4 Calendar integrity | Outline derivation is a visible candidate diff; manual schedule fields survive; only complete sessions appear as scheduled. | Candidate silently overwrites saved data or incomplete sessions enter the official total calendar. |
+| G5 Read-only preview | Teacher preview performs GET-only learner rendering and returns to the originating teacher page. | Any learning record, AI conversation, progress or practice mutation is observed. |
+| G6 UI contract | Existing components/tokens are reused; status is concentrated at the top; categories stay in the left rail; body content appears in the first viewport; four target widths remain usable. | New visual system, explanatory-card sprawl, hidden core navigation or clipped controls. |
+| G7 Export fidelity | DOCX is editable and PDF/row sequence/metadata reconcile with the first Zhejiang template. | Screenshot-only/raster document, mismatched record count or independent export data source. |
 
 ## 10. Confirmed-decision traceability
 

@@ -32,7 +32,7 @@
           <strong>{{ courseTitle }}</strong>
           <span>{{ currentContextLabel }}</span>
           <span>{{ taskStatusLabel }}</span>
-          <span v-if="task">进度 {{ Math.round(task.progress || 0) }}%</span>
+          <span v-if="task && !teacherAuthoringReady">进度 {{ projectedTaskProgress }}%</span>
           <span v-if="reviewStep">待确认：{{ stageLabel(reviewStep) }}</span>
           <span v-if="failedLessonCount">异常讲次 {{ failedLessonCount }}</span>
           <span class="status-spacer"></span>
@@ -71,9 +71,9 @@
               type="button"
               class="next-step-button"
               :disabled="!pptAvailable"
-              :title="pptAvailable ? '进入独立 PPT 阶段' : '当前课程尚未形成可供 PPT 使用的正式课程源'"
+              :title="pptAvailable ? '进入独立 PPT 阶段' : pptBlockedReason"
               @click="selectStage('ppt')"
-            ><Presentation :size="14" />{{ pptAvailable ? '下一步：制作 PPT' : 'PPT 等待正式课程' }}</button>
+            ><Presentation :size="14" />{{ pptAvailable ? '下一步：制作 PPT' : 'PPT 等待教案确认' }}</button>
             <button v-if="showLessonRail" type="button" class="exit-immersive" @click="selectStage('overview')">返回课次总览</button>
           </div>
         </div>
@@ -95,7 +95,7 @@
             </div>
           </aside>
 
-          <section class="stage-workspace" :aria-label="activeStageLabel">
+          <section class="stage-workspace" :class="{ 'outline-mode': pageMode === 'outline' }" :aria-label="activeStageLabel">
             <div v-if="loading" class="workspace-state"><LoaderCircle class="spin" :size="24" /><span>正在读取课程生产状态</span></div>
             <div v-else-if="loadError" class="workspace-state is-error"><TriangleAlert :size="24" /><strong>课程状态读取失败</strong><span>{{ loadError }}</span><button type="button" @click="refresh">重试</button></div>
 
@@ -139,7 +139,7 @@
               <header class="workspace-header"><div><small>全部课次</small><h1>课程生产总览</h1></div><span>{{ lessons.length }} 讲</span></header>
               <div class="lesson-overview">
                 <table data-testid="production-lesson-table">
-                  <thead><tr><th>课次</th><th>教学主题</th><th>教案状态</th><th>PPT 状态</th><th>学生发布版</th><th>下一步</th></tr></thead>
+                  <thead><tr><th>讲次</th><th>教学主题</th><th>上课日期</th><th>教案状态</th><th>PPT 状态</th><th>学生发布版</th><th>下一步</th></tr></thead>
                   <tbody>
                     <tr
                       v-for="(lesson, index) in lessons"
@@ -153,6 +153,7 @@
                     >
                       <td><strong>{{ String(index + 1).padStart(2, '0') }}</strong></td>
                       <td><button type="button" class="lesson-link" @click.stop="previewLesson = lesson">{{ lesson.node_name }}</button></td>
+                      <td><span class="lesson-date">{{ lessonDateLabel(lesson, index) }}</span></td>
                       <td><span :data-state="lessonState(lesson)">{{ lessonState(lesson) }}</span></td>
                       <td><span :data-state="pptStageState">{{ pptStageLabel }}</span></td>
                       <td>{{ isPublished ? '已发布' : '未发布' }}</td>
@@ -184,13 +185,24 @@
               <div v-if="reviewStep === 'teaching' && task" class="teaching-review-gate">
                 <CourseGenerationGate :course-id="courseId" :task="task" @confirmed="handleGateConfirmed" />
               </div>
+              <div v-if="canConfirmTeacherSource" class="teacher-source-confirm" role="status">
+                <div>
+                  <strong>生成结果已完成，等待建立教师工作稿</strong>
+                  <span>确认后建立可编辑教案与 PPT 的共同来源；不会发布学生版。</span>
+                </div>
+                <button type="button" class="primary-button" :disabled="teachingWorkbenchStore.pendingAction === 'confirmSource'" @click="confirmTeacherSource">
+                  <LoaderCircle v-if="teachingWorkbenchStore.pendingAction === 'confirmSource'" :size="16" class="spin" />
+                  <CheckCircle2 v-else :size="16" />
+                  {{ teachingWorkbenchStore.pendingAction === 'confirmSource' ? '正在建立' : '确认并建立教案' }}
+                </button>
+              </div>
               <GenerationLessonPlan
                 ref="lessonPlanRef"
                 :plan="courseStore.currentTeachingPlan"
                 :nodes="courseStore.nodes"
                 :active-node-id="selectedNodeId"
                 :course-id="courseId"
-                :live="isGenerationPreview"
+                :live="teachingPlanLive"
                 :task="task"
                 ai-dock-target="#teacher-course-ai-dock"
                 prefer-section-view
@@ -208,7 +220,7 @@
                 <div><strong>{{ courseTitle }} · PPT 工作台</strong><span>课件继续使用现有同源构建、版本、预览和导出接口。</span></div>
                 <button type="button" class="primary-button" :disabled="!pptAvailable" @click="openPpt"><ExternalLink :size="16" />打开 PPT 工作台</button>
               </div>
-              <div v-if="!pptAvailable" class="boundary-note" role="status"><LockKeyhole :size="16" /><span>课程尚处于生成预览，PPT 只能基于已发布的 canonical 课程构建。</span></div>
+              <div v-if="!pptAvailable" class="boundary-note" role="status"><LockKeyhole :size="16" /><span>{{ pptBlockedReason }}</span><button type="button" @click="selectStage('teaching')">返回教案制作</button></div>
             </template>
 
           </section>
@@ -222,7 +234,7 @@
               <div class="ai-dock__context">
                 <small>当前处理</small>
                 <strong>{{ selectedLessonLabel }}</strong>
-                <span>{{ isGenerationPreview ? '教案仍在生成，完成后可发起优化' : '建议只进入当前草稿，不会直接改正式版本' }}</span>
+                <span>{{ teacherAuthoringReady ? '建议只进入当前草稿，不会直接改正式版本' : '先确认生成结果并建立教师工作稿' }}</span>
               </div>
               <div class="ai-dock__flow" aria-label="AI 优化流程">
                 <span><i>1</i>说明希望怎样优化</span>
@@ -240,7 +252,7 @@
               <button v-if="aiFailureMessage" type="button" class="ai-dock__primary" @click="router.push({ name: 'teacher-course-outline', params: { courseId } })">
                 检查并补齐教学大纲
               </button>
-              <button v-else type="button" class="ai-dock__primary" :disabled="isGenerationPreview" @click="openTeachingAi">
+              <button v-else type="button" class="ai-dock__primary" :disabled="!teacherAuthoringReady" @click="openTeachingAi">
                 <Sparkles :size="16" />AI 优化当前教案
               </button>
             </div>
@@ -268,7 +280,14 @@ import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import { useTeachingPlanWorkbenchStore } from '../stores/teachingPlanWorkbench'
+import { useTeachingCalendarStore } from '../stores/teachingCalendar'
 import type { GuidedGenerationStep, GuidedGenerationStepKey, Node } from '../stores/types'
+import {
+  lessonUnitHasContent,
+  lessonUnitPreviewMarkdown,
+  projectLessonUnits,
+  resolveLessonUnit,
+} from '../utils/lesson-units'
 
 type StageKey = 'overview' | 'teaching' | 'ppt'
 type PageMode = 'outline' | 'production' | 'release'
@@ -279,6 +298,7 @@ const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const teachingRepresentationsStore = useTeachingRepresentationsStore()
 const teachingWorkbenchStore = useTeachingPlanWorkbenchStore()
+const teachingCalendarStore = useTeachingCalendarStore()
 const activeStage = ref<StageKey>('overview')
 const previewLesson = ref<Node | null>(null)
 const loading = ref(false)
@@ -298,8 +318,29 @@ const task = computed(() => generationStore.tasks.get(courseId.value))
 const courseSummary = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value))
 const isPublished = computed(() => Boolean(courseSummary.value?.is_published))
 const courseTitle = computed(() => courseStore.currentCourse?.course_name || task.value?.courseName || '未命名课程')
-const courseMeta = computed(() => isPublished.value ? '正式课程' : task.value?.courseType || (courseStore.currentCourseProjection === 'generation_preview' ? '生成中' : '课程草稿'))
+const courseTypeLabels: Record<string, string> = {
+  systematic: '体系课程',
+  project: '项目课程',
+  inquiry: '探究课程',
+  exam: '备考课程',
+}
+const courseMeta = computed(() => {
+  if (isPublished.value) return '正式课程'
+  const courseType = String(task.value?.courseType || '')
+  if (courseTypeLabels[courseType]) return courseTypeLabels[courseType]
+  return courseStore.currentCourseProjection === 'generation_preview' ? '生成中' : '课程草稿'
+})
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+const activeWorkbench = computed(() => teachingWorkbenchStore.courseId === courseId.value ? teachingWorkbenchStore.workbench : null)
+const teacherAuthoringReady = computed(() => Boolean(activeWorkbench.value?.available || activeWorkbench.value?.can_initialize))
+const teachingPlanConfirmed = computed(() => Boolean(
+  activeWorkbench.value?.available
+  && activeWorkbench.value.current_plan_revision_id
+  && !activeWorkbench.value.draft,
+))
+const generationTerminal = computed(() => ['completed', 'completed_with_warnings', 'error', 'conflict'].includes(String(task.value?.status || '')))
+const canConfirmTeacherSource = computed(() => isGenerationPreview.value && generationTerminal.value && !teacherAuthoringReady.value)
+const teachingPlanLive = computed(() => isGenerationPreview.value && !teacherAuthoringReady.value)
 const reviewStep = computed(() => task.value?.guidedWorkflow?.review_step || '')
 const stages = [
   { key: 'overview' as const, index: '01', label: '课次总览', scope: '巡视全课' },
@@ -310,18 +351,25 @@ const activeStageLabel = computed(() => stages.find(item => item.key === activeS
 const currentContextLabel = computed(() => pageMode.value === 'production' ? activeStageLabel.value : pageTitle.value)
 const showLessonRail = computed(() => pageMode.value === 'production' && ['teaching', 'ppt'].includes(activeStage.value) && lessons.value.length > 0)
 const showAiDock = computed(() => pageMode.value === 'production' && activeStage.value === 'teaching')
-const lessons = computed<Node[]>(() => {
-  const sectionIds = new Set((courseStore.currentTeachingPlan?.sections || []).map(item => item.node_id).filter(Boolean))
-  const scoped = sectionIds.size ? courseStore.nodes.filter(node => sectionIds.has(node.node_id)) : courseStore.nodes.filter(node => node.node_level >= 2)
-  return scoped.length ? scoped : courseStore.nodes.filter(node => node.node_level === 1)
-})
-const selectedNodeId = computed(() => courseStore.currentNode?.node_id || lessons.value[0]?.node_id || '')
+const lessons = computed<Node[]>(() => projectLessonUnits(courseStore.nodes))
+const courseSessions = computed(() => teachingCalendarStore.calendar?.course_id === courseId.value ? teachingCalendarStore.calendar.sessions : [])
+const selectedLesson = computed(() => (
+  resolveLessonUnit(courseStore.nodes, courseStore.currentNode?.node_id || '')
+  || lessons.value[0]
+  || null
+))
+const selectedNodeId = computed(() => selectedLesson.value?.node_id || '')
 const selectedLessonLabel = computed(() => {
   const index = lessons.value.findIndex(item => item.node_id === selectedNodeId.value)
   const lesson = lessons.value[index]
   return lesson ? `第 ${String(index + 1).padStart(2, '0')} 讲 · ${lesson.node_name}` : '全课教案'
 })
-const pptAvailable = computed(() => isPublished.value && Boolean(courseStore.currentDocumentRevision))
+const pptAvailable = computed(() => teachingPlanConfirmed.value || isPublished.value)
+const pptBlockedReason = computed(() => {
+  if (!teacherAuthoringReady.value) return '请先确认生成结果，建立教师工作稿。'
+  if (activeWorkbench.value?.draft) return '当前教案还有未确认草稿。请先审阅并确认，再制作 PPT。'
+  return '请先建立并确认教案版本，再制作 PPT。'
+})
 const slideDeckRepresentation = computed(() => teachingRepresentationsStore.courseId === courseId.value
   ? teachingRepresentationsStore.representations.find(item => item.representation_type === 'slide_deck' && item.status !== 'archived')
   : undefined)
@@ -334,21 +382,33 @@ const pptStageState = computed(() => {
   return 'ready'
 })
 const pptStageLabel = computed(() => ({
-  locked: '等待正式课程', confirmed: '已生成', needs_regeneration: '来源已更新',
+  locked: '等待教案确认', confirmed: '已生成', needs_regeneration: '来源已更新',
   failed: '生成失败', in_progress: '生成中', ready: '可制作',
 } as Record<string, string>)[pptStageState.value])
 const previewLessonIndex = computed(() => lessons.value.findIndex(item => item.node_id === previewLesson.value?.node_id))
 const previewLessonPosition = computed(() => previewLessonIndex.value >= 0 ? `${previewLessonIndex.value + 1} / ${lessons.value.length}` : '')
 const previousPreviewLesson = computed(() => previewLessonIndex.value > 0 ? lessons.value[previewLessonIndex.value - 1] : null)
 const nextPreviewLesson = computed(() => previewLessonIndex.value >= 0 && previewLessonIndex.value < lessons.value.length - 1 ? lessons.value[previewLessonIndex.value + 1] : null)
-const canResume = computed(() => Boolean(task.value?.recovery?.can_resume) && !actionBusy.value)
+const canResume = computed(() => Boolean(
+  task.value?.recovery?.can_resume
+  && ['paused', 'error', 'conflict'].includes(String(task.value?.status || ''))
+  && !actionBusy.value,
+))
 const canPause = computed(() => ['running', 'pending'].includes(String(task.value?.status || '')) && !actionBusy.value)
-const taskStatusLabel = computed(() => ({ pending: '等待开始', running: '生成中', paused: '已暂停', waiting_for_review: '等待确认', completed: '已完成', completed_with_warnings: '已完成，有建议', error: '生成失败', conflict: '版本冲突', idle: '未开始' }[task.value?.status || 'idle']))
+const taskStatusLabel = computed(() => {
+  if (activeWorkbench.value?.draft) return '教案草稿编辑中'
+  if (teachingPlanConfirmed.value) return '教案已确认'
+  if (teacherAuthoringReady.value) return '教师工作稿已建立'
+  return ({ pending: '等待开始', running: '生成中', paused: '已暂停', waiting_for_review: '等待确认', completed: '已完成', completed_with_warnings: '已完成，有建议', error: '生成失败', conflict: '版本冲突', idle: '未开始' }[task.value?.status || 'idle'])
+})
+const projectedTaskProgress = computed(() => generationTerminal.value ? 100 : Math.round(task.value?.progress || 0))
 const nextActionLabel = computed(() => {
   if (isPublished.value && activeStage.value === 'teaching') return '教案可继续维护；下一步按需制作 PPT'
   if (isPublished.value && activeStage.value === 'ppt') return '正式课程源已就绪，可进入 PPT 工作台'
   if (isPublished.value) return '课程已发布，可继续维护教案或制作 PPT'
   if (reviewStep.value) return `请确认${stageLabel(reviewStep.value)}`
+  if (canConfirmTeacherSource.value) return '生成已完成；请到教案制作建立教师工作稿'
+  if (teacherAuthoringReady.value && !teachingPlanConfirmed.value) return '教师工作稿已建立；请确认教案后按需制作 PPT'
   return task.value?.currentStep || '等待任务推进'
 })
 const failedLessonCount = computed(() => task.value?.failedNodes?.length || 0)
@@ -357,8 +417,8 @@ const workflowSteps = computed<GuidedGenerationStep[]>(() => task.value?.guidedW
 const availableStageCount = computed(() => {
   return Number(lessons.value.length > 0) + Number(stageStatus('teaching') !== 'locked') + Number(pptAvailable.value)
 })
-const publicationState = computed(() => task.value?.publicationAllowed === false ? 'failed' : pptAvailable.value ? 'confirmed' : 'pending')
-const publicationLabel = computed(() => task.value?.publicationAllowed === false ? '发布受阻' : pptAvailable.value ? '已发布' : '待确认')
+const publicationState = computed(() => task.value?.publicationAllowed === false ? 'failed' : isPublished.value ? 'confirmed' : 'pending')
+const publicationLabel = computed(() => task.value?.publicationAllowed === false ? '发布受阻' : isPublished.value ? '已发布' : '待发布')
 const releaseRows = computed(() => [
   {
     key: 'outline', name: '教学大纲', detail: `${courseStore.nodes.length} 个课程节点`,
@@ -375,7 +435,7 @@ const releaseRows = computed(() => [
   {
     key: 'ppt', name: '课堂 PPT', detail: '独立版本与导出工作台',
     teacherState: pptStageState.value, teacherLabel: pptStageLabel.value,
-    studentLabel: pptAvailable.value ? '当前发布源可用' : '不可见', actionLabel: '打开 PPT', action: openPpt,
+    studentLabel: isPublished.value ? '读取已发布课件快照' : '不可见', actionLabel: '打开 PPT', action: openPpt,
   },
 ])
 const activeStageBlocked = computed(() => activeStage.value === 'teaching' && stageStatus('teaching') === 'locked')
@@ -390,14 +450,24 @@ function workflowStatusLabel(value: string) {
 function stageStatus(key: StageKey) {
   if (key === 'overview') return lessons.value.length ? 'confirmed' : 'pending'
   if (key === 'ppt') return pptStageState.value
-  if (isPublished.value && courseStore.currentDocumentRevision) return 'confirmed'
+  if (activeWorkbench.value?.draft) return 'in_progress'
+  if (teachingPlanConfirmed.value) return 'confirmed'
+  if (activeWorkbench.value?.can_initialize) return 'ready'
   const step = workflowSteps.value.find(item => item.key === key)
   if (step) return step.status
   if (!task.value && !isGenerationPreview.value) return 'pending'
   return 'locked'
 }
 function stageStatusLabel(key: StageKey) { return workflowStatusLabel(stageStatus(key)) }
-function lessonState(node: Node) { return node.error_summary ? '需要处理' : node.generation_status === 'completed' || node.node_content ? '已有内容' : '等待生成' }
+function lessonState(node: Node) { return node.error_summary ? '需要处理' : lessonUnitHasContent(courseStore.nodes, node) ? '已有内容' : '等待生成' }
+function lessonDateLabel(node: Node, index: number) {
+  const matched = courseSessions.value.filter(session => session.lesson_unit_id === node.node_id || (!session.lesson_unit_id && session.sequence === index + 1))
+  if (!matched.length) return '待排期'
+  const dated = matched.filter(session => session.date)
+  if (!dated.length) return `${matched.length} 条待排期`
+  const first = dated[0]?.date?.slice(5).replace('-', '/') || '待排期'
+  return dated.length > 1 ? `${first} 等 ${dated.length} 次` : first
+}
 function selectStage(key: StageKey) {
   activeStage.value = key
   if (['teaching', 'ppt'].includes(key) && lessons.value[0] && !lessons.value.some(node => node.node_id === courseStore.currentNode?.node_id)) {
@@ -422,11 +492,7 @@ function selectLesson(node: Node) {
 }
 function lessonNumber(node: Node) { return String(Math.max(1, lessons.value.findIndex(item => item.node_id === node.node_id) + 1)).padStart(2, '0') }
 function nodePreviewContent(node: Node) {
-  const blocks = (node.content_blocks || []).filter(block => block.content).slice(0, 2)
-  if (blocks.length) {
-    return blocks.map(block => `${block.title ? `## ${block.title}\n\n` : ''}${block.content}`).join('\n\n')
-  }
-  return String(node.node_content || node.learning_objective || '本讲已有教学结构，可进入教案工作区查看目标、策略、评价与课堂活动。')
+  return lessonUnitPreviewMarkdown(courseStore.nodes, node)
 }
 function showPreviousLesson() { if (previousPreviewLesson.value) previewLesson.value = previousPreviewLesson.value }
 function showNextLesson() { if (nextPreviewLesson.value) previewLesson.value = nextPreviewLesson.value }
@@ -439,7 +505,31 @@ function openPpt() {
   const returnTo = router.resolve({ name: 'teacher-course-production', params: { courseId: courseId.value }, query: { stage: 'ppt', node: selectedNodeId.value || undefined } }).fullPath
   void router.push({ name: 'ppt-workspace', params: { courseId: courseId.value }, query: { returnTo, node: selectedNodeId.value } })
 }
-function openStudentPreview() { void router.push({ name: 'learning', params: { courseId: courseId.value } }) }
+function openStudentPreview() {
+  const returnTo = router.resolve({
+    name: pageMode.value === 'release' ? 'teacher-course-release' : 'teacher-course-production',
+    params: { courseId: courseId.value },
+    query: pageMode.value === 'production' ? { stage: activeStage.value, node: selectedNodeId.value || undefined } : undefined,
+  }).fullPath
+  void router.push({
+    name: 'learning',
+    params: { courseId: courseId.value },
+    query: { teacherPreview: '1', returnTo },
+  })
+}
+
+async function confirmTeacherSource() {
+  if (!task.value || !canConfirmTeacherSource.value) return
+  actionBusy.value = true
+  try {
+    await teachingWorkbenchStore.confirmGenerationPreview(courseId.value, task.value.id)
+    ElMessage.success('已建立教师工作稿；学生版仍保持不变')
+  } catch {
+    ElMessage.error(teachingWorkbenchStore.errorMessage || '教师工作稿建立失败，请重试')
+  } finally {
+    actionBusy.value = false
+  }
+}
 
 async function loadCourse() {
   const id = courseId.value
@@ -451,7 +541,9 @@ async function loadCourse() {
     generationStore.initWebSocket()
     await courseStore.fetchCourseList()
     await courseStore.loadCourse(id)
-    if (isPublished.value) {
+    try { await teachingCalendarStore.loadCourse(id) } catch { /* Calendar absence does not block production. */ }
+    try { await teachingWorkbenchStore.load(id) } catch { /* Workbench state is rendered as an actionable boundary. */ }
+    if (isPublished.value || teacherAuthoringReady.value) {
       try { await teachingRepresentationsStore.load(id) } catch { /* PPT registry failure must not block the course workspace. */ }
     }
     generationStore.observeCourse(id)
@@ -459,8 +551,11 @@ async function loadCourse() {
     const requestedStage = String(route.query.stage || '')
     activeStage.value = requestedStage === 'teaching' || requestedStage === 'ppt' ? requestedStage : 'overview'
     const requestedNode = String(route.query.node || '')
-    const requestedLesson = lessons.value.find(node => node.node_id === requestedNode)
-    if (requestedLesson) courseStore.selectNode(requestedLesson)
+    const requestedLesson = resolveLessonUnit(courseStore.nodes, requestedNode)
+    if (requestedLesson) {
+      courseStore.selectNode(requestedLesson)
+      if (activeStage.value === 'overview') previewLesson.value = requestedLesson
+    }
     else if (lessons.value[0] && !lessons.value.some(node => node.node_id === courseStore.currentNode?.node_id)) courseStore.selectNode(lessons.value[0])
   } catch (error) {
     loadError.value = String((error as any)?.response?.data?.detail || (error as Error)?.message || '未知错误')
@@ -535,6 +630,7 @@ button { font:inherit; }
 .segmented-tabs button span[data-state="ready"] { color:var(--lz-brand-strong); }
 .segmented-tabs button span[data-state="failed"],.segmented-tabs button span[data-state="needs_regeneration"] { color:var(--lz-danger); }
 .production-tabs__summary { color:var(--lz-text-muted); font-size:10px; }
+.teacher-source-confirm{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:14px 18px 0;padding:12px 14px;border:1px solid var(--lz-brand-border);border-radius:10px;background:var(--lz-brand-soft)}.teacher-source-confirm>div{min-width:0;display:grid;gap:4px}.teacher-source-confirm strong{font-size:12px}.teacher-source-confirm span{color:var(--lz-text-secondary);font-size:10px}.teacher-source-confirm .primary-button{flex:0 0 auto}
 .production-tabs__actions{display:flex;flex:0 0 auto;align-items:center;gap:6px;margin-left:auto}.production-tabs__actions button{height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);cursor:pointer;white-space:nowrap}.production-tabs__actions .next-step-button{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand);font-weight:700}.production-tabs__actions button:disabled{opacity:.45;cursor:not-allowed}.production-tabs__actions .ai-toggle[aria-expanded="true"]{border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 .workspace-grid { flex:1 1 auto; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); }
 .workspace-grid.immersive { grid-template-columns:196px minmax(0,1fr); }
@@ -546,7 +642,7 @@ button { font:inherit; }
 .stage-sidebar,.status-sidebar { min-height:0; overflow:auto; background:var(--lz-surface); }.stage-sidebar { border-right:1px solid var(--lz-border); }.stage-sidebar > header,.status-sidebar > header { height:42px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; border-bottom:1px solid var(--lz-border); font-size:11px; }.stage-sidebar header small { color:var(--lz-text-muted); }
 .stage-list { display:grid; padding:6px; }.stage-list button { min-height:48px; display:grid; grid-template-columns:25px minmax(0,1fr) 18px; align-items:center; gap:7px; padding:6px 8px; border:1px solid transparent; border-radius:8px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; }.stage-list button.active { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.stage-index { color:var(--lz-brand); font-size:10px; font-weight:800; }.stage-list button > span:nth-child(2) { min-width:0; display:grid; gap:2px; }.stage-list strong { overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.stage-list small { color:var(--lz-text-muted); font-size:9px; }.stage-list i { width:18px; height:18px; display:grid; place-items:center; border-radius:50%; color:var(--lz-text-muted); background:var(--lz-fill); }.stage-list i[data-state="confirmed"] { color:var(--lz-success); background:var(--lz-success-soft); }.stage-list i[data-state="failed"],.stage-list i[data-state="needs_regeneration"] { color:var(--lz-warning); background:var(--lz-warning-soft); }
 .lesson-heading { height:34px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; border-top:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-secondary); font-size:10px; }.lesson-list { display:grid; padding:5px; }.lesson-list button { min-height:43px; display:grid; grid-template-columns:26px minmax(0,1fr); align-items:center; gap:6px; padding:5px 7px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; }.lesson-list button.active { border-color:var(--lz-brand-border); background:var(--lz-brand-soft); }.lesson-list button > span:first-child { color:var(--lz-brand); font-size:9px; font-weight:800; }.lesson-list button > span:last-child { min-width:0; display:grid; gap:2px; }.lesson-list strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.lesson-list small { color:var(--lz-text-muted); font-size:9px; }
-.stage-workspace { min-width:0; min-height:0; overflow:auto; background:var(--lz-surface); }.workspace-state { height:100%; display:grid; place-content:center; justify-items:center; gap:9px; color:var(--lz-text-muted); }.workspace-state.is-error { color:var(--lz-danger); }.workspace-state button { padding:7px 14px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface); cursor:pointer; }
+.stage-workspace { min-width:0; min-height:0; overflow:auto; background:var(--lz-surface); }.stage-workspace.outline-mode{overflow:hidden}.workspace-state { height:100%; display:grid; place-content:center; justify-items:center; gap:9px; color:var(--lz-text-muted); }.workspace-state.is-error { color:var(--lz-danger); }.workspace-state button { padding:7px 14px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface); cursor:pointer; }
 .ai-dock { min-width:0; min-height:0; overflow:auto; border-left:1px solid var(--lz-border); background:var(--lz-surface); }
 .ai-dock__idle { min-height:100%; }
 .ai-dock__header { height:48px; display:flex; align-items:center; justify-content:space-between; padding:0 15px; border-bottom:1px solid var(--lz-border); }
@@ -569,7 +665,7 @@ button { font:inherit; }
 .lesson-overview { position:relative; min-height:calc(100% - 58px); overflow:auto; }
 .lesson-overview table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:11px; }
 .lesson-overview th { height:38px; padding:0 12px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); background:var(--lz-fill); text-align:left; font-size:10px; font-weight:650; }
-.lesson-overview th:nth-child(1) { width:64px; }.lesson-overview th:nth-child(3),.lesson-overview th:nth-child(4),.lesson-overview th:nth-child(5) { width:106px; }.lesson-overview th:last-child { width:92px; }
+.lesson-overview th:nth-child(1) { width:64px; }.lesson-overview th:nth-child(3) { width:96px; }.lesson-overview th:nth-child(4),.lesson-overview th:nth-child(5),.lesson-overview th:nth-child(6) { width:106px; }.lesson-overview th:last-child { width:92px; }
 .lesson-overview td { height:48px; padding:7px 12px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-secondary); vertical-align:middle; }
 .lesson-overview tbody tr { cursor:pointer; }.lesson-overview tbody tr:hover td,.lesson-overview tr.selected td { background:var(--lz-brand-soft); }.lesson-overview td:first-child strong { color:var(--lz-brand); }
 .lesson-link,.row-action { padding:0; border:0; color:var(--lz-text-primary); background:transparent; cursor:pointer; text-align:left; }.lesson-link { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:650; }.row-action { color:var(--lz-brand-strong); }
@@ -585,6 +681,6 @@ button { font:inherit; }
 .spin { animation:spin .9s linear infinite; } @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1180px) { .course-status > span:nth-of-type(n+4) { display:none; } }
 @media (max-width:1180px) { .workspace-grid.immersive.with-ai-dock { position:relative;grid-template-columns:176px minmax(0,1fr); }.workspace-grid.immersive.with-ai-dock .ai-dock{position:absolute;z-index:8;top:0;right:0;bottom:0;width:316px;box-shadow:-12px 0 28px rgb(15 23 42 / 13%)} }
-@media (max-width:900px) { .product-bar { grid-template-columns:150px minmax(0,1fr) auto; }.brand { padding:0 15px; }.production-shell { grid-template-columns:64px minmax(0,1fr); }.workspace-grid.immersive { grid-template-columns:156px minmax(0,1fr); }.workspace-grid.immersive.with-ai-dock { grid-template-columns:156px minmax(0,1fr) 276px; }.production-tabs__summary { display:none; } }
+@media (max-width:900px) { .product-bar { grid-template-columns:150px minmax(0,1fr) auto; }.brand { padding:0 15px; }.production-shell { grid-template-columns:64px minmax(0,1fr); }.workspace-grid.immersive,.workspace-grid.immersive.with-ai-dock { grid-template-columns:156px minmax(0,1fr); }.production-tabs__summary { display:none; } }
 @media (max-width:680px) { .teacher-production { height:auto; min-height:100vh; overflow:auto; }.product-bar { grid-template-columns:64px minmax(0,1fr) auto; }.brand strong,.product-bar nav button:first-child,.product-bar nav svg,.product-actions button:first-child { display:none; }.product-bar nav { padding:0 10px; }.production-shell { height:auto; min-height:calc(100vh - 52px); display:block; }.production-main { min-height:calc(100vh - 52px); }.production-tabs { overflow-x:auto; padding:6px 10px; }.segmented-tabs { flex:0 0 auto; }.segmented-tabs button span { display:none; }.workspace-grid.immersive,.workspace-grid.immersive.with-ai-dock { display:block; }.lesson-rail { max-height:none; border-right:0; border-bottom:1px solid var(--lz-border); }.lesson-list { grid-template-columns:repeat(2,minmax(0,1fr)); }.stage-workspace { min-height:420px; }.workspace-grid.immersive.with-ai-dock .ai-dock { position:fixed; z-index:20; top:98px; right:0; bottom:0; width:min(316px,100vw); max-height:none; border-top:1px solid var(--lz-border); border-left:1px solid var(--lz-border); box-shadow:-12px 0 28px rgb(15 23 42 / 13%); }.course-status > span { display:none; }.brief-grid { grid-template-columns:1fr; }.brief-grid > div { padding:12px 0 !important; border-right:0 !important; }.ppt-entry,.release-summary { grid-template-columns:34px minmax(0,1fr); }.ppt-entry button,.release-summary button { grid-column:1/-1; justify-content:center; } }
 </style>

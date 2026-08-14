@@ -119,6 +119,7 @@ import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeachingCalendarStore, type ClassSession } from '../stores/teachingCalendar'
 import type { GuidedGenerationStepKey, Node } from '../stores/types'
+import { lessonUnitHasContent, projectLessonUnits } from '../utils/lesson-units'
 
 const route = useRoute()
 const router = useRouter()
@@ -136,14 +137,10 @@ const isPublished = computed(() => Boolean(summary.value?.is_published))
 const courseMeta = computed(() => calendarStore.calendar?.academic_year || calendarStore.calendar?.term
   ? [calendarStore.calendar?.academic_year, calendarStore.calendar?.term].filter(Boolean).join(' ')
   : isPublished.value ? t('teacherOverview.formalCourse', '正式课程') : t('teacherOverview.draftCourse', '课程草稿'))
-const lessons = computed<Node[]>(() => {
-  const sectionIds = new Set((courseStore.currentTeachingPlan?.sections || []).map(item => item.node_id).filter(Boolean))
-  const scoped = sectionIds.size ? courseStore.nodes.filter(node => sectionIds.has(node.node_id)) : courseStore.nodes.filter(node => node.node_level >= 2)
-  return scoped.length ? scoped : courseStore.nodes.filter(node => node.node_level === 1)
-})
+const lessons = computed<Node[]>(() => projectLessonUnits(courseStore.nodes))
 const lessonCount = computed(() => lessons.value.length)
-const teachingReadyCount = computed(() => lessons.value.filter(node => node.node_content || node.generation_status === 'completed').length)
-const scheduledSessions = computed(() => (calendarStore.calendar?.sessions || []).filter(item => item.date && item.status !== 'cancelled'))
+const teachingReadyCount = computed(() => lessons.value.filter(node => lessonUnitHasContent(courseStore.nodes, node)).length)
+const scheduledSessions = computed(() => (calendarStore.calendar?.sessions || []).filter(item => item.date && item.start_time && item.end_time && item.status !== 'cancelled'))
 const scheduledCount = computed(() => scheduledSessions.value.length)
 const nextSession = computed(() => {
   const today = new Date().toISOString().slice(0, 10)
