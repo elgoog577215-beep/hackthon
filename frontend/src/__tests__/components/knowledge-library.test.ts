@@ -258,9 +258,9 @@ describe('Course knowledge library', () => {
     const { wrapper } = await mountLibrary()
     const points = wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')
 
-    await points[0].trigger('click')
+    await points[0]!.trigger('click')
     const first = wrapper.get('.knowledge-tree-detail-footer').text()
-    await points[1].trigger('click')
+    await points[1]!.trigger('click')
     const second = wrapper.get('.knowledge-tree-detail-footer').text()
 
     expect(first).toContain('资料来源')
@@ -285,7 +285,7 @@ describe('Course knowledge library', () => {
         data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
       })
       const { wrapper } = await mountLibrary()
-      await wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')[0].trigger('click')
+      await wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')[0]!.trigger('click')
       labels.push(wrapper.get('.knowledge-tree-detail-footer').text())
     }
 

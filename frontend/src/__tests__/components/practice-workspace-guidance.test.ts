@@ -178,7 +178,7 @@ describe('PracticeWorkspace 多轮苏格拉底引导 (K2)', () => {
     mockPractice(attemptWith(turns))
     const wrapper = await mountWorkspace()
 
-    expect(wrapper.get('[data-testid="guidance-exhausted"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="guidance-exhausted"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="guidance-send"]').attributes('disabled')).toBeDefined()
   })
 

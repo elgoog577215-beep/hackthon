@@ -270,7 +270,7 @@ describe('PracticeAnswerRenderer 分步作答 (J3)', () => {
       },
     })
 
-    await wrapper.findAll('.step-remove')[0].trigger('click')
+    await wrapper.findAll('.step-remove')[0]!.trigger('click')
     const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
 
     expect(emitted.steps.map((step: any) => step.text)).toEqual(['第二步', '第三步'])

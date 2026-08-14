@@ -319,7 +319,7 @@ function toggleStepwise() {
       .filter(Boolean)
       .join('\n')
     stepwiseOptOut.value = true
-    const next = { ...draft.value, text: merged }
+    const next: Record<string, any> = { ...draft.value, text: merged }
     delete next.steps
     emit('update:modelValue', next)
     return

@@ -1085,7 +1085,7 @@ async function createSectionPlan() {
   // Any scope that can span more than the current section opens the live
   // review workbench, so the learner watches candidates appear and decides
   // item by item. `current_chapter` is now the widest student-side scope.
-  if (scopeSelection === 'whole_course' || scopeSelection === 'current_chapter') {
+  if (scopeSelection === 'current_chapter') {
     const token = ++scanSession
     context = {
       token,

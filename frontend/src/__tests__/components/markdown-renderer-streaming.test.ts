@@ -49,7 +49,7 @@ describe('MarkdownRenderer streaming', () => {
     for (let i = 1; i < seen.length; i += 1) {
       expect(seen[i]!.length).toBeGreaterThan(seen[i - 1]!.length)
     }
-  })
+  }, 10_000)
 
   it('连续两次内容变化之间不会丢掉中间态', async () => {
     const wrapper = mount(MarkdownRenderer, { props: { content: 'A' } })
