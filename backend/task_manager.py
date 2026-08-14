@@ -151,10 +151,6 @@ from learning_assets import (
 )
 from markdown_parser import parse_markdown_to_nodes
 from material_pipeline import ingest_legacy_material_inputs
-from web_material_curation import (
-    load_course_exclusions,
-    merge_ingest_exclusions,
-)
 from material_storage import material_repository
 from models import (
     NodeGenerationConfig,
@@ -224,6 +220,10 @@ from teaching_representations import teaching_representation_repository
 from template_layout_contract import (
     TemplateLayoutPackContractV1,
     compile_builtin_template_layout_contract_v1,
+)
+from web_material_curation import (
+    load_course_exclusions,
+    merge_ingest_exclusions,
 )
 from web_retrieval import (
     RetrievalRequest,
