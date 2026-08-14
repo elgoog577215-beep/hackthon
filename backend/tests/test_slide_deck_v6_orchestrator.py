@@ -586,3 +586,119 @@ async def test_retryable_story_failure_resumes_same_task_and_reuses_finished_bat
     assert result["status"] == "v6_ready"
     assert calls.count("chapter-1") == 1
     assert calls.count("chapter-2") == 2
+
+
+async def _publish_degraded_visual_fixture(
+    orchestrator: SlideDeckV6Orchestrator,
+    document: CourseDocument,
+) -> dict:
+    async def unavailable_visual(_request):
+        raise TimeoutError("shared provider temporarily unavailable")
+
+    return await orchestrator.build(
+        task_id="task-v6-degraded-base",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=unavailable_visual,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+
+@pytest.mark.asyncio
+async def test_visual_repair_reuses_published_story_and_atomically_replaces_only_degradation(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    base = await _publish_degraded_visual_fixture(orchestrator, document)
+    assert base["status"] == "v6_needs_manual_edit"
+    before_registry = representations.load(document.course_id)
+    before_representation = next(
+        item for item in before_registry.representations
+        if item.representation_id == base["representation_id"]
+    )
+    before_spec = next(
+        item for item in before_registry.specs
+        if item.spec_id == before_representation.spec_id
+    )
+    story_before = before_spec.payload["content"]["story_plan"]
+    visual_requests = []
+
+    async def story_must_not_run(_request):
+        raise AssertionError("visual repair must reuse the published story plan")
+
+    async def repaired_visual(request):
+        visual_requests.append([page["page_id"] for page in request["pages"]])
+        return await _visual_planner(request)
+
+    repaired = await orchestrator.repair_visuals(
+        task_id="task-v6-visual-repair",
+        document=document,
+        course_data={},
+        representation_id=base["representation_id"],
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=story_must_not_run,
+        visual_planner=repaired_visual,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert repaired["status"] == "v6_ready"
+    assert visual_requests == [["page-1"]]
+    after_registry = representations.load(document.course_id)
+    after_representation = next(
+        item for item in after_registry.representations
+        if item.representation_id == base["representation_id"]
+    )
+    assert after_representation.spec_id != before_representation.spec_id
+    after_spec = next(
+        item for item in after_registry.specs
+        if item.spec_id == after_representation.spec_id
+    )
+    assert after_spec.payload["content"]["story_plan"] == story_before
+    assert after_spec.payload["content"]["visual_plan"]["decisions"][0]["degraded"] is False
+    repair_candidate = candidates.load("task-v6-visual-repair")
+    assert repair_candidate["visual_repair"]["base_spec_id"] == before_spec.spec_id
+    assert repair_candidate["visual_repair"]["target_page_ids"] == ["page-1"]
+
+
+@pytest.mark.asyncio
+async def test_failed_visual_repair_keeps_the_published_v6_revision(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    base = await _publish_degraded_visual_fixture(orchestrator, document)
+    before = next(
+        item for item in representations.load(document.course_id).representations
+        if item.representation_id == base["representation_id"]
+    )
+
+    async def unavailable(_request):
+        raise TimeoutError("shared provider remains unavailable")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.repair_visuals(
+            task_id="task-v6-visual-repair-failed",
+            document=document,
+            course_data={},
+            representation_id=base["representation_id"],
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=_story_planner,
+            visual_planner=unavailable,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    assert captured.value.failure.code == "visual_repair_incomplete"
+    after = next(
+        item for item in representations.load(document.course_id).representations
+        if item.representation_id == base["representation_id"]
+    )
+    assert after.spec_id == before.spec_id
+    failed_candidate = candidates.load("task-v6-visual-repair-failed")
+    assert failed_candidate["published"] is False
+    assert failed_candidate["failure"]["stage"] == "visual_repair"
