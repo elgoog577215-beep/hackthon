@@ -1870,6 +1870,9 @@ def test_code_overflow_paginates_every_source_line_and_keeps_full_code_in_notes(
         any(note.block_id == "artifact" and note.full_text == code for note in page.speaker_notes.source_blocks)
         for page in deck.pages
     )
+    assert deck.quality.source_artifact_visible_fidelity == 1.0
+    assert deck.quality.ordered_step_visible_fidelity == 1.0
+    assert deck.quality.generated_ellipsis_free is True
 
 
 def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -> None:
