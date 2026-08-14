@@ -1613,6 +1613,82 @@ def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -
     assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
 
 
+def test_source_only_code_page_does_not_require_an_invented_annotation() -> None:
+    """A frozen code artifact remains renderable when no prose annotation exists."""
+
+    source = (
+        "```python\n"
+        "def normalize(reading):\n"
+        "    return max(0, min(100, reading))\n"
+        "```"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-source-only-code",
+        title="Source-bound automation",
+        sections=[CourseSection(
+            section_id="section",
+            title="Normalize a reading",
+            position=0,
+        )],
+        blocks=[_block(
+            "normalization-code",
+            "section",
+            0,
+            role="example",
+            kind="code",
+            text=source,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-code"))
+    assert layout is not None
+    annotation = next(slot for slot in layout.slots if slot.slot_id == "annotation")
+    page = SlideStoryPageV3(
+        page_id="source-only-code-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=layout.template_layout_id,
+        title="normalize",
+        summary="",
+        source_block_ids=["normalization-code"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="code",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert annotation.required is False
+    assert [region.slot_id for region in deck.pages[0].regions] == ["code"]
+    assert deck.pages[0].regions[0].content == (
+        "def normalize(reading):\n"
+        "    return max(0, min(100, reading))"
+    )
+    assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
+
+
 def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> None:
     header = "| Habitat | Observation |\n|---|---|"
     rows = "\n".join(f"| Zone {index} | Record {index} |" for index in range(17))

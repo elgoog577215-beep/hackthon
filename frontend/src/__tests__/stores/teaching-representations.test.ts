@@ -993,6 +993,59 @@ describe('teaching representation progressive build', () => {
     expect(store.buildFailure?.code).toBe('story_ai_batch_timeout')
   })
 
+  it('replaces an earlier quality failure with the latest durable terminal failure', () => {
+    const store = useTeachingRepresentationsStore()
+    store.draftSlideQuality = {
+      passed: false,
+      blockers: [{
+        severity: 'critical',
+        code: 'story_unsupported_fact',
+        message: 'Earlier story attempt failed.',
+      }],
+    }
+
+    store.applySlideBuildProgressV2({
+      schema_version: 'slide_build_progress_v2',
+      event_type: 'failed',
+      task_id: 'v6-template-failure',
+      status: 'failed',
+      percent: 66,
+      finalized: true,
+      published: false,
+      stage: 'template',
+      step_index: 6,
+      step_count: 10,
+      current_chapter_id: '',
+      current_batch_id: '',
+      current_page_id: 'page-5',
+      completed_items: 6,
+      total_items: 10,
+      completed_weight: 60,
+      total_weight: 100,
+      elapsed_seconds: 12,
+      provider_wait: false,
+      retry_attempt: 1,
+      newly_discovered_work: 0,
+      estimated_remaining_seconds: 0,
+      items: [],
+      failure: {
+        stage: 'template',
+        code: 'template_required_slot_unfilled',
+        message: 'Required template slot annotation has no source-backed content',
+        retryable: false,
+        page_id: 'page-5',
+      },
+    })
+
+    expect(store.buildFailure?.code).toBe('template_required_slot_unfilled')
+    expect(store.draftSlideQuality?.blockers?.[0]?.code).toBe(
+      'template_required_slot_unfilled',
+    )
+    expect(store.draftSlideQuality?.blockers?.[0]?.message).toContain(
+      'annotation',
+    )
+  })
+
   it('normalizes a layout-capacity planner failure after reopening the workspace', async () => {
     httpMock.get.mockResolvedValue({ data: {
       id: 'representation-job-layout-capacity',
