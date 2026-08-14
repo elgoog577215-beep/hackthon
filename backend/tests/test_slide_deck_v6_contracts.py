@@ -25,6 +25,7 @@ from slide_deck_v6 import (
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
 )
+from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
@@ -290,7 +291,13 @@ def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts
 
 
 @pytest.mark.parametrize(
-    ("layout_slug", "visual_decision", "source_asset_ids", "visual_payload"),
+    (
+        "layout_slug",
+        "visual_decision",
+        "source_asset_ids",
+        "visual_payload",
+        "rendered_visual_kind",
+    ),
     [
         (
             "evidence-diagram",
@@ -311,8 +318,9 @@ def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts
                 ],
                 "edges": [{"source": "collect", "target": "compare"}],
             },
+            "rule_diagram",
         ),
-        ("evidence-figure", "image", ["field-photo"], {}),
+        ("evidence-figure", "image", ["field-photo"], {}, "source_image"),
     ],
 )
 def test_visual_decision_fills_required_visual_slot_during_final_compilation(
@@ -320,6 +328,7 @@ def test_visual_decision_fills_required_visual_slot_during_final_compilation(
     visual_decision: str,
     source_asset_ids: list[str],
     visual_payload: dict,
+    rendered_visual_kind: str,
 ) -> None:
     document = refresh_document_revision(CourseDocument(
         course_id=f"generic-visual-slot-{visual_decision}",
@@ -380,9 +389,11 @@ def test_visual_decision_fills_required_visual_slot_during_final_compilation(
     )
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    rendered_page = adapt_v6_page_to_slide_spec(deck.pages[0])
 
     assert [region.content_kind for region in deck.pages[0].regions] == ["body"]
     assert deck.pages[0].visual_decision.decision == visual_decision
+    assert [item["kind"] for item in rendered_page.visuals] == [rendered_visual_kind]
 
 
 def _cross_subject_document() -> CourseDocument:
@@ -557,7 +568,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         ),
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v2"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v3"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
 

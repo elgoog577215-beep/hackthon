@@ -20,7 +20,7 @@ from course_presentation_graph import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v2"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v3"
 
 
 class _StrictModel(BaseModel):
