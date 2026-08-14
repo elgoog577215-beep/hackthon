@@ -1164,6 +1164,93 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
     assert "湿地观察" in story.pages[0].summary
 
 
+@pytest.mark.asyncio
+async def test_story_resume_replans_an_underfilled_saved_batch() -> None:
+    source_sentence = (
+        "湿地观察必须记录地点、时间、天气、观察者和采样批次，并逐项核对原始证据、"
+        "验收标准、审核修订和异常原因，确保结论没有用解释替代事实。"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-density-resume",
+        title="Field evidence",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Field",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="field-evidence",
+            section_id="chapter-a",
+            position=0,
+            role="concept",
+            payload={"markdown": f"## 湿地观察证据链\n{source_sentence * 3}"},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = next(
+        layout.template_layout_id
+        for layout in template.layouts
+        if layout.template_layout_id.endswith("/content-stack")
+    )
+    saved_batch = SlideStoryBatchV3(
+        batch_id="story-1",
+        chapter_id="chapter-a",
+        provider="saved-provider",
+        model="saved-model",
+        duration_ms=1,
+        attempts=1,
+        validation_status="passed",
+        pages=[SlideStoryPageV3(
+            page_id="field-density-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=layout_id,
+            title="湿地观察证据链",
+            summary="记录地点、时间和天气。",
+            source_block_ids=unit.primary_block_ids,
+            page_ordinal=0,
+        )],
+    )
+    calls = []
+    events = []
+
+    async def planner(request):
+        calls.append(request)
+        requested_unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "fresh-provider",
+            "model": "fresh-model",
+            "pages": [{
+                "page_id": "field-density-page",
+                "teaching_unit_id": requested_unit["teaching_unit_id"],
+                "template_layout_id": layout_id,
+                "title": "湿地观察证据链",
+                "summary": "",
+                "source_block_ids": requested_unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+        resume_batches=[saved_batch],
+        batch_callback=lambda event: events.append(event),
+    )
+
+    assert len(calls) == 1
+    assert story.pages[0].summary == ""
+    assert story.batches[0].provider == "fresh-provider"
+    assert any(event["phase"] == "started" for event in events)
+    assert not any(
+        event["phase"] == "completed" and event.get("resumed") is True
+        for event in events
+    )
+
+
 def test_story_capacity_error_uses_the_frozen_source_summary_repair() -> None:
     source_sentence = (
         "The field team records the habitat boundary, observation time, weather, "
