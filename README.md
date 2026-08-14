@@ -106,7 +106,11 @@ AI_SLIDE_PLANNER_ENABLED=true
 # 可选；未设置时使用项目默认模型
 AI_MODEL=deepseek-v4-pro
 AI_MODEL_FAST=deepseek-v4-flash
+AI_MODEL_CANDIDATES=deepseek-v4-pro,deepseek-v4-flash
+AI_MODEL_FAST_CANDIDATES=deepseek-v4-flash,deepseek-v4-pro
 ```
+
+角色模型列表必须使用主提供方支持的模型 ID。生产环境的课程规划、出题、评审与 PPT 故事路由优先使用 `deepseek-v4-pro`，快速和 PPT 视觉路由优先使用 `deepseek-v4-flash`；同一提供方内的另一款 V4 模型作为候选回退。
 
 ### ModelScope
 
@@ -128,14 +132,12 @@ AI_SLIDE_PLANNER_ENABLED=true
 ```dotenv
 MODELSCOPE_API_KEY=your_modelscope_fallback_key
 MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/
-MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B
-# PPT story/visual roles may use a verified cross-course route without
-# changing the model order used by course generation or assessments.
-AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
-AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
+MODELSCOPE_MODEL=Qwen/Qwen3.5-27B
 ```
 
-Fast 与思考版共用 `MODELSCOPE_MODEL` 指定的同一个模型。Fast 会关闭所有模型思考请求，将同一章节的三道题合并生成，共享课程上下文只发送一次；本地校验后，失败题最多执行一次原子批量修复。Fast 的生成、修复、独立求解和评审调用分别限制在 45、35、35、30 秒，且每个逻辑调用只允许一次供应商请求。思考版保留更完整的候选内容、独立求解和选择性思考，以换取复杂题质量。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
+Fast 会关闭模型思考请求，将同一章节的三道题合并生成，共享课程上下文只发送一次；本地校验后，失败题最多执行一次原子批量修复。思考版保留更完整的候选内容、独立求解和选择性思考，以换取复杂题质量。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。
+
+生产部署从 GitHub Actions secrets `DEEPSEEK_API_KEY` 与 `MODELSCOPE_API_KEY` 原子写入服务器持久化 `.env`：DeepSeek 是主提供方，ModelScope 只在主提供方不可用时最后兜底。发布包、Git 历史和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 

@@ -54,19 +54,33 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Configure ModelScope last-resort provider
+      - name: Configure production AI providers
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: https://api.deepseek.com
+          DEEPSEEK_SMART_MODELS: deepseek-v4-pro,deepseek-v4-flash
+          DEEPSEEK_FAST_MODELS: deepseek-v4-flash,deepseek-v4-pro
+          AI_ASSESSMENT_GENERATOR_MODELS: deepseek-v4-pro,deepseek-v4-flash
+          AI_ASSESSMENT_SOLVER_MODELS: deepseek-v4-flash,deepseek-v4-pro
+          AI_ASSESSMENT_REVIEWER_MODELS: deepseek-v4-pro,deepseek-v4-flash
+          AI_PPT_STORY_MODELS: deepseek-v4-pro,deepseek-v4-flash
+          AI_PPT_VISUAL_MODELS: deepseek-v4-flash,deepseek-v4-pro
           MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
           MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
           MODELSCOPE_MODEL: Qwen/Qwen3.5-27B
-          AI_PPT_STORY_MODELS: Qwen/Qwen3.5-397B-A17B,Qwen/Qwen3.5-27B
-          AI_PPT_VISUAL_MODELS: Qwen/Qwen3.5-27B,Qwen/Qwen3.5-397B-A17B
           SLIDE_DECK_V6_ENABLED: true
           SLIDE_DECK_V6_DEFAULT_ENABLED: true
         run: |
           set -euo pipefail
+          test -n "$DEEPSEEK_API_KEY"
+          test "$DEEPSEEK_BASE_URL" = "https://api.deepseek.com"
+          test -n "$DEEPSEEK_SMART_MODELS"
+          test -n "$DEEPSEEK_FAST_MODELS"
+          test -n "$AI_ASSESSMENT_GENERATOR_MODELS"
+          test -n "$AI_ASSESSMENT_SOLVER_MODELS"
+          test -n "$AI_ASSESSMENT_REVIEWER_MODELS"
           test -n "$MODELSCOPE_API_KEY"
           test -n "$AI_PPT_STORY_MODELS"
           test -n "$AI_PPT_VISUAL_MODELS"
@@ -79,7 +93,7 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "mktemp /tmp/lingzhi-configure-modelscope.XXXXXX.py")"
+            "mktemp /tmp/lingzhi-configure-ai.XXXXXX.py")"
           cleanup_remote_script() {
             ssh \
               -i ~/.ssh/lingzhi_deploy \
@@ -98,7 +112,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             scripts/configure_modelscope_fallback.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' | ssh \
+          python3 -c 'import json, os; print(json.dumps({"primary_api_key": os.environ["DEEPSEEK_API_KEY"], "primary_base_url": os.environ["DEEPSEEK_BASE_URL"], "smart_models": os.environ["DEEPSEEK_SMART_MODELS"], "fast_models": os.environ["DEEPSEEK_FAST_MODELS"], "assessment_generator_models": os.environ["AI_ASSESSMENT_GENERATOR_MODELS"], "assessment_solver_models": os.environ["AI_ASSESSMENT_SOLVER_MODELS"], "assessment_reviewer_models": os.environ["AI_ASSESSMENT_REVIEWER_MODELS"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"], "fallback_api_key": os.environ["MODELSCOPE_API_KEY"], "fallback_base_url": os.environ["MODELSCOPE_BASE_URL"], "fallback_model": os.environ["MODELSCOPE_MODEL"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' | ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
