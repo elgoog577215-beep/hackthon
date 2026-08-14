@@ -624,6 +624,12 @@ async def test_visual_repair_reuses_published_story_and_atomically_replaces_only
         item for item in before_registry.specs
         if item.spec_id == before_representation.spec_id
     )
+    assert before_spec.payload["content"]["planning_status"]["visual_ai"][
+        "degraded_pages"
+    ] == [{
+        "page_id": "page-1",
+        "reason": "visual_ai_batch_timeout",
+    }]
     story_before = before_spec.payload["content"]["story_plan"]
     visual_requests = []
 
