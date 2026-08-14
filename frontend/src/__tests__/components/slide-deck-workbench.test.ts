@@ -88,11 +88,17 @@ describe('SlideDeckWorkbench', () => {
         candidateStatus: 'v6_needs_manual_edit',
         planningStatus: {
           story_ai: { status: 'completed', batch_count: 2 },
-          visual_ai: { status: 'partial_degraded', degraded_page_count: 1 },
+          visual_ai: {
+            status: 'partial_degraded',
+            degraded_page_count: 1,
+            degraded_pages: [{ page_id: 'page-1', reason: 'visual_ai_batch_failed' }],
+          },
         },
       },
     })
 
+    expect(wrapper.get('[data-testid="ppt-degraded-visual-list"]').text()).toContain('page-1')
+    expect(wrapper.get('[data-testid="ppt-degraded-visual-list"]').text()).toContain('visual_ai_batch_failed')
     const button = wrapper.get('[data-testid="ppt-repair-degraded-visuals"]')
     expect(button.attributes('title')).toBeTruthy()
     await button.trigger('click')
