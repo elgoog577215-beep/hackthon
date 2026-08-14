@@ -102,6 +102,47 @@ describe('preferredRepresentationForType', () => {
 })
 
 describe('teaching representation progressive build', () => {
+  it('can load compact registry state without eagerly fetching a selected spec', async () => {
+    const registry: any = slideRegistry('slides-v6', 'r1')
+    registry.specs = [{
+      spec_id: 'spec-slides-v6',
+      representation_type: 'slide_deck',
+      revision: 'r1',
+      payload: {
+        compiler_version: 'same_source_compiler_v6',
+        content: { schema_version: 'slide_deck_v6' },
+      },
+    }]
+    httpMock.get.mockResolvedValueOnce({ data: { registry } })
+    const store = useTeachingRepresentationsStore()
+
+    await store.ensure('course-1', { loadSelectedSpec: false })
+
+    expect(httpMock.get).toHaveBeenCalledTimes(1)
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-representations',
+    )
+    expect(store.selectedId).toBe('slides-v6')
+    expect(store.selectedSpec).toBeNull()
+  })
+
+  it('can preload an empty registry without recovering or starting a build', async () => {
+    httpMock.get.mockResolvedValueOnce({
+      data: { registry: { representations: [], specs: [] } },
+    })
+    const store = useTeachingRepresentationsStore()
+    const recover = vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null)
+    const build = vi.spyOn(store, 'buildProgressive').mockResolvedValue(undefined)
+
+    await store.ensure('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
+
+    expect(recover).not.toHaveBeenCalled()
+    expect(build).not.toHaveBeenCalled()
+  })
+
   it('rebuilds the material suite and then regenerates PPT through the scoped V5 route', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(streamResponse([{
@@ -240,6 +281,35 @@ describe('teaching representation progressive build', () => {
         target_count: 7,
       },
     })
+  })
+
+  it('queues a durable repair for degraded V6 visual pages without rebuilding the deck', async () => {
+    vi.useFakeTimers()
+    httpMock.post.mockResolvedValueOnce({ data: {
+      status: 'accepted',
+      task_id: 'visual-repair-task',
+      target_page_ids: ['page-field-feedback'],
+    } })
+    const store = useTeachingRepresentationsStore()
+
+    const result = await store.repairDegradedVisuals(
+      'course-1',
+      'slides-v6',
+      ['page-field-feedback'],
+    )
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-representations/slides-v6/slide-decks/visual-repair',
+      { page_ids: ['page-field-feedback'] },
+    )
+    expect(result).toEqual({
+      status: 'accepted',
+      task_id: 'visual-repair-task',
+      target_page_ids: ['page-field-feedback'],
+    })
+    expect(store.buildTaskId).toBe('visual-repair-task')
+    expect(store.building).toBe(true)
+    expect(store.buildStage).toBe('visual_repair')
   })
 
   it('preserves an actionable course-logic blocker from a 409 preflight response', async () => {
@@ -892,6 +962,35 @@ describe('teaching representation progressive build', () => {
     expect(store.buildProgress).toBe(100)
     expect(store.buildStage).toBe('build_blocked')
     expect(store.buildError).toBe('deck_split_required')
+  })
+
+  it('exposes a retryable failed PPT task as resumable from its saved checkpoint', () => {
+    const store = useTeachingRepresentationsStore()
+
+    store.applyDurableBuildTask({
+      id: 'representation-job-resumable',
+      type: 'slide_deck_variant_build',
+      status: 'failed',
+      progress: 41,
+      phase: 'story',
+      error_detail: {
+        stage: 'story',
+        code: 'story_ai_batch_timeout',
+        message: 'provider timed out',
+        retryable: true,
+        batch_id: 'story-2',
+      },
+      recovery: {
+        state: 'manual_resume',
+        can_resume: true,
+        reason_code: 'checkpoint_available',
+        checkpoint: { progress: 41 },
+      },
+    })
+
+    expect(store.buildPaused).toBe(true)
+    expect(store.buildProgress).toBe(41)
+    expect(store.buildFailure?.code).toBe('story_ai_batch_timeout')
   })
 
   it('normalizes a layout-capacity planner failure after reopening the workspace', async () => {

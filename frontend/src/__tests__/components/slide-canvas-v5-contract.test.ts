@@ -35,6 +35,8 @@ describe('SlideCanvas V5 final page contract', () => {
       'worked-example',
       'parallel-examples',
       'question-prompt',
+      'practice-sequence',
+      'practice-artifact',
       'practice-feedback',
       'chapter-recap',
       'course-synthesis',
@@ -106,6 +108,48 @@ describe('SlideCanvas V5 final page contract', () => {
 
     expect(wrapper.attributes('data-layout')).toBe('editorial-body')
     expect(wrapper.find('.deck-editorial-body').exists()).toBe(true)
+    expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
+  })
+
+  it('renders ordered practice steps as a dedicated teaching path', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'practice',
+          eyebrow: '操作演练',
+          title: '完成样本交接',
+          blocks: [{
+            block_id: 'ordered-actions',
+            type: 'process',
+            items: [
+              '核对样本：确认编号与记录一致。',
+              '封闭容器：确认密封完整。',
+              '记录交接：填写接收人姓名。',
+            ],
+          }],
+          quality: {
+            requested_layout: 'practice-prompt',
+            resolved_layout: 'practice-sequence',
+            task_prompt_mode: 'action',
+            prompt_label: '执行步骤',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    const path = wrapper.get('.deck-practice-sequence')
+    const steps = path.findAll('li')
+    expect(steps).toHaveLength(3)
+    expect(steps.map(step => step.get('b').text())).toEqual(['01', '02', '03'])
+    expect(steps[0]?.get('strong').text()).toBe('核对样本')
+    expect(steps[0]?.text()).toContain('确认编号与记录一致。')
     expect(wrapper.find('.deck-canvas__blocks').exists()).toBe(false)
   })
 
@@ -391,6 +435,11 @@ describe('SlideCanvas V5 final page contract', () => {
             kind: 'relational_diagram',
             purpose: 'explain',
             alt_text: '过程量比较示意图',
+            nodes: [
+              { node_id: 'fast', label: '快速冷却' },
+              { node_id: 'slow', label: '缓慢降温' },
+            ],
+            edges: [{ source: 'fast', target: 'slow' }],
           }],
           quality: {
             requested_layout: 'figure-text',
@@ -749,6 +798,42 @@ describe('SlideCanvas V5 final page contract', () => {
     expect(wrapper.get('.deck-editorial-body').attributes('data-has-message')).toBe('false')
     expect(slideCanvasSource).toMatch(/\.deck-editorial-body\s*\{[^}]*display:grid/s)
     expect(slideCanvasSource).toMatch(/\.deck-editorial-body__group\s*\{[^}]*border:0/s)
+  })
+
+  it('renders a single editorial body as an intentional statement without a body label card', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          eyebrow: '内容主线',
+          title: 'MonoBehaviour',
+          blocks: [{
+            block_id: 'body',
+            type: 'statement',
+            title: 'body',
+            content: '通过创建规范脚本并挂载到场景对象，验证 Unity 生命周期的执行顺序。',
+          }],
+          quality: {
+            requested_layout: 'editorial-body',
+            resolved_layout: 'editorial-body',
+          },
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    const body = wrapper.get('.deck-editorial-body')
+    expect(body.attributes('data-count')).toBe('1')
+    expect(body.find('.deck-editorial-body__group > small').exists()).toBe(false)
+    expect(slideCanvasSource).toMatch(
+      /\.deck-canvas\[data-template-rich="true"\] \.deck-editorial-body\[data-count="1"\] \.deck-editorial-body__group\s*\{[^}]*background:transparent[^}]*box-shadow:none/s,
+    )
   })
 
   it('keeps metadata titles accessible without forcing a visible heading on continuation pages', () => {

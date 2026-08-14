@@ -92,6 +92,8 @@ The final contract stores pages, resolved template layout IDs, typed slots, sour
 
 Full block text, full code and supplemental detail are stored in speaker notes with exact block/revision bindings. Canvas copy remains a source-faithful presentation expression, not a verbatim prose wall.
 
+Table projection is semantic before geometric. The compiler measures wrapped cell demand, prefers a declared full-width/wide variant for dense tables, and otherwise paginates complete rows with repeated headers. A row that cannot remain complete becomes a source-bound detail page. Generated ellipses, lost protected tokens and pre-render cell truncation are hard failures even when object bounds do not overflow.
+
 ### `slide_build_progress_v2`
 
 The backend creates and persists work items before or as work becomes known. Item kinds and default weights are local validation/unit `1`, render page `3`, asset `5`, AI batch `10`. Progress equals completed cost divided by a monotonic total-cost high-water mark. Newly discovered items increase the high-water mark without decreasing the displayed percentage; completion cannot reach 100% before atomic publication.

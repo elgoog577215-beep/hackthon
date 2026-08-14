@@ -286,6 +286,24 @@ class TeachingRepresentationRepository:
             raise RepresentationConflict("Teaching representation registry belongs to another course")
         return registry
 
+    def load_payload(self, course_id: str) -> dict[str, Any]:
+        """Load a read-only registry projection without validating every spec body."""
+
+        path = self._path(course_id)
+        if not path.exists():
+            return self._empty_registry(course_id).model_dump(mode="json")
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+        if value.get("course_id") != course_id:
+            raise RepresentationConflict(
+                "Teaching representation registry belongs to another course"
+            )
+        if value.get("schema_version") != TEACHING_REPRESENTATION_REGISTRY_SCHEMA:
+            raise RepresentationConflict(
+                "Teaching representation registry schema is unsupported"
+            )
+        return value
+
     def save(self, registry: TeachingRepresentationRegistry) -> TeachingRepresentationRegistry:
         with self._lock(registry.course_id):
             refreshed = self._refresh_registry(registry)

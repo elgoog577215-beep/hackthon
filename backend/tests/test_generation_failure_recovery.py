@@ -121,6 +121,51 @@ def _release_workflow(course: dict, request: dict | None = None) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_v6_ppt_recovery_requires_a_retryable_failure(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
+    common = {
+        "course_id": "generic-field-course",
+        "type": "slide_deck_variant_build",
+        "status": "failed",
+        "phase": "story",
+        "progress": 41,
+        "request_snapshot": {"target_schema": "slide_deck_v6"},
+    }
+    manager.tasks["retryable"] = {
+        **common,
+        "id": "retryable",
+        "slide_build_progress_v2": {
+            "failure": {"retryable": True, "code": "story_ai_batch_timeout"},
+        },
+    }
+    manager.tasks["terminal"] = {
+        **common,
+        "id": "terminal",
+        "slide_build_progress_v2": {
+            "failure": {"retryable": False, "code": "template_layout_unavailable"},
+        },
+    }
+    candidate_checkpoints = tmp_path / "slide_deck_v6_candidates" / "checkpoints"
+    candidate_checkpoints.mkdir(parents=True)
+    progress_checkpoints = tmp_path / "slide_build_progress_v2"
+    progress_checkpoints.mkdir(parents=True)
+    (candidate_checkpoints / "retryable.json").write_text("{}", encoding="utf-8")
+    (progress_checkpoints / "retryable.json").write_text("{}", encoding="utf-8")
+
+    assert manager.describe_task_recovery("retryable")["can_resume"] is True
+    assert manager.describe_task_recovery("terminal")["can_resume"] is False
+
+    resumed = await manager.resume_task("retryable")
+
+    assert resumed["status"] == "resumed"
+    assert manager.tasks["retryable"]["status"] == "pending"
+    assert await manager._task_queue.get() == "retryable"
+
+
+@pytest.mark.asyncio
 async def test_service_restart_recovers_same_job_and_preserves_checkpoint(tmp_path, monkeypatch):
     manager, storage, workspaces, _versions, _documents = await _workspace_manager(
         tmp_path, monkeypatch

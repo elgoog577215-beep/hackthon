@@ -1,4 +1,5 @@
 import inspect
+import re
 
 import pytest
 
@@ -13,10 +14,14 @@ from slide_deck_v6 import (
     V6BuildError,
     _bounded_slot_content,
     _complete_sentence_excerpt,
+    _display_excerpt,
+    _protected_tokens,
     build_signature_v6,
-    compile_shadow_chapter_document,
     compile_ppt_source_contract_v2,
+    compile_shadow_chapter_document,
     compile_slide_deck_v6,
+    story_page_count_range,
+    story_safe_page_slices,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
 )
@@ -31,6 +36,114 @@ def test_sentence_excerpt_never_exceeds_its_template_budget():
     assert len(excerpt) <= 35
     assert excerpt.endswith("…")
     assert excerpt[:-1] in source
+
+
+def test_sentence_excerpt_never_invents_a_partial_protected_source_token():
+    source = (
+        "Field observers call SpecimenRegistry.ResolveObservation and record "
+        "a 75% confidence threshold before accepting the evidence."
+    )
+    capacity = source.index("SpecimenRegistry") + len("SpecimenRegis") + 1
+
+    excerpt = _complete_sentence_excerpt(source, capacity)
+
+    assert len(excerpt) <= capacity
+    assert excerpt.endswith("…")
+    assert "SpecimenRegis" not in excerpt
+    assert _protected_tokens(excerpt).issubset(_protected_tokens(source))
+
+
+def test_visible_prose_removes_markdown_and_never_ends_on_a_bare_list_marker():
+    block = _block(
+        "chapter-objective",
+        "chapter",
+        0,
+        role="objective",
+        text=(
+            "本节规范名称：**现场调查记录规范**。\n"
+            "学习者需完成以下目标：\n"
+            "1. 在 `Observation Log` 中记录对象、时间与环境条件。\n"
+            "2. 对照证据检查记录并说明结论。\n"
+            "3. 修正第一处不一致。"
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="body",
+        max_chars=100,
+        max_items=0,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert not any(marker in content for marker in ("**", "`", "<br>"))
+    assert not re.search(r"(?:^|\s)\d+[.)]$", content)
+    assert content.endswith(("。", "！", "？", ".", "!", "?", "…"))
+
+
+def test_display_excerpt_never_cuts_an_ascii_word_in_half():
+    source = "Record the site, time, weather, and observer before sampling begins"
+
+    excerpt = _display_excerpt(source, 22)
+
+    assert excerpt.endswith("…")
+    assert excerpt[:-1].rstrip(" ,;:").endswith(("site", "time", "weather", "observer"))
+
+
+def test_visible_prose_preserves_source_identifiers_with_underscores():
+    block = _block(
+        "source-identifiers",
+        "generic-section",
+        0,
+        role="concept",
+        text=(
+            "Compare sensor_input with expected_value and preserve the condition "
+            "lower_bound < measured_value > upper_bound before publishing the result."
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="body",
+        max_chars=220,
+        max_items=0,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert "sensor_input" in content
+    assert "expected_value" in content
+    assert "lower_bound < measured_value > upper_bound" in content
+
+
+def test_body_slot_preserves_semantic_paragraph_boundaries() -> None:
+    block = _block(
+        "field-explanation",
+        "generic-section",
+        0,
+        role="concept",
+        text=(
+            "先记录现场条件，并明确本次观察要回答的问题。\n\n"
+            "随后将观察事实与研究者解释分开，避免把推断写成原始证据。\n\n"
+            "最后依据验收标准复核结论，并记录需要返工的项目。"
+        ),
+    )
+
+    content = _bounded_slot_content(
+        [block],
+        slot_kind="body",
+        max_chars=240,
+        max_items=0,
+        max_lines=0,
+        max_rows=0,
+    )
+
+    assert content.split("\n\n") == [
+        "先记录现场条件，并明确本次观察要回答的问题。",
+        "随后将观察事实与研究者解释分开，避免把推断写成原始证据。",
+        "最后依据验收标准复核结论，并记录需要返工的项目。",
+    ]
 
 
 def test_item_slot_uses_source_excerpts_within_template_limits():
@@ -76,6 +189,104 @@ def _block(
         kind=kind,
         payload={"title": block_id, "markdown": text},
     )
+
+
+@pytest.mark.parametrize(
+    ("artifact_kind", "artifact_source", "expected_layout_slug"),
+    [
+        (
+            "code",
+            "```python\nfor sample in samples:\n    verify(sample)\n```",
+            "practice-code",
+        ),
+        (
+            "formula",
+            "$$R = accepted / inspected$$",
+            "practice-formula",
+        ),
+        (
+            "table",
+            "| Sample | Result |\n| --- | --- |\n| A | accepted |\n| B | review |",
+            "practice-table",
+        ),
+    ],
+)
+def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts(
+    artifact_kind: str,
+    artifact_source: str,
+    expected_layout_slug: str,
+) -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id=f"generic-field-practice-{artifact_kind}",
+        title="Field verification practice",
+        sections=[CourseSection(section_id="field", title="Field work", position=0)],
+        blocks=[_block(
+            "field-practice",
+            "field",
+            0,
+            role="activity",
+            text=(
+                "Complete the verification task in source order.\n"
+                "1. Collect the specimen and record its identifier.\n"
+                "2. Apply the declared acceptance rule.\n"
+                "3. Preserve the result for independent review.\n\n"
+                f"{artifact_source}"
+            ),
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+
+    safe_slices = story_safe_page_slices(unit, template)
+    complete_slice = next(
+        item for item in safe_slices
+        if item["source_block_ids"] == unit.primary_block_ids
+    )
+
+    assert story_page_count_range(unit, template) == [1, 1]
+    assert template.layout_id(expected_layout_slug) in complete_slice["template_layout_ids"]
+    assert complete_slice["required_slot_kinds"] == ["steps"]
+
+    layout_id = template.layout_id(expected_layout_slug)
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id=f"story-{artifact_kind}",
+            chapter_id="field",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id=f"practice-{artifact_kind}-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Verify the field result",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=f"practice-{artifact_kind}-page",
+            decision=artifact_kind,
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert {region.content_kind for region in deck.pages[0].regions} == {
+        "steps",
+        artifact_kind,
+    }
 
 
 def _cross_subject_document() -> CourseDocument:
@@ -250,7 +461,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         ),
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v1"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v2"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
 
@@ -328,6 +539,32 @@ def test_story_plan_rejects_untraceable_factual_tokens() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_accepts_a_source_file_identifier_without_its_extension() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-automation",
+        title="Field evidence automation",
+        sections=[CourseSection(section_id="field", title="Audit records", position=0)],
+        blocks=[_block(
+            "runner-source",
+            "field",
+            0,
+            role="example",
+            text=(
+                "Save FieldAuditRunner.py before the audit. "
+                "FieldAuditRunner.py checks every source row and reports missing evidence."
+            ),
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "FieldAuditRunner checks every source row"
+    story.batches[0].pages[0].summary = (
+        "Save FieldAuditRunner before the audit. FieldAuditRunner checks every "
+        "source row and reports missing evidence before the audit."
+    )
+
+    validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_story_plan_rejects_ungrounded_semantic_claim_without_numbers() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
@@ -346,6 +583,119 @@ def test_story_plan_rejects_an_ungrounded_visible_title() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_a_title_that_ends_on_a_dangling_connector() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "生态承载力与"
+
+    with pytest.raises(V6BuildError, match="story_title_incomplete"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_a_structural_label_instead_of_a_specific_title() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-title-specificity",
+        title="Field evidence",
+        sections=[CourseSection(section_id="field", title="Field", position=0)],
+        blocks=[_block(
+            "field-evidence",
+            "field",
+            0,
+            role="concept",
+            text=(
+                "## 项目名称：湿地观察证据链\n"
+                "湿地观察必须记录地点、时间、天气和观察者，并把结论绑定到原始证据。"
+            ),
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "项目名称"
+
+    with pytest.raises(V6BuildError, match="story_title_lacks_specificity"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_an_underfilled_editorial_body_when_source_is_rich() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-density",
+        title="Field evidence",
+        sections=[CourseSection(section_id="field", title="Field", position=0)],
+        blocks=[_block(
+            "field-evidence",
+            "field",
+            0,
+            role="concept",
+            text=(
+                "## 湿地观察证据链\n"
+                "观察前先冻结地点、时间、天气、观察者和采样批次；记录后逐项核对原始证据、"
+                "验收标准、审核修订和异常原因，确保结论没有用解释替代事实。"
+            ) * 3,
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "湿地观察证据链"
+    story.batches[0].pages[0].summary = "记录地点、时间和天气。"
+
+    with pytest.raises(V6BuildError, match="story_page_underfilled"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_final_compiler_uses_frozen_source_when_editorial_summary_underfills() -> None:
+    source = (
+        "Before a wetland survey begins, observers freeze the location, time, "
+        "weather, instrument calibration, sampling window, and evidence owner. "
+        "After collection, the team compares every record with the acceptance "
+        "criterion, documents anomalies, and keeps interpretation separate from "
+        "the signed field evidence."
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-final-density",
+        title="Field evidence",
+        sections=[CourseSection(
+            section_id="field",
+            title="Wetland evidence review",
+            position=0,
+        )],
+        blocks=[_block(
+            "field-evidence",
+            "field",
+            0,
+            role="concept",
+            text=source,
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    page = story.batches[0].pages[0]
+    page.title = "Wetland evidence review"
+    page.summary = "Record the evidence."
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    compiled_page = next(item for item in deck.pages if item.page_id == page.page_id)
+    body = next(
+        region.content
+        for region in compiled_page.regions
+        if region.slot_id == "body"
+    )
+    body_slot = next(
+        slot
+        for slot in template.get_layout(page.template_layout_id).slots
+        if slot.slot_id == "body"
+    )
+    assert body != "Record the evidence."
+    assert len(body) >= body_slot.min_chars
+    assert body in source
+
+
 def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
@@ -361,6 +711,270 @@ def test_story_plan_rejects_title_over_selected_template_capacity() -> None:
 
     with pytest.raises(V6BuildError, match="story_title_capacity_exceeded"):
         validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_a_layout_before_its_required_text_slot_materializes_empty() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-observation-check",
+            title="Observation check",
+            sections=[
+                CourseSection(
+                    section_id="check",
+                    title="Check the record",
+                    position=0,
+                )
+            ],
+            blocks=[
+                _block(
+                    "check-rows",
+                    "check",
+                    0,
+                    role="activity",
+                    kind="review_checkpoint",
+                    text="| Time | Recorded |\n| Habitat | Described |",
+                )
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[
+            SlideStoryBatchV3(
+                batch_id="generic-slot-check",
+                chapter_id="check",
+                provider="fixture-provider",
+                model="fixture-model",
+                duration_ms=1,
+                attempts=1,
+                validation_status="passed",
+                pages=[
+                    SlideStoryPageV3(
+                        page_id="empty-task-slot",
+                        teaching_unit_id=unit.teaching_unit_id,
+                        template_layout_id=template.layout_id("practice-prompt"),
+                        title="",
+                        summary="",
+                        source_block_ids=unit.primary_block_ids,
+                        page_ordinal=0,
+                    )
+                ],
+            )
+        ],
+    )
+
+    with pytest.raises(V6BuildError, match="template_required_slot_unfilled"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_practice_layout_rejects_unrelated_concept_and_misconception_blocks() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-practice-boundary",
+        title="Field evidence review",
+        sections=[CourseSection(section_id="field", title="Inspect evidence", position=0)],
+        blocks=[
+            _block("concept", "field", 0, role="concept", text="A signed record preserves the observation context."),
+            _block("reasoning", "field", 1, role="reasoning", text="Separate the observation from its interpretation."),
+            _block("activity", "field", 2, role="activity", text="1. Inspect the record.\n2. Verify the signature."),
+            _block("misconception", "field", 3, role="misconception", text="Do not replace missing evidence with an assumption."),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="overloaded-practice",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("practice-prompt"),
+        title="Inspect the record",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field",
+            chapter_id="field",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="template_source_slot_role_mismatch"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_ordered_activity_materializes_as_distinct_source_bound_steps() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-procedure",
+        title="Field sample handling",
+        sections=[CourseSection(
+            section_id="field-procedure",
+            title="Preserve the sample chain",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="handling-steps",
+            section_id="field-procedure",
+            position=0,
+            role="activity",
+            payload={"markdown": (
+                "**Procedure record**\n\n"
+                "Follow these operations in order:\n\n"
+                "1. **Collect the sample**\n"
+                "   - Record the collection time.\n"
+                "2. **Seal the container**\n"
+                "   - Check that the lid is secure.\n"
+                "3. **Label the evidence**\n"
+                "   - Copy the sample identifier exactly.\n"
+                "4. **Transfer the package**\n"
+                "   - Obtain the receiver signature."
+            )},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="field-procedure-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("practice-prompt"),
+        title="Preserve the sample chain",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field-procedure",
+            chapter_id="field-procedure",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    region = next(
+        region
+        for region in deck.pages[0].regions
+        if region.slot_id == "task"
+    )
+    steps = region.content.splitlines()
+
+    assert region.content_kind == "steps"
+    assert len(steps) == 4
+    assert [step.split(":", 1)[0] for step in steps] == [
+        "Collect the sample",
+        "Seal the container",
+        "Label the evidence",
+        "Transfer the package",
+    ]
+    assert "Procedure record" not in region.content
+    assert "Follow these operations" not in region.content
+
+
+def test_ordered_activity_keeps_complete_source_details_without_ellipsis() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-procedure-density",
+        title="Field specimen workflow",
+        sections=[CourseSection(
+            section_id="field-procedure",
+            title="Preserve the specimen chain",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="specimen-steps",
+            section_id="field-procedure",
+            position=0,
+            role="activity",
+            payload={"markdown": (
+                "Follow these operations in order:\n\n"
+                "1. **Prepare the station**\n"
+                "   - Record the site.\n"
+                "   - Confirm the clean surface.\n"
+                "2. **Collect the sample**\n"
+                "   - Match the field label to the signed source record before collection begins.\n"
+                "   - Preserve the original sequence while transferring the sample.\n"
+                "3. **Seal the container**\n"
+                "   - Check the lid, tamper mark, temperature and current custody condition.\n"
+                "   - Stop the transfer if any required field is missing.\n"
+                "4. **Label the evidence**\n"
+                "   - Copy the complete specimen identifier and collection window exactly.\n"
+                "   - Keep the source form beside the package for independent review.\n"
+                "5. **Transfer the package**\n"
+                "   - Record the receiver, handoff time, route and storage condition.\n"
+                "   - Obtain the receiver signature before releasing custody."
+            )},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="field-procedure-density-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("practice-prompt"),
+        title="Preserve the specimen chain",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field-procedure-density",
+            chapter_id="field-procedure",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    task = next(region for region in deck.pages[0].regions if region.slot_id == "task")
+
+    assert len(task.content.splitlines()) == 5
+    assert "…" not in task.content
+    assert ".;" not in task.content
+    assert "。；" not in task.content
+    assert all(not line.rstrip().endswith((";", "；", ":", "：")) for line in task.content.splitlines())
 
 
 def test_visual_plan_degrades_only_optional_visuals() -> None:
@@ -419,7 +1033,10 @@ def test_final_deck_has_full_notes_and_template_native_layout_ids() -> None:
     assert deck.quality.formal_block_visible_coverage == 1.0
     assert deck.quality.full_text_note_binding == 1.0
     assert all(page.resolved_layout.startswith("qizhi-classroom-v2@") for page in deck.pages)
-    assert all(page.speaker_notes.source_blocks for page in deck.pages)
+    assert all(
+        page.speaker_notes.source_blocks or page.speaker_notes.source_section_ids
+        for page in deck.pages
+    )
     assert {item.block_id for page in deck.pages for item in page.speaker_notes.source_blocks} == {
         "b1", "b2", "b3", "b4", "b5", "b6", "b7",
     }
@@ -587,6 +1204,237 @@ def test_diagram_decision_requires_source_bound_nodes_and_edges() -> None:
         "direction": "horizontal",
     }
     assert validate_slide_visual_plan_v2(valid, story, graph, template) == "v6_ready"
+
+
+def test_diagram_labels_allow_anchored_paraphrase_within_the_bound_source_block() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-editorial-diagram",
+            title="Editorial evidence flow",
+            sections=[CourseSection(section_id="section", title="Review", position=0)],
+            blocks=[
+                _block(
+                    "review",
+                    "section",
+                    0,
+                    role="concept",
+                    text=(
+                        "The operator checks the evidence record before publishing the result."
+                    ),
+                ),
+                _block(
+                    "archive",
+                    "section",
+                    1,
+                    role="feedback",
+                    text="The approved observation is archived after review.",
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Editorial evidence flow",
+        source_block_ids=["review", "archive"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "verify",
+                        "label": "Verify the record",
+                        "source_block_ids": ["review"],
+                    },
+                    {
+                        "node_id": "publish",
+                        "label": "Publish the result",
+                        "source_block_ids": ["review"],
+                    },
+                ],
+                "edges": [{"source": "verify", "target": "publish"}],
+            },
+        )],
+    )
+
+    assert validate_slide_visual_plan_v2(visual, story, graph, template) == "v6_ready"
+
+
+def test_diagram_label_cannot_borrow_grounding_from_an_unbound_sibling_block() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-source-bound-diagram",
+            title="Observation handling",
+            sections=[CourseSection(section_id="section", title="Handling", position=0)],
+            blocks=[
+                _block(
+                    "collect",
+                    "section",
+                    0,
+                    role="concept",
+                    text="Collect the field sample and record its intake time.",
+                ),
+                _block(
+                    "archive",
+                    "section",
+                    1,
+                    role="feedback",
+                    text="Archive the approved observation after review.",
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Observation handling",
+        source_block_ids=["collect", "archive"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "collect",
+                        "label": "Archive the approved observation",
+                        "source_block_ids": ["collect"],
+                    },
+                    {
+                        "node_id": "archive",
+                        "label": "Archive the approved observation",
+                        "source_block_ids": ["archive"],
+                    },
+                ],
+                "edges": [{"source": "collect", "target": "archive"}],
+            },
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="visual_diagram_label_unsupported"):
+        validate_slide_visual_plan_v2(visual, story, graph, template)
+
+
+def test_diagram_label_keeps_numbers_and_code_identifiers_strict() -> None:
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-identifier-diagram",
+            title="Build review",
+            sections=[CourseSection(section_id="section", title="Build", position=0)],
+            blocks=[
+                _block(
+                    "build",
+                    "section",
+                    0,
+                    role="concept",
+                    text="Run the build pipeline and inspect the result.",
+                )
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="diagram-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Build review",
+        source_block_ids=["build"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "run",
+                        "label": "Run BuildPipelineV7",
+                        "source_block_ids": ["build"],
+                    },
+                    {
+                        "node_id": "inspect",
+                        "label": "Inspect the result",
+                        "source_block_ids": ["build"],
+                    },
+                ],
+                "edges": [{"source": "run", "target": "inspect"}],
+            },
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="visual_diagram_label_unsupported"):
+        validate_slide_visual_plan_v2(visual, story, graph, template)
 
 
 def _artifact_deck_fixture(
@@ -783,8 +1631,230 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
         for region in page.regions
         if region.content_kind == "table"
     ]
-    assert all(region.startswith(header) for region in table_regions)
+    assert all(
+        region.splitlines()[:2]
+        == ["| Habitat | Observation |", "| --- | --- |"]
+        for region in table_regions
+    )
     assert sum(region.count("| Zone ") for region in table_regions) == 17
+
+
+def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None:
+    headers = "| Stage | Standard | Evidence | Basis | Repair |\n|---|---|---|---|---|"
+    row = (
+        "| Observe | " + "Preserve the complete signed field record before analysis begins. " * 3
+        + "| " + "Retain the place, time, observer, instrument, and sampling window. " * 3
+        + "| " + "Compare the record against the declared acceptance condition. " * 3
+        + "| " + "Keep the evidence separate from the interpretation and restore every "
+        "missing source field before the conclusion is published. " * 3 + "|"
+    )
+    document, graph, template, story, visual = _artifact_deck_fixture(
+        artifact_kind="table",
+        artifact_text=f"{headers}\n{row}",
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    table_regions = [
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "table"
+    ]
+    assert len(deck.pages) == 1
+    assert len(table_regions) == 1
+    assert "restore every missing source field" in table_regions[0]
+    assert "…" not in table_regions[0]
+
+
+def test_template_safe_table_continuations_do_not_consume_the_story_page_budget() -> None:
+    headers = "| Stage | Standard | Evidence | Basis | Repair |\n|---|---|---|---|---|"
+    rows = "\n".join(
+        (
+            f"| Stage {index} | "
+            + "Preserve the complete signed field record before analysis begins. " * 2
+            + "| Retain place, time, observer, instrument, and sampling window. " * 2
+            + "| Compare the record against the declared acceptance condition. " * 2
+            + "| Keep evidence separate from interpretation and restore every missing field. " * 2
+            + "|"
+        )
+        for index in range(1, 4)
+    )
+    document, graph, template, _story, _visual = _artifact_deck_fixture(
+        artifact_kind="table",
+        artifact_text=f"{headers}\n{rows}",
+    )
+    unit = graph.units[0]
+    pages = [
+        SlideStoryPageV3(
+            page_id="context-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=template.layout_id("content-stack"),
+            title="Read the evidence",
+            source_block_ids=["context"],
+            page_ordinal=0,
+        ),
+        SlideStoryPageV3(
+            page_id="table-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=template.layout_id("evidence-table"),
+            title="Inspect the complete evidence",
+            source_block_ids=["artifact"],
+            page_ordinal=1,
+        ),
+        SlideStoryPageV3(
+            page_id="interpretation-page",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=template.layout_id("content-stack"),
+            title="Check the stated condition",
+            source_block_ids=["interpretation"],
+            page_ordinal=2,
+        ),
+    ]
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=pages,
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[
+            SlideVisualDecisionV2(
+                page_id=page.page_id,
+                decision="table" if page.page_id == "table-page" else "text_native",
+                source_block_ids=page.source_block_ids,
+                resolved_template_layout_id=page.template_layout_id,
+            )
+            for page in pages
+        ],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    table_pages = [page for page in deck.pages if page.page_id.startswith("table-page")]
+    assert len(deck.pages) == 5
+    assert len(table_pages) == 3
+    assert all(page.continuation_count == 3 for page in table_pages)
+    assert [page.title for page in table_pages] == [
+        "Inspect the complete evidence",
+        "Inspect the complete evidence",
+        "Inspect the complete evidence",
+    ]
+    assert all("/3)" not in page.title for page in table_pages)
+
+
+def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-community-research",
+        title="Community research methods",
+        sections=[
+            CourseSection(section_id="observe", title="观察与记录", position=0),
+            CourseSection(section_id="explain", title="解释与复核", position=1),
+        ],
+        blocks=[
+            _block(
+                "observe-source",
+                "observe",
+                0,
+                role="concept",
+                text="记录地点、时间、参与者与观察事实，并保持原始证据可追溯。",
+            ),
+            _block(
+                "explain-source",
+                "explain",
+                0,
+                role="reasoning",
+                text="区分事实与解释，再根据验收标准复核结论并记录修订。",
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    story_pages = []
+    visual_decisions = []
+    for ordinal, unit in enumerate(graph.units):
+        page_id = f"content-{ordinal + 1}"
+        layout_id = template.layout_id("content-stack")
+        story_pages.append(SlideStoryPageV3(
+            page_id=page_id,
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=layout_id,
+            title=("记录可追溯的观察事实" if ordinal == 0 else "依据标准复核研究结论"),
+            source_block_ids=unit.primary_block_ids,
+            page_ordinal=ordinal,
+        ))
+        visual_decisions.append(SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        ))
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-course",
+            chapter_id="course",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=story_pages,
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=visual_decisions,
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    cover = deck.pages[0]
+    assert cover.resolved_layout == template.layout_id("cover-minimal")
+    assert cover.title == document.title
+    assert cover.source_block_ids == []
+    assert cover.source_section_ids == ["observe", "explain"]
+    assert cover.speaker_notes.source_blocks == []
+    assert cover.speaker_notes.source_section_ids == ["observe", "explain"]
+    assert [(region.slot_id, region.content) for region in cover.regions] == [
+        ("title", document.title),
+    ]
+
+    agenda = deck.pages[1]
+    assert agenda.resolved_layout == template.layout_id("agenda-path")
+    assert agenda.source_block_ids == []
+    assert agenda.source_section_ids == ["observe", "explain"]
+    assert agenda.speaker_notes.source_blocks == []
+    assert agenda.speaker_notes.source_section_ids == ["observe", "explain"]
+    assert agenda.regions[0].content.splitlines() == ["观察与记录", "解释与复核"]
+    assert [page.page_ordinal for page in deck.pages] == list(range(len(deck.pages)))
+    assert deck.quality.formal_block_visible_coverage == 1.0
+    assert deck.quality.source_order_preserved is True
+
+
+def test_story_summary_rejects_raw_markdown_table_content() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].summary = (
+        "| 任务环节 | 核对标准 | 参考结论 | 推导依据 | 典型错误与修正 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| 观察 | 记录地点时间天气 | 保留原始证据 | 依据验收标准复核 | 区分事实与解释 |"
+    )
+
+    with pytest.raises(V6BuildError, match="story_summary_markdown_invalid"):
+        validate_slide_story_plan_v3(story, graph, template)
 
 
 def test_very_large_code_still_respects_page_limit_with_full_notes() -> None:

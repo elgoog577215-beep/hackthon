@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('SlideDeckWorkbench', () => {
-  it('shows verified V6 story completion and visual degradation truthfully', () => {
+  it('consolidates V6 planning diagnostics into one compact build-details menu', () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
         courseId: 'generic-course',
@@ -58,9 +58,52 @@ describe('SlideDeckWorkbench', () => {
       },
     })
 
-    expect(wrapper.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
-    expect(wrapper.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
-    expect(wrapper.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
+    const details = wrapper.get('[data-testid="ppt-build-details"]')
+    expect(details.get('summary').text()).toContain('生成详情')
+    expect(details.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
+    expect(details.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
+    expect(details.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
+    expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)
+  })
+
+  it('offers page-level visual repair only for a degraded V6 candidate', async () => {
+    const store = useTeachingRepresentationsStore()
+    const repair = vi.spyOn(store, 'repairDegradedVisuals').mockResolvedValue({
+      status: 'accepted',
+      task_id: 'visual-repair-task',
+      target_page_ids: ['page-1'],
+    })
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'generic-course',
+        representationId: 'slides-v6',
+        deckTitle: 'Evidence workflow',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        quality: { passed: true },
+        candidateStatus: 'v6_needs_manual_edit',
+        planningStatus: {
+          story_ai: { status: 'completed', batch_count: 2 },
+          visual_ai: {
+            status: 'partial_degraded',
+            degraded_page_count: 1,
+            degraded_pages: [{ page_id: 'page-1', reason: 'visual_ai_batch_failed' }],
+          },
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-testid="ppt-degraded-visual-list"]').text()).toContain('page-1')
+    expect(wrapper.get('[data-testid="ppt-degraded-visual-list"]').text()).toContain('visual_ai_batch_failed')
+    const button = wrapper.get('[data-testid="ppt-repair-degraded-visuals"]')
+    expect(button.attributes('title')).toBeTruthy()
+    await button.trigger('click')
+
+    expect(repair).toHaveBeenCalledWith('generic-course', 'slides-v6')
   })
 
   it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {
@@ -199,6 +242,22 @@ describe('SlideDeckWorkbench', () => {
       .toBe('qingfeng-classroom')
 
     wrapper.unmount()
+  })
+
+  it('labels a retryable failed build as continuing from its saved checkpoint', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'generic-course', representationId: 'slides-v6', deckTitle: 'Evidence workflow', slides,
+        staleUnitIds: [], building: false, progress: 63, stage: 'build_blocked', error: 'provider_timeout',
+        quality: null, standalone: true, buildResumable: true,
+      },
+    })
+
+    const resume = wrapper.findAll('.slide-workbench__commands button')
+      .find(button => button.attributes('title') === '从保存点继续')
+    expect(resume?.text()).toContain('从保存点继续')
+    await resume!.trigger('click')
+    expect(wrapper.emitted('rebuild')).toHaveLength(1)
   })
 
   it('labels teaching mainline and appendix counts without a demo target', () => {

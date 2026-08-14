@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -275,3 +276,71 @@ def test_official_stream_enqueues_the_frozen_read_only_shadow_contract(tmp_path,
     assert snapshot["shadow_only"] is True
     assert snapshot["chapter_id"] == "chapter-1"
     assert snapshot["source_course_document_revision"] == document.document_revision
+
+
+def test_visual_repair_endpoint_enqueues_only_degraded_v6_pages(monkeypatch) -> None:
+    captured = {}
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    class TaskManager:
+        async def create_task(self, course_id, task_type, **kwargs):
+            captured.update(course_id=course_id, task_type=task_type, **kwargs)
+            return "visual-repair-task"
+
+    async def existing_course(_course_id):
+        return _ready_course()
+
+    content = {
+        "schema_version": "slide_deck_v6",
+        "source_contract": {"course_document_revision": "course-doc-r1"},
+        "build_signature": {"mode": "teaching", "theme": "qizhi-classroom"},
+        "template_contract": template.model_dump(mode="json"),
+        "visual_plan": {
+            "decisions": [
+                {"page_id": "healthy", "degraded": False},
+                {
+                    "page_id": "needs-visual",
+                    "degraded": True,
+                    "degradation_reason": "visual_ai_batch_failed",
+                },
+            ],
+        },
+    }
+    monkeypatch.setattr(representation_router, "get_task_manager_optional", lambda: TaskManager())
+    monkeypatch.setattr(representation_router, "get_course_or_404", existing_course)
+    monkeypatch.setattr(
+        representation_router,
+        "_representation_and_spec_reconciled",
+        lambda _course_id, _representation_id: (
+            SimpleNamespace(),
+            SimpleNamespace(
+                representation_id="slides-v6",
+                representation_type="slide_deck",
+                status="ready",
+            ),
+            SimpleNamespace(payload={"content": content}),
+        ),
+    )
+    app = FastAPI()
+    app.include_router(representation_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/courses/generic-v6-routing-fixture/teaching-representations/"
+        "slides-v6/slide-decks/visual-repair",
+        headers={"X-User-Id": "teacher-generic"},
+        json={},
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "status": "accepted",
+        "task_id": "visual-repair-task",
+        "target_page_ids": ["needs-visual"],
+    }
+    snapshot = captured["request_snapshot"]
+    assert captured["task_type"] == "slide_deck_variant_build"
+    assert snapshot["operation"] == "repair_slide_visuals_v6"
+    assert snapshot["representation_id"] == "slides-v6"
+    assert snapshot["target_page_ids"] == ["needs-visual"]
+    assert snapshot["target_schema"] == "slide_deck_v6"

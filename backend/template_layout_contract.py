@@ -25,6 +25,7 @@ class TemplateSlotContractV1(_StrictModel):
         "eyebrow",
         "body",
         "items",
+        "steps",
         "code",
         "formula",
         "table",
@@ -32,10 +33,16 @@ class TemplateSlotContractV1(_StrictModel):
         "notes",
     ]
     required: bool = True
+    min_chars: int = Field(default=0, ge=0)
     max_chars: int = Field(default=0, ge=0)
     max_items: int = Field(default=0, ge=0)
     max_lines: int = Field(default=0, ge=0)
     max_rows: int = Field(default=0, ge=0)
+    split_wrapped_lines: int = Field(default=0, ge=0)
+    full_wrapped_lines: int = Field(default=0, ge=0)
+    split_column_chars: int = Field(default=0, ge=0)
+    full_column_chars: int = Field(default=0, ge=0)
+    wide_min_columns: int = Field(default=0, ge=0)
     source_roles: list[str] = Field(default_factory=list)
 
 
@@ -98,24 +105,38 @@ def _slot(
     kind: str,
     *,
     required: bool = True,
+    min_chars: int = 0,
     chars: int = 0,
     items: int = 0,
     lines: int = 0,
     rows: int = 0,
+    split_wrapped_lines: int = 0,
+    full_wrapped_lines: int = 0,
+    split_column_chars: int = 0,
+    full_column_chars: int = 0,
+    wide_min_columns: int = 0,
 ) -> dict[str, Any]:
     return {
         "slot_id": slot_id,
         "slot_kind": kind,
         "required": required,
+        "min_chars": min_chars,
         "max_chars": chars,
         "max_items": items,
         "max_lines": lines,
         "max_rows": rows,
+        "split_wrapped_lines": split_wrapped_lines,
+        "full_wrapped_lines": full_wrapped_lines,
+        "split_column_chars": split_column_chars,
+        "full_column_chars": full_column_chars,
+        "wide_min_columns": wide_min_columns,
         "source_roles": sorted(_SLOT_SOURCE_ROLES.get(slot_id, set())),
     }
 
 
-_TITLE = _slot("title", "title", chars=42)
+_TITLE = _slot("title", "title", chars=42, lines=2)
+_COVER_TITLE = _slot("title", "title", chars=42, lines=3)
+_CHAPTER_TITLE = _slot("title", "title", chars=28, lines=2)
 _EYEBROW = _slot("eyebrow", "eyebrow", required=False, chars=24)
 _NOTES = _slot("source_notes", "notes", chars=0)
 
@@ -123,12 +144,12 @@ _NOTES = _slot("source_notes", "notes", chars=0)
 _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "cover-minimal": {
         "intents": ["orientation"],
-        "slots": [_TITLE, _slot("subtitle", "body", required=False, chars=90), _NOTES],
+        "slots": [_COVER_TITLE, _slot("subtitle", "body", required=False, chars=90), _NOTES],
         "continuations": [],
     },
     "chapter-entry": {
         "intents": ["orientation", "concept_explanation"],
-        "slots": [_EYEBROW, _TITLE, _slot("driving_question", "body", chars=120), _NOTES],
+        "slots": [_EYEBROW, _CHAPTER_TITLE, _slot("driving_question", "body", chars=120), _NOTES],
         "continuations": ["content-stack"],
     },
     "agenda-path": {
@@ -144,7 +165,12 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             "recap",
             "worked_example",
         ],
-        "slots": [_EYEBROW, _TITLE, _slot("body", "body", chars=520), _NOTES],
+        "slots": [
+            _EYEBROW,
+            _TITLE,
+            _slot("body", "body", min_chars=120, chars=520),
+            _NOTES,
+        ],
         "continuations": ["content-stack"],
     },
     "concept-pair": {
@@ -160,7 +186,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "process-flow": {
         "intents": ["mechanism", "process", "artifact_explanation"],
         "artifact_kinds": ["diagram"],
-        "slots": [_TITLE, _slot("steps", "items", items=6, chars=360), _slot("flow", "visual", required=False), _NOTES],
+        "slots": [_TITLE, _slot("steps", "steps", items=6, chars=360), _slot("flow", "visual", required=False), _NOTES],
         "continuations": ["process-flow", "content-stack"],
     },
     "worked-example": {
@@ -170,8 +196,54 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "practice-prompt": {
         "intents": ["practice_feedback"],
-        "slots": [_TITLE, _slot("task", "body", chars=280), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
+        "slots": [_TITLE, _slot("task", "steps", items=5, chars=420), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
         "continuations": ["practice-prompt", "practice-feedback"],
+    },
+    "practice-code": {
+        "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
+        "artifact_kinds": ["code"],
+        "slots": [
+            _TITLE,
+            _slot("code", "code", lines=12, chars=380),
+            _slot("task", "steps", items=7, chars=294),
+            _NOTES,
+        ],
+        "continuations": ["practice-code"],
+        "base_layout": "practice-prompt",
+    },
+    "practice-formula": {
+        "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
+        "artifact_kinds": ["formula"],
+        "slots": [
+            _TITLE,
+            _slot("formula", "formula", chars=300),
+            _slot("task", "steps", items=7, chars=294),
+            _NOTES,
+        ],
+        "continuations": ["practice-formula"],
+        "base_layout": "practice-prompt",
+    },
+    "practice-table": {
+        "intents": ["artifact_explanation", "practice_feedback", "comparison"],
+        "artifact_kinds": ["table"],
+        "slots": [
+            _TITLE,
+            _slot(
+                "table",
+                "table",
+                rows=5,
+                chars=560,
+                split_wrapped_lines=7,
+                full_wrapped_lines=7,
+                split_column_chars=14,
+                full_column_chars=20,
+                wide_min_columns=3,
+            ),
+            _slot("task", "steps", items=7, chars=294),
+            _NOTES,
+        ],
+        "continuations": ["practice-table"],
+        "base_layout": "practice-prompt",
     },
     "practice-feedback": {
         "intents": ["practice_feedback", "misconception_repair"],
@@ -181,7 +253,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "evidence-code": {
         "intents": ["artifact_explanation", "worked_example", "mechanism"],
         "artifact_kinds": ["code"],
-        "slots": [_TITLE, _slot("code", "code", lines=28, chars=1800), _slot("annotation", "body", chars=220), _NOTES],
+        "slots": [_TITLE, _slot("code", "code", lines=13, chars=400), _slot("annotation", "body", chars=160), _NOTES],
         "continuations": ["evidence-code"],
     },
     "evidence-formula": {
@@ -193,7 +265,22 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "evidence-table": {
         "intents": ["artifact_explanation", "comparison", "worked_example", "misconception_repair"],
         "artifact_kinds": ["table", "data"],
-        "slots": [_TITLE, _slot("table", "table", rows=10, chars=900), _slot("interpretation", "body", chars=220), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot(
+                "table",
+                "table",
+                rows=10,
+                chars=900,
+                split_wrapped_lines=9,
+                full_wrapped_lines=8,
+                split_column_chars=18,
+                full_column_chars=36,
+                wide_min_columns=3,
+            ),
+            _slot("interpretation", "body", required=False, chars=140),
+            _NOTES,
+        ],
         "continuations": ["evidence-table"],
     },
     "evidence-figure": {
@@ -244,6 +331,11 @@ def compile_builtin_template_layout_contract_v1(theme_id: str) -> TemplateLayout
             artifact_kinds=list(spec.get("artifact_kinds") or []),
             slots=[TemplateSlotContractV1.model_validate(item) for item in spec["slots"]],
             safe_continuation_layout_slugs=list(spec.get("continuations") or []),
+            base_layout_id=(
+                f"{prefix}/{spec['base_layout']}"
+                if spec.get("base_layout")
+                else ""
+            ),
         )
         for slug, spec in _LAYOUT_SPECS.items()
     ]

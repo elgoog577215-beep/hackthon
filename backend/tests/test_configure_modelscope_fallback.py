@@ -8,6 +8,9 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY_ROOT / "scripts" / "configure_modelscope_fallback.py"
 DEPLOY_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "deploy-lingzhi.yml"
+DIAGNOSTICS_WORKFLOW = (
+    REPOSITORY_ROOT / ".github" / "workflows" / "production-diagnostics.yml"
+)
 
 
 def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
@@ -33,6 +36,16 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
             "api_key": secret,
             "base_url": "https://api-inference.modelscope.cn/v1/",
             "model": "Qwen/Qwen3.5-35B-A3B",
+            "ppt_story_models": (
+                "deepseek-ai/DeepSeek-V4-Flash-0731,"
+                "Qwen/Qwen3.5-122B-A10B"
+            ),
+            "ppt_visual_models": (
+                "deepseek-ai/DeepSeek-V4-Flash-0731,"
+                "Qwen/Qwen3.5-122B-A10B"
+            ),
+            "slide_deck_v6_enabled": True,
+            "slide_deck_v6_default_enabled": True,
         }),
         text=True,
         capture_output=True,
@@ -50,6 +63,16 @@ def test_configure_modelscope_fallback_updates_env_without_echoing_secret(
         in content
     )
     assert "MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B" in content
+    assert (
+        "AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
+        "Qwen/Qwen3.5-122B-A10B"
+    ) in content
+    assert (
+        "AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,"
+        "Qwen/Qwen3.5-122B-A10B"
+    ) in content
+    assert "SLIDE_DECK_V6_ENABLED=true" in content
+    assert "SLIDE_DECK_V6_DEFAULT_ENABLED=true" in content
     assert "MODELSCOPE_MODEL_CANDIDATES=" not in content
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES=" not in content
     assert secret not in result.stdout
@@ -109,9 +132,38 @@ def test_configure_modelscope_fallback_rejects_invalid_model_atomically(
     assert env_file.read_text(encoding="utf-8") == original
 
 
-def test_deploy_workflow_provisions_one_qwen_model():
+def test_deploy_workflow_provisions_verified_ppt_role_routes():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-35B-A3B" in workflow
+    assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-27B" in workflow
+    assert (
+        "AI_PPT_STORY_MODELS: Qwen/Qwen3.5-397B-A17B,"
+        "Qwen/Qwen3.5-27B"
+    ) in workflow
+    assert (
+        "AI_PPT_VISUAL_MODELS: Qwen/Qwen3.5-27B,"
+        "Qwen/Qwen3.5-397B-A17B"
+    ) in workflow
+    assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
+    assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
+    assert "SLIDE_DECK_V6_ENABLED: true" in workflow
+    assert "SLIDE_DECK_V6_DEFAULT_ENABLED: true" in workflow
+    assert '"slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"]' in workflow
+    assert (
+        '"slide_deck_v6_default_enabled": '
+        'os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]'
+    ) in workflow
     assert "MODELSCOPE_MODEL_CANDIDATES" not in workflow
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
+
+
+def test_production_diagnostics_can_probe_ppt_story_route_without_content_output():
+    workflow = DIAGNOSTICS_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "probe_ai_model:" in workflow
+    assert 'model_role="ppt_story"' in workflow
+    assert 'model_role="ppt_visual"' in workflow
+    assert '"model_id"' in workflow
+    assert '"status"' in workflow
+    assert '"error_code"' in workflow
+    assert "full_content" not in workflow

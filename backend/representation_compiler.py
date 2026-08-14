@@ -481,14 +481,21 @@ def export_slide_deck_pptx(
     spec: TeachingRepresentationSpec,
     output_path: str | Path,
     *,
-    theme: str | None = None,
+    theme: str | dict[str, Any] | None = None,
 ) -> Path:
     if spec.representation_type != "slide_deck":
         raise ValueError("Only slide deck specs can be exported to pptx")
     content = spec.payload.get("content") or {}
     if content.get("schema_version") == "slide_deck_v6":
         return export_slide_deck_v6_pptx(content, output_path)
-    resolved_theme = theme or str(content.get("theme") or "qingfeng-classroom")
+    template_theme = (
+        (content.get("template_pack") or {}).get("compiled_theme")
+        if isinstance(content.get("template_pack"), dict)
+        else None
+    )
+    resolved_theme = theme or template_theme or str(
+        content.get("theme") or "qingfeng-classroom"
+    )
     return export_structured_slide_deck(content, output_path, theme=resolved_theme)
 
 
@@ -515,6 +522,14 @@ def compile_slide_deck_variant(
     if canonical_document.course_id != document.course_id:
         raise ValueError("Slide binding document belongs to another course")
     normalized_theme = normalize_slide_deck_theme(theme)
+    template_pack_snapshot = deepcopy(
+        (course_data.get("generation_request") or {}).get("template_pack") or {}
+    )
+    render_theme: str | dict[str, Any] = (
+        template_pack_snapshot.get("compiled_theme")
+        if isinstance(template_pack_snapshot.get("compiled_theme"), dict)
+        else normalized_theme
+    )
     variant_key = (
         str(variant_key_override)
         if variant_key_override
@@ -586,6 +601,8 @@ def compile_slide_deck_variant(
             progress_callback=progress_callback,
             resume_slides=resume_slides,
         )
+        if template_pack_snapshot:
+            content["template_pack"] = deepcopy(template_pack_snapshot)
         render_repair_history: list[dict[str, Any]] = []
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-render-review-") as review_dir:
             review_path = Path(review_dir) / "candidate.pptx"
@@ -595,7 +612,7 @@ def compile_slide_deck_variant(
                     content,
                     review_path,
                     require_quality=False,
-                    theme=normalized_theme,
+                    theme=render_theme,
                 )
                 render_review = audit_exported_pptx(
                     review_path,
@@ -681,6 +698,8 @@ def compile_slide_deck_variant(
             progress_callback=progress_callback,
             resume_slides=resume_slides,
         )
+        if template_pack_snapshot:
+            content["template_pack"] = deepcopy(template_pack_snapshot)
         quality = validate_slide_deck_v3(content, course_data=course_data)
     if requested and str(content.get("schema_version") or "") != requested:
         if requested == SLIDE_DECK_V5_SCHEMA:
@@ -838,10 +857,11 @@ def rebuild_slide_deck_variant_safely(
     resume_slides: list[dict[str, Any]] | None = None,
     requested_schema: str | None = None,
     source_revision_provider: Callable[[], str] | None = None,
+    variant_key_override: str | None = None,
 ) -> dict[str, Any]:
     """Publish one variant atomically and keep the last usable version on failure."""
     previous = repository.load(document.course_id)
-    variant_key = slide_deck_variant_key(mode, theme)
+    variant_key = variant_key_override or slide_deck_variant_key(mode, theme)
     previous_variant = next(
         (
             item for item in previous.representations
@@ -871,6 +891,7 @@ def rebuild_slide_deck_variant_safely(
                     parts=parts,
                     story_plan=story_plan,
                     progress_callback=progress_callback,
+                    base_variant_key_override=variant_key_override,
                 )
         with tempfile.TemporaryDirectory(prefix="lingzhi-slide-variant-build-") as temp_dir:
             shadow = TeachingRepresentationRepository(temp_dir)
@@ -887,6 +908,7 @@ def rebuild_slide_deck_variant_safely(
                 progress_callback=progress_callback,
                 resume_slides=resume_slides,
                 requested_schema=requested_schema,
+                variant_key_override=variant_key_override,
             )
             if not build["quality"]["passed"]:
                 first_blocker = next(
@@ -1087,12 +1109,13 @@ def rebuild_slide_deck_variant_bundle_safely(
     parts: list[SlideDeckPlanPartV1],
     story_plan: SlideStoryPlanV2 | None = None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    base_variant_key_override: str | None = None,
 ) -> dict[str, Any]:
     """Compile chapter parts in isolation and publish the complete bundle atomically."""
     if not parts:
         raise ValueError("A slide deck bundle needs at least one part")
     previous = repository.load(document.course_id)
-    base_variant_key = slide_deck_variant_key(mode, theme)
+    base_variant_key = base_variant_key_override or slide_deck_variant_key(mode, theme)
     bundle_prefix = f"{base_variant_key}:part:"
     last_available = [
         item.model_dump(mode="json")

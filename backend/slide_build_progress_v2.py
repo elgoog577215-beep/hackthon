@@ -211,6 +211,28 @@ class SlideBuildProgressTrackerV2:
         self._recalculate()
         self._persist()
 
+    def resume_failed(self, *, now: datetime | None = None) -> None:
+        """Resume a retryable terminal failure while preserving completed work."""
+
+        failure = self.manifest.failure
+        if self.manifest.status != "failed" or failure is None or not failure.retryable:
+            raise ValueError("Only a retryable failed V6 manifest can be resumed")
+        current = now or _utc_now()
+        for item in self.manifest.items:
+            if item.status in {"running", "failed"}:
+                item.status = "pending"
+                item.started_at = ""
+                item.completed_at = ""
+        self.manifest.status = "active"
+        self.manifest.failure = None
+        self.manifest.finalized = False
+        self.manifest.published = False
+        self.manifest.current_context.provider_wait = False
+        self.manifest.current_context.retry_attempt = 0
+        self._touch(current)
+        self._recalculate()
+        self._persist()
+
     def add_work(self, items: list[SlideWorkItemV2], *, now: datetime | None = None) -> None:
         current = now or _utc_now()
         known = {item.item_id for item in self.manifest.items}

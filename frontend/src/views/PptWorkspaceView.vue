@@ -51,7 +51,7 @@
       >
         <Sparkles :size="17" />{{ logicUpgrading ? '正在补全课程逻辑…' : '补全课程逻辑' }}
       </button>
-      <button v-else type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="openGenerator(false)">
+      <button v-else type="button" class="ppt-workspace-state__build" :disabled="store.building" @click="startOrResumeBuild">
         <Sparkles :size="17" />{{ store.buildPaused ? '从保存点继续' : t('pptWorkspace.build', '选择模式与风格') }}
       </button>
     </div>
@@ -86,6 +86,7 @@
         :estimated-slide-count="store.buildEstimatedSlideCount"
         :error="store.buildError"
         :build-failure="effectiveBuildFailure"
+        :build-resumable="store.buildPaused"
         :logic-upgrading="logicUpgrading"
         :logic-upgrade-error="logicUpgradeError"
         :quality="displayQuality"
@@ -93,6 +94,7 @@
         :mode="selectedMode"
         :theme="selectedTheme"
         :theme-overrides="content?.template_theme_overrides || {}"
+        :template-pack="activeTemplatePack"
         :variants="slideVariants"
         :bundle-parts="activeBundleParts"
         :active-bundle-part-id="slideRepresentation?.representation_id || ''"
@@ -147,25 +149,32 @@
       :closable="Boolean(slideRepresentation)"
       :fragment-count="estimatedFragmentCount"
       :personal-templates="templatePacksStore.personal"
+      :personal-templates-enabled="templateStore.personalTemplatesEnabled"
       @close="closeGenerator"
       @confirm="generateVariant"
-      @load-templates="templatePacksStore.load()"
+      @create-template="openTemplateCreator"
+    />
+    <PptTemplateCreatorDialog
+      :open="templateCreatorOpen"
+      @close="closeTemplateCreator"
+      @published="handleTemplatePublished"
     />
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
+import PptTemplateCreatorDialog from '../components/PptTemplateCreatorDialog.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
-import { usePptTemplatePacksStore } from '../stores/pptTemplatePacks'
+import { usePptTemplatePacksStore, type PersonalPptTemplatePack } from '../stores/pptTemplatePacks'
 import {
   normalizedBuildFailure,
   useTeachingRepresentationsStore,
@@ -186,6 +195,7 @@ const router = useRouter()
 const courseStore = useCourseStore()
 const templatePacksStore = usePptTemplatePacksStore()
 const store = useTeachingRepresentationsStore()
+const templateStore = templatePacksStore
 const initializing = ref(true)
 const aiVisible = ref(false)
 const materialsVisible = ref(false)
@@ -200,10 +210,13 @@ const logicUpgrading = ref(false)
 const logicUpgradeError = ref('')
 const documentLoadError = ref('')
 const generatorOpen = ref(false)
+const templateCreatorOpen = ref(false)
 const forceGeneratorBuild = ref(false)
 const selectedMode = ref<SlideDeckMode>('teaching')
 const selectedTheme = ref<V3Theme>('qizhi-classroom')
 const selectedWebImageRetrieval = ref(false)
+const selectedTemplatePackId = ref('')
+const selectedTemplatePackVersion = ref<number | undefined>(undefined)
 let workspaceAttempt = 0
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
@@ -223,7 +236,11 @@ const targetSlideRepresentations = computed(() => (
 const slideVariants = computed(() => (
   targetSlideRepresentations.value.filter(item => item.variant_key)
 ))
-const activeVariantKey = computed(() => `${selectedMode.value}:${selectedTheme.value}`)
+const activeVariantKey = computed(() => (
+  selectedTemplatePackId.value && selectedTemplatePackVersion.value
+    ? `${selectedMode.value}:${selectedTheme.value}:template:${selectedTemplatePackId.value}@${selectedTemplatePackVersion.value}`
+    : `${selectedMode.value}:${selectedTheme.value}`
+))
 const activeBundleRepresentations = computed(() => (
   slideVariants.value.filter(item => (
     baseVariantKey(item.variant_key) === activeVariantKey.value
@@ -250,6 +267,59 @@ const slideRepresentation = computed(() => (
   || null
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
+const activeTemplateAssetUrls = ref<Record<string, string>>({})
+const activeTemplatePackSnapshot = computed(() => {
+  const contentPack = content.value?.template_pack
+  const selectedPack = templateStore.personal.find(item => (
+    item.pack_id === selectedTemplatePackId.value
+    && (item.version || item.latest_version) === selectedTemplatePackVersion.value
+  ))
+  if (selectedTemplatePackId.value) {
+    const contentMatches = contentPack?.pack_id === selectedTemplatePackId.value
+      && Number(contentPack?.version || 0) === Number(selectedTemplatePackVersion.value || 0)
+    return contentMatches ? contentPack : selectedPack || null
+  }
+  return contentPack || null
+})
+const activeTemplatePack = computed(() => (
+  activeTemplatePackSnapshot.value
+    ? {
+        ...activeTemplatePackSnapshot.value,
+        asset_urls: activeTemplateAssetUrls.value,
+      }
+    : null
+))
+let templateAssetAttempt = 0
+
+watch(activeTemplatePackSnapshot, async snapshot => {
+  const attempt = ++templateAssetAttempt
+  activeTemplateAssetUrls.value = {}
+  if (!snapshot?.pack_id || !Array.isArray(snapshot.assets)) return
+  const version = Number(snapshot.version || snapshot.latest_version || 0) || undefined
+  const imageAssets = snapshot.assets.filter((asset: any) => (
+    String(asset.mime_type || '').startsWith('image/')
+    && ['logo', 'style_reference'].includes(String(asset.role || ''))
+  ))
+  const settled = await Promise.allSettled(imageAssets.map(async (asset: any) => ({
+    role: String(asset.role),
+    url: await templateStore.assetUrl(
+      String(snapshot.pack_id),
+      String(asset.asset_id),
+      version,
+    ),
+  })))
+  if (attempt !== templateAssetAttempt) return
+  const urls: Record<string, string> = {}
+  let referenceIndex = 0
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue
+    const key = result.value.role === 'logo'
+      ? 'logo'
+      : `style_reference_${++referenceIndex}`
+    urls[key] = result.value.url
+  }
+  activeTemplateAssetUrls.value = urls
+})
 const slideEngineStatus = computed<
   'slide_deck_v6' | 'slide_deck_v5' | 'slide_deck_v4' | 'slide_deck_v3' | 'blocked' | 'unknown'
 >(() => {
@@ -352,13 +422,15 @@ async function loadWorkspace() {
   logicUpgradeError.value = ''
   documentLoadError.value = ''
   try {
-    const envelope = await loadDocumentEnvelope(id, attempt)
+    const documentPromise = loadDocumentEnvelope(id, attempt)
+    const registryPromise = store.ensure(id, {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
+    const [envelope] = await Promise.all([documentPromise, registryPromise])
     if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
-    store.deferMissingSlideBuild = true
-    try {
-      await store.ensure(id)
-    } finally {
-      store.deferMissingSlideBuild = false
+    if (store.courseId === id && !store.representations.length) {
+      await store.recoverDurableBuild(id)
     }
     if (!isCurrentAttempt(id, attempt)) return
     const preferred = preferredVariantRepresentation()
@@ -414,7 +486,7 @@ async function migrateCourse() {
     if (response.data.source_format !== 'canonical') return
     store.deferMissingSlideBuild = true
     try {
-      await store.ensure(id)
+      await store.ensure(id, { loadSelectedSpec: false })
     } finally {
       store.deferMissingSlideBuild = false
     }
@@ -491,6 +563,8 @@ async function rebuild() {
         enabled: selectedWebImageRetrieval.value,
         mode: 'wide_safe',
       },
+      templatePackId: selectedTemplatePackId.value || undefined,
+      templatePackVersion: selectedTemplatePackVersion.value,
     })
   } catch {
     return
@@ -498,10 +572,37 @@ async function rebuild() {
   if (slideRepresentation.value) await store.select(slideRepresentation.value.representation_id)
 }
 
+async function startOrResumeBuild() {
+  if (store.buildPaused) {
+    await store.resumeBuild()
+    return
+  }
+  openGenerator(false)
+}
+
 function openGenerator(forceRebuild: boolean) {
   if (slideEngineStatus.value === 'blocked') return
+  if (!templateStore.loading && !templateStore.builtIn.length) {
+    void templateStore.load()
+  }
   forceGeneratorBuild.value = forceRebuild
   generatorOpen.value = true
+}
+
+function openTemplateCreator() {
+  generatorOpen.value = false
+  templateCreatorOpen.value = true
+}
+
+function closeTemplateCreator() {
+  templateCreatorOpen.value = false
+  if (!store.building) generatorOpen.value = true
+}
+
+async function handleTemplatePublished(template: PersonalPptTemplatePack) {
+  await templateStore.load()
+  selectedTemplatePackId.value = template.pack_id
+  selectedTemplatePackVersion.value = template.version || template.latest_version
 }
 
 function closeGenerator() {
@@ -531,6 +632,8 @@ async function generateVariant(value: {
   selectedMode.value = value.mode
   selectedTheme.value = value.theme
   selectedWebImageRetrieval.value = value.webImageRetrieval.enabled
+  selectedTemplatePackId.value = value.templatePackId || ''
+  selectedTemplatePackVersion.value = value.templatePackVersion
   generatorOpen.value = false
   try {
     await store.buildSlideDeckVariant(courseId.value, {
@@ -573,6 +676,9 @@ function applyVariantSelection(representation: TeachingRepresentation) {
   if (['qizhi-classroom', 'academic-editorial', 'grid-notebook', 'modern-geometric', 'dark-tech'].includes(theme)) {
     selectedTheme.value = theme as V3Theme
   }
+  const template = String(representation.variant_key || '').match(/:template:([^:@]+)@(\d+)/)
+  selectedTemplatePackId.value = template?.[1] || ''
+  selectedTemplatePackVersion.value = template?.[2] ? Number(template[2]) : undefined
 }
 
 function baseVariantKey(variantKey?: string) {
@@ -640,7 +746,13 @@ function openAiForSlide(payload: { text: string; nodeId: string; anchor: Record<
 }
 
 watch(courseId, loadWorkspace)
-onMounted(loadWorkspace)
+onMounted(() => {
+  void loadWorkspace()
+})
+onUnmounted(() => {
+  templateAssetAttempt += 1
+  templateStore.releaseAllAssets()
+})
 </script>
 
 <style scoped>

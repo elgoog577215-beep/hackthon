@@ -88,8 +88,20 @@ class SuccessfulCompletions:
         return _success_stream()
 
 
+class RateLimitedThenSuccessCompletions:
+    def __init__(self):
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs["model"])
+        if len(self.calls) == 1:
+            raise _make_status_error(429, "limit_burst_rate")
+        return _success_stream()
+
+
 def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "https://primary.example.test/v1")
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("MODELSCOPE_BASE_URL", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL", raising=False)
@@ -120,6 +132,11 @@ def _make_service_with_modelscope_fallback(
         "https://api-inference.modelscope.cn/v1/",
     )
     monkeypatch.setenv("MODELSCOPE_MODEL", fallback_model)
+    # Unit tests exercise routing, not production pacing. Individual pacing
+    # tests override the instance values they need explicitly.
+    monkeypatch.setenv("AI_LAST_RESORT_START_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_LAST_RESORT_POST_REQUEST_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_LAST_RESORT_RATE_LIMIT_RETRIES", "0")
     monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
     service = AIBase()
@@ -222,6 +239,38 @@ async def test_call_llm_uses_modelscope_only_after_primary_pool_is_exhausted(
 
 
 @pytest.mark.asyncio
+async def test_distinct_credentials_do_not_share_model_cooldown_on_same_endpoint(
+    monkeypatch,
+):
+    shared_endpoint = "https://api-inference.modelscope.cn/v1"
+    shared_model = "Qwen/Qwen3.5-27B"
+    primary = AlwaysFailingCompletions(
+        lambda: _make_status_error(429, "insufficient balance")
+    )
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        models=(shared_model,),
+        fallback_model=shared_model,
+    )
+    service.api_base = shared_endpoint
+    service.modelscope_fallback_api_base = shared_endpoint
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert primary.calls == [shared_model]
+    assert fallback.calls == [shared_model]
+
+
+@pytest.mark.asyncio
 async def test_call_llm_does_not_touch_modelscope_when_primary_succeeds(
     monkeypatch,
 ):
@@ -292,6 +341,39 @@ async def test_call_llm_can_run_with_only_modelscope_fallback_configured(
 
 
 @pytest.mark.asyncio
+async def test_modelscope_last_resort_waits_and_retries_burst_rate_limit(
+    monkeypatch,
+):
+    fallback = RateLimitedThenSuccessCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        SuccessfulCompletions(),
+        fallback,
+    )
+    service.api_key = None
+    service.client = None
+    service._last_resort_rate_limit_retries = 1
+    monkeypatch.setattr(
+        service,
+        "_model_failure_cooldown_seconds",
+        lambda _error: 0.01,
+    )
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert fallback.calls == [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Pro",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_stream_llm_uses_modelscope_after_primary_pool_is_exhausted(
     monkeypatch,
 ):
@@ -352,7 +434,7 @@ async def test_call_llm_cools_down_empty_model_and_fails_over(monkeypatch):
     assert result == "ok-answer"
     assert completions.calls == ["model-a", "model-b"]
     assert (
-        service.api_base,
+        service._primary_provider_scope(),
         "model-a",
     ) in service._model_failure_cache
 
@@ -488,6 +570,27 @@ async def test_bounded_assessment_call_circuit_breaks_on_exhausted_quota(
 
 
 @pytest.mark.asyncio
+async def test_bounded_modelscope_call_tries_next_model_after_model_quota(
+    monkeypatch,
+):
+    error = RuntimeError("insufficient_quota: model token quota exhausted")
+    completions = SequencedCompletions(lambda: error)
+    service = _make_service(monkeypatch, completions)
+    service.api_base = "https://api-inference.modelscope.cn/v1"
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=2,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert service._provider_failure is None
+
+
+@pytest.mark.asyncio
 async def test_call_llm_still_fails_over_on_rate_limit_chinese_marker(monkeypatch):
     error = RuntimeError("触发速率限制，请稍后重试")
     completions = SequencedCompletions(lambda: error)
@@ -515,7 +618,7 @@ async def test_quota_failed_model_is_skipped_by_later_calls(monkeypatch):
 
     assert completions.calls == ["model-a", "model-b", "model-b"]
     assert (
-        service.api_base,
+        service._primary_provider_scope(),
         "model-a",
     ) in service._model_failure_cache
 

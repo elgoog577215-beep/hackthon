@@ -18,12 +18,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_base import AIBase
 from change_proposals import change_proposal_repository, create_authoring_change
-from course_document import stable_hash
+from course_document import (
+    CourseDocument,
+    course_view_from_document,
+    document_from_legacy_course,
+    stable_hash,
+)
 from course_logic_upgrade import (
     CourseLogicUpgradeError,
     compile_course_logic_upgrade,
 )
-from course_repository import CourseDocumentConflict
+from course_repository import CourseDocumentConflict, CourseDocumentNotFound
 from course_revisions import revision_vector_for_course, revision_vector_for_document
 from dependencies import (
     get_course_document_repository,
@@ -31,8 +36,12 @@ from dependencies import (
     get_task_manager_optional,
 )
 from learner_context import require_user_id
+from ppt_template_packs import (
+    TemplatePackError,
+    ppt_template_pack_repository,
+    template_pack_variant_key,
+)
 from product_runtime_policy import demo_overrides_enabled
-from ppt_template_packs import TemplatePackError, ppt_template_pack_repository
 from representation_compiler import (
     export_slide_deck_pptx,
     rebuild_core_representations_safely,
@@ -86,14 +95,14 @@ from slide_theme import slide_theme_version
 from slide_visuals import build_signature
 from slide_web_images import WebImageRetrievalConfig
 from storage import DATA_DIR
-from template_layout_contract import (
-    TemplateLayoutPackContractV1,
-    compile_builtin_template_layout_contract_v1,
-)
 from teaching_representations import (
     RepresentationConflict,
     TeachingRepresentationRepository,
     teaching_representation_repository,
+)
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
 )
 
 router = APIRouter(
@@ -154,6 +163,7 @@ class SlideDeckVariantBuildRequest(BaseModel):
     engine_version: Literal["v5", "v6"] | None = None
     template_pack_id: str = ""
     template_version: int | None = Field(default=None, ge=1)
+    template_pack_version: int | None = Field(default=None, ge=1)
     shadow_only: bool = False
     chapter_id: str = Field(default="", max_length=200)
     force_rebuild: bool = False
@@ -163,6 +173,13 @@ class SlideDeckVariantBuildRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_shadow_scope(self) -> "SlideDeckVariantBuildRequest":
+        if self.template_version is not None and self.template_pack_version is not None:
+            if self.template_version != self.template_pack_version:
+                raise ValueError("template version aliases must match")
+        if self.template_version is None:
+            self.template_version = self.template_pack_version
+        if self.template_pack_version is None:
+            self.template_pack_version = self.template_version
         self.chapter_id = self.chapter_id.strip()
         if self.shadow_only and self.engine_version != "v6":
             raise ValueError("Shadow chapter builds require engine_version=v6")
@@ -173,21 +190,73 @@ class SlideDeckVariantBuildRequest(BaseModel):
         return self
 
 
-def _reconciled_registry(course_id: str) -> dict:
-    course_repository = get_course_document_repository()
-    raw = course_repository.load_raw(course_id)
-    document, _canonical = course_repository.load_document(course_id)
-    course_view = course_repository.load_course_view(course_id)
-    repository = get_teaching_representation_repository()
-    repository.reconcile_course_operation_log(
-        course_id,
-        list(raw.get("course_operation_log") or []),
-    )
-    registry = repository.reconcile_source_revision_vector(
-        course_id,
-        revision_vector_for_course(document, course_view),
-    )
-    payload = registry.model_dump(mode="json")
+class SlideVisualRepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page_ids: list[str] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def normalize_page_ids(self) -> "SlideVisualRepairRequest":
+        self.page_ids = list(dict.fromkeys(
+            page_id.strip() for page_id in self.page_ids if page_id.strip()
+        ))
+        return self
+
+
+_SPEC_ROUTING_CONTENT_KEYS = (
+    "schema_version",
+    "candidate_status",
+    "status",
+    "title",
+)
+_REGISTRY_SUMMARY_KEYS = (
+    "schema_version",
+    "course_id",
+    "registry_revision",
+    "updated_at",
+    "slide_deck_v4_eligible",
+    "slide_deck_v4_upgrade_required",
+    "slide_deck_story_engine_enabled",
+    "slide_deck_target_schema",
+    "slide_deck_v4_blockers",
+    "slide_deck_v4_blocker_details",
+    "slide_deck_published_schema",
+    "slide_deck_candidate_schema",
+    "slide_deck_candidate_status",
+)
+_REPRESENTATION_SUMMARY_KEYS = (
+    "representation_id",
+    "representation_type",
+    "variant_key",
+    "spec_id",
+    "status",
+    "stale_unit_ids",
+    "stale_reasons",
+    "revision",
+    "updated_at",
+    "visual_engine_update_available",
+    "visual_engine_update_reason",
+    "course_logic_upgrade_required",
+    "course_logic_upgrade_reason",
+)
+
+
+def _course_source_from_raw(
+    course_repository: Any,
+    raw: dict[str, Any],
+) -> tuple[Any, dict[str, Any]]:
+    if course_repository.is_canonical(raw):
+        document = CourseDocument.model_validate(raw["course_document"])
+        return document, course_view_from_document(raw, document)
+    return document_from_legacy_course(raw), raw
+
+
+def _decorate_registry_payload(
+    payload: dict[str, Any],
+    *,
+    document: Any,
+    course_view: dict[str, Any],
+) -> dict[str, Any]:
     story_engine_enabled = _story_engine_enabled()
     v4_eligible = course_supports_slide_deck_v4(course_view)
     payload["slide_deck_v4_eligible"] = v4_eligible
@@ -289,6 +358,88 @@ def _reconciled_registry(course_id: str) -> dict:
             representation["visual_engine_update_available"] = True
             representation["visual_engine_update_reason"] = "视觉引擎已更新"
     return payload
+
+
+def _compact_registry_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep routing facts while omitting immutable, heavyweight spec bodies."""
+
+    compact = {
+        key: payload[key]
+        for key in _REGISTRY_SUMMARY_KEYS
+        if key in payload
+    }
+    compact["representations"] = [
+        {
+            **{
+                key: representation[key]
+                for key in _REPRESENTATION_SUMMARY_KEYS
+                if key in representation
+            },
+            "stale_unit_ids": list(representation.get("stale_unit_ids") or []),
+            "stale_reasons": list(representation.get("stale_reasons") or []),
+        }
+        for representation in payload.get("representations") or []
+    ]
+    compact["specs"] = [
+        {
+            "spec_id": str(spec.get("spec_id") or ""),
+            "representation_type": str(spec.get("representation_type") or ""),
+            "variant_key": str(spec.get("variant_key") or ""),
+            "revision": str(spec.get("revision") or ""),
+            "payload": {
+                "compiler_version": str(
+                    (spec.get("payload") or {}).get("compiler_version") or ""
+                ),
+                "content": {
+                    key: content[key]
+                    for key in _SPEC_ROUTING_CONTENT_KEYS
+                    if key in content
+                },
+            },
+        }
+        for spec in payload.get("specs") or []
+        for content in [((spec.get("payload") or {}).get("content") or {})]
+    ]
+    return compact
+
+
+def _reconciled_registry(course_id: str) -> dict:
+    """Read the persisted registry projection used by the interactive UI.
+
+    Revision events update this file on write. Avoid validating every retained
+    slide and source binding again merely to list available representations.
+    Explicit reconcile and quality routes use the defensive full path below.
+    """
+
+    course_repository = get_course_document_repository()
+    raw = course_repository.load_raw(course_id)
+    document, course_view = _course_source_from_raw(course_repository, raw)
+    payload = get_teaching_representation_repository().load_payload(course_id)
+    return _decorate_registry_payload(
+        payload,
+        document=document,
+        course_view=course_view,
+    )
+
+
+def _fully_reconciled_registry(course_id: str) -> dict:
+    course_repository = get_course_document_repository()
+    raw = course_repository.load_raw(course_id)
+    document, course_view = _course_source_from_raw(course_repository, raw)
+    repository = get_teaching_representation_repository()
+    repository.reconcile_course_operation_log(
+        course_id,
+        list(raw.get("course_operation_log") or []),
+    )
+    registry = repository.reconcile_source_revision_vector(
+        course_id,
+        revision_vector_for_course(document, course_view),
+    )
+    return _decorate_registry_payload(
+        registry.model_dump(mode="json"),
+        document=document,
+        course_view=course_view,
+    )
 
 
 def _story_engine_enabled() -> bool:
@@ -517,6 +668,8 @@ def _compile_slide_variant_registry(
     story_plan: SlideStoryPlanV2 | dict[str, Any] | None = None,
     progress_callback: Any | None = None,
     web_image_retrieval: dict[str, Any] | None = None,
+    template_pack: dict[str, Any] | None = None,
+    variant_key_override: str | None = None,
     requested_schema: str | None = None,
 ) -> dict[str, Any]:
     course_repository = get_course_document_repository()
@@ -533,6 +686,7 @@ def _compile_slide_variant_registry(
     course_view["generation_request"] = {
         **(course_view.get("generation_request") or {}),
         "web_image_retrieval": deepcopy(web_image_retrieval or {}),
+        "template_pack": deepcopy(template_pack or {}),
     }
     build = rebuild_slide_deck_variant_safely(
         document,
@@ -547,6 +701,7 @@ def _compile_slide_variant_registry(
         source_revision_provider=lambda: str(
             course_repository.load_document(course_id)[0].document_revision or ""
         ),
+        variant_key_override=variant_key_override,
     )
     registry = repository.reconcile_course_operation_log(
         course_id,
@@ -556,22 +711,23 @@ def _compile_slide_variant_registry(
         "build": build,
         "quality": build.get("quality") or {},
         "registry": registry.model_dump(mode="json"),
-        "variant_key": slide_deck_variant_key(mode, theme),
+        "variant_key": variant_key_override or slide_deck_variant_key(mode, theme),
     }
 
 
 @router.get("")
 async def get_teaching_representations(course_id: str, request: Request) -> dict:
     require_user_id(request.headers.get("X-User-Id"))
-    await get_course_or_404(course_id)
     try:
         registry = await run_in_threadpool(_reconciled_registry, course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
     except RepresentationConflict as exc:
         raise HTTPException(status_code=409, detail={
             "code": "teaching_representation_conflict",
             "message": str(exc),
         }) from exc
-    return {"status": "success", "registry": registry}
+    return {"status": "success", "registry": _compact_registry_payload(registry)}
 
 
 @router.get("/slide-decks/v6/metrics")
@@ -707,8 +863,16 @@ async def upgrade_course_logic(course_id: str, request: Request) -> dict:
 
 @router.get("/derivation-graph")
 async def get_teaching_representation_graph(course_id: str, request: Request) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    try:
+        registry = await run_in_threadpool(_reconciled_registry, course_id)
+    except CourseDocumentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Course not found") from exc
+    except RepresentationConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "teaching_representation_conflict",
+            "message": str(exc),
+        }) from exc
     return {
         "status": "success",
         "course_id": course_id,
@@ -719,8 +883,9 @@ async def get_teaching_representation_graph(course_id: str, request: Request) ->
 
 @router.post("/reconcile")
 async def reconcile_teaching_representations(course_id: str, request: Request) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    registry = await run_in_threadpool(_fully_reconciled_registry, course_id)
     return {
         "status": "reconciled",
         "course_id": course_id,
@@ -907,7 +1072,31 @@ async def stream_slide_deck_variant_build(
     owner_id = require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
     theme = normalize_slide_deck_theme(body.theme)
-    variant_key = slide_deck_variant_key(body.mode, theme)
+    if body.template_version is not None and not body.template_pack_id:
+        raise HTTPException(
+            status_code=422,
+            detail="template_version requires template_pack_id",
+        )
+    template_pack: dict[str, Any] = {}
+    if body.template_pack_id:
+        try:
+            template_pack = ppt_template_pack_repository.resolve_version(
+                body.template_pack_id,
+                body.template_version,
+                owner_id,
+            )
+        except (FileNotFoundError, TemplatePackError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Template pack not found") from exc
+    variant_key = (
+        template_pack_variant_key(
+            body.mode,
+            theme,
+            str(template_pack["pack_id"]),
+            int(template_pack["version"]),
+        )
+        if template_pack
+        else slide_deck_variant_key(body.mode, theme)
+    )
     document, course_view = await run_in_threadpool(
         _load_registry_slide_source,
         course_id,
@@ -917,6 +1106,7 @@ async def stream_slide_deck_variant_build(
     course_view["generation_request"] = {
         **(course_view.get("generation_request") or {}),
         "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
+        "template_pack": deepcopy(template_pack),
     }
     try:
         target_schema = _resolve_requested_slide_schema(course_view, body)
@@ -933,7 +1123,16 @@ async def stream_slide_deck_variant_build(
     )
     if template_contract is not None:
         theme = normalize_slide_deck_theme(template_contract.theme_id)
-        variant_key = slide_deck_variant_key(body.mode, theme)
+        variant_key = (
+            template_pack_variant_key(
+                body.mode,
+                theme,
+                str(template_pack["pack_id"]),
+                int(template_pack["version"]),
+            )
+            if template_pack
+            else slide_deck_variant_key(body.mode, theme)
+        )
     registry = get_teaching_representation_repository().load(course_id)
     cached = next((
         item for item in registry.representations
@@ -1084,6 +1283,7 @@ async def stream_slide_deck_variant_build(
                 "chapter_id": body.chapter_id,
                 "source_course_document_revision": str(document.document_revision or ""),
                 "web_image_retrieval": body.web_image_retrieval.model_dump(mode="json"),
+                "template_pack": deepcopy(template_pack),
             },
             base_document_revision=str(document.document_revision or ""),
         )
@@ -1218,6 +1418,8 @@ async def stream_slide_deck_variant_build(
                     story_plan=story_plan,
                     progress_callback=publish,
                     web_image_retrieval=body.web_image_retrieval.model_dump(mode="json"),
+                    template_pack=template_pack,
+                    variant_key_override=variant_key,
                     requested_schema=target_schema,
                 )
                 blocked = (
@@ -1264,8 +1466,9 @@ async def stream_slide_deck_variant_build(
 
 @router.get("/quality")
 async def get_teaching_representation_quality(course_id: str, request: Request) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    registry = await run_in_threadpool(_fully_reconciled_registry, course_id)
     current_spec_ids = {item["spec_id"] for item in registry["representations"]}
     current_specs = [
         item for item in registry.get("specs") or []
@@ -1277,6 +1480,124 @@ async def get_teaching_representation_quality(course_id: str, request: Request) 
         TeachingRepresentationSpec.model_validate(item) for item in current_specs
     ])
     return {"status": "success", "quality": report}
+
+
+@router.post(
+    "/{representation_id}/slide-decks/visual-repair",
+    status_code=202,
+)
+async def repair_degraded_slide_visuals(
+    course_id: str,
+    representation_id: str,
+    body: SlideVisualRepairRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Queue a durable V6 task that retries only degraded visual decisions."""
+
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    task_manager = get_task_manager_optional()
+    if task_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "v6_orchestrator_unavailable",
+                "message": "Visual repair requires the durable V6 task service.",
+                "retryable": True,
+                "stage": "visual_repair",
+            },
+        )
+    try:
+        _registry, representation, spec = await run_in_threadpool(
+            _representation_and_spec_reconciled,
+            course_id,
+            representation_id,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Teaching representation not found") from error
+    content = dict((spec.payload.get("content") if spec else None) or {})
+    if (
+        representation.representation_type != "slide_deck"
+        or representation.status != "ready"
+        or content.get("schema_version") != "slide_deck_v6"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "visual_repair_requires_v6",
+                "message": "Only the current published V6 deck can be repaired selectively.",
+                "retryable": False,
+                "stage": "visual_repair",
+            },
+        )
+    degraded_page_ids = [
+        str(decision.get("page_id") or "")
+        for decision in ((content.get("visual_plan") or {}).get("decisions") or [])
+        if isinstance(decision, dict)
+        and decision.get("degraded")
+        and str(decision.get("page_id") or "")
+    ]
+    target_page_ids = body.page_ids or degraded_page_ids
+    invalid_page_ids = set(target_page_ids) - set(degraded_page_ids)
+    if invalid_page_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "visual_repair_target_not_degraded",
+                "message": "Visual repair can target only degraded pages.",
+                "page_id": sorted(invalid_page_ids)[0],
+                "retryable": False,
+                "stage": "visual_repair",
+            },
+        )
+    if not target_page_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "visual_repair_not_required",
+                "message": "This V6 deck has no degraded visual pages.",
+                "retryable": False,
+                "stage": "visual_repair",
+            },
+        )
+    build_signature = dict(content.get("build_signature") or {})
+    mode = str(build_signature.get("mode") or "teaching")
+    theme = normalize_slide_deck_theme(
+        str(build_signature.get("theme") or "qizhi-classroom")
+    )
+    source_revision = str(
+        (content.get("source_contract") or {}).get("course_document_revision")
+        or build_signature.get("course_document_revision")
+        or ""
+    )
+    task_id = await task_manager.create_task(
+        course_id,
+        "slide_deck_variant_build",
+        request_snapshot={
+            "operation": "repair_slide_visuals_v6",
+            "mode": mode,
+            "theme": theme,
+            "variant_key": str(
+                getattr(representation, "variant_key", "")
+                or slide_deck_variant_key(mode, theme)
+            ),
+            "target_schema": "slide_deck_v6",
+            "template_contract": content.get("template_contract"),
+            "template_selector": {},
+            "force_rebuild": False,
+            "shadow_only": False,
+            "chapter_id": "",
+            "source_course_document_revision": source_revision,
+            "representation_id": representation_id,
+            "target_page_ids": target_page_ids,
+        },
+        base_document_revision=source_revision,
+    )
+    return {
+        "status": "accepted",
+        "task_id": task_id,
+        "target_page_ids": target_page_ids,
+    }
 
 
 def _representation_and_spec(course_id: str, representation_id: str):
@@ -1300,7 +1621,7 @@ def _representation_and_spec_reconciled(course_id: str, representation_id: str):
         # A representation request can race with an atomic registry publish.
         # Reconcile once from the canonical operation log before treating a
         # previously visible representation as missing.
-        _reconciled_registry(course_id)
+        _fully_reconciled_registry(course_id)
         return _representation_and_spec(course_id, representation_id)
 
 
@@ -1562,8 +1883,17 @@ async def get_teaching_representation_spec(
     representation_id: str,
     request: Request,
 ) -> dict:
-    payload = await get_teaching_representations(course_id, request)
-    registry = payload["registry"]
+    require_user_id(request.headers.get("X-User-Id"))
+    try:
+        registry = await run_in_threadpool(
+            get_teaching_representation_repository().load_payload,
+            course_id,
+        )
+    except RepresentationConflict as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "teaching_representation_conflict",
+            "message": str(exc),
+        }) from exc
     representation = next((
         item for item in registry["representations"]
         if item["representation_id"] == representation_id
@@ -1632,7 +1962,16 @@ async def export_teaching_slide_deck(
 
     spec = TeachingRepresentationSpec.model_validate(payload["spec"])
     content = spec.payload.get("content") or {}
-    resolved_theme = (
+    template_pack = (
+        content.get("template_pack")
+        if isinstance(content.get("template_pack"), dict)
+        else {}
+    )
+    compiled_theme = template_pack.get("compiled_theme")
+    resolved_theme: str | dict[str, Any] = (
+        compiled_theme
+        if isinstance(compiled_theme, dict)
+        else
         str(content.get("theme") or "qizhi-classroom")
         if content.get("schema_version") in {
             "slide_deck_v3",
@@ -1648,7 +1987,14 @@ async def export_teaching_slide_deck(
             "code": "invalid_slide_theme",
             "message": str(exc),
         }) from exc
-    output_path = Path(DATA_DIR) / "teaching_exports" / f"{representation_id}-{spec.revision}-{resolved_theme}.pptx"
+    theme_cache_key = (
+        f"{template_pack.get('pack_id')}@{template_pack.get('version')}"
+        if isinstance(compiled_theme, dict)
+        else str(resolved_theme)
+    )
+    output_path = Path(DATA_DIR) / "teaching_exports" / (
+        f"{representation_id}-{spec.revision}-{theme_cache_key}.pptx"
+    )
     try:
         await run_in_threadpool(export_slide_deck_pptx, spec, output_path, theme=resolved_theme)
     except SlideDeckQualityError as exc:

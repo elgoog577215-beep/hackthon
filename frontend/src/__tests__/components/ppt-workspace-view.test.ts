@@ -50,11 +50,12 @@ function courseEnvelope(
 }
 
 describe('PptWorkspaceView', () => {
-  it('reads the CourseDocument envelope before ensuring teaching representations', async () => {
+  it('loads the CourseDocument envelope and teaching registry in parallel', async () => {
     const calls: string[] = []
-    httpMock.get.mockImplementation(async () => {
+    let resolveDocument!: (value: { data: ReturnType<typeof courseEnvelope> }) => void
+    httpMock.get.mockImplementation(() => {
       calls.push('document')
-      return { data: courseEnvelope('canonical') }
+      return new Promise(resolve => { resolveDocument = resolve })
     })
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'
@@ -63,9 +64,51 @@ describe('PptWorkspaceView', () => {
     vi.spyOn(store, 'ensure').mockImplementation(async () => { calls.push('ensure') })
 
     mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
-    await flushPromises()
+    await nextTick()
 
     expect(calls).toEqual(['document', 'ensure'])
+
+    resolveDocument({ data: courseEnvelope('canonical') })
+    await flushPromises()
+  })
+
+  it('loads registry summaries first and fetches the selected PPT spec only once', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    const representation = {
+      representation_id: 'slides-v6',
+      representation_type: 'slide_deck',
+      variant_key: 'teaching:qizhi-classroom',
+      spec_id: 'spec-v6',
+      status: 'ready',
+      stale_unit_ids: [],
+      stale_reasons: [],
+      revision: 'r1',
+      updated_at: 'now',
+    }
+    const ensure = vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = {
+        slide_deck_target_schema: 'slide_deck_v6',
+        representations: [representation],
+        specs: [{
+          spec_id: 'spec-v6',
+          representation_type: 'slide_deck',
+          payload: { content: { schema_version: 'slide_deck_v6' } },
+        }],
+      }
+    })
+    const select = vi.spyOn(store, 'select').mockResolvedValue(undefined)
+
+    mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
+    expect(select).toHaveBeenCalledTimes(1)
+    expect(select).toHaveBeenCalledWith('slides-v6')
   })
 
   it('blocks a new PPT build when the course is not eligible for V4', async () => {
@@ -262,7 +305,10 @@ describe('PptWorkspaceView', () => {
 
     expect(wrapper.text()).toContain('旧课程需要先升级')
     expect(wrapper.get('.ppt-workspace-state__migrate').text()).toContain('升级课程后生成PPT')
-    expect(ensure).not.toHaveBeenCalled()
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
 
     await wrapper.get('.ppt-workspace-state__migrate').trigger('click')
     await flushPromises()
@@ -272,7 +318,7 @@ describe('PptWorkspaceView', () => {
       { confirm: true, source_checksum: 'checksum-legacy' },
     )
     expect(courseStore.currentCourseSourceFormat).toBe('canonical')
-    expect(ensure).toHaveBeenCalledWith('course-1')
+    expect(ensure).toHaveBeenLastCalledWith('course-1', { loadSelectedSpec: false })
   })
 
   it('reloads the migration preview after a 409 and shows an actionable retry hint', async () => {
@@ -292,7 +338,11 @@ describe('PptWorkspaceView', () => {
 
     expect(httpMock.get).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('课程源已变化，迁移预览已刷新，请确认后重试')
-    expect(ensure).not.toHaveBeenCalled()
+    expect(ensure).toHaveBeenCalledOnce()
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
   })
 
   it('shows a failed live preview even when no deck has ever been published', async () => {
@@ -459,6 +509,44 @@ describe('PptWorkspaceView', () => {
     expect(wrapper.text()).toContain('Previous published version')
   })
 
+  it('resumes a saved failed PPT task instead of starting a fresh build', async () => {
+    const courseStore = useCourseStore()
+    courseStore.currentCourseId = 'course-1'
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      slide_deck_target_schema: 'slide_deck_v6',
+      representations: [{
+        representation_id: 'slides-v6', representation_type: 'slide_deck',
+        variant_key: 'teaching:qizhi-classroom', spec_id: 'spec-v6',
+        status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+      }],
+    }
+    store.selectedId = 'slides-v6'
+    store.selectedSpec = {
+      spec_id: 'spec-v6', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+      payload: { compiler_version: 'representation_compiler_v6:slide_deck_v6', content: {
+        schema_version: 'slide_deck_v6', title: 'Saved deck', pages: [], slides: [],
+      } },
+    }
+    store.buildTaskId = 'failed-v6-task'
+    store.buildPaused = true
+    store.buildFailure = {
+      code: 'story_ai_batch_timeout', message: 'provider timed out', retryable: true,
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    vi.spyOn(store, 'select').mockResolvedValue(undefined)
+    const resume = vi.spyOn(store, 'resumeBuild').mockResolvedValue(undefined as any)
+    const fresh = vi.spyOn(store, 'buildSlideDeckVariant').mockResolvedValue(undefined as any)
+
+    const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+    wrapper.getComponent({ name: 'SlideDeckWorkbench' }).vm.$emit('rebuild')
+    await flushPromises()
+
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(fresh).not.toHaveBeenCalled()
+  })
+
   it('keeps the published deck when an errored build leaves residual live slides', async () => {
     const courseStore = useCourseStore()
     courseStore.currentCourseId = 'course-1'
@@ -608,6 +696,10 @@ describe('PptWorkspaceView', () => {
 
     expect(wrapper.find('.ppt-workspace-state__migrate').exists()).toBe(false)
     expect(wrapper.text()).toContain('加载课程源失败，请重试')
-    expect(ensure).not.toHaveBeenCalled()
+    expect(ensure).toHaveBeenCalledTimes(2)
+    expect(ensure).toHaveBeenLastCalledWith('course-2', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
   })
 })

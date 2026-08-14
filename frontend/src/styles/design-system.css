@@ -4,9 +4,9 @@
  * Target: Education/Learning Platform
  * 
  * Colors: Indigo (#4F46E5) + Progress Green (#22C55E)
- * Typography: Baloo 2 (Headings) + Comic Neue (Body)
+ * Typography: local system fonts with platform-native fallbacks
  * 
- * Note: Google Fonts are imported in style.css
+ * No third-party font stylesheet is loaded on the application shell.
  */
 
 /* ============================================

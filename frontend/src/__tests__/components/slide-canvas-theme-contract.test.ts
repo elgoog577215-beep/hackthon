@@ -85,10 +85,23 @@ describe('SlideCanvas renderer theme contract', () => {
       ]))
       expect(Object.keys(theme.text_box_styles)).toHaveLength(10)
       expect(Object.keys(theme.semantic_layout_weights).length).toBeGreaterThanOrEqual(18)
+      expect(theme.background_profiles.evidence.layouts).toContain('data-highlight')
       expect(theme.template.reference_deck).toMatch(/\.pptx$/)
     }
     expect(source).toContain('data-template-rich')
     expect(source).not.toContain('.deck-canvas[data-theme="qizhi-classroom"] .deck-canvas__blocks > section')
+  })
+
+  it('keeps rich-template code panels dark enough for light source text', () => {
+    expect(source).toMatch(
+      /\.deck-canvas\[data-template-rich="true"\] \.deck-canvas__blocks > section\[data-type="code"\][^{]*\{[^}]*background:#17202c/s,
+    )
+    expect(source).toMatch(
+      /\.deck-canvas\[data-template-rich="true"\] \.deck-canvas__blocks section\[data-type="code"\] code\s*\{[^}]*color:#f5f7fb/s,
+    )
+    expect(source).toMatch(
+      /\[data-layout="data-highlight"\][\s\S]*background-image:var\(--deck-evidence-image\)/,
+    )
   })
 
   it('renders the Qizhi hero claim card with one accent rail', () => {

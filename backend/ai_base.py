@@ -12,6 +12,7 @@ AI 基础服务模块 - LLM 调用层
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -179,6 +180,12 @@ class AIBase:
                 "assessment_reviewer": _parse_model_list(
                     os.getenv("AI_ASSESSMENT_REVIEWER_MODELS")
                 ),
+                "ppt_story": _parse_model_list(
+                    os.getenv("AI_PPT_STORY_MODELS")
+                ),
+                "ppt_visual": _parse_model_list(
+                    os.getenv("AI_PPT_VISUAL_MODELS")
+                ),
             }.items()
             if models
         }
@@ -211,6 +218,32 @@ class AIBase:
                     "0",
                 )
             ),
+        )
+        self._last_resort_max_concurrency = max(
+            1,
+            int(os.getenv("AI_LAST_RESORT_MAX_CONCURRENCY", "1")),
+        )
+        self._last_resort_start_interval_seconds = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_LAST_RESORT_START_INTERVAL_SECONDS",
+                    "5",
+                )
+            ),
+        )
+        self._last_resort_post_request_interval_seconds = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_LAST_RESORT_POST_REQUEST_INTERVAL_SECONDS",
+                    "15",
+                )
+            ),
+        )
+        self._last_resort_rate_limit_retries = max(
+            0,
+            int(os.getenv("AI_LAST_RESORT_RATE_LIMIT_RETRIES", "2")),
         )
         
         request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
@@ -321,6 +354,14 @@ class AIBase:
         hostname = (urlparse(api_base or "").hostname or "").casefold()
         cls._json_mode_unsupported.add((hostname, str(model_id or "")))
 
+    @staticmethod
+    def _uses_model_scoped_quota(api_base: str) -> bool:
+        hostname = (urlparse(api_base).hostname or "").casefold()
+        return hostname in {
+            "api-inference.modelscope.cn",
+            "api.modelscope.cn",
+        }
+
     async def _wait_for_request_slot(self) -> None:
         if self._minimum_request_interval <= 0:
             return
@@ -364,7 +405,7 @@ class AIBase:
             model_role,
         )
         return (
-            self.api_base,
+            self._primary_provider_scope(),
             str(model_role or (
                 "fast" if use_fast_model else "smart"
             )),
@@ -392,13 +433,14 @@ class AIBase:
             else list(models)
         )
         now = time.monotonic()
+        provider_scope = self._primary_provider_scope()
         available = [
             model
             for model in ordered
-            if self._model_failure_cache.get((self.api_base, model), 0) <= now
+            if self._model_failure_cache.get((provider_scope, model), 0) <= now
         ]
         for model in ordered:
-            failure_key = (self.api_base, model)
+            failure_key = (provider_scope, model)
             if self._model_failure_cache.get(failure_key, 0) <= now:
                 self._model_failure_cache.pop(failure_key, None)
         return available
@@ -415,10 +457,35 @@ class AIBase:
                 model_role,
             )
         ] = model_id
-        self._model_failure_cache.pop((self.api_base, model_id), None)
+        provider_scope = self._primary_provider_scope()
+        self._model_failure_cache.pop((provider_scope, model_id), None)
         # A success means the model is healthy again: drop any partial
         # transient streak so unrelated blips never accumulate into a trip.
-        self._model_transient_failures.pop((self.api_base, model_id), None)
+        self._model_transient_failures.pop((provider_scope, model_id), None)
+
+    @staticmethod
+    def _credential_scoped_provider_id(
+        api_base: str,
+        api_key: str | None,
+    ) -> str:
+        """Separate capacity state by endpoint and credential without leaking keys."""
+
+        credential_digest = hashlib.sha256(
+            str(api_key or "anonymous").encode("utf-8")
+        ).hexdigest()[:16]
+        return f"{str(api_base or '').rstrip('/')}#credential-{credential_digest}"
+
+    def _primary_provider_scope(self) -> str:
+        return self._credential_scoped_provider_id(
+            self.api_base,
+            self.api_key,
+        )
+
+    def _fallback_provider_scope(self) -> str:
+        return self._credential_scoped_provider_id(
+            self.modelscope_fallback_api_base,
+            self.modelscope_fallback_api_key,
+        )
 
     @staticmethod
     def estimate_request_tokens(prompt: str, system_prompt: str) -> int:
@@ -520,7 +587,7 @@ class AIBase:
         self,
         model_id: str,
         error: Exception,
-        api_base: str | None = None,
+        provider_scope: str | None = None,
     ) -> None:
         """Open the circuit for one provider/model pair.
 
@@ -533,8 +600,8 @@ class AIBase:
         streak.
         """
         cooldown = self._model_failure_cooldown_seconds(error)
-        provider_base = api_base or self.api_base
-        failure_key = (provider_base, model_id)
+        resolved_scope = provider_scope or self._primary_provider_scope()
+        failure_key = (resolved_scope, model_id)
         if self._capacity_failure_kind(error) == "transient":
             threshold = _env_int_min1(
                 "AI_MODEL_TRANSIENT_FAILURES_TO_OPEN", 3
@@ -564,23 +631,24 @@ class AIBase:
         self,
         model_id: str,
         error: Exception,
-        api_base: str | None = None,
+        provider_scope: str | None = None,
     ) -> None:
         """Backward-compatible spelling for callers using the older helper."""
-        self._cool_down_model(model_id, error, api_base)
+        self._cool_down_model(model_id, error, provider_scope)
 
     def _modelscope_fallback_models_for(self) -> list[str]:
         now = time.monotonic()
+        provider_scope = self._fallback_provider_scope()
         available = [
             model
             for model in self.modelscope_fallback_models
             if self._model_failure_cache.get(
-                (self.modelscope_fallback_api_base, model),
+                (provider_scope, model),
                 0,
             ) <= now
         ]
         for model in self.modelscope_fallback_models:
-            failure_key = (self.modelscope_fallback_api_base, model)
+            failure_key = (provider_scope, model)
             if self._model_failure_cache.get(failure_key, 0) <= now:
                 self._model_failure_cache.pop(failure_key, None)
         return available
@@ -612,7 +680,9 @@ class AIBase:
         return "transient"
 
     def provider_capacity_snapshot(self) -> dict:
-        return get_provider_capacity_controller(self.api_base).snapshot()
+        return get_provider_capacity_controller(
+            self._primary_provider_scope()
+        ).snapshot()
 
     @staticmethod
     def _error_status_code(error: Exception) -> Optional[int]:
@@ -1132,13 +1202,28 @@ class AIBase:
         record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
+        capacity = get_provider_capacity_controller(
+            self._fallback_provider_scope()
+        )
+        await capacity.configure_last_resort(
+            max_concurrency=self._last_resort_max_concurrency,
+            start_interval_seconds=(
+                self._last_resort_start_interval_seconds
+            ),
+            post_request_interval_seconds=(
+                self._last_resort_post_request_interval_seconds
+            ),
+        )
         for model_id in self._modelscope_fallback_models_for():
             if max_attempts is not None and attempts >= max_attempts:
                 break
-            for attempt in range(retry_count):
+            rate_limit_retries_left = self._last_resort_rate_limit_retries
+            attempt = 0
+            while attempt < retry_count + self._last_resort_rate_limit_retries:
                 if max_attempts is not None and attempts >= max_attempts:
                     break
                 attempts += 1
+                attempt += 1
                 attempt_started = time.perf_counter()
                 queue_wait_ms = 0
                 physical_request_count = 0
@@ -1181,9 +1266,6 @@ class AIBase:
                             exc_info=True,
                         )
 
-                capacity = get_provider_capacity_controller(
-                    self.modelscope_fallback_api_base
-                )
                 try:
                     request_options = {
                         "model": model_id,
@@ -1279,7 +1361,7 @@ class AIBase:
                         self._cool_down_model(
                             model_id,
                             empty_error,
-                            self.modelscope_fallback_api_base,
+                            self._fallback_provider_scope(),
                         )
                         break
 
@@ -1296,8 +1378,8 @@ class AIBase:
                     logger.error(
                         "ModelScope fallback error (Model: %s, Attempt %s/%s): %s",
                         model_id,
-                        attempt + 1,
-                        retry_count,
+                        attempt,
+                        retry_count + self._last_resort_rate_limit_retries,
                         error,
                     )
                     if isinstance(error, ModelCapacityCoolingDown):
@@ -1308,21 +1390,42 @@ class AIBase:
                         )
                         break
                     if self._should_try_next_model(error):
+                        failure_kind = self._capacity_failure_kind(error)
+                        cooldown_seconds = (
+                            self._model_failure_cooldown_seconds(error)
+                        )
                         await capacity.report_failure(
                             model_id,
-                            failure_kind=self._capacity_failure_kind(error),
-                            cooldown_seconds=(
-                                self._model_failure_cooldown_seconds(error)
-                            ),
+                            failure_kind=failure_kind,
+                            cooldown_seconds=cooldown_seconds,
                         )
                         self._cool_down_model(
                             model_id,
                             error,
-                            self.modelscope_fallback_api_base,
+                            self._fallback_provider_scope(),
                         )
+                        if (
+                            failure_kind == "rate_limited"
+                            and rate_limit_retries_left > 0
+                            and (
+                                max_attempts is None
+                                or attempts < max_attempts
+                            )
+                        ):
+                            rate_limit_retries_left -= 1
+                            wait_seconds = max(
+                                cooldown_seconds,
+                                capacity.rate_limit_backoff_seconds,
+                            )
+                            await self._wait_with_activity(
+                                wait_seconds,
+                                on_stream_activity,
+                            )
+                            self._modelscope_fallback_models_for()
+                            continue
                         break
-                    if attempt < retry_count - 1:
-                        await asyncio.sleep(2 ** attempt)
+                    if attempt < retry_count:
+                        await asyncio.sleep(2 ** (attempt - 1))
                     else:
                         break
             if self._modelscope_fallback_failure:
@@ -1337,6 +1440,20 @@ class AIBase:
                 raise AIProviderRequestError(str(last_error)) from last_error
             raise AIProviderRequestError("ModelScope fallback has no available model")
         return None
+
+    @staticmethod
+    async def _wait_with_activity(
+        seconds: float,
+        on_activity: Callable[[], None] | None,
+    ) -> None:
+        """Wait in heartbeat-sized slices so callers remain observable."""
+        remaining = max(0.0, float(seconds))
+        while remaining > 0:
+            if on_activity:
+                on_activity()
+            interval = min(5.0, remaining)
+            await asyncio.sleep(interval)
+            remaining -= interval
 
     async def _stream_modelscope_fallback(
         self,
@@ -1359,14 +1476,23 @@ class AIBase:
         record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
+        capacity = get_provider_capacity_controller(
+            self._fallback_provider_scope()
+        )
+        await capacity.configure_last_resort(
+            max_concurrency=self._last_resort_max_concurrency,
+            start_interval_seconds=(
+                self._last_resort_start_interval_seconds
+            ),
+            post_request_interval_seconds=(
+                self._last_resort_post_request_interval_seconds
+            ),
+        )
         for model_id in self._modelscope_fallback_models_for():
             if max_attempts is not None and attempts >= max_attempts:
                 break
             attempts += 1
             yielded = False
-            capacity = get_provider_capacity_controller(
-                self.modelscope_fallback_api_base
-            )
             try:
                 lease = await capacity.acquire(
                     model_id,
@@ -1448,7 +1574,7 @@ class AIBase:
                     self._cool_down_model(
                         model_id,
                         error,
-                        self.modelscope_fallback_api_base,
+                        self._fallback_provider_scope(),
                     )
                 if yielded or not should_try_next:
                     if isinstance(error, AIProviderRequestError):
@@ -1602,7 +1728,9 @@ class AIBase:
                         )
                 try:
                     extra_body = self._thinking_extra_body(enable_thinking)
-                    capacity = get_provider_capacity_controller(self.api_base)
+                    capacity = get_provider_capacity_controller(
+                        self._primary_provider_scope()
+                    )
 
                     request_options = {
                         "model": model_id,
@@ -1793,7 +1921,7 @@ class AIBase:
                         == "quota_exhausted"
                     ):
                         capacity = get_provider_capacity_controller(
-                            self.api_base
+                            self._primary_provider_scope()
                         )
                         await capacity.report_failure(
                             model_id,
@@ -1803,12 +1931,15 @@ class AIBase:
                             ),
                         )
                         self._cool_down_model(model_id, e)
-                        self._block_provider("quota_exhausted")
                         fallback_eligible = True
+                        if not self._uses_model_scoped_quota(self.api_base):
+                            self._block_provider("quota_exhausted")
                         break
                     if self._should_try_next_model(e):
                         fallback_eligible = True
-                        capacity = get_provider_capacity_controller(self.api_base)
+                        capacity = get_provider_capacity_controller(
+                            self._primary_provider_scope()
+                        )
                         await capacity.report_failure(
                             model_id,
                             failure_kind=self._capacity_failure_kind(e),
@@ -1916,7 +2047,9 @@ class AIBase:
             try:
                 while True:
                     extra_body = self._thinking_extra_body(enable_thinking)
-                    capacity = get_provider_capacity_controller(self.api_base)
+                    capacity = get_provider_capacity_controller(
+                        self._primary_provider_scope()
+                    )
                     lease = await capacity.acquire(
                         model_id,
                         on_wait_activity=on_stream_activity,
@@ -1997,7 +2130,9 @@ class AIBase:
                 should_try_next = self._should_try_next_model(e)
                 if should_try_next:
                     fallback_eligible = True
-                    capacity = get_provider_capacity_controller(self.api_base)
+                    capacity = get_provider_capacity_controller(
+                        self._primary_provider_scope()
+                    )
                     await capacity.report_failure(
                         model_id,
                         failure_kind=self._capacity_failure_kind(e),

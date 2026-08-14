@@ -37,8 +37,11 @@ class CoursePresentationUnitV1(_StrictModel):
     section_id: str
     source_ordinal: int = Field(ge=0)
     primary_block_ids: list[str] = Field(min_length=1)
+    primary_block_kinds: dict[str, str] = Field(default_factory=dict)
     primary_block_roles: dict[str, str] = Field(default_factory=dict)
     primary_block_artifacts: dict[str, list[ArtifactKind]] = Field(default_factory=dict)
+    primary_block_texts: dict[str, str] = Field(default_factory=dict)
+    primary_block_asset_refs: dict[str, list[str]] = Field(default_factory=dict)
     supporting_block_ids: list[str] = Field(default_factory=list)
     teaching_intent: str
     artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
@@ -95,13 +98,15 @@ def _artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
     if explicit:
         kinds.append(explicit)
     text = block_source_text(block)
-    if block.kind == "rich_text":
-        if _CODE_FENCE_RE.search(text):
-            kinds.append("code")
-        if _DISPLAY_FORMULA_RE.search(text):
-            kinds.append("formula")
-        if _MARKDOWN_TABLE_RE.search(text):
-            kinds.append("table")
+    # Structured course blocks can still carry canonical Markdown artifacts.
+    # Detect the source expression itself instead of assuming only rich-text
+    # blocks can contain code, formulae, or tables.
+    if _CODE_FENCE_RE.search(text):
+        kinds.append("code")
+    if _DISPLAY_FORMULA_RE.search(text):
+        kinds.append("formula")
+    if _MARKDOWN_TABLE_RE.search(text):
+        kinds.append("table")
     payload_kind = str((block.payload or {}).get("artifact_kind") or "").strip()
     if payload_kind in ArtifactKind.__args__:  # type: ignore[attr-defined]
         kinds.append(payload_kind)  # type: ignore[arg-type]
@@ -293,11 +298,20 @@ def compile_course_presentation_graph(
                 section_id=section_id,
                 source_ordinal=ordinal,
                 primary_block_ids=block_ids,
+                primary_block_kinds={
+                    block.block_id: block.kind for block in blocks
+                },
                 primary_block_roles={
                     block.block_id: block.role for block in blocks
                 },
                 primary_block_artifacts={
                     block.block_id: _artifact_kinds(block) for block in blocks
+                },
+                primary_block_texts={
+                    block.block_id: block_source_text(block) for block in blocks
+                },
+                primary_block_asset_refs={
+                    block.block_id: list(block.asset_refs) for block in blocks
                 },
                 teaching_intent=_teaching_intent(blocks),
                 artifact_kinds=list(
