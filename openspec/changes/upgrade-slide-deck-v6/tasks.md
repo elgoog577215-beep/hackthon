@@ -27,12 +27,13 @@
 - [x] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
 - [x] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
 - [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
-- [x] 4.5 Compile Markdown, code and tables into template-safe visible excerpts while retaining complete source text in speaker notes.
+- [x] 4.5 Compile Markdown, code and tables into template-safe visible projections while retaining complete source text in speaker notes.
 - [x] 4.6 Preserve complete table-cell semantics with full-width/wide selection, row pagination with repeated headers, oversized-row detail pages and a no-generated-ellipsis gate.
 - [x] 4.7 Compile source-bound full-course agenda pages from ordered top-level sections without distorting formal block coverage.
 - [x] 4.8 Preserve semantic paragraph boundaries in body projection and add a vertical numbered practice-sequence composition for Web/PPTX.
 - [x] 4.9 Select the full-width table family for dense three-column evidence and size exported rows from measured wrapped text.
 - [x] 4.10 Add atomic published-V6 visual repair with frozen story/template/source checks, race protection and last-good-version retention.
+- [x] 4.11 Remove the teaching page-count cap, paginate code/steps/tables/prose without semantic loss, preserve sole-body and artifact-support source text, and gate visible artifact/prose fidelity plus generated ellipses.
 
 ## 5. Adaptive progress
 

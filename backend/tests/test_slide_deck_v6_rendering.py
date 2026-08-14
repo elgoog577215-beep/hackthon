@@ -22,7 +22,7 @@ from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_dec
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
-def _code_deck():
+def _code_deck(code_source: str = "function onEvent(value) {\n  return validate(value);\n}"):
     document = refresh_document_revision(
         CourseDocument(
             course_id="generic-code-render-fixture",
@@ -42,7 +42,7 @@ def _code_deck():
                     position=1,
                     role="example",
                     kind="code",
-                    payload={"markdown": "function onEvent(value) {\n  return validate(value);\n}"},
+                    payload={"markdown": code_source},
                 ),
                 CourseBlock(
                     block_id="result",
@@ -834,25 +834,35 @@ def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Pat
         assert report["passed"], report["blockers"]
 
 
-def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_summary_band(
+def test_evidence_table_paginates_complete_interpretation_before_table_rows(
     tmp_path: Path,
 ) -> None:
     deck = _dense_table_deck()
-    assert 1 <= len(deck.pages) <= 3
-    split_slide = adapt_v6_page_to_slide_spec(deck.pages[0])
+    assert len(deck.pages) == 4
+    support_page = deck.pages[0]
+    assert support_page.resolved_layout.endswith("/content-stack")
+    support_body = next(
+        region.content
+        for region in support_page.regions
+        if region.content_kind == "body"
+    )
+    assert "…" not in support_body
+    assert support_body.count("Compare every recorded condition") == 3
+    table_pages = deck.pages[1:]
+    split_slide = adapt_v6_page_to_slide_spec(table_pages[0])
 
     table_row_counts = []
-    for page in deck.pages:
+    for page in table_pages:
         table_region = next(region for region in page.regions if region.content_kind == "table")
         table_row_counts.append(
             len([line for line in table_region.content.splitlines() if line.strip()]) - 2
         )
 
-    assert split_slide.quality["v6_layout_variant"] == "table-wide-with-summary"
-    assert split_slide.quality["v6_artifact_support_mode"] == "band"
+    assert split_slide.quality["v6_layout_variant"] == "table-continuation"
+    assert split_slide.quality["v6_artifact_support_mode"] == "full"
     assert split_slide.eyebrow == ""
     assert all(block.title == "" for block in split_slide.blocks)
-    for page in deck.pages[1:]:
+    for page in table_pages[1:]:
         continuation_slide = adapt_v6_page_to_slide_spec(page)
         assert continuation_slide.quality["v6_layout_variant"] == "table-continuation"
         assert continuation_slide.quality["v6_artifact_support_mode"] == "full"
@@ -866,7 +876,7 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
 
     assert report["passed"], report["blockers"]
     presentation = Presentation(output)
-    for slide in presentation.slides:
+    for slide_index, slide in enumerate(presentation.slides):
         visible_text = [
             shape.text.strip()
             for shape in slide.shapes
@@ -877,6 +887,9 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
         assert "SUMMARY" not in visible_text
         assert "COURSE" not in visible_text
         assert not any("(1/" in value or "(2/" in value for value in visible_text)
+        if slide_index == 0:
+            assert not any(shape.has_table for shape in slide.shapes)
+            continue
         table = next(shape.table for shape in slide.shapes if shape.has_table)
         assert all(
             cell.vertical_anchor == MSO_ANCHOR.MIDDLE
@@ -886,7 +899,7 @@ def test_evidence_table_renders_the_table_once_and_keeps_interpretation_in_a_sum
 
 
 def test_wide_table_summary_band_fits_three_lines_at_readable_size(tmp_path: Path) -> None:
-    deck = _dense_table_deck()
+    deck, _template, _summary = _wide_markdown_table_deck()
     interpretation = next(
         region
         for region in deck.pages[0].regions
@@ -906,7 +919,7 @@ def test_wide_table_summary_band_fits_three_lines_at_readable_size(tmp_path: Pat
 def test_wide_table_summary_band_fits_declared_multilingual_capacity(
     tmp_path: Path,
 ) -> None:
-    deck = _dense_table_deck()
+    deck, _template, _summary = _wide_markdown_table_deck()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     layout = template.get_layout(template.layout_id("evidence-table"))
     assert layout is not None
@@ -945,9 +958,15 @@ def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     adapted = adapt_v6_page_to_slide_spec(page)
     assert adapted.quality["v6_layout_variant"] == "table-wide-with-summary"
     assert adapted.quality["v6_artifact_support_mode"] == "band"
-    assert len(deck.pages) == 2
+    assert len(deck.pages) == 3
     continuation = adapt_v6_page_to_slide_spec(deck.pages[1])
     assert continuation.quality["v6_layout_variant"] == "table-row-detail"
+    support_page = deck.pages[2]
+    assert support_page.resolved_layout.endswith("/content-stack")
+    assert any(
+        "The full audit record remains available" in region.content
+        for region in support_page.regions
+    )
 
     compiled_table_text = "\n".join(
         region.content
@@ -1024,7 +1043,7 @@ def test_chapter_entry_renderer_honors_declared_driving_question_capacity(
     assert report["passed"], report["blockers"]
 
 
-def test_code_excerpt_ends_at_a_complete_source_unit_instead_of_a_trailing_comment() -> None:
+def test_oversized_code_requires_lossless_pagination_instead_of_an_excerpt() -> None:
     source = "\n".join([
         "using Example.Runtime;",
         "",
@@ -1053,21 +1072,18 @@ def test_code_excerpt_ends_at_a_complete_source_unit_instead_of_a_trailing_comme
 
     from slide_deck_v6 import _bounded_slot_content
 
-    excerpt = _bounded_slot_content(
-        [block],
-        slot_kind="code",
-        max_chars=300,
-        max_items=0,
-        max_lines=10,
-        max_rows=0,
-    )
-
-    assert not excerpt.rstrip().splitlines()[-1].lstrip().startswith("//")
-    assert excerpt.count("{") == excerpt.count("}")
-    assert all(line in source.splitlines() for line in excerpt.splitlines())
+    with pytest.raises(ValueError, match="template_slot_capacity_exceeded"):
+        _bounded_slot_content(
+            [block],
+            slot_kind="code",
+            max_chars=300,
+            max_items=0,
+            max_lines=10,
+            max_rows=0,
+        )
 
 
-def test_code_excerpt_ignores_braces_inside_strings_and_comments() -> None:
+def test_oversized_code_with_comment_braces_still_requires_lossless_pagination() -> None:
     source = "\n".join([
         "public class Formatter",
         "{",
@@ -1094,18 +1110,15 @@ def test_code_excerpt_ignores_braces_inside_strings_and_comments() -> None:
 
     from slide_deck_v6 import _bounded_slot_content
 
-    excerpt = _bounded_slot_content(
-        [block],
-        slot_kind="code",
-        max_chars=220,
-        max_items=0,
-        max_lines=8,
-        max_rows=0,
-    )
-
-    assert "void Render()" in excerpt
-    assert excerpt.rstrip().endswith("}")
-    assert all(line in source.splitlines() for line in excerpt.splitlines())
+    with pytest.raises(ValueError, match="template_slot_capacity_exceeded"):
+        _bounded_slot_content(
+            [block],
+            slot_kind="code",
+            max_chars=220,
+            max_items=0,
+            max_lines=8,
+            max_rows=0,
+        )
 
 
 def test_chapter_entry_title_contract_allows_only_declared_safe_wrapping(
@@ -1234,6 +1247,31 @@ def test_practice_code_layout_exports_numbered_steps_and_readable_code(
     assert "02" in visible_text
     assert "07" in visible_text
     assert "def accept" in visible_text
+
+
+def test_long_code_exports_every_source_line_across_content_driven_pages(
+    tmp_path: Path,
+) -> None:
+    code = "\n".join(
+        f"step_{index} = observe(source_value_{index})"
+        for index in range(70)
+    )
+    _document, deck = _code_deck(code)
+
+    assert len(deck.pages) > 3
+    assert deck.quality.source_artifact_visible_fidelity == 1.0
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "long-code.pptx")
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert report["passed"], report["blockers"]
+    presentation = Presentation(output)
+    visible_text = "\n".join(
+        str(shape.text or "")
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+    assert all(line in visible_text for line in code.splitlines())
 
 
 def test_pptx_renderer_applies_the_frozen_template_theme_overrides(

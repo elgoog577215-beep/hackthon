@@ -661,6 +661,7 @@ def _normalize_story_batch_response(
             try:
                 validate_story_template_text_slots(
                     page_id=str(page.get("page_id") or "story-preflight"),
+                    template=template,
                     layout=layout_contract,
                     source_blocks=graph_page_source_blocks(
                         graph_unit,
@@ -1663,7 +1664,8 @@ def _story_repair_targets(
             "page_id": page_id,
             "teaching_unit_id": unit_id,
             "allowed_page_count_range": list(
-                unit.get("allowed_page_count_range") or [1, 3]
+                unit.get("allowed_page_count_range")
+                or [1, max(1, len(unit.get("primary_block_ids") or []))]
             ),
             "safe_page_slices": list(unit.get("safe_page_slices") or []),
             "safe_partition_options": list(
@@ -1891,9 +1893,12 @@ def _coalesce_oversplit_story_unit(
         and str(page.get("teaching_unit_id") or "") == unit_id
     ]
     page_count_range = (
-        list(unit.get("allowed_page_count_range") or [1, 3])
+        list(
+            unit.get("allowed_page_count_range")
+            or [1, max(1, len(unit.get("primary_block_ids") or []))]
+        )
         if unit is not None
-        else [1, 3]
+        else [1, 1]
     )
     maximum_pages = int(page_count_range[-1])
     if unit is None or len(unit_pages) <= maximum_pages:

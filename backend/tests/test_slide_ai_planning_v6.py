@@ -2239,7 +2239,7 @@ async def test_story_uses_dynamic_template_safe_page_budget_for_dense_unit() -> 
     async def planner(request):
         calls.append(request)
         unit = request["teaching_units"][0]
-        assert unit["allowed_page_count_range"] == [3, 4]
+        assert unit["allowed_page_count_range"] == [3, 6]
         option = next(
             option
             for option in unit["safe_partition_options"]
@@ -2899,7 +2899,7 @@ async def test_story_coalesces_repeated_pages_without_another_ai_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_story_coalesces_only_the_oversplit_unit_and_preserves_source_order() -> None:
+async def test_story_preserves_safe_source_driven_pages_and_source_order() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-editorial-workflow",
         title="Editorial evidence workflow",
@@ -3007,7 +3007,7 @@ async def test_story_coalesces_only_the_oversplit_unit_and_preserves_source_orde
         page for page in story.pages
         if page.teaching_unit_id == second_unit.teaching_unit_id
     ]
-    assert 1 <= len(first_pages) <= 3
+    assert len(first_pages) == len(first_unit.primary_block_ids)
     assert [
         block_id for page in first_pages for block_id in page.source_block_ids
     ] == first_unit.primary_block_ids

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -20,7 +21,14 @@ from course_presentation_graph import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v4"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v5"
+MAX_SAFE_SLIDE_COUNT = 300
+
+
+@dataclass(frozen=True)
+class _SafePageMaterialization:
+    layout: Any
+    source_blocks: list[CourseBlock]
 
 
 class _StrictModel(BaseModel):
@@ -241,8 +249,8 @@ class SlidePageV6(_StrictModel):
     visual_decision: SlideVisualDecisionV2
     speaker_notes: SlideSpeakerNotesV2
     continuation_of_page_id: str = ""
-    continuation_index: int = Field(default=1, ge=1, le=3)
-    continuation_count: int = Field(default=1, ge=1, le=3)
+    continuation_index: int = Field(default=1, ge=1, le=MAX_SAFE_SLIDE_COUNT)
+    continuation_count: int = Field(default=1, ge=1, le=MAX_SAFE_SLIDE_COUNT)
 
     @model_validator(mode="after")
     def require_source_binding(self) -> SlidePageV6:
@@ -254,6 +262,10 @@ class SlidePageV6(_StrictModel):
 class SlideDeckV6Quality(_StrictModel):
     formal_block_visible_coverage: float = Field(ge=0, le=1)
     full_text_note_binding: float = Field(ge=0, le=1)
+    source_artifact_visible_fidelity: float = Field(default=1.0, ge=0, le=1)
+    source_prose_visible_fidelity: float = Field(default=1.0, ge=0, le=1)
+    ordered_step_visible_fidelity: float = Field(default=1.0, ge=0, le=1)
+    generated_ellipsis_free: bool = True
     source_order_preserved: bool
     template_contract_passed: bool
     subject_artifacts_passed: bool
@@ -267,6 +279,10 @@ class SlideDeckV6Quality(_StrictModel):
         self.passed = bool(
             self.formal_block_visible_coverage == 1.0
             and self.full_text_note_binding == 1.0
+            and self.source_artifact_visible_fidelity == 1.0
+            and self.source_prose_visible_fidelity == 1.0
+            and self.ordered_step_visible_fidelity == 1.0
+            and self.generated_ellipsis_free
             and self.source_order_preserved
             and self.template_contract_passed
             and self.subject_artifacts_passed
@@ -649,6 +665,13 @@ def validate_slide_story_plan_v3(
             (slot for slot in layout.slots if slot.slot_kind == "title"),
             None,
         )
+        if not page.title.strip():
+            raise V6BuildError(
+                stage="story",
+                code="story_title_missing",
+                message="Every V6 page requires a visible source-grounded title",
+                page_id=page.page_id,
+            )
         if title_slot and title_slot.max_chars and len(page.title) > title_slot.max_chars:
             raise V6BuildError(
                 stage="story",
@@ -705,6 +728,7 @@ def validate_slide_story_plan_v3(
                 )
         validate_story_template_text_slots(
             page_id=page.page_id,
+            template=template,
             layout=layout,
             source_blocks=graph_page_source_blocks(unit, page.source_block_ids),
             story_summary=page.summary,
@@ -1311,27 +1335,25 @@ def _bounded_code_content(
     max_chars: int,
     max_lines: int,
 ) -> str:
-    """Select source-only code excerpts; full code remains in speaker notes."""
+    """Return complete source code or require template-safe pagination."""
 
     if not blocks:
         return ""
     capacity = max_chars or 1600
     line_capacity = max_lines or 24
-    per_block_chars = max(48, capacity // len(blocks))
-    per_block_lines = max(1, line_capacity // len(blocks))
-    excerpts: list[str] = []
+    complete_blocks: list[str] = []
     for block in blocks:
         candidates = _code_candidates(block_source_text(block))
         candidate = max(candidates, key=len)
-        excerpt = _safe_code_excerpt(
-            candidate,
-            max_chars=per_block_chars,
-            max_lines=per_block_lines,
-        )
-        if excerpt:
-            excerpts.append(excerpt)
-    content = "\n\n".join(excerpts)
-    if len(content) > capacity or len(content.splitlines()) > line_capacity:
+        if candidate:
+            complete_blocks.append(candidate.strip("\n"))
+    content = "\n\n".join(complete_blocks)
+    line_width = max(24, capacity // max(1, line_capacity))
+    rendered_line_cost = sum(
+        _code_display_line_cost(line, line_width)
+        for line in content.splitlines()
+    )
+    if len(content) > capacity or rendered_line_cost > line_capacity:
         raise ValueError("template_slot_capacity_exceeded")
     return content
 
@@ -1420,16 +1442,15 @@ def _ordered_step_items(value: str) -> list[str]:
     ]
 
 
-def _bounded_ordered_step_item(
+def _complete_ordered_step_item(
     heading: str,
     details: list[str],
-    capacity: int,
 ) -> str:
-    """Select complete source details instead of clipping a step mid-thought."""
+    """Render one complete ordered source step without clipping its details."""
 
     clean_heading = heading.rstrip(" :：")
-    if not details or capacity <= len(clean_heading):
-        return _display_excerpt(clean_heading, capacity).rstrip(" :：;；")
+    if not details:
+        return clean_heading
     cjk = bool(re.search(r"[\u3400-\u9fff]", clean_heading))
     detail_separator = "；" if cjk else "; "
     relation_separator = "：" if cjk else ": "
@@ -1447,13 +1468,6 @@ def _bounded_ordered_step_item(
         if not normalized_detail:
             continue
         candidate_terminal = terminal_punctuation(detail)
-        candidate = (
-            f"{clean_heading}{relation_separator}"
-            f"{detail_separator.join([*selected, normalized_detail])}"
-            f"{candidate_terminal}"
-        )
-        if len(candidate) > capacity:
-            break
         selected.append(normalized_detail)
         selected_terminal = candidate_terminal
     if selected:
@@ -1462,7 +1476,7 @@ def _bounded_ordered_step_item(
             f"{detail_separator.join(selected)}"
             f"{selected_terminal}"
         ).rstrip(" ;；:：")
-    return _display_excerpt(clean_heading, capacity)
+    return clean_heading
 
 
 def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
@@ -1534,20 +1548,18 @@ def _bounded_slot_content(
         item_limit = max_items or step_count
         if step_count > item_limit:
             raise ValueError("template_slot_capacity_exceeded")
-        separator_cost = max(0, step_count - 1)
-        per_step_capacity = max(1, (capacity - separator_cost) // step_count)
-        excerpts = (
+        complete_items = (
             [
-                _bounded_ordered_step_item(heading, details, per_step_capacity)
+                _complete_ordered_step_item(heading, details)
                 for heading, details in ordered_groups
             ]
             if ordered_groups
             else [
-                _complete_sentence_excerpt(step, per_step_capacity)
+                _visible_prose_text(step).strip()
                 for step in fallback_steps
             ]
         )
-        content = "\n".join(excerpts).rstrip()
+        content = "\n".join(complete_items).rstrip()
         if len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
         return content
@@ -1564,32 +1576,17 @@ def _bounded_slot_content(
                 if line.strip()
             ]
             items_by_block.append(candidates or [text])
-        item_limit = max_items or sum(len(items) for items in items_by_block)
-        if len(items_by_block) > item_limit:
-            raise ValueError("template_slot_capacity_exceeded")
-        selected = [items[0] for items in items_by_block]
-        next_indexes = [1 for _items in items_by_block]
-        while len(selected) < item_limit:
-            added = False
-            for block_index, items in enumerate(items_by_block):
-                next_index = next_indexes[block_index]
-                if next_index >= len(items):
-                    continue
-                selected.append(items[next_index])
-                next_indexes[block_index] += 1
-                added = True
-                if len(selected) >= item_limit:
-                    break
-            if not added:
-                break
-        separator_cost = max(0, len(selected) - 1)
-        per_item_capacity = max(1, (capacity - separator_cost) // len(selected))
-        excerpts = [
-            _complete_sentence_excerpt(item, per_item_capacity)
-            for item in selected
+        complete_items = [
+            item
+            for items in items_by_block
+            for item in items
+            if item
         ]
-        content = "\n".join(excerpts).rstrip()
-        if len(content) > capacity or (max_items and len(excerpts) > max_items):
+        item_limit = max_items or len(complete_items)
+        if len(complete_items) > item_limit:
+            raise ValueError("template_slot_capacity_exceeded")
+        content = "\n".join(complete_items).rstrip()
+        if len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
         return content
     if len(texts) == 1:
@@ -1652,6 +1649,43 @@ def _pack_lines(
     return chunks
 
 
+def _pack_code_lines(
+    lines: list[str],
+    *,
+    max_lines: int,
+    max_chars: int,
+) -> list[str]:
+    """Pack every code line while accounting for visual wrapping cost."""
+
+    allowed_lines = max_lines or max(1, len(lines))
+    capacity = max_chars or max(1, len("\n".join(lines)))
+    line_width = max(24, capacity // max(1, allowed_lines))
+    chunks: list[str] = []
+    current: list[str] = []
+
+    def exceeds(candidate: list[str]) -> bool:
+        return bool(
+            len("\n".join(candidate)) > capacity
+            or sum(
+                _code_display_line_cost(line, line_width)
+                for line in candidate
+            ) > allowed_lines
+        )
+
+    for line in lines:
+        candidate = [*current, line]
+        if current and exceeds(candidate):
+            chunks.append("\n".join(current))
+            current = [line]
+        else:
+            current = candidate
+        if exceeds(current):
+            raise ValueError("template_slot_capacity_exceeded")
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
 def _split_artifact_block(
     block: CourseBlock,
     *,
@@ -1661,14 +1695,15 @@ def _split_artifact_block(
     max_rows: int,
 ) -> list[CourseBlock]:
     content = block_source_text(block)
-    lines = content.splitlines()
     if slot_kind == "code":
-        chunks = _pack_lines(
-            lines,
+        code = max(_code_candidates(content), key=len)
+        chunks = _pack_code_lines(
+            code.splitlines(),
             max_lines=max_lines,
             max_chars=max_chars,
         )
     elif slot_kind == "table":
+        lines = content.splitlines()
         header: list[str] = []
         rows = lines
         if len(lines) >= 2 and re.match(r"^\s*\|.*\|\s*$", lines[0]) and re.match(
@@ -1685,14 +1720,188 @@ def _split_artifact_block(
         )
     else:
         return [block]
-    prose = _prose_source_text(block)
     return [
-        _block_with_source_excerpt(
-            block,
-            f"{prose}\n\n{chunk}" if prose else chunk,
-        )
+        _block_with_source_excerpt(block, chunk)
         for chunk in chunks
     ]
+
+
+def _semantic_prose_groups(value: str) -> list[str]:
+    """Return complete visible paragraphs, splitting only at sentence boundaries."""
+
+    return [
+        "\n".join(line.rstrip() for line in group.splitlines()).strip()
+        for group in re.split(r"\n\s*\n", _visible_prose_text(value))
+        if group.strip()
+    ]
+
+
+def _pack_complete_text_items(
+    items: list[str],
+    *,
+    max_chars: int,
+    max_items: int = 0,
+    separator: str = "\n",
+) -> list[list[str]]:
+    """Pack complete semantic items without generating excerpts or ellipses."""
+
+    capacity = max_chars or max(1, len(separator.join(items)))
+    item_limit = max_items or max(1, len(items))
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    for item in items:
+        candidate = [*current, item]
+        if current and (
+            len(candidate) > item_limit
+            or len(separator.join(candidate)) > capacity
+        ):
+            chunks.append(current)
+            current = [item]
+        else:
+            current = candidate
+        if len(current) > item_limit or len(separator.join(current)) > capacity:
+            raise ValueError("template_slot_capacity_exceeded")
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _split_oversized_prose_group(value: str, *, max_chars: int) -> list[str]:
+    """Split one oversized sentence losslessly when it cannot fit on one page."""
+
+    text = str(value or "").strip()
+    if not text or not max_chars or len(text) <= max_chars:
+        return [text] if text else []
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > max_chars:
+        window = remaining[: max_chars + 1]
+        split_at = max(
+            window.rfind(separator)
+            for separator in (
+                "。",
+                "！",
+                "？",
+                ". ",
+                "! ",
+                "? ",
+                "；",
+                "; ",
+                "，",
+                ", ",
+                " ",
+            )
+        )
+        if split_at <= 0:
+            split_at = max_chars
+        elif window[split_at: split_at + 2] in {
+            ". ",
+            "! ",
+            "? ",
+            "; ",
+            ", ",
+        }:
+            split_at += 1
+        else:
+            split_at += 1
+        chunk = remaining[:split_at].strip()
+        if not chunk:
+            split_at = max_chars
+            chunk = remaining[:split_at]
+        chunks.append(chunk)
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _split_text_block_for_slot(
+    block: CourseBlock,
+    *,
+    slot_kind: str,
+    max_chars: int,
+    max_items: int,
+) -> list[CourseBlock]:
+    """Split prose, lists, and procedures only at complete semantic boundaries."""
+
+    source = _prose_source_text(block)
+    if slot_kind == "steps":
+        items = [
+            _complete_ordered_step_item(heading, details)
+            for heading, details in _ordered_step_groups(source)
+        ]
+        if not items:
+            raise ValueError("template_slot_capacity_exceeded")
+        chunks = _pack_complete_text_items(
+            items,
+            max_chars=max_chars,
+            max_items=max_items,
+        )
+        return [
+            _block_with_source_excerpt(
+                block,
+                "\n".join(
+                    f"{index}. {item}"
+                    for index, item in enumerate(chunk, start=1)
+                ),
+            )
+            for chunk in chunks
+        ]
+    if slot_kind == "items":
+        items = [
+            _visible_prose_text(re.sub(
+                r"^\s*(?:#{1,6}\s+|[-*+] |\d+[.)]\s*)",
+                "",
+                line,
+            )).strip()
+            for line in source.splitlines()
+            if line.strip()
+        ]
+        chunks = _pack_complete_text_items(
+            items,
+            max_chars=max_chars,
+            max_items=max_items,
+        )
+        return [
+            _block_with_source_excerpt(
+                block,
+                "\n".join(f"- {item}" for item in chunk),
+            )
+            for chunk in chunks
+        ]
+    if slot_kind == "body":
+        groups: list[str] = []
+        for group in _semantic_prose_groups(source):
+            if not max_chars or len(group) <= max_chars:
+                groups.append(group)
+                continue
+            sentences = [
+                sentence.strip()
+                for sentence in re.split(
+                    r"(?<=[。！？])\s*|(?<=[.!?])(?=\s|$)\s*",
+                    group,
+                )
+                if sentence.strip()
+            ]
+            if not sentences:
+                raise ValueError("template_slot_capacity_exceeded")
+            for sentence in sentences:
+                groups.extend(
+                    _split_oversized_prose_group(
+                        sentence,
+                        max_chars=max_chars,
+                    )
+                )
+        chunks = _pack_complete_text_items(
+            groups,
+            max_chars=max_chars,
+            separator="\n\n",
+        )
+        return [
+            _block_with_source_excerpt(block, "\n\n".join(chunk))
+            for chunk in chunks
+        ]
+    return [block]
 
 
 def _display_width_units(value: str) -> int:
@@ -1914,13 +2123,182 @@ def _split_table_block_for_layout_variants(
     ]
 
 
+def _slot_source_blocks(slot: Any, source_blocks: list[CourseBlock]) -> list[CourseBlock]:
+    """Mirror template slot assignment closely enough to detect semantic loss."""
+
+    if slot.slot_kind in {"code", "formula", "table", "visual"}:
+        return [
+            block
+            for block in source_blocks
+            if _block_matches_slot(block, slot.slot_kind)
+        ]
+    preferred_roles = set(slot.source_roles)
+    all_candidates = [
+        block
+        for block in source_blocks
+        if _prose_source_text(block)
+    ]
+    preferred = [
+        block for block in all_candidates if block.role in preferred_roles
+    ]
+    candidates = preferred or all_candidates
+    if slot.slot_kind == "steps":
+        return [
+            block
+            for block in candidates
+            if _ordered_step_groups(_prose_source_text(block))
+        ]
+    return candidates
+
+
+def _assigned_text_slot_blocks(
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> dict[str, list[CourseBlock]]:
+    """Mirror final text-slot assignment before deciding what needs pagination."""
+
+    content_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind not in {"title", "eyebrow", "notes"}
+    ]
+    remaining = list(source_blocks)
+    artifact_assignments: list[CourseBlock] = []
+    for slot in content_slots:
+        if slot.slot_kind not in {"code", "formula", "table", "visual"}:
+            continue
+        matches = [
+            block
+            for block in remaining
+            if _block_matches_slot(block, slot.slot_kind)
+        ]
+        artifact_assignments.extend(matches)
+        remaining = [block for block in remaining if block not in matches]
+
+    remaining.extend(
+        block
+        for block in artifact_assignments
+        if block not in remaining and _prose_source_text(block)
+    )
+    text_slots = [
+        slot
+        for slot in content_slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
+    assigned: dict[str, list[CourseBlock]] = {}
+    for index, slot in enumerate(text_slots):
+        if not remaining:
+            break
+        preferred_roles = set(slot.source_roles)
+        preferred = [block for block in remaining if block.role in preferred_roles]
+        is_last_text_slot = index == len(text_slots) - 1
+        if preferred:
+            selected = preferred if is_last_text_slot else [preferred[0]]
+        elif is_last_text_slot:
+            selected = list(remaining)
+        else:
+            selected = [remaining[0]]
+        assigned[slot.slot_id] = selected
+        remaining = [block for block in remaining if block not in selected]
+    if remaining and text_slots:
+        assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
+    return assigned
+
+
+def _complete_slot_content(blocks: list[CourseBlock], slot_kind: str) -> str:
+    """Compile the full visible source expression for fidelity comparison."""
+
+    if slot_kind == "code":
+        return "\n\n".join(
+            max(_code_candidates(block_source_text(block)), key=len).strip("\n")
+            for block in blocks
+            if block_source_text(block)
+        )
+    if slot_kind == "table":
+        return _normalize_markdown_table("\n".join(
+            block_source_text(block) for block in blocks
+        )).rstrip()
+    if slot_kind == "steps":
+        return "\n".join(
+            _complete_ordered_step_item(heading, details)
+            for block in blocks
+            for heading, details in _ordered_step_groups(_prose_source_text(block))
+        ).rstrip()
+    if slot_kind == "items":
+        return "\n".join(
+            _visible_prose_text(re.sub(
+                r"^\s*(?:#{1,6}\s+|[-*+] |\d+[.)]\s*)",
+                "",
+                line,
+            )).strip()
+            for block in blocks
+            for line in _prose_source_text(block).splitlines()
+            if line.strip()
+        ).rstrip()
+    if slot_kind == "body":
+        return "\n\n".join(
+            _prose_source_text(block).strip()
+            for block in blocks
+            if _prose_source_text(block).strip()
+        )
+    return ""
+
+
+def _slot_requires_pagination(slot: Any, blocks: list[CourseBlock]) -> bool:
+    if not blocks or slot.slot_kind not in {"body", "items", "steps", "code"}:
+        return False
+    complete = _complete_slot_content(blocks, slot.slot_kind)
+    try:
+        bounded = _bounded_slot_content(
+            blocks,
+            slot_kind=slot.slot_kind,
+            max_chars=slot.max_chars,
+            max_items=slot.max_items,
+            max_lines=slot.max_lines,
+            max_rows=slot.max_rows,
+        )
+    except ValueError as error:
+        if str(error) != "template_slot_capacity_exceeded":
+            raise
+        return True
+    return bounded != complete
+
+
+def _split_blocks_for_slot(
+    blocks: list[CourseBlock],
+    *,
+    slot: Any,
+) -> list[CourseBlock]:
+    fragments: list[CourseBlock] = []
+    for block in blocks:
+        if slot.slot_kind == "code":
+            fragments.extend(_split_artifact_block(
+                block,
+                slot_kind="code",
+                max_chars=slot.max_chars,
+                max_lines=slot.max_lines,
+                max_rows=slot.max_rows,
+            ))
+        else:
+            fragments.extend(_split_text_block_for_slot(
+                block,
+                slot_kind=slot.slot_kind,
+                max_chars=slot.max_chars,
+                max_items=slot.max_items,
+            ))
+    return fragments
+
+
 def _safe_artifact_page_blocks(
     *,
     page_id: str,
+    template: TemplateLayoutPackContractV1,
     layout: Any,
     source_blocks: list[CourseBlock],
     story_summary: str = "",
-) -> list[list[CourseBlock]]:
+) -> list[_SafePageMaterialization]:
+    """Paginate source losslessly; page count is content-driven, not business-capped."""
+
     artifact_slot = next(
         (
             slot
@@ -1931,7 +2309,80 @@ def _safe_artifact_page_blocks(
         None,
     )
     if artifact_slot is None:
-        return [source_blocks]
+        materializations = [source_blocks]
+        content_slots = [
+            slot
+            for slot in layout.slots
+            if slot.slot_kind in {"body", "items", "steps"}
+        ]
+        for slot in content_slots:
+            next_materializations: list[list[CourseBlock]] = []
+            for materialized_blocks in materializations:
+                matching_blocks = _assigned_text_slot_blocks(
+                    layout,
+                    materialized_blocks,
+                ).get(slot.slot_id, [])
+                if not _slot_requires_pagination(slot, matching_blocks):
+                    next_materializations.append(materialized_blocks)
+                    continue
+                if layout.layout_slug not in set(layout.safe_continuation_layout_slugs):
+                    raise V6BuildError(
+                        stage="template",
+                        code="template_layout_unavailable",
+                        message=(
+                            "The selected template layout declares no safe semantic "
+                            "continuation"
+                        ),
+                        page_id=page_id,
+                    )
+                try:
+                    fragments = _split_blocks_for_slot(matching_blocks, slot=slot)
+                except ValueError as error:
+                    raise V6BuildError(
+                        stage="template",
+                        code="template_slot_capacity_exceeded",
+                        message=(
+                            f"A complete semantic unit exceeds template slot {slot.slot_id}"
+                        ),
+                        page_id=page_id,
+                    ) from error
+                matching_ids = {id(block) for block in matching_blocks}
+                other_blocks = [
+                    block
+                    for block in materialized_blocks
+                    if id(block) not in matching_ids
+                ]
+                repeat_other_blocks = any(
+                    candidate.required
+                    and candidate.slot_id != slot.slot_id
+                    and candidate.slot_kind not in {"title", "eyebrow", "notes"}
+                    for candidate in layout.slots
+                )
+                for index, fragment in enumerate(fragments):
+                    companions = (
+                        other_blocks
+                        if index == 0 or repeat_other_blocks
+                        else []
+                    )
+                    next_materializations.append(sorted(
+                        [*companions, fragment],
+                        key=lambda block: (block.position, block.block_id),
+                    ))
+            materializations = next_materializations
+            if len(materializations) > MAX_SAFE_SLIDE_COUNT:
+                raise V6BuildError(
+                    stage="template",
+                    code="slide_safety_limit_exceeded",
+                    message=(
+                        "Lossless pagination exceeded the abnormal safety ceiling of "
+                        f"{MAX_SAFE_SLIDE_COUNT} pages"
+                    ),
+                    page_id=page_id,
+                )
+        return [
+            _SafePageMaterialization(layout=layout, source_blocks=blocks)
+            for blocks in materializations
+        ]
     artifact_blocks = [
         block
         for block in source_blocks
@@ -1958,9 +2409,7 @@ def _safe_artifact_page_blocks(
                             non_artifact_blocks or _visible_prose_text(story_summary)
                         ),
                     )
-                )
-            if len(artifact_blocks) == 1 and len(artifact_chunks) == 1:
-                return [source_blocks]
+            )
         else:
             _bounded_slot_content(
                 artifact_blocks,
@@ -1970,7 +2419,7 @@ def _safe_artifact_page_blocks(
                 max_lines=artifact_slot.max_lines,
                 max_rows=artifact_slot.max_rows,
             )
-            return [source_blocks]
+            artifact_chunks = list(artifact_blocks)
     except ValueError as error:
         if str(error) != "template_slot_capacity_exceeded":
             raise
@@ -2013,20 +2462,101 @@ def _safe_artifact_page_blocks(
                 ),
                 page_id=page_id,
             ) from error
-    if len(artifact_chunks) > 3:
+    if len(artifact_chunks) > MAX_SAFE_SLIDE_COUNT:
         raise V6BuildError(
             stage="template",
-            code="teaching_unit_page_limit_exceeded",
-            message="A source artifact needs more than three template-safe pages",
+            code="slide_safety_limit_exceeded",
+            message=(
+                "Lossless artifact pagination exceeded the abnormal safety ceiling of "
+                f"{MAX_SAFE_SLIDE_COUNT} pages"
+            ),
             page_id=page_id,
         )
-    materializations: list[list[CourseBlock]] = []
-    for chunk in artifact_chunks:
-        by_position = [*non_artifact_blocks, chunk]
-        materializations.append(
-            sorted(by_position, key=lambda block: (block.position, block.block_id))
+    lost_artifact_prose_blocks = [
+        _block_with_source_excerpt(block, _prose_source_text(block))
+        for block in artifact_blocks
+        if _prose_source_text(block)
+        and not any(
+            chunk.block_id == block.block_id
+            and _prose_source_text(chunk) == _prose_source_text(block)
+            for chunk in artifact_chunks
         )
-    return materializations
+    ]
+    support_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
+    required_support = any(slot.required for slot in support_slots)
+    support_source_blocks = [
+        *non_artifact_blocks,
+        *lost_artifact_prose_blocks,
+    ]
+    if story_summary and not required_support:
+        support_source_blocks = [
+            block for block in source_blocks if _prose_source_text(block)
+        ]
+    overflowing_support_slots = [
+        slot
+        for slot in support_slots
+        if _slot_requires_pagination(
+            slot,
+            _slot_source_blocks(slot, support_source_blocks),
+        )
+    ]
+    separate_support = bool(
+        support_source_blocks
+        and not required_support
+        and "content-stack" in set(layout.safe_continuation_layout_slugs)
+        and (
+            bool(story_summary)
+            or bool(lost_artifact_prose_blocks)
+            or bool(overflowing_support_slots)
+        )
+    )
+    support_materializations: list[_SafePageMaterialization] = []
+    artifact_support_blocks = support_source_blocks
+    if separate_support:
+        support_layout = template.get_layout(template.layout_id("content-stack"))
+        if support_layout is None:
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_unavailable",
+                message="The template has no source-complete support continuation",
+                page_id=page_id,
+            )
+        support_materializations = _safe_artifact_page_blocks(
+            page_id=f"{page_id}--support",
+            template=template,
+            layout=support_layout,
+            source_blocks=support_source_blocks,
+            story_summary="",
+        )
+        artifact_support_blocks = []
+
+    artifact_materializations = [
+        _SafePageMaterialization(
+            layout=layout,
+            source_blocks=sorted(
+                [
+                    *(
+                        artifact_support_blocks
+                        if index == 0 or required_support
+                        else []
+                    ),
+                    chunk,
+                ],
+                key=lambda block: (block.position, block.block_id),
+            ),
+        )
+        for index, chunk in enumerate(artifact_chunks)
+    ]
+    if support_materializations and (
+        min(block.position for block in support_source_blocks)
+        < min(block.position for block in artifact_blocks)
+    ):
+        return [*support_materializations, *artifact_materializations]
+    return [*artifact_materializations, *support_materializations]
 
 
 def _continuation_title(title: str, index: int, count: int, capacity: int) -> str:
@@ -2121,8 +2651,13 @@ def _materialize_template_regions(
 
     summary_slot_id = ""
     summary_content = _visible_prose_text(story_summary)
+    has_artifact_support = any(
+        slot.slot_kind in {"code", "formula", "table", "visual"}
+        for slot in content_slots
+    )
     if (
         summary_content
+        and has_artifact_support
         and len(text_slots) == 1
         and text_slots[0].slot_kind == "body"
     ):
@@ -2236,6 +2771,7 @@ def _materialize_template_regions(
 def validate_story_template_text_slots(
     *,
     page_id: str,
+    template: TemplateLayoutPackContractV1,
     layout: Any,
     source_blocks: list[CourseBlock],
     story_summary: str = "",
@@ -2248,6 +2784,18 @@ def validate_story_template_text_slots(
         for slot in layout.slots
         if slot.slot_kind not in {"title", "eyebrow", "notes"}
     ]
+    safe_materializations = _safe_artifact_page_blocks(
+        page_id=page_id,
+        template=template,
+        layout=layout,
+        source_blocks=source_blocks,
+        story_summary=story_summary,
+    )
+    if len(safe_materializations) > 1:
+        # Final compilation will emit these complete source-bound continuations.
+        # The planned page is valid even though its visible materialization count
+        # is greater than one; source ownership remains on the story page.
+        return
     remaining = list(source_blocks)
     assigned_artifact_blocks: list[CourseBlock] = []
     for slot in content_slots:
@@ -2289,6 +2837,7 @@ def validate_story_template_text_slots(
             try:
                 _safe_artifact_page_blocks(
                     page_id=page_id,
+                    template=template,
                     layout=layout,
                     source_blocks=source_blocks,
                     story_summary=story_summary,
@@ -2361,8 +2910,13 @@ def validate_story_template_text_slots(
 
     summary_slot_id = ""
     summary_content = _visible_prose_text(story_summary)
+    has_artifact_support = any(
+        slot.slot_kind in {"code", "formula", "table", "visual"}
+        for slot in content_slots
+    )
     if (
         summary_content
+        and has_artifact_support
         and len(text_slots) == 1
         and text_slots[0].slot_kind == "body"
     ):
@@ -2446,6 +3000,7 @@ def story_safe_page_slices(
                 try:
                     validate_story_template_text_slots(
                         page_id="story-safe-slice",
+                        template=template,
                         layout=layout,
                         source_blocks=source_blocks,
                         story_summary="",
@@ -2502,10 +3057,7 @@ def story_page_count_range(
             ),
         )
     minimum_pages = feasible_counts[0]
-    maximum_pages = min(
-        feasible_counts[-1],
-        max(3, minimum_pages + 1),
-    )
+    maximum_pages = feasible_counts[-1]
     return [minimum_pages, maximum_pages]
 
 
@@ -2839,6 +3391,120 @@ def prepare_story_plan_for_final_compilation(
     return story.model_copy(update={"batches": batches})
 
 
+def _visible_semantic_fidelity(
+    document: CourseDocument,
+    pages: list[SlidePageV6],
+) -> tuple[float, float, float, bool]:
+    """Measure source artifacts, prose, and procedures learners can actually see."""
+
+    source_blocks = {block.block_id: block for block in _formal_blocks(document)}
+
+    def region_contents(block_id: str, content_kind: str) -> list[str]:
+        return [
+            region.content
+            for page in pages
+            for region in page.regions
+            if region.content_kind == content_kind
+            and block_id in region.source_block_ids
+        ]
+
+    artifact_results: list[bool] = []
+    prose_results: list[bool] = []
+    step_results: list[bool] = []
+    for block in source_blocks.values():
+        artifacts = set(block_artifact_kinds(block))
+        if "code" in artifacts:
+            expected = _complete_slot_content([block], "code")
+            actual = "\n".join(region_contents(block.block_id, "code"))
+            artifact_results.append(actual == expected)
+        if "formula" in artifacts:
+            expected = _bounded_formula_content([block], max_chars=0)
+            actual = "\n\n".join(region_contents(block.block_id, "formula"))
+            artifact_results.append(actual == expected)
+        if "table" in artifacts:
+            expected_headers, expected_rows = _table_components(block_source_text(block))
+            table_regions = region_contents(block.block_id, "table")
+            if expected_headers:
+                actual_rows = [
+                    tuple(row)
+                    for content in table_regions
+                    for row in _table_components(content)[1]
+                ]
+                artifact_results.append(
+                    Counter(actual_rows)
+                    == Counter(tuple(row) for row in expected_rows)
+                )
+            else:
+                expected = _complete_slot_content([block], "table")
+                artifact_results.append(expected in table_regions)
+
+        expected_steps = [
+            _complete_ordered_step_item(heading, details)
+            for heading, details in _ordered_step_groups(block_source_text(block))
+        ]
+        if len(expected_steps) >= 2:
+            actual_steps = [
+                line
+                for content in region_contents(block.block_id, "steps")
+                for line in content.splitlines()
+            ]
+            step_results.append(actual_steps == expected_steps)
+        else:
+            expected_prose = re.sub(
+                r"\s+",
+                "",
+                _presentation_summary_text(_prose_source_text(block)),
+            )
+            if expected_prose:
+                actual_prose = re.sub(
+                    r"\s+",
+                    "",
+                    _presentation_summary_text("\n".join([
+                        *region_contents(block.block_id, "body"),
+                        *region_contents(block.block_id, "items"),
+                    ])),
+                )
+                prose_results.append(expected_prose in actual_prose)
+
+    generated_ellipsis_free = True
+    for page in pages:
+        for region in page.regions:
+            if "…" not in region.content:
+                continue
+            bound_source = "\n".join(
+                block_source_text(source_blocks[block_id])
+                for block_id in region.source_block_ids
+                if block_id in source_blocks
+            )
+            if "…" not in bound_source:
+                generated_ellipsis_free = False
+                break
+        if not generated_ellipsis_free:
+            break
+
+    artifact_fidelity = (
+        sum(artifact_results) / len(artifact_results)
+        if artifact_results
+        else 1.0
+    )
+    prose_fidelity = (
+        sum(prose_results) / len(prose_results)
+        if prose_results
+        else 1.0
+    )
+    step_fidelity = (
+        sum(step_results) / len(step_results)
+        if step_results
+        else 1.0
+    )
+    return (
+        artifact_fidelity,
+        prose_fidelity,
+        step_fidelity,
+        generated_ellipsis_free,
+    )
+
+
 def compile_slide_deck_v6(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
@@ -2850,41 +3516,41 @@ def compile_slide_deck_v6(
     validate_slide_story_plan_v3(story, graph, template)
     status = validate_slide_visual_plan_v2(visual, story, graph, template)
     blocks = {block.block_id: block for block in _formal_blocks(document)}
-    units = _unit_map(graph)
     visual_by_page = {decision.page_id: decision for decision in visual.decisions}
     pages: list[SlidePageV6] = []
     for story_page in sorted(story.pages, key=lambda item: item.page_ordinal):
         layout = template.get_layout(visual_by_page[story_page.page_id].resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="template", code="template_layout_unavailable", message="Resolved layout disappeared during final compilation", page_id=story_page.page_id)
-        unit = units[story_page.teaching_unit_id]
         source_blocks = [blocks[block_id] for block_id in story_page.source_block_ids]
         materializations = _safe_artifact_page_blocks(
             page_id=story_page.page_id,
+            template=template,
             layout=layout,
             source_blocks=source_blocks,
             story_summary=story_page.summary,
         )
-        # Story planning already enforces the teaching-unit semantic page
-        # budget. Template pagination is a separate, bounded render concern:
-        # one planned artifact page may become at most three safe pages so
-        # source rows are not truncated merely to preserve the story count.
-        if len(materializations) > 3:
+        # Story planning keeps semantic ownership; final pagination is driven by
+        # complete source units and may use as many template-safe continuations
+        # as needed. Only the abnormal global safety ceiling remains.
+        if len(pages) + len(materializations) > MAX_SAFE_SLIDE_COUNT:
             raise V6BuildError(
                 stage="template",
-                code="template_artifact_continuation_limit_exceeded",
+                code="slide_safety_limit_exceeded",
                 message=(
-                    "A planned artifact page requires more than three "
-                    "template-safe materializations"
+                    "Lossless pagination exceeded the abnormal safety ceiling of "
+                    f"{MAX_SAFE_SLIDE_COUNT} pages"
                 ),
                 page_id=story_page.page_id,
             )
-        title_slot = next(
-            (slot for slot in layout.slots if slot.slot_kind == "title"),
-            None,
-        )
         continuation_count = len(materializations)
-        for continuation_index, materialized_blocks in enumerate(materializations, start=1):
+        for continuation_index, materialization in enumerate(materializations, start=1):
+            page_layout = materialization.layout
+            materialized_blocks = materialization.source_blocks
+            title_slot = next(
+                (slot for slot in page_layout.slots if slot.slot_kind == "title"),
+                None,
+            )
             page_id = (
                 story_page.page_id
                 if continuation_index == 1
@@ -2896,16 +3562,41 @@ def compile_slide_deck_v6(
                 continuation_count,
                 int(getattr(title_slot, "max_chars", 0) or 0),
             )
+            materialized_source_ids = list(dict.fromkeys(
+                block.block_id for block in materialized_blocks
+            ))
+            uses_story_artifact_layout = (
+                page_layout.template_layout_id == layout.template_layout_id
+            )
             decision = visual_by_page[story_page.page_id].model_copy(
-                update={"page_id": page_id},
+                update={
+                    "page_id": page_id,
+                    "decision": (
+                        visual_by_page[story_page.page_id].decision
+                        if uses_story_artifact_layout
+                        else "text_native"
+                    ),
+                    "source_block_ids": materialized_source_ids,
+                    "resolved_template_layout_id": page_layout.template_layout_id,
+                },
                 deep=True,
+            )
+            has_supporting_artifact = any(
+                slot.slot_kind in {"code", "formula", "table", "visual"}
+                for slot in page_layout.slots
             )
             regions = _materialize_template_regions(
                 page_id=page_id,
                 title=title,
-                layout=layout,
+                layout=page_layout,
                 source_blocks=materialized_blocks,
-                story_summary=story_page.summary,
+                story_summary=(
+                    story_page.summary
+                    if continuation_index == 1
+                    and uses_story_artifact_layout
+                    and (continuation_count == 1 or has_supporting_artifact)
+                    else ""
+                ),
                 visual_decision=decision,
             )
             pages.append(
@@ -2917,12 +3608,16 @@ def compile_slide_deck_v6(
                     title_max_lines=int(
                         getattr(title_slot, "max_lines", 0) or 1
                     ),
-                    resolved_layout=layout.template_layout_id,
-                    web_renderer_adapter=layout.web_renderer_adapter,
-                    pptx_renderer_adapter=layout.pptx_renderer_adapter,
+                    resolved_layout=page_layout.template_layout_id,
+                    web_renderer_adapter=page_layout.web_renderer_adapter,
+                    pptx_renderer_adapter=page_layout.pptx_renderer_adapter,
                     regions=regions,
-                    source_block_ids=story_page.source_block_ids,
-                    artifact_kinds=unit.artifact_kinds,
+                    source_block_ids=materialized_source_ids,
+                    artifact_kinds=list(dict.fromkeys(
+                        artifact
+                        for block in materialized_blocks
+                        for artifact in block_artifact_kinds(block)
+                    )),
                     visual_decision=decision,
                     speaker_notes=SlideSpeakerNotesV2(
                         source_document_revision=document.document_revision,
@@ -2987,9 +3682,19 @@ def compile_slide_deck_v6(
                 observed_first_occurrences.append(block_id)
                 observed_set.add(block_id)
     denominator = max(1, len(formal_ids))
+    (
+        source_artifact_visible_fidelity,
+        source_prose_visible_fidelity,
+        ordered_step_visible_fidelity,
+        generated_ellipsis_free,
+    ) = _visible_semantic_fidelity(document, pages)
     quality = SlideDeckV6Quality(
         formal_block_visible_coverage=len(visible.intersection(formal_ids)) / denominator,
         full_text_note_binding=len(exact_noted.intersection(formal_ids)) / denominator,
+        source_artifact_visible_fidelity=source_artifact_visible_fidelity,
+        source_prose_visible_fidelity=source_prose_visible_fidelity,
+        ordered_step_visible_fidelity=ordered_step_visible_fidelity,
+        generated_ellipsis_free=generated_ellipsis_free,
         source_order_preserved=observed_first_occurrences == formal_ids,
         template_contract_passed=True,
         subject_artifacts_passed=True,
@@ -2997,6 +3702,30 @@ def compile_slide_deck_v6(
     )
     if quality.formal_block_visible_coverage != 1.0 or quality.full_text_note_binding != 1.0:
         raise V6BuildError(stage="quality", code="course_block_coverage_incomplete", message="Final deck does not bind every formal block visibly and in notes")
+    if quality.source_artifact_visible_fidelity != 1.0:
+        raise V6BuildError(
+            stage="quality",
+            code="source_artifact_visible_fidelity_incomplete",
+            message="Visible code, formula, or table content differs from frozen source",
+        )
+    if quality.source_prose_visible_fidelity != 1.0:
+        raise V6BuildError(
+            stage="quality",
+            code="source_prose_visible_fidelity_incomplete",
+            message="Visible prose omits frozen source meaning",
+        )
+    if quality.ordered_step_visible_fidelity != 1.0:
+        raise V6BuildError(
+            stage="quality",
+            code="ordered_step_visible_fidelity_incomplete",
+            message="Visible ordered steps omit or alter frozen source actions",
+        )
+    if not quality.generated_ellipsis_free:
+        raise V6BuildError(
+            stage="quality",
+            code="generated_ellipsis_detected",
+            message="Visible slide content contains an ellipsis absent from frozen source",
+        )
     return SlideDeckV6(
         course_id=document.course_id,
         title=document.title,

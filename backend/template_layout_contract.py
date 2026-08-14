@@ -259,7 +259,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("annotation", "body", required=False, chars=160),
             _NOTES,
         ],
-        "continuations": ["evidence-code"],
+        "continuations": ["evidence-code", "content-stack"],
     },
     "evidence-formula": {
         "intents": ["artifact_explanation", "mechanism", "worked_example"],
@@ -286,7 +286,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("interpretation", "body", required=False, chars=140),
             _NOTES,
         ],
-        "continuations": ["evidence-table"],
+        "continuations": ["evidence-table", "content-stack"],
     },
     "evidence-figure": {
         "intents": ["artifact_explanation", "worked_example", "concept_explanation"],

@@ -736,6 +736,15 @@ def test_story_plan_rejects_an_ungrounded_visible_title() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_an_empty_visible_title() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "   "
+
+    with pytest.raises(V6BuildError, match="story_title_missing"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_story_plan_rejects_a_title_that_ends_on_a_dangling_connector() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
@@ -910,7 +919,7 @@ def test_story_plan_rejects_a_layout_before_its_required_text_slot_materializes_
                         page_id="empty-task-slot",
                         teaching_unit_id=unit.teaching_unit_id,
                         template_layout_id=template.layout_id("practice-prompt"),
-                        title="",
+                        title="Check the record",
                         summary="",
                         source_block_ids=unit.primary_block_ids,
                         page_ordinal=0,
@@ -1878,6 +1887,7 @@ def test_code_overflow_paginates_every_source_line_and_keeps_full_code_in_notes(
 def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -> None:
     source = (
         "Explain why the guard must run before the action.\n\n"
+        "A missing value stops execution before any downstream action is attempted.\n\n"
         "```python\n"
         "def execute(value):\n"
         "    if value is None:\n"
@@ -1908,7 +1918,7 @@ def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -
         teaching_unit_id=graph.units[0].teaching_unit_id,
         template_layout_id=template.layout_id("evidence-code"),
         title="guard must run",
-        summary="",
+        summary="Explain why the guard must run before the action.",
         source_block_ids=["explained-code"],
         page_ordinal=0,
     )
@@ -1946,6 +1956,14 @@ def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -
         "Explain why the guard must run before the action."
     )
     assert "def execute(value):" not in regions["annotation"].content
+    visible_prose = "\n".join(
+        region.content
+        for compiled_page in deck.pages
+        for region in compiled_page.regions
+        if region.content_kind == "body"
+    )
+    assert "A missing value stops execution" in visible_prose
+    assert deck.quality.source_prose_visible_fidelity == 1.0
     assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
 
 
@@ -2036,7 +2054,8 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
-    assert len(deck.pages) == 2
+    assert len(deck.pages) == 3
+    assert deck.quality.source_prose_visible_fidelity == 1.0
     table_regions = [
         region.content
         for page in deck.pages
@@ -2049,6 +2068,14 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
         for region in table_regions
     )
     assert sum(region.count("| Zone ") for region in table_regions) == 17
+    visible_prose = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "body"
+    )
+    assert "Read the evidence in source order" in visible_prose
+    assert "check the stated condition and result" in visible_prose
 
 
 def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None:
@@ -2073,7 +2100,7 @@ def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None
         for region in page.regions
         if region.content_kind == "table"
     ]
-    assert len(deck.pages) == 1
+    assert len(deck.pages) == 2
     assert len(table_regions) == 1
     assert "restore every missing source field" in table_regions[0]
     assert "…" not in table_regions[0]

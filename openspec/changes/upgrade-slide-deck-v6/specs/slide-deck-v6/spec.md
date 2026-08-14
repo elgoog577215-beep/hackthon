@@ -50,7 +50,7 @@ The system SHALL keep required code, formulas, tables, experiment data and sourc
 #### Scenario: A programming unit contains code and expected output
 - **WHEN** V6 allocates the unit
 - **THEN** the page budget is derived from contiguous source slices that satisfy the published template's artifact and slot-capacity contracts
-- **AND** the compact default may expand beyond three pages only when the template-safe partition requires additional narrative room
+- **AND** the allocation expands to as many declared safe continuation pages as the complete source requires, without a teaching business cap
 - **AND** adjacent pages preserve the code, execution conditions, explanation and result
 - **AND** generic prose cannot replace the code artifact
 
@@ -97,7 +97,7 @@ The system SHALL resolve every final page through `template_layout_contract_v1` 
 
 #### Scenario: A required slot is empty or over capacity
 - **WHEN** allocated content cannot occupy every required slot within declared capacity
-- **THEN** the unit is repaginated into at most three declared safe pages or fails
+- **THEN** the unit is repaginated into the required number of declared safe continuation pages, or fails only when a complete atomic item has no safe representation or an abnormal safety ceiling is reached
 - **AND** the renderer does not emit an empty card, shrink below minimum size or crop content
 
 #### Scenario: A source-critical code artifact has no supporting prose
@@ -149,6 +149,7 @@ The system SHALL compile `slide_deck_v6` with resolved template layout IDs, type
 - **WHEN** a teaching unit requires compression for projection
 - **THEN** the canvas contains a semantically closed source-faithful expression
 - **AND** complete source text and full code remain in speaker notes with block and revision bindings
+- **AND** code, explicit ordered steps, tables and a page's sole body block remain complete across visible continuation pages rather than being replaced by an excerpt or summary
 
 #### Scenario: A full course contains multiple top-level sections
 - **WHEN** the final V6 deck is compiled from the frozen full-course document
@@ -159,7 +160,7 @@ The system SHALL compile `slide_deck_v6` with resolved template layout IDs, type
 #### Scenario: Source prose contains semantic paragraphs
 - **WHEN** a body slot projects multiple source paragraphs or list groups
 - **THEN** paragraph and list boundaries remain visible rather than being flattened into an arbitrary sentence stream
-- **AND** capacity selection ends at a complete semantic group or complete source sentence
+- **AND** capacity selection ends at a complete semantic group or complete source sentence when possible, and an individually oversized sentence continues losslessly at a natural text boundary
 
 #### Scenario: A task contains explicit ordered steps
 - **WHEN** the source declares two or more ordered actions
@@ -187,6 +188,16 @@ The system SHALL publish only after course coverage, order, fact traceability, s
 #### Scenario: All hard gates pass with no degradation
 - **WHEN** source and template remain frozen and both renderers pass
 - **THEN** the version publishes atomically as `v6_ready`
+
+#### Scenario: Visible source semantics are truncated or synthesized
+- **WHEN** visible code, formulas, table rows, source prose or ordered steps differ from frozen source, or the compiler introduces an ellipsis absent from source
+- **THEN** publication fails with a structured fidelity diagnostic
+- **AND** passing geometric overflow checks cannot convert the candidate to success
+
+#### Scenario: A planned page has no visible title
+- **WHEN** a story page title is empty or whitespace-only
+- **THEN** validation fails with `story_title_missing`
+- **AND** the untitled page is not rendered or published
 
 #### Scenario: A candidate fails after a V5 or V6 deck was published
 - **WHEN** any hard gate fails
