@@ -2320,7 +2320,18 @@ async def plan_slide_story_v3(
                                 [request],
                             )[0]
                             local_pages = list(candidate_batch.pages)
-                        else:
+                            try:
+                                _validate_story_batch_candidate(
+                                    graph=graph,
+                                    template=template,
+                                    request=request,
+                                    batch=candidate_batch,
+                                )
+                            except V6BuildError as reassigned_validation_error:
+                                validation_error = reassigned_validation_error
+                            else:
+                                validation_error = None
+                        if validation_error is not None:
                             repaired_payload = _apply_grounded_story_repairs(
                                 previous_response_payload,
                                 request,
@@ -2333,7 +2344,7 @@ async def plan_slide_story_v3(
                                     validation_error,
                                 )
                             if repaired_payload is previous_response_payload:
-                                raise
+                                raise validation_error
                             previous_response_payload = repaired_payload
                             response = _StoryBatchResponse.model_validate(
                                 previous_response_payload
@@ -2348,12 +2359,17 @@ async def plan_slide_story_v3(
                             candidate_batch = candidate_batch.model_copy(
                                 update={"pages": local_pages}
                             )
-                        _validate_story_batch_candidate(
-                            graph=graph,
-                            template=template,
-                            request=request,
-                            batch=candidate_batch,
-                        )
+                            candidate_batch = _assign_global_story_titles(
+                                [candidate_batch],
+                                [request],
+                            )[0]
+                            local_pages = list(candidate_batch.pages)
+                            _validate_story_batch_candidate(
+                                graph=graph,
+                                template=template,
+                                request=request,
+                                batch=candidate_batch,
+                            )
                     pages = [
                         page.model_copy(update={"page_ordinal": page_ordinal + index})
                         for index, page in enumerate(local_pages)
