@@ -477,7 +477,6 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "representation_deck_plan_v3",
     "representation_story_plan_v2",
     "request_snapshot",
-    "slide_build_contract_version",
     "node_drafts",
 })
 PUBLIC_TASK_LOG_LIMIT = 100
