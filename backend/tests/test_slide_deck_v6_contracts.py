@@ -54,6 +54,24 @@ def test_sentence_excerpt_never_invents_a_partial_protected_source_token():
     assert _protected_tokens(excerpt).issubset(_protected_tokens(source))
 
 
+def test_sentence_excerpt_preserves_dotted_identifiers_and_decimal_tokens():
+    first_sentence = (
+        "MonoBehaviour 继承自 UnityEngine.Object，ObjectPool 调用 "
+        "GameObject.Instantiate()，并将 Scale 设置为 0.5x。"
+    )
+    source = (
+        f"{first_sentence}"
+        "随后继续记录对象状态、内存分配和回归测试结果，确保摘要需要截取。"
+    )
+
+    excerpt = _complete_sentence_excerpt(source, len(first_sentence) + 5)
+
+    assert "UnityEngine.Object" in excerpt
+    assert "GameObject.Instantiate" in excerpt
+    assert "0.5x" in excerpt
+    assert _protected_tokens(excerpt).issubset(_protected_tokens(source))
+
+
 def test_visible_prose_removes_markdown_and_never_ends_on_a_bare_list_marker():
     block = _block(
         "chapter-objective",
