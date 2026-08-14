@@ -88,6 +88,88 @@ jobs:
           set +a
           cd /opt/lingzhi/hackthon/backend
 
+          echo "== latest V6 failure structure (no course content) =="
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import collections
+          import json
+          from pathlib import Path
+
+
+          root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
+          matches = []
+          for path in root.glob("*.json"):
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError):
+                  continue
+              if payload.get("failure"):
+                  matches.append((str(payload.get("updated_at") or ""), path, payload))
+          if not matches:
+              print(json.dumps({"found": False}, sort_keys=True))
+              raise SystemExit(0)
+
+          _updated_at, candidate_path, candidate = max(matches, key=lambda item: item[0])
+          failure = candidate.get("failure") or {}
+          checkpoint_path = root / "checkpoints" / candidate_path.name
+          checkpoint = {}
+          if checkpoint_path.exists():
+              checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          story_payload = candidate.get("story_plan") or checkpoint.get("story_plan") or {}
+          pages = story_payload.get("pages") or []
+          if not pages:
+              pages = [
+                  page
+                  for batch in (story_payload.get("batches") or checkpoint.get("story_batches") or [])
+                  for page in (batch.get("pages") or [])
+              ]
+          page_id = str(failure.get("page_id") or "")
+          page = next((item for item in pages if str(item.get("page_id") or "") == page_id), {})
+          visual_payload = candidate.get("visual_plan") or checkpoint.get("visual_plan") or {}
+          decisions = visual_payload.get("decisions") or []
+          visual = next(
+              (item for item in decisions if str(item.get("page_id") or "") == page_id),
+              {},
+          )
+          graph = candidate.get("course_presentation_graph") or checkpoint.get("course_presentation_graph") or {}
+          units = graph.get("units") or []
+          unit = next(
+              (
+                  item for item in units
+                  if str(item.get("teaching_unit_id") or "")
+                  == str(page.get("teaching_unit_id") or "")
+              ),
+              {},
+          )
+          blocks = {
+              str(item.get("block_id") or ""): item
+              for item in (unit.get("blocks") or unit.get("source_blocks") or [])
+          }
+          source_ids = [str(item) for item in (page.get("source_block_ids") or [])]
+          source_kind_counts = collections.Counter(
+              str((blocks.get(block_id) or {}).get("kind") or (blocks.get(block_id) or {}).get("block_type") or "unknown")
+              for block_id in source_ids
+          )
+          print(json.dumps({
+              "found": True,
+              "updated_at": candidate.get("updated_at"),
+              "failure_stage": failure.get("stage"),
+              "failure_code": failure.get("code"),
+              "failure_message": failure.get("message"),
+              "failure_page_id": page_id,
+              "failure_batch_id": failure.get("batch_id"),
+              "checkpoint_contract": checkpoint.get("build_contract_version"),
+              "story_page_count": len(pages),
+              "failure_page_present": bool(page),
+              "story_layout_slug": str(page.get("template_layout_id") or "").rsplit("/", 1)[-1],
+              "source_block_count": len(source_ids),
+              "source_kind_counts": dict(sorted(source_kind_counts.items())),
+              "visual_decision": visual.get("decision"),
+              "visual_layout_slug": str(visual.get("resolved_template_layout_id") or "").rsplit("/", 1)[-1],
+              "visual_degraded": bool(visual.get("degraded")),
+              "visual_reason": visual.get("degradation_reason"),
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
           echo "== latest V6 story underfill structure (no course content) =="
           /opt/lingzhi/.venv/bin/python - <<'PY'
           import json
