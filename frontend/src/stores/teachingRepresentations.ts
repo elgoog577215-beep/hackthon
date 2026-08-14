@@ -893,11 +893,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
               )
             }
           }
-          if (['failed', 'completed', 'cancelled', 'paused'].includes(status)) {
+          if (['failed', 'completed', 'completed_with_warnings', 'cancelled', 'paused'].includes(status)) {
             this.buildStreamActive = false
             this.applyDurableBuildTask(task)
             this.buildAttemptToken += 1
-            if (status === 'completed') {
+            if (['completed', 'completed_with_warnings'].includes(status)) {
               await this.load(courseId)
               if (this.courseId === courseId) {
                 this.settleCompletedSlideBuild()
@@ -975,7 +975,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         this.buildStage = 'build_blocked'
         this.buildFailure = failure
         this.buildError = failure.code
-      } else if (status === 'completed') {
+      } else if (['completed', 'completed_with_warnings'].includes(status)) {
         this.building = false
         this.buildPaused = false
         this.buildProgress = 100
@@ -1013,7 +1013,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         return null
       }
       this.applyDurableBuildTask(task)
-      if (String(task.status || '') === 'completed') {
+      if (['completed', 'completed_with_warnings'].includes(String(task.status || ''))) {
         await this.load(courseId)
         if (this.courseId === courseId) this.settleCompletedSlideBuild()
       }
@@ -1031,6 +1031,66 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async buildSlideDeckVariant(courseId: string, options: SlideDeckBuildOptions) {
       return this.buildProgressive(courseId, options)
+    },
+    async repairDegradedVisuals(
+      courseId: string,
+      representationId: string,
+      pageIds: string[] = [],
+    ) {
+      this.switchCourse(courseId)
+      this.loadRequestToken += 1
+      this.loading = false
+      const courseToken = this.courseRequestToken
+      const attemptToken = ++this.buildAttemptToken
+      this.specRequestToken += 1
+      this.building = true
+      this.buildPaused = false
+      this.buildProgress = 0
+      this.buildStage = 'visual_repair'
+      this.buildDisplayStep = 0
+      this.buildStreamActive = false
+      this.slideBuildProgressV2 = null
+      this.buildDetail = {
+        event: 'visual_repair',
+        completed: 0,
+        total: pageIds.length,
+      }
+      this.buildError = ''
+      this.buildFailure = null
+      try {
+        const response = await http.post(
+          `/api/courses/${courseId}/teaching-representations/${representationId}/slide-decks/visual-repair`,
+          { page_ids: pageIds },
+        )
+        if (
+          this.courseId !== courseId
+          || this.courseRequestToken !== courseToken
+          || this.buildAttemptToken !== attemptToken
+        ) return response.data
+        const taskId = String(response.data?.task_id || '')
+        if (!taskId) throw new Error('visual_repair_task_missing')
+        this.buildTaskId = taskId
+        this.buildDetail = {
+          event: 'visual_repair',
+          completed: 0,
+          total: Number(response.data?.target_page_ids?.length || pageIds.length),
+        }
+        this.monitorDurableBuild(courseId, taskId, courseToken, attemptToken)
+        return response.data
+      } catch (error) {
+        if (
+          this.courseId === courseId
+          && this.courseRequestToken === courseToken
+          && this.buildAttemptToken === attemptToken
+        ) {
+          const failure = normalizedBuildFailure(error)
+          this.building = false
+          this.buildFailure = failure
+          this.buildError = failure.code
+          this.buildStage = 'build_blocked'
+        }
+        throw error
+      }
     },
     async rebuildCurrentRepresentations(courseId: string) {
       await this.buildProgressive(courseId)
