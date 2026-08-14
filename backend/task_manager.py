@@ -5272,6 +5272,8 @@ class TaskManager:
                     ).template_digest
             else:
                 def current_template_digest() -> str:
+                    if visual_repair:
+                        return template_contract.template_digest
                     return compile_builtin_template_layout_contract_v1(
                         template_contract.theme_id
                     ).template_digest

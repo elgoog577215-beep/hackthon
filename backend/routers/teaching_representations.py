@@ -190,6 +190,19 @@ class SlideDeckVariantBuildRequest(BaseModel):
         return self
 
 
+class SlideVisualRepairRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page_ids: list[str] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def normalize_page_ids(self) -> "SlideVisualRepairRequest":
+        self.page_ids = list(dict.fromkeys(
+            page_id.strip() for page_id in self.page_ids if page_id.strip()
+        ))
+        return self
+
+
 _SPEC_ROUTING_CONTENT_KEYS = (
     "schema_version",
     "candidate_status",
@@ -1467,6 +1480,124 @@ async def get_teaching_representation_quality(course_id: str, request: Request) 
         TeachingRepresentationSpec.model_validate(item) for item in current_specs
     ])
     return {"status": "success", "quality": report}
+
+
+@router.post(
+    "/{representation_id}/slide-decks/visual-repair",
+    status_code=202,
+)
+async def repair_degraded_slide_visuals(
+    course_id: str,
+    representation_id: str,
+    body: SlideVisualRepairRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Queue a durable V6 task that retries only degraded visual decisions."""
+
+    require_user_id(request.headers.get("X-User-Id"))
+    await get_course_or_404(course_id)
+    task_manager = get_task_manager_optional()
+    if task_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "v6_orchestrator_unavailable",
+                "message": "Visual repair requires the durable V6 task service.",
+                "retryable": True,
+                "stage": "visual_repair",
+            },
+        )
+    try:
+        _registry, representation, spec = await run_in_threadpool(
+            _representation_and_spec_reconciled,
+            course_id,
+            representation_id,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Teaching representation not found") from error
+    content = dict((spec.payload.get("content") if spec else None) or {})
+    if (
+        representation.representation_type != "slide_deck"
+        or representation.status != "ready"
+        or content.get("schema_version") != "slide_deck_v6"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "visual_repair_requires_v6",
+                "message": "Only the current published V6 deck can be repaired selectively.",
+                "retryable": False,
+                "stage": "visual_repair",
+            },
+        )
+    degraded_page_ids = [
+        str(decision.get("page_id") or "")
+        for decision in ((content.get("visual_plan") or {}).get("decisions") or [])
+        if isinstance(decision, dict)
+        and decision.get("degraded")
+        and str(decision.get("page_id") or "")
+    ]
+    target_page_ids = body.page_ids or degraded_page_ids
+    invalid_page_ids = set(target_page_ids) - set(degraded_page_ids)
+    if invalid_page_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "visual_repair_target_not_degraded",
+                "message": "Visual repair can target only degraded pages.",
+                "page_id": sorted(invalid_page_ids)[0],
+                "retryable": False,
+                "stage": "visual_repair",
+            },
+        )
+    if not target_page_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "visual_repair_not_required",
+                "message": "This V6 deck has no degraded visual pages.",
+                "retryable": False,
+                "stage": "visual_repair",
+            },
+        )
+    build_signature = dict(content.get("build_signature") or {})
+    mode = str(build_signature.get("mode") or "teaching")
+    theme = normalize_slide_deck_theme(
+        str(build_signature.get("theme") or "qizhi-classroom")
+    )
+    source_revision = str(
+        (content.get("source_contract") or {}).get("course_document_revision")
+        or build_signature.get("course_document_revision")
+        or ""
+    )
+    task_id = await task_manager.create_task(
+        course_id,
+        "slide_deck_variant_build",
+        request_snapshot={
+            "operation": "repair_slide_visuals_v6",
+            "mode": mode,
+            "theme": theme,
+            "variant_key": str(
+                getattr(representation, "variant_key", "")
+                or slide_deck_variant_key(mode, theme)
+            ),
+            "target_schema": "slide_deck_v6",
+            "template_contract": content.get("template_contract"),
+            "template_selector": {},
+            "force_rebuild": False,
+            "shadow_only": False,
+            "chapter_id": "",
+            "source_course_document_revision": source_revision,
+            "representation_id": representation_id,
+            "target_page_ids": target_page_ids,
+        },
+        base_document_revision=source_revision,
+    )
+    return {
+        "status": "accepted",
+        "task_id": task_id,
+        "target_page_ids": target_page_ids,
+    }
 
 
 def _representation_and_spec(course_id: str, representation_id: str):
