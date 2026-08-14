@@ -2881,6 +2881,106 @@ async def plan_slide_visuals_v2(
     return plan
 
 
+async def repair_slide_visuals_v2(
+    story: SlideStoryPlanV3,
+    graph: CoursePresentationGraphV1,
+    template: TemplateLayoutPackContractV1,
+    prior_plan: SlideVisualPlanV2,
+    *,
+    ai_planner: Planner | None,
+    target_page_ids: list[str] | None = None,
+    concurrency: int = 3,
+    timeout_seconds: float = 180.0,
+    batch_callback: BatchLifecycleCallback | None = None,
+) -> SlideVisualPlanV2:
+    """Replan degraded visual decisions without rebuilding story or healthy pages.
+
+    The function is intentionally pure with respect to ``prior_plan``: a failed
+    retry raises before a replacement plan is returned, so callers can keep the
+    currently published V6 revision unchanged.
+    """
+
+    validate_slide_visual_plan_v2(prior_plan, story, graph, template)
+    story_page_ids = {page.page_id for page in story.pages}
+    degraded_page_ids = {
+        decision.page_id for decision in prior_plan.decisions if decision.degraded
+    }
+    requested_page_ids = list(dict.fromkeys(target_page_ids or degraded_page_ids))
+    requested_set = set(requested_page_ids)
+    unknown_page_ids = requested_set - story_page_ids
+    if unknown_page_ids:
+        page_id = sorted(unknown_page_ids)[0]
+        raise V6BuildError(
+            stage="visual_repair",
+            code="visual_repair_page_unknown",
+            message="Visual repair can target only pages in the frozen V6 story plan",
+            retryable=False,
+            page_id=page_id,
+        )
+    healthy_page_ids = requested_set - degraded_page_ids
+    if healthy_page_ids:
+        page_id = sorted(healthy_page_ids)[0]
+        raise V6BuildError(
+            stage="visual_repair",
+            code="visual_repair_target_not_degraded",
+            message="Visual repair cannot replace a healthy published decision",
+            retryable=False,
+            page_id=page_id,
+        )
+    if not requested_set:
+        return prior_plan
+
+    repair_batches = []
+    for batch in story.batches:
+        pages = [page for page in batch.pages if page.page_id in requested_set]
+        if pages:
+            repair_batches.append(batch.model_copy(update={"pages": pages}))
+    repair_story = story.model_copy(update={"batches": repair_batches})
+    repaired_subset = await plan_slide_visuals_v2(
+        repair_story,
+        graph,
+        template,
+        ai_planner=ai_planner,
+        concurrency=concurrency,
+        timeout_seconds=timeout_seconds,
+        batch_callback=batch_callback,
+    )
+    repaired_by_page = {
+        decision.page_id: decision for decision in repaired_subset.decisions
+    }
+    incomplete = [
+        page_id
+        for page_id in requested_page_ids
+        if page_id not in repaired_by_page or repaired_by_page[page_id].degraded
+    ]
+    if incomplete:
+        page_id = incomplete[0]
+        failed_decision = repaired_by_page.get(page_id)
+        reason = (
+            failed_decision.degradation_reason
+            if failed_decision is not None
+            else "visual_repair_page_missing"
+        )
+        raise V6BuildError(
+            stage="visual_repair",
+            code="visual_repair_incomplete",
+            message=f"Visual repair did not produce a publishable decision: {reason}",
+            retryable=True,
+            page_id=page_id,
+        )
+
+    repaired_plan = SlideVisualPlanV2(
+        source_document_revision=prior_plan.source_document_revision,
+        template_digest=prior_plan.template_digest,
+        decisions=[
+            repaired_by_page.get(decision.page_id, decision)
+            for decision in prior_plan.decisions
+        ],
+    )
+    validate_slide_visual_plan_v2(repaired_plan, story, graph, template)
+    return repaired_plan
+
+
 def build_ai_base_story_planner_v6() -> Planner:
     provider = AIBase()
 
@@ -2989,4 +3089,5 @@ __all__ = [
     "build_ai_base_visual_planner_v2",
     "plan_slide_story_v3",
     "plan_slide_visuals_v2",
+    "repair_slide_visuals_v2",
 ]
