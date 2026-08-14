@@ -4,7 +4,11 @@ import re
 import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
-from course_presentation_graph import compile_course_presentation_graph
+from course_presentation_graph import (
+    block_artifact_kinds,
+    block_source_text,
+    compile_course_presentation_graph,
+)
 from slide_deck_v6 import (
     SlideStoryBatchV3,
     SlideStoryPageV3,
@@ -390,6 +394,87 @@ def test_visual_decision_fills_required_visual_slot_during_final_compilation(
             )],
         )],
     )
+
+
+def test_code_block_source_text_reads_the_canonical_code_payload() -> None:
+    block = CourseBlock(
+        block_id="source-code",
+        section_id="source",
+        position=0,
+        role="example",
+        kind="code",
+        payload={"language": "csharp", "code": "void Start() { Debug.Log(\"ready\"); }"},
+    )
+
+    assert block_source_text(block) == 'void Start() { Debug.Log("ready"); }'
+    assert block_artifact_kinds(block) == ["code"]
+
+
+def test_empty_code_block_does_not_claim_a_renderable_code_artifact() -> None:
+    block = CourseBlock(
+        block_id="empty-code",
+        section_id="source",
+        position=0,
+        role="example",
+        kind="code",
+        payload={"language": "csharp", "code": ""},
+    )
+
+    assert block_source_text(block) == ""
+    assert block_artifact_kinds(block) == []
+
+
+def test_story_preflight_rejects_a_code_template_for_an_empty_code_block() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="empty-code-template",
+        title="Empty code template",
+        sections=[CourseSection(section_id="source", title="Source", position=0)],
+        blocks=[
+            CourseBlock(
+                block_id="empty-code",
+                section_id="source",
+                position=0,
+                role="activity",
+                kind="code",
+                payload={"language": "csharp", "code": ""},
+            ),
+            _block(
+                "practice-steps",
+                "source",
+                1,
+                role="activity",
+                text="1. 创建脚本。\n2. 挂载组件。\n3. 运行并检查控制台。",
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document)
+    unit = graph.units[0]
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    story = SlideStoryPlanV3(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-source",
+            chapter_id="source",
+            provider="test",
+            model="test",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="empty-code-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=template.layout_id("practice-code"),
+                title="创建脚本并检查控制台",
+                summary="",
+                source_block_ids=list(unit.primary_block_ids),
+                page_ordinal=0,
+            )],
+        )],
+    )
+
+    with pytest.raises(V6BuildError, match="template_required_slot_unfilled"):
+        validate_slide_story_plan_v3(story, graph, template)
     visual = SlideVisualPlanV2(
         source_document_revision=document.document_revision,
         template_digest=template.template_digest,
