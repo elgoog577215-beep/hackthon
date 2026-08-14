@@ -1369,6 +1369,75 @@ def test_story_markdown_repair_converges_all_invalid_pages_in_one_pass() -> None
     )
 
 
+@pytest.mark.asyncio
+async def test_story_batch_normalizes_four_markdown_summaries_without_ai_retry() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-field-batch-markdown-integration",
+        title="Field evidence workflow",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Evidence review",
+            position=0,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id=f"field-evidence-{index}",
+                section_id="chapter-a",
+                position=index,
+                role="concept",
+                payload={
+                    "markdown": (
+                        f"## Evidence checkpoint {index + 1}\n"
+                        "Record the habitat boundary, observation time, weather, "
+                        "instrument calibration, signed evidence identifier, "
+                        "acceptance criterion, review decision, and follow-up owner."
+                    ),
+                },
+            )
+            for index in range(4)
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls: list[dict] = []
+
+    async def planner(request):
+        calls.append(request)
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": f"field-markdown-page-{index}",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": next(
+                        layout_id
+                        for layout_id in unit["allowed_template_layout_ids"]
+                        if layout_id.endswith("/chapter-entry")
+                    ),
+                    "title": unit["title_candidates"][0],
+                    "summary": (
+                        f"**Evidence checkpoint {index + 1}.**\n"
+                        "- Preserve the reviewed field record."
+                    ),
+                    "source_block_ids": unit["primary_block_ids"],
+                }
+                for index, unit in enumerate(request["teaching_units"])
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert len(story.pages) == 4
+    assert all(
+        planning_module._presentation_summary_text(page.summary)
+        == page.summary.strip()
+        and not planning_module._looks_like_markdown_table(page.summary)
+        for page in story.pages
+    )
+
+
 def test_visible_prose_compiles_fenced_code_and_markdown_table_without_markers() -> None:
     source = (
         "```text\nreview_status = accepted\n```\n\n"
