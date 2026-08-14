@@ -88,6 +88,17 @@
               {{ currentRepresentation.course_logic_upgrade_reason || '请先升级课程教学计划，再生成课程逻辑版 PPT' }}
             </small>
             <div class="slide-workbench__secondary-actions">
+              <button
+                v-if="candidateStatus === 'v6_needs_manual_edit' && planningStatus?.visual_ai?.status === 'partial_degraded'"
+                type="button"
+                data-testid="ppt-repair-degraded-visuals"
+                :disabled="building || !representationId"
+                :title="t('pptWorkspace.repairDegradedVisuals', '仅重新规划降级页面，保留已通过页面')"
+                @click="repairDegradedVisuals"
+              >
+                <RefreshCw :size="16" :class="{ spinning: building }" />
+                <span>{{ t('pptWorkspace.retryDegradedPages', '重试降级页') }}</span>
+              </button>
               <button v-if="standalone" type="button" :title="t('pptWorkspace.materialsOverview', '教学材料总览')" @click="emit('open-materials')">
                 <Layers3 :size="16" /><span>{{ t('pptWorkspace.materialsOverview', '教学材料总览') }}</span>
               </button>
@@ -919,6 +930,16 @@ async function downloadSlides() {
     await store.downloadSlides(props.representationId, props.deckTitle, previewTheme.value)
   } finally {
     exportBusy.value = false
+  }
+}
+
+async function repairDegradedVisuals() {
+  if (props.building || !props.representationId) return
+  try {
+    await store.repairDegradedVisuals(props.courseId, props.representationId)
+  } catch {
+    // Shared build state shows the structured failure while the published V6
+    // revision remains visible.
   }
 }
 
