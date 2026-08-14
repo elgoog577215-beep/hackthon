@@ -1907,6 +1907,58 @@ def _apply_grounded_story_repairs(
     return {**response_payload, "pages": repaired} if changed else response_payload
 
 
+def _merge_story_repair_response(
+    previous_payload: dict[str, Any],
+    repaired_payload: dict[str, Any],
+    request: dict[str, Any],
+    repair_unit_ids: list[str],
+) -> dict[str, Any]:
+    """Replace repaired teaching units while keeping every other page stable."""
+
+    repair_set = set(repair_unit_ids)
+    previous_pages = [
+        page
+        for page in previous_payload.get("pages") or []
+        if isinstance(page, dict)
+    ]
+    repaired_pages = [
+        page
+        for page in repaired_payload.get("pages") or []
+        if isinstance(page, dict)
+        and str(page.get("teaching_unit_id") or "") in repair_set
+    ]
+    previous_by_unit: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    repaired_by_unit: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for page in previous_pages:
+        previous_by_unit[str(page.get("teaching_unit_id") or "")].append(page)
+    for page in repaired_pages:
+        repaired_by_unit[str(page.get("teaching_unit_id") or "")].append(page)
+
+    ordered_unit_ids = [
+        str(unit.get("teaching_unit_id") or "")
+        for unit in request.get("teaching_units") or []
+        if isinstance(unit, dict) and str(unit.get("teaching_unit_id") or "")
+    ]
+    merged_pages: list[dict[str, Any]] = []
+    for unit_id in ordered_unit_ids:
+        merged_pages.extend(
+            repaired_by_unit.get(unit_id, [])
+            if unit_id in repair_set
+            else previous_by_unit.get(unit_id, [])
+        )
+    known_unit_ids = set(ordered_unit_ids)
+    merged_pages.extend(
+        page
+        for page in previous_pages
+        if str(page.get("teaching_unit_id") or "") not in known_unit_ids
+    )
+    return {
+        **previous_payload,
+        **repaired_payload,
+        "pages": merged_pages,
+    }
+
+
 async def plan_slide_story_v3(
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
@@ -1981,9 +2033,33 @@ async def plan_slide_story_v3(
             previous_response_payload: dict[str, Any] | None = None
             for validation_attempt in range(_STORY_SEMANTIC_MAX_ATTEMPTS):
                 attempt_request = request
+                repair_targets: list[dict[str, Any]] = []
+                repair_unit_ids: list[str] = []
                 if validation_attempt:
+                    repair_targets = _story_repair_targets(
+                        request,
+                        previous_response_payload,
+                        contract_error,
+                    )
+                    repair_unit_ids = list(dict.fromkeys(
+                        str(target.get("teaching_unit_id") or "")
+                        for target in repair_targets
+                        if str(target.get("teaching_unit_id") or "")
+                    ))
+                    repair_unit_set = set(repair_unit_ids)
+                    repair_units = [
+                        unit
+                        for unit in request.get("teaching_units") or []
+                        if str(unit.get("teaching_unit_id") or "")
+                        in repair_unit_set
+                    ]
                     attempt_request = {
                         **request,
+                        "teaching_units": (
+                            repair_units
+                            if repair_units
+                            else list(request.get("teaching_units") or [])
+                        ),
                         "repair_feedback": {
                             "attempt": validation_attempt + 1,
                             "code": (
@@ -1992,13 +2068,12 @@ async def plan_slide_story_v3(
                                 else "story_response_contract_invalid"
                             ),
                             "message": str(contract_error or ""),
-                            "repair_targets": _story_repair_targets(
-                                request,
-                                previous_response_payload,
-                                contract_error,
-                            ),
+                            "repair_targets": repair_targets,
                             "instruction": (
-                                "Return a fresh response that exactly follows response_contract, "
+                                "Return only pages for the teaching_units present in this repair "
+                                "request; all other teaching units are locked and will be merged "
+                                "from the accepted first response. Return a fresh response that "
+                                "exactly follows response_contract, "
                                 "derives each page's intent from its bound primary_blocks and uses "
                                 "only that intent's allowed_template_layout_ids_by_page_intent, and "
                                 "contains only source IDs supplied for that unit. Partition every "
@@ -2063,12 +2138,25 @@ async def plan_slide_story_v3(
                     planner_invocations += 1
                     raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
                     attempt_records.extend(_provider_attempts_from(raw))
-                    previous_response_payload = _normalize_story_batch_response(
+                    normalized_response_payload = _normalize_story_batch_response(
                         raw,
                         attempt_request,
                         graph,
                         template,
                     )
+                    if (
+                        validation_attempt
+                        and previous_response_payload is not None
+                        and repair_unit_ids
+                    ):
+                        previous_response_payload = _merge_story_repair_response(
+                            previous_response_payload,
+                            normalized_response_payload,
+                            request,
+                            repair_unit_ids,
+                        )
+                    else:
+                        previous_response_payload = normalized_response_payload
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload
                     )
@@ -2590,6 +2678,10 @@ async def plan_slide_visuals_v2(
                 "decisions": resumed,
             })
             return resumed
+        pending_pages = [
+            page for page in batch.pages if page.page_id not in resumed_by_page
+        ]
+        planning_batch = batch.model_copy(update={"pages": pending_pages})
         await _notify_batch(batch_callback, {
             "phase": "started",
             "kind": "visual",
@@ -2598,7 +2690,7 @@ async def plan_slide_visuals_v2(
             "chapter_id": batch.chapter_id,
             "resumed": False,
         })
-        request = _visual_request(batch, graph, template)
+        request = _visual_request(planning_batch, graph, template)
         started = time.perf_counter()
         attempt_records: list[AIProviderAttemptDiagnosticV1] = []
         reported_provider = ""
@@ -2687,6 +2779,16 @@ async def plan_slide_visuals_v2(
                         )
                         for decision in response.decisions
                     ]
+                    if resumed:
+                        decisions_by_page = {
+                            decision.page_id: decision
+                            for decision in [*resumed, *decisions]
+                        }
+                        decisions = [
+                            decisions_by_page[page.page_id]
+                            for page in batch.pages
+                            if page.page_id in decisions_by_page
+                        ]
                     if validation_attempt and previous_decisions:
                         decisions = _merge_visual_repair_decisions(
                             previous_decisions,
@@ -2714,7 +2816,7 @@ async def plan_slide_visuals_v2(
             attempt_records.extend(_provider_attempts_from(error))
             required_pages = [
                 page
-                for page in batch.pages
+                for page in planning_batch.pages
                 if page_artifact_kinds(
                     units[page.teaching_unit_id],
                     page.source_block_ids,
@@ -2834,8 +2936,11 @@ async def plan_slide_visuals_v2(
                 category, _ = _failure_category(error, prefix="visual_ai_batch")
                 batch_validation_status = "degraded"
                 batch_failure_category = category
-                decisions = [
-                    SlideVisualDecisionV2(
+                fallback_by_page = {
+                    decision.page_id: decision for decision in resumed
+                }
+                fallback_by_page.update({
+                    page.page_id: SlideVisualDecisionV2(
                         page_id=page.page_id,
                         decision="text_native",
                         source_block_ids=page.source_block_ids,
@@ -2844,7 +2949,12 @@ async def plan_slide_visuals_v2(
                         degradation_reason=category,
                         duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
                     )
+                    for page in planning_batch.pages
+                })
+                decisions = [
+                    fallback_by_page[page.page_id]
                     for page in batch.pages
+                    if page.page_id in fallback_by_page
                 ]
         await _notify_batch(batch_callback, {
             "phase": "completed",
