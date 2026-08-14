@@ -45,6 +45,7 @@ from teaching_representations import (
 from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
+SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v2"
 
 
 def _utc_now() -> str:
@@ -389,6 +390,7 @@ class SlideDeckV6Orchestrator:
         }
         checkpoint = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
+            "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
             "task_id": task_id,
             "course_id": document.course_id,
             "course_document_revision": document.document_revision,
@@ -455,12 +457,17 @@ class SlideDeckV6Orchestrator:
                 and restored_checkpoint.get("template_digest") == template.template_digest
                 and restored_checkpoint.get("mode") == mode
                 and restored_checkpoint.get("theme") == theme
+                and restored_checkpoint.get("build_contract_version")
+                == SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
             )
             if not identity:
                 raise V6BuildError(
                     stage="recovery",
                     code="v6_recovery_contract_mismatch",
-                    message="Persisted V6 work belongs to a different frozen source or template",
+                    message=(
+                        "Persisted V6 work belongs to a different frozen source, "
+                        "template, or build contract"
+                    ),
                     retryable=False,
                 )
         try:
@@ -498,6 +505,7 @@ class SlideDeckV6Orchestrator:
         finalize_item_id = "publish" if publish_result else "finalize-shadow"
         checkpoint: dict[str, Any] = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
+            "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
             "task_id": task_id,
             "course_id": document.course_id,
             "course_document_revision": document.document_revision,

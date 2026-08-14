@@ -226,6 +226,106 @@ def _request_title_candidates_for_blocks(
     ]
 
 
+def _assign_global_story_titles(
+    batches: list[SlideStoryBatchV3],
+    requests: list[dict[str, Any]],
+) -> list[SlideStoryBatchV3]:
+    """Choose one distinct, source-grounded title per page across all batches."""
+
+    request_units = {
+        str(unit.get("teaching_unit_id") or ""): unit
+        for request in requests
+        for unit in request.get("teaching_units") or []
+        if isinstance(unit, dict) and str(unit.get("teaching_unit_id") or "")
+    }
+    page_refs = [
+        (batch_index, page_index, page)
+        for batch_index, batch in enumerate(batches)
+        for page_index, page in enumerate(batch.pages)
+    ]
+    candidate_keys_by_page: list[list[str]] = []
+    display_titles_by_page: list[dict[str, str]] = []
+
+    for batch_index, _page_index, page in page_refs:
+        unit = request_units.get(page.teaching_unit_id)
+        candidates = (
+            _request_title_candidates_for_blocks(unit, page.source_block_ids)
+            if unit is not None
+            else []
+        )
+        display_titles: dict[str, str] = {}
+        for candidate in candidates:
+            key = re.sub(r"\s+", "", candidate).casefold()
+            if key and key not in display_titles:
+                display_titles[key] = candidate
+        current_key = re.sub(r"\s+", "", page.title).casefold()
+        ordered_keys = list(display_titles)
+        if current_key in display_titles:
+            ordered_keys.remove(current_key)
+            ordered_keys.insert(0, current_key)
+        if not ordered_keys:
+            batch = batches[batch_index]
+            raise V6BuildError(
+                stage="story",
+                code="story_title_assignment_unsatisfiable",
+                message=(
+                    "Frozen source does not provide a grounded title candidate "
+                    "for every planned page"
+                ),
+                retryable=False,
+                chapter_id=batch.chapter_id,
+                page_id=page.page_id,
+                batch_id=batch.batch_id,
+            )
+        candidate_keys_by_page.append(ordered_keys)
+        display_titles_by_page.append(display_titles)
+
+    title_owner: dict[str, int] = {}
+
+    def assign(page_number: int, visited_titles: set[str]) -> bool:
+        for title_key in candidate_keys_by_page[page_number]:
+            if title_key in visited_titles:
+                continue
+            visited_titles.add(title_key)
+            previous_owner = title_owner.get(title_key)
+            if previous_owner is None or assign(previous_owner, visited_titles):
+                title_owner[title_key] = page_number
+                return True
+        return False
+
+    for page_number, (batch_index, _page_index, page) in enumerate(page_refs):
+        if assign(page_number, set()):
+            continue
+        batch = batches[batch_index]
+        raise V6BuildError(
+            stage="story",
+            code="story_title_assignment_unsatisfiable",
+            message=(
+                "Frozen source does not provide enough distinct grounded titles "
+                "for every planned page"
+            ),
+            retryable=False,
+            chapter_id=batch.chapter_id,
+            page_id=page.page_id,
+            batch_id=batch.batch_id,
+        )
+
+    assigned_key_by_page = {
+        page_number: title_key
+        for title_key, page_number in title_owner.items()
+    }
+    pages_by_batch: dict[int, list[SlideStoryPageV3]] = defaultdict(list)
+    for page_number, (batch_index, _page_index, page) in enumerate(page_refs):
+        title_key = assigned_key_by_page[page_number]
+        pages_by_batch[batch_index].append(page.model_copy(update={
+            "title": display_titles_by_page[page_number][title_key],
+        }))
+    return [
+        batch.model_copy(update={"pages": pages_by_batch[batch_index]})
+        for batch_index, batch in enumerate(batches)
+    ]
+
+
 def _project_required_safe_partitions(
     pages: list[Any],
     units: dict[str, dict[str, Any]],
@@ -1120,6 +1220,7 @@ def _story_requests(
                     "copy_identifiers_and_numbers_exactly_from_each_unit_or_"
                     "bound_block_allowed_protected_tokens"
                 ),
+                "forbidden_titles": [],
             },
             "response_contract": {
                 "schema_version": "slide_story_batch_response_v3",
@@ -1982,18 +2083,8 @@ async def plan_slide_story_v3(
         if batch.validation_status == "passed"
     }
     page_ordinal = 0
-    for batch_index, request in enumerate(_story_requests(graph, template)):
-        request = {
-            **request,
-            "constraints": {
-                **request["constraints"],
-                "forbidden_titles": [
-                    page.title
-                    for accepted_batch in batches
-                    for page in accepted_batch.pages
-                ],
-            },
-        }
+    story_requests = _story_requests(graph, template)
+    for batch_index, request in enumerate(story_requests):
         batch_id = f"story-{batch_index + 1}"
         resumed = resumed_by_chapter.get(str(request["chapter_id"]))
         if resumed is not None:
@@ -2338,6 +2429,7 @@ async def plan_slide_story_v3(
                 attempt_records=attempt_records,
             ),
         })
+    batches = _assign_global_story_titles(batches, story_requests)
     plan = SlideStoryPlanV3(
         source_document_revision=graph.source_document_revision,
         template_digest=template.template_digest,
