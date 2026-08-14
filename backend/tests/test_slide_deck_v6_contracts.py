@@ -614,7 +614,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         ),
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v4"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v5"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
 
@@ -1260,7 +1260,11 @@ def test_visible_slot_content_expresses_every_bound_source_block() -> None:
     )
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
-    visible = "\n".join(region.content for region in deck.pages[0].regions)
+    visible = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+    )
 
     assert "区分观察事实与解释" in visible
     assert deck.quality.formal_block_visible_coverage == 1.0
@@ -1760,6 +1764,84 @@ def test_long_prose_paginates_complete_semantic_groups_without_silent_omission()
     assert len(deck.pages) > 1
     assert "…" not in visible_body
     assert all(visible_body.count(paragraph) == 1 for paragraph in paragraphs)
+
+
+def test_single_body_page_keeps_complete_source_instead_of_substituting_story_summary() -> None:
+    paragraphs = [
+        (
+            "Preserve the complete observation context, including the declared scope, "
+            "recording condition, evidence boundary, and verification result."
+        ),
+        (
+            "Separate the observable record from later interpretation so the learner can "
+            "identify which statement is evidence and which statement is a conclusion."
+        ),
+        (
+            "Finish by checking every stated acceptance condition and retaining the complete "
+            "repair action for any missing or inconsistent field."
+        ),
+    ]
+    source = "\n\n".join(paragraphs)
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-single-body-fidelity",
+        title="Complete source projection",
+        sections=[CourseSection(
+            section_id="section",
+            title="Preserve the complete observation context",
+            position=0,
+        )],
+        blocks=[_block(
+            "complete-body",
+            "section",
+            0,
+            role="concept",
+            text=source,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="complete-body-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("content-stack"),
+        title="Preserve the complete observation context",
+        summary=paragraphs[0],
+        source_block_ids=["complete-body"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-complete-body",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    body = next(
+        region.content
+        for region in deck.pages[0].regions
+        if region.content_kind == "body"
+    )
+
+    assert body == source
 
 
 def test_code_overflow_paginates_every_source_line_and_keeps_full_code_in_notes() -> None:
