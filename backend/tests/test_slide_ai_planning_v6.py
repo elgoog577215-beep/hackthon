@@ -1481,8 +1481,12 @@ def test_story_grounding_repair_converges_all_invalid_pages_in_one_pass(
             "template_layout_id": layout_id,
             "title": unit["title_candidates"][0],
             "summary": (
-                "Evidence review records the habitat boundary and weather. "
-                f"fabricatedMetric{9000 + index}."
+                "Ceramic glazing develops tactile studio composition."
+                if failure_code == "story_unsupported_semantic_claim"
+                else (
+                    "Evidence review records the habitat boundary and weather. "
+                    f"fabricatedMetric{9000 + index}."
+                )
             ),
             "source_block_ids": unit["primary_block_ids"],
         }

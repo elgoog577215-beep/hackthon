@@ -1797,6 +1797,36 @@ def _story_repair_targets(
         if markdown_targets:
             return markdown_targets
 
+    if error.failure.code in {
+        "story_unsupported_fact",
+        "story_unsupported_semantic_claim",
+    }:
+        grounding_targets: list[dict[str, Any]] = []
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            page_id = str(page.get("page_id") or "")
+            unit = units.get(str(page.get("teaching_unit_id") or ""))
+            summary = str(page.get("summary") or "")
+            if not page_id or unit is None or not summary:
+                continue
+            unit_source_text = str(unit.get("source_text") or "")
+            needs_repair = (
+                bool(
+                    _protected_tokens(summary)
+                    - _protected_tokens(unit_source_text)
+                )
+                if error.failure.code == "story_unsupported_fact"
+                else _semantic_grounding_ratio(summary, unit_source_text) < 0.12
+            )
+            if not needs_repair:
+                continue
+            target = target_for(unit, page_id=page_id)
+            if target.get("required_summary") or target.get("clear_summary"):
+                grounding_targets.append(target)
+        if grounding_targets:
+            return grounding_targets
+
     failed_page_id = str(error.failure.page_id or "")
     if not failed_page_id:
         block_page_ids: dict[str, list[str]] = defaultdict(list)
