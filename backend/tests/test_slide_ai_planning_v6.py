@@ -2704,6 +2704,62 @@ async def test_story_reports_nonretryable_failure_when_global_title_assignment_i
 
 
 @pytest.mark.asyncio
+async def test_story_global_assignment_rejects_code_fence_language_as_title() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-title-code-fence",
+        title="Shared observation course",
+        sections=[
+            CourseSection(section_id="phase-a", title="Phase A", position=0),
+            CourseSection(section_id="phase-b", title="Phase B", position=1),
+        ],
+        blocks=[
+            CourseBlock(
+                block_id="observation-a",
+                section_id="phase-a",
+                position=0,
+                role="concept",
+                payload={
+                    "markdown": (
+                        "## Shared checkpoint\n\n"
+                        "```csharp\npublic class Checkpoint {}\n```"
+                    ),
+                },
+            ),
+            CourseBlock(
+                block_id="observation-b",
+                section_id="phase-b",
+                position=0,
+                role="concept",
+                payload={"markdown": "## Shared checkpoint"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"page-{request['chapter_id']}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit["allowed_template_layout_ids"][0],
+                "title": "Shared checkpoint",
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert captured.value.failure.code == "story_title_assignment_unsatisfiable"
+    assert captured.value.failure.retryable is False
+
+
+@pytest.mark.asyncio
 async def test_story_coalesces_repeated_pages_without_another_ai_call() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-page-limit",
