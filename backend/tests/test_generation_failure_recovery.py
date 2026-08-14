@@ -166,6 +166,74 @@ async def test_v6_ppt_recovery_requires_a_retryable_failure(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_new_v6_task_records_the_current_checkpoint_contract(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
+
+    task_id = await manager.create_task(
+        "generic-field-course",
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+
+    assert manager.tasks[task_id]["slide_build_contract_version"] == (
+        "slide_deck_v6_build_contract_v5"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v6_recovery_hides_a_stale_checkpoint_contract(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
+    task_id = await manager.create_task(
+        "generic-field-course",
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+    manager.tasks[task_id].update({
+        "status": "failed",
+        "phase": "story",
+        "slide_build_contract_version": "slide_deck_v6_build_contract_v4",
+        "slide_build_progress_v2": {
+            "failure": {
+                "retryable": True,
+                "code": "story_summary_markdown_invalid",
+            },
+        },
+    })
+    candidate_checkpoints = tmp_path / "slide_deck_v6_candidates" / "checkpoints"
+    candidate_checkpoints.mkdir(parents=True)
+    progress_checkpoints = tmp_path / "slide_build_progress_v2"
+    progress_checkpoints.mkdir(parents=True)
+    (candidate_checkpoints / f"{task_id}.json").write_text(
+        json.dumps({
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "build_contract_version": "slide_deck_v6_build_contract_v4",
+        }),
+        encoding="utf-8",
+    )
+    (progress_checkpoints / f"{task_id}.json").write_text("{}", encoding="utf-8")
+
+    recovery = manager.describe_task_recovery(task_id)
+
+    assert recovery["can_resume"] is False
+    assert recovery["reason_code"] == "checkpoint_contract_stale"
+    assert recovery["reason"] == "生成协议已升级，请重新生成当前组合"
+
+
+@pytest.mark.asyncio
 async def test_service_restart_recovers_same_job_and_preserves_checkpoint(tmp_path, monkeypatch):
     manager, storage, workspaces, _versions, _documents = await _workspace_manager(
         tmp_path, monkeypatch
