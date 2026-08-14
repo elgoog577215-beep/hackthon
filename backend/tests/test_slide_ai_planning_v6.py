@@ -2719,10 +2719,10 @@ async def test_story_global_assignment_rejects_code_fence_language_as_title() ->
                 position=0,
                 role="concept",
                 payload={
-                    "markdown": (
-                        "## Shared checkpoint\n\n"
-                        "```csharp\npublic class Checkpoint {}\n```"
-                    ),
+                        "markdown": (
+                            "## Shared checkpoint\n\n"
+                            "```csharp\nx\n```"
+                        ),
                 },
             ),
             CourseBlock(

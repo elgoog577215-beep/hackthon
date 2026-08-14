@@ -39,7 +39,10 @@ from slide_deck_v6 import (
     _looks_like_markdown_table,
     _presentation_summary_text,
     _protected_tokens,
+    _semantic_grounding_ratio,
     _title_is_incomplete,
+    _title_protected_tokens,
+    _title_semantic_source_text,
     _visible_prose_text,
     graph_page_source_blocks,
     source_required_slot_kinds,
@@ -253,6 +256,29 @@ def _assign_global_story_titles(
             if unit is not None
             else []
         )
+        block_metadata = {
+            str(block.get("block_id") or ""): block
+            for block in (unit or {}).get("primary_blocks") or []
+            if isinstance(block, dict)
+        }
+        page_source_text = "\n".join(
+            str(block_metadata.get(block_id, {}).get("source_text") or "").strip()
+            for block_id in page.source_block_ids
+            if str(block_metadata.get(block_id, {}).get("source_text") or "").strip()
+        )
+        candidates = [
+            candidate
+            for candidate in candidates
+            if not (
+                _title_protected_tokens(candidate)
+                - _title_protected_tokens(page_source_text)
+            )
+            and _semantic_grounding_ratio(candidate, page_source_text) >= 0.12
+            and _semantic_grounding_ratio(
+                candidate,
+                _title_semantic_source_text(page_source_text),
+            ) >= 0.25
+        ]
         display_titles: dict[str, str] = {}
         for candidate in candidates:
             key = re.sub(r"\s+", "", candidate).casefold()
