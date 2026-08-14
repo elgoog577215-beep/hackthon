@@ -455,6 +455,58 @@ async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmenta
 
 
 @pytest.mark.asyncio
+async def test_v6_visual_repair_task_routes_target_pages_without_changing_build_kind(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The durable task remains restart-compatible while selecting visual repair."""
+
+    import task_manager as task_manager_module
+    from task_manager import TaskManager, _slide_build_request_contract
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    request = {
+        "operation": "repair_slide_visuals_v6",
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "target_schema": "slide_deck_v6",
+        "representation_id": "representation-generic",
+        "target_page_ids": ["page-observation"],
+    }
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot=request,
+    )
+    captured: dict[str, object] = {}
+
+    async def v6_runner(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(manager, "_process_slide_deck_variant_v6", v6_runner, raising=False)
+
+    await manager._process_slide_deck_variant_task(task_id)
+
+    assert captured["visual_repair"] == {
+        "representation_id": "representation-generic",
+        "target_page_ids": ["page-observation"],
+    }
+    durable = _slide_build_request_contract(request)
+    assert durable["operation"] == "repair_slide_visuals_v6"
+    assert durable["representation_id"] == "representation-generic"
+    assert durable["target_page_ids"] == ["page-observation"]
+
+
+@pytest.mark.asyncio
 async def test_v6_shadow_task_can_read_a_legacy_projection_without_publishing(tmp_path, monkeypatch) -> None:
     import task_manager as task_manager_module
     from task_manager import TaskManager
