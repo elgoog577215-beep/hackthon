@@ -1998,6 +1998,7 @@ function layoutLabel(value: string) {
 .deck-canvas__blocks[data-layout="objective"],
 .deck-canvas__blocks[data-layout="objective-cards"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }
 .deck-canvas__blocks[data-layout="code"] { inset:25% 5.5% 10.5%; grid-template-columns:1.75fr 1fr; }
+.deck-canvas__blocks[data-layout="code"][data-count="1"] { grid-template-columns:1fr; }
 .deck-canvas__blocks[data-layout="practice"],
 .deck-canvas__blocks[data-layout="question"],
 .deck-canvas__blocks[data-layout="misconception"] { inset:25% 5.5% 10.5%; grid-template-columns:1.55fr .9fr; }

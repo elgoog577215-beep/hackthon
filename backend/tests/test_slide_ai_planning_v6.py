@@ -1742,8 +1742,8 @@ async def test_story_resolves_known_but_off_contract_layout_to_page_compatible_l
 
 
 @pytest.mark.asyncio
-async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout() -> None:
-    """Rules diagnose an impossible grouping; the LLM authors its replacement."""
+async def test_story_keeps_source_only_code_without_forced_unit_repartition() -> None:
+    """A complete code artifact is safe without unrelated prose annotation."""
 
     document = _document(with_code=True)
     graph = compile_course_presentation_graph(document, teaching_plan={})
@@ -1849,45 +1849,19 @@ async def test_story_requests_llm_unit_repartition_when_page_has_no_safe_layout(
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
+    assert len(calls) == 1
     unit = calls[0]["teaching_units"][0]
-    assert repair_target["repartition_required"] is True
-    assert repair_target["repartition_scope"] == "teaching_unit"
-    assert repair_target["source_block_order"] == unit["primary_block_ids"]
-    assert repair_target["replace_page_ids"] == [
+    assert [page.page_id for page in story.pages] == [
         "llm-concept-alone",
         "llm-code-without-annotation",
         "llm-feedback-alone",
     ]
-    assert repair_target["forbidden_titles"] == []
-    code_block = next(
-        block
-        for block in unit["primary_blocks"]
-        if block["block_id"] == unit["primary_block_ids"][1]
-    )
-    assert (
-        repair_target["available_title_candidates"]
-        == code_block["title_candidates"]
-    )
-    assert any(
-        layout_id.endswith("/evidence-code")
-        for layout_id in repair_target["artifact_layout_ids_by_kind"]["code"]
-    )
-    assert repair_target["primary_blocks"] == unit["primary_blocks"]
-    assert any(
-        layout_id.endswith("/evidence-code")
-        for layout_id in code_block["compatible_template_layout_ids"]
-    )
-    assert repair_target["required_template_layout_id"] == ""
-    assert [page.page_id for page in story.pages] == [
-        "llm-code-with-context",
-        "llm-feedback-after-code",
-    ]
     assert [page.source_block_ids for page in story.pages] == [
-        unit["primary_block_ids"][:2],
+        unit["primary_block_ids"][:1],
+        unit["primary_block_ids"][1:2],
         unit["primary_block_ids"][2:],
     ]
+    assert story.pages[1].template_layout_id.endswith("/evidence-code")
 
 
 @pytest.mark.asyncio

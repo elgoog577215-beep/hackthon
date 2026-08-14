@@ -100,6 +100,11 @@ The system SHALL resolve every final page through `template_layout_contract_v1` 
 - **THEN** the unit is repaginated into at most three declared safe pages or fails
 - **AND** the renderer does not emit an empty card, shrink below minimum size or crop content
 
+#### Scenario: A source-critical code artifact has no supporting prose
+- **WHEN** a source block contains a complete code artifact but no source-backed annotation
+- **THEN** the code template uses an optional support slot and gives the artifact the available canvas width
+- **AND** V6 does not invent annotation text or combine an unrelated topic merely to fill the slot
+
 ### Requirement: Visual AI Has A Controlled Page-Level Degradation
 The system SHALL plan `slide_visual_plan_v2` in bounded chapter batches and SHALL distinguish optional visual enrichment from subject-critical artifacts.
 

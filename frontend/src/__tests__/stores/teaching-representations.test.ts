@@ -1010,7 +1010,6 @@ describe('teaching representation progressive build', () => {
       task_id: 'v6-template-failure',
       status: 'failed',
       percent: 66,
-      finalized: true,
       published: false,
       stage: 'template',
       step_index: 6,

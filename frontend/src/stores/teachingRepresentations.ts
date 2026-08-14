@@ -941,6 +941,9 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       )
       if (normalized.failure) {
         const failure = normalizedBuildFailure(normalized.failure)
+        this.settleFailedSlideDraft(
+          terminalPipelineFailureQuality(failure.message, failure),
+        )
         this.buildFailure = failure
         this.buildError = failure.code
       }
