@@ -2,6 +2,7 @@
   <section
     class="course-library glass-panel-elevated"
     :class="{ 'course-library--paginated': totalPages > 1 }"
+    :aria-busy="courseStore.courseListLoading"
   >
     <Teleport to="#app-header-route-actions">
       <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
@@ -135,7 +136,7 @@
       <span class="library-toolbar__count">{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
     </div>
 
-    <div v-if="courseStore.loading" class="library-state">
+    <div v-if="courseStore.courseListLoading && !courseStore.courseList.length" class="library-state">
       <LoaderCircle class="spin" :size="22" />
       <span>{{ t('courseLibrary.loading', '正在读取课程') }}</span>
     </div>
@@ -256,7 +257,7 @@
 
     <Transition name="pagination-dock">
       <nav
-        v-if="!courseStore.loading && totalPages > 1"
+        v-if="totalPages > 1"
         class="library-pagination-dock"
         :aria-label="t('courseLibrary.pagination.label', '课程分页')"
       >

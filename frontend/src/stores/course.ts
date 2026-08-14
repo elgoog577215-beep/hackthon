@@ -68,6 +68,9 @@ const GENERATION_PREVIEW_STATUSES = new Set([
     'pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'failed', 'error', 'completed_with_warnings',
 ])
 
+const COURSE_LIST_TIMEOUT_MS = 15_000
+let courseListRequest: Promise<Course[]> | null = null
+
 const normalizeTaskStatus = (status: string): Task['status'] => {
     if (status === 'failed') return 'error'
     if (['idle', 'running', 'paused', 'completed', 'error', 'pending', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(status)) {
@@ -102,6 +105,7 @@ export const useCourseStore = defineStore('course', {
     },
     currentGenerationQualityReport: null as Record<string, unknown> | null,
     currentTeachingPlan: null as CourseTeachingPlanProjection | null,
+    courseListLoading: false,
     loading: false,
 
     // --- Annotations（fetchCourseAnnotations 桥接 Notes 系统） ---
@@ -197,15 +201,19 @@ export const useCourseStore = defineStore('course', {
     },
 
     async fetchCourseList() {
-        this.loading = true
+        this.courseListLoading = true
         try {
-            const res = await http.get('/api/courses')
-            this.courseList = res.data
+            if (!courseListRequest) {
+                courseListRequest = http.get<Course[]>('/api/courses', { timeout: COURSE_LIST_TIMEOUT_MS })
+                    .then(res => Array.isArray(res.data) ? res.data : [])
+                    .finally(() => { courseListRequest = null })
+            }
+            this.courseList = await courseListRequest
         } catch (error) {
             logger.error(error)
             // Keep the last successful list so offline task actions do not disappear.
         }
-        finally { this.loading = false }
+        finally { this.courseListLoading = false }
     },
 
     async loadCourse(courseId: string) {

@@ -58,6 +58,33 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.library-state').text()).toContain('还没有课程')
   })
 
+  it('后台刷新较慢时继续展示已经缓存的课程，不退回全屏读取状态', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{ course_id: 'course-cached', course_name: 'Unity 游戏编程', node_count: 10 }]
+    courses.loading = true
+    ;(courses as any).courseListLoading = true
+    vi.spyOn(courses, 'fetchCourseList').mockImplementation(() => new Promise(() => undefined))
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          CourseGenerationDialog: true,
+          CourseWorkbench: true,
+          Teleport: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.library-state').exists()).toBe(false)
+    expect(wrapper.get('.course-item').text()).toContain('Unity 游戏编程')
+  })
+
   it('将继续学习入口合并进搜索工具栏并保留正确跳转', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
