@@ -1776,6 +1776,27 @@ def _story_repair_targets(
         if underfilled_targets:
             return underfilled_targets
 
+    if error.failure.code == "story_summary_markdown_invalid":
+        markdown_targets: list[dict[str, Any]] = []
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            page_id = str(page.get("page_id") or "")
+            unit = units.get(str(page.get("teaching_unit_id") or ""))
+            summary = str(page.get("summary") or "")
+            if not page_id or unit is None or not summary:
+                continue
+            if (
+                _presentation_summary_text(summary) == summary.strip()
+                and not _looks_like_markdown_table(summary)
+            ):
+                continue
+            target = target_for(unit, page_id=page_id)
+            if target.get("required_summary") or target.get("clear_summary"):
+                markdown_targets.append(target)
+        if markdown_targets:
+            return markdown_targets
+
     failed_page_id = str(error.failure.page_id or "")
     if not failed_page_id:
         block_page_ids: dict[str, list[str]] = defaultdict(list)
