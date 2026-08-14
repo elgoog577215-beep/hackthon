@@ -3092,7 +3092,7 @@ async def repair_slide_visuals_v2(
 
 
 def build_ai_base_story_planner_v6() -> Planner:
-    provider = AIBase()
+    provider = AIBase(provider_profile="ppt")
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         telemetry: list[dict[str, Any]] = []
@@ -3146,7 +3146,7 @@ def build_ai_base_story_planner_v6() -> Planner:
 
 
 def build_ai_base_visual_planner_v2() -> Planner:
-    provider = AIBase()
+    provider = AIBase(provider_profile="ppt")
 
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         telemetry: list[dict[str, Any]] = []

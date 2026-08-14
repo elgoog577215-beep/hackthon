@@ -54,19 +54,34 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Configure ModelScope last-resort provider
+      - name: Verify DeepSeek PPT primary models
+        env:
+          AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$AI_PPT_API_KEY"
+          curl -fsS --max-time 20 \
+            -H "Authorization: Bearer $AI_PPT_API_KEY" \
+            https://api.deepseek.com/models \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); ids={str(item.get("id") or "") for item in payload.get("data") or []}; required={"deepseek-v4-pro", "deepseek-v4-flash"}; missing=required-ids; missing and sys.exit("required DeepSeek PPT models unavailable"); print("DeepSeek PPT models verified")'
+
+      - name: Configure PPT DeepSeek and ModelScope last-resort provider
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_PPT_API_BASE: https://api.deepseek.com
           MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
           MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
           MODELSCOPE_MODEL: Qwen/Qwen3.5-27B
-          AI_PPT_STORY_MODELS: Qwen/Qwen3.5-397B-A17B,Qwen/Qwen3.5-27B
-          AI_PPT_VISUAL_MODELS: Qwen/Qwen3.5-27B,Qwen/Qwen3.5-397B-A17B
+          AI_PPT_STORY_MODELS: deepseek-v4-pro,deepseek-v4-flash
+          AI_PPT_VISUAL_MODELS: deepseek-v4-flash,deepseek-v4-pro
           SLIDE_DECK_V6_ENABLED: true
           SLIDE_DECK_V6_DEFAULT_ENABLED: true
         run: |
           set -euo pipefail
+          test -n "$AI_PPT_API_KEY"
+          test "$AI_PPT_API_BASE" = "https://api.deepseek.com"
           test -n "$MODELSCOPE_API_KEY"
           test -n "$AI_PPT_STORY_MODELS"
           test -n "$AI_PPT_VISUAL_MODELS"
@@ -98,7 +113,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             scripts/configure_modelscope_fallback.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' | ssh \
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "ppt_api_key": os.environ["AI_PPT_API_KEY"], "ppt_api_base": os.environ["AI_PPT_API_BASE"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' | ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \

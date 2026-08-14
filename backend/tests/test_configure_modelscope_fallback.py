@@ -136,6 +136,40 @@ def test_configure_modelscope_fallback_rejects_invalid_model_atomically(
     assert env_file.read_text(encoding="utf-8") == original
 
 
+def test_configure_modelscope_fallback_rejects_untrusted_ppt_endpoint(
+    tmp_path,
+):
+    env_file = tmp_path / ".env"
+    original = "AI_API_KEY=primary-key\n"
+    env_file.write_text(original, encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--env-file",
+            str(env_file),
+        ],
+        input=json.dumps({
+            "api_key": "fallback-secret-value",
+            "base_url": "https://api-inference.modelscope.cn/v1/",
+            "model": "Qwen/Qwen3.5-27B",
+            "ppt_api_key": "ppt-secret-value",
+            "ppt_api_base": "https://attacker.example/v1",
+            "ppt_story_models": "deepseek-v4-pro",
+            "ppt_visual_models": "deepseek-v4-flash",
+            "slide_deck_v6_enabled": True,
+            "slide_deck_v6_default_enabled": True,
+        }),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert env_file.read_text(encoding="utf-8") == original
+
+
 def test_deploy_workflow_provisions_verified_ppt_role_routes():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
@@ -150,6 +184,7 @@ def test_deploy_workflow_provisions_verified_ppt_role_routes():
     ) in workflow
     assert '"ppt_api_key": os.environ["AI_PPT_API_KEY"]' in workflow
     assert '"ppt_api_base": os.environ["AI_PPT_API_BASE"]' in workflow
+    assert "https://api.deepseek.com/models" in workflow
     assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
     assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
     assert "SLIDE_DECK_V6_ENABLED: true" in workflow
@@ -167,6 +202,7 @@ def test_production_diagnostics_can_probe_ppt_story_route_without_content_output
     workflow = DIAGNOSTICS_WORKFLOW.read_text(encoding="utf-8")
 
     assert "probe_ai_model:" in workflow
+    assert 'AIBase(provider_profile="ppt")' in workflow
     assert 'model_role="ppt_story"' in workflow
     assert 'model_role="ppt_visual"' in workflow
     assert '"model_id"' in workflow

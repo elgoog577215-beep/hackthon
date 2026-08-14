@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atomically provision the production-only ModelScope fallback settings."""
+"""Atomically provision the PPT primary route and ModelScope fallback."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ENVIRONMENT_KEYS = (
+    "AI_PPT_API_KEY",
+    "AI_PPT_API_BASE",
     "MODELSCOPE_API_KEY",
     "MODELSCOPE_BASE_URL",
     "MODELSCOPE_MODEL",
@@ -23,6 +25,7 @@ ENVIRONMENT_KEYS = (
 )
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 TRUSTED_MODELSCOPE_HOST = "api-inference.modelscope.cn"
+TRUSTED_DEEPSEEK_HOST = "api.deepseek.com"
 
 
 def _single_line(value: object, field: str) -> str:
@@ -48,6 +51,8 @@ def _validated_settings(payload: object) -> dict[str, str]:
     api_key = _single_line(payload.get("api_key"), "api_key")
     base_url = _single_line(payload.get("base_url"), "base_url")
     model = _single_line(payload.get("model"), "model")
+    ppt_api_key = _single_line(payload.get("ppt_api_key"), "ppt_api_key")
+    ppt_api_base = _single_line(payload.get("ppt_api_base"), "ppt_api_base")
     ppt_story_models = _single_line(
         payload.get("ppt_story_models"),
         "ppt_story_models",
@@ -76,6 +81,17 @@ def _validated_settings(payload: object) -> dict[str, str]:
         or parsed.path.rstrip("/") != "/v1"
     ):
         raise ValueError("base_url must be the trusted ModelScope v1 endpoint")
+    ppt_parsed = urlparse(ppt_api_base)
+    if (
+        ppt_parsed.scheme != "https"
+        or ppt_parsed.hostname != TRUSTED_DEEPSEEK_HOST
+        or ppt_parsed.username
+        or ppt_parsed.password
+        or ppt_parsed.query
+        or ppt_parsed.fragment
+        or ppt_parsed.path.rstrip("/") not in {"", "/v1"}
+    ):
+        raise ValueError("ppt_api_base must be the trusted DeepSeek endpoint")
     if not MODEL_PATTERN.fullmatch(model):
         raise ValueError("model contains unsupported characters")
     for field, model_list in (
@@ -90,6 +106,8 @@ def _validated_settings(payload: object) -> dict[str, str]:
             raise ValueError(f"{field} contains an invalid model")
 
     return {
+        "AI_PPT_API_KEY": ppt_api_key,
+        "AI_PPT_API_BASE": ppt_api_base,
         "MODELSCOPE_API_KEY": api_key,
         "MODELSCOPE_BASE_URL": base_url,
         "MODELSCOPE_MODEL": model,
@@ -172,9 +190,9 @@ def main() -> int:
         payload = json.loads(sys.stdin.read())
         configure(args.env_file, payload)
     except (OSError, ValueError, json.JSONDecodeError) as error:
-        print(f"ModelScope fallback configuration failed: {error}", file=sys.stderr)
+        print(f"AI provider configuration failed: {error}", file=sys.stderr)
         return 1
-    print("ModelScope fallback configuration updated")
+    print("PPT primary and ModelScope fallback configuration updated")
     return 0
 
 

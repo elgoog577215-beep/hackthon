@@ -101,7 +101,7 @@ jobs:
               model_role: str,
               use_fast_model: bool,
           ) -> None:
-              provider = AIBase()
+              provider = AIBase(provider_profile="ppt")
               telemetry = []
               status = "failed"
               error_code = ""

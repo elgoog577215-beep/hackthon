@@ -850,6 +850,9 @@ async def test_failed_story_batch_reports_sanitized_provider_attempt_diagnostics
 @pytest.mark.asyncio
 async def test_shared_ai_story_planner_preserves_safe_failure_telemetry(monkeypatch) -> None:
     class FailedSharedAI:
+        def __init__(self, *, provider_profile=None):
+            assert provider_profile == "ppt"
+
         async def _call_llm(self, *_args, telemetry_sink, **_kwargs):
             telemetry_sink({
                 "provider_route": "rotating-pool",

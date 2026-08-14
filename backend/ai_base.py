@@ -139,10 +139,28 @@ class AIBase:
     # Consecutive transient failures per (provider, model); reset on success.
     _model_transient_failures: dict[tuple[str, str], int] = {}
 
-    def __init__(self):
-        # 通过环境变量配置 API 密钥
-        self.api_key = os.getenv("AI_API_KEY")
-        self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
+    def __init__(self, *, provider_profile: str | None = None) -> None:
+        # PPT planning can use an isolated provider without changing course
+        # generation, assessments, or the AI teacher.  The dedicated route is
+        # fail-closed when only half of the endpoint/key pair is configured so
+        # a deployment can never look switched while silently using another
+        # provider.
+        self.provider_profile = str(provider_profile or "").strip()
+        shared_api_key = os.getenv("AI_API_KEY")
+        shared_api_base = os.getenv(
+            "AI_API_BASE",
+            "https://api-inference.modelscope.cn/v1",
+        )
+        ppt_api_key = os.getenv("AI_PPT_API_KEY")
+        ppt_api_base = os.getenv("AI_PPT_API_BASE")
+        if self.provider_profile == "ppt" and bool(ppt_api_key) != bool(ppt_api_base):
+            raise AIProviderUnavailable("ppt_provider_configuration_incomplete")
+        if self.provider_profile == "ppt" and ppt_api_key and ppt_api_base:
+            self.api_key = ppt_api_key
+            self.api_base = ppt_api_base
+        else:
+            self.api_key = shared_api_key
+            self.api_base = shared_api_base
         self.modelscope_fallback_api_key = os.getenv("MODELSCOPE_API_KEY")
         self.modelscope_fallback_api_base = os.getenv(
             "MODELSCOPE_BASE_URL",

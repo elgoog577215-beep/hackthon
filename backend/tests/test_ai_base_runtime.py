@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai_base import AIBase, AIProviderRequestError
+from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
 
 
 class FakeStream:
@@ -310,6 +310,32 @@ def test_ppt_provider_profile_uses_dedicated_deepseek_route_only(monkeypatch):
         "deepseek-v4-flash",
         "deepseek-v4-pro",
     ]
+
+
+@pytest.mark.parametrize(
+    ("configured_key", "configured_base"),
+    [
+        ("ppt-key", None),
+        (None, "https://api.deepseek.com"),
+    ],
+)
+def test_ppt_provider_profile_rejects_half_configured_route(
+    monkeypatch,
+    configured_key,
+    configured_base,
+):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "shared-key")
+    if configured_key:
+        monkeypatch.setenv("AI_PPT_API_KEY", configured_key)
+    if configured_base:
+        monkeypatch.setenv("AI_PPT_API_BASE", configured_base)
+
+    with pytest.raises(
+        AIProviderUnavailable,
+        match="ppt_provider_configuration_incomplete",
+    ):
+        AIBase(provider_profile="ppt")
 
 
 @pytest.mark.asyncio
