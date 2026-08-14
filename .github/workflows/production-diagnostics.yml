@@ -172,6 +172,10 @@ jobs:
                   "graph_text_chars": len(str(graph_texts.get(block_id) or "")),
                   "actual_present": block_id in actual_blocks,
                   "actual_kind": str(actual_blocks[block_id].kind if block_id in actual_blocks else ""),
+                  "actual_payload_keys": (
+                      sorted(str(key) for key in (actual_blocks[block_id].payload or {}))
+                      if block_id in actual_blocks else []
+                  ),
                   "actual_artifacts": (
                       sorted(block_artifact_kinds(actual_blocks[block_id]))
                       if block_id in actual_blocks else []
