@@ -454,6 +454,37 @@ def test_course_graph_preserves_long_semantic_unit_and_covers_every_block() -> N
     assert not any({"b4", "b5"}.issubset(set(unit.primary_block_ids)) for unit in graph.units)
 
 
+def test_story_page_count_range_keeps_every_template_safe_partition_available() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-unbounded-story-pages",
+        title="Source-complete lesson",
+        sections=[CourseSection(
+            section_id="lesson",
+            title="Preserve each teaching claim",
+            position=0,
+        )],
+        blocks=[
+            _block(
+                f"claim-{index}",
+                "lesson",
+                index,
+                role="concept" if index == 0 else "reasoning",
+                text=(
+                    f"Claim {index + 1} preserves its complete source-backed explanation "
+                    "and remains independently teachable."
+                ),
+            )
+            for index in range(5)
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    assert len(graph.units) == 1
+    assert graph.units[0].primary_block_ids == [f"claim-{index}" for index in range(5)]
+    assert story_page_count_range(graph.units[0], template) == [1, 5]
+
+
 def test_shadow_chapter_freezes_only_the_selected_section_subtree() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-shadow-course",
@@ -1093,13 +1124,37 @@ def test_ordered_activity_keeps_complete_source_details_without_ellipsis() -> No
     )
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
-    task = next(region for region in deck.pages[0].regions if region.slot_id == "task")
+    task_regions = [
+        region.content
+        for compiled_page in deck.pages
+        for region in compiled_page.regions
+        if region.slot_id == "task"
+    ]
+    visible_steps = "\n".join(task_regions)
 
-    assert len(task.content.splitlines()) == 5
-    assert "…" not in task.content
-    assert ".;" not in task.content
-    assert "。；" not in task.content
-    assert all(not line.rstrip().endswith((";", "；", ":", "：")) for line in task.content.splitlines())
+    assert len(deck.pages) > 1
+    assert sum(len(content.splitlines()) for content in task_regions) == 5
+    assert "…" not in visible_steps
+    assert ".;" not in visible_steps
+    assert "。；" not in visible_steps
+    assert all(
+        not line.rstrip().endswith((";", "；", ":", "："))
+        for content in task_regions
+        for line in content.splitlines()
+    )
+    for source_detail in (
+        "Record the site",
+        "Confirm the clean surface",
+        "Match the field label to the signed source record before collection begins",
+        "Preserve the original sequence while transferring the sample",
+        "Check the lid, tamper mark, temperature and current custody condition",
+        "Stop the transfer if any required field is missing",
+        "Copy the complete specimen identifier and collection window exactly",
+        "Keep the source form beside the package for independent review",
+        "Record the receiver, handoff time, route and storage condition",
+        "Obtain the receiver signature before releasing custody",
+    ):
+        assert source_detail in visible_steps
 
 
 def test_visual_plan_degrades_only_optional_visuals() -> None:
@@ -1637,7 +1692,80 @@ def _artifact_deck_fixture(
     return document, graph, template, story, visual
 
 
-def test_code_overflow_uses_a_source_excerpt_and_keeps_full_code_in_notes() -> None:
+def test_long_prose_paginates_complete_semantic_groups_without_silent_omission() -> None:
+    paragraphs = [
+        (
+            f"Preserve complete source paragraph {index}: record the observable condition, "
+            "explain the evidence boundary, and retain the stated verification result."
+        )
+        for index in range(1, 9)
+    ]
+    source = "\n\n".join(paragraphs)
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-prose-pagination",
+        title="Source-complete explanation",
+        sections=[CourseSection(
+            section_id="section",
+            title="Preserve complete source paragraphs",
+            position=0,
+        )],
+        blocks=[_block(
+            "complete-prose",
+            "section",
+            0,
+            role="concept",
+            text=source,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="complete-prose-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("content-stack"),
+        title="Preserve complete source paragraphs",
+        source_block_ids=["complete-prose"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-prose",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    visible_body = "\n\n".join(
+        region.content
+        for compiled_page in deck.pages
+        for region in compiled_page.regions
+        if region.content_kind == "body"
+    )
+
+    assert len(deck.pages) > 1
+    assert "…" not in visible_body
+    assert all(visible_body.count(paragraph) == 1 for paragraph in paragraphs)
+
+
+def test_code_overflow_paginates_every_source_line_and_keeps_full_code_in_notes() -> None:
     code = "\n".join(f"step_{index} = observe({index})" for index in range(55))
     document, graph, template, story, visual = _artifact_deck_fixture(
         artifact_kind="code",
@@ -1646,18 +1774,19 @@ def test_code_overflow_uses_a_source_excerpt_and_keeps_full_code_in_notes() -> N
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
-    assert len(deck.pages) == 1
-    assert deck.pages[0].continuation_index == 1
-    assert deck.pages[0].continuation_count == 1
-    rendered_code = "\n".join(
-        region.content
+    assert len(deck.pages) > 1
+    assert [page.continuation_index for page in deck.pages] == list(
+        range(1, len(deck.pages) + 1)
+    )
+    assert all(page.continuation_count == len(deck.pages) for page in deck.pages)
+    rendered_code_lines = [
+        line
         for page in deck.pages
         for region in page.regions
         if region.content_kind == "code"
-    )
-    assert rendered_code != code
-    assert rendered_code
-    assert all(line in code.splitlines() for line in rendered_code.splitlines())
+        for line in region.content.splitlines()
+    ]
+    assert rendered_code_lines == code.splitlines()
     assert all(
         any(note.block_id == "artifact" and note.full_text == code for note in page.speaker_notes.source_blocks)
         for page in deck.pages
@@ -2058,7 +2187,7 @@ def test_story_summary_rejects_raw_markdown_table_content() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
-def test_very_large_code_still_respects_page_limit_with_full_notes() -> None:
+def test_very_large_code_can_expand_beyond_three_pages_without_source_loss() -> None:
     code = "\n".join(f"step_{index} = observe({index})" for index in range(90))
     document, graph, template, story, visual = _artifact_deck_fixture(
         artifact_kind="code",
@@ -2067,16 +2196,21 @@ def test_very_large_code_still_respects_page_limit_with_full_notes() -> None:
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
-    assert len(deck.pages) == 1
-    code_region = next(
-        region
-        for region in deck.pages[0].regions
+    assert len(deck.pages) > 3
+    rendered_code_lines = [
+        line
+        for page in deck.pages
+        for region in page.regions
         if region.content_kind == "code"
-    )
-    assert len(code_region.content.splitlines()) < len(code.splitlines())
-    assert any(
-        note.block_id == "artifact" and note.full_text == code
-        for note in deck.pages[0].speaker_notes.source_blocks
+        for line in region.content.splitlines()
+    ]
+    assert rendered_code_lines == code.splitlines()
+    assert all(
+        any(
+            note.block_id == "artifact" and note.full_text == code
+            for note in page.speaker_notes.source_blocks
+        )
+        for page in deck.pages
     )
 
 
