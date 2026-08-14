@@ -2174,19 +2174,33 @@ async def plan_slide_story_v3(
                 page.model_copy(update={"page_ordinal": page_ordinal + index})
                 for index, page in enumerate(resumed.pages)
             ]
-            page_ordinal += len(pages)
             batch = resumed.model_copy(update={"batch_id": batch_id, "pages": pages})
-            batches.append(batch)
-            await _notify_batch(batch_callback, {
-                "phase": "completed",
-                "kind": "story",
-                "batch_index": batch_index,
-                "batch_id": batch_id,
-                "chapter_id": batch.chapter_id,
-                "resumed": True,
-                "batch": batch,
-            })
-            continue
+            try:
+                _validate_story_batch_candidate(
+                    graph=graph,
+                    template=template,
+                    request=request,
+                    batch=batch,
+                )
+            except V6BuildError:
+                # A checkpoint is only a cache. Revalidate it against the
+                # current frozen graph/template before declaring the batch
+                # completed; stale or partially repaired pages must be
+                # replanned instead of failing only after all chapters finish.
+                resumed = None
+            else:
+                page_ordinal += len(pages)
+                batches.append(batch)
+                await _notify_batch(batch_callback, {
+                    "phase": "completed",
+                    "kind": "story",
+                    "batch_index": batch_index,
+                    "batch_id": batch_id,
+                    "chapter_id": batch.chapter_id,
+                    "resumed": True,
+                    "batch": batch,
+                })
+                continue
         await _notify_batch(batch_callback, {
             "phase": "started",
             "kind": "story",
