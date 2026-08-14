@@ -81,6 +81,16 @@
               class="slide-workbench__manual-status"
               data-testid="ppt-visual-ai-status"
             >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `视觉 AI 部分降级 · ${planningStatus.visual_ai.degraded_page_count || 0} 页需检查` : '视觉 AI 已完成' }}</small>
+            <ul
+              v-if="planningStatus?.visual_ai?.degraded_pages?.length"
+              class="slide-workbench__degraded-visuals"
+              data-testid="ppt-degraded-visual-list"
+            >
+              <li v-for="page in planningStatus.visual_ai.degraded_pages" :key="page.page_id">
+                <code>{{ page.page_id }}</code>
+                <span>{{ page.reason }}</span>
+              </li>
+            </ul>
             <small v-if="currentRepresentation?.visual_engine_update_available" class="slide-workbench__engine-update">
               {{ currentRepresentation.visual_engine_update_reason || '视觉引擎已更新' }}
             </small>
@@ -1285,6 +1295,10 @@ function classificationLabel(value: string) {
 .slide-workbench__more-menu > small { display:block; padding:0; border:0; border-radius:0; color:#667085; background:transparent; font-size:10px; font-weight:700; line-height:1.45; }
 .slide-workbench__more-menu > .slide-workbench__manual-status { color:#92400e; }
 .slide-workbench__more-menu > .slide-workbench__engine-update { color:#8a4b08; }
+.slide-workbench__degraded-visuals { max-height:108px; display:grid; gap:5px; margin:0; padding:7px 8px; overflow:auto; border:1px solid #f3d5a0; border-radius:8px; background:#fffaf0; list-style:none; }
+.slide-workbench__degraded-visuals li { min-width:0; display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:7px; align-items:center; color:#7c4a0d; font-size:9px; line-height:1.35; }
+.slide-workbench__degraded-visuals code,.slide-workbench__degraded-visuals span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.slide-workbench__degraded-visuals code { color:#475467; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
 .slide-workbench__secondary-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding-top:4px; border-top:1px solid #eef1f5; }
 .slide-workbench__commands .slide-workbench__secondary-actions button { width:100%; justify-content:center; color:#475467; background:#fff; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
