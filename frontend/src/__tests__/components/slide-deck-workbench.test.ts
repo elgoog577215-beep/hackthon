@@ -66,6 +66,40 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)
   })
 
+  it('offers page-level visual repair only for a degraded V6 candidate', async () => {
+    const store = useTeachingRepresentationsStore()
+    const repair = vi.spyOn(store, 'repairDegradedVisuals').mockResolvedValue({
+      status: 'accepted',
+      task_id: 'visual-repair-task',
+      target_page_ids: ['page-1'],
+    })
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'generic-course',
+        representationId: 'slides-v6',
+        deckTitle: 'Evidence workflow',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        quality: { passed: true },
+        candidateStatus: 'v6_needs_manual_edit',
+        planningStatus: {
+          story_ai: { status: 'completed', batch_count: 2 },
+          visual_ai: { status: 'partial_degraded', degraded_page_count: 1 },
+        },
+      },
+    })
+
+    const button = wrapper.get('[data-testid="ppt-repair-degraded-visuals"]')
+    expect(button.attributes('title')).toBeTruthy()
+    await button.trigger('click')
+
+    expect(repair).toHaveBeenCalledWith('generic-course', 'slides-v6')
+  })
+
   it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {
     const wrapper = mount(SlideDeckWorkbench, {
       props: {
