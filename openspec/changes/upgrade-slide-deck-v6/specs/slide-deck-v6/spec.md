@@ -113,6 +113,25 @@ The system SHALL plan `slide_visual_plan_v2` in bounded chapter batches and SHAL
 - **THEN** the candidate ends as `v6_failed`
 - **AND** it does not publish a prose paraphrase as equivalent
 
+### Requirement: Degraded Visuals Are Repaired Selectively
+The system SHALL repair a published `v6_needs_manual_edit` deck from its frozen story, healthy visual decisions, source revision and template contract without restarting the full course build.
+
+#### Scenario: A teacher retries degraded pages
+- **WHEN** one or more published visual decisions are marked degraded
+- **THEN** the durable repair task sends only those page IDs to visual AI
+- **AND** preserves all healthy story and visual decisions unchanged
+- **AND** reports each target page and degradation reason
+
+#### Scenario: Selective visual repair succeeds
+- **WHEN** every target page produces a source-bound, template-valid visual decision and the rebuilt Web/PPTX contract passes all gates
+- **THEN** a new V6 spec revision is published atomically
+- **AND** the prior published spec remains available in history
+
+#### Scenario: Selective visual repair fails or races a newer publication
+- **WHEN** any target remains degraded, source/template inputs drift, rendering fails, or the base representation changes during repair
+- **THEN** the repair task fails with a structured `visual_repair` or `publish` reason
+- **AND** the previously published V6 revision remains the public version
+
 ### Requirement: V6 Publishes One Final Cross-Renderer Contract
 The system SHALL compile `slide_deck_v6` with resolved template layout IDs, typed slots, source bindings, speaker notes, visual decisions and renderer adapters for both Web and PPTX.
 

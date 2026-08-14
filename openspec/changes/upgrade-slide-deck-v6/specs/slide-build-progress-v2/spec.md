@@ -61,6 +61,12 @@ The system SHALL restore progress from the persisted work manifest rather than a
 - **THEN** the task is not advertised as resumable
 - **AND** a new build is required instead of combining stale progress with changed inputs
 
+#### Scenario: A published deck starts selective visual repair
+- **WHEN** the teacher retries degraded V6 pages
+- **THEN** the server seeds a new durable work manifest from accepted story and healthy visual checkpoints
+- **AND** only target visual batches, materialization, render, quality and atomic publication remain as active work
+- **AND** browser refresh restores that repair task by its normal task ID
+
 ### Requirement: Frontend Displays Backend Progress Facts
 The frontend SHALL render the server-provided V2 work manifest, diagnostics and terminal state and SHALL NOT maintain an independent percentage-by-stage mapping for V6.
 
