@@ -936,6 +936,15 @@ class SlideDeckV6Orchestrator:
                     )),
                 },
             }
+            if degraded_visual_count:
+                planning_status["visual_ai"]["degraded_pages"] = [
+                    {
+                        "page_id": decision.page_id,
+                        "reason": decision.degradation_reason,
+                    }
+                    for decision in visual.decisions
+                    if decision.degraded
+                ]
             content = {
                 **deck.model_dump(mode="json"),
                 "build_signature": build_signature_v6(
