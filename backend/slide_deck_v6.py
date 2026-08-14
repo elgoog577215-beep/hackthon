@@ -20,7 +20,7 @@ from course_presentation_graph import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v3"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v4"
 
 
 class _StrictModel(BaseModel):
@@ -944,7 +944,10 @@ def _complete_sentence_excerpt(text: str, capacity: int) -> str:
     )
     sentences = [
         sentence.replace(numbered_marker, ".")
-        for sentence in re.split(r"(?<=[。！？.!?])\s*", protected)
+        for sentence in re.split(
+            r"(?<=[。！？])\s*|(?<=[.!?])(?=\s|$)\s*",
+            protected,
+        )
     ]
     result = ""
     for sentence in sentences:
