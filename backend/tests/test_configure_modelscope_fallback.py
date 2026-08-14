@@ -241,6 +241,19 @@ def test_deploy_workflow_provisions_deepseek_as_primary_and_modelscope_as_fallba
     assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
 
 
+def test_deploy_workflow_verifies_deepseek_credential_before_server_configuration():
+    workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+
+    verify_step = workflow.index("Verify DeepSeek primary provider")
+    configure_step = workflow.index("Configure production AI providers")
+
+    assert verify_step < configure_step
+    assert "https://api.deepseek.com/models" in workflow
+    assert 'Authorization: Bearer $DEEPSEEK_API_KEY' in workflow
+    assert "deepseek-v4-pro" in workflow[verify_step:configure_step]
+    assert "deepseek-v4-flash" in workflow[verify_step:configure_step]
+
+
 def test_production_diagnostics_can_probe_ppt_story_route_without_content_output():
     workflow = DIAGNOSTICS_WORKFLOW.read_text(encoding="utf-8")
 
