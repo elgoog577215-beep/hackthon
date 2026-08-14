@@ -15,8 +15,12 @@ from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     plan_slide_story_v3,
     plan_slide_visuals_v2,
+    repair_slide_visuals_v2,
 )
 from slide_deck_v6 import (
+    SlideStoryBatchV3,
+    SlideStoryPageV3,
+    SlideStoryPlanV3,
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
@@ -3630,3 +3634,138 @@ async def test_visual_batches_honor_shared_concurrency_limit() -> None:
 
     assert len(visual.decisions) == 6
     assert peak == 3
+
+
+def _field_visual_repair_fixture():
+    document = _structured_field_check_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    table_layout = next(
+        layout.template_layout_id
+        for layout in template.layouts
+        if layout.template_layout_id.endswith("/evidence-table")
+    )
+    feedback_layout = next(
+        layout.template_layout_id
+        for layout in template.layouts
+        if layout.template_layout_id.endswith("/practice-feedback")
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-field-check",
+            chapter_id="field-check",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[
+                SlideStoryPageV3(
+                    page_id="field-table",
+                    teaching_unit_id=unit.teaching_unit_id,
+                    template_layout_id=table_layout,
+                    title="Observation evidence",
+                    summary="",
+                    source_block_ids=["field-task-table"],
+                    page_ordinal=0,
+                ),
+                SlideStoryPageV3(
+                    page_id="field-feedback",
+                    teaching_unit_id=unit.teaching_unit_id,
+                    template_layout_id=feedback_layout,
+                    title="Interpret the record",
+                    summary="",
+                    source_block_ids=["field-feedback"],
+                    page_ordinal=1,
+                ),
+            ],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        decisions=[
+            SlideVisualDecisionV2(
+                page_id="field-table",
+                decision="table",
+                source_block_ids=["field-task-table"],
+                resolved_template_layout_id=table_layout,
+                provider="fixture",
+                model="fixture",
+            ),
+            SlideVisualDecisionV2(
+                page_id="field-feedback",
+                decision="text_native",
+                source_block_ids=["field-feedback"],
+                resolved_template_layout_id=feedback_layout,
+                degraded=True,
+                degradation_reason="visual_ai_batch_failed",
+            ),
+        ],
+    )
+    return graph, template, story, visual
+
+
+@pytest.mark.asyncio
+async def test_visual_repair_replans_only_degraded_pages_and_preserves_healthy_decisions() -> None:
+    """Selective repair must be independent of course subject and keep good work intact."""
+
+    graph, template, story, visual = _field_visual_repair_fixture()
+    requests = []
+
+    async def planner(request):
+        requests.append(request)
+        page = request["pages"][0]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": "text_native",
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            }],
+        }
+
+    repaired = await repair_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        visual,
+        ai_planner=planner,
+    )
+
+    assert [[page["page_id"] for page in request["pages"]] for request in requests] == [
+        ["field-feedback"]
+    ]
+    assert repaired.decisions[0] is visual.decisions[0]
+    assert repaired.decisions[0].model_dump() == visual.decisions[0].model_dump()
+    assert repaired.decisions[1].degraded is False
+    assert repaired.decisions[1].provider == "fixture"
+    assert all(not decision.degraded for decision in repaired.decisions)
+
+
+@pytest.mark.asyncio
+async def test_visual_repair_rejects_an_incomplete_retry_without_mutating_the_prior_plan() -> None:
+    graph, template, story, visual = _field_visual_repair_fixture()
+    original = visual.model_dump(mode="json")
+
+    async def unavailable(_request):
+        raise TimeoutError("temporary shared provider outage")
+
+    with pytest.raises(V6BuildError) as captured:
+        await repair_slide_visuals_v2(
+            story,
+            graph,
+            template,
+            visual,
+            ai_planner=unavailable,
+        )
+
+    assert captured.value.failure.code == "visual_repair_incomplete"
+    assert captured.value.failure.page_id == "field-feedback"
+    assert visual.model_dump(mode="json") == original
