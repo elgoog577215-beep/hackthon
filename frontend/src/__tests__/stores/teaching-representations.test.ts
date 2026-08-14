@@ -283,6 +283,35 @@ describe('teaching representation progressive build', () => {
     })
   })
 
+  it('queues a durable repair for degraded V6 visual pages without rebuilding the deck', async () => {
+    vi.useFakeTimers()
+    httpMock.post.mockResolvedValueOnce({ data: {
+      status: 'accepted',
+      task_id: 'visual-repair-task',
+      target_page_ids: ['page-field-feedback'],
+    } })
+    const store = useTeachingRepresentationsStore()
+
+    const result = await store.repairDegradedVisuals(
+      'course-1',
+      'slides-v6',
+      ['page-field-feedback'],
+    )
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/teaching-representations/slides-v6/slide-decks/visual-repair',
+      { page_ids: ['page-field-feedback'] },
+    )
+    expect(result).toEqual({
+      status: 'accepted',
+      task_id: 'visual-repair-task',
+      target_page_ids: ['page-field-feedback'],
+    })
+    expect(store.buildTaskId).toBe('visual-repair-task')
+    expect(store.building).toBe(true)
+    expect(store.buildStage).toBe('visual_repair')
+  })
+
   it('preserves an actionable course-logic blocker from a 409 preflight response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       detail: {
