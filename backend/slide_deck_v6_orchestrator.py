@@ -25,7 +25,9 @@ from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6 import (
     AIBatchDiagnosticV1,
     SlideStoryBatchV3,
+    SlideStoryPlanV3,
     SlideVisualDecisionV2,
+    SlideVisualPlanV2,
     V6BuildError,
     build_signature_v6,
     compile_ppt_source_contract_v2,
@@ -261,6 +263,168 @@ class SlideDeckV6Orchestrator:
         self.representations = representation_repository
         self.candidates = candidate_repository
         self.progress_repository = SlideBuildProgressRepositoryV2(progress_root)
+
+    async def repair_visuals(
+        self,
+        *,
+        task_id: str,
+        document: CourseDocument,
+        course_data: dict[str, Any],
+        representation_id: str,
+        mode: str,
+        theme: str,
+        story_planner: Planner,
+        visual_planner: Planner,
+        source_revision_provider: Callable[[], str],
+        target_page_ids: list[str] | None = None,
+        template_contract: TemplateLayoutPackContractV1 | None = None,
+        template_digest_provider: Callable[[], str] | None = None,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        """Seed a new durable task from a published V6 deck's healthy work."""
+
+        registry = self.representations.load(document.course_id)
+        representation = next(
+            (
+                item
+                for item in registry.representations
+                if item.representation_id == representation_id
+                and item.representation_type == "slide_deck"
+                and item.status == "ready"
+            ),
+            None,
+        )
+        if representation is None:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_base_unavailable",
+                message="Visual repair requires a currently published slide deck",
+                retryable=False,
+            )
+        spec = next(
+            (item for item in registry.specs if item.spec_id == representation.spec_id),
+            None,
+        )
+        content = dict((spec.payload.get("content") if spec else None) or {})
+        if content.get("schema_version") != "slide_deck_v6":
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_requires_v6",
+                message="Only a published V6 deck can use selective visual repair",
+                retryable=False,
+            )
+        template = template_contract or (
+            TemplateLayoutPackContractV1.model_validate(content["template_contract"])
+            if isinstance(content.get("template_contract"), dict)
+            else compile_builtin_template_layout_contract_v1(theme)
+        )
+        source_contract = dict(content.get("source_contract") or {})
+        if (
+            str(source_contract.get("course_document_revision") or "")
+            != str(document.document_revision or "")
+            or str(source_revision_provider() or "")
+            != str(document.document_revision or "")
+        ):
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_source_changed",
+                message="The published deck no longer matches the frozen course revision",
+                retryable=True,
+            )
+        if str(source_contract.get("template_digest") or "") != template.template_digest:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_template_changed",
+                message="The published deck no longer matches the selected template contract",
+                retryable=True,
+            )
+        expected_signature = build_signature_v6(
+            document=document,
+            course_data=course_data,
+            mode=mode,
+            theme=theme,
+            template_contract=template,
+        )
+        if (
+            str((content.get("build_signature") or {}).get("signature") or "")
+            != expected_signature["signature"]
+        ):
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_build_contract_changed",
+                message="Course logic, mode, or template inputs changed after publication",
+                retryable=True,
+            )
+
+        story_payload = dict(content.get("story_plan") or {})
+        story_payload.pop("pages", None)
+        story = SlideStoryPlanV3.model_validate(story_payload)
+        visual = SlideVisualPlanV2.model_validate(content.get("visual_plan"))
+        degraded_page_ids = [
+            decision.page_id for decision in visual.decisions if decision.degraded
+        ]
+        requested_page_ids = list(dict.fromkeys(target_page_ids or degraded_page_ids))
+        invalid_targets = set(requested_page_ids) - set(degraded_page_ids)
+        if invalid_targets:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_target_not_degraded",
+                message="Selective visual repair can target only degraded published pages",
+                retryable=False,
+                page_id=sorted(invalid_targets)[0],
+            )
+        if not requested_page_ids:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_not_required",
+                message="The published V6 deck has no degraded visual pages",
+                retryable=False,
+            )
+        repair_context = {
+            "schema_version": "slide_visual_repair_context_v1",
+            "base_representation_id": representation.representation_id,
+            "base_representation_revision": representation.revision,
+            "base_spec_id": representation.spec_id,
+            "target_page_ids": requested_page_ids,
+        }
+        checkpoint = {
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "task_id": task_id,
+            "course_id": document.course_id,
+            "course_document_revision": document.document_revision,
+            "template_digest": template.template_digest,
+            "mode": mode,
+            "theme": theme,
+            "source_contract": source_contract,
+            "course_presentation_graph": content.get("course_presentation_graph"),
+            "story_plan": story.model_dump(mode="json"),
+            "story_batches": [
+                batch.model_dump(mode="json") for batch in story.batches
+            ],
+            "visual_decisions": [
+                decision.model_dump(mode="json")
+                for decision in visual.decisions
+                if decision.page_id not in set(requested_page_ids)
+            ],
+            "ai_batch_diagnostics": list(content.get("ai_batch_diagnostics") or []),
+            "visual_repair": repair_context,
+            "updated_at": _utc_now(),
+        }
+        self.candidates.save_checkpoint(task_id, checkpoint)
+        return await self.build(
+            task_id=task_id,
+            document=document,
+            course_data=course_data,
+            mode=mode,
+            theme=theme,
+            story_planner=story_planner,
+            visual_planner=visual_planner,
+            source_revision_provider=source_revision_provider,
+            template_contract=template,
+            template_digest_provider=template_digest_provider,
+            publish_result=True,
+            progress_callback=progress_callback,
+        )
 
     async def build(
         self,
@@ -584,6 +748,26 @@ class SlideDeckV6Orchestrator:
                     decision.model_dump(mode="json") for decision in visual.decisions
                 ],
             )
+            repair_context = dict(checkpoint.get("visual_repair") or {})
+            if repair_context:
+                target_page_ids = set(repair_context.get("target_page_ids") or [])
+                incomplete_repairs = [
+                    decision
+                    for decision in visual.decisions
+                    if decision.page_id in target_page_ids and decision.degraded
+                ]
+                if incomplete_repairs:
+                    failed = incomplete_repairs[0]
+                    raise V6BuildError(
+                        stage="visual_repair",
+                        code="visual_repair_incomplete",
+                        message=(
+                            "The targeted page is still degraded after visual replanning: "
+                            f"{failed.degradation_reason}"
+                        ),
+                        retryable=True,
+                        page_id=failed.page_id,
+                    )
 
             tracker.add_work([
                 SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
@@ -703,6 +887,31 @@ class SlideDeckV6Orchestrator:
                     message="Template revision changed while V6 was building",
                     retryable=True,
                 )
+            repair_context = dict(checkpoint.get("visual_repair") or {})
+            if repair_context:
+                current_registry = self.representations.load(document.course_id)
+                current_representation = next(
+                    (
+                        item
+                        for item in current_registry.representations
+                        if item.representation_id
+                        == repair_context.get("base_representation_id")
+                    ),
+                    None,
+                )
+                if (
+                    current_representation is None
+                    or current_representation.spec_id
+                    != repair_context.get("base_spec_id")
+                    or current_representation.revision
+                    != repair_context.get("base_representation_revision")
+                ):
+                    raise V6BuildError(
+                        stage="publish",
+                        code="visual_repair_base_changed",
+                        message="A newer deck revision was published while visual repair was running",
+                        retryable=True,
+                    )
             degraded_visual_count = sum(
                 1 for decision in visual.decisions if decision.degraded
             )
@@ -740,8 +949,10 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "template_contract": template.model_dump(mode="json"),
                 "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "planning_status": planning_status,
+                **({"visual_repair": repair_context} if repair_context else {}),
             }
             unit_bindings = {
                 page.page_id: (
@@ -844,6 +1055,7 @@ class SlideDeckV6Orchestrator:
                 "visual_plan": visual.model_dump(mode="json"),
                 "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "planning_status": planning_status,
+                "visual_repair": repair_context or None,
                 "deck": deck.model_dump(mode="json"),
                 "published": publish_result,
                 "shadow_context": dict(shadow_context or {}),
@@ -898,6 +1110,7 @@ class SlideDeckV6Orchestrator:
                 "story_plan": story.model_dump(mode="json") if story else None,
                 "visual_plan": visual.model_dump(mode="json") if visual else None,
                 "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
+                "visual_repair": dict(checkpoint.get("visual_repair") or {}) or None,
                 "deck": None,
                 "published": False,
                 "shadow_context": dict(shadow_context or {}),
