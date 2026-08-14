@@ -165,7 +165,7 @@ def test_body_slot_preserves_semantic_paragraph_boundaries() -> None:
     ]
 
 
-def test_item_slot_uses_source_excerpts_within_template_limits():
+def test_item_slot_rejects_lossy_excerpt_instead_of_silently_dropping_items():
     block = _block(
         "field-checks",
         "field-section",
@@ -177,18 +177,15 @@ def test_item_slot_uses_source_excerpts_within_template_limits():
         ),
     )
 
-    content = _bounded_slot_content(
-        [block],
-        slot_kind="items",
-        max_chars=90,
-        max_items=3,
-        max_lines=0,
-        max_rows=0,
-    )
-
-    assert len(content) <= 90
-    assert len(content.splitlines()) <= 3
-    assert all(line.rstrip("…") in block.payload["markdown"] for line in content.splitlines())
+    with pytest.raises(ValueError, match="template_slot_capacity_exceeded"):
+        _bounded_slot_content(
+            [block],
+            slot_kind="items",
+            max_chars=90,
+            max_items=3,
+            max_lines=0,
+            max_rows=0,
+        )
 
 
 def _block(
