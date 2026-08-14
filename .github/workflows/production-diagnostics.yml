@@ -87,6 +87,102 @@ jobs:
           . /opt/lingzhi/state/.env
           set +a
           cd /opt/lingzhi/hackthon/backend
+
+          echo "== latest V6 story underfill structure (no course content) =="
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from course_presentation_graph import CoursePresentationGraphV1
+          from slide_deck_v6 import (
+              SlideStoryPlanV3,
+              _presentation_summary_text,
+              _unit_source_text_for_blocks,
+              prepare_story_plan_for_final_compilation,
+              validate_slide_story_plan_v3,
+          )
+          from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+          root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
+          matches = []
+          for path in root.glob("*.json"):
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError):
+                  continue
+              failure = payload.get("failure") or {}
+              if failure.get("code") == "story_page_underfilled":
+                  matches.append((str(payload.get("updated_at") or ""), path, payload))
+          if not matches:
+              print(json.dumps({"found": False}, sort_keys=True))
+              raise SystemExit(0)
+
+          _updated_at, candidate_path, candidate = max(matches, key=lambda item: item[0])
+          failure = candidate.get("failure") or {}
+          graph = CoursePresentationGraphV1.model_validate(
+              candidate["course_presentation_graph"]
+          )
+          story = SlideStoryPlanV3.model_validate(candidate["story_plan"])
+          checkpoint_path = root / "checkpoints" / candidate_path.name
+          checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          template = compile_builtin_template_layout_contract_v1(
+              str(checkpoint.get("theme") or "qizhi-classroom")
+          )
+          page_id = str(failure.get("page_id") or "")
+          page = next(item for item in story.pages if item.page_id == page_id)
+          unit = next(
+              item for item in graph.units
+              if item.teaching_unit_id == page.teaching_unit_id
+          )
+          layout = template.get_layout(page.template_layout_id)
+          body_slots = [slot for slot in layout.slots if slot.slot_kind == "body"]
+          summary_text = _presentation_summary_text(page.summary)
+          source_text = _presentation_summary_text(
+              _unit_source_text_for_blocks(unit, page.source_block_ids)
+          )
+          visual_payload = checkpoint.get("visual_plan") or candidate.get("visual_plan") or {}
+          visual = next(
+              (
+                  item for item in visual_payload.get("decisions") or []
+                  if str(item.get("page_id") or "") == page_id
+              ),
+              {},
+          )
+          before_error = ""
+          try:
+              validate_slide_story_plan_v3(story, graph, template)
+          except Exception as error:
+              before_error = getattr(getattr(error, "failure", None), "code", type(error).__name__)
+          prepared = prepare_story_plan_for_final_compilation(story, graph, template)
+          prepared_page = next(item for item in prepared.pages if item.page_id == page_id)
+          after_error = ""
+          try:
+              validate_slide_story_plan_v3(prepared, graph, template)
+          except Exception as error:
+              after_error = getattr(getattr(error, "failure", None), "code", type(error).__name__)
+          print(json.dumps({
+              "found": True,
+              "updated_at": candidate.get("updated_at"),
+              "failure_stage": failure.get("stage"),
+              "failure_code": failure.get("code"),
+              "checkpoint_contract": checkpoint.get("build_contract_version"),
+              "layout_slug": layout.layout_slug,
+              "body_slot_count": len(body_slots),
+              "body_min_chars": body_slots[0].min_chars if len(body_slots) == 1 else 0,
+              "body_max_chars": body_slots[0].max_chars if len(body_slots) == 1 else 0,
+              "summary_chars": len(summary_text),
+              "source_chars": len(source_text),
+              "validation_before_prepare": before_error or "passed",
+              "prepared_summary_chars": len(_presentation_summary_text(prepared_page.summary)),
+              "validation_after_prepare": after_error or "passed",
+              "visual_decision": visual.get("decision"),
+              "visual_layout_slug": str(visual.get("resolved_template_layout_id") or "").rsplit("/", 1)[-1],
+              "visual_degraded": bool(visual.get("degraded")),
+              "visual_reason": visual.get("degradation_reason"),
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
           if [ "$LINGZHI_PROBE_AI_MODEL" = "true" ]; then
             /opt/lingzhi/.venv/bin/python - <<'PY'
           import asyncio
