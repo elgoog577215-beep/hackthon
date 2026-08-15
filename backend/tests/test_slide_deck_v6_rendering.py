@@ -155,6 +155,82 @@ def _practice_code_deck():
     return compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _practice_long_table_deck():
+    table = "\n".join([
+        "| Check | Input | Expected result | Evidence | Repair |",
+        "| --- | --- | --- | --- | --- |",
+        (
+            "| Verify the integration boundary | Preserve the original editor and "
+            "runtime settings before the check begins | The external editor opens "
+            "the exact project without changing its source state | Record the project, "
+            "editor version, runtime log, and reviewer identity in one traceable result | "
+            "Restore every missing field from the signed source record before approval |"
+        ),
+    ])
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-practice-table-capacity-fixture",
+        title="Integration verification",
+        sections=[CourseSection(
+            section_id="practice-table",
+            title="Verify the integration",
+            position=0,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id="practice-action",
+                section_id="practice-table",
+                position=0,
+                role="activity",
+                payload={"markdown": "1. Run the integration check and preserve the original log."},
+            ),
+            CourseBlock(
+                block_id="practice-evidence",
+                section_id="practice-table",
+                position=1,
+                role="feedback",
+                kind="review_checkpoint",
+                payload={"markdown": table},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = template.layout_id("practice-table")
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-practice-table",
+            chapter_id="practice-table",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="practice-table-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="Verify the integration boundary",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="practice-table-page",
+            decision="table",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
 def _dense_table_deck():
     table = "\n".join([
         "| Check | Required evidence | Result |",
@@ -957,6 +1033,27 @@ def test_practice_artifact_allocates_step_height_by_wrapped_line_cost(
         tmp_path / "v6-practice-artifact-weighted-steps.pptx",
     )
     report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+
+
+def test_practice_table_separates_an_oversized_row_from_required_steps(
+    tmp_path: Path,
+) -> None:
+    deck = _practice_long_table_deck()
+
+    assert [page.resolved_layout.rsplit("/", 1)[-1] for page in deck.pages] == [
+        "practice-prompt",
+        "evidence-table",
+    ]
+    adapted = [adapt_v6_page_to_slide_spec(page) for page in deck.pages]
+    assert adapted[1].quality["v6_layout_variant"] == "table-row-detail"
+
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "v6-practice-table-row-detail.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=2)
 
     assert report["passed"], report["blockers"]
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 import re
 import shutil
@@ -18,6 +17,7 @@ from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
 from slide_layout_geometry import (
     HORIZONTAL_PROCESS_CARDS_V1,
+    diagram_node_layout_metrics,
     horizontal_process_card_metrics,
     wrapped_line_count,
 )
@@ -1003,7 +1003,7 @@ def _render_relational_visual(
     from pptx.enum.shapes import MSO_CONNECTOR
     from pptx.util import Inches
 
-    nodes = list(visual.get("nodes") or [])[:5]
+    nodes = list(visual.get("nodes") or [])[:6]
     edges = list(visual.get("edges") or [])[:10]
     composition = unit.composition or "split-visual"
     visual_left = composition in {"figure-first", "diagram-full"}
@@ -1022,56 +1022,38 @@ def _render_relational_visual(
         radius=True,
         line=theme["chart_bg"],
     )
-    _text(
-        slide,
-        _visual_caption(visual),
-        diagram_x + 0.32,
-        2.15,
-        diagram_w - 0.64,
-        0.34,
-        11,
-        theme["accent"],
-        bold=True,
-    )
+    caption = _visual_caption(visual)
+    if " ".join(caption.split()).casefold() != " ".join(unit.title.split()).casefold():
+        _text(
+            slide,
+            caption,
+            diagram_x + 0.32,
+            2.12,
+            diagram_w - 0.64,
+            0.42,
+            16,
+            theme["accent"],
+            bold=True,
+        )
     if not nodes:
         return
-    vertical = str((visual.get("parameters") or {}).get("direction") or "") == "vertical"
+    direction = str(
+        (visual.get("parameters") or {}).get("direction") or "vertical"
+    )
+    node_metrics = diagram_node_layout_metrics(
+        [str(node.get("label") or "").strip() for node in nodes],
+        direction=direction,
+    )
+    if not node_metrics["fits"]:
+        raise ValueError("diagram_node_render_capacity_exceeded")
     positions: dict[str, tuple[float, float, float, float]] = {}
-    if vertical:
-        gap = 0.07
-        available_height = 3.62
-        node_h = min(
-            0.72,
-            (available_height - gap * max(0, len(nodes) - 1)) / max(1, len(nodes)),
+    for node, box in zip(nodes, node_metrics["node_boxes"]):
+        positions[str(node.get("node_id"))] = (
+            diagram_x + box["x"],
+            1.92 + box["y"],
+            box["width"],
+            box["height"],
         )
-        for index, node in enumerate(nodes):
-            positions[str(node.get("node_id"))] = (
-                diagram_x + 0.55,
-                2.62 + index * (node_h + gap),
-                diagram_w - 1.1,
-                node_h,
-            )
-    else:
-        columns = 2 if len(nodes) > 3 else 1
-        if columns == 1:
-            node_w = (diagram_w - 1.1 - max(0, len(nodes) - 1) * 0.18) / len(nodes)
-            for index, node in enumerate(nodes):
-                positions[str(node.get("node_id"))] = (
-                    diagram_x + 0.55 + index * (node_w + 0.18),
-                    3.25,
-                    node_w,
-                    1.28,
-                )
-        else:
-            node_w = (diagram_w - 1.28) / 2
-            for index, node in enumerate(nodes):
-                row, column = divmod(index, 2)
-                positions[str(node.get("node_id"))] = (
-                    diagram_x + 0.46 + column * (node_w + 0.22),
-                    2.78 + row * 1.52,
-                    node_w,
-                    1.12,
-                )
 
     # Connectors are deliberately created first so they remain behind nodes.
     edge_labels: list[tuple[str, float, float]] = []
@@ -1116,7 +1098,7 @@ def _render_relational_visual(
         x, y, width, height = positions[node_id]
         primary = str(node.get("emphasis") or "") == "primary"
         full_label = str(node.get("label") or "")
-        visible_label = _diagram_label(full_label, maximum=18)
+        visible_label = " ".join(full_label.split())
         label_size = 16
         shape = _shape(
             slide,
@@ -1442,14 +1424,43 @@ def _render_table_row_detail(
     ]
     if not pairs:
         return
-    weights = [max(1, min(3, math.ceil(len(value) / 80))) for _label, value in pairs]
-    total_weight = max(1, sum(weights))
     available_height = 4.48
     gap = 0.08
     usable_height = available_height - gap * max(0, len(pairs) - 1)
+    value_fonts = [17 if len(value) <= 72 else 16 for _label, value in pairs]
+    required_heights = [
+        max(
+            0.58,
+            _wrapped_line_count(
+                _display_text(label),
+                width_pt=2.15 * 72.0,
+                font_size_pt=16,
+            )
+            * 16
+            * 1.22
+            / 72.0
+            + 0.28,
+            _wrapped_line_count(
+                _display_text(value),
+                width_pt=8.75 * 72.0,
+                font_size_pt=value_font,
+            )
+            * value_font
+            * 1.22
+            / 72.0
+            + 0.22,
+        )
+        for (label, value), value_font in zip(pairs, value_fonts)
+    ]
+    required_total = sum(required_heights)
+    if required_total > usable_height:
+        raise ValueError("table_row_detail_render_capacity_exceeded")
+    extra_height = (usable_height - required_total) / max(1, len(pairs))
+    heights = [height + extra_height for height in required_heights]
     y = 1.94
-    for index, ((label, value), weight) in enumerate(zip(pairs, weights)):
-        height = usable_height * weight / total_weight
+    for index, ((label, value), value_font, height) in enumerate(
+        zip(pairs, value_fonts, heights)
+    ):
         _shape(
             slide,
             0.8,
@@ -1479,7 +1490,7 @@ def _render_table_row_detail(
             y + 0.12,
             8.75,
             max(0.36, height - 0.22),
-            17 if len(value) <= 72 else 16,
+            value_font,
             theme["ink"],
             bold=len(value) <= 48,
         )

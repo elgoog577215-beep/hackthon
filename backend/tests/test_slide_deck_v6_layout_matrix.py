@@ -16,6 +16,7 @@ from slide_deck_v6 import (
 )
 from slide_layout_geometry import (
     HORIZONTAL_PROCESS_CARDS_V1,
+    diagram_node_layout_metrics,
     horizontal_process_card_metrics,
 )
 from template_layout_contract import (
@@ -365,6 +366,24 @@ def test_process_flow_splits_only_when_real_wrapping_requires_it() -> None:
     )
     assert visible.count("List<Action<CollisionListener>>") == 2
     assert all(step in visible for step in steps[:3])
+
+
+def test_diagram_geometry_preserves_complete_technical_identifiers() -> None:
+    labels = [
+        "JsonUtility.ToJson",
+        "JsonUtility.FromJson<T>",
+        "File.WriteAllText",
+        "Application.persistentDataPath",
+        "PlayerData",
+        "SaveGame/LoadGame",
+    ]
+
+    metrics = diagram_node_layout_metrics(labels, direction="vertical")
+
+    assert metrics["fits"] is True
+    assert metrics["node_count"] == len(labels)
+    assert len(metrics["node_boxes"]) == len(labels)
+    assert all(metrics["label_fits"])
 
 
 def test_builtin_layout_contract_matrix_is_complete_and_closed() -> None:

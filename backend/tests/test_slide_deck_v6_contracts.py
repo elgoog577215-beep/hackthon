@@ -1968,6 +1968,114 @@ def test_single_body_page_keeps_complete_source_instead_of_substituting_story_su
     assert body == source
 
 
+def test_visual_summary_never_consumes_an_unrendered_source_fragment() -> None:
+    paragraphs = [
+        (
+            "Collect field evidence and record the intake timestamp before any "
+            "interpretation is added to the observation."
+        ),
+        (
+            "Verify the timestamp, location, operator identity, and acceptance "
+            "conditions while the original evidence remains visible."
+        ),
+        (
+            "Compare the recorded result with the declared boundary, retain every "
+            "exception, and describe the repair action without shortening it."
+        ),
+        (
+            "Publish the result only after the complete source record can be traced "
+            "through the diagram and every continuation page."
+        ),
+    ]
+    source = "\n\n".join(paragraphs)
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-visual-summary-fidelity",
+        title="Source-complete visual explanation",
+        sections=[CourseSection(
+            section_id="section",
+            title="Evidence handling",
+            position=0,
+        )],
+        blocks=[_block(
+            "evidence-record",
+            "section",
+            0,
+            role="concept",
+            text=source,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="visual-summary-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="Evidence handling flow",
+        summary="Collect field evidence, verify the timestamp, and publish the result.",
+        source_block_ids=["evidence-record"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-visual-summary",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "collect",
+                        "label": "Collect field evidence",
+                        "source_block_ids": ["evidence-record"],
+                    },
+                    {
+                        "node_id": "verify",
+                        "label": "Verify the timestamp",
+                        "source_block_ids": ["evidence-record"],
+                    },
+                    {
+                        "node_id": "publish",
+                        "label": "Publish the result",
+                        "source_block_ids": ["evidence-record"],
+                    },
+                ],
+                "edges": [
+                    {"source": "collect", "target": "verify"},
+                    {"source": "verify", "target": "publish"},
+                ],
+            },
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    visible = "\n".join(
+        region.content
+        for compiled_page in deck.pages
+        for region in compiled_page.regions
+        if region.content_kind in {"body", "items", "steps"}
+        and "evidence-record" in region.source_block_ids
+    )
+
+    assert re.sub(r"\s+", "", source) in re.sub(r"\s+", "", visible)
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+
+
 def test_code_overflow_paginates_every_source_line_and_keeps_full_code_in_notes() -> None:
     code = "\n".join(f"step_{index} = observe({index})" for index in range(55))
     document, graph, template, story, visual = _artifact_deck_fixture(

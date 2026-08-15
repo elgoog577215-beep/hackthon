@@ -7,7 +7,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import stable_hash
-from slide_layout_geometry import HORIZONTAL_PROCESS_CARDS_V1
+from slide_layout_geometry import (
+    DIAGRAM_SOURCE_PANEL_V1,
+    FIGURE_SOURCE_PANEL_V1,
+    FORMULA_SOURCE_PANEL_V1,
+    HORIZONTAL_PROCESS_CARDS_V1,
+)
 from slide_theme import load_slide_theme_pack
 
 
@@ -389,7 +394,17 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "evidence-formula": {
         "intents": ["artifact_explanation", "mechanism", "worked_example"],
         "artifact_kinds": ["formula"],
-        "slots": [_TITLE, _slot("formula", "formula", chars=420), _slot("derivation", "body", chars=360), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot("formula", "formula", chars=420),
+            _slot(
+                "derivation",
+                "body",
+                chars=360,
+                capacity_profile=FORMULA_SOURCE_PANEL_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["evidence-formula", "content-stack"],
     },
     "evidence-table": {
@@ -416,13 +431,33 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "evidence-figure": {
         "intents": ["artifact_explanation", "worked_example", "concept_explanation"],
         "artifact_kinds": ["image", "experiment", "source_excerpt"],
-        "slots": [_TITLE, _slot("visual", "visual"), _slot("interpretation", "body", chars=260), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot("visual", "visual"),
+            _slot(
+                "interpretation",
+                "body",
+                chars=260,
+                capacity_profile=FIGURE_SOURCE_PANEL_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["evidence-figure", "content-stack"],
     },
     "evidence-diagram": {
         "intents": ["artifact_explanation", "mechanism", "concept_explanation"],
         "artifact_kinds": ["diagram"],
-        "slots": [_TITLE, _slot("diagram", "visual"), _slot("explanation", "body", chars=240), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot("diagram", "visual"),
+            _slot(
+                "explanation",
+                "body",
+                chars=240,
+                capacity_profile=DIAGRAM_SOURCE_PANEL_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["evidence-diagram", "content-stack"],
     },
     "misconception-repair": {

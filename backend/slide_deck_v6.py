@@ -20,7 +20,11 @@ from course_presentation_graph import (
     page_artifact_kinds,
     page_teaching_intent,
 )
-from slide_layout_geometry import capacity_profile_items_fit
+from slide_layout_geometry import (
+    capacity_profile_items_fit,
+    capacity_profile_text_fits,
+    diagram_node_layout_metrics,
+)
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
@@ -1013,6 +1017,22 @@ def validate_slide_visual_plan_v2(
                     message="Diagram node IDs must be non-empty and unique",
                     page_id=page_id,
                 )
+            if layout.layout_slug == "evidence-diagram":
+                diagram_metrics = diagram_node_layout_metrics(
+                    [str(node.get("label") or "").strip() for node in nodes],
+                    direction=str(
+                        decision.visual_payload.get("direction") or "vertical"
+                    ),
+                )
+                if not diagram_metrics["fits"]:
+                    raise V6BuildError(
+                        stage="visual",
+                        code="visual_diagram_capacity_exceeded",
+                        message=(
+                            "Complete diagram labels exceed the published node geometry"
+                        ),
+                        page_id=page_id,
+                    )
             for node in nodes:
                 if not isinstance(node, dict):
                     raise V6BuildError(stage="visual", code="visual_diagram_node_invalid", message="Diagram node must be an object", page_id=page_id)
@@ -1212,6 +1232,15 @@ def _presentation_summary_text(value: str) -> str:
     text = re.sub(r"(?m)^\s*[-+*]\s+(?:\[[ xX]\]\s+)?", "", text)
     text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
     return text.strip()
+
+
+def _canonical_visible_semantic_text(value: str) -> str:
+    """Normalize visible prose for exact source-containment decisions."""
+
+    text = _presentation_summary_text(value)
+    text = re.sub(r"(?m)^\s*(?:>\s*)+", "", text)
+    text = text.replace("*", "")
+    return re.sub(r"\s+", "", text)
 
 
 def _looks_like_markdown_table(value: str) -> bool:
@@ -1786,6 +1815,9 @@ def _bounded_slot_content(
         content = "\n\n".join(texts).rstrip()
         if len(content) > capacity or (
             max_lines and _prose_wrapped_line_cost(content) > max_lines
+        ) or (
+            capacity_profile
+            and not capacity_profile_text_fits(capacity_profile, content)
         ):
             raise ValueError("template_slot_capacity_exceeded")
         return content
@@ -2103,11 +2135,21 @@ def _prose_wrapped_line_cost(value: str) -> int:
     )
 
 
-def _prose_fits_slot(value: str, *, max_chars: int, max_lines: int) -> bool:
+def _prose_fits_slot(
+    value: str,
+    *,
+    max_chars: int,
+    max_lines: int,
+    capacity_profile: str = "",
+) -> bool:
     return bool(
         value
         and (not max_chars or len(value) <= max_chars)
         and (not max_lines or _prose_wrapped_line_cost(value) <= max_lines)
+        and (
+            not capacity_profile
+            or capacity_profile_text_fits(capacity_profile, value)
+        )
     )
 
 
@@ -2116,6 +2158,7 @@ def _pack_complete_prose_groups(
     *,
     max_chars: int,
     max_lines: int,
+    capacity_profile: str = "",
 ) -> list[list[str]]:
     chunks: list[list[str]] = []
     current: list[str] = []
@@ -2125,6 +2168,7 @@ def _pack_complete_prose_groups(
             "\n\n".join(candidate),
             max_chars=max_chars,
             max_lines=max_lines,
+            capacity_profile=capacity_profile,
         ):
             chunks.append(current)
             current = [group]
@@ -2134,6 +2178,7 @@ def _pack_complete_prose_groups(
             "\n\n".join(current),
             max_chars=max_chars,
             max_lines=max_lines,
+            capacity_profile=capacity_profile,
         ):
             raise ValueError("template_slot_capacity_exceeded")
     if current:
@@ -2146,6 +2191,7 @@ def _split_oversized_prose_group(
     *,
     max_chars: int,
     max_lines: int = 0,
+    capacity_profile: str = "",
 ) -> list[str]:
     """Split one oversized sentence losslessly when it cannot fit on one page."""
 
@@ -2154,6 +2200,7 @@ def _split_oversized_prose_group(
         text,
         max_chars=max_chars,
         max_lines=max_lines,
+        capacity_profile=capacity_profile,
     ):
         return [text] if text else []
     chunks: list[str] = []
@@ -2162,12 +2209,14 @@ def _split_oversized_prose_group(
         remaining,
         max_chars=max_chars,
         max_lines=max_lines,
+        capacity_profile=capacity_profile,
     ):
         window_end = min(len(remaining), max_chars or len(remaining))
         while window_end > 1 and not _prose_fits_slot(
             remaining[:window_end],
             max_chars=max_chars,
             max_lines=max_lines,
+            capacity_profile=capacity_profile,
         ):
             window_end -= 1
         if window_end <= 1:
@@ -2206,6 +2255,7 @@ def _split_oversized_prose_group(
             chunk,
             max_chars=max_chars,
             max_lines=max_lines,
+            capacity_profile=capacity_profile,
         ):
             split_at = window_end
             chunk = remaining[:split_at].strip()
@@ -2294,6 +2344,7 @@ def _split_text_block_for_slot(
                 pending_groups,
                 max_chars=max_chars,
                 max_lines=max_lines,
+                capacity_profile=capacity_profile,
             ))
             pending_groups = []
 
@@ -2302,12 +2353,14 @@ def _split_text_block_for_slot(
                 group,
                 max_chars=max_chars,
                 max_lines=max_lines,
+                capacity_profile=capacity_profile,
             ):
                 candidate = [*pending_groups, group]
                 if pending_groups and not _prose_fits_slot(
                     "\n\n".join(candidate),
                     max_chars=max_chars,
                     max_lines=max_lines,
+                    capacity_profile=capacity_profile,
                 ):
                     flush_pending_groups()
                 pending_groups.append(group)
@@ -2319,6 +2372,7 @@ def _split_text_block_for_slot(
                     group,
                     max_chars=max_chars,
                     max_lines=max_lines,
+                    capacity_profile=capacity_profile,
                 )
             )
         flush_pending_groups()
@@ -2425,6 +2479,158 @@ def _table_row_wrap_cost(row: str, column_chars: int) -> int:
     )
 
 
+def _table_page_uses_wide_variant(
+    slot: Any,
+    headers: list[str],
+    *,
+    split_first_page: bool,
+    page_index: int,
+) -> bool:
+    wide_min_columns = int(getattr(slot, "wide_min_columns", 0) or 0)
+    return bool(
+        page_index == 0
+        and split_first_page
+        and wide_min_columns
+        and len(headers) >= wide_min_columns
+    )
+
+
+def _table_page_column_capacity(
+    slot: Any,
+    headers: list[str],
+    *,
+    split_first_page: bool,
+    page_index: int,
+) -> int:
+    uses_wide_variant = _table_page_uses_wide_variant(
+        slot,
+        headers,
+        split_first_page=split_first_page,
+        page_index=page_index,
+    )
+    if page_index == 0 and split_first_page and not uses_wide_variant:
+        declared = int(slot.split_column_chars or slot.full_column_chars or 1)
+    else:
+        declared = int(slot.full_column_chars or slot.split_column_chars or 1)
+    # Slot capacity is declared against a three-column reference table. Wider
+    # schemas keep the same template geometry, so each cell's safe display
+    # width must shrink instead of forcing a smaller font.
+    return max(
+        6,
+        min(declared, round(declared * 3 / max(3, len(headers)))),
+    )
+
+
+def _table_page_wrapped_budget(
+    slot: Any,
+    headers: list[str],
+    *,
+    split_first_page: bool,
+    page_index: int,
+) -> int:
+    uses_wide_variant = _table_page_uses_wide_variant(
+        slot,
+        headers,
+        split_first_page=split_first_page,
+        page_index=page_index,
+    )
+    if page_index == 0 and split_first_page and not uses_wide_variant:
+        declared = int(slot.split_wrapped_lines or slot.full_wrapped_lines or 0)
+    else:
+        declared = int(slot.full_wrapped_lines or slot.split_wrapped_lines or 0)
+    if not declared:
+        return 0
+    # The wrapped-line contract is calibrated against a three-column table.
+    # Fewer columns have materially more vertical room per row, so scale the
+    # budget without weakening the long-cell safety check for 3+ columns.
+    if len(headers) < 3:
+        return max(declared, round(declared * 3 / len(headers)))
+    return declared
+
+
+def _table_rows_exceed_layout_slot(
+    slot: Any,
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    split_first_page: bool,
+    page_index: int,
+) -> bool:
+    candidate_text = _markdown_table_text(headers, rows)
+    column_capacity = _table_page_column_capacity(
+        slot,
+        headers,
+        split_first_page=split_first_page,
+        page_index=page_index,
+    )
+    header_cost = max(
+        1,
+        max(
+            (
+                (_display_width_units(cell) + column_capacity - 1)
+                // column_capacity
+                for cell in headers
+            ),
+            default=1,
+        ),
+    )
+    wrapped_cost = header_cost + sum(
+        max(
+            1,
+            max(
+                (
+                    (_display_width_units(cell) + column_capacity - 1)
+                    // column_capacity
+                    for cell in row
+                ),
+                default=1,
+            ),
+        )
+        for row in rows
+    )
+    wrapped_budget = _table_page_wrapped_budget(
+        slot,
+        headers,
+        split_first_page=split_first_page,
+        page_index=page_index,
+    )
+    return bool(
+        (slot.max_rows and len(rows) > slot.max_rows)
+        or (slot.max_chars and len(candidate_text) > slot.max_chars)
+        or (wrapped_budget and wrapped_cost > wrapped_budget)
+    )
+
+
+def _table_fragment_requires_exclusive_page(
+    block: CourseBlock,
+    *,
+    slot: Any,
+    split_first_page: bool,
+) -> bool:
+    """Prove whether a table fragment cannot share its page with support."""
+
+    headers, rows = _table_components(block_source_text(block))
+    if not headers or not rows:
+        return False
+    if _table_page_uses_wide_variant(
+        slot,
+        headers,
+        split_first_page=split_first_page,
+        page_index=0,
+    ):
+        return True
+    return bool(
+        len(rows) == 1
+        and _table_rows_exceed_layout_slot(
+            slot,
+            headers,
+            rows,
+            split_first_page=split_first_page,
+            page_index=0,
+        )
+    )
+
+
 def _split_table_block_for_layout_variants(
     block: CourseBlock,
     *,
@@ -2443,77 +2649,16 @@ def _split_table_block_for_layout_variants(
     chunks: list[str] = []
     current: list[list[str]] = []
     page_index = 0
-    wide_first_page = bool(
-        split_first_page
-        and int(getattr(slot, "wide_min_columns", 0) or 0)
-        and len(headers) >= int(slot.wide_min_columns)
-    )
-
-    def page_column_capacity() -> int:
-        if page_index == 0 and split_first_page and not wide_first_page:
-            declared = int(slot.split_column_chars or slot.full_column_chars or 1)
-        else:
-            declared = int(slot.full_column_chars or slot.split_column_chars or 1)
-        # Slot capacity is declared against a three-column reference table.
-        # Wider schemas keep the same template geometry, so each cell's safe
-        # display width must shrink instead of forcing a smaller font.
-        return max(
-            6,
-            min(declared, round(declared * 3 / max(3, len(headers)))),
-        )
-
     def rendered_text(candidate_rows: list[list[str]]) -> str:
         return _markdown_table_text(headers, candidate_rows)
 
-    def wrapped_cost(candidate_rows: list[list[str]]) -> int:
-        capacity = page_column_capacity()
-        header_cost = max(
-            1,
-            max(
-                (
-                    (_display_width_units(cell) + capacity - 1) // capacity
-                    for cell in headers
-                ),
-                default=1,
-            ),
-        )
-        return header_cost + sum(
-            max(
-                1,
-                max(
-                    (
-                        (_display_width_units(cell) + capacity - 1) // capacity
-                        for cell in row
-                    ),
-                    default=1,
-                ),
-            )
-            for row in candidate_rows
-        )
-
-    def wrapped_budget() -> int:
-        if page_index == 0 and split_first_page and not wide_first_page:
-            declared = int(slot.split_wrapped_lines or slot.full_wrapped_lines or 0)
-        else:
-            declared = int(slot.full_wrapped_lines or slot.split_wrapped_lines or 0)
-        if not declared:
-            return 0
-        # The wrapped-line contract is calibrated against a three-column table.
-        # Fewer columns have materially more vertical room per row, so scale the
-        # budget without weakening the long-cell safety check for 3+ columns.
-        if len(headers) < 3:
-            return max(declared, round(declared * 3 / len(headers)))
-        return declared
-
     def exceeds(candidate_rows: list[list[str]]) -> bool:
-        candidate_text = rendered_text(candidate_rows)
-        return bool(
-            (slot.max_rows and len(candidate_rows) > slot.max_rows)
-            or (slot.max_chars and len(candidate_text) > slot.max_chars)
-            or (
-                wrapped_budget()
-                and wrapped_cost(candidate_rows) > wrapped_budget()
-            )
+        return _table_rows_exceed_layout_slot(
+            slot,
+            headers,
+            candidate_rows,
+            split_first_page=split_first_page,
+            page_index=page_index,
         )
 
     for row in rows:
@@ -3351,6 +3496,9 @@ def _safe_artifact_page_blocks(
     non_artifact_blocks = [
         block for block in source_blocks if block.block_id not in artifact_ids
     ]
+    split_artifact_first_page = bool(
+        non_artifact_blocks or _visible_prose_text(story_summary)
+    )
     adaptive_table = bool(
         artifact_slot.slot_kind == "table"
         and (artifact_slot.split_wrapped_lines or artifact_slot.full_wrapped_lines)
@@ -3371,9 +3519,7 @@ def _safe_artifact_page_blocks(
                     _split_table_block_for_layout_variants(
                         block,
                         slot=artifact_slot,
-                        split_first_page=bool(
-                            non_artifact_blocks or _visible_prose_text(story_summary)
-                        ),
+                        split_first_page=split_artifact_first_page,
                     )
                 )
         elif adaptive_code:
@@ -3381,9 +3527,7 @@ def _safe_artifact_page_blocks(
                 artifact_chunks.extend(_split_code_block_for_layout_variants(
                     block,
                     slot=artifact_slot,
-                    split_first_page=bool(
-                        non_artifact_blocks or _visible_prose_text(story_summary)
-                    ),
+                    split_first_page=split_artifact_first_page,
                 ))
         else:
             _bounded_slot_content(
@@ -3461,6 +3605,15 @@ def _safe_artifact_page_blocks(
         if slot.slot_kind in {"body", "items", "steps"}
     ]
     required_support = any(slot.required for slot in support_slots)
+    first_artifact_requires_exclusive_page = bool(
+        adaptive_table
+        and artifact_chunks
+        and _table_fragment_requires_exclusive_page(
+            artifact_chunks[0],
+            slot=artifact_slot,
+            split_first_page=split_artifact_first_page,
+        )
+    )
     uncovered_artifact_prose_blocks = list(lost_artifact_prose_blocks)
     if story_summary and not required_support:
         normalized_summary = re.sub(
@@ -3541,16 +3694,6 @@ def _safe_artifact_page_blocks(
                 message="Required semantic support has no source-backed content",
                 page_id=page_id,
             )
-        paired_blocks = sorted(
-            [*support_pages[0], artifact_chunks[0]],
-            key=lambda block: (block.position, block.block_id),
-        )
-        paired = _SafePageMaterialization(
-            layout=layout,
-            source_blocks=paired_blocks,
-        )
-        remaining_support = support_pages[1:]
-        remaining_artifacts = artifact_chunks[1:]
         required_support_ids = {
             block.block_id
             for blocks in support_pages
@@ -3561,6 +3704,76 @@ def _safe_artifact_page_blocks(
             for block in support_source_blocks
             if block.block_id not in required_support_ids
         ]
+        unmatched_support_continuations = (
+            _safe_paginated_continuations_for_blocks(
+                page_id=page_id,
+                template=template,
+                layout=layout,
+                source_blocks=unmatched_support_blocks,
+                purpose="semantic-support",
+            )
+            if unmatched_support_blocks
+            else []
+        )
+        if first_artifact_requires_exclusive_page:
+            support_continuations = [
+                _SafePageMaterialization(
+                    layout=_safe_continuation_for_blocks(
+                        page_id=page_id,
+                        template=template,
+                        layout=layout,
+                        source_blocks=blocks,
+                        purpose="semantic support",
+                    ),
+                    source_blocks=blocks,
+                )
+                for blocks in support_pages
+            ]
+            artifact_continuations = [
+                _SafePageMaterialization(
+                    layout=_safe_continuation_for_blocks(
+                        page_id=page_id,
+                        template=template,
+                        layout=layout,
+                        source_blocks=[chunk],
+                        purpose="artifact",
+                    ),
+                    source_blocks=[chunk],
+                )
+                for chunk in artifact_chunks
+            ]
+            source_order = {
+                block.block_id: index
+                for index, block in enumerate(source_blocks)
+            }
+            materializations = sorted(
+                [
+                    *support_continuations,
+                    *unmatched_support_continuations,
+                    *artifact_continuations,
+                ],
+                key=lambda materialization: min(
+                    source_order.get(block.block_id, len(source_order))
+                    for block in materialization.source_blocks
+                ),
+            )
+            _assert_source_driven_pagination_progress(
+                page_id=page_id,
+                source_blocks=source_blocks,
+                materializations=materializations,
+            )
+            return materializations
+
+        paired_blocks = sorted(
+            [*support_pages[0], artifact_chunks[0]],
+            key=lambda block: (block.position, block.block_id),
+        )
+        paired = _SafePageMaterialization(
+            layout=layout,
+            source_blocks=paired_blocks,
+        )
+        remaining_support = support_pages[1:]
+        remaining_artifacts = artifact_chunks[1:]
         support_continuations = [
             _SafePageMaterialization(
                 layout=_safe_continuation_for_blocks(
@@ -3574,17 +3787,6 @@ def _safe_artifact_page_blocks(
             )
             for blocks in remaining_support
         ]
-        unmatched_support_continuations = (
-            _safe_paginated_continuations_for_blocks(
-                page_id=page_id,
-                template=template,
-                layout=layout,
-                source_blocks=unmatched_support_blocks,
-                purpose="semantic-support",
-            )
-            if unmatched_support_blocks
-            else []
-        )
         artifact_continuations = [
             _SafePageMaterialization(
                 layout=_safe_continuation_for_blocks(
@@ -3718,7 +3920,19 @@ def _materialize_template_regions(
         and len(text_slots) == 1
         and text_slots[0].slot_kind == "body"
     ):
-        summary_slot_id = text_slots[0].slot_id
+        candidate_slot = text_slots[0]
+        assigned_source = _complete_slot_content(
+            assignments.text_slots.get(candidate_slot.slot_id, []),
+            candidate_slot.slot_kind,
+        )
+        canonical_source = _canonical_visible_semantic_text(assigned_source)
+        canonical_summary = _canonical_visible_semantic_text(summary_content)
+        # A Story summary may enrich an artifact-only page, but it must never
+        # consume a frozen prose fragment that the learner will not otherwise
+        # see.  When prose is assigned to this slot, only a source-complete
+        # summary may replace it; otherwise render the assigned source chunk.
+        if not canonical_source or canonical_source in canonical_summary:
+            summary_slot_id = candidate_slot.slot_id
 
     regions: list[SlideRegionV6] = []
     for slot in content_slots:
@@ -4442,12 +4656,6 @@ def _visible_semantic_fidelity(
             and block_id in region.source_block_ids
         ]
 
-    def canonical_visible_text(value: str) -> str:
-        text = _presentation_summary_text(value)
-        text = re.sub(r"(?m)^\s*(?:>\s*)+", "", text)
-        text = text.replace("*", "")
-        return re.sub(r"\s+", "", text)
-
     artifact_results: list[bool] = []
     prose_results: list[bool] = []
     step_results: list[bool] = []
@@ -4485,9 +4693,11 @@ def _visible_semantic_fidelity(
                 "\n".join(semantic_region_contents(block.block_id)),
             ))
         else:
-            expected_prose = canonical_visible_text(_artifact_free_prose_text(block))
+            expected_prose = _canonical_visible_semantic_text(
+                _artifact_free_prose_text(block)
+            )
             if expected_prose:
-                actual_prose = canonical_visible_text(
+                actual_prose = _canonical_visible_semantic_text(
                     "\n".join(semantic_region_contents(block.block_id))
                 )
                 prose_results.append(expected_prose in actual_prose)
