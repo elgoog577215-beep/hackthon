@@ -2996,21 +2996,131 @@ def _validate_visual_batch_candidate(
     )
 
 
+_VISUAL_DECISION_TELEMETRY_FIELDS = {
+    "provider",
+    "model",
+    "duration_ms",
+    "attempts",
+}
+
+
+def _visual_decisions_are_equivalent(
+    left: SlideVisualDecisionV2,
+    right: SlideVisualDecisionV2,
+) -> bool:
+    """Return whether duplicate decisions carry the same semantic contract."""
+
+    return left.model_dump(
+        mode="json",
+        exclude=_VISUAL_DECISION_TELEMETRY_FIELDS,
+    ) == right.model_dump(
+        mode="json",
+        exclude=_VISUAL_DECISION_TELEMETRY_FIELDS,
+    )
+
+
+def _classify_visual_batch_decisions(
+    decisions: list[SlideVisualDecisionV2],
+    expected_pages: list[SlideStoryPageV3],
+    *,
+    allow_missing: bool = False,
+) -> tuple[list[SlideVisualDecisionV2], V6BuildError | None]:
+    """Canonicalize exact duplicates and classify every coverage violation.
+
+    Conflicting duplicates are excluded so a repair can replace them without
+    selecting an arbitrary provider answer. Unknown page IDs remain a hard
+    contract error and are never silently discarded.
+    """
+
+    expected_page_ids = [page.page_id for page in expected_pages]
+    expected_page_id_set = set(expected_page_ids)
+    unknown_page_ids = [
+        decision.page_id
+        for decision in decisions
+        if decision.page_id not in expected_page_id_set
+    ]
+    grouped: dict[str, list[SlideVisualDecisionV2]] = defaultdict(list)
+    for decision in decisions:
+        if decision.page_id in expected_page_id_set:
+            grouped[decision.page_id].append(decision)
+
+    canonical: list[SlideVisualDecisionV2] = []
+    conflict_page_ids: list[str] = []
+    missing_page_ids: list[str] = []
+    for page_id in expected_page_ids:
+        candidates = grouped.get(page_id, [])
+        if not candidates:
+            missing_page_ids.append(page_id)
+            continue
+        first = candidates[0]
+        if any(
+            not _visual_decisions_are_equivalent(first, candidate)
+            for candidate in candidates[1:]
+        ):
+            conflict_page_ids.append(page_id)
+            continue
+        canonical.append(first)
+
+    if unknown_page_ids:
+        return canonical, V6BuildError(
+            stage="visual",
+            code="visual_page_unknown",
+            message="Visual response contains a page outside the requested batch",
+            page_id=unknown_page_ids[0],
+        )
+    if conflict_page_ids:
+        error = V6BuildError(
+            stage="visual",
+            code="visual_page_duplicate_conflict",
+            message="Visual response contains conflicting decisions for one Story page",
+            page_id=conflict_page_ids[0],
+        )
+        error.repair_page_ids = tuple(conflict_page_ids)
+        return canonical, error
+    if missing_page_ids and not allow_missing:
+        error = V6BuildError(
+            stage="visual",
+            code="visual_page_coverage_incomplete",
+            message="Visual response is missing a decision for a requested Story page",
+            page_id=missing_page_ids[0],
+        )
+        error.repair_page_ids = tuple(missing_page_ids)
+        return canonical, error
+    return canonical, None
+
+
+def _order_visual_decisions_for_batch(
+    batch: SlideStoryBatchV3,
+    decisions: list[SlideVisualDecisionV2],
+) -> list[SlideVisualDecisionV2]:
+    decisions_by_page = {decision.page_id: decision for decision in decisions}
+    return [
+        decisions_by_page[page.page_id]
+        for page in batch.pages
+        if page.page_id in decisions_by_page
+    ]
+
+
 def _visual_repair_targets(
     request: dict[str, Any],
     error: Exception | None,
     decisions: list[SlideVisualDecisionV2] | None = None,
 ) -> list[dict[str, Any]]:
-    failed_page_id = (
-        str(error.failure.page_id or "")
-        if isinstance(error, V6BuildError)
-        else ""
-    )
+    failed_page_ids = {
+        str(page_id)
+        for page_id in getattr(error, "repair_page_ids", ())
+        if str(page_id)
+    }
+    if isinstance(error, V6BuildError) and error.failure.page_id:
+        failed_page_ids.add(str(error.failure.page_id))
     pages = [
         page
         for page in request.get("pages") or []
         if isinstance(page, dict)
-        and (not failed_page_id or str(page.get("page_id") or "") == failed_page_id)
+        and (
+            not failed_page_ids
+            or str(page.get("page_id") or "") in failed_page_ids
+        )
     ]
     decisions_by_page = {
         decision.page_id: decision for decision in (decisions or [])
@@ -3083,10 +3193,12 @@ def _merge_visual_repair_decisions(
         else ""
     )
     merged: list[SlideVisualDecisionV2] = []
+    observed_page_ids: set[str] = set()
     for prior in previous:
         replacement = repaired_by_page.get(prior.page_id)
         if replacement is None:
             merged.append(prior)
+            observed_page_ids.add(prior.page_id)
             continue
         if (
             prior.page_id == failed_page_id
@@ -3115,8 +3227,15 @@ def _merge_visual_repair_decisions(
                 "duration_ms": max(prior.duration_ms, replacement.duration_ms),
                 "attempts": max(prior.attempts, replacement.attempts),
             }))
+            observed_page_ids.add(prior.page_id)
             continue
         merged.append(replacement)
+        observed_page_ids.add(prior.page_id)
+    merged.extend(
+        decision
+        for decision in repaired
+        if decision.page_id not in observed_page_ids
+    )
     return merged
 
 
@@ -3141,8 +3260,24 @@ async def plan_slide_visuals_v2(
     limit = max(2, min(4, concurrency))
     semaphore = asyncio.Semaphore(limit)
     units = {unit.teaching_unit_id: unit for unit in graph.units}
+    canonical_resumed, resume_contract_error = _classify_visual_batch_decisions(
+        list(resume_decisions or []),
+        story.pages,
+        allow_missing=True,
+    )
+    if resume_contract_error is not None:
+        raise V6BuildError(
+            stage="recovery",
+            code="v6_recovery_contract_mismatch",
+            message=(
+                "Saved visual decisions do not match the frozen Story page identity "
+                f"contract: {resume_contract_error.failure.code}"
+            ),
+            retryable=False,
+            page_id=resume_contract_error.failure.page_id,
+        ) from resume_contract_error
     resumed_by_page = {
-        decision.page_id: decision for decision in (resume_decisions or [])
+        decision.page_id: decision for decision in canonical_resumed
     }
 
     async def plan_batch(
@@ -3242,7 +3377,7 @@ async def plan_slide_visuals_v2(
                         raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
                     attempt_records.extend(_provider_attempts_from(raw))
                     response = _VisualBatchResponse.model_validate(
-                        _normalize_visual_batch_response(raw, request)
+                        _normalize_visual_batch_response(raw, attempt_request)
                     )
                     reported_provider = response.provider or reported_provider
                     reported_model = response.model or reported_model
@@ -3255,7 +3390,7 @@ async def plan_slide_visuals_v2(
                     if response.schema_version != "slide_visual_batch_response_v2":
                         raise ValueError("Unexpected visual response schema")
                     duration_ms = max(0, round((time.perf_counter() - started) * 1000))
-                    decisions = [
+                    response_decisions = [
                         decision.model_copy(
                             update={
                                 "provider": decision.provider or response.provider or "shared-ai-pool",
@@ -3269,6 +3404,18 @@ async def plan_slide_visuals_v2(
                         )
                         for decision in response.decisions
                     ]
+                    attempt_page_ids = {
+                        str(page.get("page_id") or "")
+                        for page in attempt_request.get("pages") or []
+                    }
+                    attempt_pages = [
+                        page for page in batch.pages
+                        if page.page_id in attempt_page_ids
+                    ]
+                    decisions, collection_error = _classify_visual_batch_decisions(
+                        response_decisions,
+                        attempt_pages,
+                    )
                     if resumed:
                         decisions_by_page = {
                             decision.page_id: decision
@@ -3285,6 +3432,9 @@ async def plan_slide_visuals_v2(
                             decisions,
                             contract_error,
                         )
+                    decisions = _order_visual_decisions_for_batch(batch, decisions)
+                    if collection_error is not None:
+                        raise collection_error
                     _validate_visual_batch_candidate(
                         story=story,
                         graph=graph,

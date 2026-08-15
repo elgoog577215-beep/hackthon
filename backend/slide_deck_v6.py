@@ -45,6 +45,9 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "story_page_id_missing": "page_identity",
     "story_duplicate_page_id": "page_identity",
     "visual_page_coverage_incomplete": "visual_page_mapping",
+    "visual_page_duplicate": "visual_page_mapping",
+    "visual_page_duplicate_conflict": "visual_page_mapping",
+    "visual_page_unknown": "visual_page_mapping",
     "visual_source_binding_mismatch": "visual_page_mapping",
     "visual_layout_binding_mismatch": "visual_page_mapping",
     "template_required_slot_unfilled": "source_slot_binding",
@@ -936,9 +939,40 @@ def validate_slide_visual_plan_v2(
     if plan.source_document_revision != graph.source_document_revision or plan.template_digest != template.template_digest:
         raise V6BuildError(stage="visual", code="visual_source_contract_mismatch", message="Visual plan does not match the frozen source/template")
     story_pages = {page.page_id: page for page in story.pages}
+    decision_page_ids = [decision.page_id for decision in plan.decisions]
+    unknown_page_ids = [
+        page_id for page_id in decision_page_ids if page_id not in story_pages
+    ]
+    if unknown_page_ids:
+        raise V6BuildError(
+            stage="visual",
+            code="visual_page_unknown",
+            message="Visual plan contains a decision outside the frozen Story scope",
+            page_id=unknown_page_ids[0],
+        )
+    duplicate_page_ids = [
+        page_id
+        for page_id, count in Counter(decision_page_ids).items()
+        if count > 1
+    ]
+    if duplicate_page_ids:
+        raise V6BuildError(
+            stage="visual",
+            code="visual_page_duplicate",
+            message="Visual plan must contain exactly one decision per Story page",
+            page_id=duplicate_page_ids[0],
+        )
     decisions = {decision.page_id: decision for decision in plan.decisions}
-    if set(decisions) != set(story_pages):
-        raise V6BuildError(stage="visual", code="visual_page_coverage_incomplete", message="Visual plan must contain exactly one decision per story page")
+    missing_page_ids = [
+        page.page_id for page in story.pages if page.page_id not in decisions
+    ]
+    if missing_page_ids:
+        raise V6BuildError(
+            stage="visual",
+            code="visual_page_coverage_incomplete",
+            message="Visual plan is missing a decision for a frozen Story page",
+            page_id=missing_page_ids[0],
+        )
     units = _unit_map(graph)
     degraded = False
     for page_id, page in story_pages.items():

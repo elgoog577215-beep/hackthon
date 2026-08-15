@@ -5673,7 +5673,7 @@ async def test_visual_planning_resume_requests_only_missing_pages_in_a_partial_b
         graph,
         template,
         ai_planner=planner,
-        resume_decisions=[healthy_table],
+        resume_decisions=[healthy_table, healthy_table.model_copy(deep=True)],
     )
 
     assert requested_page_ids == [["field-feedback"]]
@@ -5682,3 +5682,260 @@ async def test_visual_planning_resume_requests_only_missing_pages_in_a_partial_b
         "field-table",
         "field-feedback",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("checkpoint_problem", ["unknown", "conflict"])
+async def test_visual_planning_rejects_incompatible_checkpoint_page_identity(
+    checkpoint_problem: str,
+) -> None:
+    graph, template, story, visual = _field_visual_repair_fixture()
+    healthy_table = visual.decisions[0]
+    incompatible = healthy_table.model_copy(deep=True)
+    if checkpoint_problem == "unknown":
+        incompatible.page_id = "cross-batch-page"
+    else:
+        incompatible.decision = "data"
+    planner_calls = 0
+
+    async def planner(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("An incompatible checkpoint must fail before AI planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_visuals_v2(
+            story,
+            graph,
+            template,
+            ai_planner=planner,
+            resume_decisions=[healthy_table, incompatible],
+        )
+
+    assert planner_calls == 0
+    assert captured.value.failure.stage == "recovery"
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.page_id == (
+        "cross-batch-page" if checkpoint_problem == "unknown" else "field-table"
+    )
+
+
+def _visual_decision_for_request_page(
+    page: dict,
+    *,
+    decision: str | None = None,
+) -> dict:
+    resolved_decision = decision or (
+        "table" if "table" in page["allowed_decisions"] else "text_native"
+    )
+    return {
+        "page_id": page["page_id"],
+        "decision": resolved_decision,
+        "source_block_ids": page["source_block_ids"],
+        "resolved_template_layout_id": page["template_layout_id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_visual_missing_page_is_repaired_without_reasking_valid_pages() -> None:
+    """A missing decision is appended to preserved valid work in Story order."""
+
+    graph, template, story, _visual = _field_visual_repair_fixture()
+    requests: list[dict] = []
+
+    async def planner(request):
+        requests.append(request)
+        pages = {page["page_id"]: page for page in request["pages"]}
+        if len(requests) == 1:
+            decisions = [_visual_decision_for_request_page(pages["field-table"])]
+        else:
+            decisions = [_visual_decision_for_request_page(pages["field-feedback"])]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": decisions,
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert [[page["page_id"] for page in request["pages"]] for request in requests] == [
+        ["field-table", "field-feedback"],
+        ["field-feedback"],
+    ]
+    assert [decision.page_id for decision in visual.decisions] == [
+        "field-table",
+        "field-feedback",
+    ]
+    assert visual.decisions[0].decision == "table"
+    assert visual.decisions[1].decision == "text_native"
+
+
+@pytest.mark.asyncio
+async def test_visual_conflicting_duplicate_repairs_only_the_conflicted_page() -> None:
+    graph, template, story, _visual = _field_visual_repair_fixture()
+    requests: list[dict] = []
+
+    async def planner(request):
+        requests.append(request)
+        pages = {page["page_id"]: page for page in request["pages"]}
+        if len(requests) == 1:
+            feedback = _visual_decision_for_request_page(pages["field-feedback"])
+            conflicting = {
+                **feedback,
+                "decision": "diagram",
+                "visual_payload": {
+                    "nodes": [
+                        {
+                            "node_id": "observe",
+                            "label": "Interpret the observation record",
+                            "source_block_ids": feedback["source_block_ids"],
+                        },
+                        {
+                            "node_id": "report",
+                            "label": "Report the verified finding",
+                            "source_block_ids": feedback["source_block_ids"],
+                        },
+                    ],
+                    "edges": [{"source": "observe", "target": "report"}],
+                },
+            }
+            decisions = [
+                _visual_decision_for_request_page(pages["field-table"]),
+                feedback,
+                conflicting,
+            ]
+        else:
+            decisions = [_visual_decision_for_request_page(pages["field-feedback"])]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": decisions,
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert [[page["page_id"] for page in request["pages"]] for request in requests] == [
+        ["field-table", "field-feedback"],
+        ["field-feedback"],
+    ]
+    assert [decision.page_id for decision in visual.decisions] == [
+        "field-table",
+        "field-feedback",
+    ]
+    assert visual.decisions[1].decision == "text_native"
+
+
+@pytest.mark.asyncio
+async def test_visual_equivalent_duplicate_is_deduplicated_without_repair() -> None:
+    graph, template, story, _visual = _field_visual_repair_fixture()
+    requests: list[dict] = []
+
+    async def planner(request):
+        requests.append(request)
+        decisions = [
+            _visual_decision_for_request_page(page)
+            for page in reversed(request["pages"])
+        ]
+        decisions.append(dict(decisions[0]))
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": decisions,
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert len(requests) == 1
+    assert [decision.page_id for decision in visual.decisions] == [
+        "field-table",
+        "field-feedback",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_visual_unknown_page_is_never_silently_discarded() -> None:
+    graph, template, story, _visual = _field_visual_repair_fixture()
+    calls = 0
+
+    async def planner(request):
+        nonlocal calls
+        calls += 1
+        decisions = [
+            _visual_decision_for_request_page(page) for page in request["pages"]
+        ]
+        decisions.append({
+            **decisions[0],
+            "page_id": "cross-batch-page",
+        })
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": decisions,
+        }
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_visuals_v2(
+            story,
+            graph,
+            template,
+            ai_planner=planner,
+        )
+
+    assert calls == 2
+    assert captured.value.failure.code == "visual_page_unknown"
+    assert captured.value.failure.page_id == "cross-batch-page"
+
+
+@pytest.mark.asyncio
+async def test_visual_missing_page_repair_stays_bounded_and_reports_the_page() -> None:
+    graph, template, story, _visual = _field_visual_repair_fixture()
+    requests: list[dict] = []
+
+    async def planner(request):
+        requests.append(request)
+        table = next(
+            (page for page in request["pages"] if page["page_id"] == "field-table"),
+            None,
+        )
+        decisions = [_visual_decision_for_request_page(table)] if table else [{
+            **_visual_decision_for_request_page(request["pages"][0]),
+            "page_id": "cross-batch-page",
+        }]
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "provider": "fixture",
+            "model": "fixture",
+            "decisions": decisions,
+        }
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_visuals_v2(
+            story,
+            graph,
+            template,
+            ai_planner=planner,
+        )
+
+    assert len(requests) == 2
+    assert [page["page_id"] for page in requests[1]["pages"]] == ["field-feedback"]
+    assert captured.value.failure.code == "visual_page_unknown"
+    assert captured.value.failure.page_id == "cross-batch-page"

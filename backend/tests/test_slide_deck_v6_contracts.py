@@ -39,6 +39,9 @@ from template_layout_contract import compile_builtin_template_layout_contract_v1
     [
         ("story", "story_duplicate_page_id", "page_identity"),
         ("visual", "visual_page_coverage_incomplete", "visual_page_mapping"),
+        ("visual", "visual_page_duplicate", "visual_page_mapping"),
+        ("visual", "visual_page_duplicate_conflict", "visual_page_mapping"),
+        ("visual", "visual_page_unknown", "visual_page_mapping"),
         ("template", "template_slot_capacity_exceeded", "pagination_capacity"),
         ("recovery", "v6_recovery_contract_mismatch", "checkpoint_contract"),
     ],
