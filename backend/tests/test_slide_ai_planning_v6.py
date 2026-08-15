@@ -729,6 +729,62 @@ async def test_story_assigns_unique_page_ids_within_an_ai_batch() -> None:
 
 
 @pytest.mark.asyncio
+async def test_story_resume_normalizes_duplicate_page_ids_before_validation() -> None:
+    document = _two_unit_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def initial_planner(request):
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": f"saved-page-{index}",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        unit["primary_block_ids"],
+                    ),
+                    "title": _title_for_request_blocks(
+                        unit,
+                        unit["primary_block_ids"],
+                    ),
+                    "summary": "",
+                    "source_block_ids": unit["primary_block_ids"],
+                }
+                for index, unit in enumerate(request["teaching_units"])
+            ],
+        }
+
+    initial = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=initial_planner,
+    )
+    duplicate_id = initial.pages[0].page_id
+    saved_batch = initial.batches[0].model_copy(update={
+        "pages": [
+            page.model_copy(update={"page_id": duplicate_id})
+            for page in initial.batches[0].pages
+        ]
+    })
+
+    async def planner_must_not_run(_request):
+        raise AssertionError("valid saved story content should be resumed")
+
+    resumed = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner_must_not_run,
+        resume_batches=[saved_batch],
+    )
+
+    assert len({page.page_id for page in resumed.pages}) == len(resumed.pages)
+    assert resumed.pages[0].page_id == duplicate_id
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "response_shape",
     ["version_wrapper", "slides_alias", "derivable_page_fields"],

@@ -2205,6 +2205,8 @@ async def plan_slide_story_v3(
                 for index, page in enumerate(resumed.pages)
             ]
             batch = resumed.model_copy(update={"batch_id": batch_id, "pages": pages})
+            batch = _assign_global_story_page_ids([batch])[0]
+            pages = list(batch.pages)
             try:
                 _validate_story_batch_candidate(
                     graph=graph,
@@ -2406,6 +2408,10 @@ async def plan_slide_story_v3(
                         validation_status="passed",
                         pages=local_pages,
                     )
+                    candidate_batch = _assign_global_story_page_ids(
+                        [candidate_batch]
+                    )[0]
+                    local_pages = list(candidate_batch.pages)
                     try:
                         _validate_story_batch_candidate(
                             graph=graph,
@@ -2418,6 +2424,9 @@ async def plan_slide_story_v3(
                             candidate_batch = _assign_global_story_titles(
                                 [candidate_batch],
                                 [request],
+                            )[0]
+                            candidate_batch = _assign_global_story_page_ids(
+                                [candidate_batch]
                             )[0]
                             local_pages = list(candidate_batch.pages)
                             try:
@@ -2462,6 +2471,9 @@ async def plan_slide_story_v3(
                             candidate_batch = _assign_global_story_titles(
                                 [candidate_batch],
                                 [request],
+                            )[0]
+                            candidate_batch = _assign_global_story_page_ids(
+                                [candidate_batch]
                             )[0]
                             local_pages = list(candidate_batch.pages)
                             _validate_story_batch_candidate(
