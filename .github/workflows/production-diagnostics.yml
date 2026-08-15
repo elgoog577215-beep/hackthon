@@ -13,6 +13,16 @@ on:
         required: false
         default: false
         type: boolean
+      export_v6_replay:
+        description: "Export a sanitized Story/Visual/template replay fixture for one V6 task"
+        required: false
+        default: false
+        type: boolean
+      v6_replay_task_id:
+        description: "V6 task ID to export when export_v6_replay is enabled"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -500,3 +510,109 @@ jobs:
                   }, ensure_ascii=False))
           PY
           REMOTE
+
+      - name: Export sanitized V6 template replay
+        if: ${{ inputs.export_v6_replay }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          V6_REPLAY_TASK_ID: ${{ inputs.v6_replay_task_id }}
+        run: |
+          set -euo pipefail
+          [[ "$V6_REPLAY_TASK_ID" =~ ^[A-Za-z0-9_-]+$ ]]
+          remote_output="/tmp/lingzhi-v6-replay-${GITHUB_RUN_ID}.json"
+          remote_task="$(printf '%q' "$V6_REPLAY_TASK_ID")"
+          remote_path="$(printf '%q' "$remote_output")"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_V6_REPLAY_TASK_ID=$remote_task LINGZHI_V6_REPLAY_OUTPUT=$remote_path bash -s" <<'REMOTE'
+          set -euo pipefail
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          cd /opt/lingzhi/hackthon/backend
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from dependencies import get_course_document_repository
+
+
+          task_id = os.environ["LINGZHI_V6_REPLAY_TASK_ID"]
+          output = Path(os.environ["LINGZHI_V6_REPLAY_OUTPUT"])
+          root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
+          checkpoint_path = root / "checkpoints" / f"{task_id}.json"
+          candidate_path = root / f"{task_id}.json"
+          checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          candidate = (
+              json.loads(candidate_path.read_text(encoding="utf-8"))
+              if candidate_path.exists()
+              else {}
+          )
+          course_id = str(checkpoint.get("course_id") or candidate.get("course_id") or "")
+          document, canonical = get_course_document_repository().load_document(course_id)
+          if not canonical:
+              raise RuntimeError("V6 replay export requires the canonical course document")
+
+          def scrub(value):
+              if isinstance(value, dict):
+                  return {
+                      key: scrub(item)
+                      for key, item in value.items()
+                      if key not in {
+                          "ai_batch_diagnostics",
+                          "provider_raw_response",
+                          "raw_response",
+                          "request_payload",
+                          "prompt",
+                      }
+                  }
+              if isinstance(value, list):
+                  return [scrub(item) for item in value]
+              if isinstance(value, str):
+                  return value.replace(task_id, "replay-task").replace(
+                      course_id,
+                      "replay-course",
+                  )
+              return value
+
+          payload = scrub({
+              "schema_version": "slide_deck_v6_template_replay_v1",
+              "build_contract_version": checkpoint.get("build_contract_version"),
+              "template_id": checkpoint.get("template_id"),
+              "template_version": checkpoint.get("template_version"),
+              "template_digest": checkpoint.get("template_digest"),
+              "theme_id": checkpoint.get("theme_id") or "qizhi-classroom",
+              "document": document.model_dump(mode="json"),
+              "course_presentation_graph": checkpoint.get("course_presentation_graph") or {},
+              "story_plan": checkpoint.get("story_plan") or candidate.get("story_plan") or {},
+              "visual_plan": checkpoint.get("visual_plan") or candidate.get("visual_plan") or {},
+          })
+          output.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "replay_exported": True,
+              "story_pages": len((payload.get("story_plan") or {}).get("pages") or []),
+              "visual_decisions": len((payload.get("visual_plan") or {}).get("decisions") or []),
+              "bytes": output.stat().st_size,
+          }, sort_keys=True))
+          PY
+          REMOTE
+          scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_output" \
+            "$RUNNER_TEMP/v6-template-replay.json"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "rm -f -- $remote_path"
+
+      - name: Upload sanitized V6 template replay
+        if: ${{ inputs.export_v6_replay }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6-template-replay-${{ inputs.v6_replay_task_id }}
+          path: ${{ runner.temp }}/v6-template-replay.json
+          retention-days: 1
