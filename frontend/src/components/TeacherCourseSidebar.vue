@@ -24,7 +24,7 @@
         <FileCheck2 :size="17" /><span class="nav-label">{{ t('teacherWorkbench.nav.release', '发布管理') }}</span>
       </button>
     </nav>
-    <button type="button" class="back-library" @click="router.push('/courses')">
+    <button type="button" class="back-library" @click="router.push({ name: 'teacher-course-library' })">
       <ArrowLeft :size="16" />{{ t('teacherWorkbench.backToWorkspace', '返回课程工作台') }}
     </button>
   </aside>

@@ -1,13 +1,13 @@
 <template>
   <section class="teacher-production-concept">
     <header class="product-bar">
-      <button type="button" class="brand-link" aria-label="返回课程库" @click="router.push('/courses')">
+      <button type="button" class="brand-link" aria-label="返回课程库" @click="router.push({ name: 'teacher-course-library' })">
         <img src="/qizhi-favicon.svg" alt="" />
         <strong>启智</strong>
       </button>
 
       <div class="breadcrumbs" aria-label="当前位置">
-        <button type="button" @click="router.push('/courses')">课程工作台</button>
+        <button type="button" @click="router.push({ name: 'teacher-course-library' })">课程工作台</button>
         <ChevronRight :size="14" />
         <button type="button" @click="activeNav = 'overview'">设计思维与创新设计</button>
         <ChevronRight :size="14" />

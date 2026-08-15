@@ -13,7 +13,13 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('../views/CourseLibraryView.vue')
   },
   {
-    path: '/courses/new',
+    path: '/teacher/courses',
+    name: 'teacher-course-library',
+    component: () => import('../views/TeacherCourseLibraryView.vue'),
+    meta: { fullscreenConcept: true }
+  },
+  {
+    path: '/teacher/courses/new',
     name: 'teacher-course-create',
     component: () => import('../views/TeacherCourseCreateView.vue'),
     meta: { fullscreenConcept: true }
@@ -43,40 +49,40 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/course/:courseId',
-    redirect: to => ({ name: 'teacher-course-overview', params: { courseId: to.params.courseId } })
+    redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
   },
   {
-    path: '/course/:courseId/overview',
+    path: '/teacher/course/:courseId/overview',
     name: 'teacher-course-overview',
     component: () => import('../views/TeacherCourseOverviewView.vue'),
     meta: { fullscreenConcept: true }
   },
   {
-    path: '/course/:courseId/production',
+    path: '/teacher/course/:courseId/production',
     name: 'teacher-course-production',
     component: () => import('../views/TeacherCourseProductionView.vue'),
     meta: { fullscreenConcept: true }
   },
   {
-    path: '/course/:courseId/outline',
+    path: '/teacher/course/:courseId/outline',
     name: 'teacher-course-outline',
     component: () => import('../views/TeacherCourseProductionView.vue'),
     meta: { fullscreenConcept: true }
   },
   {
-    path: '/course/:courseId/release',
+    path: '/teacher/course/:courseId/release',
     name: 'teacher-course-release',
     component: () => import('../views/TeacherCourseProductionView.vue'),
     meta: { fullscreenConcept: true }
   },
   {
-    path: '/course/:courseId/files',
+    path: '/teacher/course/:courseId/files',
     name: 'teacher-course-files',
     component: () => import('../views/TeacherCourseFilesView.vue'),
     meta: { fullscreenConcept: true }
   },
   {
-    path: '/course/:courseId/teaching-calendar',
+    path: '/teacher/course/:courseId/teaching-calendar',
     name: 'teacher-course-calendar',
     component: () => import('../views/TeacherCourseCalendarView.vue'),
     meta: { fullscreenConcept: true }

@@ -1,9 +1,9 @@
 <template>
   <section class="teacher-files-page">
     <header class="product-bar">
-      <button type="button" class="brand" @click="router.push('/courses')"><img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong></button>
+      <button type="button" class="brand" @click="router.push({ name: 'teacher-course-library' })"><img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong></button>
       <nav aria-label="当前位置">
-        <button type="button" @click="router.push('/courses')">课程工作台</button><ChevronRight :size="14" /><button type="button" @click="router.push({ name: 'teacher-course-overview', params: { courseId } })">{{ courseTitle }}</button><ChevronRight :size="14" /><strong>课程文件</strong>
+      <button type="button" @click="router.push({ name: 'teacher-course-library' })">课程工作台</button><ChevronRight :size="14" /><button type="button" @click="router.push({ name: 'teacher-course-overview', params: { courseId } })">{{ courseTitle }}</button><ChevronRight :size="14" /><strong>课程文件</strong>
       </nav>
       <div class="product-actions">
         <button type="button" @click="openStudentPreview"><Eye :size="16" />预览学生版</button>
@@ -28,11 +28,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ChevronRight, Eye, RefreshCw } from 'lucide-vue-next'
 import TeacherCourseSidebar from '../components/TeacherCourseSidebar.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
-import { useCourseStore } from '../stores/course'
+import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 
 const route = useRoute()
 const router = useRouter()
-const courseStore = useCourseStore()
+const { course: courseStore } = useTeacherCourseRuntime()
 const loading = ref(false)
 const courseId = computed(() => String(route.params.courseId || ''))
 const summary = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value))

@@ -1,15 +1,15 @@
 <template>
   <section class="teacher-total-calendar">
     <header class="product-bar">
-      <button type="button" class="brand" @click="router.push('/courses')"><img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong></button>
+      <button type="button" class="brand" @click="router.push({ name: 'teacher-course-library' })"><img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong></button>
       <nav aria-label="教师工作台">
-        <button type="button" @click="router.push('/courses')">{{ t('teacherWorkbench.courseWorkbench', '课程工作台') }}</button><ChevronRight :size="14" /><strong>{{ t('teacherCalendar.total', '教学总日历') }}</strong>
+        <button type="button" @click="router.push({ name: 'teacher-course-library' })">{{ t('teacherWorkbench.courseWorkbench', '课程工作台') }}</button><ChevronRight :size="14" /><strong>{{ t('teacherCalendar.total', '教学总日历') }}</strong>
       </nav>
       <div class="product-actions"><button type="button" @click="refresh"><RefreshCw :size="17" :class="{ spin: store.loading }" />{{ t('common.refresh', '刷新') }}</button></div>
     </header>
 
     <nav class="workspace-tabs" aria-label="教师工作台分类">
-      <button type="button" @click="router.push('/courses')"><LayoutGrid :size="16" />{{ t('teacherCalendar.myCourses', '我的课程') }}</button>
+      <button type="button" @click="router.push({ name: 'teacher-course-library' })"><LayoutGrid :size="16" />{{ t('teacherCalendar.myCourses', '我的课程') }}</button>
       <button type="button" class="active" aria-current="page"><CalendarRange :size="16" />{{ t('teacherCalendar.total', '教学总日历') }}</button>
     </nav>
 
@@ -40,7 +40,7 @@
         <div v-else-if="view === 'month'" class="month-view">
           <TeachingCalendarMonthGrid :month="monthCursor" :sessions="visibleSessions" show-course @select="openSession" @prepare="openPreparation" />
           <div v-if="!visibleSessions.length" class="calendar-empty-hint">
-            <CalendarRange :size="19" /><span><strong>{{ t('teacherCalendar.totalEmpty', '当前范围还没有已排期课次') }}</strong><small>先在任一课程的教学日历中排期，这里会自动按课程颜色汇总。</small></span><button type="button" @click="router.push('/courses')">返回我的课程</button>
+        <CalendarRange :size="19" /><span><strong>{{ t('teacherCalendar.totalEmpty', '当前范围还没有已排期课次') }}</strong><small>先在任一课程的教学日历中排期，这里会自动按课程颜色汇总。</small></span><button type="button" @click="router.push({ name: 'teacher-course-library' })">返回我的课程</button>
           </div>
         </div>
 

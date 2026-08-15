@@ -11,6 +11,10 @@
 7. 原 `/workspace-concept/teacher-course-v1` 不被真实路由改动破坏；现有 PPT 路由和接口不改语义。
 8. 课程卡固定进入教师课程概览；“我的课程 / 教学总日历 / 新建课程”层级正确，单课程六项导航均保留 `courseId` 和返回上下文。
 
+9. 学生端 `/courses`、`/course/:courseId`、续学、练习和 AI 对话行为不因教师路由发生变化；教师端仅从 `/teacher/...` 进入。
+10. 教师预览学生版时，网络证据中不得出现学习记录、进度、练习记录或 AI 会话写入。
+11. 教师页面不直接导入学生页面编排或建立第二份课程/任务/PPT 状态；教师 authoring 端点与学生 API 命名空间独立。
+
 ## Evidence Mapping
 
 | AC | Direct evidence |
@@ -22,6 +26,10 @@
 | 总日历聚合 | 两课程 API fixture + 浏览器月/周/列表与跳转 |
 | UI 一致性 | 原项目 token/组件 diff + 多视口截图 |
 | 问题记录 | 当前 run `issues.md`，每条含原因、影响、状态和下一步 |
+| 学生端保留 | 路由契约 + 学生课程库/续学/练习回归 + 真实浏览器 |
+| 教师端隔离 | `/teacher` 路由契约 + adapter 导入审计 + teacher authoring API 成败路径 |
+| 只读教师预览 | 浏览器 network 断言零 learning/practice/AI mutation |
+| 合并安全 | 文件所有权清单 + `origin/main` 冲突预测 + secret/runtime-artifact scan |
 
 ## Stop Rule
 

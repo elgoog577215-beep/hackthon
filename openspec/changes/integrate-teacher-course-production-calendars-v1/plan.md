@@ -307,6 +307,28 @@ This package must not block WP1–WP6 and must not be started by changing genera
 
 No WP8 behavior is claimed in V1.
 
+### WP9 — Teacher/student surface isolation and merge compatibility [planned; current round]
+
+1. Freeze route ownership: student stays on `/courses` and `/course/:courseId/learn`; teacher uses `/teacher/courses` and `/teacher/course/:courseId/...`.
+2. Preserve the original student course library and learner flow; retain the current teacher course-library experience in a teacher-owned view.
+3. Introduce one teacher runtime adapter as the only teacher-page entry to shared course and generation stores. It may translate state and forward commands, but it may not copy course/task/PPT state.
+4. Move teacher-only authoring/orchestration endpoints out of the shared courses router into a teacher router. Existing student and shared engine endpoints keep their paths and semantics.
+5. Reconcile with `origin/main` using file ownership:
+   - upstream wins for student pages, shared generation policy, model/retry/search/PPT internals;
+   - this change wins for teacher pages, calendars, teacher routes and teacher orchestration;
+   - shared components keep only backward-compatible props/events covered by contract tests.
+6. Restore or split teacher-branch edits that alter global budgets, validation policy, polling or student navigation unless they are independently required and proven for both surfaces.
+7. Verify both surfaces before creating the merge-ready local commit.
+
+Exit:
+
+- original student routes, default navigation and API behavior have regression evidence;
+- teacher routes and teacher-only endpoints are namespaced and directly testable;
+- teacher preview is read-only;
+- the adapter has no duplicated content/task source;
+- the final diff report classifies every changed shared file and contains no runtime data, secret, generated artifact or unrelated worktree file;
+- no push or main merge occurs without a later explicit user request.
+
 ## 6. Current implementation checkpoint
 
 | Area | Current evidence | Honest status |
@@ -442,3 +464,46 @@ Viewports: 1440, 1180, 880 and 680. Every viewport checks navigation readability
 | 20 | student-oriented content remains at the existing entry in V1 | WP2/WP3 | route/source review |
 
 Unresolved items are not hidden requirements: second school template, calendar-format priority beyond PDF/Excel, final student-content placement, collaborative-teacher role split and personal reminders remain separate decisions. They may not silently expand WP1–WP6.
+
+## 11. Merge-ready isolation round
+
+### 11.1 Frozen contract
+
+| Boundary | Student owner | Teacher owner | Shared engine |
+| --- | --- | --- | --- |
+| Product route | `/courses`, `/course/:id/learn` | `/teacher/courses`, `/teacher/course/:id/...` | none |
+| Course entry | existing learner library and resume behavior | teacher course library and teacher overview | course identity/list query |
+| Generation UX | existing learner generation/projection | outline → lesson plan → PPT → release orchestration | jobs, task events, model/search providers |
+| Authoring | no teacher actions embedded in learner pages | teacher adapter and authoring endpoints | course document, teaching-plan and representation engines |
+| Preview | normal learner behavior | explicit read-only teacher preview with return context | common renderer |
+| Data | learning/progress/practice/AI conversations | teacher drafts, calendars, release intent | immutable published course versions |
+
+### 11.2 Ordered implementation
+
+- [ ] M1 Snapshot current dirty state and classify user/runtime files; exclude all runtime JSON, screenshots, generated exports and local harness receipts from source scope.
+- [ ] M2 Add route-contract tests first, then complete the `/teacher` namespace while restoring `/course/:courseId` to the learner route.
+- [ ] M3 Preserve the teacher library in `TeacherCourseLibraryView` and restore `CourseLibraryView` to upstream student behavior; split tests by surface.
+- [ ] M4 Replace direct teacher-page store imports with `useTeacherCourseRuntime`; add an architectural test that teacher views do not import student stores directly.
+- [ ] M5 Move confirm-generation-preview and future teacher commands to a teacher authoring router; update the teacher workbench client and cover 400/404/409/422/success.
+- [ ] M6 Compare every shared-file modification with `origin/main`; restore upstream-owned strategy changes, retain only minimal compatibility extensions, and document any unavoidable overlap.
+- [ ] M7 Rebase or merge the current upstream snapshot only after M2–M6 produce a narrow diff; resolve shared engines in favor of upstream and reconnect through adapters.
+- [ ] M8 Run focused and full-enough regression: router contracts, student course library/lifecycle, teacher library/workflow, teacher preview write guard, backend teacher authoring, calendars, frontend build and real browser flows.
+- [ ] M9 Run `git diff --check`, secret/runtime-artifact scan, changed-file ownership report and conflict forecast; create one local merge-ready commit only after all hard gates pass.
+
+### 11.3 Hard gates
+
+| Gate | PASS | BLOCK |
+| --- | --- | --- |
+| Student preservation | `/courses` and learner routes render and keep existing resume/learning semantics | any default route lands in teacher UI or student API changes |
+| Teacher autonomy | teacher can create/open a course and run its staged authoring flow through teacher routes | teacher UI depends on learner-page navigation or mutations |
+| Shared capability | current upstream generation/search/PPT implementation is reused | duplicated engine/state or pinned older provider behavior |
+| Merge safety | all overlap is classified and shared strategy follows upstream | unexplained edits remain in shared generation/student files |
+| Data safety | teacher preview is read-only and no runtime data/secrets enter the diff | preview writes learning state or source diff contains local data/secrets |
+| UI regression | existing components/tokens remain and both products are browser-usable | new visual system or teacher isolation breaks student layout |
+
+### 11.4 Failure and rollback
+
+- If the adapter needs a second copy of course/task/PPT state, stop and redesign the contract.
+- If a teacher requirement needs a breaking student/shared API change, add a teacher endpoint or backward-compatible engine extension; do not silently change the old contract.
+- If upstream integration creates unresolved engine conflicts, keep the teacher commit local and report the exact files instead of choosing by intuition.
+- Route isolation can be rolled back by removing teacher route registration without deleting teacher calendar or course data.

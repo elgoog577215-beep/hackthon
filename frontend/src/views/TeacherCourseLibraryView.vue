@@ -8,11 +8,11 @@
         <button
           type="button"
           class="global-action-button"
-          data-testid="open-teacher-course-space"
-          @click="router.push('/teacher-course-space')"
+          data-testid="open-teacher-calendar"
+          @click="router.push({ name: 'teacher-teaching-calendar' })"
         >
-          <FolderOpen :size="17" />
-          <span class="action-label">{{ t('courseLibrary.teacherSpace', '教师文件空间') }}</span>
+          <CalendarRange :size="17" />
+          <span class="action-label">{{ t('teacherCalendar.total', '教学总日历') }}</span>
         </button>
         <button
           type="button"
@@ -31,9 +31,9 @@
 
     <header class="library-header">
       <div>
-        <p>{{ t('courseLibrary.eyebrow', '课程库') }}</p>
-        <h1>{{ t('courseLibrary.title', '选择一门课程继续学习') }}</h1>
-        <span>{{ t('courseLibrary.subtitle', '课程生成会在后台继续，离开页面不会中断任务。') }}</span>
+        <p>{{ t('courseLibrary.eyebrow', '我的课程') }}</p>
+        <h1>{{ t('courseLibrary.title', '课程工作台') }}</h1>
+        <span>{{ t('courseLibrary.subtitle', '管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。') }}</span>
       </div>
       <div class="library-actions">
         <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
@@ -65,8 +65,8 @@
               >
                 <span class="create-course-menu__icon"><FilePlus2 :size="19" /></span>
                 <span>
-                  <strong>{{ t('courseLibrary.newBlankCourse', '新建空白课程') }}</strong>
-                  <small>{{ t('courseLibrary.newBlankCourseHelp', '从零开始创建课程') }}</small>
+                  <strong>{{ t('courseLibrary.newBlankCourse', '进入新建课程') }}</strong>
+                  <small>{{ t('courseLibrary.newBlankCourseHelp', '先填课程信息，再选择大纲起点') }}</small>
                 </span>
               </button>
               <button
@@ -98,33 +98,11 @@
           :placeholder="t('courseLibrary.search', '搜索课程')"
         />
       </label>
-      <button
-        v-if="latestResumeCourse"
-        type="button"
-        class="library-resume"
-        data-testid="resume-course"
-        :aria-label="[
-          resumeKindLabel(latestResumeCourse.resume?.kind || 'reading'),
-          formatCourseTitle(latestResumeCourse.course_name),
-          t('courseLibrary.resume.open', '继续'),
-        ].join(' · ')"
-        @click="openCourse(latestResumeCourse.course_id, latestResumeCourse.resume?.node_id)"
-      >
-        <span class="library-resume__icon"><History :size="16" /></span>
-        <span class="library-resume__copy">
-          <small class="library-resume__label">{{ resumeKindLabel(latestResumeCourse.resume?.kind || 'reading') }}</small>
-          <strong class="library-resume__title">{{ formatCourseTitle(latestResumeCourse.course_name) }}</strong>
-          <span class="library-resume__separator" aria-hidden="true">·</span>
-          <span class="library-resume__location">
-            {{ latestResumeCourse.resume?.node_name || t('courseLibrary.resume.locationFallback', '返回上次学习位置') }}
-          </span>
-        </span>
-        <span class="library-resume__action">
-          {{ t('courseLibrary.resume.open', '继续') }}
-          <ArrowRight :size="16" />
-        </span>
-      </button>
-      <span class="library-toolbar__count">{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }}</span>
+      <div class="library-toolbar__summary" aria-label="课程状态摘要">
+        <span>全部 <strong>{{ filteredCourses.length }}</strong></span>
+        <span>待处理 <strong :class="{ attention: attentionCourseCount > 0 }">{{ attentionCourseCount }}</strong></span>
+        <span>已发布 <strong>{{ publishedCourseCount }}</strong></span>
+      </div>
     </div>
 
     <div v-if="courseStore.loading" class="library-state">
@@ -135,11 +113,16 @@
     <div v-else-if="!filteredCourses.length" class="library-state empty">
       <BookOpenText :size="28" />
       <strong>{{ query ? t('courseLibrary.noMatch', '没有匹配的课程') : t('courseLibrary.emptyTitle', '还没有课程') }}</strong>
-      <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程或导入已有 Markdown 开始学习。') }}</span>
+      <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程后，从教学大纲开始组织教学。') }}</span>
     </div>
 
-    <div v-else ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
-      <article
+    <section v-else class="course-collection">
+      <header class="course-collection__header">
+        <strong>{{ query ? '搜索结果' : '全部课程' }}</strong>
+        <span>{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }} · 按最近维护排序</span>
+      </header>
+      <div ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
+        <article
         v-for="{ course, status } in courseCards"
         :key="course.course_id"
         class="course-item glass-panel"
@@ -150,7 +133,7 @@
           type="button"
           class="course-main"
           :title="status.active ? status.detail : formatCourseTitle(course.course_name)"
-          @click="handleCoursePrimary(course.course_id, status.active)"
+          @click="handleCoursePrimary(course.course_id)"
         >
           <CourseCover :course-id="course.course_id" :title="course.course_name" />
           <span class="course-copy">
@@ -171,6 +154,7 @@
             >
               <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
             </span>
+            <span class="teacher-asset-summary">{{ teacherAssetSummary(course, status.active) }}</span>
           </span>
         </button>
 
@@ -224,6 +208,16 @@
                 type="button"
                 class="course-menu__item"
                 role="menuitem"
+                :data-testid="`open-course-production-${course.course_id}`"
+                @click="openCourseProduction(course.course_id)"
+              >
+                <Workflow :size="15" />
+                <span>{{ t('courseLibrary.productionEntry', '课程生产') }}</span>
+              </button>
+              <button
+                type="button"
+                class="course-menu__item"
+                role="menuitem"
                 :data-testid="`open-question-bank-review-${course.course_id}`"
                 @click="openQuestionBankReview(course.course_id)"
               >
@@ -243,8 +237,9 @@
             </div>
           </Transition>
         </div>
-      </article>
-    </div>
+        </article>
+      </div>
+    </section>
 
     <Teleport to="body">
       <Transition name="pagination-dock">
@@ -334,21 +329,18 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload, Workflow } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
-import { useCourseStore } from '../stores/course'
-import { useGenerationStore } from '../stores/generation'
+import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { activeLocale, t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
-import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume'
 import { formatCourseTitle } from '../utils/course-presentation'
 
 const router = useRouter()
-const courseStore = useCourseStore()
-const generationStore = useGenerationStore()
+const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
 const query = ref('')
 const currentPage = ref(1)
@@ -380,6 +372,8 @@ const courseCards = computed(() => paginatedCourses.value.map(course => ({
   course,
   status: courseStatus(course.course_id),
 })))
+const attentionCourseCount = computed(() => filteredCourses.value.filter(course => courseStatus(course.course_id).active).length)
+const publishedCourseCount = computed(() => filteredCourses.value.filter(course => course.is_published).length)
 const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
   const pages = totalPages.value
   if (pages <= 7) return Array.from({ length: pages }, (_, index) => index + 1)
@@ -387,9 +381,8 @@ const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis
   if (currentPage.value >= pages - 3) return [1, 'start-ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages]
   return [1, 'start-ellipsis', currentPage.value - 1, currentPage.value, currentPage.value + 1, 'end-ellipsis', pages]
 })
-const workbenchLabel = computed(() => activeLocale.value === 'en' ? 'Course workbench' : '课程工作台')
+const workbenchLabel = computed(() => activeLocale.value === 'en' ? 'Task center' : '任务中心')
 const actionRequiredTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskRequiresAction).length)
-const latestResumeCourse = computed(() => latestResumableCourse(courseStore.courseList))
 
 watch(query, () => {
   currentPage.value = 1
@@ -406,8 +399,7 @@ onMounted(async () => {
   courseStore.currentCourseVersionId = ''
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
-  await Promise.all([courseStore.fetchCourseList(), generationStore.fetchGlobalTasks()])
-  generationStore.startGlobalMonitor()
+  await courseStore.fetchCourseList()
 })
 
 onBeforeUnmount(() => {
@@ -438,7 +430,7 @@ function closeOpenMenusOnOutsidePointer(event: PointerEvent) {
 
 function openBlankCourse() {
   closeCreateMenu()
-  createDialogOpen.value = true
+  void router.push({ name: 'teacher-course-create' })
 }
 
 function openMarkdownImport() {
@@ -524,24 +516,35 @@ function taskRequiresAction(task: { status: string; publicationAllowed?: boolean
   return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
-function openCourse(courseId: string, nodeId?: string) {
+function teacherAssetSummary(course: { node_count: number; is_published?: boolean }, active: boolean) {
+  if (active) return t('courseLibrary.teacherSummary.generating', '大纲与教案正在生成，进入课程查看确认点')
+  if (course.is_published) {
+    return t('courseLibrary.teacherSummary.published', '大纲已确认 · {count} 个教学单元 · 可继续维护 PPT')
+      .replace('{count}', String(course.node_count || 0))
+  }
+  return t('courseLibrary.teacherSummary.draft', '{count} 个教学单元 · 等待继续组织教学')
+    .replace('{count}', String(course.node_count || 0))
+}
+
+function openCourse(courseId: string) {
   closeCourseMenu()
   void router.push({
-    name: 'learning',
-    params: { courseId, ...(nodeId ? { nodeId } : {}) },
+    name: 'teacher-course-overview',
+    params: { courseId },
   })
 }
 
-function handleCoursePrimary(courseId: string, active: boolean) {
-  if (active) {
-    openTaskCenter(courseId)
-    return
-  }
+function handleCoursePrimary(courseId: string) {
   openCourse(courseId)
 }
 
 function openGeneratingCourse(courseId: string) {
-  void router.push({ name: 'learning', params: { courseId } })
+  void router.push({ name: 'teacher-course-production', params: { courseId } })
+}
+
+function openCourseProduction(courseId: string) {
+  closeCourseMenu()
+  void router.push({ name: 'teacher-course-production', params: { courseId } })
 }
 
 function openTaskCenter(courseId = '') {
@@ -638,7 +641,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 .create-course-menu__item small { margin-top:3px; color:var(--lz-text-muted); font-size:10px; line-height:1.4; }
 .create-menu-enter-active,.create-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .create-menu-enter-from,.create-menu-leave-to { opacity:0; transform:translateY(-5px) scale(.98); }
-.library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:grid; grid-template-columns:minmax(240px,360px) minmax(0,1fr) auto; align-items:center; gap:12px; }
+.library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:grid; grid-template-columns:minmax(240px,360px) minmax(0,1fr); align-items:center; gap:12px; }
 .library-toolbar label { width:100%; height:44px; display:flex; align-items:center; gap:8px; padding:0 14px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .library-resume { min-width:0; height:44px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px 0 9px; overflow:hidden; border:1px solid rgba(134,239,172,.62); border-radius:12px; color:var(--lz-text); background:rgba(240,253,244,.52); box-shadow:inset 0 1px 0 rgba(255,255,255,.88); text-align:left; cursor:pointer; transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
@@ -655,8 +658,16 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-resume__action svg { transition:transform .18s ease; }
 .library-resume:hover .library-resume__action svg { transform:translateX(3px); }
 .library-resume:focus-visible .library-resume__action svg { transform:translateX(3px); }
-.library-toolbar__count { color:var(--lz-text-muted); font-size:12px; white-space:nowrap; }
-.course-grid { width:100%; max-width:var(--course-grid-width); margin:0; margin-inline-start:max(0px,calc((100% - var(--course-content-width)) / 2)); display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
+.library-toolbar__summary { justify-self:end; display:flex; align-items:center; color:var(--lz-text-muted); font-size:12px; white-space:nowrap; }
+.library-toolbar__summary span { padding:0 11px; border-right:1px solid var(--lz-border); }
+.library-toolbar__summary span:last-child { padding-right:0; border-right:0; }
+.library-toolbar__summary strong { margin-left:4px; color:var(--lz-text-primary); font-size:13px; }
+.library-toolbar__summary strong.attention { color:var(--lz-warning); }
+.course-collection { width:100%; max-width:1040px; margin:0 auto; }
+.course-collection__header { height:36px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:11px; }
+.course-collection__header strong { color:var(--lz-text-primary); font-size:13px; }
+.course-grid { width:100%; margin:14px 0 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
+.course-grid:has(.course-item:only-child) { grid-template-columns:minmax(0,1fr); }
 .course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 96px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
 .course-item--menu-open { z-index:30; }
@@ -664,6 +675,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
 .course-copy { min-width:0; display:flex; flex-direction:column; align-items:stretch; }
 .course-copy h2 { margin:0 0 10px; overflow:hidden; color:var(--lz-text-strong); font-size:16px; font-weight:800; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.teacher-asset-summary { display:block; margin-top:6px; overflow:hidden; color:var(--lz-text-muted); font-size:9px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
 .course-status { display:flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:12px; line-height:1; }
 .course-status strong { margin-left:2px; color:inherit; font-size:12px; font-weight:800; }
 .course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
@@ -718,11 +730,12 @@ async function deleteCourse(courseId: string, courseName: string) {
 }
 @media (max-width:980px) {
   .library-toolbar { grid-template-columns:minmax(220px,320px) minmax(0,1fr); }
-  .library-toolbar__count { display:none; }
+  .library-toolbar__summary { display:none; }
   .library-resume__location,.library-resume__separator { display:none; }
 }
 @media (max-width:860px) {
-  .course-grid { max-width:511px; grid-template-columns:minmax(0,1fr); }
+  .course-collection { max-width:620px; }
+  .course-grid { grid-template-columns:minmax(0,1fr); }
 }
 @media (max-width:700px) {
   .course-library { --course-card-height:150px; --course-cover-width:72px; padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
@@ -731,6 +744,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
   .create-course-menu__panel { left:0; right:0; width:auto; }
   .library-toolbar { margin-top:18px; grid-template-columns:minmax(0,1fr); gap:10px; }
+  .course-collection__header { height:auto; min-height:36px; gap:12px; }
   .library-resume { width:100%; }
   .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }
   .course-main { min-height:calc(var(--course-card-height) - 2px); grid-template-columns:var(--course-cover-width) minmax(0,1fr); gap:13px; padding:16px 5px 16px 14px; }

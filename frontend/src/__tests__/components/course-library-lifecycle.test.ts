@@ -4,19 +4,19 @@ import { ElMessageBox } from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import CourseLibraryView from '@/views/CourseLibraryView.vue'
+import CourseLibraryView from '@/views/TeacherCourseLibraryView.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
 
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
-    { path: '/courses', name: 'course-library', component: CourseLibraryView },
+    { path: '/teacher/courses', name: 'teacher-course-library', component: CourseLibraryView },
     { path: '/teacher-course-space', name: 'teacher-course-space', component: { template: '<div />' } },
     { path: '/teacher/teaching-calendar', name: 'teacher-teaching-calendar', component: { template: '<div />' } },
-    { path: '/courses/new', name: 'teacher-course-create', component: { template: '<div />' } },
-    { path: '/course/:courseId/overview', name: 'teacher-course-overview', component: { template: '<div />' } },
-    { path: '/course/:courseId/production', name: 'teacher-course-production', component: { template: '<div />' } },
+    { path: '/teacher/courses/new', name: 'teacher-course-create', component: { template: '<div />' } },
+    { path: '/teacher/course/:courseId/overview', name: 'teacher-course-overview', component: { template: '<div />' } },
+    { path: '/teacher/course/:courseId/production', name: 'teacher-course-production', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
 })
@@ -30,7 +30,7 @@ const GenerationDialogStub = defineComponent({
 describe('CourseLibraryView generation lifecycle', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
-    await router.push('/courses')
+    await router.push('/teacher/courses')
     await router.isReady()
   })
 

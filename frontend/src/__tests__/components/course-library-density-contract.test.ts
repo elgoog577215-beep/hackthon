@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const librarySource = readFileSync(
-  resolve(process.cwd(), 'src/views/CourseLibraryView.vue'),
+  resolve(process.cwd(), 'src/views/TeacherCourseLibraryView.vue'),
   'utf8',
 )
 const coverSource = readFileSync(

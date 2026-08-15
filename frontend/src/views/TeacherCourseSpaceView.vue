@@ -7,7 +7,7 @@
         <span>{{ t('teacherCourseSpace.subtitle', '按课程、学年和目录保存原始资料。') }}</span>
       </div>
       <div class="library-actions">
-        <button class="secondary-button" type="button" @click="router.push('/courses')">
+        <button class="secondary-button" type="button" @click="router.push({ name: 'teacher-course-library' })">
           {{ t('teacherCourseSpace.backToCourses', '返回课程库') }}
         </button>
       </div>

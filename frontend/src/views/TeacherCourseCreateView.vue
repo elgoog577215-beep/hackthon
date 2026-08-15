@@ -101,7 +101,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronRight, FilePlus2, Info, LockKeyhol
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
-import { useCourseStore } from '../stores/course'
+import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 
 type Draft = {
   title: string
@@ -120,7 +120,7 @@ type Draft = {
 
 const STORAGE_KEY = 'teacher_course_create_draft_v1'
 const router = useRouter()
-const courseStore = useCourseStore()
+const { course: courseStore } = useTeacherCourseRuntime()
 const step = ref(1)
 const generationDialogOpen = ref(false)
 const creating = ref(false)
@@ -156,7 +156,7 @@ function continueStep() {
   if (step.value === 1 && !draft.title.trim()) { operationError.value = t('teacherCourseCreate.nameRequired', '请先填写课程名称。'); ElMessage.warning(operationError.value); return }
   if (step.value < 3) step.value += 1
 }
-function backToCourses() { void router.push('/courses') }
+function backToCourses() { void router.push({ name: 'teacher-course-library' }) }
 async function discardDraft() {
   try {
     await ElMessageBox.confirm(t('teacherCourseCreate.discardConfirm', '确认放弃当前新建课程草稿？'), t('teacherCourseCreate.discard', '放弃本次草稿'), { type: 'warning', confirmButtonText: t('teacherCourseCreate.discard', '放弃本次草稿'), cancelButtonText: t('common.cancel', '取消') })

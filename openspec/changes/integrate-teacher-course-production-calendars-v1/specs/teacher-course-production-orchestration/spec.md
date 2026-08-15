@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 课程生产页面必须使用现有真实状态
-系统 MUST 在 `/course/:courseId/production` 使用现有课程、生成任务、目录、教案、课程正文、发布门和 PPT 工作台状态，不得建立平行 Store、模拟计时器或静态成功状态。
+系统 MUST 在 `/teacher/course/:courseId/production` 通过教师运行时适配入口使用现有课程、生成任务、目录、教案、课程正文、发布门和 PPT 工作台状态，不得建立平行 Store、模拟计时器或静态成功状态。
 
 #### Scenario: 打开生成中的课程
 - **WHEN** 教师从课程库打开一个正在生成的课程
@@ -64,3 +64,24 @@
 - **WHEN** 视口缩小到 680 像素
 - **THEN** 阶段和讲次导航以可操作的折叠或重排形式保留
 - **AND** 主要按钮、错误和保存状态不被隐藏或遮挡
+
+### Requirement: 学生端与教师端必须保持独立产品入口
+系统 MUST 保留学生课程库、学习现场和现有学习 API 行为，并将教师课程库与单课程工作台放入 `/teacher` 命名空间。教师专属编排 MUST NOT 修改学生页面的默认跳转、学习记录或 AI 对话语义。
+
+#### Scenario: 学生打开原课程入口
+- **WHEN** 用户访问 `/courses` 或 `/course/:courseId`
+- **THEN** 系统继续进入学生课程库或学习现场
+- **AND** 不隐式跳转到教师概览或教师生产页
+
+#### Scenario: 教师预览学生版
+- **WHEN** 教师从教师工作台显式打开学生版预览
+- **THEN** 学习页以只读 teacher-preview 上下文呈现
+- **AND** 不创建学习记录、进度、练习记录或 AI 会话
+
+### Requirement: 教师端必须复用底层能力但拥有独立编排
+系统 MUST 复用同一 `GenerationJob`、联网检索、`CourseDocument`、教案工作台和 PPT 引擎，但教师的确认、停靠、继续、版本选择与发布操作 MUST 由教师 authoring/orchestration 契约承载。适配层 MUST NOT 复制课程或任务真源。
+
+#### Scenario: 底层生成引擎升级
+- **WHEN** 共享生成、检索或 PPT 引擎的内部实现发生变化且对外契约仍兼容
+- **THEN** 学生端继续使用原入口
+- **AND** 教师端通过适配入口获得新能力，无需重写教师页面状态机

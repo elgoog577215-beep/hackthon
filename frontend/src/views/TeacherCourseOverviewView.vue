@@ -1,12 +1,12 @@
 <template>
   <section class="teacher-overview-page">
     <header class="product-bar">
-      <button type="button" class="brand" @click="router.push('/courses')">
+      <button type="button" class="brand" @click="router.push({ name: 'teacher-course-library' })">
         <img src="/qizhi-favicon.svg" alt="" />
         <strong>启智</strong>
       </button>
       <nav :aria-label="t('teacherWorkbench.breadcrumb', '当前位置')">
-        <button type="button" @click="router.push('/courses')">{{ t('teacherWorkbench.courseWorkbench', '课程工作台') }}</button>
+        <button type="button" @click="router.push({ name: 'teacher-course-library' })">{{ t('teacherWorkbench.courseWorkbench', '课程工作台') }}</button>
         <ChevronRight :size="14" />
         <strong>{{ courseTitle }}</strong>
       </nav>
@@ -115,16 +115,14 @@ import {
 } from 'lucide-vue-next'
 import TeacherCourseSidebar from '../components/TeacherCourseSidebar.vue'
 import { t } from '../shared/i18n'
-import { useCourseStore } from '../stores/course'
-import { useGenerationStore } from '../stores/generation'
+import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { useTeachingCalendarStore, type ClassSession } from '../stores/teachingCalendar'
 import type { GuidedGenerationStepKey, Node } from '../stores/types'
 import { lessonUnitHasContent, projectLessonUnits } from '../utils/lesson-units'
 
 const route = useRoute()
 const router = useRouter()
-const courseStore = useCourseStore()
-const generationStore = useGenerationStore()
+const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const calendarStore = useTeachingCalendarStore()
 const loading = ref(false)
 const loadError = ref('')
@@ -197,7 +195,16 @@ function openOutline() { void router.push({ name: 'teacher-course-outline', para
 function openCalendar() { void router.push({ name: 'teacher-course-calendar', params: { courseId: courseId.value } }) }
 function openProduction(stage?: 'teaching' | 'ppt') { void router.push({ name: 'teacher-course-production', params: { courseId: courseId.value }, query: stage ? { stage } : undefined }) }
 function openRelease() { void router.push({ name: 'teacher-course-release', params: { courseId: courseId.value } }) }
-function openStudentPreview() { void router.push({ name: 'learning', params: { courseId: courseId.value } }) }
+function openStudentPreview() {
+  void router.push({
+    name: 'learning',
+    params: { courseId: courseId.value },
+    query: {
+      teacherPreview: '1',
+      returnTo: router.resolve({ name: 'teacher-course-overview', params: { courseId: courseId.value } }).fullPath,
+    },
+  })
+}
 
 async function load() {
   if (!courseId.value || loading.value) return

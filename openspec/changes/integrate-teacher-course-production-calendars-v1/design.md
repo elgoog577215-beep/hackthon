@@ -25,9 +25,11 @@
 
 ## Decisions
 
-### 1. 生产页是现有领域状态的聚合投影，不建立第二套 Store
+### 1. 生产页是现有领域状态的教师投影，不建立第二套引擎
 
-`TeacherCourseProductionView` 继续调用 `courseStore.loadCourse(courseId)` 和 `generationStore.observeCourse(courseId)`，阶段状态从任务 `guidedWorkflow/review_step/current_step`、课程 projection 和现有工作台数据确定。页面只保存当前阶段、当前讲次和临时展开状态。
+`TeacherCourseProductionView` 不再直接把学生页面编排当成教师工作流。所有教师页面经 `teacher-course` 运行时适配入口读取现有 `courseStore`、`generationStore`、目录、教案和 PPT 引擎；适配层负责把底层状态翻译成教师的 `outline / lesson-plan / ppt / release` 阶段与动作。
+
+适配层不复制课程、任务或 PPT 状态，也不建第二套 Store；它只作为产品编排防腐层，集中处理命名、状态优先级、教师预览只读契约和底层接口变化。教师页面只保存当前阶段、当前讲次和临时展开状态。
 
 **拒绝方案：**复制 `LearningView` 的完整状态到新 Store，或使用本地数组模拟讲次进度。两者都会形成双真源。
 
@@ -98,6 +100,34 @@ ClassSessionV1
 
 `/workspace-concept/teacher-course-v1` 只提供颜色、字体、按钮、边框、紧凑尺度和总体气质参考。信息架构、页面层级、生产流程与数据状态以本 design 和产品规划文档为准；不得为了“像模拟页”保留与方案冲突的双层导航、假进度或学生端流程。
 
+### 10. 学生产品面和教师产品面独立，底层能力共享
+
+路由边界固定为：
+
+```text
+Student surface
+  /courses
+  /course/:courseId/learn/:nodeId?
+  existing learning/practice/AI-teacher contracts
+
+Teacher surface
+  /teacher/courses
+  /teacher/courses/new
+  /teacher/course/:courseId/{overview|outline|teaching-calendar|production|files|release}
+  /teacher/teaching-calendar
+```
+
+原 `/course/:courseId` 继续回到学生学习现场，不再隐式跳到教师概览。教师预览学生版必须显式携带只读 preview 上下文，不创建学习记录、实践记录或 AI 会话。
+
+后端底层 `GenerationJob / TaskManager / CourseDocument / TeachingPlanWorkbench / TeachingRepresentation` 仍是共享真源。教师专属的“确认生成结果为教师工作稿”、“阶段状态投影”和“发布冻结”使用 teacher authoring/orchestration 路由，不把教师业务端点放进共享 `courses.py` 或学生 API 命名空间。
+
+合并时的所有权规则固定为：
+
+- 学生页面、学习路由、原生成能力实现和共享引擎策略以 `origin/main` 与朋友后续实现为准。
+- 教师页面、教师路由、教师日历、教师 authoring/orchestration 和适配投影以本 change 为准。
+- 共享文件只允许非破坏性扩展或必要 bugfix；能移到 teacher 命名空间的逻辑不留在共享文件。
+- 适配层只翻译契约，不缓存或复制整份课程内容，不在学生和教师之间形成双真源。
+
 ## Risks / Trade-offs
 
 - **当前课程没有正式教师 ownership** → 日历按稳定身份隔离，同时在问题记录标记权限欠账；不以此扩大本轮到完整 RBAC。
@@ -106,14 +136,17 @@ ClassSessionV1
 - **JSON 文件并发** → `base_revision` + 原子写入，冲突明确返回 409；第一版单进程足够，横向扩展前必须换共享仓库。
 - **总日历事件过密** → 默认月视图只显示课程色点与短标题，悬停/点击再展示细节；周/列表承载时间和地点。
 - **新真实页和模拟页视觉漂移** → 模拟页只读保留，真实页复用 token/组件，并用浏览器在 1440、1180、880、680 宽度验证。
+- **朋友继续修改共享生成能力** → 教师端不固化提供方、模型、重试、检索或 PPT 策略；通过窄适配入口消化接口变化，以契约回归保证两端。
+- **适配层演变为第二引擎** → 禁止复制任务、课程文档和 PPT 状态；只允许语义翻译、命令转发和只读投影。
 
 ## Migration Plan
 
-1. 保留现有模拟路由不变，新增真实生产与日历路由。
-2. 先完成生产页真实状态与课程库入口，验证现有生成任务、确认门和 PPT 跳转。
-3. 增加日历仓库、API 与后端测试，再接前端 Store 和单课程日历。
-4. 增加总日历聚合与页面，验证跨课程跳转。
-5. 关闭新路由即可回滚 UI；删除路由不会删除已有日历 JSON。日历仓库不自动迁移或覆盖课程数据。
+1. 先冻结学生/教师路由、状态与 API 契约，建立双端回归基线。
+2. 将教师课程库和六项课程工作台路由迁入 `/teacher` 命名空间，恢复学生课程库和旧课程入口。
+3. 用教师运行时适配入口承接现有 Store/引擎，将 teacher authoring API 从共享课程路由拆出。
+4. 还原不必要的共享文件修改，然后将 `origin/main` 的最新生成能力接入适配层，禁止为了教师 UI 覆盖学生引擎策略。
+5. 在双端契约验证后，再对生产页、单课程日历和总日历做真实浏览器回归。
+6. 关闭 `/teacher` 路由即可回滚教师 UI；该回滚不改变学生路由、学习数据或日历 JSON。
 
 ## Open Questions
 

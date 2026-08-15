@@ -1111,6 +1111,10 @@ function runResumeAction() {
 }
 
 function leaveTeacherPreview() {
+  if (!isTeacherPreview.value) {
+    void router.push('/courses')
+    return
+  }
   const returnTo = String(route.query.returnTo || '')
   if (isTeacherPreview.value && returnTo.startsWith('/') && !returnTo.startsWith('//')) {
     void router.push(returnTo)

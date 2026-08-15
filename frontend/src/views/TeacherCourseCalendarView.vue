@@ -1,11 +1,11 @@
 <template>
   <section class="course-calendar-page">
     <header class="product-bar">
-      <button type="button" class="brand" @click="router.push('/courses')">
+      <button type="button" class="brand" @click="router.push({ name: 'teacher-course-library' })">
         <img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong>
       </button>
       <nav aria-label="当前位置">
-        <button type="button" @click="router.push('/courses')">课程工作台</button><ChevronRight :size="14" />
+        <button type="button" @click="router.push({ name: 'teacher-course-library' })">课程工作台</button><ChevronRight :size="14" />
         <button type="button" @click="router.push({ name: 'teacher-course-overview', params: { courseId } })">{{ courseTitle }}</button><ChevronRight :size="14" />
         <strong>教学日历</strong>
       </nav>
@@ -194,14 +194,14 @@ import { ArrowUpDown, CalendarDays, CalendarRange, ChevronDown, ChevronLeft, Che
 import TeacherCourseSidebar from '../components/TeacherCourseSidebar.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import { t } from '../shared/i18n'
-import { useCourseStore } from '../stores/course'
+import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { useTeachingCalendarStore, type ClassSession, type OutlineCalendarCandidate, type TeachingCalendar } from '../stores/teachingCalendar'
 import { sessionImportKey, teachingCalendarFromCsv } from '../utils/teaching-calendar-csv'
 import http, { getTeacherIdentity } from '../utils/http'
 
 const route = useRoute()
 const router = useRouter()
-const courseStore = useCourseStore()
+const { course: courseStore } = useTeacherCourseRuntime()
 const store = useTeachingCalendarStore()
 const editable = ref<TeachingCalendar | null>(null)
 const csvInput = ref<HTMLInputElement | null>(null)
