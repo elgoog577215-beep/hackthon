@@ -259,6 +259,43 @@ def test_required_steps_slot_rejects_numbered_concept_sections() -> None:
     assert error.value.failure.code == "template_required_slot_unfilled"
 
 
+def test_process_flow_rejects_a_reasoning_outline_that_drops_visible_source() -> None:
+    """Numbered headings cannot make an incomplete step projection lossless."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("process-flow"))
+    assert layout is not None
+    source = _block(
+        "numbered-reasoning-specification",
+        role="reasoning",
+        markdown=(
+            "Turn the repair request into explicit engineering acceptance criteria.\n\n"
+            "### 1. Required inputs\n"
+            "- A runnable packaged build.\n"
+            "- A release checklist containing known defects.\n\n"
+            "### 2. Required outputs\n"
+            "- A structured defect report.\n"
+            "  - Exact reproduction steps.\n"
+            "  - Root-cause evidence.\n\n"
+            "### 3. Acceptance criteria\n"
+            "- Every regression test passes."
+        ),
+    )
+
+    with pytest.raises(V6BuildError) as error:
+        validate_layout_source_satisfiability(
+            page_id="numbered-reasoning-specification",
+            template=template,
+            layout=layout,
+            source_blocks=[source],
+        )
+
+    assert (
+        error.value.failure.code
+        == "template_source_semantic_fidelity_incomplete"
+    )
+
+
 def test_required_steps_slot_accepts_a_single_complete_step_after_pagination() -> None:
     """Capacity pagination may leave one real ordered step on a legal page."""
 
