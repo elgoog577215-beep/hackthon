@@ -4,7 +4,7 @@
     "cover-minimal": { "renderer_layout": "cover-minimal", "basic_layout": "cover" },
     "chapter-entry": { "renderer_layout": "chapter-entry", "basic_layout": "chapter" },
     "agenda-path": { "renderer_layout": "agenda-linear", "basic_layout": "roadmap" },
-    "content-stack": { "renderer_layout": "editorial-body", "basic_layout": "concept" },
+    "content-stack": { "renderer_layout": "balanced-two-column", "basic_layout": "concept" },
     "concept-pair": { "renderer_layout": "balanced-two-column", "basic_layout": "concept" },
     "classification-three": { "renderer_layout": "classification-3", "basic_layout": "concept" },
     "process-flow": { "renderer_layout": "process-sequence", "basic_layout": "process" },

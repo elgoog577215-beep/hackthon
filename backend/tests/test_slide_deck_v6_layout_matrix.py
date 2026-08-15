@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter
+from math import ceil
 
 import pytest
 
+import slide_deck_v6 as deck_v6
 from course_document import CourseBlock
 from course_presentation_graph import block_artifact_kinds
 from slide_deck_v6 import (
@@ -16,7 +18,6 @@ from template_layout_contract import (
     compile_builtin_template_layout_contract_v1,
     template_layout_contract_matrix,
 )
-
 
 _BUILTIN_TEMPLATE = compile_builtin_template_layout_contract_v1(
     "qizhi-classroom"
@@ -151,14 +152,16 @@ def test_every_builtin_layout_has_a_deterministic_satisfiable_source_shape(
         source_blocks=blocks,
     )
 
-    signature = lambda pages: [
-        (
-            page.layout.layout_slug,
-            [block.block_id for block in page.source_blocks],
-            [_prose_source_text(block) for block in page.source_blocks],
-        )
-        for page in pages
-    ]
+    def signature(pages):
+        return [
+            (
+                page.layout.layout_slug,
+                [block.block_id for block in page.source_blocks],
+                [_prose_source_text(block) for block in page.source_blocks],
+            )
+            for page in pages
+        ]
+
     assert signature(first) == signature(second)
 
 
@@ -222,6 +225,21 @@ def test_builtin_layout_contract_matrix_is_complete_and_closed() -> None:
                     for key in ("max_chars", "max_items", "max_lines", "max_rows")
                 )
 
+    content_stack = next(row for row in matrix if row["layout_slug"] == "content-stack")
+    body_slot = next(
+        slot for slot in content_stack["required_slots"] if slot["slot_kind"] == "body"
+    )
+    evidence_code = next(row for row in matrix if row["layout_slug"] == "evidence-code")
+    code_slot = next(
+        slot for slot in evidence_code["required_slots"] if slot["slot_kind"] == "code"
+    )
+    assert body_slot["max_chars"] == 650
+    assert body_slot["max_lines"] == 30
+    assert code_slot["max_chars"] == 400
+    assert code_slot["max_lines"] == 13
+    assert code_slot["continuation_max_chars"] == 650
+    assert code_slot["continuation_max_lines"] == 13
+
 
 def test_multi_slot_pagination_never_repeats_a_companion_source_block() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -282,6 +300,179 @@ def test_multi_slot_pagination_never_repeats_a_companion_source_block() -> None:
     )
 
 
+def test_optional_companion_overflow_uses_continuation_capacity_linearly() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("practice-prompt"))
+    continuation = template.get_layout(template.layout_id("content-stack"))
+    assert layout is not None
+    assert continuation is not None
+    feedback = "".join(
+        f"验收项 {index}：核对输入、动作、观察和结论。"
+        for index in range(1, 42)
+    )
+    blocks = [
+        _block(
+            "short-task",
+            role="activity",
+            position=0,
+            markdown="1. 执行一次完整操作。\n2. 记录可复核结果。",
+        ),
+        _block(
+            "long-criteria",
+            role="feedback",
+            position=1,
+            markdown=feedback,
+        ),
+    ]
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="linear-optional-overflow",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+
+    continuation_body = next(
+        slot for slot in continuation.slots if slot.slot_kind == "body"
+    )
+    expected_continuations = ceil(
+        len(_prose_source_text(blocks[1]))
+        / continuation_body.max_chars
+    )
+    assert len(materializations) <= 1 + expected_continuations + 1
+    assert materializations[0].layout.layout_slug == "practice-prompt"
+    assert all(
+        page.layout.layout_slug == "content-stack"
+        for page in materializations[1:]
+    )
+
+
+def test_multi_slot_overflow_preserves_first_source_occurrence_order() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("practice-prompt"))
+    assert layout is not None
+    blocks = [
+        _block(
+            "activity-a",
+            role="activity",
+            position=0,
+            markdown="1. A-" + "保留完整操作与观察。" * 24,
+        ),
+        _block(
+            "activity-b",
+            role="activity",
+            position=1,
+            markdown="1. B-" + "保留另一组操作与观察。" * 24,
+        ),
+        _block(
+            "feedback-c",
+            role="feedback",
+            position=2,
+            markdown="- C-逐项核对证据并给出结论。",
+        ),
+    ]
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="ordered-multi-slot-overflow",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+    first_occurrences: list[str] = []
+    seen: set[str] = set()
+    for page in materializations:
+        for block in sorted(page.source_blocks, key=lambda item: item.position):
+            if block.block_id not in seen:
+                seen.add(block.block_id)
+                first_occurrences.append(block.block_id)
+
+    assert first_occurrences == [block.block_id for block in blocks]
+
+
+def test_short_content_never_creates_an_unnecessary_continuation() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("content-stack"))
+    assert layout is not None
+    blocks = [
+        _block(
+            "short-body",
+            role="concept",
+            markdown="这段完整正文显著低于模板容量，因此不应拆页。" * 4,
+        )
+    ]
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="short-content",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+
+    assert len(materializations) == 1
+
+
+def test_content_stack_paginates_on_readable_line_capacity_without_text_loss() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("content-stack"))
+    assert layout is not None
+    body_slot = next(slot for slot in layout.slots if slot.slot_id == "body")
+    source = "\n\n".join(
+        f"第{index}项观察必须保留条件、原始记录、判断依据与复核结果。"
+        for index in range(1, 19)
+    )
+    block = _block(
+        "line-dense-body",
+        role="concept",
+        markdown=source,
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="line-dense-content",
+        template=template,
+        layout=layout,
+        source_blocks=[block],
+    )
+    rendered_chunks = [
+        deck_v6._complete_slot_content(page.source_blocks, "body")
+        for page in materializations
+    ]
+
+    assert len(source) < body_slot.max_chars
+    assert len(materializations) > 1
+    assert "\n\n".join(rendered_chunks) == source
+    assert all(
+        deck_v6._prose_wrapped_line_cost(chunk) <= body_slot.max_lines
+        for chunk in rendered_chunks
+    )
+
+
+def test_code_continuations_scale_with_declared_line_capacity_without_duplicates() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-code"))
+    assert layout is not None
+    source = "\n".join(f"value_{index} = {index};" for index in range(51))
+    block = _block(
+        "linear-code",
+        role="example",
+        kind="code",
+        markdown=source,
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="linear-code-pagination",
+        template=template,
+        layout=layout,
+        source_blocks=[block],
+    )
+    visible = "\n".join(
+        deck_v6._complete_slot_content(page.source_blocks, "code")
+        for page in materializations
+    )
+
+    assert len(materializations) == ceil(51 / 13)
+    assert visible == source
+
+
 def test_table_pagination_keeps_source_prose_once_instead_of_once_per_chunk() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     layout = template.get_layout(template.layout_id("evidence-table"))
@@ -316,6 +507,135 @@ def test_table_pagination_keeps_source_prose_once_instead_of_once_per_chunk() ->
 
     assert len(materializations) > 1
     assert visible.count("TABLE-INTRO-MARKER") == 1
+
+
+def test_optional_table_interpretation_routes_unmatched_prose_to_safe_continuation() -> None:
+    """A table layout may preserve an extra source role without mislabelling it."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-table"))
+    assert layout is not None
+    blocks = [
+        _block(
+            "diagnostic-context",
+            role="misconception",
+            position=0,
+            markdown="DIAGNOSTIC-CONTEXT：先记录症状、定位步骤和修正边界。",
+        ),
+        _block(
+            "verification-table",
+            role="feedback",
+            position=1,
+            kind="table",
+            markdown=(
+                "| Check | Evidence |\n"
+                "| --- | --- |\n"
+                "| State | Verified |"
+            ),
+        ),
+        _block(
+            "verification-result",
+            role="feedback",
+            position=2,
+            markdown="VERIFICATION-RESULT：复核状态变化并记录结论。",
+        ),
+    ]
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="table-with-unmatched-support",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+    visible = "\n".join(
+        _prose_source_text(block)
+        for page in materializations
+        for block in page.source_blocks
+    )
+
+    assert {page.layout.layout_slug for page in materializations} == {
+        "content-stack",
+        "evidence-table",
+    }
+    assert visible.count("DIAGNOSTIC-CONTEXT") == 1
+    assert visible.count("VERIFICATION-RESULT") == 1
+
+
+def test_required_artifact_support_routes_nonmatching_prose_losslessly() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-formula"))
+    assert layout is not None
+    blocks = [
+        _block(
+            "formula-concept",
+            role="concept",
+            position=0,
+            markdown=(
+                "FORMULA-CONTEXT：完整说明变量边界与适用条件。" * 28
+                + "\n\n$$score = verified / total$$"
+            ),
+        ),
+        _block(
+            "formula-derivation",
+            role="reasoning",
+            position=1,
+            markdown="DERIVATION：先确认总量非零，再计算已验证项比例。",
+        ),
+    ]
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="formula-with-concept-support",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+    visible = "\n".join(
+        _prose_source_text(block)
+        for page in materializations
+        for block in page.source_blocks
+    )
+
+    assert materializations[0].layout.layout_slug == "evidence-formula"
+    assert any(
+        page.layout.layout_slug == "content-stack"
+        for page in materializations[1:]
+    )
+    assert visible.count("FORMULA-CONTEXT") == 28
+    assert visible.count("DERIVATION") == 1
+
+
+def test_inline_math_remains_visible_prose_when_it_is_not_a_formula_artifact() -> None:
+    block = _block(
+        "inline-math-step",
+        role="activity",
+        markdown=(
+            "1. 设置分辨率为 $1920 \\times 1080$。\n"
+            "2. 将偏移量设为 $0$，然后记录结果。"
+        ),
+    )
+
+    assert block_artifact_kinds(block) == []
+    assert "$1920 \\times 1080$" in _prose_source_text(block)
+    assert "$0$" in _prose_source_text(block)
+
+
+def test_ordered_step_fidelity_ignores_rendering_punctuation_but_not_facts() -> None:
+    source = (
+        "1. 配置输入：\n"
+        "   - 分辨率使用 $1920 \\times 1080$；\n"
+        "   - 偏移量设为 $0$。\n"
+        "2. 运行验证并记录输出。"
+    )
+    visible = (
+        "配置输入。分辨率使用 $1920 \\times 1080$。偏移量设为 $0$；"
+        "运行验证并记录输出。"
+    )
+
+    assert deck_v6._ordered_step_sequence_visible(source, visible)
+    assert not deck_v6._ordered_step_sequence_visible(
+        source,
+        visible.replace("偏移量设为 $0$", "偏移量保持默认值"),
+    )
 
 
 @pytest.mark.parametrize(

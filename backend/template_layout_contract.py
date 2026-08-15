@@ -38,6 +38,8 @@ class TemplateSlotContractV1(_StrictModel):
     max_items: int = Field(default=0, ge=0)
     max_lines: int = Field(default=0, ge=0)
     max_rows: int = Field(default=0, ge=0)
+    continuation_max_chars: int = Field(default=0, ge=0)
+    continuation_max_lines: int = Field(default=0, ge=0)
     split_wrapped_lines: int = Field(default=0, ge=0)
     full_wrapped_lines: int = Field(default=0, ge=0)
     split_column_chars: int = Field(default=0, ge=0)
@@ -103,6 +105,8 @@ def template_layout_contract_matrix(
                     "max_items": slot.max_items,
                     "max_lines": slot.max_lines,
                     "max_rows": slot.max_rows,
+                    "continuation_max_chars": slot.continuation_max_chars,
+                    "continuation_max_lines": slot.continuation_max_lines,
                     "split_wrapped_lines": slot.split_wrapped_lines,
                     "full_wrapped_lines": slot.full_wrapped_lines,
                     "split_column_chars": slot.split_column_chars,
@@ -122,6 +126,8 @@ def template_layout_contract_matrix(
                     "max_items": slot.max_items,
                     "max_lines": slot.max_lines,
                     "max_rows": slot.max_rows,
+                    "continuation_max_chars": slot.continuation_max_chars,
+                    "continuation_max_lines": slot.continuation_max_lines,
                     "split_wrapped_lines": slot.split_wrapped_lines,
                     "full_wrapped_lines": slot.full_wrapped_lines,
                     "split_column_chars": slot.split_column_chars,
@@ -182,6 +188,8 @@ def _slot(
     items: int = 0,
     lines: int = 0,
     rows: int = 0,
+    continuation_chars: int = 0,
+    continuation_lines: int = 0,
     split_wrapped_lines: int = 0,
     full_wrapped_lines: int = 0,
     split_column_chars: int = 0,
@@ -197,6 +205,8 @@ def _slot(
         "max_items": items,
         "max_lines": lines,
         "max_rows": rows,
+        "continuation_max_chars": continuation_chars,
+        "continuation_max_lines": continuation_lines,
         "split_wrapped_lines": split_wrapped_lines,
         "full_wrapped_lines": full_wrapped_lines,
         "split_column_chars": split_column_chars,
@@ -241,7 +251,10 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "slots": [
             _EYEBROW,
             _TITLE,
-            _slot("body", "body", min_chars=120, chars=520),
+            # The shared 16pt two-card renderer safely holds fifteen wrapped
+            # lines per card. The compiler balances one body across both
+            # cards, so the source contract is thirty lines in total.
+            _slot("body", "body", min_chars=120, chars=650, lines=30),
             _NOTES,
         ],
         "continuations": ["content-stack"],
@@ -269,7 +282,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "practice-prompt": {
         "intents": ["practice_feedback"],
-        "slots": [_TITLE, _slot("task", "steps", items=5, chars=420), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
+        "slots": [_TITLE, _slot("task", "steps", items=5, chars=420, lines=12), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
         "continuations": [
             "practice-prompt",
             "practice-feedback",
@@ -282,7 +295,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "slots": [
             _TITLE,
             _slot("code", "code", lines=12, chars=380),
-            _slot("task", "steps", items=7, chars=294),
+            _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
         "continuations": ["practice-code", "practice-prompt", "evidence-code"],
@@ -294,7 +307,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "slots": [
             _TITLE,
             _slot("formula", "formula", chars=300),
-            _slot("task", "steps", items=7, chars=294),
+            _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
         "continuations": ["practice-formula", "practice-prompt", "evidence-formula"],
@@ -316,7 +329,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
                 full_column_chars=20,
                 wide_min_columns=3,
             ),
-            _slot("task", "steps", items=7, chars=294),
+            _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
         "continuations": ["practice-table", "practice-prompt", "evidence-table"],
@@ -324,7 +337,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "practice-feedback": {
         "intents": ["practice_feedback", "misconception_repair"],
-        "slots": [_TITLE, _slot("prompt", "body", chars=220), _slot("feedback", "body", chars=300), _NOTES],
+        "slots": [_TITLE, _slot("prompt", "body", chars=220, lines=12), _slot("feedback", "body", chars=300, lines=12), _NOTES],
         "continuations": ["practice-feedback", "content-stack"],
     },
     "evidence-code": {
@@ -332,7 +345,14 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "artifact_kinds": ["code"],
         "slots": [
             _TITLE,
-            _slot("code", "code", lines=13, chars=400),
+            _slot(
+                "code",
+                "code",
+                lines=13,
+                chars=400,
+                continuation_lines=13,
+                continuation_chars=650,
+            ),
             _slot("annotation", "body", required=False, chars=160),
             _NOTES,
         ],

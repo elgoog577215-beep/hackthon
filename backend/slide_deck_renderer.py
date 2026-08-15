@@ -418,7 +418,11 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
         after = float(paragraph.space_after.pt) if paragraph.space_after else 0.0
         required_height += line_count * font_size * 1.22 + before + after
     return {
-        "overflow": required_height > max(height_pt * 1.18, height_pt + 2.0),
+        # Keep only a small allowance for font-metric variance.  The previous
+        # 18% tolerance let text visibly escape its semantic card while still
+        # remaining inside the slide canvas (for example, dense two-column
+        # bodies rendered by LibreOffice).
+        "overflow": required_height > max(height_pt * 1.02, height_pt + 2.0),
         "required_height_pt": round(required_height, 2),
         "available_height_pt": round(height_pt, 2),
         "minimum_font_size_pt": 18.0 if minimum_size == 10**9 else minimum_size,
@@ -477,7 +481,7 @@ def _table_cell_audits(shape: Any) -> list[dict[str, Any]]:
                     else 0.0
                 )
                 required_height += line_count * font_size * 1.22 + before + after
-            if required_height > max(height_pt * 1.18, height_pt + 2.0):
+            if required_height > max(height_pt * 1.02, height_pt + 2.0):
                 audits.append({
                     "severity": "critical",
                     "code": "exported_table_cell_overflow",
@@ -688,7 +692,15 @@ def audit_exported_pptx(
                     0.6 <= top_inches < 1.95
                     and text_audit["minimum_font_size_pt"] >= 28
                 )
-                if text_audit["overflow"]:
+                title_metric_variance_fits = bool(
+                    is_title
+                    and text_audit["required_height_pt"]
+                    <= max(
+                        text_audit["available_height_pt"] * 1.06,
+                        text_audit["available_height_pt"] + 4.0,
+                    )
+                )
+                if text_audit["overflow"] and not title_metric_variance_fits:
                     issues.append({
                         "severity": "critical",
                         "code": "exported_text_frame_overflow",
@@ -2685,10 +2697,52 @@ def _render_editorial_body(
         2.3,
         10.75,
         3.55,
-        26 if len(body) <= 90 else 22 if len(body) <= 180 else 17,
+        26 if len(body) <= 90 else 22 if len(body) <= 180 else 16,
         theme["ink"],
     )
     _shape(slide, 1.34, 6.13, 4.35, 0.025, theme["chart_bg"], radius=False)
+
+
+def _balanced_two_column_body(value: str) -> list[str]:
+    """Split prose by rendered line cost, not paragraph count or raw characters."""
+
+    source = str(value or "").strip()
+    single_column_font = 26 if len(source) <= 90 else 22 if len(source) <= 180 else 16
+    single_column_lines = _wrapped_line_count(
+        source,
+        width_pt=10.75 * 72,
+        font_size_pt=single_column_font,
+    )
+    single_column_required_height = (
+        single_column_lines * single_column_font * 1.22
+    )
+    if single_column_required_height <= 3.55 * 72 * 1.02:
+        return [source] if source else []
+    candidates = {
+        match.end()
+        for match in re.finditer(
+            r"\n\s*\n|[。！？；]|[.!?;](?:\s+|$)|\s+",
+            source,
+        )
+        if len(source) // 5 <= match.end() <= len(source) * 4 // 5
+    }
+    if not candidates:
+        candidates = {len(source) // 2}
+    width_pt = 5.32 * 72
+
+    def split_cost(position: int) -> tuple[int, int, int]:
+        left = source[:position].strip()
+        right = source[position:].strip()
+        left_lines = _wrapped_line_count(left, width_pt=width_pt, font_size_pt=16)
+        right_lines = _wrapped_line_count(right, width_pt=width_pt, font_size_pt=16)
+        return (
+            max(left_lines, right_lines),
+            abs(left_lines - right_lines),
+            abs(position - len(source) // 2),
+        )
+
+    split_at = min(candidates, key=split_cost)
+    return [source[:split_at].strip(), source[split_at:].strip()]
 
 
 def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2700,13 +2754,7 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         if value
     ]
     if len(values) == 1:
-        paragraphs = [item for item in values[0].split("\n\n") if item.strip()]
-        if len(paragraphs) > 1:
-            split_at = (len(paragraphs) + 1) // 2
-            values = [
-                "\n\n".join(paragraphs[:split_at]),
-                "\n\n".join(paragraphs[split_at:]),
-            ]
+        values = _balanced_two_column_body(values[0])
     if len(values) < 2:
         _render_editorial_body(
             slide,
@@ -2733,11 +2781,20 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         ),
     )
     for index, value in enumerate(values[:2]):
-        x = 0.82 + index * 5.92
+        x = 0.68 + index * 6.05
         style = styles[index]
-        _semantic_panel(slide, x, 1.9, 5.58, 4.38, style)
-        _text(slide, labels[index], x + 0.34, 2.2, 1.2, 0.32, 12, style["accent"], bold=True)
-        _text(slide, value, x + 0.34, 2.82, 4.9, 2.85, 17, style["text"])
+        _semantic_panel(slide, x, 1.88, 5.92, 5.0, style)
+        _text(slide, labels[index], x + 0.3, 2.04, 1.2, 0.25, 12, style["accent"], bold=True)
+        _text(
+            slide,
+            value,
+            x + 0.3,
+            2.34,
+            5.32,
+            4.42,
+            16,
+            style["text"],
+        )
 
 
 def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -3095,9 +3152,24 @@ def _render_practice_artifact(
         theme["accent"],
         bold=True,
     )
-    row_height = 3.98 / max(1, len(steps))
-    first_center = 2.34 + row_height / 2
-    last_center = 2.34 + row_height * max(0, len(steps) - 1) + row_height / 2
+    step_line_counts = [
+        _wrapped_line_count(value, width_pt=3.70 * 72, font_size_pt=16)
+        for value in steps
+    ]
+    minimum_heights = [
+        # Allocate the real text-frame line height. Dividing by 1.18 here used
+        # to make every row smaller than its text and allowed adjacent steps
+        # to overlap even while the slide itself stayed inside the canvas.
+        max(0.44, line_count * 16 * 1.22 / 72 + 0.02)
+        for line_count in step_line_counts
+    ]
+    remaining_height = max(0.0, 3.98 - sum(minimum_heights))
+    row_heights = [
+        height + remaining_height / max(1, len(minimum_heights))
+        for height in minimum_heights
+    ]
+    first_center = 2.34 + (row_heights[0] / 2 if row_heights else 0)
+    last_center = 2.34 + sum(row_heights[:-1]) + (row_heights[-1] / 2 if row_heights else 0)
     if len(steps) > 1:
         _shape(
             slide,
@@ -3108,8 +3180,8 @@ def _render_practice_artifact(
             theme["chart_bg"],
             radius=False,
         )
-    for index, value in enumerate(steps, start=1):
-        y = 2.34 + (index - 1) * row_height
+    y = 2.34
+    for index, (value, row_height) in enumerate(zip(steps, row_heights), start=1):
         center_y = y + row_height / 2
         if index < len(steps):
             _shape(
@@ -3139,13 +3211,14 @@ def _render_practice_artifact(
             slide,
             value,
             1.48,
-            y + 0.08,
+            y + 0.01,
             3.72,
-            max(0.38, row_height - 0.06),
+            max(0.38, row_height - 0.02),
             16,
             theme["ink"],
             bold=len(value) <= 28,
         )
+        y += row_height
 
     _shape(slide, 5.48, 1.94, 0.025, 4.48, theme["chart_bg"], radius=False)
     artifact_x, artifact_y, artifact_w, artifact_h = 5.82, 1.94, 6.70, 4.48
@@ -3210,6 +3283,7 @@ def _split_ordered_step(value: str) -> tuple[str, str]:
 def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     code = _find_block(unit, "code")
+    code_text = code.content if code else ""
     insight_blocks = [block for block in unit.blocks if block is not code]
     items = [
         item
@@ -3230,7 +3304,17 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _semantic_panel(slide, 0.76, 1.75, code_panel_width, 4.72, evidence_style, rail=False)
     language = str(code.metadata.get("language") or "code") if code else "code"
     _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(slide, code.content if code else "", 1.05, 2.48, code_text_width, 3.6, 16, evidence_style["text"], font="Aptos Mono")
+    _text(
+        slide,
+        code_text,
+        1.05,
+        2.48,
+        code_text_width,
+        3.6,
+        16,
+        evidence_style["text"],
+        font="Aptos Mono",
+    )
     if not items:
         return
     note_style = _theme_text_box_style(
@@ -3242,7 +3326,7 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     )
     _semantic_panel(slide, 8.52, 1.75, 4.04, 4.72, note_style)
     _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, note_style["accent"], bold=True)
-    _bullets(slide, items, 8.86, 2.65, 3.32, 3.1, 16, note_style["text"], note_style["accent"])
+    _bullets(slide, items, 8.86, 2.48, 3.32, 3.65, 16, note_style["text"], note_style["accent"])
 
 
 def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:

@@ -811,12 +811,16 @@ def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Pat
     code_slot = slots["code"]
     annotation_slot = slots["annotation"]
     code_line_width = max(1, code_slot.max_chars // code_slot.max_lines)
+    wrapped_line_capacity = code_line_width * code_slot.max_lines
+    wide_prefix = 'const label = "'
     code_samples = {
         "logical-lines": "\n".join(
             f"stage_{index:02d}: " + "validate(input);".ljust(code_line_width - 10, " ")
             for index in range(code_slot.max_lines)
         )[: code_slot.max_chars],
-        "wide-literal": ("const label = \"" + "状态" * code_slot.max_chars)[: code_slot.max_chars],
+        "wide-literal": wide_prefix + "状态" * (
+            (wrapped_line_capacity - len(wide_prefix) - 2) // 4
+        ) + '";',
     }
     for sample_name, code in code_samples.items():
         _document, deck = _code_deck()
@@ -831,7 +835,130 @@ def test_evidence_code_contract_capacity_survives_pptx_frame_audit(tmp_path: Pat
         )
         report = audit_exported_pptx(output, expected_slide_count=1)
 
-        assert report["passed"], report["blockers"]
+        assert report["passed"], (sample_name, report["blockers"])
+
+
+def test_content_stack_contract_capacity_survives_pptx_frame_audit(
+    tmp_path: Path,
+) -> None:
+    deck = _dense_table_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("content-stack"))
+    assert layout is not None
+    body_slot = next(slot for slot in layout.slots if slot.slot_id == "body")
+    support_page = next(
+        page for page in deck.pages if page.resolved_layout.endswith("/content-stack")
+    )
+    body = next(region for region in support_page.regions if region.slot_id == "body")
+    english = (
+        "Trace each observation to its signed source record, preserve the declared "
+        "condition, separate evidence from interpretation, and document every repair. "
+    ) * 10
+    visible_chars = body_slot.max_chars - 6
+    english = english[:visible_chars]
+    split_size = visible_chars // 4
+    english = "\n\n".join(
+        english[index : index + split_size]
+        for index in range(0, len(english), split_size)
+    )[: body_slot.max_chars]
+    chinese = (
+        "核对观察条件、原始记录、推导依据与异常修订，确认每个结论都能回溯到签字证据；"
+        "同时区分事实观察与解释判断，确保发布前保留完整来源。"
+    ) * 20
+    samples = {
+        "character-limit": english,
+        "wrapped-line-limit": chinese[: body_slot.max_chars],
+    }
+    for sample_name, sample in samples.items():
+        body.content = sample
+        one_page_deck = deck.model_copy(update={"pages": [support_page]})
+
+        output = export_slide_deck_v6_pptx(
+            one_page_deck,
+            tmp_path / f"v6-content-stack-contract-capacity-{sample_name}.pptx",
+        )
+        report = audit_exported_pptx(output, expected_slide_count=1)
+
+        assert len(body.content) == body_slot.max_chars
+        assert report["passed"], (sample_name, report["blockers"])
+
+
+def test_content_stack_balances_uneven_source_paragraphs_before_export(
+    tmp_path: Path,
+) -> None:
+    deck = _dense_table_deck()
+    support_page = next(
+        page for page in deck.pages if page.resolved_layout.endswith("/content-stack")
+    )
+    body = next(region for region in support_page.regions if region.slot_id == "body")
+    body.content = "\n\n".join([
+        "先确认输入与原始状态。",
+        (
+            "逐项核对观察条件、签字记录、推导依据与异常修订，确保结论能够回溯到来源；"
+            "同时区分事实观察和解释判断，发布前记录每项差异及其修复结果。"
+        ) * 8,
+        "最后由另一位复核者确认结果。",
+    ])[:620]
+    one_page_deck = deck.model_copy(update={"pages": [support_page]})
+
+    output = export_slide_deck_v6_pptx(
+        one_page_deck,
+        tmp_path / "v6-content-stack-uneven-paragraphs.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+
+
+def test_content_stack_splits_newline_dense_short_body_before_export(
+    tmp_path: Path,
+) -> None:
+    deck = _dense_table_deck()
+    support_page = next(
+        page for page in deck.pages if page.resolved_layout.endswith("/content-stack")
+    )
+    body = next(region for region in support_page.regions if region.slot_id == "body")
+    body.content = "\n".join(
+        f"核对项 {index:02d}：保留来源。"
+        for index in range(1, 11)
+    )
+    assert len(body.content) < 180
+    one_page_deck = deck.model_copy(update={"pages": [support_page]})
+
+    output = export_slide_deck_v6_pptx(
+        one_page_deck,
+        tmp_path / "v6-content-stack-newline-dense.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+
+
+def test_practice_artifact_allocates_step_height_by_wrapped_line_cost(
+    tmp_path: Path,
+) -> None:
+    deck = _practice_code_deck()
+    page = deck.pages[0]
+    task = next(region for region in page.regions if region.slot_id == "task")
+    task.content = "\n".join([
+        "采集输入并记录初始值。",
+        "运行一次完整流程。",
+        "保存原始日志。",
+        (
+            "复核关键步骤：逐项比较输入、状态转换、输出、异常记录和签字证据，"
+            "确认所有观察都能回到冻结来源，并在发布结论前完成独立复验。"
+        ),
+        "记录最终通过条件。",
+    ])
+    one_page_deck = deck.model_copy(update={"pages": [page]})
+
+    output = export_slide_deck_v6_pptx(
+        one_page_deck,
+        tmp_path / "v6-practice-artifact-weighted-steps.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
 
 
 def test_evidence_table_paginates_complete_interpretation_before_table_rows(

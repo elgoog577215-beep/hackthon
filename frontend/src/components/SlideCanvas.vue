@@ -330,6 +330,7 @@
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
         :data-count="slide.blocks?.length || 0"
+        :data-density="sourceCharacterCount > 520 ? 'dense' : 'normal'"
         :data-has-message="showsStandaloneMessage"
       >
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
@@ -1327,6 +1328,19 @@ function layoutLabel(value: string) {
 }
 .deck-canvas[data-layout="editorial-body"] .deck-canvas__blocks { grid-template-columns:1fr; }
 .deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks[data-count="1"] {
+  grid-template-columns:1fr;
+}
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks[data-count="1"][data-density="dense"] > section {
+  column-count:2;
+  column-gap:3.2cqw;
+  column-rule:1px solid var(--deck-line);
+}
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks[data-count="1"][data-density="dense"] p {
+  break-inside:avoid;
+  font-size:1.6cqw;
+  line-height:1.34;
+}
 .deck-canvas[data-layout="concept-cards"] .deck-canvas__blocks { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .deck-canvas[data-layout="classification-3"] .deck-canvas__blocks { grid-template-columns:1fr; }
 .deck-canvas[data-layout="classification-3"] .deck-canvas__blocks > section {
