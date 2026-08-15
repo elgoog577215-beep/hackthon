@@ -2550,7 +2550,8 @@ def _safe_artifact_page_blocks(
         uncovered_artifact_prose_blocks = [
             _block_with_source_excerpt(block, _prose_source_text(block))
             for block in artifact_blocks
-            if not (
+            if _prose_source_text(block)
+            and not (
                 (normalized_prose := re.sub(
                     r"\s+",
                     "",
