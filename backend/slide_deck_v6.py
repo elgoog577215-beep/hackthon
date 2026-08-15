@@ -22,7 +22,6 @@ from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
 SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v5"
-MAX_SAFE_SLIDE_COUNT = 300
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
@@ -74,6 +73,16 @@ def classify_v6_failure(stage: str, code: str) -> dict[str, str]:
 class _SafePageMaterialization:
     layout: Any
     source_blocks: list[CourseBlock]
+
+
+@dataclass(frozen=True)
+class _LayoutSourceAssignments:
+    """One deterministic, source-backed assignment shared by every stage."""
+
+    artifact_slots: dict[str, list[CourseBlock]]
+    text_slots: dict[str, list[CourseBlock]]
+    unassigned_blocks: list[CourseBlock]
+    missing_required_slot_ids: list[str]
 
 
 class _StrictModel(BaseModel):
@@ -294,8 +303,8 @@ class SlidePageV6(_StrictModel):
     visual_decision: SlideVisualDecisionV2
     speaker_notes: SlideSpeakerNotesV2
     continuation_of_page_id: str = ""
-    continuation_index: int = Field(default=1, ge=1, le=MAX_SAFE_SLIDE_COUNT)
-    continuation_count: int = Field(default=1, ge=1, le=MAX_SAFE_SLIDE_COUNT)
+    continuation_index: int = Field(default=1, ge=1)
+    continuation_count: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def require_source_binding(self) -> SlidePageV6:
@@ -1724,6 +1733,18 @@ def _block_with_source_excerpt(
     return block.model_copy(update={"payload": payload}, deep=True)
 
 
+def _block_with_prose_excerpt(block: CourseBlock, content: str) -> CourseBlock:
+    """Create a prose-only view without retaining the source artifact kind."""
+
+    return block.model_copy(
+        update={
+            "kind": "rich_text",
+            "payload": {"markdown": content},
+        },
+        deep=True,
+    )
+
+
 def _pack_lines(
     lines: list[str],
     *,
@@ -2237,11 +2258,11 @@ def _split_table_block_for_layout_variants(
         chunks.append(rendered_text(current))
     elif not chunks and len(_markdown_table_text(headers, [])) <= slot.max_chars:
         chunks.append(_markdown_table_text(headers, []))
-    prose = _prose_source_text(block)
     return [
         _block_with_source_excerpt(
             block,
-            f"{prose}\n\n{chunk}" if prose else chunk,
+            chunk,
+            artifact_kind="table",
         )
         for chunk in chunks
     ]
@@ -2275,58 +2296,157 @@ def _slot_source_blocks(slot: Any, source_blocks: list[CourseBlock]) -> list[Cou
     return candidates
 
 
-def _assigned_text_slot_blocks(
+def _text_slot_accepts_block(slot: Any, block: CourseBlock) -> bool:
+    """Return whether one frozen block can honestly express one text slot."""
+
+    prose = _prose_source_text(block)
+    if not prose:
+        return False
+    source_roles = set(slot.source_roles)
+    if source_roles and block.role not in source_roles:
+        return False
+    return True
+
+
+def _layout_source_assignments(
     layout: Any,
     source_blocks: list[CourseBlock],
-) -> dict[str, list[CourseBlock]]:
-    """Mirror final text-slot assignment before deciding what needs pagination."""
+) -> _LayoutSourceAssignments:
+    """Bind source blocks once so Story, Visual, and Template cannot disagree.
+
+    Each required semantic slot receives a distinct source block. A single
+    paragraph therefore cannot masquerade as two independent meanings. Extra
+    blocks are assigned by declared source role; anything the selected layout
+    cannot express remains explicit for a declared safe continuation.
+    """
 
     content_slots = [
         slot
         for slot in layout.slots
         if slot.slot_kind not in {"title", "eyebrow", "notes"}
     ]
-    remaining = list(source_blocks)
-    artifact_assignments: list[CourseBlock] = []
-    for slot in content_slots:
-        if slot.slot_kind not in {"code", "formula", "table", "visual"}:
-            continue
-        matches = [
+    artifact_slots = [
+        slot
+        for slot in content_slots
+        if slot.slot_kind in {"code", "formula", "table", "visual"}
+    ]
+    artifact_assignments = {
+        slot.slot_id: [
             block
-            for block in remaining
+            for block in source_blocks
             if _block_matches_slot(block, slot.slot_kind)
         ]
-        artifact_assignments.extend(matches)
-        remaining = [block for block in remaining if block not in matches]
+        for slot in artifact_slots
+    }
 
-    remaining.extend(
-        block
-        for block in artifact_assignments
-        if block not in remaining and _prose_source_text(block)
-    )
     text_slots = [
         slot
         for slot in content_slots
         if slot.slot_kind in {"body", "items", "steps"}
     ]
-    assigned: dict[str, list[CourseBlock]] = {}
-    for index, slot in enumerate(text_slots):
-        if not remaining:
-            break
-        preferred_roles = set(slot.source_roles)
-        preferred = [block for block in remaining if block.role in preferred_roles]
-        is_last_text_slot = index == len(text_slots) - 1
-        if preferred:
-            selected = preferred if is_last_text_slot else [preferred[0]]
-        elif is_last_text_slot:
-            selected = list(remaining)
-        else:
-            selected = [remaining[0]]
-        assigned[slot.slot_id] = selected
-        remaining = [block for block in remaining if block not in selected]
-    if remaining and text_slots:
-        assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
-    return assigned
+    prose_blocks = [block for block in source_blocks if _prose_source_text(block)]
+    required_slots = [slot for slot in text_slots if slot.required]
+    candidates_by_slot = {
+        slot.slot_id: [
+            block
+            for block in prose_blocks
+            if _text_slot_accepts_block(slot, block)
+        ]
+        for slot in text_slots
+    }
+
+    anchored: dict[str, CourseBlock] = {}
+    used_block_ids: set[int] = set()
+    # Constrained slots go first so a generic body cannot consume the only
+    # block capable of satisfying a role-specific required slot.
+    required_search_order = sorted(
+        required_slots,
+        key=lambda slot: (
+            len(candidates_by_slot[slot.slot_id]),
+            next(index for index, item in enumerate(text_slots) if item is slot),
+        ),
+    )
+
+    def bind_required(index: int) -> bool:
+        if index >= len(required_search_order):
+            return True
+        slot = required_search_order[index]
+        for block in candidates_by_slot[slot.slot_id]:
+            identity = id(block)
+            if identity in used_block_ids:
+                continue
+            anchored[slot.slot_id] = block
+            used_block_ids.add(identity)
+            if bind_required(index + 1):
+                return True
+            used_block_ids.remove(identity)
+            anchored.pop(slot.slot_id, None)
+        return False
+
+    required_satisfied = bind_required(0)
+    missing_required_slot_ids = (
+        []
+        if required_satisfied
+        else [slot.slot_id for slot in required_slots]
+    )
+    text_assignments: dict[str, list[CourseBlock]] = {
+        slot.slot_id: [anchored[slot.slot_id]]
+        for slot in text_slots
+        if slot.slot_id in anchored
+    }
+    remaining = [block for block in prose_blocks if id(block) not in used_block_ids]
+
+    # Preserve semantic role binding for every additional block. Required and
+    # optional role-specific slots are considered before generic body slots.
+    explicit_slots = [slot for slot in text_slots if slot.source_roles]
+    generic_slots = [slot for slot in text_slots if not slot.source_roles]
+    for block in list(remaining):
+        candidate = next(
+            (
+                slot
+                for slot in explicit_slots
+                if _text_slot_accepts_block(slot, block)
+            ),
+            None,
+        )
+        if candidate is None and generic_slots:
+            candidate = generic_slots[0]
+        if candidate is None:
+            continue
+        text_assignments.setdefault(candidate.slot_id, []).append(block)
+        remaining.remove(block)
+
+    covered_by_artifact = {
+        id(block)
+        for blocks in artifact_assignments.values()
+        for block in blocks
+    }
+    covered_by_text = {
+        id(block)
+        for blocks in text_assignments.values()
+        for block in blocks
+    }
+    unassigned_blocks = [
+        block
+        for block in source_blocks
+        if id(block) not in covered_by_artifact
+        and id(block) not in covered_by_text
+    ]
+    return _LayoutSourceAssignments(
+        artifact_slots=artifact_assignments,
+        text_slots=text_assignments,
+        unassigned_blocks=unassigned_blocks,
+        missing_required_slot_ids=missing_required_slot_ids,
+    )
+
+
+def _assigned_text_slot_blocks(
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> dict[str, list[CourseBlock]]:
+    """Return the text portion of the centralized layout assignment."""
+
+    return _layout_source_assignments(layout, source_blocks).text_slots
 
 
 def _complete_slot_content(blocks: list[CourseBlock], slot_kind: str) -> str:
@@ -2437,6 +2557,19 @@ def _layout_accepts_complete_blocks(
 ) -> bool:
     """Check a continuation without truncation or bypassing required slots."""
 
+    required_artifacts = {
+        kind
+        for block in source_blocks
+        for kind in block_artifact_kinds(block)
+    }
+    if required_artifacts and not required_artifacts.issubset(
+        set(layout.artifact_kinds)
+    ):
+        return False
+    if not source_required_slot_kinds(source_blocks).issubset(
+        {slot.slot_kind for slot in layout.slots}
+    ):
+        return False
     try:
         _materialize_template_regions(
             page_id="continuation-contract-probe",
@@ -2447,6 +2580,27 @@ def _layout_accepts_complete_blocks(
     except V6BuildError:
         return False
     return True
+
+
+def _source_can_fill_pending_visual(layout: Any, source_blocks: list[CourseBlock]) -> bool:
+    """Prove a future visual decision has a real, compatible source basis."""
+
+    available_artifacts = {
+        kind
+        for block in source_blocks
+        for kind in block_artifact_kinds(block)
+    }
+    supported = set(layout.artifact_kinds)
+    if available_artifacts.intersection(supported):
+        return True
+    if "image" in supported and any(block.asset_refs for block in source_blocks):
+        return True
+    if "diagram" in supported and any(
+        _prose_source_text(block)
+        for block in source_blocks
+    ):
+        return True
+    return False
 
 
 def _safe_continuation_for_blocks(
@@ -2519,6 +2673,37 @@ def _required_support_page_blocks(
         ) from error
 
 
+def _assert_source_driven_pagination_progress(
+    *,
+    page_id: str,
+    source_blocks: list[CourseBlock],
+    materializations: list[_SafePageMaterialization],
+) -> None:
+    """Guard non-progress without imposing a product-level slide-count cap."""
+
+    if not materializations:
+        raise V6BuildError(
+            stage="template",
+            code="slide_safety_limit_exceeded",
+            message="Lossless pagination produced no materialized page",
+            page_id=page_id,
+        )
+    source_units = sum(
+        max(1, len(block_source_text(block)))
+        for block in source_blocks
+    )
+    if len(materializations) > max(1, source_units):
+        raise V6BuildError(
+            stage="template",
+            code="slide_safety_limit_exceeded",
+            message=(
+                "Lossless pagination did not make source-driven progress; "
+                "the generated page count exceeds the available source units"
+            ),
+            page_id=page_id,
+        )
+
+
 def _safe_artifact_page_blocks(
     *,
     page_id: str,
@@ -2539,80 +2724,108 @@ def _safe_artifact_page_blocks(
         None,
     )
     if artifact_slot is None:
-        materializations = [source_blocks]
-        content_slots = [
+        assignments = _layout_source_assignments(layout, source_blocks)
+        if assignments.missing_required_slot_ids:
+            raise V6BuildError(
+                stage="template",
+                code="template_required_slot_unfilled",
+                message=(
+                    "Required template slots have no distinct source-backed "
+                    "content: "
+                    + ", ".join(assignments.missing_required_slot_ids)
+                ),
+                page_id=page_id,
+            )
+        text_slots = [
             slot
             for slot in layout.slots
             if slot.slot_kind in {"body", "items", "steps"}
         ]
-        for slot in content_slots:
-            next_materializations: list[list[CourseBlock]] = []
-            for materialized_blocks in materializations:
-                matching_blocks = _assigned_text_slot_blocks(
-                    layout,
-                    materialized_blocks,
-                ).get(slot.slot_id, [])
-                if not _slot_requires_pagination(slot, matching_blocks):
-                    next_materializations.append(materialized_blocks)
-                    continue
-                if layout.layout_slug not in set(layout.safe_continuation_layout_slugs):
-                    raise V6BuildError(
-                        stage="template",
-                        code="template_layout_unavailable",
-                        message=(
-                            "The selected template layout declares no safe semantic "
-                            "continuation"
-                        ),
-                        page_id=page_id,
-                    )
-                try:
-                    fragments = _split_blocks_for_slot(matching_blocks, slot=slot)
-                except ValueError as error:
-                    raise V6BuildError(
-                        stage="template",
-                        code="template_slot_capacity_exceeded",
-                        message=(
-                            f"A complete semantic unit exceeds template slot {slot.slot_id}"
-                        ),
-                        page_id=page_id,
-                    ) from error
-                matching_ids = {id(block) for block in matching_blocks}
-                other_blocks = [
-                    block
-                    for block in materialized_blocks
-                    if id(block) not in matching_ids
-                ]
-                repeat_other_blocks = any(
-                    candidate.required
-                    and candidate.slot_id != slot.slot_id
-                    and candidate.slot_kind not in {"title", "eyebrow", "notes"}
-                    for candidate in layout.slots
+        chunks_by_slot: dict[str, list[list[CourseBlock]]] = {}
+        for slot in text_slots:
+            slot_blocks = assignments.text_slots.get(slot.slot_id, [])
+            if not slot_blocks:
+                chunks_by_slot[slot.slot_id] = []
+                continue
+            try:
+                chunks_by_slot[slot.slot_id] = (
+                    [[fragment] for fragment in _split_blocks_for_slot(
+                        slot_blocks,
+                        slot=slot,
+                    )]
+                    if _slot_requires_pagination(slot, slot_blocks)
+                    else [slot_blocks]
                 )
-                for index, fragment in enumerate(fragments):
-                    companions = (
-                        other_blocks
-                        if index == 0 or repeat_other_blocks
-                        else []
-                    )
-                    next_materializations.append(sorted(
-                        [*companions, fragment],
-                        key=lambda block: (block.position, block.block_id),
-                    ))
-            materializations = next_materializations
-            if len(materializations) > MAX_SAFE_SLIDE_COUNT:
+            except ValueError as error:
                 raise V6BuildError(
                     stage="template",
-                    code="slide_safety_limit_exceeded",
+                    code="template_slot_capacity_exceeded",
                     message=(
-                        "Lossless pagination exceeded the abnormal safety ceiling of "
-                        f"{MAX_SAFE_SLIDE_COUNT} pages"
+                        f"A complete semantic unit exceeds template slot {slot.slot_id}"
                     ),
                     page_id=page_id,
+                ) from error
+
+        first_page_blocks: list[CourseBlock] = []
+        text_source_ids: set[str] = set()
+        continuation_chunks: list[tuple[int, list[CourseBlock]]] = []
+        for slot_index, slot in enumerate(text_slots):
+            slot_chunks = chunks_by_slot.get(slot.slot_id, [])
+            if slot_chunks:
+                first_page_blocks.extend(slot_chunks[0])
+                text_source_ids.update(
+                    block.block_id
+                    for chunk in slot_chunks
+                    for block in chunk
                 )
-        return [
-            _SafePageMaterialization(layout=layout, source_blocks=blocks)
-            for blocks in materializations
+                continuation_chunks.extend(
+                    (slot_index, chunk)
+                    for chunk in slot_chunks[1:]
+                )
+        first_page_blocks.extend(
+            block
+            for slot_blocks in assignments.artifact_slots.values()
+            for block in slot_blocks
+            if block.block_id not in text_source_ids
+        )
+        first_page_blocks = sorted(
+            {id(block): block for block in first_page_blocks}.values(),
+            key=lambda block: (block.position, block.block_id),
+        )
+        materializations = [
+            _SafePageMaterialization(
+                layout=layout,
+                source_blocks=first_page_blocks,
+            )
         ]
+        continuation_chunks.extend(
+            (len(text_slots), [block])
+            for block in assignments.unassigned_blocks
+        )
+        for _slot_index, blocks in sorted(
+            continuation_chunks,
+            key=lambda item: (
+                min(block.position for block in item[1]),
+                item[0],
+                min(block.block_id for block in item[1]),
+            ),
+        ):
+            materializations.append(_SafePageMaterialization(
+                layout=_safe_continuation_for_blocks(
+                    page_id=page_id,
+                    template=template,
+                    layout=layout,
+                    source_blocks=blocks,
+                    purpose="semantic",
+                ),
+                source_blocks=blocks,
+            ))
+        _assert_source_driven_pagination_progress(
+            page_id=page_id,
+            source_blocks=source_blocks,
+            materializations=materializations,
+        )
+        return materializations
     artifact_blocks = [
         block
         for block in source_blocks
@@ -2699,18 +2912,8 @@ def _safe_artifact_page_blocks(
                 ),
                 page_id=page_id,
             ) from error
-    if len(artifact_chunks) > MAX_SAFE_SLIDE_COUNT:
-        raise V6BuildError(
-            stage="template",
-            code="slide_safety_limit_exceeded",
-            message=(
-                "Lossless artifact pagination exceeded the abnormal safety ceiling of "
-                f"{MAX_SAFE_SLIDE_COUNT} pages"
-            ),
-            page_id=page_id,
-        )
     lost_artifact_prose_blocks = [
-        _block_with_source_excerpt(block, _prose_source_text(block))
+        _block_with_prose_excerpt(block, _prose_source_text(block))
         for block in artifact_blocks
         if _prose_source_text(block)
         and not any(
@@ -2733,7 +2936,7 @@ def _safe_artifact_page_blocks(
             _visible_prose_text(story_summary),
         ).casefold()
         uncovered_artifact_prose_blocks = [
-            _block_with_source_excerpt(block, _prose_source_text(block))
+            _block_with_prose_excerpt(block, _prose_source_text(block))
             for block in artifact_blocks
             if _prose_source_text(block)
             and not (
@@ -2841,16 +3044,11 @@ def _safe_artifact_page_blocks(
             *support_continuations,
             *artifact_continuations,
         ]
-        if len(materializations) > MAX_SAFE_SLIDE_COUNT:
-            raise V6BuildError(
-                stage="template",
-                code="slide_safety_limit_exceeded",
-                message=(
-                    "Lossless multi-slot pagination exceeded the abnormal safety "
-                    f"ceiling of {MAX_SAFE_SLIDE_COUNT} pages"
-                ),
-                page_id=page_id,
-            )
+        _assert_source_driven_pagination_progress(
+            page_id=page_id,
+            source_blocks=source_blocks,
+            materializations=materializations,
+        )
         return materializations
 
     artifact_materializations = [
@@ -2874,8 +3072,15 @@ def _safe_artifact_page_blocks(
         min(block.position for block in support_source_blocks)
         < min(block.position for block in artifact_blocks)
     ):
-        return [*support_materializations, *artifact_materializations]
-    return [*artifact_materializations, *support_materializations]
+        materializations = [*support_materializations, *artifact_materializations]
+    else:
+        materializations = [*artifact_materializations, *support_materializations]
+    _assert_source_driven_pagination_progress(
+        page_id=page_id,
+        source_blocks=source_blocks,
+        materializations=materializations,
+    )
+    return materializations
 
 
 def _continuation_title(title: str, index: int, count: int, capacity: int) -> str:
@@ -2907,6 +3112,8 @@ def _materialize_template_regions(
     source_blocks: list[CourseBlock],
     story_summary: str = "",
     visual_decision: SlideVisualDecisionV2 | None = None,
+    enforce_min_chars: bool = True,
+    source_backed_visual_pending: bool = False,
 ) -> list[SlideRegionV6]:
     title_slot = next(
         (slot for slot in layout.slots if slot.slot_kind == "title"),
@@ -2924,51 +3131,16 @@ def _materialize_template_regions(
         for slot in layout.slots
         if slot.slot_kind not in {"title", "eyebrow", "notes"}
     ]
-    remaining = list(source_blocks)
-    assigned: dict[str, list[CourseBlock]] = {}
-    for slot in content_slots:
-        if slot.slot_kind not in {"code", "formula", "table", "visual"}:
-            continue
-        matches = [
-            block for block in remaining if _block_matches_slot(block, slot.slot_kind)
-        ]
-        if matches:
-            assigned[slot.slot_id] = matches
-            remaining = [block for block in remaining if block not in matches]
-
+    assignments = _layout_source_assignments(layout, source_blocks)
+    assigned: dict[str, list[CourseBlock]] = {
+        **assignments.artifact_slots,
+        **assignments.text_slots,
+    }
     text_slots = [
         slot
         for slot in content_slots
         if slot.slot_kind in {"body", "items", "steps"}
     ]
-    reusable_artifact_blocks = [
-        block
-        for slot_blocks in assigned.values()
-        for block in slot_blocks
-        if block not in remaining and _prose_source_text(block)
-    ]
-    remaining.extend(
-        block
-        for block in reusable_artifact_blocks
-        if block not in remaining
-    )
-    for index, slot in enumerate(text_slots):
-        if not remaining:
-            break
-        preferred_roles = set(slot.source_roles)
-        preferred = [block for block in remaining if block.role in preferred_roles]
-        is_last_text_slot = index == len(text_slots) - 1
-        if preferred:
-            selected = preferred if is_last_text_slot else [preferred[0]]
-        elif is_last_text_slot:
-            selected = list(remaining)
-        else:
-            selected = [remaining[0]]
-        assigned[slot.slot_id] = selected
-        remaining = [block for block in remaining if block not in selected]
-    if remaining and text_slots:
-        assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
-        remaining = []
 
     summary_slot_id = ""
     summary_content = _visible_prose_text(story_summary)
@@ -3032,8 +3204,17 @@ def _materialize_template_regions(
             ) from error
         visual_decision_fills_slot = bool(
             slot.slot_kind == "visual"
-            and visual_decision is not None
-            and visual_decision.decision in set(layout.artifact_kinds)
+            and (
+                (
+                    visual_decision is not None
+                    and visual_decision.decision in set(layout.artifact_kinds)
+                )
+                or (
+                    source_backed_visual_pending
+                    and bool(source_blocks)
+                    and bool(layout.artifact_kinds)
+                )
+            )
         )
         if slot.required and not content and not visual_decision_fills_slot:
             raise V6BuildError(
@@ -3043,7 +3224,11 @@ def _materialize_template_regions(
                 page_id=page_id,
             )
         minimum_chars = _effective_slot_min_chars(slot, slot_blocks)
-        if minimum_chars and len(_visible_prose_text(content)) < minimum_chars:
+        if (
+            enforce_min_chars
+            and minimum_chars
+            and len(_visible_prose_text(content)) < minimum_chars
+        ):
             raise V6BuildError(
                 stage="template",
                 code="template_slot_underfilled",
@@ -3089,6 +3274,120 @@ def _materialize_template_regions(
     return regions
 
 
+def validate_layout_source_satisfiability(
+    *,
+    page_id: str,
+    template: TemplateLayoutPackContractV1,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+    story_summary: str = "",
+    enforce_min_chars: bool = True,
+) -> list[_SafePageMaterialization]:
+    """Prove a layout and every continuation are source-backed and capacity-safe."""
+
+    source_artifacts = {
+        kind
+        for block in source_blocks
+        for kind in block_artifact_kinds(block)
+    }
+    if source_artifacts and not source_artifacts.issubset(set(layout.artifact_kinds)):
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_artifact_mismatch",
+            message="Template layout cannot express every frozen source artifact",
+            page_id=page_id,
+        )
+    if not source_required_slot_kinds(source_blocks).issubset(
+        {slot.slot_kind for slot in layout.slots}
+    ):
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_semantic_slot_mismatch",
+            message="Template layout cannot express the frozen source structure",
+            page_id=page_id,
+        )
+
+    assignments = _layout_source_assignments(layout, source_blocks)
+    missing_required_artifact_slots = [
+        slot.slot_id
+        for slot in layout.slots
+        if slot.required
+        and slot.slot_kind in {"code", "formula", "table"}
+        and not assignments.artifact_slots.get(slot.slot_id)
+    ]
+    if missing_required_artifact_slots:
+        raise V6BuildError(
+            stage="template",
+            code="template_required_slot_unfilled",
+            message=(
+                "Required template slots have no source-backed artifact: "
+                + ", ".join(missing_required_artifact_slots)
+            ),
+            page_id=page_id,
+        )
+    if assignments.missing_required_slot_ids:
+        raise V6BuildError(
+            stage="template",
+            code="template_required_slot_unfilled",
+            message=(
+                "Required template slots have no distinct source-backed content: "
+                + ", ".join(assignments.missing_required_slot_ids)
+            ),
+            page_id=page_id,
+        )
+    text_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
+    incompatible = [
+        block.block_id
+        for block in assignments.unassigned_blocks
+        if _prose_source_text(block)
+    ]
+    if incompatible and text_slots and all(slot.source_roles for slot in text_slots):
+        raise V6BuildError(
+            stage="template",
+            code="template_source_slot_role_mismatch",
+            message=(
+                "Structured template slots cannot express source roles for blocks: "
+                + ", ".join(incompatible)
+            ),
+            page_id=page_id,
+        )
+    materializations = _safe_artifact_page_blocks(
+        page_id=page_id,
+        template=template,
+        layout=layout,
+        source_blocks=source_blocks,
+        story_summary=story_summary,
+    )
+    for index, materialization in enumerate(materializations):
+        _materialize_template_regions(
+            page_id=(
+                page_id
+                if index == 0
+                else f"{page_id}--continuation-{index + 1}"
+            ),
+            title="",
+            layout=materialization.layout,
+            source_blocks=materialization.source_blocks,
+            story_summary=(
+                story_summary
+                if index == 0
+                and materialization.layout.template_layout_id
+                == layout.template_layout_id
+                else ""
+            ),
+            enforce_min_chars=enforce_min_chars,
+            source_backed_visual_pending=_source_can_fill_pending_visual(
+                materialization.layout,
+                materialization.source_blocks,
+            ),
+        )
+    return materializations
+
+
 def validate_story_template_text_slots(
     *,
     page_id: str,
@@ -3098,203 +3397,16 @@ def validate_story_template_text_slots(
     story_summary: str = "",
     enforce_min_chars: bool = True,
 ) -> None:
-    """Reject story layouts whose required prose slots cannot bind source."""
+    """Compatibility wrapper around the single cross-stage predicate."""
 
-    content_slots = [
-        slot
-        for slot in layout.slots
-        if slot.slot_kind not in {"title", "eyebrow", "notes"}
-    ]
-    text_slots = [
-        slot
-        for slot in content_slots
-        if slot.slot_kind in {"body", "items", "steps"}
-    ]
-    if any(slot.slot_kind == "steps" for slot in text_slots) and all(
-        slot.source_roles for slot in text_slots
-    ):
-        expressible_roles = {
-            role for slot in text_slots for role in slot.source_roles
-        }
-        incompatible = [
-            block.block_id
-            for block in source_blocks
-            if block.role not in expressible_roles
-        ]
-        if incompatible:
-            raise V6BuildError(
-                stage="template",
-                code="template_source_slot_role_mismatch",
-                message=(
-                    "Structured template slots cannot express source roles for blocks: "
-                    + ", ".join(incompatible)
-                ),
-                page_id=page_id,
-            )
-    safe_materializations = _safe_artifact_page_blocks(
+    validate_layout_source_satisfiability(
         page_id=page_id,
         template=template,
         layout=layout,
         source_blocks=source_blocks,
         story_summary=story_summary,
+        enforce_min_chars=enforce_min_chars,
     )
-    required_text_slots = [
-        slot
-        for slot in text_slots
-        if slot.required
-    ]
-    if len(safe_materializations) > 1 and len(required_text_slots) <= 1:
-        # Final compilation will emit these independently validated,
-        # source-bound continuations. Multi-slot semantic layouts deliberately
-        # continue through the assignment checks below: pagination cannot turn
-        # one source block into several distinct required meanings.
-        return
-    remaining = list(source_blocks)
-    assigned_artifact_blocks: list[CourseBlock] = []
-    for slot in content_slots:
-        if slot.slot_kind not in {"code", "formula", "table", "visual"}:
-            continue
-        matches = [
-            block
-            for block in remaining
-            if _block_matches_slot(block, slot.slot_kind)
-        ]
-        if matches:
-            assigned_artifact_blocks.extend(matches)
-            remaining = [block for block in remaining if block not in matches]
-    remaining.extend(
-        block
-        for block in assigned_artifact_blocks
-        if _prose_source_text(block) and block not in remaining
-    )
-
-    for slot in content_slots:
-        if slot.slot_kind not in {"code", "formula", "table"}:
-            continue
-        matching_blocks = [
-            block
-            for block in source_blocks
-            if _block_matches_slot(block, slot.slot_kind)
-        ]
-        if slot.required and not matching_blocks:
-            raise V6BuildError(
-                stage="template",
-                code="template_required_slot_unfilled",
-                message=(
-                    f"Required template slot {slot.slot_id} "
-                    "has no source-backed content"
-                ),
-                page_id=page_id,
-            )
-        if matching_blocks and slot.slot_kind in {"code", "table"}:
-            try:
-                _safe_artifact_page_blocks(
-                    page_id=page_id,
-                    template=template,
-                    layout=layout,
-                    source_blocks=source_blocks,
-                    story_summary=story_summary,
-                )
-            except V6BuildError:
-                raise
-        elif matching_blocks:
-            try:
-                _bounded_slot_content(
-                    matching_blocks,
-                    slot_kind=slot.slot_kind,
-                    max_chars=slot.max_chars,
-                    max_items=slot.max_items,
-                    max_lines=slot.max_lines,
-                    max_rows=slot.max_rows,
-                )
-            except ValueError as error:
-                raise V6BuildError(
-                    stage="template",
-                    code="template_slot_capacity_exceeded",
-                    message=(
-                        f"Source-backed content exceeds template slot {slot.slot_id}"
-                    ),
-                    page_id=page_id,
-                ) from error
-
-    assigned: dict[str, list[CourseBlock]] = {}
-    for index, slot in enumerate(text_slots):
-        if not remaining:
-            break
-        preferred_roles = set(slot.source_roles)
-        preferred = [block for block in remaining if block.role in preferred_roles]
-        is_last_text_slot = index == len(text_slots) - 1
-        if preferred:
-            selected = preferred if is_last_text_slot else [preferred[0]]
-        elif is_last_text_slot:
-            selected = list(remaining)
-        else:
-            selected = [remaining[0]]
-        assigned[slot.slot_id] = selected
-        remaining = [block for block in remaining if block not in selected]
-    if remaining and text_slots:
-        assigned.setdefault(text_slots[-1].slot_id, []).extend(remaining)
-
-    summary_slot_id = ""
-    summary_content = _visible_prose_text(story_summary)
-    has_artifact_support = any(
-        slot.slot_kind in {"code", "formula", "table", "visual"}
-        for slot in content_slots
-    )
-    if (
-        summary_content
-        and has_artifact_support
-        and len(text_slots) == 1
-        and text_slots[0].slot_kind == "body"
-    ):
-        summary_slot_id = text_slots[0].slot_id
-
-    for slot in text_slots:
-        try:
-            if slot.slot_id == summary_slot_id:
-                if slot.max_chars and len(summary_content) > slot.max_chars:
-                    raise ValueError("template_slot_capacity_exceeded")
-                content = summary_content
-            else:
-                content = _bounded_slot_content(
-                    assigned.get(slot.slot_id, []),
-                    slot_kind=slot.slot_kind,
-                    max_chars=slot.max_chars,
-                    max_items=slot.max_items,
-                    max_lines=slot.max_lines,
-                    max_rows=slot.max_rows,
-                )
-        except ValueError as error:
-            raise V6BuildError(
-                stage="template",
-                code="template_slot_capacity_exceeded",
-                message=f"Source-backed content exceeds template slot {slot.slot_id}",
-                page_id=page_id,
-            ) from error
-        if slot.required and not content:
-            raise V6BuildError(
-                stage="template",
-                code="template_required_slot_unfilled",
-                message=(
-                    f"Required template slot {slot.slot_id} "
-                    "has no source-backed content"
-                ),
-                page_id=page_id,
-            )
-        if enforce_min_chars:
-            minimum_chars = _effective_slot_min_chars(
-                slot,
-                assigned.get(slot.slot_id, []),
-            )
-            if minimum_chars and len(_visible_prose_text(content)) < minimum_chars:
-                raise V6BuildError(
-                    stage="template",
-                    code="template_slot_underfilled",
-                    message=(
-                        f"Source-backed content underfills template slot {slot.slot_id}"
-                    ),
-                    page_id=page_id,
-                )
 
 
 def story_safe_page_slices(
@@ -3858,18 +3970,8 @@ def compile_slide_deck_v6(
             story_summary=story_page.summary,
         )
         # Story planning keeps semantic ownership; final pagination is driven by
-        # complete source units and may use as many template-safe continuations
-        # as needed. Only the abnormal global safety ceiling remains.
-        if len(pages) + len(materializations) > MAX_SAFE_SLIDE_COUNT:
-            raise V6BuildError(
-                stage="template",
-                code="slide_safety_limit_exceeded",
-                message=(
-                    "Lossless pagination exceeded the abnormal safety ceiling of "
-                    f"{MAX_SAFE_SLIDE_COUNT} pages"
-                ),
-                page_id=story_page.page_id,
-            )
+        # complete source units. Progress is guarded per source page rather than
+        # by a fixed deck-size product limit.
         continuation_count = len(materializations)
         for continuation_index, materialization in enumerate(materializations, start=1):
             page_layout = materialization.layout
@@ -4109,6 +4211,7 @@ __all__ = [
     "compile_slide_deck_v6",
     "graph_page_source_blocks",
     "prepare_story_plan_for_final_compilation",
+    "validate_layout_source_satisfiability",
     "validate_story_template_text_slots",
     "validate_slide_story_plan_v3",
     "validate_slide_visual_plan_v2",

@@ -734,8 +734,6 @@ def _valid_story(document: CourseDocument):
         layout_slug = (
             "evidence-table"
             if "table" in unit.artifact_kinds
-            else "practice-feedback"
-            if unit.teaching_intent == "practice_feedback"
             else "content-stack"
         )
         pages.append(
@@ -793,7 +791,7 @@ def test_story_plan_rejects_missing_blocks_unknown_sources_and_legacy_layouts() 
 def test_story_plan_rejects_untraceable_factual_tokens() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
-    story.batches[0].pages[0].summary = "调查准确率达到 99.9%。"
+    story.batches[0].pages[0].summary = "调查准确率达到 99.9%。" * 12
 
     with pytest.raises(V6BuildError, match="story_unsupported_fact"):
         validate_slide_story_plan_v3(story, graph, template)
@@ -828,7 +826,7 @@ def test_story_plan_accepts_a_source_file_identifier_without_its_extension() -> 
 def test_story_plan_rejects_ungrounded_semantic_claim_without_numbers() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
-    story.batches[0].pages[0].summary = "采用量子纠缠协议完成远程身份认证。"
+    story.batches[0].pages[0].summary = "采用量子纠缠协议完成远程身份认证。" * 10
 
     with pytest.raises(V6BuildError, match="story_unsupported_semantic_claim"):
         validate_slide_story_plan_v3(story, graph, template)

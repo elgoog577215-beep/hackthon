@@ -82,16 +82,88 @@ class TemplateLayoutPackContractV1(_StrictModel):
         return next((item for item in self.layouts if item.template_layout_id == layout_id), None)
 
 
+def template_layout_contract_matrix(
+    template: TemplateLayoutPackContractV1,
+) -> list[dict[str, Any]]:
+    """Expose the closed layout/slot/capacity/continuation contract for audits."""
+
+    return [
+        {
+            "template_layout_id": layout.template_layout_id,
+            "layout_slug": layout.layout_slug,
+            "teaching_intents": list(layout.teaching_intents),
+            "artifact_kinds": list(layout.artifact_kinds),
+            "required_slots": [
+                {
+                    "slot_id": slot.slot_id,
+                    "slot_kind": slot.slot_kind,
+                    "source_roles": list(slot.source_roles),
+                    "min_chars": slot.min_chars,
+                    "max_chars": slot.max_chars,
+                    "max_items": slot.max_items,
+                    "max_lines": slot.max_lines,
+                    "max_rows": slot.max_rows,
+                    "split_wrapped_lines": slot.split_wrapped_lines,
+                    "full_wrapped_lines": slot.full_wrapped_lines,
+                    "split_column_chars": slot.split_column_chars,
+                    "full_column_chars": slot.full_column_chars,
+                    "wide_min_columns": slot.wide_min_columns,
+                }
+                for slot in layout.slots
+                if slot.required
+            ],
+            "optional_slots": [
+                {
+                    "slot_id": slot.slot_id,
+                    "slot_kind": slot.slot_kind,
+                    "source_roles": list(slot.source_roles),
+                    "min_chars": slot.min_chars,
+                    "max_chars": slot.max_chars,
+                    "max_items": slot.max_items,
+                    "max_lines": slot.max_lines,
+                    "max_rows": slot.max_rows,
+                    "split_wrapped_lines": slot.split_wrapped_lines,
+                    "full_wrapped_lines": slot.full_wrapped_lines,
+                    "split_column_chars": slot.split_column_chars,
+                    "full_column_chars": slot.full_column_chars,
+                    "wide_min_columns": slot.wide_min_columns,
+                }
+                for slot in layout.slots
+                if not slot.required
+            ],
+            "safe_continuation_layout_slugs": list(
+                layout.safe_continuation_layout_slugs
+            ),
+        }
+        for layout in template.layouts
+    ]
+
+
 _SLOT_SOURCE_ROLES: dict[str, set[str]] = {
     "driving_question": {"orientation", "objective", "checkpoint", "activity"},
     "task": {"activity", "checkpoint", "orientation"},
-    "prompt": {"activity", "checkpoint", "orientation", "example"},
+    "prompt": {
+        "activity",
+        "checkpoint",
+        "orientation",
+        "example",
+        "misconception",
+        "counterexample",
+    },
     "criteria": {"feedback", "summary", "objective"},
-    "feedback": {"feedback", "answer", "remediation"},
+    "feedback": {"feedback", "remediation"},
     "annotation": {"concept", "reasoning", "feedback", "remediation"},
     "derivation": {"reasoning", "example"},
     "reasoning": {"reasoning", "example"},
-    "interpretation": {"reasoning", "feedback", "summary"},
+    "interpretation": {
+        "activity",
+        "checkpoint",
+        "concept",
+        "example",
+        "reasoning",
+        "feedback",
+        "summary",
+    },
     "explanation": {"concept", "reasoning", "feedback"},
     "symptom": {"misconception", "counterexample"},
     "cause": {"reasoning", "misconception"},
@@ -198,7 +270,11 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "practice-prompt": {
         "intents": ["practice_feedback"],
         "slots": [_TITLE, _slot("task", "steps", items=5, chars=420), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
-        "continuations": ["practice-prompt", "practice-feedback"],
+        "continuations": [
+            "practice-prompt",
+            "practice-feedback",
+            "content-stack",
+        ],
     },
     "practice-code": {
         "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
@@ -249,7 +325,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "practice-feedback": {
         "intents": ["practice_feedback", "misconception_repair"],
         "slots": [_TITLE, _slot("prompt", "body", chars=220), _slot("feedback", "body", chars=300), _NOTES],
-        "continuations": ["practice-feedback"],
+        "continuations": ["practice-feedback", "content-stack"],
     },
     "evidence-code": {
         "intents": ["artifact_explanation", "worked_example", "mechanism"],
@@ -462,4 +538,5 @@ __all__ = [
     "TemplateSlotContractV1",
     "compile_builtin_template_layout_contract_v1",
     "compile_personal_template_layout_contract_v1",
+    "template_layout_contract_matrix",
 ]

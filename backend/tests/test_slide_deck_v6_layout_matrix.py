@@ -18,6 +18,15 @@ from template_layout_contract import (
 )
 
 
+_BUILTIN_TEMPLATE = compile_builtin_template_layout_contract_v1(
+    "qizhi-classroom"
+)
+_BUILTIN_LAYOUT_SLUGS = [
+    layout.layout_slug
+    for layout in _BUILTIN_TEMPLATE.layouts
+]
+
+
 def _block(
     block_id: str,
     *,
@@ -34,6 +43,153 @@ def _block(
         kind=kind,
         payload={"markdown": markdown},
     )
+
+
+def _valid_layout_source(layout) -> tuple[list[CourseBlock], dict[str, str]]:
+    blocks: list[CourseBlock] = []
+    source_by_slot: dict[str, str] = {}
+    position = 0
+    for slot in layout.slots:
+        if not slot.required or slot.slot_kind in {"title", "eyebrow", "notes"}:
+            continue
+        block_id = f"{layout.layout_slug}-{slot.slot_id}"
+        role = next(iter(slot.source_roles), "concept")
+        if slot.slot_kind == "code":
+            block = CourseBlock(
+                block_id=block_id,
+                section_id="layout-audit-section",
+                position=position,
+                role=role,
+                kind="code",
+                payload={"code": "def verify(value):\n    return value is not None"},
+            )
+        elif slot.slot_kind == "formula":
+            block = CourseBlock(
+                block_id=block_id,
+                section_id="layout-audit-section",
+                position=position,
+                role=role,
+                kind="formula",
+                payload={"formula": "score = verified / total"},
+            )
+        elif slot.slot_kind == "table":
+            block = CourseBlock(
+                block_id=block_id,
+                section_id="layout-audit-section",
+                position=position,
+                role=role,
+                kind="table",
+                payload={
+                    "markdown": (
+                        "| Check | Evidence |\n"
+                        "| --- | --- |\n"
+                        "| Identity | Verified |"
+                    )
+                },
+            )
+        elif slot.slot_kind == "visual":
+            visual_kind = (
+                "diagram"
+                if "diagram" in layout.artifact_kinds
+                else "image"
+            )
+            block = CourseBlock(
+                block_id=block_id,
+                section_id="layout-audit-section",
+                position=position,
+                role="orientation",
+                kind=visual_kind,
+                payload={"markdown": "Source-bound visual evidence."},
+                asset_refs=[f"asset-{block_id}"],
+            )
+        else:
+            if slot.slot_kind == "steps":
+                markdown = (
+                    "1. Verify the frozen input and record the state.\n"
+                    "2. Compare the result with the declared criterion."
+                )
+            elif slot.slot_kind == "items":
+                markdown = "- Preserve the input.\n- Verify the result."
+            else:
+                base = (
+                    "This source-backed explanation preserves the teaching claim "
+                    "and its verification action. "
+                )
+                target = max(int(slot.min_chars or 0), min(100, int(slot.max_chars or 100)))
+                markdown = (base * max(1, (target // len(base)) + 1))[:target]
+            block = _block(
+                block_id,
+                role=role,
+                markdown=markdown,
+                position=position,
+            )
+        blocks.append(block)
+        source_by_slot[slot.slot_id] = block_id
+        position += 1
+    return blocks, source_by_slot
+
+
+@pytest.mark.parametrize("layout_slug", _BUILTIN_LAYOUT_SLUGS)
+def test_every_builtin_layout_has_a_deterministic_satisfiable_source_shape(
+    layout_slug: str,
+) -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id(layout_slug))
+    assert layout is not None
+    blocks, _source_by_slot = _valid_layout_source(layout)
+
+    first = validate_layout_source_satisfiability(
+        page_id=f"all-layouts-{layout_slug}",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+    second = validate_layout_source_satisfiability(
+        page_id=f"all-layouts-{layout_slug}",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+
+    signature = lambda pages: [
+        (
+            page.layout.layout_slug,
+            [block.block_id for block in page.source_blocks],
+            [_prose_source_text(block) for block in page.source_blocks],
+        )
+        for page in pages
+    ]
+    assert signature(first) == signature(second)
+
+
+@pytest.mark.parametrize("layout_slug", _BUILTIN_LAYOUT_SLUGS)
+def test_every_builtin_required_content_slot_rejects_missing_source(
+    layout_slug: str,
+) -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id(layout_slug))
+    assert layout is not None
+    blocks, source_by_slot = _valid_layout_source(layout)
+
+    for slot in layout.slots:
+        if slot.slot_id not in source_by_slot:
+            continue
+        if slot.slot_kind == "visual" and "diagram" in layout.artifact_kinds:
+            # A diagram may be generated from another frozen explanatory block;
+            # deleting one visual-shaped block does not make the slot source-free.
+            continue
+        without_required_source = [
+            block
+            for block in blocks
+            if block.block_id != source_by_slot[slot.slot_id]
+        ]
+        with pytest.raises(V6BuildError):
+            validate_layout_source_satisfiability(
+                page_id=f"missing-{layout_slug}-{slot.slot_id}",
+                template=template,
+                layout=layout,
+                source_blocks=without_required_source,
+            )
 
 
 def test_builtin_layout_contract_matrix_is_complete_and_closed() -> None:

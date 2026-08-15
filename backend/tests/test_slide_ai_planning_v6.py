@@ -2916,17 +2916,12 @@ async def test_story_contract_keeps_ordered_task_out_of_table_only_layout() -> N
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    repair = calls[1]["repair_feedback"]
-    assert repair["code"] == "template_layout_semantic_slot_mismatch"
-    target = repair["repair_targets"][0]
-    assert target["repartition_required"] is True
-    assert [page.source_block_ids for page in story.pages] == [
-        ["transfer-procedure"],
-        ["transfer-errors"],
-    ]
-    assert story.pages[0].template_layout_id.endswith("/practice-prompt")
-    assert story.pages[1].template_layout_id.endswith("/evidence-table")
+    assert len(calls) == 1
+    assert [page.source_block_ids for page in story.pages] == [[
+        "transfer-procedure",
+        "transfer-errors",
+    ]]
+    assert story.pages[0].template_layout_id.endswith("/practice-table")
 
 
 @pytest.mark.asyncio
@@ -4871,7 +4866,7 @@ def _field_visual_repair_fixture():
     feedback_layout = next(
         layout.template_layout_id
         for layout in template.layouts
-        if layout.template_layout_id.endswith("/practice-feedback")
+        if layout.template_layout_id.endswith("/content-stack")
     )
     story = SlideStoryPlanV3(
         source_document_revision=graph.source_document_revision,

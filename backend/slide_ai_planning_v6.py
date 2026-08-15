@@ -51,6 +51,7 @@ from slide_deck_v6 import (
     story_safe_partition_options,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
+    validate_layout_source_satisfiability,
     validate_story_template_text_slots,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
@@ -2699,6 +2700,16 @@ def _visual_request(
                 message="Visual planning requires a published template layout",
                 page_id=page.page_id,
             )
+        validate_layout_source_satisfiability(
+            page_id=page.page_id,
+            template=template,
+            layout=layout,
+            source_blocks=graph_page_source_blocks(
+                unit,
+                page.source_block_ids,
+            ),
+            story_summary=page.summary,
+        )
         source_blocks = page_source_blocks(page)
         artifact_kinds = page_artifact_kinds(unit, page.source_block_ids)
         source_decisions = _allowed_visual_decisions(
