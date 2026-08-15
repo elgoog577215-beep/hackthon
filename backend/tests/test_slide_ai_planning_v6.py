@@ -997,6 +997,77 @@ async def test_story_resume_normalizes_duplicate_page_ids_before_validation() ->
     assert resumed.pages[0].page_id == duplicate_id
 
 
+@pytest.mark.asyncio
+async def test_story_resume_replans_and_restores_missing_source_ownership() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    unit_request = request["teaching_units"][0]
+    unit = graph.units[0]
+    source_ids = unit.primary_block_ids[:1]
+    saved_batch = SlideStoryBatchV3(
+        batch_id="story-1",
+        chapter_id="chapter-a",
+        provider="saved-provider",
+        model="saved-model",
+        duration_ms=1,
+        attempts=1,
+        validation_status="passed",
+        pages=[SlideStoryPageV3(
+            page_id="saved-incomplete-owner",
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=_layout_for_request_blocks(
+                unit_request,
+                source_ids,
+            ),
+            title=_title_for_request_blocks(unit_request, source_ids),
+            summary="",
+            source_block_ids=source_ids,
+            page_ordinal=0,
+        )],
+    )
+    calls = []
+
+    async def planner(repair_request):
+        calls.append(repair_request)
+        requested_unit = repair_request["teaching_units"][0]
+        repeated_ids = requested_unit["primary_block_ids"][:1]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": repair_request["chapter_id"],
+            "pages": [{
+                "page_id": "replanned-incomplete-owner",
+                "teaching_unit_id": requested_unit["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(
+                    requested_unit,
+                    repeated_ids,
+                ),
+                "title": _title_for_request_blocks(
+                    requested_unit,
+                    repeated_ids,
+                ),
+                "summary": "",
+                "source_block_ids": repeated_ids,
+            }],
+        }
+
+    resumed = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+        resume_batches=[saved_batch],
+    )
+
+    assert len(calls) == 1
+    assert [
+        block_id
+        for page in resumed.pages
+        for block_id in page.source_block_ids
+    ] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(resumed, graph, template)
+
+
 def _activity_code_overflow_replay() -> tuple[dict, CourseDocument, str]:
     fixture = json.loads(
         (_FIXTURE_DIR / "activity_rich_text_code_overflow.json").read_text(
@@ -3468,7 +3539,7 @@ async def test_self_explanatory_table_does_not_require_fabricated_interpretation
 
 
 @pytest.mark.asyncio
-async def test_story_repair_names_missing_blocks_without_weakening_coverage() -> None:
+async def test_story_boundary_restores_missing_blocks_without_weakening_coverage() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -3497,12 +3568,144 @@ async def test_story_repair_names_missing_blocks_without_weakening_coverage() ->
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert repair_target["teaching_unit_id"] == calls[0]["teaching_units"][0]["teaching_unit_id"]
-    assert repair_target["missing_source_block_ids"] == ["feedback"]
-    assert repair_target["duplicate_source_block_ids"] == []
-    assert repair_target["required_source_block_ids"] == ["concept", "feedback"]
+    assert len(calls) == 1
+    assert [
+        block_id
+        for page in story.pages
+        for block_id in page.source_block_ids
+    ] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_boundary_restores_a_block_omitted_on_every_ai_attempt() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        source_ids = unit["primary_block_ids"][:1]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"repeated-omission-{len(calls)}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(unit, source_ids),
+                "title": _title_for_request_blocks(unit, source_ids),
+                "summary": "",
+                "source_block_ids": source_ids,
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert [
+        block_id
+        for page in story.pages
+        for block_id in page.source_block_ids
+    ] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(story, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_boundary_removes_repeated_primary_ownership_deterministically() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def run_once():
+        calls = []
+
+        async def planner(request):
+            calls.append(request)
+            unit = request["teaching_units"][0]
+            concept_id, feedback_id = unit["primary_block_ids"]
+            return {
+                "schema_version": "slide_story_batch_response_v3",
+                "chapter_id": request["chapter_id"],
+                "pages": [
+                    {
+                        "page_id": "duplicate-owner-a",
+                        "teaching_unit_id": unit["teaching_unit_id"],
+                        "template_layout_id": _layout_for_request_blocks(
+                            unit,
+                            [concept_id, feedback_id],
+                        ),
+                        "title": _title_for_request_blocks(
+                            unit,
+                            [concept_id, feedback_id],
+                        ),
+                        "summary": "",
+                        "source_block_ids": [concept_id, feedback_id],
+                    },
+                    {
+                        "page_id": "duplicate-owner-b",
+                        "teaching_unit_id": unit["teaching_unit_id"],
+                        "template_layout_id": _layout_for_request_blocks(
+                            unit,
+                            [feedback_id],
+                        ),
+                        "title": _title_for_request_blocks(unit, [feedback_id]),
+                        "summary": "",
+                        "source_block_ids": [feedback_id],
+                    },
+                ],
+            }
+
+        story = await plan_slide_story_v3(
+            graph,
+            template,
+            ai_planner=planner,
+        )
+        return calls, story
+
+    first_calls, first = await run_once()
+    second_calls, second = await run_once()
+
+    assert len(first_calls) == len(second_calls) == 1
+    assert [
+        (page.page_id, page.template_layout_id, page.source_block_ids)
+        for page in first.pages
+    ] == [
+        (page.page_id, page.template_layout_id, page.source_block_ids)
+        for page in second.pages
+    ]
+    assert [
+        block_id
+        for page in first.pages
+        for block_id in page.source_block_ids
+    ] == ["concept", "feedback"]
+    validate_slide_story_plan_v3(first, graph, template)
+
+
+@pytest.mark.asyncio
+async def test_story_boundary_restores_an_entire_omitted_teaching_unit() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert [
+        block_id
+        for page in story.pages
+        for block_id in page.source_block_ids
+    ] == ["concept", "feedback"]
     validate_slide_story_plan_v3(story, graph, template)
 
 
@@ -4039,7 +4242,7 @@ async def test_story_preserves_safe_source_driven_pages_and_source_order() -> No
 
 
 @pytest.mark.asyncio
-async def test_story_repair_names_duplicate_block_page_owners() -> None:
+async def test_story_boundary_normalizes_duplicate_block_page_owners() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
@@ -4078,11 +4281,12 @@ async def test_story_repair_names_duplicate_block_page_owners() -> None:
 
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
-    assert len(calls) == 2
-    repair_target = calls[1]["repair_feedback"]["repair_targets"][0]
-    assert repair_target["duplicate_source_block_ids"] == ["concept", "feedback"]
-    assert repair_target["duplicate_page_ids"] == ["duplicate-1", "duplicate-2"]
-    assert repair_target["missing_source_block_ids"] == []
+    assert len(calls) == 1
+    assert [
+        block_id
+        for page in story.pages
+        for block_id in page.source_block_ids
+    ] == ["concept", "feedback"]
     validate_slide_story_plan_v3(story, graph, template)
 
 
