@@ -2540,14 +2540,29 @@ def _safe_artifact_page_blocks(
         if slot.slot_kind in {"body", "items", "steps"}
     ]
     required_support = any(slot.required for slot in support_slots)
+    uncovered_artifact_prose_blocks = list(lost_artifact_prose_blocks)
+    if story_summary and not required_support:
+        normalized_summary = re.sub(
+            r"\s+",
+            "",
+            _visible_prose_text(story_summary),
+        ).casefold()
+        uncovered_artifact_prose_blocks = [
+            _block_with_source_excerpt(block, _prose_source_text(block))
+            for block in artifact_blocks
+            if not (
+                (normalized_prose := re.sub(
+                    r"\s+",
+                    "",
+                    _visible_prose_text(_prose_source_text(block)),
+                ).casefold())
+                and normalized_prose in normalized_summary
+            )
+        ]
     support_source_blocks = [
         *non_artifact_blocks,
-        *lost_artifact_prose_blocks,
+        *uncovered_artifact_prose_blocks,
     ]
-    if story_summary and not required_support:
-        support_source_blocks = [
-            block for block in source_blocks if _prose_source_text(block)
-        ]
     overflowing_support_slots = [
         slot
         for slot in support_slots
@@ -2622,11 +2637,13 @@ def _effective_slot_min_chars(slot: Any, blocks: list[CourseBlock]) -> int:
     declared = int(getattr(slot, "min_chars", 0) or 0)
     if declared <= 0:
         return 0
-    available = len(_visible_prose_text("\n\n".join(
-        block_source_text(block)
-        for block in blocks
-        if block_source_text(block)
-    )))
+    # Density applies to what this slot can actually render. A rich-text source
+    # may contain a short annotation plus a long fenced artifact; counting the
+    # artifact toward a body slot's minimum makes a lossless support page fail
+    # even after all available prose has been preserved.
+    available = len(_visible_prose_text(
+        _complete_slot_content(blocks, slot.slot_kind)
+    ))
     return min(declared, available)
 
 
