@@ -1716,6 +1716,7 @@ def _artifact_deck_fixture(
     *,
     artifact_kind: str,
     artifact_text: str,
+    block_kind: str | None = None,
 ) -> tuple[CourseDocument, object, object, SlideStoryPlanV3, SlideVisualPlanV2]:
     document = refresh_document_revision(
         CourseDocument(
@@ -1735,7 +1736,7 @@ def _artifact_deck_fixture(
                     "section",
                     1,
                     role="example",
-                    kind=artifact_kind,
+                    kind=block_kind or artifact_kind,
                     text=artifact_text,
                 ),
                 _block(
@@ -1974,39 +1975,41 @@ def test_fenced_code_in_rich_text_keeps_code_slot_during_pagination() -> None:
         f"Debug.Log(\"frame {index}\");"
         for index in range(36)
     )
+    document, graph, template, story, visual = _artifact_deck_fixture(
+        artifact_kind="code",
+        artifact_text=f"```csharp\n{code}\n```",
+        block_kind="rich_text",
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    rendered_code_lines = [
+        line
+        for rendered_page in deck.pages
+        for region in rendered_page.regions
+        if region.content_kind == "code"
+        for line in region.content.splitlines()
+    ]
+    assert len(deck.pages) > 1
+    assert rendered_code_lines == code.splitlines()
+
+
+def test_story_preflight_rejects_mixed_prose_roles_in_paginated_practice_code() -> None:
+    code = "\n".join(f"Debug.Log(\"frame {index}\");" for index in range(36))
     document = refresh_document_revision(CourseDocument(
-        course_id="generic-rich-text-code-pagination",
-        title="Rich text code workflow",
-        sections=[CourseSection(
-            section_id="section",
-            title="Run the complete script",
-            position=0,
-        )],
+        course_id="generic-mixed-practice-code",
+        title="Mixed practice code workflow",
+        sections=[CourseSection(section_id="section", title="Run script", position=0)],
         blocks=[
-            _block(
-                "concept",
-                "section",
-                0,
-                role="concept",
-                text="Explain why every observation must remain visible during the run.",
-            ),
-            _block(
-                "reasoning",
-                "section",
-                1,
-                role="reasoning",
-                text="Compare each emitted frame with the expected execution sequence.",
-            ),
+            _block("concept", "section", 0, role="concept", text="Explain the execution boundary."),
+            _block("reasoning", "section", 1, role="reasoning", text="Compare the observed sequence."),
             _block(
                 "fenced-code",
                 "section",
                 2,
                 role="example",
                 kind="rich_text",
-                text=(
-                    "Use this source-backed script without dropping any line.\n\n"
-                    f"```csharp\n{code}\n```"
-                ),
+                text=f"Example source.\n\n```csharp\n{code}\n```",
             ),
             _block(
                 "activity",
@@ -2020,7 +2023,7 @@ def test_fenced_code_in_rich_text_keeps_code_slot_during_pagination() -> None:
     graph = compile_course_presentation_graph(document, teaching_plan={})
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     page = SlideStoryPageV3(
-        page_id="rich-text-code-page",
+        page_id="mixed-practice-code-page",
         teaching_unit_id=graph.units[0].teaching_unit_id,
         template_layout_id=template.layout_id("practice-code"),
         title="Run the complete script",
@@ -2041,28 +2044,9 @@ def test_fenced_code_in_rich_text_keeps_code_slot_during_pagination() -> None:
             pages=[page],
         )],
     )
-    visual = SlideVisualPlanV2(
-        source_document_revision=document.document_revision,
-        template_digest=template.template_digest,
-        decisions=[SlideVisualDecisionV2(
-            page_id=page.page_id,
-            decision="code",
-            source_block_ids=page.source_block_ids,
-            resolved_template_layout_id=page.template_layout_id,
-        )],
-    )
 
-    deck = compile_slide_deck_v6(document, graph, story, visual, template)
-
-    rendered_code_lines = [
-        line
-        for rendered_page in deck.pages
-        for region in rendered_page.regions
-        if region.content_kind == "code"
-        for line in region.content.splitlines()
-    ]
-    assert len(deck.pages) > 1
-    assert rendered_code_lines == code.splitlines()
+    with pytest.raises(V6BuildError, match="template_source_slot_role_mismatch"):
+        validate_slide_story_plan_v3(story, graph, template)
 
 
 def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -> None:

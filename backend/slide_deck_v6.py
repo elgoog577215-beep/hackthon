@@ -1628,13 +1628,32 @@ def _bounded_slot_content(
     return content
 
 
-def _block_with_source_excerpt(block: CourseBlock, content: str) -> CourseBlock:
+def _block_with_source_excerpt(
+    block: CourseBlock,
+    content: str,
+    *,
+    artifact_kind: str = "",
+) -> CourseBlock:
     payload = dict(block.payload or {})
     key = next(
-        (candidate for candidate in ("markdown", "text", "content", "summary") if candidate in payload),
+        (
+            candidate
+            for candidate in (
+                "markdown",
+                "text",
+                "content",
+                "code",
+                "formula",
+                "table",
+                "summary",
+            )
+            if candidate in payload
+        ),
         "text",
     )
     payload[key] = content
+    if artifact_kind:
+        payload["artifact_kind"] = artifact_kind
     return block.model_copy(update={"payload": payload}, deep=True)
 
 
@@ -1746,7 +1765,15 @@ def _split_artifact_block(
     else:
         return [block]
     return [
-        _block_with_source_excerpt(block, chunk)
+        _block_with_source_excerpt(
+            block,
+            (
+                f"```\n{chunk}\n```"
+                if slot_kind == "code" and block.kind != "code"
+                else chunk
+            ),
+            artifact_kind=slot_kind,
+        )
         for chunk in chunks
     ]
 
@@ -2809,6 +2836,32 @@ def validate_story_template_text_slots(
         for slot in layout.slots
         if slot.slot_kind not in {"title", "eyebrow", "notes"}
     ]
+    text_slots = [
+        slot
+        for slot in content_slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
+    if any(slot.slot_kind == "steps" for slot in text_slots) and all(
+        slot.source_roles for slot in text_slots
+    ):
+        expressible_roles = {
+            role for slot in text_slots for role in slot.source_roles
+        }
+        incompatible = [
+            block.block_id
+            for block in source_blocks
+            if block.role not in expressible_roles
+        ]
+        if incompatible:
+            raise V6BuildError(
+                stage="template",
+                code="template_source_slot_role_mismatch",
+                message=(
+                    "Structured template slots cannot express source roles for blocks: "
+                    + ", ".join(incompatible)
+                ),
+                page_id=page_id,
+            )
     safe_materializations = _safe_artifact_page_blocks(
         page_id=page_id,
         template=template,
@@ -2889,32 +2942,6 @@ def validate_story_template_text_slots(
                     page_id=page_id,
                 ) from error
 
-    text_slots = [
-        slot
-        for slot in content_slots
-        if slot.slot_kind in {"body", "items", "steps"}
-    ]
-    if any(slot.slot_kind == "steps" for slot in text_slots) and all(
-        slot.source_roles for slot in text_slots
-    ):
-        expressible_roles = {
-            role for slot in text_slots for role in slot.source_roles
-        }
-        incompatible = [
-            block.block_id
-            for block in source_blocks
-            if block.role not in expressible_roles
-        ]
-        if incompatible:
-            raise V6BuildError(
-                stage="template",
-                code="template_source_slot_role_mismatch",
-                message=(
-                    "Structured template slots cannot express source roles for blocks: "
-                    + ", ".join(incompatible)
-                ),
-                page_id=page_id,
-            )
     assigned: dict[str, list[CourseBlock]] = {}
     for index, slot in enumerate(text_slots):
         if not remaining:
