@@ -1969,6 +1969,102 @@ def test_code_overflow_paginates_every_source_line_and_keeps_full_code_in_notes(
     assert deck.quality.generated_ellipsis_free is True
 
 
+def test_fenced_code_in_rich_text_keeps_code_slot_during_pagination() -> None:
+    code = "\n".join(
+        f"Debug.Log(\"frame {index}\");"
+        for index in range(36)
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-rich-text-code-pagination",
+        title="Rich text code workflow",
+        sections=[CourseSection(
+            section_id="section",
+            title="Run the complete script",
+            position=0,
+        )],
+        blocks=[
+            _block(
+                "concept",
+                "section",
+                0,
+                role="concept",
+                text="Explain why every observation must remain visible during the run.",
+            ),
+            _block(
+                "reasoning",
+                "section",
+                1,
+                role="reasoning",
+                text="Compare each emitted frame with the expected execution sequence.",
+            ),
+            _block(
+                "fenced-code",
+                "section",
+                2,
+                role="example",
+                kind="rich_text",
+                text=(
+                    "Use this source-backed script without dropping any line.\n\n"
+                    f"```csharp\n{code}\n```"
+                ),
+            ),
+            _block(
+                "activity",
+                "section",
+                3,
+                role="activity",
+                text="1. Attach the script.\n2. Run the scene.\n3. Verify every frame.",
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="rich-text-code-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("practice-code"),
+        title="Run the complete script",
+        source_block_ids=graph.units[0].primary_block_ids,
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="code",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    rendered_code_lines = [
+        line
+        for rendered_page in deck.pages
+        for region in rendered_page.regions
+        if region.content_kind == "code"
+        for line in region.content.splitlines()
+    ]
+    assert len(deck.pages) > 1
+    assert rendered_code_lines == code.splitlines()
+
+
 def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -> None:
     source = (
         "Explain why the guard must run before the action.\n\n"
