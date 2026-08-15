@@ -299,6 +299,8 @@ def test_directory_api_and_cli_share_scan_schema(monkeypatch, tmp_path):
     completed = subprocess.run(
         [
             sys.executable,
+            "-X",
+            "utf8",
             str(script),
             "--courses-dir",
             str(tmp_path),
@@ -308,6 +310,7 @@ def test_directory_api_and_cli_share_scan_schema(monkeypatch, tmp_path):
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     cli_report = json.loads(completed.stdout)
     assert cli_report["schema_version"] == response.json()["schema_version"]

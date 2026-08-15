@@ -3403,6 +3403,156 @@ async def test_story_repartitions_when_required_template_slots_lack_source_roles
 
 
 @pytest.mark.asyncio
+async def test_story_repartitions_a_lossy_process_outline_to_lossless_body() -> None:
+    """Structured prose must repair to a layout that preserves every source token."""
+
+    source = (
+        "本节先说明验收背景，再按顺序完成配置与核对。\n\n"
+        "1. 准备运行环境\n"
+        "- 保留项目现有输入配置。\n"
+        "  - 记录初始状态和负责人。\n\n"
+        "2. 执行验收检查\n"
+        "- 对照结果、异常日志与完成条件。\n"
+        "  - 任一条件不满足时停止发布并记录原因。"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-structured-reasoning",
+        title="发布验收",
+        sections=[CourseSection(
+            section_id="release-check",
+            title="验收流程",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="release-reasoning",
+            section_id="release-check",
+            position=0,
+            kind="rich_text",
+            role="reasoning",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": f"lossy-process-{len(calls)}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": template.layout_id("process-flow"),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    # The provider chose process-flow, but deterministic normalization at the
+    # AI boundary projects it to the first source-complete safe layout without
+    # spending another provider call.
+    assert len(calls) == 1
+    assert story.pages[0].source_block_ids == ["release-reasoning"]
+    assert story.pages[0].template_layout_id.endswith("/content-stack")
+
+    visual = SlideVisualPlanV2(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=story.pages[0].page_id,
+            decision="text_native",
+            source_block_ids=story.pages[0].source_block_ids,
+            resolved_template_layout_id=story.pages[0].template_layout_id,
+        )],
+    )
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    visible = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if "release-reasoning" in region.source_block_ids
+    )
+
+    assert deck.quality.passed is True
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+    assert visible.index("验收背景") < visible.index("准备运行环境")
+    assert visible.index("准备运行环境") < visible.index("执行验收检查")
+    assert "任一条件不满足时停止发布并记录原因" in visible
+
+
+def test_semantic_fidelity_failure_requires_a_safe_unit_repartition() -> None:
+    """A late semantic-fidelity failure must enter the bounded repair path."""
+
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-late-semantic-repair",
+        title="发布验收",
+        sections=[CourseSection(
+            section_id="release-check",
+            title="验收流程",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="release-reasoning",
+            section_id="release-check",
+            position=0,
+            kind="rich_text",
+            role="reasoning",
+            payload={
+                "markdown": (
+                    "先说明验收背景。\n\n"
+                    "1. 准备环境\n- 保留输入配置。\n\n"
+                    "2. 核对结果\n- 检查异常日志和完成条件。"
+                )
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    unit = request["teaching_units"][0]
+    payload = {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": request["chapter_id"],
+        "pages": [{
+            "page_id": "late-lossy-process",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": template.layout_id("process-flow"),
+            "title": unit["title_candidates"][0],
+            "summary": "",
+            "source_block_ids": unit["primary_block_ids"],
+        }],
+    }
+    error = V6BuildError(
+        stage="template",
+        code="template_source_semantic_fidelity_incomplete",
+        message="Template text regions omit frozen source prose",
+        page_id="late-lossy-process",
+    )
+
+    targets = planning_module._story_repair_targets(request, payload, error)
+
+    assert len(targets) == 1
+    target = targets[0]
+    assert target["repartition_required"] is True
+    assert target["repartition_scope"] == "teaching_unit"
+    assert target["source_projection_safe"] is True
+    assert target["required_safe_partition"]["pages"]
+    assert all(
+        any(
+            layout_id.endswith("/content-stack")
+            for layout_id in page["template_layout_ids"]
+        )
+        for page in target["required_safe_partition"]["pages"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_story_contract_keeps_ordered_task_out_of_table_only_layout() -> None:
     """Ordered source steps remain a visible sequence across non-code subjects."""
 

@@ -185,7 +185,7 @@ async def test_new_v6_task_records_the_current_checkpoint_contract(
     )
 
     assert manager.tasks[task_id]["slide_build_contract_version"] == (
-        "slide_deck_v6_build_contract_v19"
+        "slide_deck_v6_build_contract_v20"
     )
 
 
@@ -1058,10 +1058,11 @@ async def test_candidate_generation_job_recovers_without_new_workspace(tmp_path,
 def test_real_process_kill_and_restart_recovers_persisted_checkpoint(tmp_path):
     harness = Path(__file__).with_name("recovery_process_harness.py")
     process = subprocess.Popen(
-        [sys.executable, str(harness), "seed", str(tmp_path)],
+        [sys.executable, "-X", "utf8", str(harness), "seed", str(tmp_path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
     )
     try:
         deadline = time.monotonic() + 8
@@ -1079,10 +1080,11 @@ def test_real_process_kill_and_restart_recovers_persisted_checkpoint(tmp_path):
             process.wait(timeout=5)
 
     recovered = subprocess.run(
-        [sys.executable, str(harness), "recover", str(tmp_path)],
+        [sys.executable, "-X", "utf8", str(harness), "recover", str(tmp_path)],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=10,
     )
     payload = json.loads(recovered.stdout.strip().splitlines()[-1])

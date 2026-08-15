@@ -52,6 +52,7 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "visual_layout_binding_mismatch": "visual_page_mapping",
     "template_required_slot_unfilled": "source_slot_binding",
     "template_source_slot_coverage_incomplete": "source_slot_binding",
+    "template_source_semantic_fidelity_incomplete": "source_slot_binding",
     "template_slot_capacity_exceeded": "pagination_capacity",
     "template_continuation_contract_invalid": "pagination_contract",
     "template_layout_unavailable": "pagination_contract",
@@ -737,8 +738,10 @@ def validate_slide_story_plan_v3(
         required_slot_kinds = source_required_slot_kinds(
             graph_page_source_blocks(unit, page.source_block_ids)
         )
-        layout_slot_kinds = {slot.slot_kind for slot in layout.slots}
-        if not required_slot_kinds.issubset(layout_slot_kinds):
+        if not _layout_supports_required_slot_kinds(
+            layout,
+            required_slot_kinds,
+        ):
             raise V6BuildError(
                 stage="template",
                 code="template_layout_semantic_slot_mismatch",
@@ -1014,9 +1017,12 @@ def validate_slide_visual_plan_v2(
                 for slot in layout.slots
             )
             and not page_artifact_kinds(unit, page.source_block_ids)
-            and source_required_slot_kinds(
-                graph_page_source_blocks(unit, page.source_block_ids)
-            ).issubset({slot.slot_kind for slot in layout.slots})
+            and _layout_supports_required_slot_kinds(
+                layout,
+                source_required_slot_kinds(
+                    graph_page_source_blocks(unit, page.source_block_ids)
+                ),
+            )
         )
         if (
             decision.resolved_template_layout_id != page.template_layout_id
@@ -1751,6 +1757,102 @@ def _ordered_step_sequence_visible(source: str, visible: str) -> bool:
     return True
 
 
+_STEP_LEAD_CRITICAL_FACT_RE = re.compile(
+    r"(?:\b(?:admin(?:istrator)?|only|must|required|warning|caution|"
+    r"prerequisite|backup|irreversible|failure|failed|unless|before)\b|"
+    r"仅|只有|管理员|必须|务必|警告|注意|前提|备份|不可逆|失败|条件)",
+    flags=re.IGNORECASE,
+)
+_STEP_LEAD_SCAFFOLD_RE = re.compile(
+    r"^(?:"
+    r"(?:please\s+)?(?:follow|complete|perform|carry\s+out|run|execute)\s+"
+    r"(?:the\s+|these\s+)?[a-z\s-]{0,40}(?:steps?|operations?|tasks?|procedure|workflow)"
+    r"(?:\s+in\s+(?:source\s+)?order)?"
+    r"|(?:please\s+)?complete\s+[a-z\s-]{1,40}\s+in\s+(?:source\s+)?order"
+    r"|procedure\s+record"
+    r"|[a-z][a-z\s-]{0,36}\s+task"
+    r"|(?:请)?(?:按|按照)(?:以下|下列|上述)(?:步骤|流程)(?:操作|执行)?"
+    r"|(?:请)?(?:完成|执行|进行|遵循)(?:以下|下列|上述)"
+    r"(?:步骤|操作|任务|流程)(?:以完成(?:本节)?(?:实践|任务|操作|流程))?"
+    r"|依次(?:完成|执行)(?:以下|下列|上述)?(?:步骤|操作|任务|流程)"
+    r")[.。:：]?$",
+    flags=re.IGNORECASE,
+)
+
+
+def _ordered_step_lead_is_scaffolding(value: str) -> bool:
+    """Recognize only narrow, fact-free directions that introduce steps."""
+
+    normalized = _presentation_summary_text(value).strip()
+    if not normalized or _STEP_LEAD_CRITICAL_FACT_RE.search(normalized):
+        return False
+    return _STEP_LEAD_SCAFFOLD_RE.fullmatch(normalized) is not None
+
+
+def _ordered_step_projection_is_semantically_closed(source: str) -> bool:
+    """Return whether ordered steps contain every post-intro prose line.
+
+    Only a narrowly recognized, fact-free lead before the first explicit step
+    is presentation scaffolding; the ordered headings and their indented
+    details carry the teaching facts.  Any prerequisite/warning, top-level
+    bullet, acceptance condition, or trailing paragraph is independent source
+    meaning and cannot disappear into a steps-only template.
+    """
+
+    seen_step = False
+    for line in str(source or "").splitlines():
+        if _ORDERED_STEP_PATTERN.match(line):
+            seen_step = True
+            continue
+        if seen_step and _NESTED_STEP_DETAIL_PATTERN.match(line):
+            continue
+        if not line.strip():
+            continue
+        if not seen_step and _ordered_step_lead_is_scaffolding(line):
+            continue
+        return False
+    return seen_step
+
+
+def _first_incomplete_visible_prose_block(
+    source_blocks: list[CourseBlock],
+    regions: list[SlideRegionV6],
+) -> str:
+    """Return the first block whose complete prose is absent from text regions.
+
+    Template satisfiability must prove semantic content, not merely attach a
+    block ID to some visible region.  Structured layouts are allowed to change
+    Markdown markers and presentation punctuation, but every source token must
+    remain visible in source order across declared continuations.
+    """
+
+    for block in source_blocks:
+        if block.kind in {"image", "diagram", "graph_embed", "audio", "video"}:
+            # These blocks are rendered by their native media/visual adapter;
+            # their payload text is metadata rather than a prose companion.
+            continue
+        source_prose = _artifact_free_prose_text(block)
+        expected = _canonical_step_sequence_text(source_prose)
+        if not expected:
+            continue
+        visible = "\n".join(
+            region.content
+            for region in regions
+            if region.content_kind in {"body", "items", "steps"}
+            and block.block_id in region.source_block_ids
+        )
+        if (
+            _ordered_step_groups(source_prose)
+            and _ordered_step_projection_is_semantically_closed(source_prose)
+            and _ordered_step_sequence_visible(source_prose, visible)
+        ):
+            continue
+        actual = _canonical_step_sequence_text(visible)
+        if expected not in actual:
+            return block.block_id
+    return ""
+
+
 def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
     """Return semantic template slots required to keep source structure visible."""
 
@@ -1762,6 +1864,38 @@ def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
     ):
         return {"steps"}
     return set()
+
+
+def _layout_supports_required_slot_kinds(
+    layout: Any,
+    required_slot_kinds: set[str],
+) -> bool:
+    """Return whether a layout preserves each required semantic structure.
+
+    A body slot is the lossless fallback for structured prose: it retains the
+    source's ordered markers and context even when a card/step projection
+    cannot do so.  The later shared fidelity predicate still proves that the
+    complete source is visible, so this does not turn body into a bypass.
+    """
+
+    available = {slot.slot_kind for slot in layout.slots}
+    supported = set(available)
+    if "body" in available:
+        supported.add("steps")
+    return required_slot_kinds.issubset(supported)
+
+
+def _layout_semantic_fallback_cost(
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> int:
+    """Prefer native semantic slots over a verified lossless body fallback."""
+
+    required = source_required_slot_kinds(source_blocks)
+    available = {slot.slot_kind for slot in layout.slots}
+    if required.issubset(available):
+        return 0
+    return 1 if _layout_supports_required_slot_kinds(layout, required) else 2
 
 
 def _bounded_slot_content(
@@ -3183,12 +3317,13 @@ def _layout_accepts_complete_blocks(
         set(layout.artifact_kinds)
     ):
         return False
-    if not source_required_slot_kinds(source_blocks).issubset(
-        {slot.slot_kind for slot in layout.slots}
+    if not _layout_supports_required_slot_kinds(
+        layout,
+        source_required_slot_kinds(source_blocks),
     ):
         return False
     try:
-        _materialize_template_regions(
+        regions = _materialize_template_regions(
             page_id="continuation-contract-probe",
             title="",
             layout=layout,
@@ -3196,7 +3331,7 @@ def _layout_accepts_complete_blocks(
         )
     except V6BuildError:
         return False
-    return True
+    return not _first_incomplete_visible_prose_block(source_blocks, regions)
 
 
 def _source_can_fill_pending_visual(layout: Any, source_blocks: list[CourseBlock]) -> bool:
@@ -3230,7 +3365,13 @@ def _safe_continuation_for_blocks(
 ) -> Any:
     """Select a declared continuation that satisfies its own complete contract."""
 
-    for candidate in _declared_continuation_layouts(template, layout):
+    candidates = _declared_continuation_layouts(template, layout)
+    candidates.sort(key=lambda candidate: (
+        _layout_semantic_fallback_cost(candidate, source_blocks),
+        candidate.template_layout_id == layout.template_layout_id,
+        candidate.template_layout_id,
+    ))
+    for candidate in candidates:
         if _layout_accepts_complete_blocks(candidate, source_blocks):
             return candidate
     raise V6BuildError(
@@ -3257,6 +3398,7 @@ def _safe_paginated_continuations_for_blocks(
     candidates = _declared_continuation_layouts(template, layout)
     candidates.sort(
         key=lambda candidate: (
+            _layout_semantic_fallback_cost(candidate, source_blocks),
             candidate.template_layout_id == layout.template_layout_id,
             candidate.template_layout_id,
         )
@@ -4336,8 +4478,9 @@ def validate_layout_source_satisfiability(
             message="Template layout cannot express every frozen source artifact",
             page_id=page_id,
         )
-    if not source_required_slot_kinds(source_blocks).issubset(
-        {slot.slot_kind for slot in layout.slots}
+    if not _layout_supports_required_slot_kinds(
+        layout,
+        source_required_slot_kinds(source_blocks),
     ):
         raise V6BuildError(
             stage="template",
@@ -4405,8 +4548,9 @@ def validate_layout_source_satisfiability(
         source_blocks=source_blocks,
         story_summary=story_summary,
     )
+    materialized_regions: list[SlideRegionV6] = []
     for index, materialization in enumerate(materializations):
-        _materialize_template_regions(
+        materialized_regions.extend(_materialize_template_regions(
             page_id=(
                 page_id
                 if index == 0
@@ -4427,6 +4571,21 @@ def validate_layout_source_satisfiability(
                 materialization.layout,
                 materialization.source_blocks,
             ),
+        ))
+    incomplete_block_id = _first_incomplete_visible_prose_block(
+        source_blocks,
+        materialized_regions,
+    )
+    if incomplete_block_id:
+        raise V6BuildError(
+            stage="template",
+            code="template_source_semantic_fidelity_incomplete",
+            message=(
+                "Template text regions omit frozen source prose for block "
+                f"{incomplete_block_id}"
+            ),
+            page_id=page_id,
+            node_id=incomplete_block_id,
         )
     return materializations
 
@@ -4475,8 +4634,9 @@ def story_safe_page_slices(
                     set(layout.artifact_kinds)
                 ):
                     continue
-                if not required_slot_kinds.issubset(
-                    {slot.slot_kind for slot in layout.slots}
+                if not _layout_supports_required_slot_kinds(
+                    layout,
+                    required_slot_kinds,
                 ):
                     continue
                 try:
@@ -5076,10 +5236,27 @@ def _visible_semantic_fidelity(
 
         expected_step_groups = _ordered_step_groups(block_source_text(block))
         if len(expected_step_groups) >= 2:
-            step_results.append(_ordered_step_sequence_visible(
+            source_prose = _artifact_free_prose_text(block)
+            actual_semantic = "\n".join(
+                semantic_region_contents(block.block_id)
+            )
+            steps_visible = _ordered_step_sequence_visible(
                 block_source_text(block),
-                "\n".join(semantic_region_contents(block.block_id)),
-            ))
+                actual_semantic,
+            )
+            projection_closed = (
+                _ordered_step_projection_is_semantically_closed(source_prose)
+            )
+            complete_prose_visible = (
+                _canonical_step_sequence_text(source_prose)
+                in _canonical_step_sequence_text(actual_semantic)
+            )
+            step_results.append(
+                steps_visible
+                and (projection_closed or complete_prose_visible)
+            )
+            if not projection_closed:
+                prose_results.append(complete_prose_visible)
         else:
             expected_prose = _canonical_visible_semantic_text(
                 _artifact_free_prose_text(block)

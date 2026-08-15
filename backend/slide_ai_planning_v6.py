@@ -37,6 +37,7 @@ from slide_deck_v6 import (
     V6BuildError,
     _complete_sentence_excerpt,
     _complete_story_source_companion,
+    _layout_semantic_fallback_cost,
     _looks_like_markdown_table,
     _presentation_summary_text,
     _protected_tokens,
@@ -79,6 +80,7 @@ _STORY_UNIT_REPARTITION_FAILURE_CODES = frozenset({
     "template_layout_intent_mismatch",
     "template_layout_semantic_slot_mismatch",
     "template_required_slot_unfilled",
+    "template_source_semantic_fidelity_incomplete",
     "template_source_slot_role_mismatch",
     "template_slot_capacity_exceeded",
     "template_slot_underfilled",
@@ -768,6 +770,20 @@ def _normalize_story_batch_response(
             except V6BuildError:
                 continue
             result.append(layout_id)
+        graph_unit = graph_units.get(
+            str(unit.get("teaching_unit_id") or "")
+        )
+        if graph_unit is not None:
+            source_blocks = graph_page_source_blocks(
+                graph_unit,
+                [str(block_id) for block_id in page.get("source_block_ids") or []],
+            )
+            result.sort(key=lambda layout_id: (
+                _layout_semantic_fallback_cost(
+                    template.get_layout(layout_id),
+                    source_blocks,
+                ),
+            ))
         return result
     normalized_pages: list[Any] = []
     for ordinal, value in enumerate(pages):
@@ -819,10 +835,40 @@ def _normalize_story_batch_response(
                 len(required_text_slots) >= 3
                 and not owns_complete_unit
             )
+            graph_unit = graph_units.get(unit_id)
+            source_blocks = (
+                graph_page_source_blocks(
+                    graph_unit,
+                    [
+                        str(block_id)
+                        for block_id in page.get("source_block_ids") or []
+                    ],
+                )
+                if graph_unit is not None
+                else []
+            )
+            preferred_layout = template.get_layout(
+                page_layout_ids[0] if page_layout_ids else ""
+            )
+            selected_uses_avoidable_body_fallback = bool(
+                selected_layout is not None
+                and preferred_layout is not None
+                and _layout_semantic_fallback_cost(
+                    selected_layout,
+                    source_blocks,
+                )
+                > _layout_semantic_fallback_cost(
+                    preferred_layout,
+                    source_blocks,
+                )
+            )
             if (
                 selected_layout is not None
                 and not requires_composite_repartition
-                and selected_layout_id not in page_layout_ids
+                and (
+                    selected_layout_id not in page_layout_ids
+                    or selected_uses_avoidable_body_fallback
+                )
                 and page_layout_ids
             ):
                 page["template_layout_id"] = page_layout_ids[0]

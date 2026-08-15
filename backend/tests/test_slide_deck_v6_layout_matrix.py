@@ -295,6 +295,94 @@ def test_process_flow_rejects_a_reasoning_outline_that_drops_visible_source() ->
         == "template_source_semantic_fidelity_incomplete"
     )
 
+    fallback = template.get_layout(template.layout_id("content-stack"))
+    assert fallback is not None
+    materializations = validate_layout_source_satisfiability(
+        page_id="numbered-reasoning-specification-fallback",
+        template=template,
+        layout=fallback,
+        source_blocks=[source],
+    )
+    assert materializations
+    assert all(page.layout.layout_slug == "content-stack" for page in materializations)
+
+
+def test_content_stack_is_a_lossless_fallback_for_structured_activity_prose() -> None:
+    """A body continuation may preserve steps when card projection loses context."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    fallback = template.get_layout(template.layout_id("content-stack"))
+    assert fallback is not None
+    source = _block(
+        "structured-activity-with-context",
+        role="activity",
+        markdown=(
+            "Record the baseline before changing the runtime configuration.\n"
+            "1. Capture every current value.\n"
+            "2. Apply the new configuration.\n"
+            "3. Compare the observed result with the acceptance criterion."
+        ),
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="structured-activity-with-context",
+        template=template,
+        layout=fallback,
+        source_blocks=[source],
+    )
+
+    assert materializations
+    assert all(page.layout.layout_slug == "content-stack" for page in materializations)
+
+
+def test_process_flow_distinguishes_scaffolding_from_a_critical_prerequisite() -> None:
+    """A factual warning before identical steps cannot disappear as a lead-in."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    process = template.get_layout(template.layout_id("process-flow"))
+    fallback = template.get_layout(template.layout_id("content-stack"))
+    assert process is not None
+    assert fallback is not None
+    plain = _block(
+        "plain-two-step-process",
+        role="reasoning",
+        markdown=(
+            "按以下步骤操作：\n"
+            "1. 保存当前状态。\n"
+            "2. 核对执行结果。"
+        ),
+    )
+    guarded = _block(
+        "guarded-two-step-process",
+        role="reasoning",
+        markdown=(
+            "仅当校验失败时才继续，且不可逆操作前必须备份当前配置。\n"
+            "1. 保存当前状态。\n"
+            "2. 核对执行结果。"
+        ),
+    )
+
+    assert validate_layout_source_satisfiability(
+        page_id="plain-two-step-process",
+        template=template,
+        layout=process,
+        source_blocks=[plain],
+    )
+    with pytest.raises(V6BuildError) as error:
+        validate_layout_source_satisfiability(
+            page_id="guarded-two-step-process",
+            template=template,
+            layout=process,
+            source_blocks=[guarded],
+        )
+    assert error.value.failure.code == "template_source_semantic_fidelity_incomplete"
+    assert validate_layout_source_satisfiability(
+        page_id="guarded-two-step-process-fallback",
+        template=template,
+        layout=fallback,
+        source_blocks=[guarded],
+    )
+
 
 def test_required_steps_slot_accepts_a_single_complete_step_after_pagination() -> None:
     """Capacity pagination may leave one real ordered step on a legal page."""

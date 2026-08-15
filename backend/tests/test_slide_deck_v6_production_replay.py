@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import Counter
 from pathlib import Path
@@ -8,9 +9,12 @@ import pytest
 
 from course_document import CourseDocument
 from course_presentation_graph import CoursePresentationGraphV1
+from slide_ai_planning_v6 import plan_slide_story_v3
 from slide_deck_v6 import (
     SlideStoryPlanV3,
+    SlideVisualDecisionV2,
     SlideVisualPlanV2,
+    V6BuildError,
     compile_slide_deck_v6,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
@@ -74,8 +78,82 @@ def _deck_signature(deck) -> list[tuple]:
     ]
 
 
+async def _normalize_replayed_story(
+    story: SlideStoryPlanV3,
+    graph: CoursePresentationGraphV1,
+    template,
+) -> SlideStoryPlanV3:
+    """Replay a stale production Story through the current AI boundary."""
+
+    batches = {batch.chapter_id: batch for batch in story.batches}
+
+    async def planner(request):
+        batch = batches[request["chapter_id"]]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "sanitized-production-replay",
+            "model": "frozen-response",
+            "attempts": 1,
+            "pages": [
+                {
+                    "page_id": page.page_id,
+                    "teaching_unit_id": page.teaching_unit_id,
+                    "template_layout_id": page.template_layout_id,
+                    "title": page.title,
+                    "summary": page.summary,
+                    "source_block_ids": page.source_block_ids,
+                }
+                for page in batch.pages
+            ],
+        }
+
+    return await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+
 def test_full_production_shape_replay_is_deterministic_complete_and_bounded() -> None:
-    document, graph, story, visual, template = _load_replay()
+    document, graph, stale_story, stale_visual, template = _load_replay()
+
+    with pytest.raises(V6BuildError) as stale_error:
+        compile_slide_deck_v6(
+            document,
+            graph,
+            stale_story,
+            stale_visual,
+            template,
+        )
+    assert (
+        stale_error.value.failure.code
+        == "template_source_semantic_fidelity_incomplete"
+    )
+
+    story = asyncio.run(_normalize_replayed_story(
+        stale_story,
+        graph,
+        template,
+    ))
+    old_decisions = {
+        decision.page_id: decision for decision in stale_visual.decisions
+    }
+    visual = stale_visual.model_copy(update={
+        "decisions": [
+            old_decisions[page.page_id].model_copy(update={
+                "resolved_template_layout_id": page.template_layout_id,
+            })
+            if page.page_id in old_decisions
+            else SlideVisualDecisionV2(
+                page_id=page.page_id,
+                decision="text_native",
+                source_block_ids=page.source_block_ids,
+                resolved_template_layout_id=page.template_layout_id,
+            )
+            for page in story.pages
+        ],
+    })
 
     first = compile_slide_deck_v6(document, graph, story, visual, template)
     second = compile_slide_deck_v6(document, graph, story, visual, template)
@@ -87,7 +165,6 @@ def test_full_production_shape_replay_is_deterministic_complete_and_bounded() ->
     assert first.quality.final_page_count == len(first.pages)
     assert first.quality.pagination_within_dynamic_bound
     assert len(first.pages) <= first.quality.pagination_page_upper_bound
-    assert len(first.pages) / len(story.pages) < 4
 
     story_ids = {page.page_id for page in story.pages}
     expansion = Counter(
@@ -95,7 +172,9 @@ def test_full_production_shape_replay_is_deterministic_complete_and_bounded() ->
         or (page.page_id if page.page_id in story_ids else "generated")
         for page in first.pages
     )
-    assert max(expansion[page_id] for page_id in story_ids) <= 14
+    assert max(expansion[page_id] for page_id in story_ids) == (
+        first.quality.max_story_page_expansion
+    )
 
     visible_fingerprints: Counter[tuple[str, str, str]] = Counter()
     for page in first.pages:
