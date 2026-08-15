@@ -1,5 +1,7 @@
 import asyncio
+import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +30,9 @@ from slide_deck_v6 import (
     validate_slide_story_plan_v3,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "slide_deck_v6"
 
 
 def test_v6_planners_use_the_dedicated_ppt_provider_profile(monkeypatch):
@@ -762,6 +767,162 @@ async def test_story_resume_normalizes_duplicate_page_ids_before_validation() ->
         template,
         ai_planner=initial_planner,
     )
+
+
+def _activity_code_overflow_replay() -> tuple[dict, CourseDocument, str]:
+    fixture = json.loads(
+        (_FIXTURE_DIR / "activity_rich_text_code_overflow.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    steps = "\n".join(
+        f"{index}. {item}"
+        for index, item in enumerate(fixture["steps"], start=1)
+    )
+    code = "\n".join(fixture["code_lines"])
+    markdown = (
+        f"## {fixture['page_title']}\n\n"
+        f"{steps}\n\n"
+        f"```csharp\n{code}\n```"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id=fixture["course_id"],
+        title=fixture["course_title"],
+        sections=[CourseSection(
+            section_id=fixture["section_id"],
+            title=fixture["section_title"],
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id=fixture["block_id"],
+            section_id=fixture["section_id"],
+            position=0,
+            role=fixture["block_role"],
+            kind=fixture["block_kind"],
+            payload={"markdown": markdown},
+        )],
+    ))
+    return fixture, document, markdown
+
+
+@pytest.mark.asyncio
+async def test_real_shape_activity_code_replay_is_lossless_through_resume_and_quality() -> None:
+    """Replay the production-shaped multi-slot page without course-specific data."""
+
+    fixture, document, markdown = _activity_code_overflow_replay()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        response = fixture["story_response"]
+        return {
+            "schema_version": response["schema_version"],
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": response["page_id"],
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": template.layout_id(response["layout_slug"]),
+                "title": fixture["page_title"],
+                "summary": response["summary"],
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    first_story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    second_story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    assert [page.page_id for page in first_story.pages] == [
+        page.page_id for page in second_story.pages
+    ]
+
+    async def planner_must_not_run(_request):
+        raise AssertionError("compatible replay checkpoints must be reused")
+
+    resumed_story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner_must_not_run,
+        resume_batches=first_story.batches,
+    )
+
+    async def visual_planner(request):
+        response = fixture["visual_response"]
+        return {
+            "schema_version": response["schema_version"],
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": response["decision"],
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            } for page in request["pages"]],
+        }
+
+    first_visual = await plan_slide_visuals_v2(
+        resumed_story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+    resumed_visual = await plan_slide_visuals_v2(
+        resumed_story,
+        graph,
+        template,
+        ai_planner=planner_must_not_run,
+        resume_decisions=first_visual.decisions,
+    )
+    deck = compile_slide_deck_v6(
+        document,
+        graph,
+        resumed_story,
+        resumed_visual,
+        template,
+    )
+
+    rendered_code = [
+        line
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "code"
+        for line in region.content.splitlines()
+    ]
+    rendered_steps = [
+        line
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "steps"
+        for line in region.content.splitlines()
+    ]
+    page_ids = [page.page_id for page in deck.pages]
+
+    assert len(deck.pages) > 1
+    assert len(page_ids) == len(set(page_ids))
+    assert rendered_code == fixture["code_lines"]
+    assert rendered_steps == fixture["steps"]
+    assert [page.visual_decision.page_id for page in deck.pages] == page_ids
+    assert all(
+        page.visual_decision.source_block_ids == page.source_block_ids
+        for page in deck.pages
+    )
+    assert all(
+        any(
+            note.block_id == fixture["block_id"]
+            and note.full_text == markdown
+            and note.source_payload == {"markdown": markdown}
+            for note in page.speaker_notes.source_blocks
+        )
+        for page in deck.pages
+    )
+    assert deck.quality.passed is True
+    assert deck.quality.source_artifact_visible_fidelity == 1.0
+    assert deck.quality.ordered_step_visible_fidelity == 1.0
     duplicate_id = initial.pages[0].page_id
     saved_batch = initial.batches[0].model_copy(update={
         "pages": [
