@@ -208,7 +208,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("task", "steps", items=7, chars=294),
             _NOTES,
         ],
-        "continuations": ["practice-code"],
+        "continuations": ["practice-code", "practice-prompt", "evidence-code"],
         "base_layout": "practice-prompt",
     },
     "practice-formula": {
@@ -220,7 +220,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("task", "steps", items=7, chars=294),
             _NOTES,
         ],
-        "continuations": ["practice-formula"],
+        "continuations": ["practice-formula", "practice-prompt", "evidence-formula"],
         "base_layout": "practice-prompt",
     },
     "practice-table": {
@@ -242,7 +242,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("task", "steps", items=7, chars=294),
             _NOTES,
         ],
-        "continuations": ["practice-table"],
+        "continuations": ["practice-table", "practice-prompt", "evidence-table"],
         "base_layout": "practice-prompt",
     },
     "practice-feedback": {
@@ -265,7 +265,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "intents": ["artifact_explanation", "mechanism", "worked_example"],
         "artifact_kinds": ["formula"],
         "slots": [_TITLE, _slot("formula", "formula", chars=420), _slot("derivation", "body", chars=360), _NOTES],
-        "continuations": ["evidence-formula"],
+        "continuations": ["evidence-formula", "content-stack"],
     },
     "evidence-table": {
         "intents": ["artifact_explanation", "comparison", "worked_example", "misconception_repair"],

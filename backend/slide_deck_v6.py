@@ -24,6 +24,51 @@ V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
 SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v5"
 MAX_SAFE_SLIDE_COUNT = 300
 
+V6_STAGE_CONTRACTS: dict[str, str] = {
+    "source": "Freeze canonical source blocks, revisions, and artifact identities.",
+    "story": "Normalize and validate deterministic globally unique page identities.",
+    "visual": "Bind exactly one source-scoped visual decision to every story page.",
+    "template": "Materialize complete source into declared capacity-safe continuations.",
+    "quality": "Reject visible source loss, duplication, truncation, or unsupported claims.",
+    "render": "Render the validated shared Web/PPTX contract without semantic changes.",
+    "publish": "Publish only the finalized candidate whose frozen dependencies still match.",
+    "recovery": "Resume only checkpoints compatible with the current build contract.",
+}
+
+V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
+    "story_page_id_missing": "page_identity",
+    "story_duplicate_page_id": "page_identity",
+    "visual_page_coverage_incomplete": "visual_page_mapping",
+    "visual_source_binding_mismatch": "visual_page_mapping",
+    "visual_layout_binding_mismatch": "visual_page_mapping",
+    "template_required_slot_unfilled": "source_slot_binding",
+    "template_source_slot_coverage_incomplete": "source_slot_binding",
+    "template_slot_capacity_exceeded": "pagination_capacity",
+    "template_continuation_contract_invalid": "pagination_contract",
+    "template_layout_unavailable": "pagination_contract",
+    "source_artifact_visible_fidelity_incomplete": "source_fidelity",
+    "source_prose_visible_fidelity_incomplete": "source_fidelity",
+    "ordered_step_visible_fidelity_incomplete": "source_fidelity",
+    "v6_recovery_contract_mismatch": "checkpoint_contract",
+}
+
+
+def classify_v6_failure(stage: str, code: str) -> dict[str, str]:
+    """Return the owning stage and stable root-cause family for diagnostics."""
+
+    owner_stage = stage if stage in V6_STAGE_CONTRACTS else "quality"
+    root_cause = V6_FAILURE_ROOT_CAUSE_BY_CODE.get(
+        code,
+        "checkpoint_contract"
+        if "recovery" in code or "checkpoint" in code
+        else f"{owner_stage}_contract",
+    )
+    return {
+        "owner_stage": owner_stage,
+        "root_cause": root_cause,
+        "stage_contract": V6_STAGE_CONTRACTS[owner_stage],
+    }
+
 
 @dataclass(frozen=True)
 class _SafePageMaterialization:
@@ -1203,16 +1248,23 @@ def _block_matches_slot(block: CourseBlock, slot_kind: str) -> bool:
 
 
 def _code_candidates(text: str) -> list[str]:
-    fenced = [
-        match.group(1).strip()
-        for match in re.finditer(
-            r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n(.*?)```",
-            text,
-            re.DOTALL,
-        )
-        if match.group(1).strip()
-    ]
-    return fenced or [text.strip()]
+    fenced: list[str] = []
+    for match in re.finditer(
+        r"```(?:[A-Za-z0-9_+.#-]+)?[^\S\r\n]*\r?\n(.*?)```",
+        text,
+        re.DOTALL,
+    ):
+        value = match.group(1)
+        # Remove only the structural newline immediately before the closing
+        # fence. Additional trailing newlines belong to the source code and
+        # must survive pagination as blank lines.
+        if value.endswith("\r\n"):
+            value = value[:-2]
+        elif value.endswith(("\r", "\n")):
+            value = value[:-1]
+        if value.strip("\r\n"):
+            fenced.append(value)
+    return fenced or [text.strip("\r\n")]
 
 
 def _prose_source_text(block: CourseBlock) -> str:
@@ -1386,7 +1438,7 @@ def _bounded_code_content(
         candidates = _code_candidates(block_source_text(block))
         candidate = max(candidates, key=len)
         if candidate:
-            complete_blocks.append(candidate.strip("\n"))
+            complete_blocks.append(candidate)
     content = "\n\n".join(complete_blocks)
     line_width = max(24, capacity // max(1, line_capacity))
     rendered_line_cost = sum(
@@ -1777,6 +1829,11 @@ def _split_artifact_block(
             max_chars=max_chars,
             prefix_lines=header,
         )
+    elif slot_kind == "formula":
+        formula = "\n\n".join(_formula_candidates(content))
+        if max_chars and len(formula) > max_chars:
+            raise ValueError("template_slot_capacity_exceeded")
+        chunks = [formula]
     else:
         return [block]
     return [
@@ -2356,6 +2413,112 @@ def _split_blocks_for_slot(
     return fragments
 
 
+def _declared_continuation_layouts(
+    template: TemplateLayoutPackContractV1,
+    layout: Any,
+) -> list[Any]:
+    """Resolve only continuations explicitly published by the template contract."""
+
+    layouts: list[Any] = []
+    for slug in layout.safe_continuation_layout_slugs:
+        try:
+            layout_id = template.layout_id(slug)
+        except KeyError:
+            continue
+        candidate = template.get_layout(layout_id)
+        if candidate is not None:
+            layouts.append(candidate)
+    return layouts
+
+
+def _layout_accepts_complete_blocks(
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> bool:
+    """Check a continuation without truncation or bypassing required slots."""
+
+    try:
+        _materialize_template_regions(
+            page_id="continuation-contract-probe",
+            title="",
+            layout=layout,
+            source_blocks=source_blocks,
+        )
+    except V6BuildError:
+        return False
+    return True
+
+
+def _safe_continuation_for_blocks(
+    *,
+    page_id: str,
+    template: TemplateLayoutPackContractV1,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+    purpose: str,
+) -> Any:
+    """Select a declared continuation that satisfies its own complete contract."""
+
+    for candidate in _declared_continuation_layouts(template, layout):
+        if _layout_accepts_complete_blocks(candidate, source_blocks):
+            return candidate
+    raise V6BuildError(
+        stage="template",
+        code="template_layout_unavailable",
+        message=(
+            f"The selected template declares no safe {purpose} continuation "
+            "for the complete source content"
+        ),
+        page_id=page_id,
+    )
+
+
+def _required_support_page_blocks(
+    *,
+    page_id: str,
+    layout: Any,
+    support_source_blocks: list[CourseBlock],
+) -> list[list[CourseBlock]]:
+    """Split one required semantic support slot without duplicating source content."""
+
+    required_slots = [
+        slot
+        for slot in layout.slots
+        if slot.required and slot.slot_kind in {"body", "items", "steps"}
+    ]
+    if not required_slots:
+        return []
+    if len(required_slots) != 1:
+        raise V6BuildError(
+            stage="template",
+            code="template_continuation_contract_invalid",
+            message=(
+                "Lossless multi-slot pagination requires exactly one required "
+                "semantic support slot"
+            ),
+            page_id=page_id,
+        )
+    slot = required_slots[0]
+    matching_blocks = _assigned_text_slot_blocks(
+        layout,
+        support_source_blocks,
+    ).get(slot.slot_id, [])
+    if not matching_blocks:
+        return []
+    try:
+        return [
+            [fragment]
+            for fragment in _split_blocks_for_slot(matching_blocks, slot=slot)
+        ]
+    except ValueError as error:
+        raise V6BuildError(
+            stage="template",
+            code="template_slot_capacity_exceeded",
+            message=f"A complete semantic unit exceeds template slot {slot.slot_id}",
+            page_id=page_id,
+        ) from error
+
+
 def _safe_artifact_page_blocks(
     *,
     page_id: str,
@@ -2370,7 +2533,7 @@ def _safe_artifact_page_blocks(
         (
             slot
             for slot in layout.slots
-            if slot.slot_kind in {"code", "table"}
+            if slot.slot_kind in {"code", "formula", "table"}
             and any(_block_matches_slot(block, slot.slot_kind) for block in source_blocks)
         ),
         None,
@@ -2486,7 +2649,14 @@ def _safe_artifact_page_blocks(
                 max_lines=artifact_slot.max_lines,
                 max_rows=artifact_slot.max_rows,
             )
-            artifact_chunks = list(artifact_blocks)
+            for block in artifact_blocks:
+                artifact_chunks.extend(_split_artifact_block(
+                    block,
+                    slot_kind=artifact_slot.slot_kind,
+                    max_chars=artifact_slot.max_chars,
+                    max_lines=artifact_slot.max_lines,
+                    max_rows=artifact_slot.max_rows,
+                ))
     except ValueError as error:
         if str(error) != "template_slot_capacity_exceeded":
             raise
@@ -2616,6 +2786,72 @@ def _safe_artifact_page_blocks(
             story_summary="",
         )
         artifact_support_blocks = []
+
+    if required_support and support_source_blocks:
+        support_pages = _required_support_page_blocks(
+            page_id=page_id,
+            layout=layout,
+            support_source_blocks=support_source_blocks,
+        )
+        if not support_pages:
+            raise V6BuildError(
+                stage="template",
+                code="template_required_slot_unfilled",
+                message="Required semantic support has no source-backed content",
+                page_id=page_id,
+            )
+        paired_blocks = sorted(
+            [*support_pages[0], artifact_chunks[0]],
+            key=lambda block: (block.position, block.block_id),
+        )
+        paired = _SafePageMaterialization(
+            layout=layout,
+            source_blocks=paired_blocks,
+        )
+        remaining_support = support_pages[1:]
+        remaining_artifacts = artifact_chunks[1:]
+        support_continuations = [
+            _SafePageMaterialization(
+                layout=_safe_continuation_for_blocks(
+                    page_id=page_id,
+                    template=template,
+                    layout=layout,
+                    source_blocks=blocks,
+                    purpose="semantic support",
+                ),
+                source_blocks=blocks,
+            )
+            for blocks in remaining_support
+        ]
+        artifact_continuations = [
+            _SafePageMaterialization(
+                layout=_safe_continuation_for_blocks(
+                    page_id=page_id,
+                    template=template,
+                    layout=layout,
+                    source_blocks=[chunk],
+                    purpose="artifact",
+                ),
+                source_blocks=[chunk],
+            )
+            for chunk in remaining_artifacts
+        ]
+        materializations = [
+            paired,
+            *support_continuations,
+            *artifact_continuations,
+        ]
+        if len(materializations) > MAX_SAFE_SLIDE_COUNT:
+            raise V6BuildError(
+                stage="template",
+                code="slide_safety_limit_exceeded",
+                message=(
+                    "Lossless multi-slot pagination exceeded the abnormal safety "
+                    f"ceiling of {MAX_SAFE_SLIDE_COUNT} pages"
+                ),
+                page_id=page_id,
+            )
+        return materializations
 
     artifact_materializations = [
         _SafePageMaterialization(
@@ -3653,12 +3889,31 @@ def compile_slide_deck_v6(
             uses_story_artifact_layout = (
                 page_layout.template_layout_id == layout.template_layout_id
             )
+            materialized_artifacts = {
+                artifact
+                for block in materialized_blocks
+                for artifact in block_artifact_kinds(block)
+            }
+            retains_visual_decision = bool(
+                uses_story_artifact_layout
+                or (
+                    visual_by_page[story_page.page_id].decision
+                    in set(page_layout.artifact_kinds)
+                    and visual_by_page[story_page.page_id].decision
+                    in materialized_artifacts
+                )
+                or (
+                    visual_by_page[story_page.page_id].decision == "data"
+                    and "table" in materialized_artifacts
+                    and "data" in set(page_layout.artifact_kinds)
+                )
+            )
             decision = visual_by_page[story_page.page_id].model_copy(
                 update={
                     "page_id": page_id,
                     "decision": (
                         visual_by_page[story_page.page_id].decision
-                        if uses_story_artifact_layout
+                        if retains_visual_decision
                         else "text_native"
                     ),
                     "source_block_ids": materialized_source_ids,
@@ -3839,7 +4094,10 @@ __all__ = [
     "SlideVisualPlanV2",
     "V6BuildError",
     "V6Failure",
+    "V6_FAILURE_ROOT_CAUSE_BY_CODE",
+    "V6_STAGE_CONTRACTS",
     "build_signature_v6",
+    "classify_v6_failure",
     "compile_ppt_source_contract_v2",
     "compile_shadow_chapter_document",
     "compile_slide_deck_v6",

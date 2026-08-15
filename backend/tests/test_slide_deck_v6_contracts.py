@@ -21,6 +21,7 @@ from slide_deck_v6 import (
     _display_excerpt,
     _protected_tokens,
     build_signature_v6,
+    classify_v6_failure,
     compile_ppt_source_contract_v2,
     compile_shadow_chapter_document,
     compile_slide_deck_v6,
@@ -31,6 +32,27 @@ from slide_deck_v6 import (
 )
 from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+@pytest.mark.parametrize(
+    ("stage", "code", "root_cause"),
+    [
+        ("story", "story_duplicate_page_id", "page_identity"),
+        ("visual", "visual_page_coverage_incomplete", "visual_page_mapping"),
+        ("template", "template_slot_capacity_exceeded", "pagination_capacity"),
+        ("recovery", "v6_recovery_contract_mismatch", "checkpoint_contract"),
+    ],
+)
+def test_v6_failure_codes_have_stable_stage_and_root_cause_mapping(
+    stage: str,
+    code: str,
+    root_cause: str,
+) -> None:
+    contract = classify_v6_failure(stage, code)
+
+    assert contract["owner_stage"] == stage
+    assert contract["root_cause"] == root_cause
+    assert contract["stage_contract"]
 
 
 def test_sentence_excerpt_never_exceeds_its_template_budget():

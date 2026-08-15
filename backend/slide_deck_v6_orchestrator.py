@@ -30,6 +30,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     build_signature_v6,
+    classify_v6_failure,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
     prepare_story_plan_for_final_compilation,
@@ -45,7 +46,7 @@ from teaching_representations import (
 from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
-SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v11"
+SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v12"
 
 
 def _utc_now() -> str:
@@ -1132,6 +1133,10 @@ class SlideDeckV6Orchestrator:
                 "published": False,
                 "shadow_context": dict(shadow_context or {}),
                 "failure": error.failure.model_dump(mode="json"),
+                "failure_contract": classify_v6_failure(
+                    error.failure.stage,
+                    error.failure.code,
+                ),
                 "updated_at": _utc_now(),
             }
             self.candidates.save(task_id, failure_payload)

@@ -767,6 +767,26 @@ async def test_story_resume_normalizes_duplicate_page_ids_before_validation() ->
         template,
         ai_planner=initial_planner,
     )
+    duplicate_id = initial.pages[0].page_id
+    saved_batch = initial.batches[0].model_copy(update={
+        "pages": [
+            page.model_copy(update={"page_id": duplicate_id})
+            for page in initial.batches[0].pages
+        ]
+    })
+
+    async def planner_must_not_run(_request):
+        raise AssertionError("valid saved story content should be resumed")
+
+    resumed = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner_must_not_run,
+        resume_batches=[saved_batch],
+    )
+
+    assert len({page.page_id for page in resumed.pages}) == len(resumed.pages)
+    assert resumed.pages[0].page_id == duplicate_id
 
 
 def _activity_code_overflow_replay() -> tuple[dict, CourseDocument, str]:
@@ -923,26 +943,6 @@ async def test_real_shape_activity_code_replay_is_lossless_through_resume_and_qu
     assert deck.quality.passed is True
     assert deck.quality.source_artifact_visible_fidelity == 1.0
     assert deck.quality.ordered_step_visible_fidelity == 1.0
-    duplicate_id = initial.pages[0].page_id
-    saved_batch = initial.batches[0].model_copy(update={
-        "pages": [
-            page.model_copy(update={"page_id": duplicate_id})
-            for page in initial.batches[0].pages
-        ]
-    })
-
-    async def planner_must_not_run(_request):
-        raise AssertionError("valid saved story content should be resumed")
-
-    resumed = await plan_slide_story_v3(
-        graph,
-        template,
-        ai_planner=planner_must_not_run,
-        resume_batches=[saved_batch],
-    )
-
-    assert len({page.page_id for page in resumed.pages}) == len(resumed.pages)
-    assert resumed.pages[0].page_id == duplicate_id
 
 
 @pytest.mark.asyncio
