@@ -1994,6 +1994,80 @@ def test_fenced_code_in_rich_text_keeps_code_slot_during_pagination() -> None:
     assert rendered_code_lines == code.splitlines()
 
 
+def test_short_rich_text_code_annotation_does_not_underfill_support_continuation() -> None:
+    annotation = "Minimal runnable script."
+    code = "\n".join(
+        f'Debug.Log("frame {index}");'
+        for index in range(36)
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-short-rich-text-code-annotation",
+        title="Minimal runnable script",
+        sections=[CourseSection(section_id="section", title="Script", position=0)],
+        blocks=[_block(
+            "fenced-code",
+            "section",
+            0,
+            role="example",
+            kind="rich_text",
+            text=f"{annotation}\n\n```csharp\n{code}\n```",
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="short-code-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-code"),
+        title="Minimal runnable script",
+        summary=annotation,
+        source_block_ids=["fenced-code"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-1",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="code",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    rendered_code_lines = [
+        line
+        for rendered_page in deck.pages
+        for region in rendered_page.regions
+        if region.content_kind == "code"
+        for line in region.content.splitlines()
+    ]
+    rendered_body = [
+        region.content
+        for rendered_page in deck.pages
+        for region in rendered_page.regions
+        if region.content_kind == "body"
+    ]
+    assert rendered_code_lines == code.splitlines()
+    assert rendered_body == [annotation]
+
+
 def test_story_preflight_rejects_mixed_prose_roles_in_paginated_practice_code() -> None:
     code = "\n".join(f"Debug.Log(\"frame {index}\");" for index in range(36))
     document = refresh_document_revision(CourseDocument(
