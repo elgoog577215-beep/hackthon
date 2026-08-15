@@ -693,6 +693,42 @@ async def test_story_assigns_unique_page_ids_across_ai_batches() -> None:
 
 
 @pytest.mark.asyncio
+async def test_story_assigns_unique_page_ids_within_an_ai_batch() -> None:
+    document = _two_unit_document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [
+                {
+                    "page_id": "L2-6-2-page-1",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": _layout_for_request_blocks(
+                        unit,
+                        unit["primary_block_ids"],
+                    ),
+                    "title": _title_for_request_blocks(
+                        unit,
+                        unit["primary_block_ids"],
+                    ),
+                    "summary": "",
+                    "source_block_ids": unit["primary_block_ids"],
+                }
+                for unit in request["teaching_units"]
+            ],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(story.pages) == 2
+    assert len({page.page_id for page in story.pages}) == 2
+    assert story.pages[0].page_id == "L2-6-2-page-1"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "response_shape",
     ["version_wrapper", "slides_alias", "derivable_page_fields"],
