@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import ceil
 from typing import Any, Literal
@@ -19,6 +20,7 @@ from course_presentation_graph import (
     page_artifact_kinds,
     page_teaching_intent,
 )
+from slide_layout_geometry import capacity_profile_items_fit
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
@@ -928,6 +930,17 @@ def validate_slide_visual_plan_v2(
         layout = template.get_layout(decision.resolved_template_layout_id)
         if layout is None:
             raise V6BuildError(stage="visual", code="template_layout_unavailable", message="Visual plan selected an unknown template layout", page_id=page_id)
+        source_blocks = graph_page_source_blocks(
+            unit,
+            page.source_block_ids,
+        )
+        validate_layout_source_satisfiability(
+            page_id=page_id,
+            template=template,
+            layout=layout,
+            source_blocks=source_blocks,
+            story_summary=page.summary,
+        )
         story_layout = template.get_layout(page.template_layout_id)
         safe_degraded_rebind = bool(
             story_layout is not None
@@ -1173,10 +1186,20 @@ def _visible_prose_text(value: str) -> str:
             continue
         compiled_lines.append(line)
     text = "\n".join(compiled_lines)
+    # Strip presentation HTML, not arbitrary angle-bracketed identifiers.
+    # Treating every XML-looking token as markup corrupts source expressions
+    # such as List<Action<CollisionListener>> and templated C++ types.
+    audience_html_tags = (
+        "a|article|aside|b|blockquote|body|br|caption|code|dd|div|dl|dt|em|"
+        "figcaption|figure|footer|h[1-6]|head|header|hr|html|i|img|li|main|"
+        "mark|ol|p|pre|section|small|span|strong|sub|sup|table|tbody|td|tfoot|"
+        "th|thead|tr|u|ul"
+    )
     text = re.sub(
-        r"</?[A-Za-z][A-Za-z0-9:_-]*(?:\s[^<>]*)?/?>",
+        rf"</?(?:{audience_html_tags})(?:\s[^<>]*)?/?>",
         "",
         text,
+        flags=re.IGNORECASE,
     )
     return text.replace(r"\*", "*").replace(r"\_", "_").strip()
 
@@ -1666,6 +1689,7 @@ def _bounded_slot_content(
     max_lines: int,
     max_rows: int,
     supports_single_row_detail: bool = False,
+    capacity_profile: str = "",
 ) -> str:
     if slot_kind == "code":
         return _bounded_code_content(
@@ -1724,6 +1748,8 @@ def _bounded_slot_content(
                 for step in fallback_steps
             ]
         )
+        if not capacity_profile_items_fit(capacity_profile, complete_items):
+            raise ValueError("template_slot_capacity_exceeded")
         content = "\n".join(complete_items).rstrip()
         if len(content) > capacity or (
             max_lines and _prose_wrapped_line_cost(content) > max_lines
@@ -2022,6 +2048,7 @@ def _pack_complete_text_items(
     max_items: int = 0,
     max_lines: int = 0,
     separator: str = "\n",
+    items_fit: Callable[[list[str]], bool] | None = None,
 ) -> list[list[str]]:
     """Pack complete semantic items without generating excerpts or ellipses."""
 
@@ -2035,6 +2062,7 @@ def _pack_complete_text_items(
         if current and (
             len(candidate) > item_limit
             or len(candidate_text) > capacity
+            or (items_fit is not None and not items_fit(candidate))
             or (
                 max_lines
                 and _prose_wrapped_line_cost(candidate_text) > max_lines
@@ -2048,6 +2076,7 @@ def _pack_complete_text_items(
         if (
             len(current) > item_limit
             or len(current_text) > capacity
+            or (items_fit is not None and not items_fit(current))
             or (
                 max_lines
                 and _prose_wrapped_line_cost(current_text) > max_lines
@@ -2194,6 +2223,7 @@ def _split_text_block_for_slot(
     max_chars: int,
     max_items: int,
     max_lines: int = 0,
+    capacity_profile: str = "",
 ) -> list[CourseBlock]:
     """Split prose, lists, and procedures only at complete semantic boundaries."""
 
@@ -2210,6 +2240,14 @@ def _split_text_block_for_slot(
             max_chars=max_chars,
             max_items=max_items,
             max_lines=max_lines,
+            items_fit=(
+                lambda candidate: capacity_profile_items_fit(
+                    capacity_profile,
+                    candidate,
+                )
+            )
+            if capacity_profile
+            else None,
         )
         return [
             _block_with_source_excerpt(
@@ -2544,6 +2582,11 @@ def _text_slot_accepts_block(slot: Any, block: CourseBlock) -> bool:
     prose = _prose_source_text(block)
     if not prose:
         return False
+    if (
+        slot.slot_kind == "steps"
+        and not _ordered_step_groups(prose)
+    ):
+        return False
     source_roles = set(slot.source_roles)
     if source_roles and block.role not in source_roles:
         return False
@@ -2769,6 +2812,7 @@ def _slot_requires_pagination(slot: Any, blocks: list[CourseBlock]) -> bool:
             max_items=slot.max_items,
             max_lines=slot.max_lines,
             max_rows=slot.max_rows,
+            capacity_profile=getattr(slot, "capacity_profile", ""),
         )
     except ValueError as error:
         if str(error) != "template_slot_capacity_exceeded":
@@ -2799,6 +2843,7 @@ def _split_blocks_for_slot(
                 max_chars=slot.max_chars,
                 max_items=slot.max_items,
                 max_lines=slot.max_lines,
+                capacity_profile=getattr(slot, "capacity_profile", ""),
             ))
     return fragments
 
@@ -3348,6 +3393,7 @@ def _safe_artifact_page_blocks(
                 max_items=artifact_slot.max_items,
                 max_lines=artifact_slot.max_lines,
                 max_rows=artifact_slot.max_rows,
+                capacity_profile=getattr(artifact_slot, "capacity_profile", ""),
             )
             for block in artifact_blocks:
                 artifact_chunks.extend(_split_artifact_block(
@@ -3708,6 +3754,7 @@ def _materialize_template_regions(
                         max_items=slot.max_items,
                         max_lines=slot.max_lines,
                         max_rows=slot.max_rows,
+                        capacity_profile=getattr(slot, "capacity_profile", ""),
                     )
             else:
                 content = _bounded_slot_content(
@@ -3723,6 +3770,7 @@ def _materialize_template_regions(
                         and getattr(slot, "full_wrapped_lines", 0)
                         and getattr(slot, "full_column_chars", 0)
                     ),
+                    capacity_profile=getattr(slot, "capacity_profile", ""),
                 )
         except ValueError as error:
             if str(error) != "template_slot_capacity_exceeded":
@@ -4355,6 +4403,7 @@ def prepare_story_plan_for_final_compilation(
                     max_items=slot.max_items,
                     max_lines=slot.max_lines,
                     max_rows=slot.max_rows,
+                    capacity_profile=getattr(slot, "capacity_profile", ""),
                 )
             except ValueError:
                 pages.append(page)
@@ -4514,6 +4563,7 @@ def _source_driven_page_upper_bound(
                     max_chars=slot.max_chars,
                     max_items=slot.max_items,
                     max_lines=slot.max_lines,
+                    capacity_profile=getattr(slot, "capacity_profile", ""),
                 )))
             except ValueError:
                 continue

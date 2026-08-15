@@ -31,7 +31,6 @@ from slide_deck_v6 import (
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
-
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "slide_deck_v6"
 
 
@@ -115,6 +114,215 @@ def _document(*, with_code: bool = False) -> CourseDocument:
             blocks=blocks,
         )
     )
+
+
+def test_text_native_fallback_rebinds_unstructured_process_to_body_layout() -> None:
+    """Visual degradation must validate the original layout before retaining it."""
+
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-unstructured-process",
+            title="Runtime observation",
+            sections=[
+                CourseSection(
+                    section_id="chapter-a",
+                    title="Observe and explain",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="runtime-observation",
+                    section_id="chapter-a",
+                    position=0,
+                    role="concept",
+                    payload={
+                        "markdown": (
+                            "The runtime inspector exposes current values while the "
+                            "console records diagnostic output. Serialized fields "
+                            "remain visible during play mode, and the developer "
+                            "compares observations before changing the script."
+                        )
+                    },
+                )
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(
+        document,
+        teaching_plan={},
+    )
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0].model_copy(update={
+        "primary_block_roles": {"runtime-observation": "reasoning"},
+        "teaching_intent": "mechanism",
+    })
+    process_layout_id = template.layout_id("process-flow")
+    page = SlideStoryPageV3(
+        page_id="runtime-process",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=process_layout_id,
+        title="Runtime observation",
+        summary="Observe values and compare the recorded evidence.",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+
+    fallback_layout_id = planning_module._safe_text_native_fallback_layout_id(
+        page,
+        unit,
+        template,
+    )
+
+    assert fallback_layout_id == template.layout_id("content-stack")
+
+
+def test_text_native_fallback_rebinds_an_unrenderable_single_process_item() -> None:
+    """One very long step stays complete by using a safe body layout."""
+
+    long_identifier = (
+        "CollisionListener_OnCollisionEnter_PlayerController_" * 12
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-long-process-item",
+        title="Runtime verification",
+        sections=[CourseSection(
+            section_id="chapter-a",
+            title="Verify the callback",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="long-process-item",
+            section_id="chapter-a",
+            position=0,
+            role="activity",
+            payload={
+                "markdown": (
+                    "1. Verify List<Action<CollisionListener>> using "
+                    f"{long_identifier} and preserve the complete result."
+                )
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    page = SlideStoryPageV3(
+        page_id="long-process-page",
+        teaching_unit_id=unit.teaching_unit_id,
+        template_layout_id=template.layout_id("process-flow"),
+        title="Verify the callback",
+        summary="",
+        source_block_ids=unit.primary_block_ids,
+        page_ordinal=0,
+    )
+
+    fallback_layout_id = planning_module._safe_text_native_fallback_layout_id(
+        page,
+        unit,
+        template,
+    )
+
+    assert fallback_layout_id == template.layout_id("content-stack")
+    assert (
+        "List<Action<CollisionListener>>"
+        in planning_module._visible_prose_text(unit.source_text)
+    )
+
+
+@pytest.mark.asyncio
+async def test_story_normalization_rebinds_each_page_by_its_own_source_shape() -> None:
+    """A layout valid for the whole unit must not mask an invalid page slice."""
+
+    document = refresh_document_revision(
+        CourseDocument(
+            course_id="generic-page-local-layout",
+            title="Runtime observation",
+            sections=[
+                CourseSection(
+                    section_id="chapter-a",
+                    title="Observe and verify",
+                    position=0,
+                )
+            ],
+            blocks=[
+                CourseBlock(
+                    block_id="observation",
+                    section_id="chapter-a",
+                    position=0,
+                    role="reasoning",
+                    payload={
+                        "markdown": (
+                            "The runtime inspector exposes current values while the "
+                            "console records diagnostic output. Serialized fields remain "
+                            "visible during play mode so observations can be compared."
+                        )
+                    },
+                ),
+                CourseBlock(
+                    block_id="verification-steps",
+                    section_id="chapter-a",
+                    position=1,
+                    role="activity",
+                    payload={
+                        "markdown": (
+                            "1. Capture the current inspector values.\n"
+                            "2. Run the scene and record the console output.\n"
+                            "3. Compare both records before editing the script."
+                        )
+                    },
+                ),
+            ],
+        )
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    process_layout_id = template.layout_id("process-flow")
+    content_layout_id = template.layout_id("content-stack")
+    practice_layout_id = template.layout_id("practice-prompt")
+    planner_invocations = 0
+
+    async def planner(request):
+        nonlocal planner_invocations
+        planner_invocations += 1
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "fixture",
+            "model": "fixture",
+            "attempts": 1,
+            "pages": [
+                {
+                    "page_id": "observation-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": process_layout_id,
+                    "title": "Runtime inspector values",
+                    "summary": "",
+                    "source_block_ids": ["observation"],
+                },
+                {
+                    "page_id": "verification-page",
+                    "teaching_unit_id": unit["teaching_unit_id"],
+                    "template_layout_id": practice_layout_id,
+                    "title": "Capture and compare records",
+                    "summary": "",
+                    "source_block_ids": ["verification-steps"],
+                },
+            ],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=planner,
+    )
+
+    assert planner_invocations == 1
+    assert story.pages[0].template_layout_id == content_layout_id
+    assert story.pages[0].source_block_ids == ["observation"]
+    assert story.pages[1].template_layout_id == practice_layout_id
+    assert story.pages[1].source_block_ids == ["verification-steps"]
 
 
 def _two_unit_document() -> CourseDocument:

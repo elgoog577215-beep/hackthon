@@ -49,9 +49,9 @@ from slide_deck_v6 import (
     story_page_count_range,
     story_safe_page_slices,
     story_safe_partition_options,
+    validate_layout_source_satisfiability,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
-    validate_layout_source_satisfiability,
     validate_story_template_text_slots,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
@@ -737,79 +737,29 @@ def _normalize_story_batch_response(
         if unit is not None:
             selected_layout_id = str(page.get("template_layout_id") or "")
             page_layout_ids = allowed_layout_ids_for_page(unit, page)
-            source_block_ids = [
+            selected_layout = template.get_layout(selected_layout_id)
+            required_text_slots = [
+                slot
+                for slot in (selected_layout.slots if selected_layout else [])
+                if slot.required
+                and slot.slot_kind in {"body", "items", "steps"}
+            ]
+            owns_complete_unit = [
                 str(block_id)
                 for block_id in page.get("source_block_ids") or []
-            ]
-            owns_complete_unit = source_block_ids == [
+            ] == [
                 str(block_id)
                 for block_id in unit.get("primary_block_ids") or []
             ]
-            selected_layout = template.get_layout(selected_layout_id)
-            selected_layout_supports_page_intent = bool(
-                selected_layout is not None
-                and _story_request_page_intent(unit, source_block_ids)
-                in selected_layout.teaching_intents
+            requires_composite_repartition = bool(
+                len(required_text_slots) >= 3
+                and not owns_complete_unit
             )
-            graph_unit = graph_units.get(unit_id)
-            selected_layout_can_bind_complete_unit = False
-            if selected_layout is not None and graph_unit is not None:
-                complete_unit_roles = [
-                    str(block.get("role") or "")
-                    for block in unit.get("primary_blocks") or []
-                    if isinstance(block, dict) and str(block.get("role") or "")
-                ]
-                remaining_roles = list(complete_unit_roles)
-                strictly_satisfies_required_roles = True
-                for slot in selected_layout.slots:
-                    if (
-                        not slot.required
-                        or slot.slot_kind not in {"body", "items", "steps"}
-                    ):
-                        continue
-                    source_roles = set(slot.source_roles)
-                    matching_index = next(
-                        (
-                            index
-                            for index, role in enumerate(remaining_roles)
-                            if not source_roles or role in source_roles
-                        ),
-                        None,
-                    )
-                    if matching_index is None:
-                        strictly_satisfies_required_roles = False
-                        break
-                    remaining_roles.pop(matching_index)
-                try:
-                    validate_story_template_text_slots(
-                        page_id=str(page.get("page_id") or "story-preflight"),
-                        template=template,
-                        layout=selected_layout,
-                        source_blocks=graph_page_source_blocks(
-                            graph_unit,
-                            [
-                                str(block_id)
-                                for block_id in unit.get("primary_block_ids") or []
-                            ],
-                        ),
-                        story_summary="",
-                        enforce_min_chars=False,
-                    )
-                except V6BuildError:
-                    pass
-                else:
-                    selected_layout_can_bind_complete_unit = (
-                        strictly_satisfies_required_roles
-                    )
             if (
                 selected_layout is not None
+                and not requires_composite_repartition
                 and selected_layout_id not in page_layout_ids
                 and page_layout_ids
-                and (
-                    owns_complete_unit
-                    or not selected_layout_supports_page_intent
-                    or not selected_layout_can_bind_complete_unit
-                )
             ):
                 page["template_layout_id"] = page_layout_ids[0]
         repair_target = repair_target_for(page)
@@ -2884,11 +2834,6 @@ def _safe_text_native_fallback_layout_id(
             {slot.slot_kind for slot in candidate.slots}
         ):
             continue
-        if candidate.template_layout_id == original_layout.template_layout_id:
-            # The frozen story already selected this non-artifact layout. Keep
-            # it for a text-native degradation instead of re-linting a
-            # previously published story during selective visual repair.
-            return candidate.template_layout_id
         try:
             validate_story_template_text_slots(
                 page_id=page.page_id,

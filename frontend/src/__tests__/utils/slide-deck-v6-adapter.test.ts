@@ -148,6 +148,35 @@ describe('slide deck V6 web adapter', () => {
     ])
   })
 
+  it('publishes the shared geometry profile for horizontal process cards', () => {
+    const slides = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        page_id: 'page-process-flow',
+        page_ordinal: 0,
+        title: 'Verify the runtime sequence',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.12.7/process-flow',
+        source_block_ids: ['runtime-steps'],
+        regions: [{
+          region_id: 'page-process-flow:steps',
+          slot_id: 'steps',
+          content_kind: 'steps',
+          content: 'Capture baseline\nRun the scene\nVerify the result',
+          source_block_ids: ['runtime-steps'],
+        }],
+        speaker_notes: {
+          source_document_revision: 'r1',
+          teaching_unit_id: 'u1',
+          source_blocks: [],
+        },
+      }],
+    })
+
+    expect(slides[0]!.quality.v6_capacity_profile).toBe(
+      'horizontal-process-cards-v1',
+    )
+  })
+
   it('adapts a mixed practice-code page to the shared practice-artifact renderer', () => {
     const slides = adaptSlideDeckV6ForWeb({
       schema_version: 'slide_deck_v6',

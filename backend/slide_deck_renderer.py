@@ -8,7 +8,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import unicodedata
 from copy import deepcopy
 from difflib import SequenceMatcher
 from functools import lru_cache
@@ -17,6 +16,11 @@ from typing import Any
 
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
+from slide_layout_geometry import (
+    HORIZONTAL_PROCESS_CARDS_V1,
+    horizontal_process_card_metrics,
+    wrapped_line_count,
+)
 from slide_theme import load_slide_theme_pack, slide_theme_asset_path
 
 THEMES: dict[str, dict[str, Any]] = {
@@ -321,66 +325,12 @@ def _paragraph_minimum_font_size_pt(paragraph: Any) -> float:
 
 
 def _wrapped_line_count(text: str, *, width_pt: float, font_size_pt: float) -> int:
-    if not text:
-        return 1
-    dpi_scale = 96 / 72
-    font = _audit_font(max(8, round(font_size_pt * dpi_scale)))
-    maximum_width = max(1.0, width_pt * dpi_scale)
-    measured_lines = 0
-    for logical_line in str(text).splitlines() or [""]:
-        if not logical_line:
-            measured_lines += 1
-            continue
-        current_width = 0.0
-        measured_lines += 1
-        for character in logical_line:
-            try:
-                character_width = float(font.getlength(character))
-            except AttributeError:
-                character_width = float(font.getbbox(character)[2])
-            if current_width and current_width + character_width > maximum_width:
-                measured_lines += 1
-                current_width = 0.0
-            current_width += character_width
-    # Planning can run on Linux while the exported deck is opened with a
-    # Windows CJK font.  Font files with the same nominal size do not have the
-    # same advances, so a provider-specific measurement alone can understate
-    # wrapping.  Keep a portable lower bound based on Unicode character classes
-    # and use the stricter result.  This is deliberately independent of course,
-    # language, provider, and installed font names.
-    portable_lines = 0
-    maximum_width_em = max(1.0, width_pt / max(1.0, font_size_pt))
-    for logical_line in str(text).splitlines() or [""]:
-        if not logical_line:
-            portable_lines += 1
-            continue
-        current_width_em = 0.0
-        portable_lines += 1
-        for character in logical_line:
-            east_asian_width = unicodedata.east_asian_width(character)
-            category = unicodedata.category(character)
-            if east_asian_width in {"W", "F"}:
-                character_width_em = 1.0
-            elif character.isspace():
-                character_width_em = 0.34
-            elif category.startswith("P"):
-                character_width_em = 0.52
-            elif character.isupper():
-                character_width_em = 0.66
-            elif character.islower():
-                character_width_em = 0.56
-            elif character.isdigit():
-                character_width_em = 0.58
-            else:
-                character_width_em = 0.62
-            if (
-                current_width_em
-                and current_width_em + character_width_em > maximum_width_em
-            ):
-                portable_lines += 1
-                current_width_em = 0.0
-            current_width_em += character_width_em
-    return max(measured_lines, portable_lines)
+    return wrapped_line_count(
+        text,
+        width_pt=width_pt,
+        font_size_pt=font_size_pt,
+        font_loader=_audit_font,
+    )
 
 
 def _text_frame_audit(shape: Any) -> dict[str, Any]:
@@ -2989,7 +2939,14 @@ def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
 
 def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
-    items = _all_items(unit)[:5] or [block.content for block in unit.blocks if block.content][:5]
+    all_items = _all_items(unit) or [
+        block.content for block in unit.blocks if block.content
+    ]
+    capacity_profile = str(unit.quality.get("v6_capacity_profile") or "")
+    if capacity_profile == HORIZONTAL_PROCESS_CARDS_V1:
+        items = all_items
+    else:
+        items = all_items[:5]
     if str(unit.quality.get("task_prompt_mode") or "") == "action":
         _text(
             slide,
@@ -3108,6 +3065,10 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 )
             y += height + gap
         return
+    if capacity_profile == HORIZONTAL_PROCESS_CARDS_V1:
+        metrics = horizontal_process_card_metrics(items)
+        if not metrics["fits"]:
+            raise ValueError("horizontal_process_render_capacity_exceeded")
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
     style = _theme_text_box_style(
         theme,

@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import stable_hash
+from slide_layout_geometry import HORIZONTAL_PROCESS_CARDS_V1
 from slide_theme import load_slide_theme_pack
 
 
@@ -45,6 +46,7 @@ class TemplateSlotContractV1(_StrictModel):
     split_column_chars: int = Field(default=0, ge=0)
     full_column_chars: int = Field(default=0, ge=0)
     wide_min_columns: int = Field(default=0, ge=0)
+    capacity_profile: str = ""
     source_roles: list[str] = Field(default_factory=list)
 
 
@@ -112,6 +114,7 @@ def template_layout_contract_matrix(
                     "split_column_chars": slot.split_column_chars,
                     "full_column_chars": slot.full_column_chars,
                     "wide_min_columns": slot.wide_min_columns,
+                    "capacity_profile": slot.capacity_profile,
                 }
                 for slot in layout.slots
                 if slot.required
@@ -133,6 +136,7 @@ def template_layout_contract_matrix(
                     "split_column_chars": slot.split_column_chars,
                     "full_column_chars": slot.full_column_chars,
                     "wide_min_columns": slot.wide_min_columns,
+                    "capacity_profile": slot.capacity_profile,
                 }
                 for slot in layout.slots
                 if not slot.required
@@ -147,6 +151,15 @@ def template_layout_contract_matrix(
 
 _SLOT_SOURCE_ROLES: dict[str, set[str]] = {
     "driving_question": {"orientation", "objective", "checkpoint", "activity"},
+    "steps": {
+        "activity",
+        "application",
+        "checkpoint",
+        "example",
+        "orientation",
+        "reasoning",
+        "transfer",
+    },
     "task": {"activity", "checkpoint", "orientation"},
     "prompt": {
         "activity",
@@ -195,6 +208,7 @@ def _slot(
     split_column_chars: int = 0,
     full_column_chars: int = 0,
     wide_min_columns: int = 0,
+    capacity_profile: str = "",
 ) -> dict[str, Any]:
     return {
         "slot_id": slot_id,
@@ -212,6 +226,7 @@ def _slot(
         "split_column_chars": split_column_chars,
         "full_column_chars": full_column_chars,
         "wide_min_columns": wide_min_columns,
+        "capacity_profile": capacity_profile,
         "source_roles": sorted(_SLOT_SOURCE_ROLES.get(slot_id, set())),
     }
 
@@ -272,7 +287,20 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "process-flow": {
         "intents": ["mechanism", "process", "artifact_explanation"],
         "artifact_kinds": ["diagram"],
-        "slots": [_TITLE, _slot("steps", "steps", items=6, chars=360), _slot("flow", "visual", required=False), _NOTES],
+        # Static bounds are only a last guard. The profile below measures each
+        # 1-5 card combination with the renderer's real width/font/height cost.
+        "slots": [
+            _TITLE,
+            _slot(
+                "steps",
+                "steps",
+                items=5,
+                chars=360,
+                capacity_profile=HORIZONTAL_PROCESS_CARDS_V1,
+            ),
+            _slot("flow", "visual", required=False),
+            _NOTES,
+        ],
         "continuations": ["process-flow", "content-stack"],
     },
     "worked-example": {

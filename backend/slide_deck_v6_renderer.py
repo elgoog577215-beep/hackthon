@@ -41,6 +41,7 @@ def _layout_adapters() -> dict[str, dict[str, Any]]:
         adapter: dict[str, Any] = {
             "renderer_layout": str(value.get("renderer_layout") or ""),
             "basic_layout": str(value.get("basic_layout") or ""),
+            "capacity_profile": str(value.get("capacity_profile") or ""),
         }
         policy = value.get("variant_policy")
         if isinstance(policy, dict):
@@ -331,6 +332,7 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
             "v6_layout_slug": slug,
             "v6_layout_variant": layout_variant,
             "v6_artifact_support_mode": artifact_support_mode,
+            "v6_capacity_profile": adapter.get("capacity_profile", ""),
             "v6_continuation_index": resolved_page.continuation_index,
             "v6_continuation_count": resolved_page.continuation_count,
             "v6_title_max_lines": resolved_page.title_max_lines,

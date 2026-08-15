@@ -54,6 +54,7 @@ interface V6DeckLike {
 interface AdapterDefinition {
   renderer_layout: string
   basic_layout: string
+  capacity_profile?: string
   variant_policy?: {
     artifact_content_kind: string
     split_variant: string
@@ -288,6 +289,7 @@ function adaptPage(
       v6_layout_slug: slug,
       v6_layout_variant: variant.variant,
       v6_artifact_support_mode: variant.supportMode,
+      v6_capacity_profile: adapter.capacity_profile || '',
       v6_continuation_index: Number(page.continuation_index || 1),
       v6_continuation_count: Number(page.continuation_count || 1),
       v6_title_max_lines: Math.max(1, Number(page.title_max_lines || 1)),

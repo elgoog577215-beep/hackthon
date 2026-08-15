@@ -7,7 +7,11 @@
     "content-stack": { "renderer_layout": "balanced-two-column", "basic_layout": "concept" },
     "concept-pair": { "renderer_layout": "balanced-two-column", "basic_layout": "concept" },
     "classification-three": { "renderer_layout": "classification-3", "basic_layout": "concept" },
-    "process-flow": { "renderer_layout": "process-sequence", "basic_layout": "process" },
+    "process-flow": {
+      "renderer_layout": "process-sequence",
+      "basic_layout": "process",
+      "capacity_profile": "horizontal-process-cards-v1"
+    },
     "worked-example": { "renderer_layout": "worked-example", "basic_layout": "concept" },
     "practice-prompt": { "renderer_layout": "practice-sequence", "basic_layout": "practice" },
     "practice-code": { "renderer_layout": "practice-artifact", "basic_layout": "practice" },

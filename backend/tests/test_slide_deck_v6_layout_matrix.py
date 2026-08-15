@@ -14,6 +14,10 @@ from slide_deck_v6 import (
     _safe_artifact_page_blocks,
     validate_layout_source_satisfiability,
 )
+from slide_layout_geometry import (
+    HORIZONTAL_PROCESS_CARDS_V1,
+    horizontal_process_card_metrics,
+)
 from template_layout_contract import (
     compile_builtin_template_layout_contract_v1,
     template_layout_contract_matrix,
@@ -193,6 +197,174 @@ def test_every_builtin_required_content_slot_rejects_missing_source(
                 layout=layout,
                 source_blocks=without_required_source,
             )
+
+
+def test_required_steps_slot_rejects_unstructured_prose() -> None:
+    """A prose paragraph cannot silently collapse into a generated step summary."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("process-flow"))
+    assert layout is not None
+    source = _block(
+        "unstructured-process-source",
+        role="concept",
+        markdown=(
+            "The runtime inspector exposes current values while the console records "
+            "diagnostic output. Serialized fields remain visible during play mode, "
+            "and the developer compares observations before changing the script."
+        ),
+    )
+
+    with pytest.raises(V6BuildError) as error:
+        validate_layout_source_satisfiability(
+            page_id="unstructured-process",
+            template=template,
+            layout=layout,
+            source_blocks=[source],
+        )
+
+    assert error.value.failure.code == "template_required_slot_unfilled"
+
+
+def test_required_steps_slot_rejects_numbered_concept_sections() -> None:
+    """Numbered exposition is not automatically a procedural source role."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("process-flow"))
+    assert layout is not None
+    source = _block(
+        "numbered-concept-sections",
+        role="concept",
+        markdown=(
+            "The comparison distinguishes two runtime observation tools.\n"
+            "1. Inspector values\n"
+            "- Serialized fields expose the current runtime state.\n"
+            "2. Diagnostic logs\n"
+            "- Log records support later investigation."
+        ),
+    )
+
+    with pytest.raises(V6BuildError) as error:
+        validate_layout_source_satisfiability(
+            page_id="numbered-concept-sections",
+            template=template,
+            layout=layout,
+            source_blocks=[source],
+        )
+
+    assert error.value.failure.code == "template_required_slot_unfilled"
+
+
+def test_required_steps_slot_accepts_a_single_complete_step_after_pagination() -> None:
+    """Capacity pagination may leave one real ordered step on a legal page."""
+
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("practice-prompt"))
+    assert layout is not None
+    source = _block(
+        "long-ordered-process",
+        role="activity",
+        markdown=(
+            "1. Capture the complete baseline configuration before execution.\n"
+            "   - Record every visible field and preserve the original values.\n"
+            "   - Attach the observation timestamp and environment identifier."
+        ),
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="long-ordered-process",
+        template=template,
+        layout=layout,
+        source_blocks=[source],
+    )
+
+    assert len(materializations) == 1
+    assert materializations[0].layout.layout_slug == "practice-prompt"
+
+
+def test_process_flow_capacity_matches_the_horizontal_card_renderer() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("process-flow"))
+    assert layout is not None
+    steps = next(slot for slot in layout.slots if slot.slot_id == "steps")
+
+    assert steps.max_items == 5
+    assert steps.max_chars == 360
+    assert steps.capacity_profile == HORIZONTAL_PROCESS_CARDS_V1
+
+
+@pytest.mark.parametrize("item_count", range(1, 6))
+def test_process_flow_keeps_one_to_five_short_items_on_one_page(
+    item_count: int,
+) -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("process-flow"))
+    assert layout is not None
+    steps = [
+        "Capture baseline",
+        "配置 PlayerController",
+        "Run the scene",
+        "Compare OnCollisionEnter",
+        "保存核验记录",
+    ][:item_count]
+    source = _block(
+        f"short-process-{item_count}",
+        role="activity",
+        markdown="\n".join(
+            f"{index}. {step}" for index, step in enumerate(steps, start=1)
+        ),
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id=f"short-process-{item_count}",
+        template=template,
+        layout=layout,
+        source_blocks=[source],
+    )
+
+    assert len(materializations) == 1
+    assert horizontal_process_card_metrics(steps)["fits"] is True
+
+
+def test_process_flow_splits_only_when_real_wrapping_requires_it() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("process-flow"))
+    assert layout is not None
+    long_identifier_step = (
+        "核验 List<Action<CollisionListener>> 与 "
+        "OnCollisionEnter_PlayerController 的调用结果并保存完整诊断记录和环境标识。"
+    ) * 2
+    steps = [
+        "记录基线",
+        "Configure PlayerController",
+        "运行场景",
+        long_identifier_step,
+    ]
+    source = _block(
+        "mixed-process",
+        role="activity",
+        markdown="\n".join(
+            f"{index}. {step}" for index, step in enumerate(steps, start=1)
+        ),
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="mixed-process",
+        template=template,
+        layout=layout,
+        source_blocks=[source],
+    )
+
+    assert len(materializations) == 2
+    assert horizontal_process_card_metrics(steps)["fits"] is False
+    assert horizontal_process_card_metrics([long_identifier_step])["fits"] is True
+    visible = "\n".join(
+        _prose_source_text(block)
+        for page in materializations
+        for block in page.source_blocks
+    )
+    assert visible.count("List<Action<CollisionListener>>") == 2
+    assert all(step in visible for step in steps[:3])
 
 
 def test_builtin_layout_contract_matrix_is_complete_and_closed() -> None:
