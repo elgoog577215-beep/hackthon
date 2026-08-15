@@ -9,6 +9,24 @@
     "previous": "上一步",
     "next": "下一步"
   },
+  "teacherCourseLibrary": {
+    "eyebrow": "我的课程",
+    "title": "课程工作台",
+    "subtitle": "管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。",
+    "newBlankCourse": "进入新建课程",
+    "newBlankCourseHelp": "先填课程信息，再选择大纲起点",
+    "emptyBody": "新建课程后，从教学大纲开始组织教学。",
+    "teacherSummary": {
+      "generating": "大纲与教案正在生成，进入课程查看确认点",
+      "published": "大纲已确认 · {count} 个教学单元 · 可继续维护 PPT",
+      "draft": "{count} 个教学单元 · 等待继续组织教学"
+    },
+    "status": {
+      "waitingReview": "等待教师确认",
+      "readyWithSuggestions": "已发布，有优化建议",
+      "ready": "课程可维护"
+    }
+  },
   "teacherWorkbench": {
     "courseWorkbench": "课程工作台",
     "breadcrumb": "当前位置",
@@ -338,14 +356,14 @@
     "nonRetryableFailure": "需要检查输入或系统配置"
   },
   "courseLibrary": {
-    "eyebrow": "我的课程",
-    "title": "课程工作台",
-    "subtitle": "管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。",
+    "eyebrow": "课程库",
+    "title": "选择一门课程继续学习",
+    "subtitle": "课程生成会在后台继续，离开页面不会中断任务。",
     "import": "导入 Markdown",
     "importHelp": "上传 .md 文件快速生成",
     "newCourse": "新建课程",
-    "newBlankCourse": "进入新建课程",
-    "newBlankCourseHelp": "先填课程信息，再选择大纲起点",
+    "newBlankCourse": "新建空白课程",
+    "newBlankCourseHelp": "从零开始创建课程",
     "tasks": "课程任务",
     "teacherSpace": "教师文件空间",
     "globalActions": "课程库全局操作",
@@ -355,16 +373,11 @@
     "noMatch": "没有匹配的课程",
     "noMatchBody": "换一个关键词试试。",
     "emptyTitle": "还没有课程",
-    "emptyBody": "新建课程后，从教学大纲开始组织教学。",
+    "emptyBody": "新建课程或导入已有 Markdown 开始学习。",
     "nodes": "个学习节点",
     "openHint": "进入课程",
     "retry": "重试",
     "moreActions": "更多操作",
-    "teacherSummary": {
-      "generating": "大纲与教案正在生成，进入课程查看确认点",
-      "published": "大纲已确认 · {count} 个教学单元 · 可继续维护 PPT",
-      "draft": "{count} 个教学单元 · 等待继续组织教学"
-    },
     "pagination": {
       "label": "课程分页",
       "previous": "上一页",
@@ -399,12 +412,12 @@
       "pending": "等待生成",
       "running": "正在生成",
       "paused": "已暂停",
-      "waitingReview": "等待教师确认",
+      "waitingReview": "等待你的确认",
       "conflict": "需要确认",
       "error": "生成失败",
       "warnings": "生成完成但有警告",
-      "readyWithSuggestions": "已发布，有优化建议",
-      "ready": "课程可维护",
+      "readyWithSuggestions": "可以学习，有优化建议",
+      "ready": "可以学习",
       "preparing": "正在准备课程"
     }
   },

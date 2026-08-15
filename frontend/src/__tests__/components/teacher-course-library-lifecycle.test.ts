@@ -136,7 +136,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('可以学习，有优化建议')
+    expect(wrapper.text()).toContain('已发布，有优化建议')
     expect(wrapper.text()).not.toContain('20 个学习节点')
     expect(wrapper.find('.action-count').exists()).toBe(false)
     expect(wrapper.find('.generation-progress').exists()).toBe(false)
@@ -463,7 +463,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(workbench.props('courseId')).toBe('course-import-1')
   })
 
-  it('将跨课程入口移入全局顶栏，并只在页面标题区保留新建课程菜单', async () => {
+  it('在教师全屏课程库标题区集中跨课程入口和新建课程菜单', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
@@ -489,7 +489,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('.library-actions .task-center-button').exists()).toBe(false)
+    expect(wrapper.find('.library-actions .task-center-button').exists()).toBe(true)
     expect(wrapper.find('.library-actions .import-button').exists()).toBe(false)
     expect(wrapper.find('.library-global-actions .task-center-button').exists()).toBe(true)
     expect(wrapper.get('[data-testid="open-course-workbench"]').text()).toContain('任务中心')

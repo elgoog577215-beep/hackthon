@@ -507,7 +507,11 @@ watch(() => route.params.courseId, async value => {
   workspaceStore.mistakeBookAttempts = []
   workspaceStore.practiceNeedsReviewCount = 0
   await courseStore.fetchCourseList()
-  await courseStore.loadCourse(courseId)
+  if (isTeacherPreview.value) {
+    await courseStore.loadCourse(courseId, { includeLearningRecords: false })
+  } else {
+    await courseStore.loadCourse(courseId)
+  }
   if (!isTeacherPreview.value) generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()

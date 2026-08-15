@@ -148,6 +148,33 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalledWith('/api/courses/course-live/document')
   })
 
+  it('教师只读预览加载正式课程时不触发学习记录迁移', async () => {
+    const courses = useCourseStore()
+    const fetchCourseAnnotations = vi.spyOn(courses, 'fetchCourseAnnotations').mockResolvedValue(undefined)
+    vi.spyOn(courses, 'refreshGenerationPreview').mockResolvedValue(false)
+    vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/courses/course-teacher-preview/task') {
+        return { data: { status: 'none' } } as never
+      }
+      if (url === '/api/courses/course-teacher-preview/document') {
+        return { data: {
+          course_id: 'course-teacher-preview', course_name: '教师预览课程', current_course_version_id: 'v1',
+          source_format: 'canonical', migration: { required: false },
+          document: {
+            schema_version: 'course_document_v1', course_id: 'course-teacher-preview', title: '教师预览课程',
+            document_revision: 'r1', sections: [], blocks: [],
+          },
+        } } as never
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    await courses.loadCourse('course-teacher-preview', { includeLearningRecords: false })
+
+    expect(courses.currentCourseProjection).toBe('published')
+    expect(fetchCourseAnnotations).not.toHaveBeenCalled()
+  })
+
   it('任务轮询暂时失败时仍从空发布壳恢复失败任务现场', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

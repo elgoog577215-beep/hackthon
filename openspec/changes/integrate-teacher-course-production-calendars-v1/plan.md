@@ -480,15 +480,15 @@ Unresolved items are not hidden requirements: second school template, calendar-f
 
 ### 11.2 Ordered implementation
 
-- [ ] M1 Snapshot current dirty state and classify user/runtime files; exclude all runtime JSON, screenshots, generated exports and local harness receipts from source scope.
-- [ ] M2 Add route-contract tests first, then complete the `/teacher` namespace while restoring `/course/:courseId` to the learner route.
-- [ ] M3 Preserve the teacher library in `TeacherCourseLibraryView` and restore `CourseLibraryView` to upstream student behavior; split tests by surface.
-- [ ] M4 Replace direct teacher-page store imports with `useTeacherCourseRuntime`; add an architectural test that teacher views do not import student stores directly.
-- [ ] M5 Move confirm-generation-preview and future teacher commands to a teacher authoring router; update the teacher workbench client and cover 400/404/409/422/success.
-- [ ] M6 Compare every shared-file modification with `origin/main`; restore upstream-owned strategy changes, retain only minimal compatibility extensions, and document any unavoidable overlap.
-- [ ] M7 Rebase or merge the current upstream snapshot only after M2–M6 produce a narrow diff; resolve shared engines in favor of upstream and reconnect through adapters.
-- [ ] M8 Run focused and full-enough regression: router contracts, student course library/lifecycle, teacher library/workflow, teacher preview write guard, backend teacher authoring, calendars, frontend build and real browser flows.
-- [ ] M9 Run `git diff --check`, secret/runtime-artifact scan, changed-file ownership report and conflict forecast; create one local merge-ready commit only after all hard gates pass.
+- [x] M1 Snapshot current dirty state and classify user/runtime files; exclude all runtime JSON, screenshots, generated exports and local harness receipts from source scope.
+- [x] M2 Add route-contract tests first, then complete the `/teacher` namespace while restoring `/course/:courseId` to the learner route.
+- [x] M3 Preserve the teacher library in `TeacherCourseLibraryView` and restore `CourseLibraryView` to upstream student behavior; split tests by surface.
+- [x] M4 Replace direct teacher-page store imports with `useTeacherCourseRuntime`; add an architectural test that teacher views do not import student stores directly.
+- [x] M5 Move confirm-generation-preview and future teacher commands to a teacher authoring router; update the teacher workbench client and cover 400/404/409/422/success.
+- [x] M6 Compare every shared-file modification with `origin/main`; restore upstream-owned strategy changes, retain only minimal compatibility extensions, and document any unavoidable overlap.
+- [x] M7 Rebase or merge the current upstream snapshot only after M2–M6 produce a narrow diff; resolve shared engines in favor of upstream and reconnect through adapters.
+- [x] M8 Run focused and full-enough regression: router contracts, student course library/lifecycle, teacher library/workflow, teacher preview write guard, backend teacher authoring, calendars, frontend build and real browser flows.
+- [x] M9 Run `git diff --check`, secret/runtime-artifact scan, changed-file ownership report and conflict forecast; create one local merge-ready commit only after all hard gates pass.
 
 ### 11.3 Hard gates
 
@@ -507,3 +507,13 @@ Unresolved items are not hidden requirements: second school template, calendar-f
 - If a teacher requirement needs a breaking student/shared API change, add a teacher endpoint or backward-compatible engine extension; do not silently change the old contract.
 - If upstream integration creates unresolved engine conflicts, keep the teacher commit local and report the exact files instead of choosing by intuition.
 - Route isolation can be rolled back by removing teacher route registration without deleting teacher calendar or course data.
+
+### 11.5 Execution evidence and ownership
+
+- Upstream baseline: merged the current `origin/main` snapshot in `f9d04475`; shared generation, search, task and PPT strategies remain upstream-owned.
+- Student surface: `/courses` retains learner copy and existing resume/learning behavior; teacher copy is isolated under the `teacherCourseLibrary` locale namespace and `/teacher/courses`.
+- Teacher surface: course overview, staged lesson-plan production, PPT handoff, single-course calendar and aggregate teaching calendar were exercised through the real browser at `127.0.0.1:5182` with zero console errors on the checked routes.
+- Preview safety: teacher preview calls the existing course loader with `includeLearningRecords: false`; the default learner call remains unchanged. A fresh browser trace recorded zero write requests while teacher preview was open.
+- Regression: 10 focused frontend files / 100 tests passed; 3 focused backend files / 21 tests passed; `npm run build` passed; `openspec validate --all` passed 32/32.
+- Shared-file overlap: `frontend/src/stores/course.ts` only adds a backward-compatible optional loader flag, and `frontend/src/views/LearningView.vue` only opts teacher preview out of learner-record loading. All other closeout changes are teacher-owned UI, locale or boundary tests.
+- Excluded from source scope: runtime JSON, generated teaching-calendar/course-space data, screenshots, PDFs, test output, local harness receipts and `.env` files.

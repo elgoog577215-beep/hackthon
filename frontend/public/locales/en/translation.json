@@ -9,6 +9,24 @@
     "previous": "Previous",
     "next": "Next"
   },
+  "teacherCourseLibrary": {
+    "eyebrow": "My courses",
+    "title": "Course workspace",
+    "subtitle": "Manage outlines, teaching calendars, lesson plans, PPTs, and student release versions.",
+    "newBlankCourse": "Create a course",
+    "newBlankCourseHelp": "Add course details, then choose an outline source",
+    "emptyBody": "Create a course and start by organizing the teaching outline.",
+    "teacherSummary": {
+      "generating": "Outline and lesson plans are generating; open the course to review confirmation gates",
+      "published": "Outline confirmed · {count} teaching units · PPT can be maintained",
+      "draft": "{count} teaching units · Continue organizing teaching"
+    },
+    "status": {
+      "waitingReview": "Awaiting teacher confirmation",
+      "readyWithSuggestions": "Published, with suggestions",
+      "ready": "Ready to maintain"
+    }
+  },
   "teacherWorkbench": {
     "courseWorkbench": "Course workbench",
     "breadcrumb": "Current location",
@@ -338,14 +356,14 @@
     "nonRetryableFailure": "Check the input or system configuration"
   },
   "courseLibrary": {
-    "eyebrow": "My courses",
-    "title": "Course workspace",
-    "subtitle": "Manage outlines, teaching calendars, lesson plans, PPTs, and student release versions.",
+    "eyebrow": "Course library",
+    "title": "Choose a course and continue learning",
+    "subtitle": "Course generation continues in the background when you leave this page.",
     "import": "Import Markdown",
     "importHelp": "Upload a .md file to generate quickly",
     "newCourse": "New course",
-    "newBlankCourse": "Create a course",
-    "newBlankCourseHelp": "Add course details, then choose an outline source",
+    "newBlankCourse": "Create a blank course",
+    "newBlankCourseHelp": "Start a course from scratch",
     "tasks": "Course tasks",
     "teacherSpace": "Teacher file space",
     "globalActions": "Course library global actions",
@@ -355,16 +373,11 @@
     "noMatch": "No matching courses",
     "noMatchBody": "Try a different search term.",
     "emptyTitle": "No courses yet",
-    "emptyBody": "Create a course and start by organizing the teaching outline.",
+    "emptyBody": "Create a course or import Markdown to begin.",
     "nodes": "learning nodes",
     "openHint": "Enter course",
     "retry": "Retry",
     "moreActions": "More actions",
-    "teacherSummary": {
-      "generating": "Outline and lesson plans are generating; open the course to review confirmation gates",
-      "published": "Outline confirmed · {count} teaching units · PPT can be maintained",
-      "draft": "{count} teaching units · Continue organizing teaching"
-    },
     "pagination": {
       "label": "Course pagination",
       "previous": "Previous page",
@@ -399,12 +412,12 @@
       "pending": "Waiting to generate",
       "running": "Generating",
       "paused": "Paused",
-      "waitingReview": "Awaiting teacher confirmation",
+      "waitingReview": "Awaiting your confirmation",
       "conflict": "Confirmation needed",
       "error": "Generation failed",
       "warnings": "Completed with warnings",
-      "readyWithSuggestions": "Published, with suggestions",
-      "ready": "Ready to maintain",
+      "readyWithSuggestions": "Ready to learn, with suggestions",
+      "ready": "Ready to learn",
       "preparing": "Preparing course"
     }
   },

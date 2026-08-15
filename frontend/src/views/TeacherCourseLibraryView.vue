@@ -3,39 +3,36 @@
     class="course-library glass-panel-elevated"
     :class="{ 'course-library--paginated': totalPages > 1 }"
   >
-    <Teleport to="#app-header-route-actions">
-      <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
-        <button
-          type="button"
-          class="global-action-button"
-          data-testid="open-teacher-calendar"
-          @click="router.push({ name: 'teacher-teaching-calendar' })"
-        >
-          <CalendarRange :size="17" />
-          <span class="action-label">{{ t('teacherCalendar.total', '教学总日历') }}</span>
-        </button>
-        <button
-          type="button"
-          class="global-action-button task-center-button"
-          data-testid="open-course-workbench"
-          :title="workbenchLabel"
-          :aria-label="workbenchLabel"
-          @click="openTaskCenter()"
-        >
-          <LayoutDashboard :size="17" />
-          <span class="action-label">{{ workbenchLabel }}</span>
-          <span v-if="actionRequiredTaskCount" class="action-count">{{ actionRequiredTaskCount }}</span>
-        </button>
-      </nav>
-    </Teleport>
-
     <header class="library-header">
       <div>
-        <p>{{ t('courseLibrary.eyebrow', '我的课程') }}</p>
-        <h1>{{ t('courseLibrary.title', '课程工作台') }}</h1>
-        <span>{{ t('courseLibrary.subtitle', '管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。') }}</span>
+        <p>{{ t('teacherCourseLibrary.eyebrow', '我的课程') }}</p>
+        <h1>{{ t('teacherCourseLibrary.title', '课程工作台') }}</h1>
+        <span>{{ t('teacherCourseLibrary.subtitle', '管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。') }}</span>
       </div>
       <div class="library-actions">
+        <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
+          <button
+            type="button"
+            class="global-action-button"
+            data-testid="open-teacher-calendar"
+            @click="router.push({ name: 'teacher-teaching-calendar' })"
+          >
+            <CalendarRange :size="17" />
+            <span class="action-label">{{ t('teacherCalendar.total', '教学总日历') }}</span>
+          </button>
+          <button
+            type="button"
+            class="global-action-button task-center-button"
+            data-testid="open-course-workbench"
+            :title="workbenchLabel"
+            :aria-label="workbenchLabel"
+            @click="openTaskCenter()"
+          >
+            <LayoutDashboard :size="17" />
+            <span class="action-label">{{ workbenchLabel }}</span>
+            <span v-if="actionRequiredTaskCount" class="action-count">{{ actionRequiredTaskCount }}</span>
+          </button>
+        </nav>
         <input ref="fileInput" type="file" accept=".md,.markdown,text/markdown" class="sr-only" @change="importCourse" />
         <div ref="createMenuRef" class="create-course-menu" @keydown.esc.stop.prevent="closeCreateMenu(true)">
           <button
@@ -65,8 +62,8 @@
               >
                 <span class="create-course-menu__icon"><FilePlus2 :size="19" /></span>
                 <span>
-                  <strong>{{ t('courseLibrary.newBlankCourse', '进入新建课程') }}</strong>
-                  <small>{{ t('courseLibrary.newBlankCourseHelp', '先填课程信息，再选择大纲起点') }}</small>
+                  <strong>{{ t('teacherCourseLibrary.newBlankCourse', '进入新建课程') }}</strong>
+                  <small>{{ t('teacherCourseLibrary.newBlankCourseHelp', '先填课程信息，再选择大纲起点') }}</small>
                 </span>
               </button>
               <button
@@ -113,7 +110,7 @@
     <div v-else-if="!filteredCourses.length" class="library-state empty">
       <BookOpenText :size="28" />
       <strong>{{ query ? t('courseLibrary.noMatch', '没有匹配的课程') : t('courseLibrary.emptyTitle', '还没有课程') }}</strong>
-      <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('courseLibrary.emptyBody', '新建课程后，从教学大纲开始组织教学。') }}</span>
+      <span>{{ query ? t('courseLibrary.noMatchBody', '换一个关键词试试。') : t('teacherCourseLibrary.emptyBody', '新建课程后，从教学大纲开始组织教学。') }}</span>
     </div>
 
     <section v-else class="course-collection">
@@ -475,11 +472,11 @@ function courseStatus(courseId: string) {
     pending: t('courseLibrary.status.pending', '等待生成'),
     running: t('courseLibrary.status.running', '正在生成'),
     paused: t('courseLibrary.status.paused', '已暂停'),
-    waiting_for_review: t('courseLibrary.status.waitingReview', '等待处理'),
+    waiting_for_review: t('teacherCourseLibrary.status.waitingReview', '等待教师确认'),
     conflict: t('courseLibrary.status.conflict', '需要确认'),
     error: t('courseLibrary.status.error', '生成失败'),
     completed_with_warnings: t('courseLibrary.status.warnings', '生成完成但有警告'),
-    completed: t('courseLibrary.status.ready', '可以学习'),
+    completed: t('teacherCourseLibrary.status.ready', '课程可维护'),
   }
   return {
     active,
@@ -492,8 +489,8 @@ function courseStatus(courseId: string) {
           ? 'warning'
           : 'ready',
     label: publishedWarning
-      ? t('courseLibrary.status.readyWithSuggestions', '可以学习，有优化建议')
-      : labels[task?.status || 'completed'] || t('courseLibrary.status.ready', '可以学习'),
+      ? t('teacherCourseLibrary.status.readyWithSuggestions', '已发布，有优化建议')
+      : labels[task?.status || 'completed'] || t('teacherCourseLibrary.status.ready', '课程可维护'),
     detail: courseProductionTaskDetail(task)
       || (task?.currentPhase ? t(`courseGeneration.phases.${task.currentPhase}`, task.currentPhase) : '')
       || t('courseLibrary.status.preparing', '正在准备课程'),
@@ -517,12 +514,12 @@ function taskRequiresAction(task: { status: string; publicationAllowed?: boolean
 }
 
 function teacherAssetSummary(course: { node_count: number; is_published?: boolean }, active: boolean) {
-  if (active) return t('courseLibrary.teacherSummary.generating', '大纲与教案正在生成，进入课程查看确认点')
+  if (active) return t('teacherCourseLibrary.teacherSummary.generating', '大纲与教案正在生成，进入课程查看确认点')
   if (course.is_published) {
-    return t('courseLibrary.teacherSummary.published', '大纲已确认 · {count} 个教学单元 · 可继续维护 PPT')
+    return t('teacherCourseLibrary.teacherSummary.published', '大纲已确认 · {count} 个教学单元 · 可继续维护 PPT')
       .replace('{count}', String(course.node_count || 0))
   }
-  return t('courseLibrary.teacherSummary.draft', '{count} 个教学单元 · 等待继续组织教学')
+  return t('teacherCourseLibrary.teacherSummary.draft', '{count} 个教学单元 · 等待继续组织教学')
     .replace('{count}', String(course.node_count || 0))
 }
 

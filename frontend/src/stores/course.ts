@@ -209,7 +209,7 @@ export const useCourseStore = defineStore('course', {
         finally { this.loading = false }
     },
 
-    async loadCourse(courseId: string) {
+    async loadCourse(courseId: string, options: { includeLearningRecords?: boolean } = {}) {
         this.loading = true
         this.currentCourseId = courseId
         this.currentCourseProjection = 'published'
@@ -275,7 +275,9 @@ export const useCourseStore = defineStore('course', {
                 if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId)) {
                     return
                 }
-                void this.fetchCourseAnnotations(courseId)
+                if (options.includeLearningRecords !== false) {
+                    void this.fetchCourseAnnotations(courseId)
+                }
                 const localTask = genStore.tasks.get(courseId)
                 if (localTask && localTask.courseName === '后台生成任务') {
                     localTask.courseName = res.data.course_name
