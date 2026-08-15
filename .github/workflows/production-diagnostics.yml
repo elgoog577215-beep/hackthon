@@ -92,6 +92,7 @@ jobs:
           /opt/lingzhi/.venv/bin/python - <<'PY'
           import collections
           import json
+          import re
           from pathlib import Path
 
           from course_presentation_graph import block_artifact_kinds, block_source_text
@@ -126,7 +127,14 @@ jobs:
                   for page in (batch.get("pages") or [])
               ]
           page_id = str(failure.get("page_id") or "")
-          page = next((item for item in pages if str(item.get("page_id") or "") == page_id), {})
+          base_page_id = re.sub(r"--continuation-\d+$", "", page_id)
+          page = next(
+              (
+                  item for item in pages
+                  if str(item.get("page_id") or "") in {page_id, base_page_id}
+              ),
+              {},
+          )
           visual_payload = candidate.get("visual_plan") or checkpoint.get("visual_plan") or {}
           decisions = visual_payload.get("decisions") or []
           visual = next(
@@ -194,6 +202,7 @@ jobs:
               "failure_code": failure.get("code"),
               "failure_message": failure.get("message"),
               "failure_page_id": page_id,
+              "failure_base_page_id": base_page_id,
               "failure_batch_id": failure.get("batch_id"),
               "checkpoint_contract": checkpoint.get("build_contract_version"),
               "story_page_count": len(pages),
