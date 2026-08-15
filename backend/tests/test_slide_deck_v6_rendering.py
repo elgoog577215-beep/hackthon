@@ -1582,6 +1582,55 @@ def test_official_v6_export_rejects_missing_required_deck_fields(
         )
 
 
+@pytest.mark.parametrize(
+    ("quality_field", "rejected_value"),
+    [
+        ("source_artifact_visible_fidelity", 0.0),
+        ("source_prose_visible_fidelity", 0.0),
+        ("ordered_step_visible_fidelity", 0.0),
+        ("generated_ellipsis_free", False),
+        ("pagination_within_dynamic_bound", False),
+    ],
+)
+def test_official_v6_export_rejects_each_current_quality_gate(
+    tmp_path: Path,
+    quality_field: str,
+    rejected_value: object,
+) -> None:
+    _document, deck = _code_deck()
+    setattr(deck.quality, quality_field, rejected_value)
+
+    with pytest.raises(slide_deck_renderer.SlideDeckQualityError) as captured:
+        export_slide_deck_v6_pptx(
+            deck.model_dump(mode="json"),
+            tmp_path / f"rejected-{quality_field}.pptx",
+        )
+
+    assert f"v6_{quality_field}_failed" in {
+        blocker["code"] for blocker in captured.value.report["blockers"]
+    }
+
+
+def test_official_v6_export_preserves_literal_csharp_interpolation(
+    tmp_path: Path,
+) -> None:
+    code_source = 'Debug.Log($"frame={Time.frameCount} phase={phase}");'
+    _document, deck = _code_deck(code_source)
+
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "literal-csharp-interpolation.pptx",
+    )
+    visible = "\n".join(
+        str(shape.text or "")
+        for slide in Presentation(output).slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+
+    assert code_source in visible
+
+
 def test_practice_code_layout_exports_numbered_steps_and_readable_code(
     tmp_path: Path,
 ) -> None:

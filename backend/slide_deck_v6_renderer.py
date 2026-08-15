@@ -381,10 +381,23 @@ def _validate_deck_for_export(deck: SlideDeckV6) -> None:
     checks = {
         "formal_block_visible_coverage": deck.quality.formal_block_visible_coverage == 1.0,
         "full_text_note_binding": deck.quality.full_text_note_binding == 1.0,
+        "source_artifact_visible_fidelity": (
+            deck.quality.source_artifact_visible_fidelity == 1.0
+        ),
+        "source_prose_visible_fidelity": (
+            deck.quality.source_prose_visible_fidelity == 1.0
+        ),
+        "ordered_step_visible_fidelity": (
+            deck.quality.ordered_step_visible_fidelity == 1.0
+        ),
+        "generated_ellipsis_free": deck.quality.generated_ellipsis_free,
         "source_order_preserved": deck.quality.source_order_preserved,
         "template_contract_passed": deck.quality.template_contract_passed,
         "subject_artifacts_passed": deck.quality.subject_artifacts_passed,
         "web_pptx_contract_shared": deck.quality.web_pptx_contract_shared,
+        "pagination_within_dynamic_bound": (
+            deck.quality.pagination_within_dynamic_bound
+        ),
     }
     blockers = [
         {
@@ -395,6 +408,12 @@ def _validate_deck_for_export(deck: SlideDeckV6) -> None:
         for name, passed in checks.items()
         if not passed
     ]
+    if not deck.quality.passed and not blockers:
+        blockers.append({
+            "severity": "critical",
+            "code": "v6_quality_passed_failed",
+            "message": "V6 export requires the complete quality contract",
+        })
     blockers.extend(item.model_dump(mode="json") for item in deck.quality.blockers)
     if blockers:
         raise SlideDeckQualityError(
