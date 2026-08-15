@@ -222,7 +222,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorDetail = {}
       try {
         const { data } = await http.post(
-          `/api/courses/${courseId}/teacher-authoring/confirm-generation-preview`,
+          `/api/teacher/courses/${courseId}/authoring/confirm-generation-preview`,
           { confirm: true, source_task_id: sourceTaskId },
           teacherRequestConfig({ silentError: true }),
         )

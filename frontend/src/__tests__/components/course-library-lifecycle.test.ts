@@ -456,7 +456,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(courses.importMarkdown).toHaveBeenCalledWith(file)
-    expect(router.currentRoute.value.name).toBe('course-library')
+    expect(router.currentRoute.value.name).toBe('teacher-course-library')
     const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
     expect(workbench.props('modelValue')).toBe(true)
     expect(workbench.props('initialSection')).toBe('tasks')
@@ -545,7 +545,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
     vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
 
-    await router.push('/courses')
+    await router.push('/teacher/courses')
     const wrapper = mount(CourseLibraryView, {
       global: {
         plugins: [router],

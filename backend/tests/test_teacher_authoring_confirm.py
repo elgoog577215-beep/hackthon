@@ -9,6 +9,10 @@ from fastapi.testclient import TestClient
 from course_repository import CourseDocumentRepository
 from dependencies import get_course_document_repository, require_task_manager
 from routers import courses as courses_router
+from routers import teacher_authoring as teacher_authoring_router
+
+
+_UNSET = object()
 
 
 class MemoryStorage:
@@ -73,7 +77,10 @@ def preview(status: str = "completed_with_warnings") -> dict:
     }
 
 
-def client_for(status: str = "completed_with_warnings") -> tuple[TestClient, CourseDocumentRepository, MemoryStorage]:
+def client_for(
+    status: str = "completed_with_warnings",
+    preview_value: object = _UNSET,
+) -> tuple[TestClient, CourseDocumentRepository, MemoryStorage]:
     storage = MemoryStorage()
     repository = CourseDocumentRepository(storage)
     asyncio.run(repository.create_generation_shell(
@@ -86,15 +93,16 @@ def client_for(status: str = "completed_with_warnings") -> tuple[TestClient, Cou
         @staticmethod
         def get_generation_preview(course_id: str):
             assert course_id == "course-1"
-            return preview(status)
+            return preview(status) if preview_value is _UNSET else deepcopy(preview_value)
 
         @staticmethod
         def get_generation_workspace_course(course_id: str):
             assert course_id == "course-1"
-            return preview(status)
+            return preview(status) if preview_value is _UNSET else deepcopy(preview_value)
 
     app = FastAPI()
     app.include_router(courses_router.router, prefix="/api")
+    app.include_router(teacher_authoring_router.router, prefix="/api")
     app.dependency_overrides[get_course_document_repository] = lambda: repository
     app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
     return TestClient(app), repository, storage
@@ -104,7 +112,7 @@ def test_confirms_preview_as_teacher_source_without_student_publication():
     client, repository, storage = client_for()
 
     response = client.post(
-        "/api/courses/course-1/teacher-authoring/confirm-generation-preview",
+        "/api/teacher/courses/course-1/authoring/confirm-generation-preview",
         json={"confirm": True, "source_task_id": "job-1"},
     )
 
@@ -124,7 +132,7 @@ def test_rejects_running_preview_and_keeps_shell_empty():
     client, repository, _storage = client_for("running")
 
     response = client.post(
-        "/api/courses/course-1/teacher-authoring/confirm-generation-preview",
+        "/api/teacher/courses/course-1/authoring/confirm-generation-preview",
         json={"confirm": True, "source_task_id": "job-1"},
     )
 
@@ -133,3 +141,69 @@ def test_rejects_running_preview_and_keeps_shell_empty():
     document, _canonical = repository.load_document("course-1")
     assert document.sections == []
     assert document.blocks == []
+
+
+def test_requires_explicit_teacher_confirmation():
+    client, _repository, _storage = client_for()
+
+    response = client.post(
+        "/api/teacher/courses/course-1/authoring/confirm-generation-preview",
+        json={"confirm": False, "source_task_id": "job-1"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "teacher_authoring_confirmation_required"
+
+
+def test_rejects_stale_preview_identity():
+    client, _repository, _storage = client_for()
+
+    response = client.post(
+        "/api/teacher/courses/course-1/authoring/confirm-generation-preview",
+        json={"confirm": True, "source_task_id": "job-old"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "generation_preview_changed"
+
+
+def test_reports_missing_or_empty_preview_without_mutating_course():
+    missing_client, missing_repository, _storage = client_for(preview_value=None)
+    missing = missing_client.post(
+        "/api/teacher/courses/course-1/authoring/confirm-generation-preview",
+        json={"confirm": True},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "generation_preview_unavailable"
+    missing_document, _canonical = missing_repository.load_document("course-1")
+    assert missing_document.sections == []
+
+    empty_preview = preview()
+    empty_preview["nodes"] = []
+    empty_preview["course_plan"] = {"chapters": []}
+    empty_preview["course_teaching_plan"] = {
+        "schema_version": "course_teaching_plan_v3",
+        "status": "completed",
+        "revision_id": "tpr_empty",
+        "sections": [],
+    }
+    empty_client, empty_repository, _storage = client_for(preview_value=empty_preview)
+    empty = empty_client.post(
+        "/api/teacher/courses/course-1/authoring/confirm-generation-preview",
+        json={"confirm": True, "source_task_id": "job-1"},
+    )
+    assert empty.status_code == 422
+    assert empty.json()["detail"]["code"] == "teacher_authoring_source_empty"
+    empty_document, _canonical = empty_repository.load_document("course-1")
+    assert empty_document.sections == []
+
+
+def test_shared_course_router_does_not_expose_teacher_authoring_command():
+    client, _repository, _storage = client_for()
+
+    response = client.post(
+        "/api/courses/course-1/teacher-authoring/confirm-generation-preview",
+        json={"confirm": True, "source_task_id": "job-1"},
+    )
+
+    assert response.status_code == 404
