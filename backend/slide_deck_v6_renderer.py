@@ -409,6 +409,7 @@ _V6_PUBLICATION_METADATA_FIELDS = frozenset({
     "planning_status",
     "source_contract",
     "story_plan",
+    "template_contract",
     "visual_plan",
 })
 
