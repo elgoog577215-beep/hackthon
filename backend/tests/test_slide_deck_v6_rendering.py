@@ -1,9 +1,11 @@
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR
+from pydantic import ValidationError
 
 import slide_deck_renderer
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
@@ -1503,6 +1505,9 @@ def test_official_v6_export_accepts_declared_publication_metadata(
         },
         "story_plan": {"schema_version": "slide_story_plan_v3"},
         "visual_plan": {"schema_version": "slide_visual_plan_v2"},
+        "template_contract": {
+            "schema_version": "template_layout_pack_contract_v1",
+        },
         "ai_batch_diagnostics": [{
             "schema_version": "ai_batch_diagnostic_v1",
         }],
@@ -1511,6 +1516,7 @@ def test_official_v6_export_accepts_declared_publication_metadata(
             "visual_ai": {"status": "completed"},
         },
     }
+    frozen_publication = deepcopy(published)
     spec = SimpleNamespace(
         representation_type="slide_deck",
         payload={"content": published},
@@ -1523,29 +1529,106 @@ def test_official_v6_export_accepts_declared_publication_metadata(
 
     assert output.is_file()
     assert len(Presentation(output).slides) == len(deck.pages)
+    assert published == frozen_publication
+    assert published["build_signature"] == frozen_publication["build_signature"]
+    assert published["source_contract"] == frozen_publication["source_contract"]
+    assert published["template_contract"] == frozen_publication["template_contract"]
 
 
+@pytest.mark.parametrize("unknown_field", ["undeclared_payload", "pagse"])
 def test_official_v6_export_still_rejects_unknown_publication_fields(
     tmp_path: Path,
+    unknown_field: str,
 ) -> None:
-    import pytest
-    from pydantic import ValidationError
-
     _document, deck = _code_deck()
     published = {
         **deck.model_dump(mode="json"),
-        "undeclared_payload": {"should": "not pass"},
+        unknown_field: {"should": "not pass"},
     }
     spec = SimpleNamespace(
         representation_type="slide_deck",
         payload={"content": published},
     )
 
-    with pytest.raises(ValidationError, match="undeclared_payload"):
+    with pytest.raises(ValidationError, match=unknown_field):
         export_slide_deck_pptx(
             spec,
             tmp_path / "invalid-published-v6.pptx",
         )
+
+
+@pytest.mark.parametrize("required_field", ["pages", "quality"])
+def test_official_v6_export_rejects_missing_required_deck_fields(
+    tmp_path: Path,
+    required_field: str,
+) -> None:
+    _document, deck = _code_deck()
+    published = {
+        **deck.model_dump(mode="json"),
+        "template_contract": {
+            "schema_version": "template_layout_pack_contract_v1",
+        },
+    }
+    published.pop(required_field)
+    spec = SimpleNamespace(
+        representation_type="slide_deck",
+        payload={"content": published},
+    )
+
+    with pytest.raises(ValidationError, match=required_field):
+        export_slide_deck_pptx(
+            spec,
+            tmp_path / "incomplete-published-v6.pptx",
+        )
+
+
+@pytest.mark.parametrize(
+    ("quality_field", "rejected_value"),
+    [
+        ("source_artifact_visible_fidelity", 0.0),
+        ("source_prose_visible_fidelity", 0.0),
+        ("ordered_step_visible_fidelity", 0.0),
+        ("generated_ellipsis_free", False),
+        ("pagination_within_dynamic_bound", False),
+    ],
+)
+def test_official_v6_export_rejects_each_current_quality_gate(
+    tmp_path: Path,
+    quality_field: str,
+    rejected_value: object,
+) -> None:
+    _document, deck = _code_deck()
+    setattr(deck.quality, quality_field, rejected_value)
+
+    with pytest.raises(slide_deck_renderer.SlideDeckQualityError) as captured:
+        export_slide_deck_v6_pptx(
+            deck.model_dump(mode="json"),
+            tmp_path / f"rejected-{quality_field}.pptx",
+        )
+
+    assert f"v6_{quality_field}_failed" in {
+        blocker["code"] for blocker in captured.value.report["blockers"]
+    }
+
+
+def test_official_v6_export_preserves_literal_csharp_interpolation(
+    tmp_path: Path,
+) -> None:
+    code_source = 'Debug.Log($"frame={Time.frameCount} phase={phase}");'
+    _document, deck = _code_deck(code_source)
+
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "literal-csharp-interpolation.pptx",
+    )
+    visible = "\n".join(
+        str(shape.text or "")
+        for slide in Presentation(output).slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+
+    assert code_source in visible
 
 
 def test_practice_code_layout_exports_numbered_steps_and_readable_code(

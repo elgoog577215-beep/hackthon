@@ -1419,6 +1419,7 @@ def _render_code_visual(
         "F5F7FF",
         font=CODE_FONT,
         east_asian_font=theme["body_east_asian_font"],
+        literal=True,
     )
     supporting = SlideSpec.model_validate({
         **unit.model_dump(mode="json"),
@@ -3231,6 +3232,7 @@ def _render_practice_artifact(
             "F5F7FF",
             font=CODE_FONT,
             east_asian_font=theme["body_east_asian_font"],
+            literal=True,
         )
     elif artifact_kind == "formula":
         visual = next((item for item in unit.visuals if item.get("kind") == "formula"), {})
@@ -3308,6 +3310,7 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         16,
         evidence_style["text"],
         font="Aptos Mono",
+        literal=True,
     )
     if not items:
         return
@@ -3934,6 +3937,7 @@ def _text(
     align: str = "left",
     font: str = BODY_FONT,
     east_asian_font: str = BODY_EAST_ASIAN_FONT,
+    literal: bool = False,
 ) -> Any:
     from pptx.dml.color import RGBColor
     from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -3947,7 +3951,11 @@ def _text(
     frame.margin_top = frame.margin_bottom = Inches(0.01)
     frame.vertical_anchor = MSO_ANCHOR.TOP
     paragraph = frame.paragraphs[0]
-    paragraph.text = _display_text(str(value or ""))
+    paragraph.text = (
+        str(value or "")
+        if literal
+        else _display_text(str(value or ""))
+    )
     _configure_font(paragraph.font, font, east_asian_font)
     paragraph.font.size = Pt(size)
     paragraph.font.bold = bold
