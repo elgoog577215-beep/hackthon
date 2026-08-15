@@ -51,6 +51,7 @@ jobs:
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Inspect retrieval path
+        continue-on-error: ${{ inputs.export_v6_replay }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
