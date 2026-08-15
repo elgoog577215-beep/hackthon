@@ -1719,6 +1719,7 @@ async def test_story_repair_scopes_the_retry_and_preserves_unaffected_units() ->
 
 @pytest.mark.asyncio
 async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -> None:
+    oversized_unbreakable_token = "BuildArtifactIdentity_" + "x" * 64
     document = refresh_document_revision(CourseDocument(
         course_id="generic-title-capacity",
         title="Field observation",
@@ -1734,8 +1735,8 @@ async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -
             role="objective",
             payload={
                 "markdown": (
-                    "A source-grounded operational heading that deliberately exceeds "
-                    "the declared template title capacity."
+                    f"{oversized_unbreakable_token}; "
+                    "Validate the frozen build artifact before observation."
                 ),
             },
         )],
@@ -1748,7 +1749,7 @@ async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -
         calls.append(request)
         unit = request["teaching_units"][0]
         if len(calls) == 1:
-            title = unit["source_text"][: min(72, unit["title_max_chars"] + 1)]
+            title = oversized_unbreakable_token
         else:
             repair_target = request["repair_feedback"]["repair_targets"][0]
             title = repair_target["available_title_candidates"][0]
@@ -1874,7 +1875,12 @@ async def test_story_batch_repairs_an_underfilled_editorial_summary() -> None:
 
     assert len(calls) == 1
     assert len(story.pages[0].summary) >= 120
-    assert len(story.pages[0].summary) <= 200
+    selected_layout = template.get_layout(story.pages[0].template_layout_id)
+    assert selected_layout is not None
+    body_slot = next(
+        slot for slot in selected_layout.slots if slot.slot_kind == "body"
+    )
+    assert len(story.pages[0].summary) <= body_slot.max_chars
     assert "湿地观察" in story.pages[0].summary
 
 
@@ -2025,9 +2031,8 @@ def test_story_capacity_error_uses_the_frozen_source_summary_repair() -> None:
     maximum = unit["summary_max_chars_by_layout_id"][layout_id]
 
     assert repaired is not payload
-    assert repaired_summary
+    assert repaired_summary == ""
     assert len(repaired_summary) <= maximum
-    assert repaired_summary.rstrip("…") in unit["source_text"]
 
 
 def test_story_markdown_repair_compiles_block_markup_into_plain_summary() -> None:
@@ -2095,8 +2100,7 @@ def test_story_markdown_repair_compiles_block_markup_into_plain_summary() -> Non
     assert planning_module._visible_prose_text(repaired_summary) == repaired_summary
     assert not planning_module._looks_like_markdown_table(repaired_summary)
     assert all(marker not in repaired_summary for marker in ("> ", "- ", "1. ", "2. "))
-    assert "Field evidence review" in repaired_summary
-    assert "observation time" in repaired_summary
+    assert repaired_summary == ""
 
 
 def test_story_markdown_repair_converges_all_invalid_pages_in_one_pass() -> None:
@@ -2473,7 +2477,7 @@ def test_story_capacity_repair_converges_all_overflow_pages_in_one_pass() -> Non
     assert repaired is not payload
     assert len(repaired["pages"]) == 4
     assert all(
-        page["summary"] and len(page["summary"]) <= maximum
+        page["summary"] == "" and len(page["summary"]) <= maximum
         for page in repaired["pages"]
     )
 
@@ -2523,7 +2527,7 @@ def test_rich_text_table_with_explanation_keeps_a_table_safe_partition() -> None
 
 @pytest.mark.asyncio
 async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_sentence() -> None:
-    """A long grounded sentence must not strand a repair below its slot minimum."""
+    """A long sentence must fall back to source pagination, not a clipped summary."""
 
     long_observation_clause = (
         "The observer records habitat boundaries, weather conditions, sampling "
@@ -2587,8 +2591,7 @@ async def test_story_batch_repairs_density_when_a_short_intro_precedes_a_long_se
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
     assert len(calls) == 1
-    assert len(story.pages[0].summary) >= 120
-    assert "habitat boundaries" in story.pages[0].summary
+    assert story.pages[0].summary == ""
 
 
 @pytest.mark.asyncio
@@ -2648,6 +2651,248 @@ async def test_story_clears_markdown_summary_when_layout_has_no_summary_slot() -
 
     assert len(calls) == 1
     assert story.pages[0].summary == ""
+
+
+@pytest.mark.asyncio
+async def test_story_clears_generated_ellipsis_companion_without_hiding_source() -> None:
+    source = (
+        "发布前必须核对 build_pipeline_checkpoint_identifier_2026、构建日志和回归结果。"
+        "When the identifier is complete, verify the saved checkpoint before publishing."
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-generated-ellipsis-companion",
+        title="发布核对",
+        sections=[CourseSection(section_id="release", title="发布", position=0)],
+        blocks=[CourseBlock(
+            block_id="release-check",
+            section_id="release",
+            position=0,
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "release-check-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": "发布前核对",
+                "summary": "发布前必须核对 build_pipeline_checkpoint_identifier_2026…",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    first = await plan_slide_story_v3(graph, template, ai_planner=planner)
+    second = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert first.pages[0].summary == source
+    assert [
+        page.model_dump(mode="json") for page in second.pages
+    ] == [
+        page.model_dump(mode="json") for page in first.pages
+    ]
+
+    visual = SlideVisualPlanV2(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=first.pages[0].page_id,
+            decision="text_native",
+            source_block_ids=list(first.pages[0].source_block_ids),
+            resolved_template_layout_id=first.pages[0].template_layout_id,
+        )],
+    )
+    deck = compile_slide_deck_v6(document, graph, first, visual, template)
+    visible = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if "release-check" in region.source_block_ids
+    )
+
+    assert source in visible
+    assert "build_pipeline_checkpoint_identifier_2026" in visible
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+    assert deck.quality.generated_ellipsis_free is True
+
+
+@pytest.mark.asyncio
+async def test_story_preserves_an_ellipsis_that_exists_in_frozen_source() -> None:
+    source = "等待……再继续，是该实验记录中明确写出的观察状态。"
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-source-ellipsis",
+        title="观察记录",
+        sections=[CourseSection(section_id="observation", title="观察", position=0)],
+        blocks=[CourseBlock(
+            block_id="observation-state",
+            section_id="observation",
+            position=0,
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "observation-state-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": "等待后继续",
+                "summary": source,
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert story.pages[0].summary == source
+
+
+@pytest.mark.asyncio
+async def test_story_does_not_accept_a_new_ellipsis_by_matching_source_count() -> None:
+    source = "观察记录写明等待……再继续。随后必须核对完整日志并保存结果。"
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-moved-ellipsis",
+        title="观察记录",
+        sections=[CourseSection(section_id="observation", title="观察", position=0)],
+        blocks=[CourseBlock(
+            block_id="observation-state",
+            section_id="observation",
+            position=0,
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "observation-state-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": "观察后核对",
+                "summary": "观察记录写明等待后继续，随后必须核对……",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert story.pages[0].summary == source
+    assert not story.pages[0].summary.endswith("……")
+
+
+@pytest.mark.asyncio
+async def test_story_clears_generated_ellipsis_when_complete_source_needs_pagination() -> None:
+    sentences = [
+        (
+            f"阶段 {index} 必须完整核对 "
+            f"checkpoint_identifier_with_a_long_suffix_{index:02d} 与对应英文记录 "
+            "before the next publishing action is allowed."
+        )
+        for index in range(1, 13)
+    ]
+    source = "".join(sentences)
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-long-generated-ellipsis-companion",
+        title="长文发布核对",
+        sections=[CourseSection(section_id="release", title="核对", position=0)],
+        blocks=[CourseBlock(
+            block_id="long-release-check",
+            section_id="release",
+            position=0,
+            role="concept",
+            payload={"markdown": source},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "long-release-check-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    layout_id
+                    for layout_id in unit["allowed_template_layout_ids"]
+                    if layout_id.endswith("/content-stack")
+                ),
+                "title": "长文发布核对",
+                "summary": "阶段 1 必须完整核对 checkpoint_identifier_with_a_long_suffix_01…",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    first = await plan_slide_story_v3(graph, template, ai_planner=planner)
+    second = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert first.pages[0].summary == ""
+    assert [
+        page.model_dump(mode="json") for page in second.pages
+    ] == [
+        page.model_dump(mode="json") for page in first.pages
+    ]
+
+    visual = SlideVisualPlanV2(
+        source_document_revision=graph.source_document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=first.pages[0].page_id,
+            decision="text_native",
+            source_block_ids=list(first.pages[0].source_block_ids),
+            resolved_template_layout_id=first.pages[0].template_layout_id,
+        )],
+    )
+    first_deck = compile_slide_deck_v6(document, graph, first, visual, template)
+    second_deck = compile_slide_deck_v6(document, graph, second, visual, template)
+    visible = "\n".join(
+        region.content
+        for page in first_deck.pages
+        for region in page.regions
+        if region.content_kind in {"body", "items", "steps"}
+        and "long-release-check" in region.source_block_ids
+    )
+
+    assert len(first_deck.pages) > 1
+    assert "".join(source.split()) in "".join(visible.split())
+    assert "checkpoint_identifier_with_a_long_suffix_12" in visible
+    assert first_deck.quality.source_prose_visible_fidelity == 1.0
+    assert first_deck.quality.generated_ellipsis_free is True
+    assert second_deck.model_dump(mode="json") == first_deck.model_dump(mode="json")
 
 
 @pytest.mark.asyncio

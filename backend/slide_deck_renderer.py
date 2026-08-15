@@ -16,7 +16,9 @@ from typing import Any
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
 from slide_layout_geometry import (
+    BALANCED_TWO_COLUMN_BODY_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
+    balanced_two_column_body_metrics,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
     wrapped_line_count,
@@ -657,6 +659,28 @@ def audit_exported_pptx(
                         "page": slide_index,
                         "shape_name": str(shape.name or ""),
                         **text_audit,
+                    })
+                body_line_match = re.search(
+                    r"\[v6-body-max-lines=(\d+)\]",
+                    str(shape.name or ""),
+                )
+                if (
+                    body_line_match
+                    and text_audit["maximum_wrapped_lines"]
+                    > max(1, int(body_line_match.group(1)))
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_body_capacity_exceeded",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                        "maximum_wrapped_lines": text_audit[
+                            "maximum_wrapped_lines"
+                        ],
+                        "allowed_wrapped_lines": max(
+                            1,
+                            int(body_line_match.group(1)),
+                        ),
                     })
                 title_line_match = re.search(
                     r"\[v6-title-max-lines=(\d+)\]",
@@ -2637,6 +2661,7 @@ def _render_editorial_body(
     theme: dict[str, str],
     *,
     heading_already_rendered: bool = False,
+    body_capacity_profile: str = "",
 ) -> None:
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme)
@@ -2650,8 +2675,15 @@ def _render_editorial_body(
         if value
     ]
     body = "\n\n".join(values)
+    body_metrics = (
+        balanced_two_column_body_metrics(body)
+        if body_capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+        else None
+    )
+    if body_metrics is not None and not body_metrics["fits"]:
+        raise ValueError("template_slot_capacity_exceeded")
     _shape(slide, 0.86, 1.92, 0.1, 4.32, theme["accent"], radius=False)
-    _text(
+    body_shape = _text(
         slide,
         body,
         1.34,
@@ -2661,49 +2693,18 @@ def _render_editorial_body(
         26 if len(body) <= 90 else 22 if len(body) <= 180 else 16,
         theme["ink"],
     )
+    if body_metrics is not None:
+        body_shape.name = (
+            f"{body_shape.name} [v6-body-capacity={body_capacity_profile}] "
+            f"[v6-body-max-lines={body_metrics['maximum_safe_lines']}]"
+        )
     _shape(slide, 1.34, 6.13, 4.35, 0.025, theme["chart_bg"], radius=False)
 
 
 def _balanced_two_column_body(value: str) -> list[str]:
-    """Split prose by rendered line cost, not paragraph count or raw characters."""
+    """Use the same deterministic split already proved by template capacity."""
 
-    source = str(value or "").strip()
-    single_column_font = 26 if len(source) <= 90 else 22 if len(source) <= 180 else 16
-    single_column_lines = _wrapped_line_count(
-        source,
-        width_pt=10.75 * 72,
-        font_size_pt=single_column_font,
-    )
-    single_column_required_height = (
-        single_column_lines * single_column_font * 1.22
-    )
-    if single_column_required_height <= 3.55 * 72 * 1.02:
-        return [source] if source else []
-    candidates = {
-        match.end()
-        for match in re.finditer(
-            r"\n\s*\n|[。！？；]|[.!?;](?:\s+|$)|\s+",
-            source,
-        )
-        if len(source) // 5 <= match.end() <= len(source) * 4 // 5
-    }
-    if not candidates:
-        candidates = {len(source) // 2}
-    width_pt = 5.32 * 72
-
-    def split_cost(position: int) -> tuple[int, int, int]:
-        left = source[:position].strip()
-        right = source[position:].strip()
-        left_lines = _wrapped_line_count(left, width_pt=width_pt, font_size_pt=16)
-        right_lines = _wrapped_line_count(right, width_pt=width_pt, font_size_pt=16)
-        return (
-            max(left_lines, right_lines),
-            abs(left_lines - right_lines),
-            abs(position - len(source) // 2),
-        )
-
-    split_at = min(candidates, key=split_cost)
-    return [source[:split_at].strip(), source[split_at:].strip()]
+    return list(balanced_two_column_body_metrics(value)["segments"])
 
 
 def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2714,14 +2715,25 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         for value in (block.items or [block.content])
         if value
     ]
+    body_capacity_profile = str(
+        unit.quality.get("v6_capacity_profile") or ""
+    )
+    body_metrics = None
     if len(values) == 1:
-        values = _balanced_two_column_body(values[0])
+        body_metrics = balanced_two_column_body_metrics(values[0])
+        if (
+            body_capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+            and not body_metrics["fits"]
+        ):
+            raise ValueError("template_slot_capacity_exceeded")
+        values = list(body_metrics["segments"])
     if len(values) < 2:
         _render_editorial_body(
             slide,
             unit,
             theme,
             heading_already_rendered=True,
+            body_capacity_profile=body_capacity_profile,
         )
         return
     labels = ("依据", "推论")
@@ -2746,7 +2758,7 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         style = styles[index]
         _semantic_panel(slide, x, 1.88, 5.92, 5.0, style)
         _text(slide, labels[index], x + 0.3, 2.04, 1.2, 0.25, 12, style["accent"], bold=True)
-        _text(
+        body_shape = _text(
             slide,
             value,
             x + 0.3,
@@ -2756,6 +2768,16 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
             16,
             style["text"],
         )
+        if (
+            body_capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+            and body_metrics is not None
+        ):
+            body_shape.name = (
+                f"{body_shape.name} "
+                f"[v6-body-capacity={body_capacity_profile}] "
+                f"[v6-body-max-lines={body_metrics['maximum_safe_lines']}] "
+                f"[v6-body-column={index + 1}]"
+            )
 
 
 def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:

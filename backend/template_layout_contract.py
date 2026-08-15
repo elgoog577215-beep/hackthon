@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import stable_hash
 from slide_layout_geometry import (
+    BALANCED_TWO_COLUMN_BODY_V1,
     DIAGRAM_SOURCE_PANEL_V1,
     FIGURE_SOURCE_PANEL_V1,
     FORMULA_SOURCE_PANEL_V1,
@@ -271,10 +272,17 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "slots": [
             _EYEBROW,
             _TITLE,
-            # The shared 16pt two-card renderer safely holds fifteen wrapped
-            # lines per card. The compiler balances one body across both
-            # cards, so the source contract is thirty lines in total.
-            _slot("body", "body", min_chars=120, chars=650, lines=30),
+            # Static characters/lines are last guards. The shared profile
+            # measures the renderer's actual single/two-column geometry and
+            # reserves a full bottom line against Office/font drift.
+            _slot(
+                "body",
+                "body",
+                min_chars=120,
+                chars=650,
+                lines=30,
+                capacity_profile=BALANCED_TWO_COLUMN_BODY_V1,
+            ),
             _NOTES,
         ],
         "continuations": ["content-stack"],

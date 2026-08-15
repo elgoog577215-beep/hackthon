@@ -1509,6 +1509,16 @@ def test_diagram_decision_requires_source_bound_nodes_and_edges() -> None:
     }
     assert validate_slide_visual_plan_v2(valid, story, graph, template) == "v6_ready"
 
+    generated_ellipsis = valid.model_copy(deep=True)
+    generated_ellipsis.decisions[0].visual_payload["nodes"][0]["label"] = "采集样本…"
+    with pytest.raises(V6BuildError, match="visual_diagram_label_unsupported"):
+        validate_slide_visual_plan_v2(
+            generated_ellipsis,
+            story,
+            graph,
+            template,
+        )
+
 
 def test_diagram_labels_allow_anchored_paraphrase_within_the_bound_source_block() -> None:
     document = refresh_document_revision(
@@ -2329,7 +2339,8 @@ def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -
     assert "def execute(value):" in regions["code"].content
     assert "Explain why the guard" not in regions["code"].content
     assert regions["annotation"].content == (
-        "Explain why the guard must run before the action."
+        "Explain why the guard must run before the action.\n\n"
+        "A missing value stops execution before any downstream action is attempted."
     )
     assert "def execute(value):" not in regions["annotation"].content
     visible_prose = "\n".join(
@@ -2697,6 +2708,117 @@ def test_very_large_code_can_expand_beyond_three_pages_without_source_loss() -> 
         )
         for page in deck.pages
     )
+
+
+def test_diagram_visual_does_not_duplicate_or_truncate_its_bound_source() -> None:
+    source = "".join([
+        "完整核验流程先采集原始记录并保留 checkpoint_identifier_alpha_2026。",
+        "随后核对时间、地点、操作者与 acceptance_boundary_identifier_beta。",
+        "如果日志不一致，记录完整差异并执行 the deterministic recovery step。",
+        "修复后重新运行回归验证，确认每一条 source-bound observation 仍然可追溯。",
+        "发布前保存兼容检查点并复核 visual mapping does not cross page boundaries。",
+        "最后形成结论，且所有原文必须在正文或安全续页中完整可见。",
+    ])
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-source-complete-diagram",
+        title="完整核验流程",
+        sections=[CourseSection(section_id="section", title="核验", position=0)],
+        blocks=[_block(
+            "flow",
+            "section",
+            0,
+            role="reasoning",
+            kind="diagram",
+            text=source,
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = SlideStoryPageV3(
+        page_id="source-complete-diagram-page",
+        teaching_unit_id=graph.units[0].teaching_unit_id,
+        template_layout_id=template.layout_id("evidence-diagram"),
+        title="完整核验流程",
+        source_block_ids=["flow"],
+        page_ordinal=0,
+    )
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-diagram",
+            chapter_id="section",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[page],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="diagram",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+            visual_payload={
+                "nodes": [
+                    {
+                        "node_id": "collect",
+                        "label": "采集原始记录",
+                        "source_block_ids": ["flow"],
+                    },
+                    {
+                        "node_id": "verify",
+                        "label": "核对时间、地点与操作者",
+                        "source_block_ids": ["flow"],
+                    },
+                    {
+                        "node_id": "publish",
+                        "label": "发布前保存兼容检查点",
+                        "source_block_ids": ["flow"],
+                    },
+                ],
+                "edges": [
+                    {"source": "collect", "target": "verify"},
+                    {"source": "verify", "target": "publish"},
+                ],
+            },
+        )],
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+    visible = "\n".join(
+        region.content
+        for rendered_page in deck.pages
+        for region in rendered_page.regions
+        if region.content_kind in {"body", "items", "steps"}
+        and "flow" in region.source_block_ids
+    )
+    diagram_page = next(
+        rendered_page
+        for rendered_page in deck.pages
+        if rendered_page.visual_decision.decision == "diagram"
+    )
+    renderer_slide = adapt_v6_page_to_slide_spec(diagram_page)
+
+    assert "".join(source.split()) in "".join(visible.split())
+    assert all(
+        region.content_kind != "visual"
+        for rendered_page in deck.pages
+        for region in rendered_page.regions
+    )
+    assert len(renderer_slide.visuals) == 1
+    assert all(
+        block.metadata.get("v6_slot_id") != "diagram"
+        for block in renderer_slide.blocks
+    )
+    assert deck.quality.formal_block_visible_coverage == 1.0
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+    assert deck.quality.generated_ellipsis_free is True
 
 
 def test_v6_modules_do_not_hardcode_course_identity_or_fixed_artifacts() -> None:

@@ -5,6 +5,7 @@ import pytest
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR
 
+import slide_deck_renderer
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import compile_course_presentation_graph
 from representation_compiler import export_slide_deck_pptx
@@ -15,10 +16,12 @@ from slide_deck_v6 import (
     SlideStoryPlanV3,
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
+    V6BuildError,
     _compile_course_cover_page,
     compile_slide_deck_v6,
 )
 from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_deck_v6_pptx
+from slide_layout_geometry import balanced_two_column_body_metrics
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
@@ -982,8 +985,60 @@ def test_content_stack_balances_uneven_source_paragraphs_before_export(
         tmp_path / "v6-content-stack-uneven-paragraphs.pptx",
     )
     report = audit_exported_pptx(output, expected_slide_count=1)
+    presentation = Presentation(output)
+    capacity_shapes = [
+        shape
+        for shape in presentation.slides[0].shapes
+        if "[v6-body-capacity=balanced-two-column-body-v1]"
+        in str(shape.name or "")
+    ]
 
     assert report["passed"], report["blockers"]
+    assert capacity_shapes
+    assert all(
+        "[v6-body-max-lines=15]" in str(shape.name or "")
+        for shape in capacity_shapes
+    )
+
+
+def test_content_stack_renderer_uses_the_shared_balanced_split() -> None:
+    source = "\n\n".join([
+        "先确认输入、原始状态与冻结来源。",
+        (
+            "逐项核对中英混排 identifier_with_a_long_name、$P_world = R × P_local$、"
+            "硬换行和异常修订，确保所有结论都能回溯到完整证据。"
+        ) * 7,
+        "最后由另一位复核者确认结果。",
+    ])
+    metrics = balanced_two_column_body_metrics(source)
+
+    assert metrics["mode"] == "two-column"
+    assert slide_deck_renderer._balanced_two_column_body(source) == metrics["segments"]
+    assert "".join("".join(metrics["segments"]).split()) == "".join(source.split())
+
+
+def test_content_stack_renderer_rejects_a_body_outside_the_shared_profile(
+    tmp_path: Path,
+) -> None:
+    deck = _dense_table_deck()
+    support_page = next(
+        page for page in deck.pages if page.resolved_layout.endswith("/content-stack")
+    )
+    body = next(region for region in support_page.regions if region.slot_id == "body")
+    body.content = "\n".join(
+        f"核对项 {index:02d}：保留来源、判断依据与复验结果。"
+        for index in range(1, 33)
+    )
+    metrics = balanced_two_column_body_metrics(body.content)
+    one_page_deck = deck.model_copy(update={"pages": [support_page]})
+
+    assert metrics["wrapped_lines"] == [16, 16]
+    assert not metrics["fits"]
+    with pytest.raises(ValueError, match="template_slot_capacity_exceeded"):
+        export_slide_deck_v6_pptx(
+            one_page_deck,
+            tmp_path / "v6-content-stack-profile-overflow.pptx",
+        )
 
 
 def test_content_stack_splits_newline_dense_short_body_before_export(
@@ -1056,6 +1111,53 @@ def test_practice_table_separates_an_oversized_row_from_required_steps(
     report = audit_exported_pptx(output, expected_slide_count=2)
 
     assert report["passed"], report["blockers"]
+
+
+@pytest.mark.parametrize(
+    "course_title",
+    [
+        "Unity 6 环境证据与 reproducible workflow 实战指南",
+        "面向复杂现场证据复核与持续改进的完整教学实践指南",
+    ],
+)
+def test_course_cover_preserves_complete_breakable_long_titles(
+    course_title: str,
+    tmp_path: Path,
+) -> None:
+    document, deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    cover = _compile_course_cover_page(
+        document.model_copy(update={"title": course_title}),
+        template,
+    )
+
+    assert cover.title == course_title
+    assert cover.regions[0].content == course_title
+    output = export_slide_deck_v6_pptx(
+        deck.model_copy(update={"pages": [cover]}),
+        tmp_path / "v6-breakable-long-cover.pptx",
+    )
+    audit = audit_exported_pptx(output, expected_slide_count=1)
+    assert not [
+        issue
+        for issue in audit["issues"]
+        if issue.get("code") in {
+            "exported_text_frame_overflow",
+            "exported_title_unexpected_wrap",
+        }
+    ]
+
+
+def test_course_cover_rejects_a_single_unbreakable_token_that_cannot_fit() -> None:
+    document, _deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unbreakable_title = "BuildArtifactIdentity_" + "x" * 80
+
+    with pytest.raises(V6BuildError, match="template_title_capacity_exceeded"):
+        _compile_course_cover_page(
+            document.model_copy(update={"title": unbreakable_title}),
+            template,
+        )
 
 
 def test_evidence_table_paginates_complete_interpretation_before_table_rows(

@@ -321,7 +321,15 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         subtitle=subtitle,
         composition="diagram-full" if slug == "evidence-diagram" else "",
         visuals=_visuals(resolved_page),
-        blocks=[_region_block(resolved_page, region) for region in resolved_page.regions],
+        blocks=[
+            _region_block(resolved_page, region)
+            for region in resolved_page.regions
+            if not (
+                region.content_kind == "visual"
+                and resolved_page.visual_decision.decision
+                in {"diagram", "image", "experiment"}
+            )
+        ],
         speaker_notes=_speaker_notes(resolved_page),
         source_block_ids=list(resolved_page.source_block_ids),
         quality={

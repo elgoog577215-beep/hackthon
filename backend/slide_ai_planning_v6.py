@@ -36,6 +36,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     _complete_sentence_excerpt,
+    _complete_story_source_companion,
     _looks_like_markdown_table,
     _presentation_summary_text,
     _protected_tokens,
@@ -84,6 +85,7 @@ _STORY_UNIT_REPARTITION_FAILURE_CODES = frozenset({
     "template_source_slot_coverage_incomplete",
 })
 _VISUAL_SEMANTIC_MAX_ATTEMPTS = 2
+_ELLIPSIS_MARKER_RE = re.compile(r"…|(?<!\.)\.{3}(?!\.)")
 _VISUAL_DECISION_CONTRACT_FIELDS = frozenset({
     "page_id",
     "decision",
@@ -568,6 +570,48 @@ def _project_required_safe_partitions(
     return projected
 
 
+def _normalize_generated_ellipsis_companions(
+    pages: list[Any],
+    units: dict[str, dict[str, Any]],
+    graph_units: dict[str, CoursePresentationUnitV1],
+    template: TemplateLayoutPackContractV1,
+) -> list[Any]:
+    """Remove only provider-added ellipsis by proving a complete replacement.
+
+    Any ellipsis-bearing companion is projected to the complete bound source
+    when that source fits shared template geometry; otherwise it is cleared so
+    source-driven pagination renders the full material later. This also keeps a
+    real source ellipsis in its original context instead of trusting marker count.
+    """
+
+    normalized: list[Any] = []
+    for value in pages:
+        if not isinstance(value, dict):
+            normalized.append(value)
+            continue
+        page = dict(value)
+        summary = str(page.get("summary") or "")
+        unit_id = str(page.get("teaching_unit_id") or "")
+        unit = units.get(unit_id)
+        graph_unit = graph_units.get(unit_id)
+        if not summary or unit is None or graph_unit is None:
+            normalized.append(page)
+            continue
+        if _ELLIPSIS_MARKER_RE.search(summary):
+            layout = template.get_layout(str(page.get("template_layout_id") or ""))
+            page["summary"] = (
+                _complete_story_source_companion(
+                    graph_unit,
+                    [str(value) for value in page.get("source_block_ids") or []],
+                    layout,
+                )
+                if layout is not None
+                else ""
+            )
+        normalized.append(page)
+    return normalized
+
+
 def _normalize_story_batch_response(
     raw: dict[str, Any],
     request: dict[str, Any],
@@ -881,11 +925,17 @@ def _normalize_story_batch_response(
                 "source_projection_safe": True,
                 "required_safe_partition": partition,
             })
-    payload["pages"] = _project_required_safe_partitions(
+    projected_pages = _project_required_safe_partitions(
         normalized_pages,
         units,
         [*source_partition_repairs, *repair_targets],
         chapter_id=str(request.get("chapter_id") or ""),
+    )
+    payload["pages"] = _normalize_generated_ellipsis_companions(
+        projected_pages,
+        units,
+        graph_units,
+        template,
     )
     return payload
 
@@ -1478,7 +1528,7 @@ def _story_repair_targets(
         minimum: int,
         maximum: int,
     ) -> str:
-        """Fill a summary from ordered source even when its next sentence is long."""
+        """Return only a complete source-mapped companion within its slot."""
 
         normalized = " ".join(_presentation_summary_text(source).split())
         if not normalized or maximum <= 0:
@@ -1489,44 +1539,16 @@ def _story_repair_targets(
         )
         if len(normalized) <= preferred_capacity:
             return normalized
-
-        def bounded_excerpt(value: str, capacity: int) -> str:
-            excerpt = _complete_sentence_excerpt(value, capacity)
-            if len(excerpt) <= capacity:
-                return excerpt
-            if capacity <= 1:
-                return excerpt[:capacity]
-            clipped = excerpt[: capacity - 1].rstrip(" ,;:")
+        required = min(minimum, len(normalized))
+        for capacity in dict.fromkeys((preferred_capacity, maximum)):
+            candidate = _complete_sentence_excerpt(normalized, capacity)
             if (
-                clipped
-                and clipped[-1].isalnum()
-                and len(excerpt) > len(clipped)
-                and excerpt[len(clipped)].isalnum()
-                and " " in clipped
+                candidate
+                and len(candidate) >= required
+                and candidate in normalized
             ):
-                clipped = clipped.rsplit(" ", 1)[0].rstrip(" ,;:")
-            return f"{clipped}…"
-
-        def extend_to(capacity: int) -> str:
-            head = bounded_excerpt(normalized, capacity)
-            if len(head) >= min(minimum, len(normalized)):
-                return head
-            if not head or not normalized.startswith(head):
-                return head
-            remaining_capacity = capacity - len(head) - 1
-            if remaining_capacity <= 1:
-                return head
-            tail = normalized[len(head):].lstrip()
-            continuation = bounded_excerpt(
-                tail,
-                remaining_capacity,
-            )
-            return " ".join(part for part in (head, continuation) if part)
-
-        result = extend_to(preferred_capacity)
-        if len(result) < min(minimum, len(normalized)):
-            result = extend_to(maximum)
-        return result
+                return candidate
+        return ""
 
     def target_for(
         unit: dict[str, Any],
@@ -1726,24 +1748,14 @@ def _story_repair_targets(
             ):
                 repair_source = current_summary.strip()
             effective_max = summary_max_chars or len(repair_source)
-            preferred_max = min(
-                effective_max,
-                max(summary_min_chars, summary_min_chars + 80),
-            )
             required_summary = grounded_density_excerpt(
                 repair_source,
                 minimum=summary_min_chars,
                 maximum=effective_max,
             )
-            if len(required_summary) < min(summary_min_chars, len(repair_source)):
-                expanded = _complete_sentence_excerpt(repair_source, effective_max)
-                required_summary = expanded
-                if required_summary and required_summary[-1] not in "。！？.!?":
-                    if len(required_summary) < preferred_max:
-                        required_summary += "。"
         clear_summary = bool(
             summary_repair_required
-            and summary_max_chars <= 0
+            and (summary_max_chars <= 0 or not required_summary)
         )
         safe_partition_options = [
             option
@@ -1892,7 +1904,9 @@ def _story_repair_targets(
                 if capacity_exceeded
                 else minimum > 0 and len(current) < minimum
             )
-            if needs_repair and target.get("required_summary"):
+            if needs_repair and (
+                target.get("required_summary") or target.get("clear_summary")
+            ):
                 underfilled_targets.append(target)
         if underfilled_targets:
             return underfilled_targets
@@ -2793,6 +2807,11 @@ def _visual_request(
             "diagram_edge_rule": (
                 "Every source and target must exactly equal a node_id declared "
                 "in the same visual_payload."
+            ),
+            "diagram_label_rule": (
+                "Use complete source-grounded labels. Never end or shorten a node "
+                "or edge label with ... or … unless that exact marked phrase occurs "
+                "in the bound frozen source."
             ),
         },
         "pages": [page_request(page) for page in batch.pages],

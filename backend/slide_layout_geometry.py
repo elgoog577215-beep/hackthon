@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Callable
 from functools import lru_cache
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 HORIZONTAL_PROCESS_CARDS_V1 = "horizontal-process-cards-v1"
+BALANCED_TWO_COLUMN_BODY_V1 = "balanced-two-column-body-v1"
 FORMULA_SOURCE_PANEL_V1 = "formula-source-panel-v1"
 FIGURE_SOURCE_PANEL_V1 = "figure-source-panel-v1"
 DIAGRAM_SOURCE_PANEL_V1 = "diagram-source-panel-v1"
@@ -19,6 +21,17 @@ _PROCESS_TEXT_HEIGHT_IN = 1.95
 _PROCESS_FONT_SIZE_PT = 16.0
 _PROCESS_LINE_HEIGHT = 1.22
 _PROCESS_MAX_ITEMS = 5
+
+_EDITORIAL_BODY_WIDTH_PT = 10.75 * 72
+_EDITORIAL_BODY_HEIGHT_PT = 3.55 * 72
+_TWO_COLUMN_BODY_WIDTH_PT = 5.32 * 72
+_TWO_COLUMN_BODY_HEIGHT_PT = 4.42 * 72
+_TWO_COLUMN_BODY_FONT_SIZE_PT = 16.0
+_BODY_LINE_HEIGHT = 1.22
+# PowerPoint's font metrics and the portable audit font are not pixel-identical.
+# Reserve one complete rendered line so a frame that is mathematically just under
+# its boundary cannot touch or cross the card edge after Office lays it out.
+_BODY_BOTTOM_SAFETY_LINES = 1
 
 _SOURCE_PANEL_GEOMETRY = {
     FORMULA_SOURCE_PANEL_V1: {"width_pt": 3.80 * 72, "height_pt": 3.57 * 72},
@@ -55,6 +68,15 @@ def _audit_font(font_size_px: int) -> Any:
     return ImageFont.load_default()
 
 
+@lru_cache(maxsize=8192)
+def _audit_character_width(font_size_px: int, character: str) -> float:
+    font = _audit_font(font_size_px)
+    try:
+        return float(font.getlength(character))
+    except AttributeError:
+        return float(font.getbbox(character)[2])
+
+
 def wrapped_line_count(
     text: str,
     *,
@@ -67,7 +89,8 @@ def wrapped_line_count(
     if not text:
         return 1
     dpi_scale = 96 / 72
-    font = font_loader(max(8, round(font_size_pt * dpi_scale)))
+    font_size_px = max(8, round(font_size_pt * dpi_scale))
+    font = font_loader(font_size_px)
     maximum_width = max(1.0, width_pt * dpi_scale)
     measured_lines = 0
     for logical_line in str(text).splitlines() or [""]:
@@ -77,10 +100,16 @@ def wrapped_line_count(
         current_width = 0.0
         measured_lines += 1
         for character in logical_line:
-            try:
-                character_width = float(font.getlength(character))
-            except AttributeError:
-                character_width = float(font.getbbox(character)[2])
+            if font_loader is _audit_font:
+                character_width = _audit_character_width(
+                    font_size_px,
+                    character,
+                )
+            else:
+                try:
+                    character_width = float(font.getlength(character))
+                except AttributeError:
+                    character_width = float(font.getbbox(character)[2])
             if current_width and current_width + character_width > maximum_width:
                 measured_lines += 1
                 current_width = 0.0
@@ -177,6 +206,120 @@ def capacity_profile_items_fit(profile: str, items: list[str]) -> bool:
     raise ValueError(f"unknown_template_capacity_profile:{profile}")
 
 
+def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
+    """Measure and split the editable body using the renderer's exact geometry."""
+
+    source = str(text or "").strip()
+    if not source:
+        return {
+            "fits": False,
+            "mode": "empty",
+            "segments": [],
+            "wrapped_lines": [],
+            "required_heights_pt": [],
+            "available_height_pt": _TWO_COLUMN_BODY_HEIGHT_PT,
+            "maximum_safe_lines": 0,
+        }
+
+    single_font_size_pt = (
+        26.0 if len(source) <= 90 else 22.0 if len(source) <= 180 else 16.0
+    )
+    single_lines = wrapped_line_count(
+        source,
+        width_pt=_EDITORIAL_BODY_WIDTH_PT,
+        font_size_pt=single_font_size_pt,
+    )
+    single_maximum_safe_lines = max(
+        1,
+        int(
+            _EDITORIAL_BODY_HEIGHT_PT
+            // (single_font_size_pt * _BODY_LINE_HEIGHT)
+        )
+        - _BODY_BOTTOM_SAFETY_LINES,
+    )
+    if single_lines <= single_maximum_safe_lines:
+        return {
+            "fits": True,
+            "mode": "single-column",
+            "segments": [source],
+            "wrapped_lines": [single_lines],
+            "font_size_pt": single_font_size_pt,
+            "required_heights_pt": [
+                single_lines * single_font_size_pt * _BODY_LINE_HEIGHT
+            ],
+            "available_height_pt": _EDITORIAL_BODY_HEIGHT_PT,
+            "text_width_pt": _EDITORIAL_BODY_WIDTH_PT,
+            "maximum_safe_lines": single_maximum_safe_lines,
+        }
+
+    candidates = {
+        match.end()
+        for match in re.finditer(
+            r"\n\s*\n|[。！？；]|[.!?;](?:\s+|$)|\s+",
+            source,
+        )
+        if len(source) // 5 <= match.end() <= len(source) * 4 // 5
+    }
+    if not candidates:
+        candidates = {len(source) // 2}
+
+    def split_cost(position: int) -> tuple[int, int, int]:
+        left = source[:position].strip()
+        right = source[position:].strip()
+        left_lines = wrapped_line_count(
+            left,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+        )
+        right_lines = wrapped_line_count(
+            right,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+        )
+        return (
+            max(left_lines, right_lines),
+            abs(left_lines - right_lines),
+            abs(position - len(source) // 2),
+        )
+
+    split_at = min(candidates, key=split_cost)
+    segments = [source[:split_at].strip(), source[split_at:].strip()]
+    wrapped_lines = [
+        wrapped_line_count(
+            segment,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+        )
+        for segment in segments
+    ]
+    maximum_safe_lines = max(
+        1,
+        int(
+            _TWO_COLUMN_BODY_HEIGHT_PT
+            // (_TWO_COLUMN_BODY_FONT_SIZE_PT * _BODY_LINE_HEIGHT)
+        )
+        - _BODY_BOTTOM_SAFETY_LINES,
+    )
+    required_heights_pt = [
+        line_count * _TWO_COLUMN_BODY_FONT_SIZE_PT * _BODY_LINE_HEIGHT
+        for line_count in wrapped_lines
+    ]
+    return {
+        "fits": all(
+            segment and line_count <= maximum_safe_lines
+            for segment, line_count in zip(segments, wrapped_lines)
+        ),
+        "mode": "two-column",
+        "segments": segments,
+        "wrapped_lines": wrapped_lines,
+        "font_size_pt": _TWO_COLUMN_BODY_FONT_SIZE_PT,
+        "required_heights_pt": required_heights_pt,
+        "available_height_pt": _TWO_COLUMN_BODY_HEIGHT_PT,
+        "text_width_pt": _TWO_COLUMN_BODY_WIDTH_PT,
+        "maximum_safe_lines": maximum_safe_lines,
+    }
+
+
 def source_panel_text_metrics(profile: str, text: str) -> dict[str, Any]:
     """Return the exact body geometry used by one visual source panel."""
 
@@ -207,6 +350,8 @@ def source_panel_text_metrics(profile: str, text: str) -> dict[str, Any]:
 def capacity_profile_text_fits(profile: str, text: str) -> bool:
     if not profile:
         return True
+    if profile == BALANCED_TWO_COLUMN_BODY_V1:
+        return bool(balanced_two_column_body_metrics(text)["fits"])
     return bool(source_panel_text_metrics(profile, text)["fits"])
 
 
@@ -313,10 +458,12 @@ def diagram_node_layout_metrics(
 
 
 __all__ = [
+    "BALANCED_TWO_COLUMN_BODY_V1",
     "DIAGRAM_SOURCE_PANEL_V1",
     "FIGURE_SOURCE_PANEL_V1",
     "FORMULA_SOURCE_PANEL_V1",
     "HORIZONTAL_PROCESS_CARDS_V1",
+    "balanced_two_column_body_metrics",
     "capacity_profile_items_fit",
     "capacity_profile_text_fits",
     "diagram_node_layout_metrics",

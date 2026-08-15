@@ -15,7 +15,10 @@ from slide_deck_v6 import (
     validate_layout_source_satisfiability,
 )
 from slide_layout_geometry import (
+    BALANCED_TWO_COLUMN_BODY_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
+    balanced_two_column_body_metrics,
+    capacity_profile_text_fits,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
 )
@@ -630,9 +633,66 @@ def test_content_stack_paginates_on_readable_line_capacity_without_text_loss() -
 
     assert len(source) < body_slot.max_chars
     assert len(materializations) > 1
-    assert "\n\n".join(rendered_chunks) == source
+    assert "".join("\n\n".join(rendered_chunks).split()) == "".join(source.split())
     assert all(
         deck_v6._prose_wrapped_line_cost(chunk) <= body_slot.max_lines
+        for chunk in rendered_chunks
+    )
+
+
+def test_content_stack_uses_shared_two_column_geometry_at_the_overflow_edge() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("content-stack"))
+    assert layout is not None
+    body_slot = next(slot for slot in layout.slots if slot.slot_id == "body")
+    source = "\n".join([
+        "核对标准",
+        "- 层级正确性：界面必须显示清晰的父子缩进关系，父级变化时子级应整体跟随。",
+        "- 代码规范性：必须保留 localPosition、transform.position = sourceValue 与完整校验条件。",
+        "- 现象一致性：",
+        "  - 静止条件下，局部运动轨迹与世界运动轨迹应保持一致。",
+        "  - 旋转条件下，世界坐标变化应保留完整曲线特征和复核依据。",
+        "  - 每次执行都要保留 timestamp、source_record_identifier 与人工复验签名。",
+        "  - 中英文混排不能吞掉 operationBoundary 或省略失败条件与恢复路径。",
+        "参考结论",
+        "- 正确现象：输入旋转后，原本沿局部 Y 轴运动的节点应沿新的轴向运动。",
+        "如果父级持续旋转，子级在世界空间中将形成圆弧，并保留所有观测记录。",
+        "- 错误现象：若子级停在原地或只绕自身中心旋转，应检查 local 与 world 的使用边界。",
+        "推导依据",
+        "- 数学原理：$P_world = P_parent + R_parent × P_child_local$，其中 R 为旋转矩阵。",
+        "- 引擎机制：运行时会持续重新计算所有子节点的世界矩阵，并记录最终校验结果。",
+        "- 审计要求：逐项比较输入、状态转换、输出、异常日志与签字证据。",
+        "- 发布要求：只有完整来源、公式和长标识符都可见时才允许交付。",
+        "- 恢复要求：保存点重放必须得到相同页面与相同视觉映射。",
+    ])
+
+    metrics = balanced_two_column_body_metrics(source)
+    materializations = validate_layout_source_satisfiability(
+        page_id="two-column-overflow-edge",
+        template=template,
+        layout=layout,
+        source_blocks=[_block(
+            "mixed-geometry-body",
+            role="concept",
+            markdown=source,
+        )],
+    )
+    rendered_chunks = [
+        deck_v6._complete_slot_content(page.source_blocks, "body")
+        for page in materializations
+    ]
+
+    assert body_slot.capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+    assert metrics["mode"] == "two-column"
+    assert max(metrics["wrapped_lines"]) > metrics["maximum_safe_lines"]
+    assert not capacity_profile_text_fits(body_slot.capacity_profile, source)
+    safe_metrics = balanced_two_column_body_metrics(source.rsplit("\n", 1)[0])
+    assert safe_metrics["wrapped_lines"] == [15, 15]
+    assert safe_metrics["fits"]
+    assert len(materializations) > 1
+    assert "".join("\n\n".join(rendered_chunks).split()) == "".join(source.split())
+    assert all(
+        capacity_profile_text_fits(body_slot.capacity_profile, chunk)
         for chunk in rendered_chunks
     )
 

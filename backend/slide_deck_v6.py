@@ -756,7 +756,7 @@ def validate_slide_story_plan_v3(
                 message="Every V6 page requires a visible source-grounded title",
                 page_id=page.page_id,
             )
-        if title_slot and title_slot.max_chars and len(page.title) > title_slot.max_chars:
+        if title_slot and not _title_fits_slot(page.title, title_slot):
             raise V6BuildError(
                 stage="story",
                 code="story_title_capacity_exceeded",
@@ -834,6 +834,16 @@ def validate_slide_story_plan_v3(
             unit,
             page.source_block_ids,
         )
+        if not _ellipsis_maps_to_frozen_source(page.title, page_source_text):
+            raise V6BuildError(
+                stage="story",
+                code="story_unsupported_title",
+                message=(
+                    "A title ellipsis is not traceable to the same frozen-source "
+                    "context"
+                ),
+                page_id=page.page_id,
+            )
         unsupported_title_tokens = (
             _title_protected_tokens(page.title)
             - _title_protected_tokens(page_source_text)
@@ -861,6 +871,16 @@ def validate_slide_story_plan_v3(
         unsupported = _protected_tokens(page.summary) - _protected_tokens(unit.source_text)
         if unsupported:
             raise V6BuildError(stage="story", code="story_unsupported_fact", message=f"Unsupported factual tokens: {', '.join(sorted(unsupported))}", page_id=page.page_id)
+        if not _ellipsis_maps_to_frozen_source(page.summary, page_source_text):
+            raise V6BuildError(
+                stage="story",
+                code="story_unsupported_fact",
+                message=(
+                    "A summary ellipsis is not traceable to the same frozen-source "
+                    "context"
+                ),
+                page_id=page.page_id,
+            )
         if page.summary and _semantic_grounding_ratio(page.summary, unit.source_text) < 0.12:
             raise V6BuildError(
                 stage="story",
@@ -1044,6 +1064,7 @@ def validate_slide_visual_plan_v2(
                 if (
                     _title_protected_tokens(label) - _protected_tokens(node_source_text)
                     or _semantic_grounding_ratio(label, node_source_text) < 0.12
+                    or not _ellipsis_maps_to_frozen_source(label, node_source_text)
                 ):
                     raise V6BuildError(
                         stage="visual",
@@ -2211,14 +2232,63 @@ def _split_oversized_prose_group(
         max_lines=max_lines,
         capacity_profile=capacity_profile,
     ):
-        window_end = min(len(remaining), max_chars or len(remaining))
-        while window_end > 1 and not _prose_fits_slot(
-            remaining[:window_end],
-            max_chars=max_chars,
-            max_lines=max_lines,
-            capacity_profile=capacity_profile,
-        ):
-            window_end -= 1
+        window_limit = min(len(remaining), max_chars or len(remaining))
+        boundary_positions = sorted(
+            {
+                match.end()
+                for match in re.finditer(
+                    r"[。！？；，]|[.!?;,](?:\s+|$)|\s+",
+                    remaining[:window_limit],
+                )
+                if match.end() > 1
+            },
+            reverse=True,
+        )
+        window_end = next(
+            (
+                position
+                for position in boundary_positions
+                if _prose_fits_slot(
+                    remaining[:position],
+                    max_chars=max_chars,
+                    max_lines=max_lines,
+                    capacity_profile=capacity_profile,
+                )
+            ),
+            0,
+        )
+        if not window_end:
+            # A genuinely unbroken token has no semantic boundary. Locate the
+            # largest renderable prefix without the previous character-by-
+            # character quadratic scan; no source text is removed. Search
+            # each renderer font-size band independently because a dynamic
+            # font threshold makes the combined predicate non-monotonic.
+            for band_low, band_high in (
+                (181, window_limit),
+                (171, min(180, window_limit)),
+                (91, min(170, window_limit)),
+                (1, min(90, window_limit)),
+            ):
+                if band_low > band_high:
+                    continue
+                low = band_low
+                high = band_high
+                band_best = 0
+                while low <= high:
+                    midpoint = (low + high) // 2
+                    if _prose_fits_slot(
+                        remaining[:midpoint],
+                        max_chars=max_chars,
+                        max_lines=max_lines,
+                        capacity_profile=capacity_profile,
+                    ):
+                        band_best = midpoint
+                        low = midpoint + 1
+                    else:
+                        high = midpoint - 1
+                if band_best:
+                    window_end = band_best
+                    break
         if window_end <= 1:
             raise ValueError("template_slot_capacity_exceeded")
         window = remaining[: window_end + 1]
@@ -2385,6 +2455,59 @@ def _split_text_block_for_slot(
 
 def _display_width_units(value: str) -> int:
     return sum(1 if ord(character) < 128 else 2 for character in str(value or ""))
+
+
+_TITLE_TOKEN_RE = re.compile(r"\s+|[A-Za-z0-9_./:+#@%-]+|[^\x00-\x7f]|[^\s]")
+
+
+def _title_wrapped_line_cost(value: str, *, line_width_units: int) -> int:
+    """Estimate title wrapping without breaking ASCII identifiers or words."""
+
+    clean = " ".join(_visible_prose_text(value).split())
+    if not clean:
+        return 0
+    width = max(1, int(line_width_units))
+    lines = 1
+    current_width = 0
+    pending_space = False
+    for match in _TITLE_TOKEN_RE.finditer(clean):
+        token = match.group(0)
+        if token.isspace():
+            pending_space = current_width > 0
+            continue
+        token_width = _display_width_units(token)
+        if token_width > width:
+            return 10**9
+        separator_width = 1 if pending_space and current_width else 0
+        if current_width and current_width + separator_width + token_width > width:
+            lines += 1
+            current_width = token_width
+        else:
+            current_width += separator_width + token_width
+        pending_space = False
+    return lines
+
+
+def _title_fits_slot(value: str, slot: Any) -> bool:
+    """Validate complete title text against the slot's rendered line geometry."""
+
+    clean = " ".join(_visible_prose_text(value).split())
+    if not clean:
+        return False
+    max_chars = int(getattr(slot, "max_chars", 0) or 0)
+    max_lines = max(1, int(getattr(slot, "max_lines", 0) or 1))
+    if not max_chars:
+        return True
+    # Template title capacities are declared in full-width character units.
+    # Convert that total capacity to display-width units and distribute it
+    # across the explicitly allowed lines.  This keeps complete CJK/mixed
+    # titles while rejecting an indivisible identifier wider than one line.
+    total_width_units = max_chars * 2
+    line_width_units = max(1, ceil(total_width_units / max_lines))
+    return _title_wrapped_line_cost(
+        clean,
+        line_width_units=line_width_units,
+    ) <= max_lines
 
 
 def _table_cells(line: str) -> list[str]:
@@ -3634,6 +3757,51 @@ def _safe_artifact_page_blocks(
                 and normalized_prose in normalized_summary
             )
         ]
+    pairable_artifact_prose_blocks: list[CourseBlock] = []
+    if not required_support and uncovered_artifact_prose_blocks:
+        optional_support_slots = [
+            slot for slot in support_slots if not slot.required
+        ]
+
+        def optional_support_fits(candidates: list[CourseBlock]) -> bool:
+            assignments = _layout_source_assignments(layout, candidates)
+            assigned_identities = {
+                id(block)
+                for slot in optional_support_slots
+                for block in assignments.text_slots.get(slot.slot_id, [])
+            }
+            if any(id(block) not in assigned_identities for block in candidates):
+                return False
+            for slot in optional_support_slots:
+                slot_blocks = assignments.text_slots.get(slot.slot_id, [])
+                if not slot_blocks:
+                    continue
+                try:
+                    _bounded_slot_content(
+                        slot_blocks,
+                        slot_kind=slot.slot_kind,
+                        max_chars=slot.max_chars,
+                        max_items=slot.max_items,
+                        max_lines=slot.max_lines,
+                        max_rows=slot.max_rows,
+                        capacity_profile=getattr(slot, "capacity_profile", ""),
+                    )
+                except ValueError:
+                    return False
+            return bool(candidates)
+
+        for candidate in uncovered_artifact_prose_blocks:
+            trial = [*pairable_artifact_prose_blocks, candidate]
+            if optional_support_fits(trial):
+                pairable_artifact_prose_blocks = trial
+        pairable_identities = {
+            id(block) for block in pairable_artifact_prose_blocks
+        }
+        uncovered_artifact_prose_blocks = [
+            block
+            for block in uncovered_artifact_prose_blocks
+            if id(block) not in pairable_identities
+        ]
     support_source_blocks = [
         *non_artifact_blocks,
         *uncovered_artifact_prose_blocks,
@@ -3662,7 +3830,10 @@ def _safe_artifact_page_blocks(
         )
     )
     support_materializations: list[_SafePageMaterialization] = []
-    artifact_support_blocks = support_source_blocks
+    artifact_support_blocks = [
+        *pairable_artifact_prose_blocks,
+        *support_source_blocks,
+    ]
     if separate_support:
         support_layout = template.get_layout(template.layout_id("content-stack"))
         if support_layout is None:
@@ -3679,7 +3850,7 @@ def _safe_artifact_page_blocks(
             source_blocks=support_source_blocks,
             story_summary="",
         )
-        artifact_support_blocks = []
+        artifact_support_blocks = pairable_artifact_prose_blocks
 
     if required_support and support_source_blocks:
         support_pages = _required_support_page_blocks(
@@ -3830,13 +4001,21 @@ def _safe_artifact_page_blocks(
         )
         for index, chunk in enumerate(artifact_chunks)
     ]
-    if support_materializations and (
-        min(block.position for block in support_source_blocks)
-        < min(block.position for block in artifact_blocks)
-    ):
-        materializations = [*support_materializations, *artifact_materializations]
-    else:
-        materializations = [*artifact_materializations, *support_materializations]
+    source_order = {
+        block.block_id: index
+        for index, block in enumerate(source_blocks)
+    }
+    # A page can contain semantic support on both sides of an artifact.  Order
+    # each concrete continuation by its first frozen-source block instead of
+    # moving the entire support group before or after the artifact group; the
+    # latter made a trailing feedback block appear before an earlier table.
+    materializations = sorted(
+        [*artifact_materializations, *support_materializations],
+        key=lambda materialization: min(
+            source_order.get(block.block_id, len(source_order))
+            for block in materialization.source_blocks
+        ),
+    )
     _assert_source_driven_pagination_progress(
         page_id=page_id,
         source_blocks=source_blocks,
@@ -3881,7 +4060,7 @@ def _materialize_template_regions(
         (slot for slot in layout.slots if slot.slot_kind == "title"),
         None,
     )
-    if title_slot and title_slot.max_chars and len(title) > title_slot.max_chars:
+    if title_slot and title and not _title_fits_slot(title, title_slot):
         raise V6BuildError(
             stage="template",
             code="template_title_capacity_exceeded",
@@ -3937,6 +4116,25 @@ def _materialize_template_regions(
     regions: list[SlideRegionV6] = []
     for slot in content_slots:
         slot_blocks = assigned.get(slot.slot_id, [])
+        visual_decision_fills_slot = bool(
+            slot.slot_kind == "visual"
+            and (
+                (
+                    visual_decision is not None
+                    and visual_decision.decision in set(layout.artifact_kinds)
+                )
+                or (
+                    source_backed_visual_pending
+                    and bool(source_blocks)
+                    and bool(layout.artifact_kinds)
+                )
+            )
+        )
+        visual_renders_without_text_region = bool(
+            slot.slot_kind == "visual"
+            and visual_decision is not None
+            and visual_decision.decision in {"diagram", "image", "experiment"}
+        )
         slot_max_chars = slot.max_chars
         slot_max_lines = slot.max_lines
         if (
@@ -3951,7 +4149,13 @@ def _materialize_template_regions(
                 getattr(slot, "continuation_max_lines", 0) or slot.max_lines
             )
         try:
-            if slot.slot_id == summary_slot_id:
+            if visual_renders_without_text_region:
+                # Diagram nodes and frozen source images are rendered by the
+                # visual adapter itself.  Emitting the same source again as a
+                # statement creates duplicate copy and can manufacture a
+                # truncation ellipsis that is not present in the source.
+                content = ""
+            elif slot.slot_id == summary_slot_id:
                 if slot.max_chars and len(summary_content) > slot.max_chars:
                     raise ValueError("template_slot_capacity_exceeded")
                 content = summary_content
@@ -3995,20 +4199,6 @@ def _materialize_template_regions(
                 message=f"Source-backed content exceeds template slot {slot.slot_id}",
                 page_id=page_id,
             ) from error
-        visual_decision_fills_slot = bool(
-            slot.slot_kind == "visual"
-            and (
-                (
-                    visual_decision is not None
-                    and visual_decision.decision in set(layout.artifact_kinds)
-                )
-                or (
-                    source_backed_visual_pending
-                    and bool(source_blocks)
-                    and bool(layout.artifact_kinds)
-                )
-            )
-        )
         if slot.required and not content and not visual_decision_fills_slot:
             raise V6BuildError(
                 stage="template",
@@ -4054,6 +4244,26 @@ def _materialize_template_regions(
     visible_blocks = {
         block_id for region in regions for block_id in region.source_block_ids
     }
+    if visual_decision is not None and visual_decision.decision == "diagram":
+        visible_blocks.update(
+            str(block_id)
+            for node in visual_decision.visual_payload.get("nodes") or []
+            if isinstance(node, dict) and str(node.get("label") or "").strip()
+            for block_id in node.get("source_block_ids") or []
+        )
+    elif (
+        visual_decision is not None
+        and visual_decision.decision in {"image", "experiment"}
+        and visual_decision.source_asset_ids
+    ):
+        visible_blocks.update(visual_decision.source_block_ids)
+    elif source_backed_visual_pending:
+        visible_blocks.update(
+            block.block_id
+            for slot in content_slots
+            if slot.slot_kind == "visual"
+            for block in assigned.get(slot.slot_id, [])
+        )
     missing = [
         block.block_id
         for block in source_blocks
@@ -4540,8 +4750,13 @@ def _compile_course_cover_page(
             code="course_title_missing",
             message="The course cover requires a source course title",
         )
-    if title_slot.max_chars and len(course_title) > title_slot.max_chars:
-        course_title = _display_excerpt(course_title, int(title_slot.max_chars))
+    if not _title_fits_slot(course_title, title_slot):
+        raise V6BuildError(
+            stage="template",
+            code="template_title_capacity_exceeded",
+            message="The complete course title exceeds the published cover capacity",
+            page_id="course-cover",
+        )
     section_ids = [section.section_id for section in sections]
     page_id = "course-cover"
     return SlidePageV6(
@@ -4575,12 +4790,43 @@ def _compile_course_cover_page(
     )
 
 
+def _complete_story_source_companion(
+    unit: CoursePresentationUnitV1,
+    source_block_ids: list[str],
+    layout: Any,
+) -> str:
+    """Return the complete bound prose only when one body slot can render it."""
+
+    body_slots = [slot for slot in layout.slots if slot.slot_kind == "body"]
+    if len(body_slots) != 1:
+        return ""
+    source_blocks = graph_page_source_blocks(unit, source_block_ids)
+    complete_source = _presentation_summary_text(
+        _complete_slot_content(source_blocks, "body")
+    ).strip()
+    if not complete_source or _looks_like_markdown_table(complete_source):
+        return ""
+    slot = body_slots[0]
+    if slot.max_chars and len(complete_source) > int(slot.max_chars):
+        return ""
+    if slot.max_lines and _prose_wrapped_line_cost(complete_source) > int(
+        slot.max_lines
+    ):
+        return ""
+    if not capacity_profile_text_fits(
+        str(getattr(slot, "capacity_profile", "") or ""),
+        complete_source,
+    ):
+        return ""
+    return complete_source
+
+
 def prepare_story_plan_for_final_compilation(
     story: SlideStoryPlanV3,
     graph: CoursePresentationGraphV1,
     template: TemplateLayoutPackContractV1,
 ) -> SlideStoryPlanV3:
-    """Replace a sparse single-body summary with a bounded frozen-source excerpt."""
+    """Project incompatible optional companions before strict final validation."""
 
     units = _unit_map(graph)
     batches: list[SlideStoryBatchV3] = []
@@ -4589,45 +4835,153 @@ def prepare_story_plan_for_final_compilation(
         for page in batch.pages:
             layout = template.get_layout(page.template_layout_id)
             unit = units.get(page.teaching_unit_id)
-            if layout is None or unit is None or not page.summary:
+            if layout is None or unit is None:
                 pages.append(page)
                 continue
-            text_slots = [
-                slot
-                for slot in layout.slots
-                if slot.slot_kind in {"body", "items", "steps"}
+            summary = str(page.summary or "")
+            body_slots = [
+                slot for slot in layout.slots if slot.slot_kind == "body"
             ]
-            if len(text_slots) != 1 or text_slots[0].slot_kind != "body":
-                pages.append(page)
-                continue
-            slot = text_slots[0]
-            source_blocks = graph_page_source_blocks(unit, page.source_block_ids)
-            minimum_chars = _effective_slot_min_chars(slot, source_blocks)
-            if (
-                not minimum_chars
-                or len(_visible_prose_text(page.summary)) >= minimum_chars
-            ):
-                pages.append(page)
-                continue
-            try:
-                source_content = _bounded_slot_content(
-                    source_blocks,
-                    slot_kind=slot.slot_kind,
-                    max_chars=slot.max_chars,
-                    max_items=slot.max_items,
-                    max_lines=slot.max_lines,
-                    max_rows=slot.max_rows,
-                    capacity_profile=getattr(slot, "capacity_profile", ""),
+            page_source_text = _unit_source_text_for_blocks(
+                unit,
+                page.source_block_ids,
+            )
+            summary_requires_projection = bool(
+                summary
+                and (
+                    _ELLIPSIS_MARKER_RE.search(summary)
+                    or _presentation_summary_text(summary) != summary.strip()
+                    or _looks_like_markdown_table(summary)
+                    or bool(
+                        _protected_tokens(summary)
+                        - _protected_tokens(page_source_text)
+                    )
+                    or _semantic_grounding_ratio(summary, page_source_text) < 0.12
+                    or (
+                        len(body_slots) == 1
+                        and body_slots[0].max_chars
+                        and len(summary) > int(body_slots[0].max_chars)
+                    )
+                    or (
+                        len(body_slots) == 1
+                        and body_slots[0].min_chars
+                        and len(_presentation_summary_text(summary))
+                        < min(
+                            int(body_slots[0].min_chars),
+                            len(_presentation_summary_text(page_source_text)),
+                        )
+                    )
                 )
-            except ValueError:
+            )
+            if summary_requires_projection:
+                page = page.model_copy(update={
+                    "summary": _complete_story_source_companion(
+                        unit,
+                        page.source_block_ids,
+                        layout,
+                    ),
+                })
+            if not page.summary:
                 pages.append(page)
                 continue
-            if len(_visible_prose_text(source_content)) < minimum_chars:
-                pages.append(page)
-                continue
-            pages.append(page.model_copy(update={"summary": source_content}))
+            pages.append(page)
         batches.append(batch.model_copy(update={"pages": pages}))
     return story.model_copy(update={"batches": batches})
+
+
+_ELLIPSIS_MARKER_RE = re.compile(r"…|(?<!\.)\.{3}(?!\.)")
+
+
+def _region_is_audience_visible(page: SlidePageV6, region: SlideRegionV6) -> bool:
+    return bool(
+        region.content
+        and not (
+            region.content_kind == "visual"
+            and page.visual_decision.decision in {"diagram", "image", "experiment"}
+        )
+    )
+
+
+def _audience_visible_source_block_ids(page: SlidePageV6) -> set[str]:
+    visible = {
+        block_id
+        for region in page.regions
+        if _region_is_audience_visible(page, region)
+        for block_id in region.source_block_ids
+    }
+    if page.visual_decision.decision == "diagram":
+        visible.update(
+            str(block_id)
+            for node in page.visual_decision.visual_payload.get("nodes") or []
+            if isinstance(node, dict) and str(node.get("label") or "").strip()
+            for block_id in node.get("source_block_ids") or []
+        )
+    elif (
+        page.visual_decision.decision in {"image", "experiment"}
+        and page.visual_decision.source_asset_ids
+    ):
+        visible.update(page.visual_decision.source_block_ids)
+    return visible
+
+
+def _ellipsis_maps_to_frozen_source(value: str, source: str) -> bool:
+    """Prove every visible ellipsis remains in its frozen source context."""
+
+    if not _ELLIPSIS_MARKER_RE.search(str(value or "")):
+        return True
+    visible = " ".join(_presentation_summary_text(value).split())
+    frozen = " ".join(_presentation_summary_text(source).split())
+    return bool(visible and visible in frozen)
+
+
+def _first_generated_ellipsis(
+    source_blocks: dict[str, CourseBlock],
+    pages: list[SlidePageV6],
+) -> tuple[str, str] | None:
+    for page in pages:
+        page_source = "\n".join(
+            block_source_text(source_blocks[block_id])
+            for block_id in page.source_block_ids
+            if block_id in source_blocks
+        )
+        if page.source_block_ids and not _ellipsis_maps_to_frozen_source(
+            page.title,
+            page_source,
+        ):
+            return page.page_id, "title"
+        for region in page.regions:
+            if not _region_is_audience_visible(page, region):
+                continue
+            bound_source = "\n".join(
+                block_source_text(source_blocks[block_id])
+                for block_id in region.source_block_ids
+                if block_id in source_blocks
+            )
+            if not _ellipsis_maps_to_frozen_source(region.content, bound_source):
+                return page.page_id, region.region_id
+        if page.visual_decision.decision == "diagram":
+            for node in page.visual_decision.visual_payload.get("nodes") or []:
+                if not isinstance(node, dict):
+                    continue
+                bound_source = "\n".join(
+                    block_source_text(source_blocks[str(block_id)])
+                    for block_id in node.get("source_block_ids") or []
+                    if str(block_id) in source_blocks
+                )
+                if not _ellipsis_maps_to_frozen_source(
+                    str(node.get("label") or ""),
+                    bound_source,
+                ):
+                    return page.page_id, f"diagram-node:{node.get('node_id') or ''}"
+            for index, edge in enumerate(
+                page.visual_decision.visual_payload.get("edges") or []
+            ):
+                if isinstance(edge, dict) and not _ellipsis_maps_to_frozen_source(
+                    str(edge.get("label") or ""),
+                    page_source,
+                ):
+                    return page.page_id, f"diagram-edge:{index}"
+    return None
 
 
 def _visible_semantic_fidelity(
@@ -4702,21 +5056,10 @@ def _visible_semantic_fidelity(
                 )
                 prose_results.append(expected_prose in actual_prose)
 
-    generated_ellipsis_free = True
-    for page in pages:
-        for region in page.regions:
-            if "…" not in region.content:
-                continue
-            bound_source = "\n".join(
-                block_source_text(source_blocks[block_id])
-                for block_id in region.source_block_ids
-                if block_id in source_blocks
-            )
-            if "…" not in bound_source:
-                generated_ellipsis_free = False
-                break
-        if not generated_ellipsis_free:
-            break
+    generated_ellipsis_free = _first_generated_ellipsis(
+        source_blocks,
+        pages,
+    ) is None
 
     artifact_fidelity = (
         sum(artifact_results) / len(artifact_results)
@@ -4988,8 +5331,7 @@ def compile_slide_deck_v6(
     visible = {
         block_id
         for page in pages
-        for region in page.regions
-        for block_id in region.source_block_ids
+        for block_id in _audience_visible_source_block_ids(page)
     }
     exact_noted = {
         item.block_id
@@ -5082,10 +5424,16 @@ def compile_slide_deck_v6(
             ),
         )
     if not quality.generated_ellipsis_free:
+        offending = _first_generated_ellipsis(blocks, pages)
         raise V6BuildError(
             stage="quality",
             code="generated_ellipsis_detected",
-            message="Visible slide content contains an ellipsis absent from frozen source",
+            message=(
+                "Visible slide content contains an ellipsis that cannot be mapped "
+                "to the same frozen-source context"
+                + (f" ({offending[1]})" if offending else "")
+            ),
+            page_id=offending[0] if offending else "",
         )
     return SlideDeckV6(
         course_id=document.course_id,
