@@ -829,22 +829,10 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     async fetchGlobalTasks() {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       try {
-        const observedCourseId = this.observedCourseId
-        const res = await http.get(
-          observedCourseId ? `/api/courses/${observedCourseId}/task` : '/api/tasks?limit=100',
-          { silentError: true },
-        )
-        const listedTasks = observedCourseId
-          ? (res.data?.status === 'none' ? [] : [res.data])
-          : (Array.isArray(res.data) ? res.data : [])
-        // A course workspace only needs its own task. Reconciling every local
-        // history item from each open browser tab was the source of repeated
-        // global list requests and 429 responses.
-        const recoveredTasks = observedCourseId
-          ? []
-          : await this.reconcileMissingLocalTasks(listedTasks)
+        const res = await http.get('/api/tasks?limit=100', { silentError: true })
+        const listedTasks = Array.isArray(res.data) ? res.data : []
+        const recoveredTasks = await this.reconcileMissingLocalTasks(listedTasks)
         this.globalTasks = [...listedTasks, ...recoveredTasks]
         const publishedCourseIds = new Set<string>()
         const discoveredCourseIds = new Set<string>()
@@ -953,9 +941,7 @@ export const useGenerationStore = defineStore('generation', {
     startGlobalMonitor() {
       if (this.globalPollingTimer) return
       this.fetchGlobalTasks()
-      // WebSocket remains the primary live channel. Keep the fallback poll below
-      // the API's per-client read limit even when a teacher opens several tabs.
-      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 10_000)
+      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 5000)
     },
 
     stopGlobalMonitor() {

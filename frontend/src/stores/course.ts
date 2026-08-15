@@ -254,15 +254,9 @@ export const useCourseStore = defineStore('course', {
                 }
             } catch (_ignore) { /* no task is fine */ }
 
-            const publishedTerminalTask = Boolean(
-                backendTask?.publication_allowed === true
-                && ['completed', 'completed_with_warnings'].includes(String(backendTask.status || ''))
-            )
-
             if (
                 backendTask
                 && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
-                && !publishedTerminalTask
                 && await this.refreshGenerationPreview(courseId)
             ) {
                 genStore.syncCurrentCourseGenerationState(
@@ -277,11 +271,7 @@ export const useCourseStore = defineStore('course', {
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
-                if (
-                    this.nodes.length === 0
-                    && !publishedTerminalTask
-                    && await this.refreshGenerationPreview(courseId)
-                ) {
+                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId)) {
                     return
                 }
                 void this.fetchCourseAnnotations(courseId)

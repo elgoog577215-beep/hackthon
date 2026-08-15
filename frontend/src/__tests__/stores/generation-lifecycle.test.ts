@@ -147,54 +147,6 @@ describe('course generation lifecycle reconciliation', () => {
     expect(get).not.toHaveBeenCalledWith('/api/courses/course-live/document')
   })
 
-  it('观察单门课程时只查询该课程任务，不轮询全局任务列表', async () => {
-    const generation = useGenerationStore()
-    generation.observedCourseId = 'course-focused'
-    const request = vi.spyOn(http, 'get').mockResolvedValue({
-      data: {
-        id: 'job-focused', course_id: 'course-focused', course_name: '聚焦课程',
-        status: 'running', progress: 24, phase: 'teaching',
-      },
-    })
-
-    await generation.fetchGlobalTasks()
-
-    expect(request).toHaveBeenCalledWith('/api/courses/course-focused/task', { silentError: true })
-    expect(request).not.toHaveBeenCalledWith('/api/tasks?limit=100', expect.anything())
-    expect(generation.getTask('course-focused')?.id).toBe('job-focused')
-  })
-
-  it('带建议但已发布的课程直接读取正式文档，不再请求已清理的生成预览', async () => {
-    const courses = useCourseStore()
-    vi.spyOn(courses, 'fetchCourseAnnotations').mockResolvedValue()
-    const get = vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
-      if (url === '/api/courses/course-published/task') {
-        return { data: {
-          id: 'job-published', status: 'completed_with_warnings', progress: 100,
-          phase: 'completed', publication_allowed: true,
-        } } as never
-      }
-      if (url === '/api/courses/course-published/document') {
-        return { data: {
-          course_id: 'course-published', course_name: '已发布课程', current_course_version_id: 'v1',
-          source_format: 'canonical', migration: { required: false },
-          document: {
-            schema_version: 'course_document_v1', course_id: 'course-published', title: '已发布课程',
-            document_revision: 'r1', sections: [], blocks: [],
-          },
-        } } as never
-      }
-      if (url.includes('/annotations')) return { data: [] } as never
-      throw new Error(`unexpected request: ${url}`)
-    })
-
-    await courses.loadCourse('course-published')
-
-    expect(courses.currentCourseProjection).toBe('published')
-    expect(get).toHaveBeenCalledWith('/api/courses/course-published/document')
-    expect(get).not.toHaveBeenCalledWith('/api/courses/course-published/generation-preview', expect.anything())
-  })
-
   it('任务轮询暂时失败时仍从空发布壳恢复失败任务现场', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
